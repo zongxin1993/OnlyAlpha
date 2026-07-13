@@ -4,7 +4,7 @@ import json
 import types
 from collections.abc import Mapping
 from dataclasses import fields
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Self, get_args, get_origin, get_type_hints
@@ -20,7 +20,11 @@ def _encode(value: object) -> object:
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, datetime):
-        return value.isoformat()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise OnlySerializationError("cannot serialize a naive datetime")
+        if value.utcoffset() != timedelta(0):
+            raise OnlySerializationError("absolute datetime serialization requires UTC")
+        return value.isoformat().replace("+00:00", "Z")
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, time):

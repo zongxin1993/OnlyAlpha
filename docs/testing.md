@@ -83,3 +83,11 @@ tests/property
 - 固定数据；
 - 固定配置；
 - 明确舍入。
+
+## 7. 时间模型测试
+
+`tests/time_model` 固定覆盖 naive 拒绝、UTC 同瞬间、纳秒单位、IANA 时区、Venue 引用、
+A 股午休、中国期货跨午夜夜盘、美股冬夏 DST、不存在/重复本地时间、提前收盘、Bar
+`[start,end)`、历史 Calendar、Event/Domain 序列化、UTC/MARKET/USER_LOCAL 显示、
+旧数据迁移和不同进程 `TZ` 的确定性。CI 应至少在 `UTC`、`Asia/Shanghai`、
+`America/New_York` 环境运行关键测试；测试本身不得依赖机器本地时区。

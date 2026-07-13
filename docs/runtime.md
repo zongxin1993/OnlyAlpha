@@ -75,3 +75,11 @@ Cluster 不接触具体 Gateway 或撮合器。
 ## 8. 同时运行
 
 同一 Engine 可同时存在多个 Runtime，但任意事件必须明确归属 runtime_id。
+
+## 9. Runtime 时间约束
+
+所有 Runtime Clock 返回 UTC。`OnlyBacktestClock` 拒绝 naive 和非 UTC 时间，并只能
+单调推进。Backtest/Paper/Live 必须通过同一 `OnlyTradingCalendar` 判断 Session、午休、
+夜盘与 TradingDay；不得从 UTC date、本地自然 date 或 Runtime 自建规则推导。
+Backtest 数据按历史 Calendar 与 Instrument 版本解析。当前仍未实现完整历史驱动、Bar
+聚合与撮合，这些后续能力必须遵守 `docs/time_model.md`。

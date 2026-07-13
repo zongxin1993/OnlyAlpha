@@ -68,3 +68,14 @@ OnlyInstrumentRepository
 5. Trade；
 6. Cluster State；
 7. Runtime State。
+
+## 7. 时间持久化协议
+
+绝对时间只能存为 UTC ISO 8601 `Z`，或字段名明确单位的 Unix 整数（`*_ns/*_us/*_ms`）。
+禁止无 offset 文本和无单位 `timestamp`。Domain serializer 会拒绝 naive/非 UTC datetime；
+`OnlyTimestamp.unix_nanos` 可保存纳秒真值。IANA timezone、TradingDay、Calendar ID、
+Calendar version 和 SessionType 必须作为独立业务字段保留。
+
+旧 naive 数据迁移必须提供来源 IANA 时区与迁移来源；DST 重复时间提供 fold，未知来源
+或不存在时间失败。迁移批次应保留原值、转换值与回滚映射。当前 SQLite Storage 是
+opaque bytes 骨架，尚未引入交易时间表 Schema。
