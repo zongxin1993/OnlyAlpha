@@ -319,7 +319,7 @@ OnlyMoney
 OnlyCurrency
 OnlyInstrument
 OnlyEquity
-OnlyEtf
+OnlyETF
 OnlyFuture
 OnlyOption
 OnlyFxPair

@@ -117,7 +117,7 @@ classDiagram
 ### 7.2 子类
 
 - `OnlyEquity`：公司股份；不等于账户权益。
-- `OnlyETF`：交易所交易基金；保留 `OnlyEtf` 兼容别名但公共命名使用 ETF。
+- `OnlyETF`：交易所交易基金。
 - `OnlyFund`：一般基金。
 - `OnlyFuture`：underlying、expiry、last trade、settlement、contract type、初始/维持保证金率。
 - `OnlyOption`：underlying、strike、expiry、call/put、exercise style、settlement。

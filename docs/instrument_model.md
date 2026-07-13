@@ -123,7 +123,7 @@ effective_to
 
 ```text
 OnlyEquity
-OnlyEtf
+OnlyETF
 OnlyFund
 OnlyFuture
 OnlyOption

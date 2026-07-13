@@ -178,9 +178,6 @@ class OnlyETF(OnlyInstrument):
     asset_class: OnlyAssetClass = field(default=OnlyAssetClass.FUND, init=False)
 
 
-OnlyEtf = OnlyETF
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyFund(OnlyInstrument):
     instrument_type: OnlyInstrumentType = field(default=OnlyInstrumentType.FUND, init=False)

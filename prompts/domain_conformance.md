@@ -183,7 +183,7 @@ OnlyRawSymbol
 ```text
 OnlyInstrument
 OnlyEquity
-OnlyEtf
+OnlyETF
 OnlyFuture
 OnlyOption
 OnlyFxPair
