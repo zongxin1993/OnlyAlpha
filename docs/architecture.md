@@ -1,0 +1,102 @@
+# OnlyAlpha 总体架构
+
+## 1. 架构目标
+
+OnlyAlpha 采用模块化单体作为初始形态，不在早期拆分微服务。
+
+核心目标：
+
+- 统一 Engine；
+- 多 Runtime；
+- 多 Cluster；
+- 回测、模拟盘、实盘和投研共享核心模型；
+- 市场、资产、Gateway 和策略解耦；
+- 支持进程内运行，并为后续远程调用预留边界。
+
+## 2. 顶层关系
+
+```text
+OnlyEngine
+├── OnlyLiveRuntime
+│   ├── OnlyCluster A
+│   └── OnlyCluster B
+├── OnlyPaperRuntime
+│   └── OnlyCluster C
+├── OnlyBacktestRuntime
+│   └── OnlyCluster D
+└── OnlyResearchRuntime
+    └── OnlyFactorPipeline
+```
+
+## 3. 核心模块
+
+```text
+domain          强类型领域模型
+core            通用基础能力
+event           事件定义和 Event Bus
+engine          顶层生命周期和组件协调
+runtime         不同运行环境
+cluster         策略运行单元和插件管理
+gateway         行情与交易外部适配
+execution       订单、成交、持仓和账户
+risk            风控
+cache           高速访问
+storage         可靠持久化
+backtest        历史数据驱动和撮合
+live            实盘接入
+research        因子和投研
+analytics       统计
+visualization   图表和报告
+application     用例服务
+api             Web/CLI 边界
+```
+
+## 4. 依赖方向
+
+```text
+domain
+  ↑
+core
+  ↑
+event / interfaces
+  ↑
+engine / runtime / cluster
+  ↑
+gateway / backtest / live / research
+  ↑
+application
+  ↑
+api / cli
+```
+
+内层不得反向依赖外层。
+
+## 5. 状态真值
+
+系统必须为以下状态定义唯一可信来源：
+
+- 订单：`OnlyOrderManager`；
+- 成交：`OnlyTradeRepository` 或执行域；
+- 持仓：`OnlyPositionManager`；
+- 账户：`OnlyAccountManager`；
+- Instrument：`OnlyInstrumentRegistry`；
+- Cluster 生命周期：`OnlyClusterManager`；
+- Runtime 生命周期：`OnlyRuntimeManager`。
+
+策略内部不得维护一份与系统真值脱离的完整账户副本。
+
+## 6. 扩展方式
+
+新增策略：增加 Cluster 类和配置。
+
+新增市场：增加 Gateway、Market Rule 和 Instrument Provider，不修改 Engine 核心。
+
+新增资产类别：增加 Instrument 类型、估值和风控规则，不修改策略框架。
+
+新增存储：实现 Storage/Repository 接口。
+
+新增 Web：调用 Application Service，不穿透到 Domain 内部。
+
+## 7. 当前实现边界
+
+`src/onlyalpha` 当前只是 Phase 1 骨架：可组合多个 Runtime 和 Cluster，并验证生命周期与隔离。Live/Paper 类型只是运行环境标记，不连接行情或交易；Backtest 不含历史驱动和撮合；Research 不含因子管线。任何真实交易能力都必须在后续阶段通过独立 Gateway/Execution 边界和 ADR 引入。
