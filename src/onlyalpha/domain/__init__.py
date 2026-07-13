@@ -1,0 +1,1 @@
+"""OnlyAlpha domain model."""
