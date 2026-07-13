@@ -29,7 +29,7 @@ OnlyAlpha/
 └── src/
 ```
 
-当前仓库已包含 Phase 0 文档与 Phase 1 最小骨架。骨架不包含真实策略、撮合或券商连接，`OnlyLiveRuntime` 也不会启动真实交易。
+当前仓库已包含 Phase 0 文档、Phase 1 最小骨架和 Pure Financial Domain 第一版。Domain 是独立的不可变多市场金融模型；仓库仍不包含真实策略、撮合或券商连接，`OnlyLiveRuntime` 也不会启动真实交易。
 
 开发验证：
 

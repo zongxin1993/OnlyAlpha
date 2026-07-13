@@ -99,4 +99,6 @@ api / cli
 
 ## 7. 当前实现边界
 
-`src/onlyalpha` 当前只是 Phase 1 骨架：可组合多个 Runtime 和 Cluster，并验证生命周期与隔离。Live/Paper 类型只是运行环境标记，不连接行情或交易；Backtest 不含历史驱动和撮合；Research 不含因子管线。任何真实交易能力都必须在后续阶段通过独立 Gateway/Execution 边界和 ADR 引入。
+`src/onlyalpha` 当前包含 Phase 1 骨架和 Phase 2 Pure Financial Domain：可组合多个 Runtime 和 Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。Live/Paper 类型仍只是运行环境标记，不连接行情或交易；Backtest 不含历史驱动和撮合；Research 不含因子管线。任何真实交易能力都必须在后续阶段通过独立 Gateway/Execution 边界和 ADR 引入。
+
+Domain 仅依赖标准库和自身模块。`core` 及其上的所有模块可以依赖 Domain，Domain 不得依赖 core 或其他外层模块。

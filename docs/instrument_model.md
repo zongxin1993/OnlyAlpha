@@ -1,5 +1,7 @@
 # 跨市场资产与 Instrument 模型
 
+> 本文描述 Instrument 专题约束；第二阶段完整领域对象、关系和状态机以 `docs/domain_model.md` 为准。
+
 ## 1. 目标
 
 第一阶段支持中国 A 股，设计必须预留：
