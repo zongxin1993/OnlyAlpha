@@ -75,7 +75,6 @@ from onlyalpha.domain.instrument import (
     OnlyCryptoSpot,
     OnlyEquity,
     OnlyETF,
-    OnlyEtf,
     OnlyFund,
     OnlyFuture,
     OnlyFxPair,
