@@ -83,3 +83,7 @@ Cluster 不接触具体 Gateway 或撮合器。
 夜盘与 TradingDay；不得从 UTC date、本地自然 date 或 Runtime 自建规则推导。
 Backtest 数据按历史 Calendar 与 Instrument 版本解析。当前仍未实现完整历史驱动、Bar
 聚合与撮合，这些后续能力必须遵守 `docs/time_model.md`。
+
+每个 Runtime 独占并在停止时关闭自己的 `OnlyClock`。Cluster Context 只接收
+`OnlyClockView`，可读取和注册/取消 Timer，但没有 `advance_to`、`advance_by`、`set_time`
+或 `close`。只有 Backtest Runtime 的历史事件驱动器可持有 `OnlyBacktestClock` 控制接口。

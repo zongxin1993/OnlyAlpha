@@ -84,3 +84,7 @@ BacktestClock 只接受 UTC 并保持单调；Backtest 应复用 Calendar 推导
 并按历史 Calendar 与 Instrument 版本解析。当前尚无完整聚合器或撮合器。五市场确定性
 示例位于 `examples/time_model`，覆盖 A 股午休、港股分段、美股盘前/常规/盘后与 DST、
 中国期货夜盘、Crypto UTC 24x7。相同输入在不同进程 `TZ` 下产生相同结果。
+
+Clock 的权威时间戳单位是 Unix nanoseconds，与 `OnlyTimestamp.unix_nanos` 一致。Python
+datetime 只是微秒精度兼容视图；sub-microsecond 真值保留在整数中。Wall Clock 用于业务时刻，
+Monotonic 只用于等待与耗时。Timer、Virtual/Backtest 推进和 Cluster 权限见 `docs/clock.md`。
