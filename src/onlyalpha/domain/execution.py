@@ -24,6 +24,7 @@ from onlyalpha.domain.identifiers import (
     OnlyTradeId,
     OnlyVenueOrderId,
 )
+from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 ONLY_TERMINAL_ORDER_STATUSES = frozenset(
@@ -65,8 +66,7 @@ ONLY_ORDER_TRANSITIONS: dict[OnlyOrderStatus, frozenset[OnlyOrderStatus]] = {
 
 
 def _require_aware(timestamp: datetime, name: str) -> None:
-    if timestamp.tzinfo is None:
-        raise OnlyValidationError(f"{name} must be timezone-aware")
+    only_require_utc(timestamp, name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +148,8 @@ class OnlyOrder(OnlyDomainModel):
 
     def __post_init__(self) -> None:
         _require_aware(self.updated_at, "updated_at")
+        if self.updated_at < self.request.submitted_at:
+            raise OnlyValidationError("order updated_at cannot precede submitted_at")
         if self.filled_quantity.precision != self.request.quantity.precision:
             raise OnlyValidationError("filled quantity precision mismatch")
         if self.filled_quantity.value > self.request.quantity.value:
@@ -255,6 +257,8 @@ class OnlyTrade(OnlyDomainModel):
         _require_aware(self.executed_at, "executed_at")
         if self.initialized_at is not None:
             _require_aware(self.initialized_at, "initialized_at")
+            if self.initialized_at < self.executed_at:
+                raise OnlyValidationError("trade initialized_at cannot precede executed_at")
         if self.quantity.value <= 0:
             raise OnlyValidationError("trade quantity must be positive")
         if self.commission.amount < 0:

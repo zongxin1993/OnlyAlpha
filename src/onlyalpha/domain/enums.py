@@ -189,11 +189,24 @@ class OnlyAdjustmentType(StrEnum):
 
 
 class OnlySessionType(StrEnum):
+    PRE_OPEN = "PRE_OPEN"
+    OPEN_AUCTION = "OPEN_AUCTION"
+    CONTINUOUS = "CONTINUOUS"
+    MIDDAY_BREAK = "MIDDAY_BREAK"
+    CLOSING_AUCTION = "CLOSING_AUCTION"
     PRE_MARKET = "PRE_MARKET"
     REGULAR = "REGULAR"
     POST_MARKET = "POST_MARKET"
     NIGHT = "NIGHT"
     AUCTION = "AUCTION"
+    MAINTENANCE = "MAINTENANCE"
+    CLOSED = "CLOSED"
+
+
+class OnlyTimeDisplayMode(StrEnum):
+    UTC = "UTC"
+    MARKET = "MARKET"
+    USER_LOCAL = "USER_LOCAL"
 
 
 class OnlySecurityStatus(StrEnum):

@@ -300,3 +300,14 @@ source
 - 多币种；
 - 序列化；
 - 极值。
+
+## 17. Venue、时区与交易日历引用
+
+Instrument 的绝对生命周期时间均为 UTC。市场时区不再由每个 Instrument 的裸字段
+决定：`instrument_id.venue` 关联 `OnlyVenue`，Venue 给出 IANA TimeZone 和默认
+Calendar/Session Profile；Instrument 可用 `trading_calendar_id`、`session_profile_id`
+覆盖默认引用。`timezone` 旧字段在兼容期保留，不作为市场规则真值。
+
+TradingDay 必须由指定版本的 `OnlyTradingCalendar` 推导。期货夜盘使用 Session 锚定
+日期和业务日期 offset；日线使用 Calendar 返回的一个或多个 UTC Session 区间。历史
+回测同时解析 Instrument 与 Calendar 的有效版本。详细规则见 `docs/time_model.md`。

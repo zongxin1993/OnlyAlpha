@@ -102,3 +102,11 @@ api / cli
 `src/onlyalpha` 当前包含 Phase 1 骨架和 Phase 2 Pure Financial Domain：可组合多个 Runtime 和 Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。Live/Paper 类型仍只是运行环境标记，不连接行情或交易；Backtest 不含历史驱动和撮合；Research 不含因子管线。任何真实交易能力都必须在后续阶段通过独立 Gateway/Execution 边界和 ADR 引入。
 
 Domain 仅依赖标准库和自身模块。`core` 及其上的所有模块可以依赖 Domain，Domain 不得依赖 core 或其他外层模块。
+
+## 8. 时间依赖边界
+
+Domain、Event、Storage 和 Runtime 的绝对时间统一为 UTC。市场解释由 Domain 的
+Venue、IANA TimeZone、TradingCalendar、TradingDay 与 Session 完成；完整规则见
+`docs/time_model.md` 和 ADR-0007。Application/API 可调用 Domain 外的
+`OnlyTimeConversionService` 做 UTC/MARKET/USER_LOCAL 展示，但 Domain 不依赖显示层。
+Backtest 与 Live 后续必须复用同一 Calendar 接口，不得各自维护时间规则。

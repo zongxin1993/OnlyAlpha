@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from onlyalpha.core.errors import OnlyValidationError
 
@@ -29,15 +29,20 @@ class OnlyBacktestClock(OnlyClock):
     current_time: datetime
 
     def __post_init__(self) -> None:
-        if self.current_time.tzinfo is None:
-            raise OnlyValidationError("backtest clock requires a timezone-aware timestamp")
+        self._require_utc(self.current_time)
 
     def now(self) -> datetime:
         return self.current_time
 
     def advance_to(self, timestamp: datetime) -> None:
-        if timestamp.tzinfo is None:
-            raise OnlyValidationError("timestamp must be timezone-aware")
+        self._require_utc(timestamp)
         if timestamp < self.current_time:
             raise OnlyValidationError("backtest clock cannot move backwards")
         self.current_time = timestamp
+
+    @staticmethod
+    def _require_utc(timestamp: datetime) -> None:
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise OnlyValidationError("backtest clock timestamp must not be naive")
+        if timestamp.utcoffset() != timedelta(0):
+            raise OnlyValidationError("backtest clock timestamp must be UTC")

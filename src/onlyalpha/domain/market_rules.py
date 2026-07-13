@@ -9,6 +9,7 @@ from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.instrument import OnlyInstrument
+from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate, only_decimal
 
 
@@ -90,6 +91,13 @@ class OnlyFeeSchedule(OnlyDomainModel):
     effective_from: datetime
     effective_to: datetime | None = None
 
+    def __post_init__(self) -> None:
+        only_require_utc(self.effective_from, "fee schedule effective_from")
+        if self.effective_to is not None:
+            only_require_utc(self.effective_to, "fee schedule effective_to")
+            if self.effective_to <= self.effective_from:
+                raise ValueError("fee schedule effective interval must be increasing")
+
     def calculate(self, notional: OnlyMoney, liquidity: OnlyLiquiditySide) -> OnlyMoney:
         if notional.currency != self.minimum_fee.currency:
             raise ValueError("fee notional currency mismatch")
@@ -100,6 +108,7 @@ class OnlyFeeSchedule(OnlyDomainModel):
         return OnlyMoney(amount.quantize(quantum, rounding=ROUND_DOWN), notional.currency)
 
     def is_effective_at(self, timestamp: datetime) -> bool:
+        only_require_utc(timestamp, "fee schedule query")
         return timestamp >= self.effective_from and (self.effective_to is None or timestamp < self.effective_to)
 
 

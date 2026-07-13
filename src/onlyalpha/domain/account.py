@@ -9,6 +9,7 @@ from onlyalpha.domain.enums import OnlyContractType, OnlyMarginMode, OnlyPositio
 from onlyalpha.domain.errors import OnlyCurrencyMismatchError, OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyPositionId, OnlyTradeId
 from onlyalpha.domain.instrument import OnlyCryptoPerpetual, OnlyFuture, OnlyInstrument
+from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate
 
 
@@ -120,8 +121,7 @@ class OnlyPosition(OnlyDomainModel):
     margin_mode: OnlyMarginMode | None = None
 
     def __post_init__(self) -> None:
-        if self.updated_at.tzinfo is None:
-            raise OnlyValidationError("position updated_at must be timezone-aware")
+        only_require_utc(self.updated_at, "position updated_at")
         if self.quantity.precision != self.available_quantity.precision:
             raise OnlyValidationError("position quantity precision mismatch")
         if self.available_quantity.value > self.quantity.value:
@@ -140,8 +140,12 @@ class OnlyPosition(OnlyDomainModel):
         elif self.quantity.value <= 0 or self.average_open_price is None:
             raise OnlyValidationError("open position requires positive quantity and average price")
         for timestamp in (self.opened_at, self.closed_at):
-            if timestamp is not None and timestamp.tzinfo is None:
-                raise OnlyValidationError("position timestamps must be timezone-aware")
+            if timestamp is not None:
+                only_require_utc(timestamp, "position timestamp")
+        if self.opened_at is not None and self.updated_at < self.opened_at:
+            raise OnlyValidationError("position updated_at cannot precede opened_at")
+        if self.closed_at is not None and self.closed_at < self.updated_at:
+            raise OnlyValidationError("position closed_at cannot precede updated_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +159,7 @@ class OnlyAccount(OnlyDomainModel):
     updated_at: datetime
 
     def __post_init__(self) -> None:
-        if self.updated_at.tzinfo is None:
-            raise OnlyValidationError("account updated_at must be timezone-aware")
+        only_require_utc(self.updated_at, "account updated_at")
         balance_currencies = [balance.currency for balance in self.balances]
         if len(balance_currencies) != len(set(balance_currencies)):
             raise OnlyValidationError("account cannot contain duplicate currency balances")
@@ -174,8 +177,7 @@ class OnlyPortfolio(OnlyDomainModel):
     as_of: datetime
 
     def __post_init__(self) -> None:
-        if self.as_of.tzinfo is None:
-            raise OnlyValidationError("portfolio as_of must be timezone-aware")
+        only_require_utc(self.as_of, "portfolio as_of")
         account_ids = [account.account_id for account in self.accounts]
         if len(account_ids) != len(set(account_ids)):
             raise OnlyValidationError("portfolio cannot contain duplicate accounts")

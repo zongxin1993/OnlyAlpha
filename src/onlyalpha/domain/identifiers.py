@@ -43,6 +43,16 @@ class OnlyVenueId(OnlyIdentifier):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyCalendarId(OnlyIdentifier):
+    """Version-independent trading calendar identity."""
+
+
+@dataclass(frozen=True, slots=True)
+class OnlySessionProfileId(OnlyIdentifier):
+    """Reusable set of trading-session rules."""
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyInstrumentId(OnlyDomainModel):
     symbol: OnlySymbol
     venue: OnlyVenueId

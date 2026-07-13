@@ -16,7 +16,14 @@ from onlyalpha.domain.enums import (
     OnlySettlementType,
 )
 from onlyalpha.domain.errors import OnlyValidationError
-from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRawSymbol, OnlyVenueId
+from onlyalpha.domain.identifiers import (
+    OnlyCalendarId,
+    OnlyInstrumentId,
+    OnlyRawSymbol,
+    OnlySessionProfileId,
+    OnlyVenueId,
+)
+from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
     OnlyMoney,
@@ -28,8 +35,8 @@ from onlyalpha.domain.value import (
 
 
 def _validate_aware(timestamp: datetime | None, field_name: str) -> None:
-    if timestamp is not None and timestamp.tzinfo is None:
-        raise OnlyValidationError(f"{field_name} must be timezone-aware")
+    if timestamp is not None:
+        only_require_utc(timestamp, field_name)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -62,7 +69,8 @@ class OnlyInstrument(OnlyDomainModel):
     effective_from: datetime | None = None
     effective_to: datetime | None = None
     timezone: str = "UTC"
-    trading_calendar_id: str | None = None
+    trading_calendar_id: OnlyCalendarId | None = None
+    session_profile_id: OnlySessionProfileId | None = None
     status: OnlySecurityStatus = OnlySecurityStatus.ACTIVE
 
     @property
@@ -82,6 +90,9 @@ class OnlyInstrument(OnlyDomainModel):
         return self.instrument_version
 
     def __post_init__(self) -> None:
+        if isinstance(self.trading_calendar_id, str):
+            object.__setattr__(self, "trading_calendar_id", OnlyCalendarId(self.trading_calendar_id))
+        OnlyTimeZone(self.timezone)
         if self.price_precision != self.tick_size.precision:
             raise OnlyValidationError("tick_size precision must equal instrument price_precision")
         if self.quantity_precision != self.step_size.precision:

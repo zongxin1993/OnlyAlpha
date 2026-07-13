@@ -69,3 +69,11 @@ metadata
 - 处理或持久化在途事件；
 - 退出消费者；
 - 释放资源。
+
+## 7. 时间字段规范
+
+事件内部绝对时间只允许 UTC。`ts_event` 表示业务或数据源事件发生时间，`ts_init`
+表示 OnlyAlpha 创建、接收或标准化 envelope 的时间，通常 `ts_init >= ts_event`。
+既有 `timestamp` 在兼容期映射到 `ts_event` 并标记 deprecated；新调用方不得继续扩散
+模糊字段。序列化输出 UTC `Z`，并同时保留两个字段。市场本地时间或 UI 显示时间不
+进入 Event 真值。

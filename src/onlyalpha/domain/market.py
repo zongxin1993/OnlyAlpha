@@ -15,12 +15,12 @@ from onlyalpha.domain.enums import (
 )
 from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
+from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 
 def _validate_market_time(timestamp: datetime, name: str) -> None:
-    if timestamp.tzinfo is None:
-        raise OnlyValidationError(f"{name} must be timezone-aware")
+    only_require_utc(timestamp, name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +34,8 @@ class OnlyTick(OnlyDomainModel):
     def __post_init__(self) -> None:
         _validate_market_time(self.ts_event, "ts_event")
         _validate_market_time(self.ts_init, "ts_init")
+        if self.ts_init < self.ts_event:
+            raise OnlyValidationError("ts_init cannot precede ts_event")
         if self.sequence < 0 or not self.source.strip():
             raise OnlyValidationError("tick sequence and source are required")
 
@@ -119,6 +121,8 @@ class OnlyBar(OnlyDomainModel):
             raise OnlyValidationError("bar interval must be increasing")
         if self.ts_event < self.bar_start or self.revision < 0:
             raise OnlyValidationError("bar event time and revision are invalid")
+        if self.ts_init < self.ts_event:
+            raise OnlyValidationError("bar ts_init cannot precede ts_event")
         precisions = {self.open.precision, self.high.precision, self.low.precision, self.close.precision}
         if len(precisions) != 1:
             raise OnlyValidationError("bar prices must share one precision")
