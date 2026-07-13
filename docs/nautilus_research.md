@@ -56,4 +56,4 @@ Instrument 定义错误会导致截断、错误名义价值或回测接受实盘
 
 风险包括 Decimal context/舍入不一致、序列化丢失尾随精度、跨币种误加、历史规格缺失、动态 tick scheme、极值溢出、错误使用当前 Instrument 回测历史。
 
-测试必须覆盖 precision 与 increment 的反例、Currency 不匹配、不可变/哈希、序列化往返、A 股/ETF/期货/期权/FX/数字资产样例、linear/inverse/quanto 计算、Instrument 有效期边界和极值。本轮骨架只实现并测试最小 Price、Quantity、Money、Currency 约束；其余是后续明确验收项。
+测试必须覆盖 precision 与 increment 的反例、Currency 不匹配、不可变/哈希、序列化往返、A 股/ETF/期货/期权/FX/数字资产样例、linear/inverse/quanto 约束、Instrument 有效期边界和极值。Domain 阶段已实现值对象、Instrument、订单状态、成交、持仓账户、行情和日历的第一版纯模型；复杂衍生品估值、交易所规则和事件溯源仍属于后续独立阶段。

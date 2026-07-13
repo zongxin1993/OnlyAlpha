@@ -1,0 +1,31 @@
+{
+  "dimensions": {
+    "bar_time": 13,
+    "determinism": 5,
+    "domain_boundary": 10,
+    "extensibility": 3,
+    "historical_versions": 4,
+    "instruments": 15,
+    "market_rules": 9,
+    "order_trade_position": 8,
+    "precision_increment": 10,
+    "serialization": 5,
+    "value_types": 15
+  },
+  "failed": 0,
+  "git_commit": "6606e0c",
+  "passed": 16,
+  "python_version": "3.12.0",
+  "recommend_backtest": true,
+  "recommend_runtime": true,
+  "score": 97,
+  "skipped": 0,
+  "status": "ACCEPTED",
+  "test_total": 16,
+  "unsupported": [
+    "shared real-time/offline Bar aggregation algorithm",
+    "quanto PnL conversion model",
+    "full event-sourced order reconciliation"
+  ],
+  "vetoes": []
+}
