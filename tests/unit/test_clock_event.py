@@ -20,7 +20,7 @@ def test_backtest_clock_is_deterministic_and_monotonic() -> None:
 def test_event_bus_is_bounded_and_isolates_handler_failure() -> None:
     bus = OnlyEventBus(capacity=1)
     received: list[int] = []
-    event = OnlyEvent("bar", datetime.now(UTC), "e", "r", "test", 1)
+    event = OnlyEvent("bar", datetime(2026, 1, 1, tzinfo=UTC), "e", "r", "test", 1)
     bus.subscribe("bar", lambda _: (_ for _ in ()).throw(RuntimeError("broken")))
     bus.subscribe("bar", lambda item: received.append(item.sequence))
     bus.publish(event)

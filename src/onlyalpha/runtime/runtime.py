@@ -4,7 +4,7 @@ from enum import Enum, auto
 
 from onlyalpha.cache.base import OnlyCache
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterContext
-from onlyalpha.core.clock import OnlyClock
+from onlyalpha.core.clock import OnlyClock, OnlyClockView
 from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError
 from onlyalpha.event.bus import OnlyEventBus
 
@@ -39,7 +39,9 @@ class OnlyRuntime:
         if cluster_id in self._clusters:
             raise OnlyDuplicateIdError(f"cluster already exists in runtime: {cluster_id}")
         cluster.initialize(
-            OnlyClusterContext(engine_id, self.runtime_id, cluster_id, self.clock, self.event_bus, self.cache)
+            OnlyClusterContext(
+                engine_id, self.runtime_id, cluster_id, OnlyClockView(self.clock), self.event_bus, self.cache
+            )
         )
         self._clusters[cluster_id] = cluster
 
@@ -59,6 +61,7 @@ class OnlyRuntime:
         for cluster in reversed(tuple(self._clusters.values())):
             cluster.stop()
         self.event_bus.close()
+        self.clock.close()
         self.state = OnlyRuntimeState.STOPPED
 
 

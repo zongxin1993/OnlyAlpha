@@ -6,7 +6,7 @@ from enum import Enum, auto
 from types import MappingProxyType
 
 from onlyalpha.cache.base import OnlyCache
-from onlyalpha.core.clock import OnlyClock
+from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.event.bus import OnlyEventBus
 
@@ -41,7 +41,7 @@ class OnlyClusterContext:
     engine_id: str
     runtime_id: str
     cluster_id: str
-    clock: OnlyClock
+    clock: OnlyClockView
     event_bus: OnlyEventBus
     cache: OnlyCache
 
