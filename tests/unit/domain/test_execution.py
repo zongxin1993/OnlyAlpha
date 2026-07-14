@@ -1,64 +1,63 @@
-from datetime import UTC, datetime, timedelta
+from dataclasses import FrozenInstanceError
 from decimal import Decimal
 
 import pytest
 
-from onlyalpha.domain.enums import (
-    OnlyOffset,
-    OnlyOrderSide,
-    OnlyOrderStatus,
-    OnlyOrderType,
-    OnlyTimeInForce,
+from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus, OnlyOrderType, OnlyTimeInForce
+from onlyalpha.domain.errors import OnlyValidationError
+from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
+from onlyalpha.domain.identifiers import (
+    OnlyAccountId,
+    OnlyClusterId,
+    OnlyEngineId,
+    OnlyInstrumentId,
+    OnlyOrderRequestId,
+    OnlyRuntimeId,
 )
-from onlyalpha.domain.errors import OnlyStateTransitionError, OnlyValidationError
-from onlyalpha.domain.execution import OnlyOrder, OnlyOrderRequest
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId, OnlyOrderId
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
+from onlyalpha.order.manager import OnlyOrderManager
 
 
-def test_order_lifecycle_is_immutable_and_validated(instrument_id: OnlyInstrumentId) -> None:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
+def test_order_request_and_snapshot_are_immutable_and_serializable(
+    instrument_id: OnlyInstrumentId,
+) -> None:
     request = OnlyOrderRequest(
-        OnlyOrderId("order-1"),
-        OnlyAccountId("account-1"),
-        OnlyClusterId("cluster-1"),
+        OnlyOrderRequestId("request-1"),
         instrument_id,
         OnlyOrderSide.BUY,
-        OnlyOffset.OPEN,
         OnlyOrderType.LIMIT,
         OnlyQuantity(Decimal("2"), 0),
         OnlyTimeInForce.GTC,
-        now,
-        limit_price=OnlyPrice(Decimal("10.00"), 2),
+        price=OnlyPrice(Decimal("10.00"), 2),
     )
-    order = OnlyOrder(request, OnlyOrderStatus.INITIALIZED, OnlyQuantity(Decimal("0"), 0), now)
-    submitted = order.transition(OnlyOrderStatus.SUBMITTED, now + timedelta(seconds=1))
-    accepted = submitted.transition(OnlyOrderStatus.ACCEPTED, now + timedelta(seconds=2))
-    filled = accepted.transition(
-        OnlyOrderStatus.FILLED,
-        now + timedelta(seconds=3),
-        filled_quantity=request.quantity,
-        average_fill_price=request.limit_price,
+    runtime_id = OnlyRuntimeId("runtime-1")
+    manager = OnlyOrderManager(
+        OnlyEngineId("engine-1"),
+        runtime_id,
+        OnlySequenceOrderIdGenerator(runtime_id),
+        OnlySequenceClientOrderIdGenerator(runtime_id),
     )
-    assert order.status is OnlyOrderStatus.INITIALIZED
-    assert filled.is_terminal and filled.remaining_quantity.value == 0
-    assert OnlyOrder.from_json(filled.to_json()) == filled
-    with pytest.raises(OnlyStateTransitionError):
-        filled.transition(OnlyOrderStatus.ACCEPTED, now + timedelta(seconds=4))
+    result = manager.create_order(
+        request,
+        OnlyClusterId("cluster-1"),
+        OnlyAccountId("account-1"),
+        OnlyTimestamp.from_unix_nanos(1),
+    )
+    assert result.snapshot.status is OnlyOrderStatus.CREATED
+    assert OnlyOrderSnapshot.from_json(result.snapshot.to_json()) == result.snapshot
+    with pytest.raises(FrozenInstanceError):
+        result.snapshot.version = 2  # type: ignore[misc]
 
 
 def test_limit_and_gtd_requests_require_prices_and_expiry(instrument_id: OnlyInstrumentId) -> None:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
     with pytest.raises(OnlyValidationError):
         OnlyOrderRequest(
-            OnlyOrderId("order-2"),
-            OnlyAccountId("a"),
-            OnlyClusterId("c"),
+            OnlyOrderRequestId("request-2"),
             instrument_id,
             OnlyOrderSide.BUY,
-            OnlyOffset.OPEN,
             OnlyOrderType.LIMIT,
             OnlyQuantity(Decimal("1"), 0),
             OnlyTimeInForce.GTD,
-            now,
         )

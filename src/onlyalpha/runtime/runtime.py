@@ -26,6 +26,7 @@ from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
 from onlyalpha.domain.identifiers import (
+    OnlyAccountId,
     OnlyCalendarId,
     OnlyClusterId,
     OnlyEngineId,
@@ -33,7 +34,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
-from onlyalpha.domain.time import OnlyTimeZone
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
 from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorRegistration, OnlyIndicatorValue
@@ -49,6 +50,16 @@ from onlyalpha.market_data.dispatcher import (
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
+from onlyalpha.order.execution.models import OnlyGatewayOrderUpdate
+from onlyalpha.order.execution.placeholder import OnlyPlaceholderExecutionService
+from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
+from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
+from onlyalpha.order.manager import OnlyOrderManager
+from onlyalpha.order.publisher import OnlyRuntimeOrderEventPublisherAdapter
+from onlyalpha.order.query import OnlyOrderQueryService
+from onlyalpha.order.results import OnlyOrderMutationResult
+from onlyalpha.order.service import OnlyOrderService
+from onlyalpha.order.views import OnlyOrderServiceView
 from onlyalpha.runtime.context import (
     OnlyClusterContext,
     OnlyInstrumentView,
@@ -91,6 +102,7 @@ class OnlyRuntimeConfig:
     history_limit: int = 1024
     event_queue_policy: OnlyEventQueuePolicy = OnlyEventQueuePolicy.REJECT
     cluster_error_policy: OnlyRuntimeErrorPolicy = OnlyRuntimeErrorPolicy.ISOLATE_CLUSTER
+    default_account_id: OnlyAccountId | str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -102,6 +114,15 @@ class OnlyRuntimeConfig:
             self,
             "runtime_id",
             self.runtime_id if isinstance(self.runtime_id, OnlyRuntimeId) else OnlyRuntimeId(self.runtime_id),
+        )
+        object.__setattr__(
+            self,
+            "default_account_id",
+            (
+                self.default_account_id
+                if isinstance(self.default_account_id, OnlyAccountId)
+                else OnlyAccountId(self.default_account_id or f"{self.runtime_id}-DEFAULT")
+            ),
         )
         if self.event_capacity <= 0 or self.history_limit <= 0:
             raise ValueError("Runtime capacities must be positive")
@@ -142,6 +163,10 @@ class OnlyRuntimeServices:
     pipeline: OnlyMarketDataPipeline
     dispatcher: OnlyStrategyBarDispatcher
     cluster_manager: OnlyClusterManager
+    order_manager: OnlyOrderManager
+    order_query: OnlyOrderQueryService
+    order_service: OnlyOrderService
+    order_update_processor: OnlyOrderUpdateProcessor
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -349,6 +374,25 @@ class OnlyBacktestRuntime(OnlyRuntime):
         manager = OnlyClusterManager(runtime_config.runtime_id, self._make_context, self._cleanup_cluster)  # type: ignore[arg-type]
         executor = OnlyManagedBarDispatchExecutor(manager, self._set_current_snapshot)
         dispatcher = OnlyStrategyBarDispatcher(pipeline, OnlyClockView(clock), executor)
+        order_manager = OnlyOrderManager(
+            runtime_config.engine_id,  # type: ignore[arg-type]
+            runtime_config.runtime_id,  # type: ignore[arg-type]
+            OnlySequenceOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
+            OnlySequenceClientOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
+        )
+        order_publisher = OnlyRuntimeOrderEventPublisherAdapter(owned_bus)
+        order_query = OnlyOrderQueryService(order_manager)
+        order_service = OnlyOrderService(
+            order_manager,
+            OnlyPlaceholderExecutionService(),
+            order_publisher,
+            lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+        )
+        order_update_processor = OnlyOrderUpdateProcessor(
+            runtime_config.runtime_id,  # type: ignore[arg-type]
+            order_manager,
+            order_publisher,
+        )
         self._services = OnlyRuntimeServices(
             clock,
             owned_bus,
@@ -358,6 +402,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             pipeline,
             dispatcher,
             manager,
+            order_manager,
+            order_query,
+            order_service,
+            order_update_processor,
         )
 
     def register_indicator(self, registration: OnlyIndicatorRegistration) -> None:
@@ -384,6 +432,15 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._last_error = f"{type(exc).__name__}: {exc}"
             self._state = OnlyRuntimeState.FAILED
             raise
+
+    def process_order_update(self, update: OnlyGatewayOrderUpdate) -> OnlyOrderMutationResult:
+        """Apply one normalized external update on the owning Runtime thread."""
+
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime accepts Order updates only while RUNNING")
+        result = self._services.order_update_processor.process(update)
+        self._services.event_bus.drain()
+        return result
 
     def _make_context(self, cluster_id: OnlyClusterId) -> OnlyClusterContext:
         def allowed_bar_types() -> frozenset[OnlyBarType]:
@@ -424,7 +481,19 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 ),
                 lambda timer_id: self._cancel_timer(cluster_id, timer_id),
             ),
+            OnlyOrderServiceView(
+                cluster_id,
+                self.config.default_account_id,  # type: ignore[arg-type]
+                self._services.order_service,
+                self._services.order_query,
+                lambda: self._order_commands_enabled(cluster_id),
+            ),
             OnlyRuntimeLogger(_LOGGER, self.config.runtime_id, cluster_id, self.config.mode),  # type: ignore[arg-type]
+        )
+
+    def _order_commands_enabled(self, cluster_id: OnlyClusterId) -> bool:
+        return self._state in {OnlyRuntimeState.READY, OnlyRuntimeState.RUNNING} and (
+            self._services.cluster_manager.state_of(cluster_id) in {OnlyClusterState.STARTING, OnlyClusterState.RUNNING}
         )
 
     def _subscribe(

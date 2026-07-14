@@ -1,39 +1,56 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
 from onlyalpha.domain.account import OnlyPnL, OnlyPosition
-from onlyalpha.domain.enums import OnlyPositionDirection
-from onlyalpha.domain.errors import OnlyStateTransitionError
-from onlyalpha.domain.execution import OnlyOrder
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyPositionId
+from onlyalpha.domain.enums import OnlyOrderStatus, OnlyPositionDirection
+from onlyalpha.domain.execution import OnlyOrderFill
+from onlyalpha.domain.identifiers import (
+    OnlyAccountId,
+    OnlyClusterId,
+    OnlyEngineId,
+    OnlyPositionId,
+    OnlyRuntimeId,
+    OnlyTradeId,
+    OnlyVenueOrderId,
+)
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.order.enums import OnlyOrderApplyResult
+from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
+from onlyalpha.order.manager import OnlyOrderManager
 
 
-def test_partial_fill_cancel_and_position_inventory(buy_request, cny) -> None:
-    now = datetime(2024, 1, 1, tzinfo=UTC)
-    order = OnlyOrder.initialized(buy_request)
-    submitted = order.transition_submitted(now + timedelta(seconds=1))
-    accepted = submitted.transition_accepted(now + timedelta(seconds=2), venue_order_id="venue-1")
-    partial = accepted.apply_fill(
-        filled_quantity=OnlyQuantity(Decimal("1"), 0),
-        average_fill_price=OnlyPrice(Decimal("10.00"), 2),
-        updated_at=now + timedelta(seconds=3),
-        report_id="report-1",
+def test_partial_fill_is_idempotent_and_position_inventory_remains_independent(buy_request, cny) -> None:
+    runtime_id = OnlyRuntimeId("runtime")
+    manager = OnlyOrderManager(
+        OnlyEngineId("engine"),
+        runtime_id,
+        OnlySequenceOrderIdGenerator(runtime_id),
+        OnlySequenceClientOrderIdGenerator(runtime_id),
     )
-    assert partial.remaining_quantity.value == Decimal("1")
-    assert (
-        partial.apply_fill(
-            filled_quantity=OnlyQuantity(Decimal("1"), 0),
-            average_fill_price=OnlyPrice(Decimal("10.00"), 2),
-            updated_at=now + timedelta(seconds=3),
-            report_id="report-1",
-        )
-        == partial
+    now = OnlyTimestamp.from_unix_nanos(1)
+    created = manager.create_order(buy_request, OnlyClusterId("cluster"), OnlyAccountId("account"), now)
+    manager.mark_submitted(created.order_id, OnlyTimestamp.from_unix_nanos(2))
+    manager.apply_accepted(
+        created.order_id,
+        OnlyTimestamp.from_unix_nanos(3),
+        OnlyVenueOrderId("venue-1"),
     )
-    with pytest.raises(OnlyStateTransitionError):
-        partial.transition_submitted(now)
+    fill = OnlyOrderFill(
+        OnlyTradeId("trade-1"),
+        created.order_id,
+        OnlyPrice(Decimal("10.00"), 2),
+        OnlyQuantity(Decimal("1"), 0),
+        OnlyTimestamp.from_unix_nanos(4),
+        OnlyTimestamp.from_unix_nanos(4),
+    )
+    partial = manager.apply_fill(fill)
+    duplicate = manager.apply_fill(fill)
+    assert partial.snapshot.status is OnlyOrderStatus.PARTIALLY_FILLED
+    assert partial.snapshot.remaining_quantity.value == Decimal("1")
+    assert duplicate.apply_result is OnlyOrderApplyResult.DUPLICATE
+
+    dt = datetime(2024, 1, 1, tzinfo=UTC)
     zero = OnlyMoney(Decimal("0.00"), cny)
     position = OnlyPosition(
         OnlyPositionId("p"),
@@ -44,8 +61,8 @@ def test_partial_fill_cancel_and_position_inventory(buy_request, cny) -> None:
         OnlyQuantity(Decimal("0.4"), 1),
         OnlyPrice(Decimal("10.00"), 2),
         OnlyPnL(zero, zero),
-        now,
-        now,
+        dt,
+        dt,
         frozen_quantity=OnlyQuantity(Decimal("0.6"), 1),
         today_quantity=OnlyQuantity(Decimal("0.4"), 1),
         yesterday_quantity=OnlyQuantity(Decimal("0.6"), 1),

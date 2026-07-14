@@ -29,3 +29,9 @@ cluster handled/failed 等稳定事实类型；并非每个内部步骤都必须
 更高时显式替换最低 priority 项，否则拒绝。核心事件不得静默丢弃。handler 异常形成包含 event ID、
 subscription ID、handler 和原异常的结构化结果，不阻断其他 handler，也不无限重试。close 幂等，先停止
 接收再 drain 已有事件。
+
+## Order facts
+
+Order Event 是 `CREATED/SUBMITTED/ACCEPTED/PARTIALLY_FILLED/FILLED/CANCEL_REQUESTED/CANCELLED/
+REJECTED/EXPIRED/FAILED` 已发生的事实。Manager 先完成状态机、幂等与 Scope 校验，成功变更后才创建事件；
+重复、过期、冲突或非法更新不发布。EventBus 只负责观察与投递，任何 handler 都不承担订单迁移。

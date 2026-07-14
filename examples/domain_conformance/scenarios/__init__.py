@@ -21,13 +21,16 @@ from onlyalpha.domain.enums import (
     OnlySessionType,
     OnlyTimeInForce,
 )
-from onlyalpha.domain.execution import OnlyOrder, OnlyOrderRequest, OnlyTrade
+from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRequest, OnlyTrade
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
-    OnlyOrderId,
+    OnlyEngineId,
+    OnlyOrderRequestId,
     OnlyPositionId,
+    OnlyRuntimeId,
     OnlyTradeId,
+    OnlyVenueOrderId,
 )
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyTradeTick
@@ -38,7 +41,10 @@ from onlyalpha.domain.market_rules import (
     OnlySettlementRule,
     OnlyTradingRule,
 )
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate
+from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
+from onlyalpha.order.manager import OnlyOrderManager
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,29 +112,40 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
         )
         offset = OnlyOffset.OPEN if instrument.market_type.value == "DERIVATIVE" else OnlyOffset.NONE
         request = OnlyOrderRequest(
-            OnlyOrderId(f"{name}-order"),
-            OnlyAccountId("demo"),
-            OnlyClusterId("demo"),
+            OnlyOrderRequestId(f"{name}-request"),
             instrument.instrument_id,
             OnlyOrderSide.BUY,
-            offset,
             OnlyOrderType.LIMIT,
             quantity,
             OnlyTimeInForce.DAY,
-            now,
-            limit_price=price,
+            account_id=OnlyAccountId("demo"),
+            offset=offset,
+            price=price,
         )
         validation = rule.validate_order(instrument, request)
         if not validation.is_valid:
             return OnlyScenarioResult(name, False, ",".join(validation.violations))
-        order = (
-            OnlyOrder.initialized(request)
-            .transition_submitted(now)
-            .transition_accepted(now, venue_order_id=f"{name}-venue")
+        runtime_id = OnlyRuntimeId("demo-runtime")
+        manager = OnlyOrderManager(
+            OnlyEngineId("demo-engine"),
+            runtime_id,
+            OnlySequenceOrderIdGenerator(runtime_id),
+            OnlySequenceClientOrderIdGenerator(runtime_id),
         )
-        order = order.apply_fill(
-            filled_quantity=quantity, average_fill_price=price, updated_at=now, report_id=f"{name}-fill"
-        )
+        timestamp = OnlyTimestamp.from_datetime(now)
+        created = manager.create_order(request, OnlyClusterId("demo"), OnlyAccountId("demo"), timestamp)
+        manager.mark_submitted(created.order_id, timestamp)
+        manager.apply_accepted(created.order_id, timestamp, OnlyVenueOrderId(f"{name}-venue"))
+        order = manager.apply_fill(
+            OnlyOrderFill(
+                OnlyTradeId(f"{name}-fill"),
+                created.order_id,
+                price,
+                quantity,
+                timestamp,
+                timestamp,
+            )
+        ).snapshot
         if order.status is not OnlyOrderStatus.FILLED:
             return OnlyScenarioResult(name, False, "order_not_filled")
         notional_quantum = Decimal(1).scaleb(-instrument.quote_currency.precision)
@@ -139,8 +156,8 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
         commission = fee.calculate(notional, OnlyLiquiditySide.TAKER)
         trade = OnlyTrade(
             OnlyTradeId(f"{name}-trade"),
-            request.order_id,
-            request.account_id,
+            order.order_id,
+            order.account_id,
             instrument.instrument_id,
             request.side,
             request.offset,
@@ -155,7 +172,7 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
         zero = OnlyMoney(Decimal(0).quantize(Decimal(1).scaleb(-unrealized.currency.precision)), unrealized.currency)
         position = OnlyPosition(
             OnlyPositionId(f"{name}-position"),
-            request.account_id,
+            order.account_id,
             instrument.instrument_id,
             OnlyPositionDirection.LONG,
             quantity,

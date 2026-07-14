@@ -84,6 +84,12 @@ registry.register("demo", OnlyDemoCluster)
 - 配置；
 - 元数据。
 
+## Order 权限
+
+Cluster 不拥有 OrderManager，也不直接访问 Gateway。策略只能调用 `ctx.orders.submit/cancel/get/require/
+list_open/list_recent`，返回值均为不可变 Snapshot。Runtime 自动绑定 cluster_id；一个 Cluster 不能查询或
+撤销另一个 Cluster 的订单，也不能调用成交应用、状态赋值或 Venue ID 修改函数。
+
 ## 5. 动态加载
 
 支持：

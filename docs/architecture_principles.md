@@ -32,3 +32,12 @@
 - Rule: 一个 Cluster 失败不得默认导致其他 Cluster 失败。
 - Rule: Snapshot 属于单次回调上下文，不能复用为可变全局状态。
 - Rule: 回测和实盘必须使用相同 Cluster 回调接口。
+- Rule: 每个 Runtime 拥有一个订单状态域和一个 OnlyOrderManager，Cluster 不拥有 OrderManager。
+- Rule: Cluster 只能通过 ctx.orders 使用订单能力，且不能访问其他 Cluster 的订单。
+- Rule: Order Command、Query 和 State Mutation 使用函数调用。
+- Rule: Order Event 只表达状态已经成功变化的事实，EventBus 不负责订单状态迁移。
+- Rule: OnlyOrderManager 是 Runtime 内订单状态唯一可信来源。
+- Rule: OrderRequest 不等于 Order；内部 Order 受控修改，外部只获得 immutable Snapshot。
+- Rule: OnlyOrderManager 不依赖具体券商 SDK，外部执行通过 ExecutionService/TradeGateway Port。
+- Rule: SDK submit 成功不等于 Venue Accepted，cancel 成功不等于订单已经 Cancelled。
+- Rule: 重复回报必须幂等，迟到回报不得导致状态回退。

@@ -74,7 +74,27 @@ class OnlyOrderId(OnlyIdentifier):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyClientOrderId(OnlyIdentifier):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderRequestId(OnlyIdentifier):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderEventId(OnlyIdentifier):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyVenueOrderId(OnlyIdentifier):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyVenueTradeId(OnlyIdentifier):
     pass
 
 

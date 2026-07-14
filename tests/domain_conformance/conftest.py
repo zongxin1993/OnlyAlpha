@@ -8,9 +8,8 @@ from onlyalpha.domain.enums import OnlyMarketType, OnlyOffset, OnlyOrderSide, On
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
-    OnlyClusterId,
     OnlyInstrumentId,
-    OnlyOrderId,
+    OnlyOrderRequestId,
     OnlyRawSymbol,
     OnlySymbol,
     OnlyVenueId,
@@ -50,17 +49,15 @@ def equity(cny: OnlyCurrency, instrument_id: OnlyInstrumentId) -> OnlyEquity:
 @pytest.fixture
 def buy_request(instrument_id: OnlyInstrumentId) -> OnlyOrderRequest:
     return OnlyOrderRequest(
-        OnlyOrderId("order"),
-        OnlyAccountId("account"),
-        OnlyClusterId("cluster"),
+        OnlyOrderRequestId("request"),
         instrument_id,
         OnlyOrderSide.BUY,
-        OnlyOffset.NONE,
         OnlyOrderType.LIMIT,
         OnlyQuantity(Decimal("2"), 0),
         OnlyTimeInForce.DAY,
-        datetime(2024, 1, 1, tzinfo=UTC),
-        limit_price=OnlyPrice(Decimal("10.00"), 2),
+        account_id=OnlyAccountId("account"),
+        offset=OnlyOffset.NONE,
+        price=OnlyPrice(Decimal("10.00"), 2),
     )
 
 
