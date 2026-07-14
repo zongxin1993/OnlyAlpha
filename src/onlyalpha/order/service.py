@@ -16,6 +16,9 @@ from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
 from onlyalpha.order.results import OnlyOrderCancelResult, OnlyOrderSubmitResult
+from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
+from onlyalpha.risk.enums import OnlyRiskReleaseReason
+from onlyalpha.risk.service import OnlyRiskService
 
 
 class OnlyOrderService:
@@ -27,11 +30,15 @@ class OnlyOrderService:
         execution: OnlyExecutionService,
         publisher: OnlyOrderEventPublisher,
         now: Callable[[], OnlyTimestamp],
+        risk_service: OnlyRiskService,
+        risk_context: Callable[[OnlyClusterId, OnlyAccountId, OnlyTimestamp], OnlyRiskEvaluationContext],
     ) -> None:
         self._manager = manager
         self._execution = execution
         self._publisher = publisher
         self._now = now
+        self._risk_service = risk_service
+        self._risk_context = risk_context
 
     def submit(
         self,
@@ -43,6 +50,29 @@ class OnlyOrderService:
         if request.expire_time is not None and request.expire_time.unix_nanos <= timestamp.unix_nanos:
             raise ValueError("Order expire_time must be later than submission time")
         account_id = request.account_id or default_account_id
+        risk_decision = self._risk_service.evaluate_order(
+            request,
+            self._risk_context(cluster_id, account_id, timestamp),
+        )
+        if not risk_decision.is_accepted:
+            message = (
+                risk_decision.rejection.message
+                if risk_decision.rejection is not None
+                else risk_decision.error.message
+                if risk_decision.error is not None
+                else "Risk evaluation failed"
+            )
+            return OnlyOrderSubmitResult(
+                False,
+                False,
+                None,
+                None,
+                None,
+                None,
+                (),
+                message,
+                risk_decision,
+            )
         created = self._manager.create_order(request, cluster_id, account_id, timestamp)
         if not created.changed:
             return OnlyOrderSubmitResult(
@@ -54,6 +84,26 @@ class OnlyOrderService:
                 created.snapshot,
                 (),
                 created.error,
+                risk_decision,
+            )
+        reservation = self._risk_service.reserve_order(created.snapshot, timestamp)
+        if not reservation.changed and reservation.reservation is None:
+            failed = self._manager.apply_failed(
+                created.order_id,
+                self._now(),
+                OnlyOrderFailure(OnlyOrderFailureCode.EXECUTION.value, reservation.error or "Risk reservation failed"),
+            )
+            self._publisher.publish_many(created.events + failed.events)
+            return OnlyOrderSubmitResult(
+                True,
+                False,
+                None,
+                created.order_id,
+                created.snapshot.client_order_id,
+                failed.snapshot,
+                created.events + failed.events,
+                reservation.error or "Risk reservation failed",
+                risk_decision,
             )
         self._publisher.publish_many(created.events)
         execution_result = self._execution.submit_order(created.snapshot)
@@ -70,6 +120,7 @@ class OnlyOrderService:
                 submitted.snapshot,
                 events,
                 submitted.error,
+                risk_decision,
             )
         failed = self._manager.apply_failed(
             created.order_id,
@@ -77,6 +128,13 @@ class OnlyOrderService:
             OnlyOrderFailure(OnlyOrderFailureCode.EXECUTION.value, execution_result.message),
         )
         self._publisher.publish_many(failed.events)
+        self._risk_service.release_order(
+            created.order_id,
+            cluster_id,
+            account_id,
+            OnlyRiskReleaseReason.EXECUTION_REJECTED,
+            self._now(),
+        )
         return OnlyOrderSubmitResult(
             True,
             False,
@@ -86,6 +144,7 @@ class OnlyOrderService:
             failed.snapshot,
             created.events + failed.events,
             execution_result.message,
+            risk_decision,
         )
 
     def cancel(

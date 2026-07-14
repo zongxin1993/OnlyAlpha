@@ -1,0 +1,103 @@
+"""Read-only Risk data and strategy Snapshot views."""
+
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
+
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId
+from onlyalpha.domain.instrument import OnlyInstrument
+from onlyalpha.domain.market_rules import OnlyMarketRule
+from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.order.query import OnlyOrderQueryService
+from onlyalpha.risk.enums import OnlyRiskLevel
+from onlyalpha.risk.snapshots import OnlyRiskSnapshot
+
+
+class OnlyInstrumentRiskMappingView:
+    def __init__(self, instruments: Mapping[OnlyInstrumentId, OnlyInstrument]) -> None:
+        self._instruments = MappingProxyType(instruments)
+
+    def get(self, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None:
+        return self._instruments.get(instrument_id)
+
+
+class OnlyMarketRuleRiskMappingView:
+    def __init__(self, rules: Mapping[OnlyInstrumentId, OnlyMarketRule]) -> None:
+        self._rules = MappingProxyType(rules)
+
+    def get(self, instrument_id: OnlyInstrumentId) -> OnlyMarketRule | None:
+        return self._rules.get(instrument_id)
+
+
+class OnlyOrderRiskQueryView:
+    def __init__(self, query: OnlyOrderQueryService) -> None:
+        self._query = query
+
+    def active_count(
+        self,
+        *,
+        cluster_id: OnlyClusterId | None = None,
+        account_id: OnlyAccountId | None = None,
+        instrument_id: OnlyInstrumentId | None = None,
+    ) -> int:
+        items = self._query.list_open()
+        return sum(
+            (cluster_id is None or item.cluster_id == cluster_id)
+            and (account_id is None or item.account_id == account_id)
+            and (instrument_id is None or item.instrument_id == instrument_id)
+            for item in items
+        )
+
+
+class OnlyClusterPermissionMappingView:
+    def __init__(self) -> None:
+        self._clusters: dict[OnlyClusterId, tuple[frozenset[OnlyAccountId], frozenset[OnlyInstrumentId]]] = {}
+
+    def bind(
+        self,
+        cluster_id: OnlyClusterId,
+        account_ids: frozenset[OnlyAccountId],
+        instrument_ids: frozenset[OnlyInstrumentId],
+    ) -> None:
+        self._clusters[cluster_id] = (account_ids, instrument_ids)
+
+    def unbind(self, cluster_id: OnlyClusterId) -> None:
+        self._clusters.pop(cluster_id, None)
+
+    def cluster_is_authorized(self, cluster_id: OnlyClusterId) -> bool:
+        return cluster_id in self._clusters
+
+    def account_is_authorized(self, cluster_id: OnlyClusterId, account_id: OnlyAccountId) -> bool:
+        entry = self._clusters.get(cluster_id)
+        return entry is not None and (not entry[0] or account_id in entry[0])
+
+    def instrument_is_authorized(self, cluster_id: OnlyClusterId, instrument_id: OnlyInstrumentId) -> bool:
+        entry = self._clusters.get(cluster_id)
+        return entry is not None and (not entry[1] or instrument_id in entry[1])
+
+
+class OnlyRiskSnapshotView:
+    """Cluster-facing immutable Risk state capability; no evaluation or mutation methods."""
+
+    __slots__ = ("__snapshot",)
+
+    def __init__(self, snapshot: Callable[[], OnlyRiskSnapshot]) -> None:
+        self.__snapshot = snapshot
+
+    def snapshot(self) -> OnlyRiskSnapshot:
+        return self.__snapshot()
+
+    @property
+    def current_level(self) -> OnlyRiskLevel:
+        return self.snapshot().risk_level
+
+    @property
+    def kill_switch_active(self) -> bool:
+        return self.snapshot().kill_switch_active
+
+    @property
+    def active_order_count(self) -> int:
+        return self.snapshot().active_order_count
+
+    @property
+    def reserved_notional(self) -> OnlyMoney | None:
+        return self.snapshot().reserved_notional
