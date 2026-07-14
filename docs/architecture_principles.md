@@ -10,3 +10,15 @@
 - Rule: Timer 顺序必须确定且可重放。
 - Rule: Clock 不负责市场交易规则。
 - Rule: Clock 不直接依赖 EventBus。
+- Rule: Event 只表达已经发生的事实。
+- Rule: EventBus 不承担强业务顺序。
+- Rule: MarketData Pipeline 必须在策略执行前完成数据准备。
+- Rule: 默认最小订阅时间周期为主周期。
+- Rule: 非时间 Bar 无法比较时必须显式指定主周期。
+- Rule: 策略可以显式覆盖主周期。
+- Rule: 一个逻辑时间片内一个 Cluster 最多执行一次主 Bar 回调。
+- Rule: 策略读取不可变 Snapshot，不直接读取可变全局 Cache。
+- Rule: 策略默认只能读取已关闭 Bar。
+- Rule: 派生 Bar 在 Runtime 级共享，不在 Cluster 内重复生成。
+- Rule: 指标强依赖必须在策略执行前完成。
+- Rule: 回测与实盘必须使用相同的数据准备顺序。

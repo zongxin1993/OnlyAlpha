@@ -17,6 +17,16 @@ OnlyClusterRegistry
 OnlyClusterLoader
 ```
 
+## Bar 回调
+
+策略 Bar 接口为 `on_bar(primary_bar, OnlyBarContext)`。Context 只含不可变、按该 Cluster Subscription
+裁剪的 `OnlyMarketDataSnapshot` 和 `OnlyClockView`，不暴露 Runtime MarketData Cache 或 Aggregator。
+默认以最小订阅 TIME step 为主周期，也可显式覆盖。PRIMARY_ONLY 保证同一逻辑时间片最多调用一次；
+辅助周期通过 `latest_closed/was_updated/require_same_event_time` 查询，不分别触发依赖顺序的回调。
+
+Dispatcher 必须在 Data Ready Barrier 后调用 Cluster。Cluster 异常形成独立 dispatch failure，不阻止
+同 Runtime 其他 Cluster；Cluster 间执行顺序稳定但不承诺业务依赖。
+
 ## 2. 生命周期
 
 ```text

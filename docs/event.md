@@ -1,79 +1,30 @@
-# Event Bus 设计
+# Event Model 与 EventBus
 
-## 1. 事件类型
+## Event 是事实
 
-```text
-OnlyEvent
-OnlyMarketEvent
-OnlyTickEvent
-OnlyBarEvent
-OnlyOrderEvent
-OnlyTradeEvent
-OnlyPositionEvent
-OnlyAccountEvent
-OnlyTimerEvent
-OnlyRiskEvent
-OnlySystemEvent
-OnlyInstrumentEvent
-```
+Command 和 Query 使用明确接口调用；Event 只表达已经发生的事实。Bar 聚合、Cache 更新、指标计算和
+策略调用由同步 MarketData Pipeline/Dispatcher 编排，不通过 EventBus handler 注册顺序或 priority 串联。
 
-## 2. 公共字段
+`OnlyEvent` 是不可变 envelope，包含强类型 Event ID/Type/Source/Sequence、Engine/Runtime/Cluster Scope、
+correlation/causation、priority、metadata 和 payload。`timestamp`/`ts_init` 保留 aware UTC datetime 兼容
+视图，`timestamp_ns`/`ts_init_ns` 是无损 Unix 纳秒真值。schema v2 DTO 优先保存纳秒并兼容读取旧 UTC ISO。
 
-```text
-event_id
-event_type
-timestamp
-engine_id
-runtime_id
-cluster_id
-source
-sequence
-payload
-metadata
-```
+本组件定义 Bar received/validated、derived created、cache/indicator updated、snapshot ready、pipeline failed、
+cluster handled/failed 等稳定事实类型；并非每个内部步骤都必须发布到公共 Bus。
 
-## 3. 顺序
+## Scope
 
-同一订单、同一 Instrument、同一 Cluster 的关键事件必须定义顺序保证。
+`OnlyEventScope(engine_id, runtime_id?, cluster_id?)` 由强 ID 组成。Runtime Bus 使用 Engine+Runtime Scope，
+只接受该 Runtime 或其 Cluster 的 Event；回测与实盘各自拥有独立 Bus、队列和 Pipeline。Cluster 不能持有
+全局 Engine Bus。
 
-## 4. 背压
+## 同步有界 EventBus
 
-不得使用无限队列。
+第一版为同步、单线程 dispatch、FIFO、有界 deque。`publish/publish_many` 只入队，`dispatch/drain` 执行
+观察者。Subscription 可取消。同一 Event 的 handler 顺序为显式 priority 后 registration sequence；这只
+定义观察者顺序，不允许承担 MarketData 或订单事务。
 
-必须定义：
-
-- 最大容量；
-- 满载行为；
-- 丢弃策略；
-- 阻塞策略；
-- 优先级；
-- 告警；
-- Metrics。
-
-交易和账户事件通常不得静默丢弃。
-
-## 5. 异常隔离
-
-单个处理器异常：
-
-- 记录上下文；
-- 不破坏 Event Bus 主循环；
-- 根据事件类型决定重试、隔离或停止；
-- 不无限重试。
-
-## 6. 关闭
-
-关闭时：
-
-- 停止接收新事件；
-- 处理或持久化在途事件；
-- 退出消费者；
-- 释放资源。
-
-## 7. 时间字段规范
-
-事件内部绝对时间只允许 UTC。`ts_event` 表示业务或数据源事件发生时间，`ts_init`
-表示 OnlyAlpha 创建、接收或标准化 envelope 的时间，通常 `ts_init >= ts_event`。
-既有 `timestamp` 在兼容期映射到 `ts_event` 并标记 deprecated；新调用方不得继续扩散
-模糊字段。序列化输出 UTC `Z`，并同时保留两个字段。市场本地时间或 UI 显示时间不
-进入 Event 真值。
+队列策略：REJECT 拒绝满载；FAIL_RUNTIME 抛出 Runtime failure；DROP_LOW_PRIORITY 仅在新事件 priority
+更高时显式替换最低 priority 项，否则拒绝。核心事件不得静默丢弃。handler 异常形成包含 event ID、
+subscription ID、handler 和原异常的结构化结果，不阻断其他 handler，也不无限重试。close 幂等，先停止
+接收再 drain 已有事件。
