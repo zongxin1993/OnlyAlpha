@@ -171,6 +171,9 @@ class OnlyMarketDataPipeline:
     def register_subscription(self, subscription: OnlyBarSubscription) -> None:
         self._aggregation_manager.register_subscription(subscription)
 
+    def unregister_subscription(self, subscription: OnlyBarSubscription) -> None:
+        self._aggregation_manager.unregister_subscription(subscription)
+
     def process_bar(self, bar: OnlyBar) -> OnlyMarketDataUpdateResult:
         self._sequence += 1
         facts: list[OnlyEvent] = [self._fact(OnlyBarReceivedEvent, OnlyKnownEventType.BAR_RECEIVED, bar, bar)]

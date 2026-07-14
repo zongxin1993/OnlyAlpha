@@ -4,6 +4,7 @@
 
 Command 和 Query 使用明确接口调用；Event 只表达已经发生的事实。Bar 聚合、Cache 更新、指标计算和
 策略调用由同步 MarketData Pipeline/Dispatcher 编排，不通过 EventBus handler 注册顺序或 priority 串联。
+Runtime 在 Pipeline 完成后发布事实；Cluster 不持有 Runtime EventBus，不能伪造其他 Scope。
 
 `OnlyEvent` 是不可变 envelope，包含强类型 Event ID/Type/Source/Sequence、Engine/Runtime/Cluster Scope、
 correlation/causation、priority、metadata 和 payload。`timestamp`/`ts_init` 保留 aware UTC datetime 兼容

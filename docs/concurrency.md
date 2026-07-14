@@ -47,3 +47,9 @@
 Web 线程不得直接操作非线程安全 Engine 对象。
 
 通过 Command Queue 或 Application Service 进入受控执行上下文。
+
+## 6. Backtest Runtime
+
+第一版 `OnlyBacktestRuntime` 不创建后台线程，单线程同步执行 Clock、Timer、Pipeline、Dispatcher 和
+ClusterManager。相同 deadline 的 Timer 使用 Clock 的 deadline/registration sequence/timer ID 顺序，
+并在同时间 Bar 之前完成。Cluster callback 不并行；一个 Cluster 失败不改变其他 Cluster 的执行序列。

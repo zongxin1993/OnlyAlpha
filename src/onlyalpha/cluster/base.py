@@ -1,33 +1,38 @@
-"""Cluster lifecycle and runtime-facing context."""
+"""Cluster strategy API; lifecycle mutation belongs to OnlyClusterManager."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import StrEnum
 from types import MappingProxyType
 
-from onlyalpha.cache.base import OnlyCache
 from onlyalpha.cluster.bar_context import OnlyBarContext
-from onlyalpha.core.clock import OnlyClockView
-from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.market import OnlyBar
-from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.runtime.context import OnlyClusterContext as OnlyClusterContext
+from onlyalpha.runtime.context import OnlyTimerContext
 
 
-class OnlyClusterState(Enum):
-    """Minimal cluster lifecycle states."""
+class OnlyClusterError(Exception):
+    """Base Cluster lifecycle or callback error."""
 
-    CREATED = auto()
-    INITIALIZED = auto()
-    RUNNING = auto()
-    STOPPED = auto()
-    FAILED = auto()
+
+class OnlyClusterState(StrEnum):
+    CREATED = "CREATED"
+    LOADED = "LOADED"
+    INITIALIZED = "INITIALIZED"
+    STARTING = "STARTING"
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
+    UNLOADED = "UNLOADED"
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyClusterConfig:
-    """Immutable cluster identity and user configuration."""
+    """Immutable Cluster identity and user configuration."""
 
     cluster_id: str
     values: Mapping[str, object] = field(default_factory=dict)
@@ -38,62 +43,48 @@ class OnlyClusterConfig:
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyClusterContext:
-    """Narrow set of runtime services available to a cluster."""
-
-    engine_id: str
-    runtime_id: str
-    cluster_id: str
-    clock: OnlyClockView
-    event_bus: OnlyEventBus
-    cache: OnlyCache
-
-
 class OnlyCluster:
-    """Isolated strategy lifecycle unit without gateway or storage access."""
+    """Isolated strategy unit; Manager alone invokes lifecycle transition hooks."""
 
     def __init__(self, config: OnlyClusterConfig) -> None:
         self.config = config
-        self.context: OnlyClusterContext | None = None
-        self.state = OnlyClusterState.CREATED
+        self.__context: OnlyClusterContext | None = None
+        self.__state = OnlyClusterState.CREATED
 
-    def initialize(self, context: OnlyClusterContext) -> None:
-        if self.state is not OnlyClusterState.CREATED:
-            raise OnlyLifecycleError("cluster can only initialize from CREATED")
-        if context.cluster_id != self.config.cluster_id:
-            raise ValueError("cluster context identity mismatch")
-        self.context = context
-        self.on_initialize()
-        self.state = OnlyClusterState.INITIALIZED
+    @property
+    def context(self) -> OnlyClusterContext | None:
+        return self.__context
 
-    def start(self) -> None:
-        if self.state is not OnlyClusterState.INITIALIZED:
-            raise OnlyLifecycleError("cluster can only start from INITIALIZED")
-        try:
-            self.on_start()
-            self.state = OnlyClusterState.RUNNING
-        except Exception:
-            self.state = OnlyClusterState.FAILED
-            raise
+    @property
+    def state(self) -> OnlyClusterState:
+        return self.__state
 
-    def stop(self) -> None:
-        if self.state in {OnlyClusterState.STOPPED, OnlyClusterState.CREATED}:
-            self.state = OnlyClusterState.STOPPED
-            return
-        try:
-            self.on_stop()
-        finally:
-            self.state = OnlyClusterState.STOPPED
+    def _only_manager_bind(self, context: OnlyClusterContext) -> None:
+        self.__context = context
+
+    def _only_manager_transition(self, state: OnlyClusterState) -> None:
+        self.__state = state
+
+    def on_load(self) -> None:
+        """Allocate Cluster-owned, non-Runtime resources."""
 
     def on_initialize(self) -> None:
-        """Initialize cluster-owned resources."""
+        """Declare subscriptions and timers through the restricted Context."""
 
     def on_start(self) -> None:
-        """Begin cluster work."""
-
-    def on_stop(self) -> None:
-        """Stop cluster work idempotently."""
+        """Begin Cluster work."""
 
     def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
         """Handle one fully prepared primary Bar and immutable Snapshot."""
+
+    def on_timer(self, context: OnlyTimerContext) -> None:
+        """Handle one Runtime-owned deterministic Timer firing."""
+
+    def on_stop(self) -> None:
+        """Stop Cluster-owned work."""
+
+    def on_unload(self) -> None:
+        """Release Cluster-owned resources."""
+
+    def on_error(self, error: Exception) -> None:
+        """Observe a callback error after Manager has recorded it."""
