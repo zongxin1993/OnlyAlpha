@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, time
 from enum import StrEnum
@@ -30,10 +30,13 @@ from onlyalpha.domain.identifiers import (
     OnlyCalendarId,
     OnlyClusterId,
     OnlyEngineId,
+    OnlyInstrumentId,
     OnlyRuntimeId,
     OnlyVenueId,
 )
+from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
@@ -60,6 +63,17 @@ from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
+from onlyalpha.risk.contexts import OnlyRiskStateUpdateContext
+from onlyalpha.risk.factory import OnlyRiskProfileFactory
+from onlyalpha.risk.identifiers import OnlyRiskProfileId, OnlyRiskRuleId
+from onlyalpha.risk.profile import OnlyRiskProfile, OnlyRiskProfileConfig, OnlyRiskRuleConfig
+from onlyalpha.risk.publisher import OnlyRuntimeRiskEventPublisherAdapter
+from onlyalpha.risk.service import OnlyRiskService
+from onlyalpha.risk.views import (
+    OnlyInstrumentRiskMappingView,
+    OnlyMarketRuleRiskMappingView,
+    OnlyRiskSnapshotView,
+)
 from onlyalpha.runtime.context import (
     OnlyClusterContext,
     OnlyInstrumentView,
@@ -167,6 +181,7 @@ class OnlyRuntimeServices:
     order_query: OnlyOrderQueryService
     order_service: OnlyOrderService
     order_update_processor: OnlyOrderUpdateProcessor
+    risk_service: OnlyRiskService
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -176,9 +191,11 @@ class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
         self,
         manager: OnlyClusterManager,
         set_snapshot: Callable[[OnlyClusterId, OnlyMarketDataSnapshot | None], None],
+        prepare_risk: Callable[[OnlyClusterId, OnlyMarketDataSnapshot], None],
     ) -> None:
         self._manager = manager
         self._set_snapshot = set_snapshot
+        self._prepare_risk = prepare_risk
 
     def execute_bar(
         self,
@@ -190,6 +207,7 @@ class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
         del cluster
         if not isinstance(snapshot, OnlyMarketDataSnapshot):
             raise TypeError("Dispatcher must provide OnlyMarketDataSnapshot")
+        self._prepare_risk(cluster_id, snapshot)
         self._set_snapshot(cluster_id, snapshot)
         try:
             return self._manager.execute_bar(cluster_id, bar, snapshot)
@@ -223,7 +241,22 @@ class OnlyRuntime:
             raise OnlyLifecycleError("Clusters must be loaded while Runtime is CREATED")
         if OnlyEngineId(str(engine_id)) != self.config.engine_id:
             raise ValueError("Cluster engine_id does not match Runtime scope")
-        self._services.cluster_manager.register(cluster)
+        cluster_id = OnlyClusterId(cluster.config.cluster_id)
+        profile = self._resolve_risk_profile(cluster.config.values.get("risk_profile"), cluster_id)
+        allowed_accounts = self._parse_account_permissions(cluster.config.values.get("allowed_account_ids"))
+        allowed_instruments = self._parse_instrument_permissions(cluster.config.values.get("allowed_instrument_ids"))
+        self._services.risk_service.bind_cluster_profile(
+            cluster_id,
+            self.config.default_account_id,  # type: ignore[arg-type]
+            profile,
+            allowed_accounts=allowed_accounts,
+            allowed_instruments=allowed_instruments,
+        )
+        try:
+            self._services.cluster_manager.register(cluster)
+        except Exception:
+            self._services.risk_service.unbind_cluster_profile(cluster_id)
+            raise
 
     def initialize(self) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
@@ -314,6 +347,17 @@ class OnlyRuntime:
     def _active_timer_count(self) -> int:
         return 0
 
+    def _resolve_risk_profile(self, value: object, cluster_id: OnlyClusterId) -> OnlyRiskProfile:
+        raise NotImplementedError
+
+    @staticmethod
+    def _parse_account_permissions(value: object) -> frozenset[OnlyAccountId] | None:
+        raise NotImplementedError
+
+    @staticmethod
+    def _parse_instrument_permissions(value: object) -> frozenset[OnlyInstrumentId] | None:
+        raise NotImplementedError
+
 
 class OnlyBacktestRuntime(OnlyRuntime):
     """Synchronous, single-threaded and deterministically Bar-driven Runtime."""
@@ -371,8 +415,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._timer_handles: dict[OnlyClusterId, dict[str, OnlyTimerHandle]] = {}
         self._current_snapshots: dict[OnlyClusterId, OnlyMarketDataSnapshot] = {}
         self._timer_results: list[OnlyClusterExecutionResult] = []
+        self._instruments: dict[OnlyInstrumentId, OnlyInstrument] = {}
+        self._market_rules: dict[OnlyInstrumentId, OnlyMarketRule] = {}
+        self._risk_profile_factory = OnlyRiskProfileFactory()
         manager = OnlyClusterManager(runtime_config.runtime_id, self._make_context, self._cleanup_cluster)  # type: ignore[arg-type]
-        executor = OnlyManagedBarDispatchExecutor(manager, self._set_current_snapshot)
+        executor = OnlyManagedBarDispatchExecutor(manager, self._set_current_snapshot, self._prepare_risk_snapshot)
         dispatcher = OnlyStrategyBarDispatcher(pipeline, OnlyClockView(clock), executor)
         order_manager = OnlyOrderManager(
             runtime_config.engine_id,  # type: ignore[arg-type]
@@ -382,16 +429,29 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         order_publisher = OnlyRuntimeOrderEventPublisherAdapter(owned_bus)
         order_query = OnlyOrderQueryService(order_manager)
+        risk_service = OnlyRiskService(
+            runtime_config.engine_id,  # type: ignore[arg-type]
+            runtime_config.runtime_id,  # type: ignore[arg-type]
+            OnlyClockView(clock),
+            selected_calendar,
+            OnlyInstrumentRiskMappingView(self._instruments),
+            OnlyMarketRuleRiskMappingView(self._market_rules),
+            order_query,
+            OnlyRuntimeRiskEventPublisherAdapter(owned_bus),
+        )
         order_service = OnlyOrderService(
             order_manager,
             OnlyPlaceholderExecutionService(),
             order_publisher,
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+            risk_service,
+            risk_service.make_evaluation_context,
         )
         order_update_processor = OnlyOrderUpdateProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
             order_manager,
             order_publisher,
+            risk_service,
         )
         self._services = OnlyRuntimeServices(
             clock,
@@ -406,7 +466,21 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_query,
             order_service,
             order_update_processor,
+            risk_service,
         )
+
+    def register_instrument(
+        self,
+        instrument: OnlyInstrument,
+        market_rule: OnlyMarketRule | None = None,
+    ) -> None:
+        if self._state is not OnlyRuntimeState.CREATED or self.clusters:
+            raise OnlyLifecycleError("Instruments must be registered before Clusters while Runtime is CREATED")
+        if instrument.instrument_id in self._instruments:
+            raise ValueError(f"duplicate Runtime Instrument: {instrument.instrument_id}")
+        self._instruments[instrument.instrument_id] = instrument
+        if market_rule is not None:
+            self._market_rules[instrument.instrument_id] = market_rule
 
     def register_indicator(self, registration: OnlyIndicatorRegistration) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
@@ -469,7 +543,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self.config.mode,
             OnlyClockView(self._services.clock),
             OnlyMarketDataView(allowed_bar_types, latest, history, indicator, current_snapshot),
-            OnlyInstrumentView(),
+            OnlyInstrumentView(self._instruments),
             OnlySubscriptionService(
                 lambda subscription, indicator_ids: self._subscribe(cluster_id, subscription, indicator_ids)
             ),
@@ -488,6 +562,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._services.order_query,
                 lambda: self._order_commands_enabled(cluster_id),
             ),
+            OnlyRiskSnapshotView(lambda: self._services.risk_service.get_snapshot(cluster_id)),
             OnlyRuntimeLogger(_LOGGER, self.config.runtime_id, cluster_id, self.config.mode),  # type: ignore[arg-type]
         )
 
@@ -583,6 +658,82 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if registration is not None:
             self._services.dispatcher.unregister(cluster_id)
         self._current_snapshots.pop(cluster_id, None)
+        self._services.risk_service.unbind_cluster_profile(cluster_id)
+
+    def _prepare_risk_snapshot(
+        self,
+        cluster_id: OnlyClusterId,
+        snapshot: OnlyMarketDataSnapshot,
+    ) -> None:
+        self._services.risk_service.update_pre_decision_state(
+            OnlyRiskStateUpdateContext(
+                self.config.runtime_id,  # type: ignore[arg-type]
+                cluster_id,
+                self.config.default_account_id,  # type: ignore[arg-type]
+                snapshot.ts_event,
+                snapshot.ts_init,
+                snapshot,
+            )
+        )
+
+    def _resolve_risk_profile(
+        self,
+        value: object,
+        cluster_id: OnlyClusterId,
+    ) -> OnlyRiskProfile:
+        if value is None:
+            return OnlyRiskProfile(OnlyRiskProfileId(f"{cluster_id}-DEFAULT"))
+        if isinstance(value, OnlyRiskProfile):
+            return value
+        if isinstance(value, OnlyRiskProfileConfig):
+            return self._risk_profile_factory.create(value)
+        if not isinstance(value, Mapping):
+            raise ValueError("risk_profile must be OnlyRiskProfile, OnlyRiskProfileConfig or mapping")
+        raw_rules = value.get("rules", ())
+        if not isinstance(raw_rules, (list, tuple)):
+            raise ValueError("risk_profile.rules must be a list")
+        rules: list[OnlyRiskRuleConfig] = []
+        for raw in raw_rules:
+            if not isinstance(raw, Mapping):
+                raise ValueError("risk_profile Rule must be a mapping")
+            config = raw.get("config", {})
+            if not isinstance(config, Mapping):
+                raise ValueError("risk_profile Rule config must be a mapping")
+            rules.append(
+                OnlyRiskRuleConfig(
+                    str(raw.get("type", "")),
+                    int(str(raw.get("order", 100))),
+                    dict(config),
+                    str(raw.get("mode", "ENFORCING")),
+                )
+            )
+        disabled = value.get("disabled_rule_ids", ())
+        if not isinstance(disabled, (list, tuple)):
+            raise ValueError("disabled_rule_ids must be a list")
+        config = OnlyRiskProfileConfig(
+            OnlyRiskProfileId(str(value.get("profile_id", f"{cluster_id}-PROFILE"))),
+            tuple(rules),
+            tuple(OnlyRiskRuleId(str(item)) for item in disabled),
+        )
+        return self._risk_profile_factory.create(config)
+
+    @staticmethod
+    def _parse_account_permissions(value: object) -> frozenset[OnlyAccountId] | None:
+        if value is None:
+            return None
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            raise ValueError("allowed_account_ids must be a sequence")
+        return frozenset(item if isinstance(item, OnlyAccountId) else OnlyAccountId(str(item)) for item in value)
+
+    @staticmethod
+    def _parse_instrument_permissions(value: object) -> frozenset[OnlyInstrumentId] | None:
+        if value is None:
+            return None
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            raise ValueError("allowed_instrument_ids must be a sequence")
+        return frozenset(
+            item if isinstance(item, OnlyInstrumentId) else OnlyInstrumentId.parse(str(item)) for item in value
+        )
 
     def _set_current_snapshot(
         self,

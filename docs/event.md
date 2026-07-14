@@ -1,5 +1,9 @@
 # Event Model 与 EventBus
 
+Risk Event 与 Order Event 一样只表达已经发生的事实。Risk Rule 和 Pre-Trade Pipeline 由同步函数调用执行，不能
+通过 EventBus priority、订阅注册顺序或 Risk Event handler 驱动。Risk Accepted/Rejected/RuleFailed、
+Reservation Created/Released 和 State Updated 事件用于审计和监控，不提供策略 Risk 回调。
+
 ## Event 是事实
 
 Command 和 Query 使用明确接口调用；Event 只表达已经发生的事实。Bar 聚合、Cache 更新、指标计算和

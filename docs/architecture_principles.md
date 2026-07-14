@@ -41,3 +41,9 @@
 - Rule: OnlyOrderManager 不依赖具体券商 SDK，外部执行通过 ExecutionService/TradeGateway Port。
 - Rule: SDK submit 成功不等于 Venue Accepted，cancel 成功不等于订单已经 Cancelled。
 - Rule: 重复回报必须幂等，迟到回报不得导致状态回退。
+- Rule: 每个 Runtime 独占 RiskService、Risk State、Profile 绑定和 Reservation 空间。
+- Rule: Mandatory System Risk Rules 不能由 Cluster 删除、替换或降级。
+- Rule: on_bar 前 Risk Snapshot 只用于只读状态；每次 submit 必须重新执行最终 Pre-Trade Risk。
+- Rule: Risk REJECT 和 ERROR 都不得创建 Order 或调用 Execution，ERROR 默认 Fail Closed。
+- Rule: ACCEPT 后必须立即建立 Reservation，使同一回调中的后续订单看到最新预占。
+- Rule: Risk 业务顺序不得依赖注册顺序或 EventBus priority。

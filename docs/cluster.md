@@ -1,5 +1,9 @@
 # Cluster 与策略插件设计
 
+Cluster 可通过配置绑定 Risk Profile 和 Account/Instrument 权限，但不能删除 Mandatory System Rules，也不能取得
+RiskService、Reservation、Account 或 Position 的写权限。策略仅能读取 `ctx.risk` immutable Snapshot，并通过
+`ctx.orders.submit()` 触发同步最终审批；本阶段没有 `on_risk_xxx` 回调。
+
 ## 1. 定义
 
 一个 Cluster 是一个独立策略运行单元。

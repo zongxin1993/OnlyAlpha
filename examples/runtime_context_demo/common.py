@@ -8,14 +8,16 @@ from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
     OnlyAggregationSource,
     OnlyBarAggregation,
+    OnlyMarketType,
     OnlyPriceType,
     OnlyRuntimeMode,
     OnlySessionType,
 )
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlySymbol, OnlyVenueId
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRawSymbol, OnlySymbol, OnlyVenueId
+from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
-from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeConfig
 
 
@@ -45,11 +47,28 @@ def only_demo_runtime(runtime_id: str) -> OnlyBacktestRuntime:
             OnlyTradingSession("afternoon", time(13), time(15), OnlySessionType.CONTINUOUS),
         ),
     )
-    return OnlyBacktestRuntime(
+    runtime = OnlyBacktestRuntime(
         OnlyRuntimeConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
     )
+    instrument_id = only_demo_bar_types()[0].instrument_id
+    cny = OnlyCurrency("CNY", 2)
+    runtime.register_instrument(
+        OnlyEquity(
+            instrument_id=instrument_id,
+            raw_symbol=OnlyRawSymbol("600000"),
+            market_type=OnlyMarketType.CASH,
+            quote_currency=cny,
+            settlement_currency=cny,
+            price_precision=2,
+            quantity_precision=0,
+            tick_size=OnlyPrice(Decimal("0.01"), 2),
+            step_size=OnlyQuantity(Decimal("1"), 0),
+            contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
+        )
+    )
+    return runtime
 
 
 def only_demo_bar(bar_type: OnlyBarType, minute: int, *, base_price: str = "10.00") -> OnlyBar:

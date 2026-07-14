@@ -1,5 +1,9 @@
 # OnlyAlpha 总体架构
 
+Risk 的 Runtime 所有权、固定 Pipeline、Profile 和 Reservation 决策见
+[ADR-0012](adr/0012-risk-pipeline-profile-and-reservation.md) 与 [Risk 组件](risk.md)。Risk 位于 Runtime 与
+OrderService 边界：Cluster 只能读取 Snapshot，所有订单在创建前强制审批。
+
 ## 1. 架构目标
 
 OnlyAlpha 采用模块化单体作为初始形态，不在早期拆分微服务。

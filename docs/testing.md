@@ -1,5 +1,9 @@
 # 测试规范
 
+Risk 测试必须使用固定 Clock 和精确 Decimal 输入，覆盖 Rule 顺序、Mandatory Profile、防绕过、Scope、Fail Closed、
+Reservation 即时可见与幂等释放、OrderService 零副作用拒绝、Runtime/Cluster 隔离、Snapshot 不可变和重放确定性。
+Demo 必须使用 Placeholder Execution，禁止连接真实 SDK 或伪造成交。
+
 ## 1. 层次
 
 ```text

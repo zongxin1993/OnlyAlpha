@@ -128,6 +128,11 @@ class OnlyGatewayOrderCancelledUpdate(OnlyGatewayOrderUpdate):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyGatewayOrderExpiredUpdate(OnlyGatewayOrderUpdate):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyGatewayOrderFillUpdate(OnlyGatewayOrderUpdate):
     fill: OnlyOrderFill
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
@@ -22,6 +23,9 @@ from onlyalpha.order.events import (
     OnlyOrderRejectedEvent,
     OnlyOrderSubmittedEvent,
 )
+
+if TYPE_CHECKING:
+    from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskErrorInfo, OnlyRiskRejection
 
 _ONLY_ORDER_EVENT_TYPES: dict[str, type[OnlyEvent]] = {
     "ORDER_CREATED": OnlyOrderCreatedEvent,
@@ -105,11 +109,20 @@ class OnlyOrderSubmitResult:
     created: bool
     submitted: bool
     venue_accepted: bool | None
-    order_id: OnlyOrderId
-    client_order_id: OnlyClientOrderId
-    snapshot: OnlyOrderSnapshot
+    order_id: OnlyOrderId | None
+    client_order_id: OnlyClientOrderId | None
+    snapshot: OnlyOrderSnapshot | None
     events: tuple[OnlyEvent, ...]
     error: str | None = None
+    risk_decision: OnlyRiskDecision | None = None
+
+    @property
+    def risk_rejection(self) -> OnlyRiskRejection | None:
+        return None if self.risk_decision is None else self.risk_decision.rejection
+
+    @property
+    def risk_error(self) -> OnlyRiskErrorInfo | None:
+        return None if self.risk_decision is None else self.risk_decision.error
 
 
 @dataclass(frozen=True, slots=True)

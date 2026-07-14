@@ -1,57 +1,24 @@
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderType
-from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRequest
+from examples.risk_demo.accepted_order_demo import only_risk_demo_harness
+from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
-    OnlyEngineId,
-    OnlyInstrumentId,
-    OnlyOrderRequestId,
-    OnlyRuntimeId,
-    OnlySymbol,
     OnlyTradeId,
-    OnlyVenueId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.order.execution.placeholder import OnlyPlaceholderExecutionService
-from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
-from onlyalpha.order.manager import OnlyOrderManager
-from onlyalpha.order.publisher import OnlyInMemoryOrderEventPublisher
-from onlyalpha.order.service import OnlyOrderService
 
 
 def only_demo_components():
-    runtime_id = OnlyRuntimeId("order-demo")
-    manager = OnlyOrderManager(
-        OnlyEngineId("demo-engine"),
-        runtime_id,
-        OnlySequenceOrderIdGenerator(runtime_id),
-        OnlySequenceClientOrderIdGenerator(runtime_id),
-    )
-    publisher = OnlyInMemoryOrderEventPublisher()
-    placeholder = OnlyPlaceholderExecutionService()
-    service = OnlyOrderService(
-        manager,
-        placeholder,
-        publisher,
-        lambda: OnlyTimestamp.from_unix_nanos(1),
-    )
-    request = OnlyOrderRequest(
-        OnlyOrderRequestId("demo-request"),
-        OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG")),
-        OnlyOrderSide.BUY,
-        OnlyOrderType.LIMIT,
-        OnlyQuantity(Decimal("100"), 0),
-        price=OnlyPrice(Decimal("10.00"), 2),
-    )
-    return manager, service, publisher, placeholder, request
+    demo = only_risk_demo_harness(runtime_id="order-demo", cluster_id="demo")
+    return demo.manager, demo.orders, demo.order_publisher, demo.execution, demo.request
 
 
 def only_submit():
     manager, service, publisher, placeholder, request = only_demo_components()
-    result = service.submit(request, OnlyClusterId("demo"), OnlyAccountId("demo"))
+    result = service.submit(request, OnlyClusterId("demo"), OnlyAccountId("risk-demo-account"))
     return manager, service, publisher, placeholder, result
 
 
