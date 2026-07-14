@@ -1,10 +1,11 @@
-"""Immutable order, request and trade domain models."""
+"""Immutable Order requests, snapshots, fill inputs and Trade facts."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
+from types import MappingProxyType
 
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
@@ -15,230 +16,186 @@ from onlyalpha.domain.enums import (
     OnlyOrderType,
     OnlyTimeInForce,
 )
-from onlyalpha.domain.errors import OnlyStateTransitionError, OnlyValidationError
+from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
+    OnlyClientOrderId,
     OnlyClusterId,
     OnlyInstrumentId,
     OnlyOrderId,
+    OnlyOrderRequestId,
+    OnlyRuntimeId,
     OnlyTradeId,
     OnlyVenueOrderId,
+    OnlyVenueTradeId,
 )
-from onlyalpha.domain.time import only_require_utc
+from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
-ONLY_TERMINAL_ORDER_STATUSES = frozenset(
-    {
-        OnlyOrderStatus.DENIED,
-        OnlyOrderStatus.REJECTED,
-        OnlyOrderStatus.CANCELED,
-        OnlyOrderStatus.EXPIRED,
-        OnlyOrderStatus.FILLED,
-    }
-)
 
-ONLY_ORDER_TRANSITIONS: dict[OnlyOrderStatus, frozenset[OnlyOrderStatus]] = {
-    OnlyOrderStatus.INITIALIZED: frozenset({OnlyOrderStatus.DENIED, OnlyOrderStatus.SUBMITTED}),
-    OnlyOrderStatus.SUBMITTED: frozenset(
-        {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.REJECTED, OnlyOrderStatus.CANCELED}
-    ),
-    OnlyOrderStatus.ACCEPTED: frozenset(
-        {
-            OnlyOrderStatus.PARTIALLY_FILLED,
-            OnlyOrderStatus.PENDING_CANCEL,
-            OnlyOrderStatus.CANCELED,
-            OnlyOrderStatus.EXPIRED,
-            OnlyOrderStatus.FILLED,
-        }
-    ),
-    OnlyOrderStatus.PARTIALLY_FILLED: frozenset(
-        {
-            OnlyOrderStatus.PARTIALLY_FILLED,
-            OnlyOrderStatus.PENDING_CANCEL,
-            OnlyOrderStatus.CANCELED,
-            OnlyOrderStatus.FILLED,
-        }
-    ),
-    OnlyOrderStatus.PENDING_CANCEL: frozenset(
-        {OnlyOrderStatus.CANCELED, OnlyOrderStatus.PARTIALLY_FILLED, OnlyOrderStatus.FILLED}
-    ),
-}
-
-
-def _require_aware(timestamp: datetime, name: str) -> None:
-    only_require_utc(timestamp, name)
+def _freeze_metadata(metadata: Mapping[str, str]) -> Mapping[str, str]:
+    return MappingProxyType(dict(metadata))
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderRequest(OnlyDomainModel):
+    """Strategy intent without Runtime, Cluster or generated Order identity."""
+
+    request_id: OnlyOrderRequestId
+    instrument_id: OnlyInstrumentId
+    side: OnlyOrderSide
+    order_type: OnlyOrderType
+    quantity: OnlyQuantity
+    time_in_force: OnlyTimeInForce = OnlyTimeInForce.DAY
+    account_id: OnlyAccountId | None = None
+    offset: OnlyOffset = OnlyOffset.NONE
+    price: OnlyPrice | None = None
+    stop_price: OnlyPrice | None = None
+    expire_time: OnlyTimestamp | None = None
+    tags: tuple[str, ...] = ()
+    metadata: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.quantity.value <= 0:
+            raise OnlyValidationError("order quantity must be positive")
+        if self.order_type is OnlyOrderType.LIMIT:
+            if self.price is None or self.price.value <= 0:
+                raise OnlyValidationError("LIMIT order requires a positive price")
+        elif self.order_type is OnlyOrderType.MARKET:
+            if self.price is not None:
+                raise OnlyValidationError("MARKET order cannot contain a price")
+        else:
+            raise OnlyValidationError(f"unsupported first-phase order type: {self.order_type.value}")
+        if self.stop_price is not None:
+            raise OnlyValidationError("stop orders are not implemented in the first Order phase")
+        if self.time_in_force is OnlyTimeInForce.GTD and self.expire_time is None:
+            raise OnlyValidationError("GTD order requires expire_time")
+        object.__setattr__(self, "tags", tuple(self.tags))
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+    @property
+    def limit_price(self) -> OnlyPrice | None:
+        """Compatibility query used by MarketRule validation."""
+
+        return self.price
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyCancelOrderRequest(OnlyDomainModel):
+    request_id: OnlyOrderRequestId
     order_id: OnlyOrderId
-    account_id: OnlyAccountId
+    reason: str = ""
+    metadata: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "reason", self.reason.strip())
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+
+OnlyCancelRequest = OnlyCancelOrderRequest
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderRejection(OnlyDomainModel):
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderFailure(OnlyDomainModel):
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderFill(OnlyDomainModel):
+    trade_id: OnlyTradeId
+    order_id: OnlyOrderId
+    price: OnlyPrice
+    quantity: OnlyQuantity
+    ts_event: OnlyTimestamp
+    ts_init: OnlyTimestamp
+    venue_trade_id: OnlyVenueTradeId | None = None
+    venue_order_id: OnlyVenueOrderId | None = None
+    fee: OnlyMoney | None = None
+    liquidity_side: OnlyLiquiditySide = OnlyLiquiditySide.UNKNOWN
+    external_sequence: int | None = None
+    external_event_id: str | None = None
+    metadata: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.quantity.value <= 0:
+            raise OnlyValidationError("fill quantity must be positive")
+        if self.price.value <= 0:
+            raise OnlyValidationError("fill price must be positive")
+        if self.ts_init.unix_nanos < self.ts_event.unix_nanos:
+            raise OnlyValidationError("fill ts_init cannot precede ts_event")
+        if self.external_sequence is not None and self.external_sequence < 0:
+            raise OnlyValidationError("external_sequence cannot be negative")
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderSnapshot(OnlyDomainModel):
+    order_id: OnlyOrderId
+    request_id: OnlyOrderRequestId
+    client_order_id: OnlyClientOrderId
+    venue_order_id: OnlyVenueOrderId | None
+    runtime_id: OnlyRuntimeId
     cluster_id: OnlyClusterId
+    account_id: OnlyAccountId
     instrument_id: OnlyInstrumentId
     side: OnlyOrderSide
     offset: OnlyOffset
     order_type: OnlyOrderType
-    quantity: OnlyQuantity
     time_in_force: OnlyTimeInForce
-    submitted_at: datetime
-    limit_price: OnlyPrice | None = None
-    stop_price: OnlyPrice | None = None
-    expire_at: datetime | None = None
-
-    def __post_init__(self) -> None:
-        _require_aware(self.submitted_at, "submitted_at")
-        if self.quantity.value <= 0:
-            raise OnlyValidationError("order quantity must be positive")
-        if self.order_type in {OnlyOrderType.LIMIT, OnlyOrderType.STOP_LIMIT, OnlyOrderType.LIMIT_IF_TOUCHED}:
-            if self.limit_price is None:
-                raise OnlyValidationError("limit order requires limit_price")
-        if (
-            self.order_type
-            in {
-                OnlyOrderType.STOP_MARKET,
-                OnlyOrderType.STOP_LIMIT,
-                OnlyOrderType.MARKET_IF_TOUCHED,
-                OnlyOrderType.LIMIT_IF_TOUCHED,
-            }
-            and self.stop_price is None
-        ):
-            raise OnlyValidationError("triggered order requires stop_price")
-        if self.time_in_force is OnlyTimeInForce.GTD:
-            if self.expire_at is None:
-                raise OnlyValidationError("GTD order requires expire_at")
-            _require_aware(self.expire_at, "expire_at")
-            if self.expire_at <= self.submitted_at:
-                raise OnlyValidationError("expire_at must follow submitted_at")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyCancelRequest(OnlyDomainModel):
-    order_id: OnlyOrderId
-    account_id: OnlyAccountId
-    requested_at: datetime
-
-    def __post_init__(self) -> None:
-        _require_aware(self.requested_at, "requested_at")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyOrder(OnlyDomainModel):
-    """Order state snapshot; transitions return a new snapshot."""
-
-    request: OnlyOrderRequest
+    quantity: OnlyQuantity
+    price: OnlyPrice | None
+    stop_price: OnlyPrice | None
+    expire_time: OnlyTimestamp | None
     status: OnlyOrderStatus
     filled_quantity: OnlyQuantity
-    updated_at: datetime
-    average_fill_price: OnlyPrice | None = None
-    venue_order_id: OnlyVenueOrderId | None = None
-    rejection_reason: str | None = None
-    report_ids: tuple[str, ...] = ()
-
-    @property
-    def order_id(self) -> OnlyOrderId:
-        return self.request.order_id
-
-    @property
-    def client_order_id(self) -> OnlyOrderId:
-        return self.request.order_id
-
-    @property
-    def created_at(self) -> datetime:
-        return self.request.submitted_at
+    remaining_quantity: OnlyQuantity
+    average_fill_price: OnlyPrice | None
+    created_at: OnlyTimestamp
+    updated_at: OnlyTimestamp
+    submitted_at: OnlyTimestamp | None
+    accepted_at: OnlyTimestamp | None
+    cancel_requested_at: OnlyTimestamp | None
+    cancelled_at: OnlyTimestamp | None
+    filled_at: OnlyTimestamp | None
+    rejected_at: OnlyTimestamp | None
+    expired_at: OnlyTimestamp | None
+    failed_at: OnlyTimestamp | None
+    version: int
+    last_external_sequence: int | None
+    rejection: OnlyOrderRejection | None
+    failure: OnlyOrderFailure | None
+    tags: tuple[str, ...] = ()
+    metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        _require_aware(self.updated_at, "updated_at")
-        if self.updated_at < self.request.submitted_at:
-            raise OnlyValidationError("order updated_at cannot precede submitted_at")
-        if self.filled_quantity.precision != self.request.quantity.precision:
-            raise OnlyValidationError("filled quantity precision mismatch")
-        if self.filled_quantity.value > self.request.quantity.value:
-            raise OnlyValidationError("filled quantity exceeds requested quantity")
-        if self.status is OnlyOrderStatus.FILLED and self.filled_quantity != self.request.quantity:
-            raise OnlyValidationError("FILLED order must have full filled quantity")
+        if self.version < 1:
+            raise OnlyValidationError("order snapshot version must be positive")
+        if self.filled_quantity.value > self.quantity.value:
+            raise OnlyValidationError("filled quantity exceeds order quantity")
         if self.filled_quantity.value > 0 and self.average_fill_price is None:
-            raise OnlyValidationError("filled order quantity requires average_fill_price")
-        if self.status is OnlyOrderStatus.PARTIALLY_FILLED:
-            if not 0 < self.filled_quantity.value < self.request.quantity.value:
-                raise OnlyValidationError("PARTIALLY_FILLED requires a partial positive quantity")
+            raise OnlyValidationError("filled quantity requires average_fill_price")
+        if self.status is OnlyOrderStatus.FILLED and self.filled_quantity != self.quantity:
+            raise OnlyValidationError("FILLED order requires full quantity")
+        object.__setattr__(self, "tags", tuple(self.tags))
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
-    @property
-    def is_terminal(self) -> bool:
-        return self.status in ONLY_TERMINAL_ORDER_STATUSES
 
-    @property
-    def remaining_quantity(self) -> OnlyQuantity:
-        return self.request.quantity - self.filled_quantity
-
-    def transition(
-        self,
-        status: OnlyOrderStatus,
-        updated_at: datetime,
-        *,
-        filled_quantity: OnlyQuantity | None = None,
-        average_fill_price: OnlyPrice | None = None,
-        venue_order_id: OnlyVenueOrderId | None = None,
-        rejection_reason: str | None = None,
-    ) -> OnlyOrder:
-        allowed = ONLY_ORDER_TRANSITIONS.get(self.status, frozenset())
-        if status not in allowed:
-            raise OnlyStateTransitionError(f"illegal order transition: {self.status} -> {status}")
-        if updated_at < self.updated_at:
-            raise OnlyStateTransitionError("order update time cannot move backwards")
-        return replace(
-            self,
-            status=status,
-            updated_at=updated_at,
-            filled_quantity=filled_quantity or self.filled_quantity,
-            average_fill_price=average_fill_price or self.average_fill_price,
-            venue_order_id=venue_order_id or self.venue_order_id,
-            rejection_reason=rejection_reason,
-        )
-
-    @classmethod
-    def initialized(cls, request: OnlyOrderRequest) -> OnlyOrder:
-        return cls(
-            request=request,
-            status=OnlyOrderStatus.INITIALIZED,
-            filled_quantity=OnlyQuantity(Decimal("0"), request.quantity.precision),
-            updated_at=request.submitted_at,
-        )
-
-    def transition_submitted(self, updated_at: datetime) -> OnlyOrder:
-        return self.transition(OnlyOrderStatus.SUBMITTED, updated_at)
-
-    def transition_accepted(self, updated_at: datetime, *, venue_order_id: str) -> OnlyOrder:
-        return self.transition(
-            OnlyOrderStatus.ACCEPTED,
-            updated_at,
-            venue_order_id=OnlyVenueOrderId(venue_order_id),
-        )
-
-    def apply_fill(
-        self,
-        *,
-        filled_quantity: OnlyQuantity,
-        average_fill_price: OnlyPrice,
-        updated_at: datetime,
-        report_id: str,
-    ) -> OnlyOrder:
-        """Apply an incremental fill once; duplicate report IDs are idempotent."""
-        if report_id in self.report_ids:
-            return self
-        total = self.filled_quantity + filled_quantity
-        status = OnlyOrderStatus.FILLED if total == self.request.quantity else OnlyOrderStatus.PARTIALLY_FILLED
-        updated = self.transition(
-            status,
-            updated_at,
-            filled_quantity=total,
-            average_fill_price=average_fill_price,
-        )
-        return replace(updated, report_ids=updated.report_ids + (report_id,))
+@dataclass(frozen=True, slots=True)
+class OnlyOrderRef(OnlyDomainModel):
+    runtime_id: OnlyRuntimeId
+    order_id: OnlyOrderId
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyTrade(OnlyDomainModel):
-    """Immutable execution fact associated with one order."""
+    """Immutable execution fact; OrderFill does not create this component."""
 
     trade_id: OnlyTradeId
     order_id: OnlyOrderId
@@ -254,9 +211,9 @@ class OnlyTrade(OnlyDomainModel):
     initialized_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        _require_aware(self.executed_at, "executed_at")
+        only_require_utc(self.executed_at, "executed_at")
         if self.initialized_at is not None:
-            _require_aware(self.initialized_at, "initialized_at")
+            only_require_utc(self.initialized_at, "initialized_at")
             if self.initialized_at < self.executed_at:
                 raise OnlyValidationError("trade initialized_at cannot precede executed_at")
         if self.quantity.value <= 0:

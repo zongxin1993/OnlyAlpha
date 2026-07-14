@@ -112,3 +112,10 @@ priority 或订阅注册顺序作为准备步骤。
 `tests/runtime` 覆盖 Runtime/Cluster 状态机、Context 禁止能力、Subscription 生命周期、Clock 所有权、
 1m→3m 默认与显式主周期、同时间 Timer 先于 Bar、Cluster 失败隔离、多 Runtime 隔离、状态 DTO 和 100 次
 确定性重放。测试必须确认停止/失败 Cluster 不再接收 Bar，Timer 与 Subscription 自动释放。
+
+## 11. Order 测试
+
+`tests/order` 覆盖 Request 校验、受控状态机、全部终态、部分成交均价、Overfill、request/trade/external
+sequence 幂等、迟到 Accepted/Fill、Manager 索引、open order、Runtime 隔离、Cluster Scope、Context 禁止
+能力、Placeholder、事件变更后发布、序列化和 100 次确定性重放。测试不得通过 EventBus handler 驱动
+状态，不得由 Placeholder 生成 Accepted、Cancelled 或 Fill。

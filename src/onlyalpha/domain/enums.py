@@ -17,16 +17,21 @@ class OnlyOffset(StrEnum):
 
 
 class OnlyOrderStatus(StrEnum):
-    INITIALIZED = "INITIALIZED"
-    DENIED = "DENIED"
+    CREATED = "CREATED"
     SUBMITTED = "SUBMITTED"
     ACCEPTED = "ACCEPTED"
-    REJECTED = "REJECTED"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     PENDING_CANCEL = "PENDING_CANCEL"
-    CANCELED = "CANCELED"
+    CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
     FILLED = "FILLED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
+
+    # Compatibility spellings from the initial immutable Domain skeleton.
+    INITIALIZED = "CREATED"
+    CANCELED = "CANCELLED"
+    DENIED = "REJECTED"
 
 
 class OnlyOrderType(StrEnum):

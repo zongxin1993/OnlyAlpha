@@ -17,6 +17,7 @@ from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorValue
 if TYPE_CHECKING:
     from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
     from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
+    from onlyalpha.order.views import OnlyOrderServiceView
 
 
 class OnlyRuntimeContextError(Exception):
@@ -173,6 +174,7 @@ class OnlyRuntimeContext:
     instruments: OnlyInstrumentView
     subscriptions: OnlySubscriptionService
     timers: OnlyTimerService
+    orders: OnlyOrderServiceView
     logger: OnlyRuntimeLogger
 
 

@@ -110,3 +110,9 @@ Venue、IANA TimeZone、TradingCalendar、TradingDay 与 Session 完成；完整
 `docs/time_model.md` 和 ADR-0007。Application/API 可调用 Domain 外的
 `OnlyTimeConversionService` 做 UTC/MARKET/USER_LOCAL 展示，但 Domain 不依赖显示层。
 Backtest 与 Live 后续必须复用同一 Calendar 接口，不得各自维护时间规则。
+
+## 9. Order 运行边界
+
+Order 状态域属于 Runtime，而非 Engine 或 Cluster。Runtime 独占 `OnlyOrderManager` 和执行更新入口；Cluster
+共享 Runtime 真值但只持有 Scope 受限的 `ctx.orders`。Domain 定义不可变请求、Fill 和 Snapshot，Order 层
+定义受控实体与服务，Gateway 实现位于更外层。状态修改通过函数调用，成功后才发布事实 Event。
