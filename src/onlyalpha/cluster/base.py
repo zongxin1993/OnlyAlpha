@@ -1,13 +1,17 @@
 """Cluster lifecycle and runtime-facing context."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from types import MappingProxyType
 
 from onlyalpha.cache.base import OnlyCache
+from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.core.errors import OnlyLifecycleError
+from onlyalpha.domain.market import OnlyBar
 from onlyalpha.event.bus import OnlyEventBus
 
 
@@ -90,3 +94,6 @@ class OnlyCluster:
 
     def on_stop(self) -> None:
         """Stop cluster work idempotently."""
+
+    def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
+        """Handle one fully prepared primary Bar and immutable Snapshot."""
