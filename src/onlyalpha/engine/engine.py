@@ -41,6 +41,8 @@ class OnlyEngine:
     def initialize(self) -> None:
         if self.state is not OnlyEngineState.CREATED:
             raise OnlyLifecycleError("engine can only initialize from CREATED")
+        for runtime in self._runtimes.values():
+            runtime.initialize()
         self.state = OnlyEngineState.READY
 
     def start(self) -> None:

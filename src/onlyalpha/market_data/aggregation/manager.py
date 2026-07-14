@@ -116,6 +116,18 @@ class OnlyBarAggregationManager:
             self._reference_counts[target] = self._reference_counts.get(target, 0) + 1
         _ = self.graph
 
+    def unregister_subscription(self, subscription: OnlyBarSubscription) -> None:
+        """Release one subscription reference and remove unused aggregation state."""
+
+        targets = [item for item in subscription.bar_types if item.aggregation_source is OnlyAggregationSource.INTERNAL]
+        for target in targets:
+            count = self._reference_counts.get(target, 0)
+            if count <= 1:
+                self._reference_counts.pop(target, None)
+                self._aggregators.pop(target, None)
+            else:
+                self._reference_counts[target] = count - 1
+
     def process(self, base_bar: OnlyBar) -> tuple[OnlyBar, ...]:
         derived: list[OnlyBar] = []
         aggregators = sorted(

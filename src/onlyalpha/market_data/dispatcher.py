@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.base import OnlyCluster
+from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterFailure
 from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.domain.identifiers import OnlyClusterId
 from onlyalpha.domain.market import OnlyBar
@@ -65,6 +67,50 @@ class OnlyBarDispatchResult:
         )
 
 
+class OnlyBarDispatchExecutor(Protocol):
+    """Execution boundary implemented by ClusterManager in a Runtime."""
+
+    def execute_bar(
+        self,
+        cluster_id: OnlyClusterId,
+        cluster: OnlyCluster,
+        bar: OnlyBar,
+        snapshot: object,
+    ) -> OnlyClusterExecutionResult: ...
+
+
+class OnlyDirectBarDispatchExecutor:
+    """Compatibility executor for isolated Dispatcher component tests and demos."""
+
+    def __init__(self, clock_view: OnlyClockView) -> None:
+        self._clock_view = clock_view
+
+    def execute_bar(
+        self,
+        cluster_id: OnlyClusterId,
+        cluster: OnlyCluster,
+        bar: OnlyBar,
+        snapshot: object,
+    ) -> OnlyClusterExecutionResult:
+        from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
+
+        assert isinstance(snapshot, OnlyMarketDataSnapshot)
+        try:
+            cluster.on_bar(bar, OnlyBarContext(snapshot, self._clock_view))
+        except Exception as exc:
+            failure = OnlyClusterFailure(
+                snapshot.runtime_id,
+                cluster_id,
+                "on_bar",
+                type(exc).__name__,
+                str(exc),
+                snapshot.ts_event.unix_nanos,
+                bar.bar_type.to_json(),
+            )
+            return OnlyClusterExecutionResult(cluster_id, "on_bar", True, False, failure)
+        return OnlyClusterExecutionResult(cluster_id, "on_bar", True, True)
+
+
 class OnlyStrategyBarDispatcher:
     """Stable Cluster iteration; business readiness comes only from Pipeline result."""
 
@@ -72,9 +118,10 @@ class OnlyStrategyBarDispatcher:
         self,
         pipeline: OnlyMarketDataPipeline,
         clock_view: OnlyClockView,
+        executor: OnlyBarDispatchExecutor | None = None,
     ) -> None:
         self._pipeline = pipeline
-        self._clock_view = clock_view
+        self._executor = OnlyDirectBarDispatchExecutor(clock_view) if executor is None else executor
         self._plans: dict[OnlyClusterId, OnlyBarDispatchPlan] = {}
         self._handled_slices: set[tuple[OnlyClusterId, int]] = set()
 
@@ -89,6 +136,18 @@ class OnlyStrategyBarDispatcher:
             registration.subscription,
             tuple(sorted(set(registration.indicator_ids))),
         )
+
+    def unregister(self, cluster_id: OnlyClusterId) -> bool:
+        plan = self._plans.pop(cluster_id, None)
+        if plan is None:
+            return False
+        self._pipeline.unregister_subscription(plan.subscription)
+        self._handled_slices = {item for item in self._handled_slices if item[0] != cluster_id}
+        return True
+
+    @property
+    def subscription_count(self) -> int:
+        return len(self._plans)
 
     def dispatch(self, update: OnlyMarketDataUpdateResult) -> tuple[OnlyBarDispatchResult, ...]:
         update.barrier.require_ready()
@@ -112,9 +171,24 @@ class OnlyStrategyBarDispatcher:
                     primary_bar_type=primary_bar_type,
                     indicator_ids=plan.indicator_ids,
                 )
-                context = OnlyBarContext(snapshot, self._clock_view)
-                plan.cluster.on_bar(snapshot.primary_bar, context)
-                results.append(OnlyBarDispatchResult(cluster_id, event_ns, True, True, snapshot.primary_bar))
+                execution = self._executor.execute_bar(
+                    cluster_id,
+                    plan.cluster,
+                    snapshot.primary_bar,
+                    snapshot,
+                )
+                results.append(
+                    OnlyBarDispatchResult(
+                        cluster_id,
+                        event_ns,
+                        execution.called,
+                        execution.succeeded,
+                        snapshot.primary_bar if execution.called else None,
+                        None
+                        if execution.failure is None
+                        else f"{execution.failure.error_type}: {execution.failure.message}",
+                    )
+                )
             except Exception as exc:
                 if isinstance(exc, OnlyMarketDataSnapshotError):
                     raise

@@ -22,3 +22,13 @@
 - Rule: 派生 Bar 在 Runtime 级共享，不在 Cluster 内重复生成。
 - Rule: 指标强依赖必须在策略执行前完成。
 - Rule: 回测与实盘必须使用相同的数据准备顺序。
+- Rule: Runtime 是 Clock、EventBus、Cache、Pipeline 和 Cluster 的资源所有者。
+- Rule: 每个 Runtime 必须隔离所有可变运行状态。
+- Rule: Cluster 只能通过 RuntimeContext 使用 Runtime 能力。
+- Rule: RuntimeContext 不能暴露底层可变实现。
+- Rule: Cluster 不能直接访问 Gateway、EventBus、可变 MarketData Cache 或 Aggregator。
+- Rule: 生命周期状态只能由 Manager 修改。
+- Rule: Cluster 停止后不得继续接收事件和 Timer。
+- Rule: 一个 Cluster 失败不得默认导致其他 Cluster 失败。
+- Rule: Snapshot 属于单次回调上下文，不能复用为可变全局状态。
+- Rule: 回测和实盘必须使用相同 Cluster 回调接口。

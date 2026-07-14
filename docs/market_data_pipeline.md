@@ -54,7 +54,8 @@ PRIMARY_ONLY 下，默认主周期是订阅中最小 TIME step；显式 `primary
 最多一次。多个周期同时关闭仍只调用一次，策略从 Snapshot 读取其他周期。
 
 Dispatcher 按稳定 Cluster ID 遍历，不以注册顺序表达业务依赖；单 Cluster 异常形成失败结果，其他 Cluster
-继续。不同 Runtime 的 Cache、Aggregator、Indicator 和 Dispatcher 实例完全隔离。
+继续。Runtime 装配中 Dispatcher 将执行委托给 ClusterManager，FAILED/STOPPED Cluster 不再调用。不同
+Runtime 的 Cache、Aggregator、Indicator 和 Dispatcher 实例完全隔离。
 
 ## 8. 缺失数据与不完整 Bar
 
@@ -72,5 +73,5 @@ Unix 纳秒，Bar 保存 Decimal/UTC/强类型 Domain DTO。相同序列在新 R
 - 只支持外部 1m TIME Bar 到内部 3m/5m/15m。
 - 尚无 Tick/Volume/Value Aggregator、partial Bar、修订替换、自动填充或持久化恢复。
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
-- 尚未把 Pipeline/Dispatcher 装配进完整 RuntimeContext 或真实 Gateway。
+- Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext；真实 Gateway 尚未实现。
 - Indicator 值首版限 Decimal/int/string/bool/None，复杂向量需后续稳定 DTO。

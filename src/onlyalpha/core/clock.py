@@ -224,7 +224,7 @@ class OnlyClock(ABC):
 
 
 class OnlyClockView:
-    """Restricted facade given to Clusters; it has no time-control methods."""
+    """Read-only Clock facade; scheduling is provided by a scoped TimerService."""
 
     def __init__(self, clock: OnlyClock) -> None:
         self.__clock = clock
@@ -237,30 +237,6 @@ class OnlyClockView:
 
     def monotonic_ns(self) -> int:
         return self.__clock.monotonic_ns()
-
-    def schedule_at(self, timer_id: OnlyTimerId | str, when_ns: int, callback: OnlyTimerCallback) -> OnlyTimerHandle:
-        return self.__clock.schedule_at(timer_id, when_ns, callback)
-
-    def schedule_after(
-        self, timer_id: OnlyTimerId | str, delay_ns: int, callback: OnlyTimerCallback
-    ) -> OnlyTimerHandle:
-        return self.__clock.schedule_after(timer_id, delay_ns, callback)
-
-    def schedule_every(
-        self,
-        timer_id: OnlyTimerId | str,
-        interval_ns: int,
-        callback: OnlyTimerCallback,
-        *,
-        start_ns: int | None = None,
-    ) -> OnlyTimerHandle:
-        return self.__clock.schedule_every(timer_id, interval_ns, callback, start_ns=start_ns)
-
-    def cancel_timer(self, timer_id: OnlyTimerId | str) -> bool:
-        return self.__clock.cancel_timer(timer_id)
-
-    def has_timer(self, timer_id: OnlyTimerId | str) -> bool:
-        return self.__clock.has_timer(timer_id)
 
 
 class OnlyVirtualClock(OnlyClock):

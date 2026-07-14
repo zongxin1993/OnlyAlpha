@@ -12,20 +12,18 @@ OnlyResearchRuntime
 
 ## 2. 统一上下文
 
-Cluster 通过 `OnlyRuntimeContext` 获取：
+Cluster 通过受限 `OnlyRuntimeContext` 获取：
 
 - Clock；
-- Market Data；
-- Order Service；
-- Account/Position Query；
-- Cache；
+- 只读 MarketData View；
+- 不可变回调 Snapshot；
 - Logger；
 - Timer；
-- Factor/Indicator；
 - Instrument Registry；
-- Risk Service。
+- Cluster 命名空间化 Subscription/Timer Service。
 
-Cluster 不接触具体 Gateway 或撮合器。
+Cluster 不接触具体 Gateway、撮合器、EventBus、可变 Cache、Aggregator 或 Runtime 内部 Service Container。
+完整权限和生命周期见 `docs/runtime_context.md`。
 
 ## 3. 隔离要求
 
@@ -84,13 +82,14 @@ Cluster 不接触具体 Gateway 或撮合器。
 Backtest 数据按历史 Calendar 与 Instrument 版本解析。当前仍未实现完整历史驱动、Bar
 聚合与撮合，这些后续能力必须遵守 `docs/time_model.md`。
 
-每个 Runtime 独占并在停止时关闭自己的 `OnlyClock`。Cluster Context 只接收
-`OnlyClockView`，可读取和注册/取消 Timer，但没有 `advance_to`、`advance_by`、`set_time`
-或 `close`。只有 Backtest Runtime 的历史事件驱动器可持有 `OnlyBacktestClock` 控制接口。
+每个 Runtime 独占并在关闭时关闭自己的 `OnlyClock`。Cluster Context 只接收只读
+`OnlyClockView`；Timer 必须通过自动命名空间化的 `OnlyTimerService` 注册。只有 Backtest Runtime
+的历史事件驱动器可持有 `OnlyBacktestClock` 控制接口。
 
 ## 10. MarketData 隔离
 
 每个 Runtime 必须独占 EventBus、`OnlyMarketDataPipeline`、`OnlyMarketDataCache`、
 `OnlyBarAggregationManager`、`OnlyIndicatorPipeline` 和 Dispatcher。一个 Runtime 内多个 Cluster
 共享确定的派生 Bar/标准 Indicator；Live 与 Backtest 使用同一数据准备顺序。当前组件已实现这些独立
-对象，但尚未把它们扩展为完整 Runtime 构造参数，装配方案进入后续 RuntimeContext 阶段。
+对象。`OnlyBacktestRuntime.process_bar` 已按 Clock→Timer→Pipeline→Event facts→Dispatcher→ClusterManager
+的固定顺序完成同步装配；Live/Paper 资源装配仍在后续阶段。
