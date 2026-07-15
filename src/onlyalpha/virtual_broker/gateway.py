@@ -39,6 +39,7 @@ from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOrderSide, OnlyOrderSt
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRejection
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
+    OnlyRuntimeId,
     OnlyTradeId,
     OnlyVenueOrderId,
     OnlyVenueTradeId,
@@ -65,6 +66,7 @@ class OnlyVirtualBrokerGateway:
     def __init__(
         self,
         config: OnlyVirtualBrokerConfig,
+        runtime_id: OnlyRuntimeId,
         clock: OnlyClock,
         inbound: Callable[[OnlyBrokerInboundUpdate], None],
         *,
@@ -75,6 +77,7 @@ class OnlyVirtualBrokerGateway:
         scheduler: OnlyVirtualBrokerScheduler | None = None,
     ) -> None:
         self.config = config
+        self.runtime_id = runtime_id
         self._clock = clock
         self._inbound = inbound
         self._matching = matching_engine or OnlyNextBarMatchingEngine(config.maximum_fill_quantity)
@@ -461,6 +464,7 @@ class OnlyVirtualBrokerGateway:
     ) -> None:
         sequence = self._next_sequence()
         update = update_type(
+            runtime_id=self.runtime_id,
             gateway_id=self.config.gateway_id,
             account_id=self.config.account_id,
             update_id=OnlyBrokerUpdateId(f"virtual-update-{sequence:08d}"),

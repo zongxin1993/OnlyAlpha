@@ -17,7 +17,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
@@ -377,6 +377,31 @@ class OnlyRiskService:
             timestamp,
             runtime_id=self.runtime_id,
             cluster_id=cluster_id,
+        )
+        if result.changed:
+            self._refresh_snapshot(cluster_id, account_id, timestamp)
+        return result
+
+    def consume_order_fill(
+        self,
+        order_id: OnlyOrderId,
+        cluster_id: OnlyClusterId,
+        account_id: OnlyAccountId,
+        quantity: OnlyQuantity,
+        notional: OnlyMoney,
+        complete: bool,
+        timestamp: OnlyTimestamp,
+    ) -> OnlyRiskReservationResult:
+        """Consume exactly one validated fill and retain only the unfilled exposure."""
+
+        result = self._reservations.consume_fill_for_order(
+            order_id,
+            quantity,
+            notional,
+            timestamp,
+            runtime_id=self.runtime_id,
+            cluster_id=cluster_id,
+            complete=complete,
         )
         if result.changed:
             self._refresh_snapshot(cluster_id, account_id, timestamp)

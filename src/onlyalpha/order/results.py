@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyClientOrderId, OnlyOrderId
@@ -42,7 +43,7 @@ _ONLY_ORDER_EVENT_TYPES: dict[str, type[OnlyEvent]] = {
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyOrderMutationResult:
+class OnlyOrderMutationResult(OnlyDomainModel):
     order_id: OnlyOrderId
     mutation_type: OnlyOrderMutationType
     previous_status: OnlyOrderStatus | None

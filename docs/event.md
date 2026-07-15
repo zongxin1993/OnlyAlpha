@@ -52,3 +52,6 @@ Position、Allocation、Settlement、Restriction、Reservation 和 Reconciliatio
 
 Broker 回调不是 EventBus 订阅者。Gateway 先将标准化 Broker Update 放入 Runtime 的有界 inbound queue，Runtime 调用 Manager
 完成状态修改后才发布 Order/Position/StrategyLedger/Account 过去式事实。EventBus 不决定 Broker Update 顺序，也不驱动状态机。
+
+Runtime-owned `OnlyExecutionEventPublisher` 在一次 Processor 逻辑事务内缓冲 Manager 事实。只有固定 Trade 链和跨组件不变量
+全部成功后才按产生顺序批量提交；中途失败丢弃成功事实，只允许 Execution Processing Failed/Reconciliation Required 事实。

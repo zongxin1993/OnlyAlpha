@@ -11,7 +11,7 @@ from onlyalpha.broker import (
     OnlyBrokerUpdateId,
     OnlyUnsupportedBrokerCapabilityError,
 )
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyVenueOrderId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyVenueOrderId
 from onlyalpha.domain.time import OnlyTimestamp
 
 
@@ -28,6 +28,7 @@ def test_capabilities_are_explicit_and_immutable() -> None:
 def test_normalized_broker_update_contains_causal_identity_and_is_immutable() -> None:
     timestamp = OnlyTimestamp.from_unix_seconds(1)
     update = OnlyBrokerOrderAcceptedUpdate(
+        runtime_id=OnlyRuntimeId("runtime"),
         gateway_id=OnlyBrokerGatewayId("virtual"),
         account_id=OnlyAccountId("account"),
         update_id=OnlyBrokerUpdateId("update-1"),

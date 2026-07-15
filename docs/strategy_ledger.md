@@ -61,8 +61,11 @@ Manager 先完成状态修改和持久化，再发布事实 Event。内存 Repos
 ## 7. Demo 与限制
 
 `examples/strategy_ledger_demo/` 包含九个示例。当前胜负统计按 realized delta 更新，尚未建立 Closed Position Result，因此不把
-每个 Fill 宣称为完整交易；Backtest Runtime 已完成标准化 Fill 到 Ledger 的同步纵切面编排，但持久化 ExecutionProcessor、
-AccountManager 和真实券商同步仍留给后续阶段。
+每个 Fill 宣称为完整交易；Backtest Runtime 已通过内存 ExecutionProcessor 完成标准化 Fill 到 Ledger 的同步纵切面编排，
+但持久化事务、Recovery Orchestrator 和真实券商同步仍留给后续阶段。
+
+Processor 调用 Trade Accounting 时延后 Strategy Cash Reservation 消费：Ledger 先验证 Reservation 身份并完成 Allocation-
+authoritative accounting，Account 更新后再由 Processor 按实际 notional+fee 统一消费。Ledger 独立调用仍保持原有默认原子语义。
 ## 与 Account 的边界
 
 Strategy Ledger 继续按 Cluster 记录固定初始资金、Allocation 成本、费用和 PnL；AccountManager 记录同一 Runtime 账户的合并

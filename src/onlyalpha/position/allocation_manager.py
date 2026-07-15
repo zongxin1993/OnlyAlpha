@@ -84,7 +84,12 @@ class OnlyPositionAllocationManager:
         self._trade_fingerprints: set[str] = set()
         self._cycles: dict[OnlyPositionAllocationKey, int] = {}
 
-    def apply_trade(self, trade: OnlyPositionTrade) -> OnlyPositionMutationStatus:
+    def apply_trade(
+        self,
+        trade: OnlyPositionTrade,
+        *,
+        own_order_reserved_quantity: OnlyQuantity | None = None,
+    ) -> OnlyPositionMutationStatus:
         self._require_scope(trade.runtime_id)
         fingerprints = self._fingerprints(trade)
         if not fingerprints.isdisjoint(self._trade_fingerprints):
@@ -108,7 +113,7 @@ class OnlyPositionAllocationManager:
                 raise OnlyPositionOverSellError("Cluster cannot sell another Cluster's Allocation")
             state = self._new_state(key, trade)
             self._active[key] = state
-        self._apply_to_state(state, trade)
+        self._apply_to_state(state, trade, own_order_reserved_quantity)
         self._trade_fingerprints.update(fingerprints)
         snapshot = state.snapshot()
         self._repository.save(snapshot)
@@ -289,7 +294,12 @@ class OnlyPositionAllocationManager:
             trade.ts_event,
         )
 
-    def _apply_to_state(self, state: _OnlyAllocationState, trade: OnlyPositionTrade) -> None:
+    def _apply_to_state(
+        self,
+        state: _OnlyAllocationState,
+        trade: OnlyPositionTrade,
+        own_order_reserved_quantity: OnlyQuantity | None = None,
+    ) -> None:
         if trade.side is OnlyOrderSide.BUY:
             old = state.total.value
             new = old + trade.quantity.value
@@ -306,8 +316,17 @@ class OnlyPositionAllocationManager:
             else:
                 state.unsettled = state.unsettled + trade.quantity
         else:
-            if trade.quantity.value > state.snapshot().available_quantity.value or state.average is None:
+            own_reserved = Decimal(0)
+            if own_order_reserved_quantity is not None:
+                own_reserved = min(own_order_reserved_quantity.value, state.risk_reserved.value)
+            effective_available = state.snapshot().available_quantity.value + own_reserved
+            if trade.quantity.value > effective_available or state.average is None:
                 raise OnlyPositionOverSellError("Cluster sell exceeds its own available Allocation")
+            if own_reserved:
+                state.risk_reserved = OnlyQuantity(
+                    state.risk_reserved.value - own_reserved,
+                    state.risk_reserved.precision,
+                )
             pnl = self._pnl_model.realized(
                 state.key.position_side,
                 state.average,

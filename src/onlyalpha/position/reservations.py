@@ -158,6 +158,8 @@ class OnlyPositionReservationManager:
         order_id: OnlyOrderId,
         quantity: OnlyQuantity,
         timestamp: OnlyTimestamp,
+        *,
+        allocation_hold_already_released: bool = False,
     ) -> OnlyPositionReservationResult:
         reservation = self._require(order_id)
         if reservation.state in {OnlyPositionReservationState.CONSUMED, OnlyPositionReservationState.RELEASED}:
@@ -171,7 +173,8 @@ class OnlyPositionReservationManager:
             OnlyPositionReservationStage.SENT_TO_BROKER,
         }:
             self._positions.release(self._account_key(reservation), consumed_quantity, risk=True)
-        self._allocations.release(self._allocation_key(reservation), consumed_quantity)
+        if not allocation_hold_already_released:
+            self._allocations.release(self._allocation_key(reservation), consumed_quantity)
         remaining = OnlyQuantity(
             reservation.remaining_quantity.value - consumed,
             reservation.remaining_quantity.precision,
@@ -322,9 +325,21 @@ class OnlyOrderPositionReservationAdapter:
         if reservation is not None:
             self._manager.advance_stage(order_id, OnlyPositionReservationStage.BROKER_ACKNOWLEDGED, timestamp)
 
-    def consume(self, order_id: OnlyOrderId, quantity: OnlyQuantity, timestamp: OnlyTimestamp) -> None:
+    def consume(
+        self,
+        order_id: OnlyOrderId,
+        quantity: OnlyQuantity,
+        timestamp: OnlyTimestamp,
+        *,
+        allocation_hold_already_released: bool = False,
+    ) -> None:
         if self._manager.get(order_id) is not None:
-            self._manager.consume(order_id, quantity, timestamp)
+            self._manager.consume(
+                order_id,
+                quantity,
+                timestamp,
+                allocation_hold_already_released=allocation_hold_already_released,
+            )
 
     def release(
         self,

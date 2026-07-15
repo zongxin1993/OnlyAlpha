@@ -22,6 +22,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     now = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
     env.runtime.receive_broker_update(
         OnlyBrokerAccountUpdate(
+            runtime_id=env.runtime.config.runtime_id,
             gateway_id=conflict.gateway_id,
             account_id=conflict.account_id,
             update_id=OnlyBrokerUpdateId("scenario-account-conflict"),

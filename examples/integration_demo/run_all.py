@@ -22,6 +22,11 @@ from examples.integration_demo.scenarios import (
     scenario_016_multi_cluster_account,
     scenario_017_broker_local_conflict,
     scenario_018_duplicate_out_of_order,
+    scenario_019_broker_rejected,
+    scenario_020_execution_audit,
+    scenario_021_out_of_order_trade,
+    scenario_022_mid_pipeline_failure,
+    scenario_023_partial_fill_then_cancel,
 )
 
 SCENARIOS: tuple[Callable[[OnlyIntegrationEnvironment], OnlyScenarioReport], ...] = (
@@ -43,6 +48,11 @@ SCENARIOS: tuple[Callable[[OnlyIntegrationEnvironment], OnlyScenarioReport], ...
     scenario_016_multi_cluster_account.run,
     scenario_017_broker_local_conflict.run,
     scenario_018_duplicate_out_of_order.run,
+    scenario_019_broker_rejected.run,
+    scenario_020_execution_audit.run,
+    scenario_021_out_of_order_trade.run,
+    scenario_022_mid_pipeline_failure.run,
+    scenario_023_partial_fill_then_cancel.run,
 )
 
 

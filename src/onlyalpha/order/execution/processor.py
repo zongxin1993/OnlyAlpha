@@ -41,6 +41,8 @@ class OnlyOrderUpdateProcessor:
         update: OnlyGatewayOrderUpdate,
         *,
         consume_cash_reservation: bool = True,
+        publish_events: bool = True,
+        coordinate_reservations: bool = True,
     ) -> OnlyOrderMutationResult:
         if update.runtime_id != self._runtime_id:
             raise ValueError("Gateway update belongs to another Runtime")
@@ -84,8 +86,9 @@ class OnlyOrderUpdateProcessor:
         else:
             raise TypeError(f"unsupported Gateway update: {type(update).__name__}")
         if result.changed:
-            self._publisher.publish_many(result.events)
-            if self._position_reservations is not None:
+            if publish_events:
+                self._publisher.publish_many(result.events)
+            if coordinate_reservations and self._position_reservations is not None:
                 if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
                     self._position_reservations.acknowledged(result.order_id, update.ts_init)
                 elif isinstance(update, OnlyGatewayOrderFillUpdate):
@@ -94,7 +97,7 @@ class OnlyOrderUpdateProcessor:
                         update.fill.quantity,
                         update.ts_init,
                     )
-            if self._cash_reservations is not None:
+            if coordinate_reservations and self._cash_reservations is not None:
                 if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
                     self._cash_reservations.acknowledged(result.order_id, update.ts_init)
                 elif isinstance(update, OnlyGatewayOrderFillUpdate) and consume_cash_reservation:
@@ -108,7 +111,7 @@ class OnlyOrderUpdateProcessor:
                 release_reason = OnlyRiskReleaseReason.ORDER_FAILED
             elif isinstance(update, OnlyGatewayOrderExpiredUpdate):
                 release_reason = OnlyRiskReleaseReason.ORDER_EXPIRED
-            if release_reason is not None and self._risk_service is not None:
+            if coordinate_reservations and release_reason is not None and self._risk_service is not None:
                 self._risk_service.release_order(
                     result.order_id,
                     result.snapshot.cluster_id,
@@ -116,12 +119,12 @@ class OnlyOrderUpdateProcessor:
                     release_reason,
                     update.ts_init,
                 )
-            if release_reason is not None and self._position_reservations is not None:
+            if coordinate_reservations and release_reason is not None and self._position_reservations is not None:
                 self._position_reservations.release(
                     result.order_id,
                     update.ts_init,
                     broker_confirmed=not isinstance(update, OnlyGatewayOrderCancelledUpdate),
                 )
-            if release_reason is not None and self._cash_reservations is not None:
+            if coordinate_reservations and release_reason is not None and self._cash_reservations is not None:
                 self._cash_reservations.release(result.order_id, update.ts_init)
         return result

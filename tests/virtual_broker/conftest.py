@@ -21,6 +21,7 @@ from onlyalpha.domain.identifiers import (
     OnlyClientOrderId,
     OnlyInstrumentId,
     OnlyOrderId,
+    OnlyRuntimeId,
     OnlySymbol,
     OnlyVenueId,
 )
@@ -93,6 +94,7 @@ def virtual_broker():
             CNY,
             OnlyMoney(Decimal("100000.00"), CNY),
         ),
+        OnlyRuntimeId("virtual-runtime"),
         clock,
         updates.append,
     )
