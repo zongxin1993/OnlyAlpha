@@ -219,3 +219,5 @@ __marimo__/
 
 
 user_data/
+.VSCodeCounter
+output/
