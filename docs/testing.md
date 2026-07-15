@@ -1,5 +1,8 @@
 # 测试规范
 
+Strategy Ledger 必测固定资金、连续 Cash Reservation、买卖成交、Fee、Allocation 收益归因、多 Cluster/Runtime Scope、不可变
+Snapshot、双视图、Risk Fail Closed、幂等、无损序列化、Replay、HWM/Drawdown 与固定时钟确定性。
+
 Risk 测试必须使用固定 Clock 和精确 Decimal 输入，覆盖 Rule 顺序、Mandatory Profile、防绕过、Scope、Fail Closed、
 Reservation 即时可见与幂等释放、OrderService 零副作用拒绝、Runtime/Cluster 隔离、Snapshot 不可变和重放确定性。
 Demo 必须使用 Placeholder Execution，禁止连接真实 SDK 或伪造成交。

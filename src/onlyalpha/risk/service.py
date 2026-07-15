@@ -51,6 +51,7 @@ from onlyalpha.risk.pipeline import OnlyRiskPipeline
 from onlyalpha.risk.ports import (
     OnlyAccountRiskView,
     OnlyPositionRiskView,
+    OnlyStrategyLedgerRiskViewPort,
     OnlyUnavailableAccountRiskView,
     OnlyUnavailablePositionRiskView,
 )
@@ -97,6 +98,7 @@ class OnlyRiskService:
         account_rules: tuple[OnlyRiskRule, ...] = (),
         account_risk: OnlyAccountRiskView | None = None,
         position_risk: OnlyPositionRiskView | None = None,
+        strategy_ledger_risk: OnlyStrategyLedgerRiskViewPort | None = None,
     ) -> None:
         self.engine_id = engine_id
         self.runtime_id = runtime_id
@@ -116,6 +118,7 @@ class OnlyRiskService:
         self._mandatory_rules = only_mandatory_rules(runtime_id)
         self._account_risk = account_risk or OnlyUnavailableAccountRiskView()
         self._position_risk = position_risk or OnlyUnavailablePositionRiskView()
+        self._strategy_ledger_risk = strategy_ledger_risk
         self._state = OnlyInMemoryRiskStateStore()
         self._reservations = OnlyRiskReservationManager(runtime_id)
         self._permissions = OnlyClusterPermissionMappingView()
@@ -209,6 +212,7 @@ class OnlyRiskService:
             cluster_id in self._profiles,
             self._kill_switch.is_active(cluster_id, account_id),
             self._latest_market_data.get(cluster_id),
+            self._strategy_ledger_risk,
         )
 
     def evaluate_order(
@@ -218,6 +222,18 @@ class OnlyRiskService:
     ) -> OnlyRiskDecision:
         if context.runtime_id != self.runtime_id:
             raise ValueError("Risk Evaluation Context belongs to another Runtime")
+        if context.strategy_ledger is not None and not context.strategy_ledger.allows_new_orders(
+            context.account_id, context.cluster_id
+        ):
+            return OnlyRiskDecision.rejected(
+                OnlyRiskRejection(
+                    OnlyRiskRuleId("system.strategy_ledger_status"),
+                    OnlyRiskRejectionCode.REQUIRED_RISK_DATA_MISSING,
+                    "Strategy Ledger is not ACTIVE",
+                    OnlyRiskRuleScope.SYSTEM,
+                    OnlyRiskSeverity.ERROR,
+                )
+            )
         key = (context.cluster_id, context.account_id, request.request_id)
         previous_request = self._requests.get(key)
         cached = self._state.get_decision(context.cluster_id, context.account_id, request.request_id)

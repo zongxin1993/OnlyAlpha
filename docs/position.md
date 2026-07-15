@@ -2,7 +2,8 @@
 
 ## 1. 组件边界与双层模型
 
-Position 是 Runtime 所有的单写入者状态域，不连接真实券商 SDK，不承担现金账户、完整策略资金账、撮合或强平。
+Position 是 Runtime 所有的单写入者状态域，不连接真实券商 SDK，不承担现金账户、完整策略资金账、撮合或强平。策略资金、
+费用、收益和净值由 Strategy Ledger 维护；它只消费 Allocation 更新结果，不回写 Position。
 
 ```text
 OnlyRuntime

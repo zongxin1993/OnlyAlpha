@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, time
+from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.cache.base import OnlyCache
@@ -38,6 +39,7 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
 from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorRegistration, OnlyIndicatorValue
@@ -89,6 +91,15 @@ from onlyalpha.runtime.context import (
     OnlySubscriptionService,
     OnlyTimerService,
 )
+from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
+from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
+from onlyalpha.strategy_ledger.order_port import OnlyOrderStrategyCashReservationAdapter
+from onlyalpha.strategy_ledger.publisher import OnlyRuntimeStrategyLedgerEventPublisherAdapter
+from onlyalpha.strategy_ledger.query import OnlyStrategyLedgerQueryService
+from onlyalpha.strategy_ledger.views import (
+    OnlyStrategyLedgerContextView,
+    OnlyStrategyLedgerRiskView,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,6 +134,8 @@ class OnlyRuntimeConfig:
     event_queue_policy: OnlyEventQueuePolicy = OnlyEventQueuePolicy.REJECT
     cluster_error_policy: OnlyRuntimeErrorPolicy = OnlyRuntimeErrorPolicy.ISOLATE_CLUSTER
     default_account_id: OnlyAccountId | str | None = None
+    strategy_initial_capital: Decimal | str = Decimal("1000000.00")
+    strategy_base_currency: OnlyCurrency = OnlyCurrency("CNY", 2)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -130,6 +143,10 @@ class OnlyRuntimeConfig:
             "engine_id",
             self.engine_id if isinstance(self.engine_id, OnlyEngineId) else OnlyEngineId(self.engine_id),
         )
+        strategy_initial_capital = Decimal(str(self.strategy_initial_capital))
+        object.__setattr__(self, "strategy_initial_capital", strategy_initial_capital)
+        if strategy_initial_capital < 0:
+            raise ValueError("strategy_initial_capital cannot be negative")
         object.__setattr__(
             self,
             "runtime_id",
@@ -192,6 +209,8 @@ class OnlyRuntimeServices:
     allocation_manager: OnlyPositionAllocationManager
     position_reservation_manager: OnlyPositionReservationManager
     position_query: OnlyPositionQueryService
+    strategy_ledger_manager: OnlyStrategyLedgerManager
+    strategy_ledger_query: OnlyStrategyLedgerQueryService
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -246,6 +265,10 @@ class OnlyRuntime:
             self._position_manager,
             self._allocation_manager,
         )
+        self._strategy_ledger_manager = OnlyStrategyLedgerManager(
+            config.runtime_id  # type: ignore[arg-type]
+        )
+        self._strategy_ledger_query = OnlyStrategyLedgerQueryService(self._strategy_ledger_manager)
 
     @property
     def runtime_id(self) -> str:
@@ -275,12 +298,32 @@ class OnlyRuntime:
     def position_reservation_manager(self) -> OnlyPositionReservationManager:
         return self._position_reservation_manager
 
+    @property
+    def strategy_ledger_manager(self) -> OnlyStrategyLedgerManager:
+        """Runtime management port; never exposed through Cluster Context."""
+
+        return self._strategy_ledger_manager
+
     def add_cluster(self, engine_id: str | OnlyEngineId, cluster: OnlyCluster) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
             raise OnlyLifecycleError("Clusters must be loaded while Runtime is CREATED")
         if OnlyEngineId(str(engine_id)) != self.config.engine_id:
             raise ValueError("Cluster engine_id does not match Runtime scope")
         cluster_id = OnlyClusterId(cluster.config.cluster_id)
+        ledger_key = OnlyStrategyLedgerKey(
+            self.config.runtime_id,  # type: ignore[arg-type]
+            self.config.default_account_id,  # type: ignore[arg-type]
+            cluster_id,
+            self.config.strategy_base_currency,
+        )
+        configured_capital = cluster.config.values.get("strategy_initial_capital", self.config.strategy_initial_capital)
+        timestamp = OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns())
+        self._strategy_ledger_manager.create_ledger(
+            ledger_key,
+            OnlyMoney(Decimal(str(configured_capital)), self.config.strategy_base_currency),
+            timestamp,
+        )
+        self._strategy_ledger_manager.activate_ledger(ledger_key, timestamp)
         profile = self._resolve_risk_profile(cluster.config.values.get("risk_profile"), cluster_id)
         allowed_accounts = self._parse_account_permissions(cluster.config.values.get("allowed_account_ids"))
         allowed_instruments = self._parse_instrument_permissions(cluster.config.values.get("allowed_instrument_ids"))
@@ -295,6 +338,7 @@ class OnlyRuntime:
             self._services.cluster_manager.register(cluster)
         except Exception:
             self._services.risk_service.unbind_cluster_profile(cluster_id)
+            self._strategy_ledger_manager.close_ledger(ledger_key, timestamp)
             raise
 
     def initialize(self) -> None:
@@ -439,6 +483,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
             scope=scope,
             queue_policy=runtime_config.event_queue_policy,
         )
+        self._strategy_ledger_manager.bind_publisher(
+            OnlyRuntimeStrategyLedgerEventPublisherAdapter(
+                runtime_config.engine_id,  # type: ignore[arg-type]
+                owned_bus,
+            )
+        )
         market_cache = OnlyMarketDataCache(runtime_config.history_limit)
         aggregation = OnlyBarAggregationManager(selected_calendar, clock)
         indicators = OnlyIndicatorPipeline()
@@ -473,6 +523,16 @@ class OnlyBacktestRuntime(OnlyRuntime):
         position_query = self._position_query
         position_reservations = self._position_reservation_manager
         order_position_reservations = OnlyOrderPositionReservationAdapter(position_reservations)
+        order_cash_reservations = OnlyOrderStrategyCashReservationAdapter(
+            self._strategy_ledger_manager,
+            runtime_config.strategy_base_currency,
+            self._instruments,
+            lambda order: (
+                self._current_snapshots[order.cluster_id].primary_bar.close
+                if order.cluster_id in self._current_snapshots
+                else None
+            ),
+        )
         risk_service = OnlyRiskService(
             runtime_config.engine_id,  # type: ignore[arg-type]
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -484,6 +544,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlyRuntimeRiskEventPublisherAdapter(owned_bus),
             account_rules=(OnlyAvailablePositionRiskRule(),),
             position_risk=OnlyPositionRiskView(position_query, clock.timestamp_ns),
+            strategy_ledger_risk=OnlyStrategyLedgerRiskView(
+                self._strategy_ledger_query, runtime_config.strategy_base_currency
+            ),
         )
         order_service = OnlyOrderService(
             order_manager,
@@ -493,6 +556,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             risk_service,
             risk_service.make_evaluation_context,
             order_position_reservations,
+            order_cash_reservations,
         )
         order_update_processor = OnlyOrderUpdateProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -500,6 +564,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_publisher,
             risk_service,
             order_position_reservations,
+            order_cash_reservations,
         )
         self._services = OnlyRuntimeServices(
             clock,
@@ -519,6 +584,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             allocation_manager,
             position_reservations,
             position_query,
+            self._strategy_ledger_manager,
+            self._strategy_ledger_query,
         )
 
     def register_instrument(
@@ -618,6 +685,15 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self.config.default_account_id,  # type: ignore[arg-type]
                 cluster_id,
                 self._services.position_query,
+            ),
+            OnlyStrategyLedgerContextView(
+                OnlyStrategyLedgerKey(
+                    self.config.runtime_id,  # type: ignore[arg-type]
+                    self.config.default_account_id,  # type: ignore[arg-type]
+                    cluster_id,
+                    self.config.strategy_base_currency,
+                ),
+                self._services.strategy_ledger_query,
             ),
             OnlyRiskSnapshotView(lambda: self._services.risk_service.get_snapshot(cluster_id)),
             OnlyRuntimeLogger(_LOGGER, self.config.runtime_id, cluster_id, self.config.mode),  # type: ignore[arg-type]

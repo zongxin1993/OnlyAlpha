@@ -16,6 +16,7 @@ from onlyalpha.risk.ports import (
     OnlyOrderRiskView,
     OnlyPositionRiskView,
     OnlyRiskReservationView,
+    OnlyStrategyLedgerRiskViewPort,
 )
 
 
@@ -39,6 +40,7 @@ class OnlyRiskEvaluationContext:
     profile_bound: bool
     kill_switch_active: bool
     market_data: OnlyMarketDataSnapshot | None = None
+    strategy_ledger: OnlyStrategyLedgerRiskViewPort | None = None
 
 
 @dataclass(frozen=True, slots=True)

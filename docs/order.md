@@ -1,5 +1,8 @@
 # Order 订单组件
 
+买单通过 Risk 并创建 Order/Position Reservation 后，在调用 Execution Port 前建立 Strategy Cash Reservation。成交消费实际
+金额与费用，拒绝、失败、过期和取消释放；Reservation 不代替 Allocation 更新后的 Strategy Trade Accounting。
+
 ## 1. 边界与所有权
 
 每个 Runtime 独占一个 `OnlyOrderManager`，它是该 Runtime 订单状态、版本和索引的唯一可信来源；同一
