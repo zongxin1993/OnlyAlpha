@@ -1,5 +1,8 @@
 # Runtime 资源所有权与受限 Context
 
+`ctx.ledger` 是绑定 Runtime/Account/Cluster 的只读 `OnlyStrategyLedgerContextView`，只返回不可变 Snapshot 及资金、PnL、
+Equity、Return、Drawdown 属性；不得暴露 Manager、Reservation 或修改方法。
+
 `ctx.risk` 是 Cluster Scope 的只读 `OnlyRiskSnapshotView`，提供当前风险等级、Kill Switch、活动订单数和预占信息。
 它不暴露 evaluate、reserve/release、Rule/Profile 修改、Account/Position 写入、Cache、Gateway 或 Clock 推进能力。
 Runtime 在每次 `on_bar` 前、派生 Bar/Indicator/MarketData Snapshot 完成后同步更新 Risk Snapshot。

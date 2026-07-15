@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from onlyalpha.order.views import OnlyOrderServiceView
     from onlyalpha.position.views import OnlyPositionContextView
     from onlyalpha.risk.views import OnlyRiskSnapshotView
+    from onlyalpha.strategy_ledger.views import OnlyStrategyLedgerContextView
 
 
 class OnlyRuntimeContextError(Exception):
@@ -178,6 +179,7 @@ class OnlyRuntimeContext:
     timers: OnlyTimerService
     orders: OnlyOrderServiceView
     positions: OnlyPositionContextView
+    ledger: OnlyStrategyLedgerContextView
     risk: OnlyRiskSnapshotView
     logger: OnlyRuntimeLogger
 

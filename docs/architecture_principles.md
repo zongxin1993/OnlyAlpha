@@ -58,6 +58,12 @@
 - Rule: Available Quantity 是派生值，不是无条件可信的持久化字段。
 - Rule: 本地 Position Reservation 与券商冻结必须区分。
 - Rule: Broker Snapshot 不得静默覆盖本地 Position 历史。
+- Rule: 每个 Runtime 拥有独立 OnlyStrategyLedgerManager，每个 Cluster 拥有独立 Strategy Ledger。
+- Rule: 券商真实账户账与策略虚拟账必须分离。
+- Rule: 策略收益只能基于自身 Trade、Fee 和 Position Allocation。
+- Rule: Strategy Cash Available 必须由 Cash Balance 与 Reservation 派生。
+- Rule: Equity Cash View 与 PnL View 不一致时必须进入 RECONCILING 或 ERROR。
+- Rule: ctx.ledger 只能暴露不可变、Cluster-scoped Snapshot。
 - Rule: 关键持仓冲突必须阻止相关交易。
 - Rule: 重复 Trade 必须幂等。
 - Rule: 乱序 Trade 必须进入严格处理或 Reconciliation。

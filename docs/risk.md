@@ -1,5 +1,8 @@
 # Risk 组件
 
+Risk Evaluation Context 接入只读 Strategy Ledger Risk View。Ledger 不是 ACTIVE（包括 RECONCILING、ERROR、SUSPENDED、
+CLOSED）时默认 Fail Closed；View 提供 Equity、Cash Available/Reserved、Net/Daily PnL 和 Drawdown。
+
 ## 1. 职责与边界
 
 每个 Runtime 独占一个 `OnlyRiskService`。它拥有 Rule Pipeline、Cluster Risk Profile 绑定、Risk State、

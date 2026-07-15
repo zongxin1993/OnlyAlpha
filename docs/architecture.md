@@ -1,5 +1,8 @@
 # OnlyAlpha 总体架构
 
+Strategy Ledger 是 Runtime-owned 单写入者状态域：Runtime 独占 Manager，Cluster 只通过 `ctx.ledger` 读取自己的虚拟资金、
+收益与净值。它与券商真实账户分离，并位于 Position Allocation 更新之后。详见 `docs/strategy_ledger.md` 与 ADR 0014。
+
 Risk 的 Runtime 所有权、固定 Pipeline、Profile 和 Reservation 决策见
 [ADR-0012](adr/0012-risk-pipeline-profile-and-reservation.md) 与 [Risk 组件](risk.md)。Risk 位于 Runtime 与
 OrderService 边界：Cluster 只能读取 Snapshot，所有订单在创建前强制审批。

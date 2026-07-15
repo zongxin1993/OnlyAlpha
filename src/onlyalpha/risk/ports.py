@@ -97,6 +97,12 @@ class OnlyPositionRiskView(Protocol):
     ) -> OnlyPositionRiskSnapshot | None: ...
 
 
+class OnlyStrategyLedgerRiskViewPort(Protocol):
+    """Boundary port; Risk never owns or mutates a Strategy Ledger."""
+
+    def allows_new_orders(self, account_id: OnlyAccountId, cluster_id: OnlyClusterId) -> bool: ...
+
+
 class OnlyUnavailableAccountRiskView:
     @property
     def available(self) -> bool:

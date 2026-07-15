@@ -660,3 +660,511 @@ Web 与 Engine 分离
 新增市场不修改 Engine 核心
 新增策略不修改 Runtime 核心
 ```
+
+# Continuous Integration Vertical Slice Policy
+
+## 1. 适用范围
+
+本规则适用于 OnlyAlpha 中所有新增组件、重构任务、架构调整和跨组件接口变更。
+
+每次实现新的组件或修改已有组件时，不仅要完成组件自身实现，还必须将其接入 OnlyAlpha 当前已实现的完整纵向链路，并运行所有历史集成场景。
+
+不得将“组件单元测试通过”作为任务完成的唯一依据。
+
+---
+
+## 2. 强制验证层次
+
+每个组件任务必须完成以下三层验证：
+
+```text
+组件单元测试
+    ↓
+直接上下游集成测试
+    ↓
+全组件 Vertical Slice 回归
+```
+
+### 2.1 组件单元测试
+
+必须验证本组件自身的：
+
+* 核心状态机；
+* 领域不变量；
+* 输入校验；
+* 幂等；
+* 顺序；
+* Scope 隔离；
+* 错误处理；
+* 序列化；
+* 确定性。
+
+### 2.2 直接上下游集成测试
+
+必须验证新组件与直接依赖组件之间的真实调用关系。
+
+例如：
+
+```text
+Risk
+    验证 OrderService → RiskService → OrderManager
+
+Position
+    验证 Trade → PositionManager → AllocationManager
+
+StrategyLedger
+    验证 AllocationMutation → StrategyLedgerManager → RiskView
+```
+
+不得通过直接修改内部状态绕过正式接口。
+
+### 2.3 Vertical Slice 全链路回归
+
+必须更新并运行：
+
+```text
+examples/integration_demo/
+tests/integration/
+```
+
+验证新组件已经接入当前完整运行链。
+
+所有历史场景必须继续通过。
+
+不得通过删除旧场景、跳过断言或修改正确预期来掩盖回归。
+
+---
+
+## 3. 固定目录
+
+必须长期维护：
+
+```text
+examples/integration_demo/
+├── README.md
+├── run_all.py
+├── environment.py
+├── fixtures/
+├── assertions/
+├── reports/
+└── scenarios/
+    ├── 001_market_data.py
+    ├── 002_runtime_cluster.py
+    ├── 003_order.py
+    ├── 004_risk.py
+    ├── 005_position.py
+    ├── 006_strategy_ledger.py
+    └── ...
+
+tests/integration/
+├── test_market_data_vertical_slice.py
+├── test_runtime_cluster_vertical_slice.py
+├── test_order_vertical_slice.py
+├── test_risk_vertical_slice.py
+├── test_position_vertical_slice.py
+├── test_strategy_ledger_vertical_slice.py
+├── test_full_vertical_slice.py
+└── test_vertical_slice_replay.py
+```
+
+新增组件时：
+
+* 在 `scenarios/` 中增加对应场景；
+* 在 `tests/integration/` 中增加对应自动化测试；
+* 更新 `run_all.py`；
+* 更新集成 Demo README；
+* 保留并运行全部旧场景。
+
+---
+
+## 4. 统一集成环境
+
+所有场景应尽量复用统一环境：
+
+```text
+OnlyIntegrationEnvironment
+├── runtime
+├── clock
+├── event_bus
+├── market_data_pipeline
+├── clusters
+├── order_manager
+├── risk_service
+├── position_manager
+├── position_allocation_manager
+├── strategy_ledger_manager
+├── execution_placeholder
+├── event_recorder
+└── report_builder
+```
+
+推荐接口：
+
+```python
+class OnlyIntegrationScenario:
+    def arrange(
+        self,
+        env: OnlyIntegrationEnvironment,
+    ) -> None:
+        ...
+
+    def act(
+        self,
+        env: OnlyIntegrationEnvironment,
+    ) -> None:
+        ...
+
+    def assert_expected(
+        self,
+        env: OnlyIntegrationEnvironment,
+    ) -> None:
+        ...
+
+    def build_report(
+        self,
+        env: OnlyIntegrationEnvironment,
+    ) -> OnlyScenarioReport:
+        ...
+```
+
+场景不得自行重新构建另一套架构。
+
+---
+
+## 5. 正式接口要求
+
+集成 Demo 必须使用正式生产接口。
+
+允许：
+
+```text
+Runtime.process_bar()
+ctx.orders.submit()
+OrderUpdateProcessor.process_fill()
+PositionManager.apply_trade()
+PositionAllocationManager.apply_trade()
+StrategyLedgerManager.apply_trade_accounting()
+```
+
+禁止：
+
+```text
+直接修改 Order.status
+直接修改 Position.quantity
+直接修改 Ledger.cash
+直接访问内部 dict
+跳过 RiskService
+跳过 Runtime Scope
+伪造 Manager 内部状态
+```
+
+尚未实现的外部组件可以使用明确命名的：
+
+```text
+Placeholder
+Fake
+Stub
+Test Adapter
+```
+
+但必须在报告中说明其边界。
+
+---
+
+## 6. 当前推荐完整纵向链路
+
+随着组件逐步完成，集成链路应持续扩展：
+
+```text
+OnlyBacktestRuntime
+    ↓
+OnlyBacktestClock
+    ↓
+基础 1m Bar
+    ↓
+OnlyMarketDataPipeline
+    ↓
+派生 3m Bar
+    ↓
+Indicator 更新
+    ↓
+MarketData Snapshot
+    ↓
+Risk Snapshot
+    ↓
+OnlyCluster.on_bar()
+    ↓
+ctx.orders.submit()
+    ↓
+OnlyRiskService
+    ↓
+OnlyOrderManager
+    ↓
+OnlyExecutionService Placeholder
+    ↓
+手工或测试注入标准化 Trade
+    ↓
+OnlyOrderManager.apply_fill()
+    ↓
+OnlyPositionManager.apply_trade()
+    ↓
+OnlyPositionAllocationManager.apply_trade()
+    ↓
+OnlyStrategyLedgerManager.apply_trade_accounting()
+    ↓
+Reservation 更新
+    ↓
+事实 Event
+    ↓
+最终 Snapshot 与报告
+```
+
+新组件必须接入其正确位置，不得另建旁路。
+
+---
+
+## 7. 固定集成场景
+
+至少长期保留以下场景。
+
+### 7.1 MarketData 场景
+
+验证：
+
+* 1m 输入；
+* 3m 聚合；
+* 主周期回调；
+* Snapshot 一致性；
+* 指标准备顺序。
+
+### 7.2 Runtime 与 Cluster 场景
+
+验证：
+
+* Runtime 生命周期；
+* Cluster 生命周期；
+* Context 权限；
+* 多 Cluster 隔离；
+* 多 Runtime 隔离。
+
+### 7.3 Order 场景
+
+验证：
+
+* `ctx.orders.submit()`；
+* Order 创建；
+* 状态迁移；
+* Placeholder Execution；
+* 重复 Fill 幂等；
+* 迟到回报不回退状态。
+
+### 7.4 Risk 场景
+
+验证：
+
+* Mandatory Rule；
+* Cluster Risk Profile；
+* Risk Reject 不创建订单；
+* Risk Error Fail Closed；
+* Risk Reservation；
+* 连续订单额度预占。
+
+### 7.5 Position 场景
+
+验证：
+
+* 账户 Position；
+* Cluster Allocation；
+* T+1；
+* Settled/Unsettled；
+* Position Reservation；
+* Unallocated；
+* Broker Reconciliation。
+
+### 7.6 Strategy Ledger 场景
+
+验证：
+
+* 固定初始资金；
+* Cash Reservation；
+* 买卖成交记账；
+* Strategy PnL；
+* Fee；
+* Equity；
+* Drawdown；
+* Cash View 与 PnL View 对账。
+
+---
+
+## 8. 固定不变量检查
+
+每次运行完整 Vertical Slice 后，至少检查：
+
+```text
+Runtime 状态合法
+Cluster 状态合法
+Clock 与事件时间一致
+Event Sequence 严格稳定
+Runtime Scope 不串流
+Cluster Scope 不串流
+
+派生 Bar 不重复生成
+Snapshot 不可变
+策略回调次数正确
+
+Risk Reject 不创建 Order
+Risk Error 不调用 Execution
+Reservation 不重复占用
+
+Order 状态机合法
+重复 Fill 不重复累计
+迟到回报不导致状态回退
+
+Account Position
+=
+Cluster Allocation Sum
++
+Unallocated Position
+
+T+1 当日买入不可卖
+Cluster 不能卖其他 Cluster Allocation
+本地预占与券商冻结不重复扣减
+
+Strategy Ledger 使用 Cluster Allocation 成本
+手续费只计入所属 Cluster
+Cash View 与 PnL View 一致
+不同 Cluster 的 Ledger 相互隔离
+
+相同输入重放结果一致
+```
+
+---
+
+## 9. 确定性重放
+
+每次新增组件都必须更新确定性重放验证。
+
+至少执行：
+
+```text
+同一配置
+同一初始 Clock
+同一 Instrument
+同一 Bar 序列
+同一 OrderRequest
+同一标准化 Trade
+```
+
+重复运行后比较：
+
+* Event 顺序；
+* OrderId；
+* Order Snapshot；
+* Risk Decision；
+* Reservation；
+* Position Snapshot；
+* Allocation Snapshot；
+* Ledger Snapshot；
+* PnL；
+* Equity；
+* Version。
+
+结果必须一致。
+
+---
+
+## 10. 历史场景保护
+
+Codex 不得：
+
+* 删除旧集成场景；
+* 将旧测试改为 skip；
+* 放宽旧断言；
+* 删除失败路径验证；
+* 更改旧场景业务语义来适配新实现；
+* 仅运行新增测试而不运行历史测试。
+
+确实需要修改旧场景时，必须：
+
+1. 说明原场景为何不再符合已批准架构；
+2. 创建或更新 ADR；
+3. 明确列出修改前后语义；
+4. 证明不是为了掩盖回归。
+
+---
+
+## 11. 报告要求
+
+每个组件任务结束后必须生成：
+
+```text
+docs/reports/<component>_integration_report.md
+```
+
+报告至少包含：
+
+```text
+本次新增组件
+接入的 Vertical Slice 位置
+复用的已有组件
+新增场景
+修改场景
+历史场景运行结果
+组件单元测试结果
+直接集成测试结果
+全链路测试结果
+确定性重放结果
+关键不变量检查
+使用的 Placeholder/Fake
+尚未接入的真实能力
+发现的回归
+已知限制
+是否允许进入下一组件
+```
+
+结论只能是：
+
+```text
+ACCEPTED
+CONDITIONALLY_ACCEPTED
+REJECTED
+```
+
+---
+
+## 12. 完成标准
+
+只有同时满足以下条件，组件任务才可标记完成：
+
+```text
+组件单元测试通过
+直接上下游集成测试通过
+新 Vertical Slice 场景通过
+所有历史场景通过
+完整纵向链路通过
+确定性重放通过
+关键不变量通过
+报告完整
+```
+
+仅组件代码完成或单元测试通过，不得标记任务完成。
+
+---
+
+## 13. 一票否决项
+
+存在以下任一情况，任务结论必须为 `REJECTED`：
+
+```text
+未更新 Vertical Slice
+未运行历史集成场景
+删除或跳过旧场景
+Demo 绕过正式接口
+直接修改 Manager 内部状态
+使用未标明的虚假实现
+单元测试通过但全链路失败
+相同输入重放结果不同
+Scope 出现跨 Runtime 或跨 Cluster 污染
+关键不变量失败
+通过修改预期值掩盖回归
+```
