@@ -133,3 +133,7 @@ Settlement、Reconciliation 或 Unallocated 写入能力。
 
 M1 整合验证确认 `ctx.orders`、`ctx.risk`、`ctx.positions`、`ctx.ledger` 均为 Cluster-scoped View。完整成交编排只存在于
 Runtime 管理入口；Cluster Context 不含 Manager、EventBus、Pipeline、Gateway 或 Placeholder Execution。
+## ctx.accounts
+
+`ctx.accounts` 是绑定默认 account_id 的 `OnlyAccountQueryView`，只暴露 `current()` 和受 Scope 检查的 `get()`，返回 frozen
+`OnlyAccountSnapshot`。它不暴露 AccountManager、Broker Gateway、Reconciliation、Reservation Command 或 inbound queue。

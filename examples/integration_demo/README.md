@@ -1,14 +1,15 @@
 # OnlyAlpha Integration Demo
 
-本 Demo 使用一个 `OnlyIntegrationEnvironment` 和现有正式 Runtime/Context/Manager 接口，按顺序运行 12 个场景：
+本 Demo 使用一个 `OnlyIntegrationEnvironment` 和正式 Runtime/Context/Broker/Manager 接口，运行 18 个自动化场景：
 
 ```text
-Runtime → 1m/3m Pipeline → Cluster → Order → Risk → Placeholder Execution
-→ standardized Fill/Trade → Position → Allocation → Strategy Ledger → Event → Snapshot
+Runtime → 1m/3m Pipeline → Cluster → Order → Risk → ExecutionService → Virtual Broker
+→ Next-Bar Matching → Runtime Inbound Queue → Order → Position → Allocation
+→ Strategy Ledger → Account → Risk → Event → Snapshot
 ```
 
-`OnlyPlaceholderExecutionService` 只记录提交，不生成 Accepted 或 Fill。场景显式注入标准化 Gateway Update 和
-`OnlyPositionTrade`，再交给 Runtime 单写入者入口编排。
+正常买卖、部分成交和撤单场景不手工制造 Accepted/Fill/Trade。只有冲突、重复和乱序失败路径使用明确的 fault adapter
+向 Runtime 正式 inbound Port 注入标准化 Broker Update。
 
 运行：
 

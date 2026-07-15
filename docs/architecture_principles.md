@@ -69,3 +69,12 @@
 - Rule: 乱序 Trade 必须进入严格处理或 Reconciliation。
 - Rule: Cluster 只能通过 ctx.positions 读取不可变 Snapshot。
 - Rule: 每次完整开平仓周期使用新的 PositionId。
+- Rule: 每个 Runtime 独占 OnlyAccountManager，Account 是账户级本地真值，Strategy Ledger 是 Cluster 虚拟账。
+- Rule: AccountManager、Virtual Broker 和 StrategyLedger 不得共享内部可变对象。
+- Rule: Broker Gateway 只能依赖标准 Port 和 DTO，不得持有任何 Runtime Manager。
+- Rule: Broker 同步返回只表示请求接收，Accepted、Fill 和 Cancelled 必须来自标准化异步回报。
+- Rule: 所有 Broker 回报必须先进入 Runtime 拥有的有界 Inbound Queue。
+- Rule: Broker Snapshot 不得静默覆盖本地 Account、Order 或 Position 历史。
+- Rule: Virtual Broker 必须维护独立 Account、Order 和 Trade Store。
+- Rule: Matching Engine 与 Gateway 分离，Next-Bar 撮合不得读取未来数据。
+- Rule: Commission、Slippage 和 Latency 使用独立、精确且可配置的模型。

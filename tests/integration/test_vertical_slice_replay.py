@@ -11,5 +11,5 @@ def replay() -> tuple[object, ...]:
 
 def test_full_vertical_slice_replay_is_deterministic() -> None:
     baseline = replay()
-    for _ in range(10):
+    for _ in range(100):
         assert replay() == baseline

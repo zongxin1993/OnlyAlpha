@@ -1,5 +1,9 @@
 # OnlyAlpha 总体架构
 
+Account 是 Runtime-owned 账户级本地真值，Strategy Ledger 是 Cluster 虚拟账，两者不共享状态。Runtime 独占 Manager，
+Cluster 分别只通过 `ctx.accounts` 与 `ctx.ledger` 读取 immutable Snapshot。Broker Gateway 不持有 Manager，所有异步回报先
+进入 Runtime inbound queue。详见 `docs/account.md`、`docs/broker_gateway.md`、`docs/virtual_broker.md` 与 ADR 0015。
+
 Strategy Ledger 是 Runtime-owned 单写入者状态域：Runtime 独占 Manager，Cluster 只通过 `ctx.ledger` 读取自己的虚拟资金、
 收益与净值。它与券商真实账户分离，并位于 Position Allocation 更新之后。详见 `docs/strategy_ledger.md` 与 ADR 0014。
 
@@ -106,7 +110,9 @@ api / cli
 
 ## 7. 当前实现边界
 
-`src/onlyalpha` 当前包含 Phase 1 骨架和 Phase 2 Pure Financial Domain：可组合多个 Runtime 和 Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。Live/Paper 类型仍只是运行环境标记，不连接行情或交易；Backtest 不含历史驱动和撮合；Research 不含因子管线。任何真实交易能力都必须在后续阶段通过独立 Gateway/Execution 边界和 ADR 引入。
+`src/onlyalpha` 当前包含 Phase 1 骨架、Pure Financial Domain 和最小 Account/Virtual Broker 纵切面：可组合多个 Runtime 和
+Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。Live/Paper 类型仍不连接真实 SDK；
+Backtest 已有确定性 Next-Bar 最小撮合但没有完整历史数据驱动；Research 不含完整因子管线。真实交易必须实现相同 Broker Ports。
 
 Domain 仅依赖标准库和自身模块。`core` 及其上的所有模块可以依赖 Domain，Domain 不得依赖 core 或其他外层模块。
 
@@ -135,4 +141,5 @@ AuthorityPolicy 和 ReconciliationService，不得覆盖本地历史。详见 [P
 ## 11. M1 Vertical Slice
 
 Backtest Runtime 已完成标准化成交的同步编排，复用 Order、Risk、Position、Allocation 和 Strategy Ledger 正式接口。
-Event 只在状态成功改变后发布，不参与状态迁移。统一验证环境位于 `examples/integration_demo/`。
+Virtual Broker 已替换统一场景中的手工成交注入，并接入 Account/Risk 更新。Event 只在状态成功改变后发布，不参与状态迁移。
+统一验证环境位于 `examples/integration_demo/`。

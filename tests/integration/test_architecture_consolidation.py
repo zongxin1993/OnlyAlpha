@@ -31,6 +31,8 @@ def test_runtime_owns_managers_and_context_exposes_only_views() -> None:
         "position_manager",
         "allocation_manager",
         "strategy_ledger_manager",
+        "account_manager",
+        "account_reservation_manager",
         "pipeline",
         "cache",
         "gateway",
@@ -41,6 +43,9 @@ def test_runtime_owns_managers_and_context_exposes_only_views() -> None:
     assert first.runtime.position_manager is not second.runtime.position_manager
     assert first.runtime.allocation_manager is not second.runtime.allocation_manager
     assert first.runtime.strategy_ledger_manager is not second.runtime.strategy_ledger_manager
+    assert first.runtime.account_manager is not second.runtime.account_manager
+    assert first.runtime.account_reservation_manager is not second.runtime.account_reservation_manager
+    assert first.runtime.broker_gateway is not second.runtime.broker_gateway
 
 
 def test_all_vertical_slice_snapshots_are_immutable() -> None:
@@ -51,6 +56,8 @@ def test_all_vertical_slice_snapshots_are_immutable() -> None:
         *env.runtime.position_manager.closed(),
         *env.runtime.allocation_manager.closed(),
         *snapshot.ledger_snapshots,
+        *snapshot.account_snapshots,
+        *snapshot.broker_order_snapshots,
         *env.cluster.snapshots,
     )
     assert values

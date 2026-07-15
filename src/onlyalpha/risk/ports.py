@@ -63,6 +63,10 @@ class OnlyAccountRiskSnapshot(OnlyDomainModel):
     as_of: OnlyTimestamp
     version: int
     available_balances: tuple[OnlyMoney, ...]
+    allows_new_orders: bool = True
+    status: str = "ACTIVE"
+    equity: OnlyMoney | None = None
+    quality_flags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

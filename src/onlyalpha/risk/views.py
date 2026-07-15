@@ -3,12 +3,15 @@
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
+from onlyalpha.account.enums import OnlyAccountStatus
+from onlyalpha.account.views import OnlyAccountQueryService
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.risk.enums import OnlyRiskLevel
+from onlyalpha.risk.ports import OnlyAccountRiskSnapshot
 from onlyalpha.risk.snapshots import OnlyRiskSnapshot
 
 
@@ -101,3 +104,29 @@ class OnlyRiskSnapshotView:
     @property
     def reserved_notional(self) -> OnlyMoney | None:
         return self.snapshot().reserved_notional
+
+
+class OnlyAccountManagerRiskView:
+    """Risk-owned adapter over the Account component's immutable query service."""
+
+    def __init__(self, query: OnlyAccountQueryService) -> None:
+        self._query = query
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def snapshot(self, account_id: OnlyAccountId) -> OnlyAccountRiskSnapshot | None:
+        value = self._query.get(account_id)
+        if value is None:
+            return None
+        return OnlyAccountRiskSnapshot(
+            value.account_id,
+            value.updated_at,
+            value.version,
+            (value.cash.available_cash,),
+            value.status is OnlyAccountStatus.ACTIVE,
+            value.status.value,
+            value.equity,
+            value.quality_flags,
+        )
