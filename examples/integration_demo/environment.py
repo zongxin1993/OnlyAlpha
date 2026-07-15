@@ -291,6 +291,7 @@ class OnlyIntegrationEnvironment:
         self.sell_order: OnlyOrderSubmitResult | None = None
         self.buy_trade_result: OnlyExecutionProcessingResult | None = None
         self.sell_trade_result: OnlyExecutionProcessingResult | None = None
+        self.product_backtest_fingerprint: str | None = None
 
     @property
     def context(self) -> object:
@@ -433,6 +434,7 @@ class OnlyIntegrationEnvironment:
                 (item.event_type, item.source, item.sequence, item.timestamp_ns, item.cluster_id)
                 for item in snapshot.event_trace
             ),
+            self.product_backtest_fingerprint,
         )
 
     def assert_core_invariants(self) -> None:

@@ -37,6 +37,7 @@ from examples.integration_demo.scenarios import (
     scenario_031_snapshot_quality,
     scenario_032_market_data_determinism,
     scenario_033_data_full_vertical_slice,
+    scenario_034_synthetic_macd_product,
 )
 
 SCENARIOS: tuple[Callable[[OnlyIntegrationEnvironment], OnlyScenarioReport], ...] = (
@@ -73,6 +74,7 @@ SCENARIOS: tuple[Callable[[OnlyIntegrationEnvironment], OnlyScenarioReport], ...
     scenario_031_snapshot_quality.run,
     scenario_032_market_data_determinism.run,
     scenario_033_data_full_vertical_slice.run,
+    scenario_034_synthetic_macd_product.run,
 )
 
 

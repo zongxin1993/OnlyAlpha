@@ -6,7 +6,9 @@ from onlyalpha.indicator.base import (
     OnlyIndicatorRegistration,
     OnlyIndicatorRequirement,
     OnlyIndicatorValue,
+    OnlyStructuredIndicatorValue,
 )
+from onlyalpha.indicator.macd import OnlyMacdIndicator, OnlyMacdIndicatorConfig, OnlyMacdSnapshot
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 
 __all__ = [
@@ -16,4 +18,8 @@ __all__ = [
     "OnlyIndicatorRegistration",
     "OnlyIndicatorRequirement",
     "OnlyIndicatorValue",
+    "OnlyStructuredIndicatorValue",
+    "OnlyMacdIndicator",
+    "OnlyMacdIndicatorConfig",
+    "OnlyMacdSnapshot",
 ]

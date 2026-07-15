@@ -1,5 +1,16 @@
 # OnlyAlpha 架构原则
 
+## Product-style Demo
+
+- Rule: OnlyAlpha 的正式 Demo 必须使用与实际产品相同的固定接口。
+- Rule: Demo 不得通过手工装配多个 Manager 模拟产品运行。
+- Rule: Demo 必须使用正式 Runtime、配置、DataSource、Context、Broker 和 Result API。
+- Rule: 合成数据源必须实现正式 HistoricalDataSource Port。
+- Rule: 示例策略必须实现正式 Cluster 接口并且只读取 Context View。
+- Rule: 完整回测 Demo 必须覆盖数据、策略、订单、风控、执行、仓位、账本和账户全链路。
+- Rule: 每个关键系统能力应优先通过可运行的 Product-Style Demo 验证。
+- Rule: Demo 的预期结果必须自动化测试和确定性重放。
+
 - Rule: 所有业务当前时间必须来自 Runtime Clock。
 - Rule: Domain 和 Cluster 禁止直接读取系统时间。
 - Rule: 每个 Runtime 拥有独立 Clock。

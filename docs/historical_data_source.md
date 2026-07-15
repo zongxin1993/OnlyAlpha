@@ -5,6 +5,8 @@ UTC 半开区间 `[start, end)`，必须指定 Data Version、Instrument、DataT
 只完整支持 `RAW`。
 
 - `OnlyInMemoryHistoricalDataSource`：测试、Integration 与确定性最小数据集；
+- `OnlySyntheticHistoricalDataSource`：正式确定性生成源，根据 Instrument 增量、TradingCalendar/Session、BarType、分段价格、
+  Volume、Noise 与固定 Seed 产生版本化 `OnlyBarUpdate`；午休、周末和假期不产生 Bar；
 - `OnlyCsvHistoricalDataSource`：严格小规模导入，schema 恰为一个无损 `update_json` envelope 列；
 - `OnlyParquetHistoricalDataSource`：正式本地列式格式，使用 pyarrow Dataset 下推 Source、Instrument、DataType、UTC range、
   Version 和 BarType 条件并按 batch 扫描；

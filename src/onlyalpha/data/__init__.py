@@ -26,5 +26,14 @@ from onlyalpha.data.sources import (
     OnlyInMemoryReferenceDataSource,
     OnlyParquetHistoricalDataSource,
 )
+from onlyalpha.data.synthetic import (
+    OnlySyntheticHistoricalDataSource,
+    OnlySyntheticHistoricalDataSourceConfig,
+    OnlySyntheticInstrumentDataConfig,
+    OnlySyntheticNoiseModel,
+    OnlySyntheticPriceSegment,
+    OnlySyntheticPriceSegmentType,
+    OnlySyntheticVolumeModel,
+)
 
 __all__ = [name for name in globals() if name.startswith("Only")]

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from importlib import import_module
 from typing import cast
 
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountType
@@ -63,6 +64,7 @@ from onlyalpha.data.models import (
     OnlyMarketDataProcessingResult,
     OnlyMarketDataQuality,
 )
+from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.data.processor import (
     OnlyMarketDataDeduplicator,
     OnlyMarketDataGapDetector,
@@ -97,7 +99,7 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
 from onlyalpha.execution import (
@@ -1108,6 +1110,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         market_data_sequence_tracker = OnlyMarketDataSequenceTracker()
         market_data_gap_detector = OnlyMarketDataGapDetector(self._market_calendars)
         market_data_event_publisher = OnlyMarketDataEventPublisher()
+        self._last_market_trading_day: OnlyTradingDay | None = None
 
         def drain_execution_updates() -> None:
             results = execution_processor.process_many(broker_inbound.drain())
@@ -1115,6 +1118,17 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         def before_market_dispatch(result: OnlyMarketDataUpdateResult) -> None:
             owned_bus.publish_many(result.facts)
+            trading_day = OnlyTradingDay(result.base_bar.trading_day)
+            if self._last_market_trading_day is None:
+                self._last_market_trading_day = trading_day
+            elif trading_day != self._last_market_trading_day:
+                self._services.settlement_service.settle_account(
+                    runtime_config.default_account_id,  # type: ignore[arg-type]
+                    self._last_market_trading_day,
+                    trading_day,
+                )
+                self._last_market_trading_day = trading_day
+            self._apply_market_valuations(result.base_bar, trading_day)
             if broker_gateway is not None:
                 broker_gateway.on_bar(result.base_bar)
                 drain_execution_updates()
@@ -1190,6 +1204,26 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._account_valuation_version = 0
         self._broker_connection_state: object | None = None
         self._legacy_market_data_sequence = 0
+        self._product_runner: Callable[[], object] | None = None
+
+    @classmethod
+    def from_config(cls, config: object) -> OnlyBacktestRuntime:
+        """Assemble the formal product Runtime without exposing its Managers to callers."""
+
+        assembler_type = import_module("onlyalpha.backtest.assembly").OnlyBacktestRuntimeAssembler
+        return cast(OnlyBacktestRuntime, assembler_type().build(config))
+
+    def run(self) -> object:
+        """Execute a configured product backtest through Replay and Runtime-owned services."""
+
+        if self._product_runner is None:
+            raise OnlyRuntimeError("run() requires OnlyBacktestRuntime.from_config(config)")
+        return self._product_runner()
+
+    def _only_bind_product_runner(self, runner: Callable[[], object]) -> None:
+        if self._product_runner is not None or self._state is not OnlyRuntimeState.CREATED:
+            raise OnlyLifecycleError("product runner must be bound once while Runtime is CREATED")
+        self._product_runner = runner
 
     def register_instrument(
         self,
@@ -1303,7 +1337,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
     def replay_historical_bars(
         self,
-        source: OnlyInMemoryHistoricalDataSource,
+        source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
     ) -> OnlyHistoricalReplayResult:
         """Load through HistoricalDataSource, then merge/advance/process through ReplayService."""
@@ -1518,6 +1552,78 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 OnlyMoney(market_value.quantize(quantum), self.config.strategy_base_currency),
                 OnlyMoney(unrealized.quantize(quantum), self.config.strategy_base_currency),
                 trade.ts_init,
+                self._account_valuation_version,
+            )
+        )
+
+    def _apply_market_valuations(self, bar: OnlyBar, trading_day: OnlyTradingDay) -> None:
+        """Mark Runtime-owned account and strategy views before Broker reconciliation and strategy callbacks."""
+
+        timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
+        for ledger in self._services.strategy_ledger_manager.list_ledgers():
+            allocations = self._services.allocation_manager.list_by_cluster(ledger.key.cluster_id)
+            marks: list[OnlyStrategyMarkPrice] = []
+            multipliers: dict[OnlyInstrumentId, OnlyMultiplier] = {}
+            next_version = self._valuation_versions.get(ledger.key, 0) + 1
+            for allocation in allocations:
+                instrument = self._instruments[allocation.key.instrument_id]
+                candidates = tuple(
+                    cached
+                    for registration in self._subscriptions.values()
+                    for bar_type in registration.subscription.bar_types
+                    if bar_type.instrument_id == allocation.key.instrument_id
+                    if (cached := self._services.market_data_cache.latest_closed(bar_type)) is not None
+                )
+                if not candidates:
+                    raise ValueError("Strategy mark-to-market requires a closed Bar for every Allocation")
+                latest = max(candidates, key=lambda item: item.ts_event)
+                marks.append(
+                    OnlyStrategyMarkPrice(
+                        allocation.key.instrument_id,
+                        latest.close,
+                        next_version,
+                        "MARKET_DATA_SNAPSHOT",
+                    )
+                )
+                multipliers[allocation.key.instrument_id] = instrument.contract_multiplier
+            self._valuation_versions[ledger.key] = next_version
+            valuation = self._services.strategy_valuation_service.value(
+                ledger.key,
+                allocations,
+                tuple(marks),
+                multipliers,
+                timestamp,
+                timestamp,
+                next_version,
+            )
+            self._services.strategy_ledger_manager.apply_valuation(valuation, trading_day)
+
+        market_value = Decimal(0)
+        unrealized = Decimal(0)
+        for position in self._services.position_manager.list_by_account(self.config.default_account_id):  # type: ignore[arg-type]
+            instrument = self._instruments[position.key.instrument_id]
+            candidates = tuple(
+                cached
+                for registration in self._subscriptions.values()
+                for bar_type in registration.subscription.bar_types
+                if bar_type.instrument_id == position.key.instrument_id
+                if (cached := self._services.market_data_cache.latest_closed(bar_type)) is not None
+            )
+            if not candidates or position.average_open_price is None:
+                raise ValueError("Account mark-to-market requires a closed Bar for every Position")
+            mark = max(candidates, key=lambda item: item.ts_event).close
+            multiplier = instrument.contract_multiplier.value
+            market_value += mark.value * position.total_quantity.value * multiplier
+            unrealized += (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
+        quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
+        self._account_valuation_version += 1
+        self._services.account_manager.apply_valuation(
+            OnlyAccountValuation(
+                self.config.runtime_id,  # type: ignore[arg-type]
+                self.config.default_account_id,  # type: ignore[arg-type]
+                OnlyMoney(market_value.quantize(quantum), self.config.strategy_base_currency),
+                OnlyMoney(unrealized.quantize(quantum), self.config.strategy_base_currency),
+                timestamp,
                 self._account_valuation_version,
             )
         )
