@@ -27,6 +27,16 @@ from examples.integration_demo.scenarios import (
     scenario_021_out_of_order_trade,
     scenario_022_mid_pipeline_failure,
     scenario_023_partial_fill_then_cancel,
+    scenario_024_market_data_assembly,
+    scenario_025_historical_replay_entry,
+    scenario_026_market_data_audit,
+    scenario_027_queue_separation,
+    scenario_028_source_registry,
+    scenario_029_reference_data,
+    scenario_030_no_lookahead,
+    scenario_031_snapshot_quality,
+    scenario_032_market_data_determinism,
+    scenario_033_data_full_vertical_slice,
 )
 
 SCENARIOS: tuple[Callable[[OnlyIntegrationEnvironment], OnlyScenarioReport], ...] = (
@@ -53,6 +63,16 @@ SCENARIOS: tuple[Callable[[OnlyIntegrationEnvironment], OnlyScenarioReport], ...
     scenario_021_out_of_order_trade.run,
     scenario_022_mid_pipeline_failure.run,
     scenario_023_partial_fill_then_cancel.run,
+    scenario_024_market_data_assembly.run,
+    scenario_025_historical_replay_entry.run,
+    scenario_026_market_data_audit.run,
+    scenario_027_queue_separation.run,
+    scenario_028_source_registry.run,
+    scenario_029_reference_data.run,
+    scenario_030_no_lookahead.run,
+    scenario_031_snapshot_quality.run,
+    scenario_032_market_data_determinism.run,
+    scenario_033_data_full_vertical_slice.run,
 )
 
 

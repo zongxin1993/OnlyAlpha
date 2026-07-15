@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import cast
@@ -43,6 +43,39 @@ from onlyalpha.core.clock import (
     OnlyTimerHandle,
 )
 from onlyalpha.core.errors import OnlyLifecycleError
+from onlyalpha.data.audit import OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
+from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataQualityFlag, OnlyMarketDataType
+from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
+from onlyalpha.data.identifiers import (
+    OnlyDataSequence,
+    OnlyDataVersion,
+    OnlyMarketDataGatewayId,
+    OnlyMarketDataSourceId,
+    OnlyMarketDataUpdateId,
+)
+from onlyalpha.data.models import (
+    OnlyBarUpdate,
+    OnlyHistoricalBarRequest,
+    OnlyHistoricalDataRange,
+    OnlyHistoricalReplayConfig,
+    OnlyHistoricalReplayResult,
+    OnlyMarketDataInboundUpdate,
+    OnlyMarketDataProcessingResult,
+    OnlyMarketDataQuality,
+)
+from onlyalpha.data.processor import (
+    OnlyMarketDataDeduplicator,
+    OnlyMarketDataGapDetector,
+    OnlyMarketDataProcessor,
+    OnlyMarketDataSequenceTracker,
+)
+from onlyalpha.data.queue import OnlyMarketDataInboundQueue
+from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
+from onlyalpha.data.replay import OnlyHistoricalReplayService
+from onlyalpha.data.sources import (
+    OnlyInMemoryHistoricalDataSource,
+    OnlyInMemoryReferenceDataSource,
+)
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyOrderSide,
@@ -287,6 +320,17 @@ class OnlyRuntimeServices:
     execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
     execution_update_deduplicator: OnlyExecutionUpdateDeduplicator
     execution_sequence_tracker: OnlyExecutionSequenceTracker
+    market_data_source_registry: OnlyMarketDataSourceRegistry
+    historical_data_source: OnlyInMemoryHistoricalDataSource
+    reference_data_source: OnlyInMemoryReferenceDataSource
+    market_data_gateway: OnlyInMemoryMarketDataGateway
+    market_data_inbound: OnlyMarketDataInboundQueue
+    market_data_processor: OnlyMarketDataProcessor
+    historical_replay_service: OnlyHistoricalReplayService
+    market_data_audit_store: OnlyMarketDataAuditStore
+    market_data_deduplicator: OnlyMarketDataDeduplicator
+    market_data_sequence_tracker: OnlyMarketDataSequenceTracker
+    market_data_gap_detector: OnlyMarketDataGapDetector
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -599,6 +643,54 @@ class OnlyRuntime:
     def broker_gateway(self) -> OnlyVirtualBrokerGateway | None:
         return self._services.broker_gateway
 
+    @property
+    def broker_inbound_queue(self) -> OnlyVirtualBrokerUpdateQueue:
+        return self._services.broker_inbound
+
+    @property
+    def market_data_source_registry(self) -> OnlyMarketDataSourceRegistry:
+        return self._services.market_data_source_registry
+
+    @property
+    def historical_data_source(self) -> OnlyInMemoryHistoricalDataSource:
+        return self._services.historical_data_source
+
+    @property
+    def reference_data_source(self) -> OnlyInMemoryReferenceDataSource:
+        return self._services.reference_data_source
+
+    @property
+    def market_data_gateway(self) -> OnlyInMemoryMarketDataGateway:
+        return self._services.market_data_gateway
+
+    @property
+    def market_data_inbound_queue(self) -> OnlyMarketDataInboundQueue:
+        return self._services.market_data_inbound
+
+    @property
+    def market_data_processor(self) -> OnlyMarketDataProcessor:
+        return self._services.market_data_processor
+
+    @property
+    def historical_replay_service(self) -> OnlyHistoricalReplayService:
+        return self._services.historical_replay_service
+
+    @property
+    def market_data_audit_store(self) -> OnlyMarketDataAuditStore:
+        return self._services.market_data_audit_store
+
+    @property
+    def market_data_deduplicator(self) -> OnlyMarketDataDeduplicator:
+        return self._services.market_data_deduplicator
+
+    @property
+    def market_data_sequence_tracker(self) -> OnlyMarketDataSequenceTracker:
+        return self._services.market_data_sequence_tracker
+
+    @property
+    def market_data_gap_detector(self) -> OnlyMarketDataGapDetector:
+        return self._services.market_data_gap_detector
+
     def add_cluster(self, engine_id: str | OnlyEngineId, cluster: OnlyCluster) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
             raise OnlyLifecycleError("Clusters must be loaded while Runtime is CREATED")
@@ -772,6 +864,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             clock = OnlyBacktestClock(initial_time_or_event_bus)
             event_bus = None
         super().__init__(runtime_config)
+        self._selected_calendar = selected_calendar
         scope = OnlyEventScope(runtime_config.engine_id, runtime_config.runtime_id)  # type: ignore[arg-type]
         owned_bus = event_bus or OnlyEventBus(
             runtime_config.event_capacity,
@@ -834,6 +927,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._current_snapshots: dict[OnlyClusterId, OnlyMarketDataSnapshot] = {}
         self._timer_results: list[OnlyClusterExecutionResult] = []
         self._instruments: dict[OnlyInstrumentId, OnlyInstrument] = {}
+        self._known_market_data_instruments: set[OnlyInstrumentId] = set()
         self._market_rules: dict[OnlyInstrumentId, OnlyMarketRule] = {}
         self._risk_profile_factory = OnlyRiskProfileFactory()
         manager = OnlyClusterManager(runtime_config.runtime_id, self._make_context, self._cleanup_cluster)  # type: ignore[arg-type]
@@ -987,6 +1081,66 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._set_broker_connection_state,
             runtime_config.strategy_base_currency,
         )
+        self._broker_results: list[object] = []
+        historical_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history")
+        realtime_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-in-memory-live")
+        market_data_source_registry = OnlyMarketDataSourceRegistry()
+        historical_data_source = OnlyInMemoryHistoricalDataSource(historical_source_id)
+        market_data_source_registry.register(historical_data_source, priority=0)
+        market_data_inbound = OnlyMarketDataInboundQueue(runtime_config.event_capacity)
+        market_data_gateway = OnlyInMemoryMarketDataGateway(
+            OnlyMarketDataGatewayId(f"{runtime_config.runtime_id}-market-data"),
+            realtime_source_id,
+            market_data_inbound.put,
+        )
+        market_data_gateway.connect()
+        market_data_gateway.authenticate()
+        market_data_source_registry.register(market_data_gateway, priority=10)
+        self._market_calendars: dict[OnlyInstrumentId, OnlyTradingCalendar] = {}
+        reference_data_source = OnlyInMemoryReferenceDataSource(
+            OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-reference"),
+            self._instruments,
+            {selected_calendar.calendar_id: selected_calendar},
+            self._market_rules,
+        )
+        market_data_audit_store = OnlyMarketDataAuditStore()
+        market_data_deduplicator = OnlyMarketDataDeduplicator()
+        market_data_sequence_tracker = OnlyMarketDataSequenceTracker()
+        market_data_gap_detector = OnlyMarketDataGapDetector(self._market_calendars)
+        market_data_event_publisher = OnlyMarketDataEventPublisher()
+
+        def drain_execution_updates() -> None:
+            results = execution_processor.process_many(broker_inbound.drain())
+            self._broker_results.extend(results)
+
+        def before_market_dispatch(result: OnlyMarketDataUpdateResult) -> None:
+            owned_bus.publish_many(result.facts)
+            if broker_gateway is not None:
+                broker_gateway.on_bar(result.base_bar)
+                drain_execution_updates()
+
+        def after_market_dispatch() -> None:
+            if broker_gateway is not None:
+                broker_gateway.run_due()
+                drain_execution_updates()
+            owned_bus.drain()
+
+        market_data_processor = OnlyMarketDataProcessor(
+            runtime_config.runtime_id,  # type: ignore[arg-type]
+            clock,
+            self._known_market_data_instruments,
+            market_data_source_registry,
+            pipeline,
+            dispatcher,
+            market_data_deduplicator,
+            market_data_sequence_tracker,
+            market_data_gap_detector,
+            market_data_audit_store,
+            market_data_event_publisher,
+            before_market_dispatch,
+            after_market_dispatch,
+        )
+        historical_replay_service = OnlyHistoricalReplayService(clock, market_data_processor)
         self._services = OnlyRuntimeServices(
             clock,
             owned_bus,
@@ -1020,11 +1174,22 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_reconciliation_queue,
             execution_update_deduplicator,
             execution_sequence_tracker,
+            market_data_source_registry,
+            historical_data_source,
+            reference_data_source,
+            market_data_gateway,
+            market_data_inbound,
+            market_data_processor,
+            historical_replay_service,
+            market_data_audit_store,
+            market_data_deduplicator,
+            market_data_sequence_tracker,
+            market_data_gap_detector,
         )
         self._valuation_versions: dict[OnlyStrategyLedgerKey, int] = {}
         self._account_valuation_version = 0
-        self._broker_results: list[object] = []
         self._broker_connection_state: object | None = None
+        self._legacy_market_data_sequence = 0
 
     def register_instrument(
         self,
@@ -1036,6 +1201,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if instrument.instrument_id in self._instruments:
             raise ValueError(f"duplicate Runtime Instrument: {instrument.instrument_id}")
         self._instruments[instrument.instrument_id] = instrument
+        self._known_market_data_instruments.add(instrument.instrument_id)
+        self._market_calendars[instrument.instrument_id] = (
+            self._services.reference_data_source.calendar(instrument.trading_calendar_id or OnlyCalendarId("XSHG"))
+            or self._selected_calendar
+        )
         if market_rule is not None:
             self._market_rules[instrument.instrument_id] = market_rule
 
@@ -1045,30 +1215,108 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._services.indicator_pipeline.register(registration)
 
     def process_bar(self, bar: OnlyBar) -> OnlyRuntimeBarResult:
+        """Compatibility facade implemented as a one-record local historical replay."""
+
         if self._state is not OnlyRuntimeState.RUNNING:
             raise OnlyLifecycleError("Runtime accepts Bars only while RUNNING")
         try:
-            advance = self._services.clock.advance_to(bar.ts_event)
-            update = self._services.pipeline.process_bar(bar)
-            self._services.event_bus.publish_many(update.facts)
-            if self._services.broker_gateway is not None:
-                self._services.broker_gateway.on_bar(bar)
-                self.drain_broker_inbound()
-            dispatches = self._services.dispatcher.dispatch(update)
-            if self._services.broker_gateway is not None:
-                self._services.broker_gateway.run_due()
-                self.drain_broker_inbound()
-            dispatched = self._services.event_bus.drain()
+            self._legacy_market_data_sequence += 1
+            source_id = self._services.historical_data_source.source_id
+            data_version = OnlyDataVersion("runtime-local-v1")
+            inbound = OnlyMarketDataInboundUpdate(
+                OnlyMarketDataUpdateId(
+                    f"MD-{self.config.runtime_id}-{self._legacy_market_data_sequence:012d}-"
+                    f"{OnlyTimestamp.from_datetime(bar.ts_event).unix_nanos}"
+                ),
+                self.config.runtime_id,  # type: ignore[arg-type]
+                source_id,
+                OnlyDataSequence(self._legacy_market_data_sequence),
+                data_version,
+                bar.instrument_id,
+                OnlyMarketDataType.BAR,
+                OnlyBarUpdate(bar),
+                OnlyTimestamp.from_datetime(bar.ts_event),
+                OnlyTimestamp.from_datetime(bar.ts_init),
+                OnlyMarketDataQuality(frozenset({OnlyMarketDataQualityFlag.UNADJUSTED})),
+            )
+            source = OnlyInMemoryHistoricalDataSource(source_id, (inbound,))
+            request = OnlyHistoricalBarRequest(
+                f"runtime-bar-{self._legacy_market_data_sequence}",
+                frozenset({bar.instrument_id}),
+                frozenset({bar.bar_type}),
+                OnlyHistoricalDataRange(
+                    bar.ts_event - timedelta(microseconds=1), bar.ts_event + timedelta(microseconds=1)
+                ),
+                data_version,
+                batch_size=1,
+            )
+            stream = source.load_bars(request)
+            before_events = len(self._services.event_bus.dispatch_results)
+            replay = self._services.historical_replay_service.run(
+                self._services.historical_replay_service.prepare(
+                    OnlyHistoricalReplayConfig((stream,), source_priority=(source_id,))
+                )
+            )
+            if not replay.events:
+                raise OnlyRuntimeError("single-Bar Replay produced no processing event")
+            replay_event = replay.events[-1]
+            processing = replay_event.result
+            if processing.status in (
+                OnlyMarketDataProcessingStatus.REJECTED,
+                OnlyMarketDataProcessingStatus.FAILED,
+                OnlyMarketDataProcessingStatus.STALE,
+            ):
+                message = processing.validation.reasons or (
+                    () if processing.failure is None else (processing.failure.message,)
+                )
+                raise OnlyRuntimeError(f"market-data processing failed: {message}")
+            update = cast(OnlyMarketDataUpdateResult, processing.pipeline_result)
+            dispatches = tuple(cast(OnlyBarDispatchResult, item) for item in processing.dispatches)
+            dispatched = len(self._services.event_bus.dispatch_results) - before_events
             if self.config.cluster_error_policy is OnlyRuntimeErrorPolicy.FAIL_RUNTIME and any(
                 item.called and not item.succeeded for item in dispatches
             ):
                 self._state = OnlyRuntimeState.FAILED
                 self._last_error = "Cluster callback failed under FAIL_RUNTIME policy"
-            return OnlyRuntimeBarResult(advance, update, dispatches, dispatched)
+            return OnlyRuntimeBarResult(replay_event.advance, update, dispatches, dispatched)
         except Exception as exc:
             self._last_error = f"{type(exc).__name__}: {exc}"
             self._state = OnlyRuntimeState.FAILED
             raise
+
+    def receive_market_data_update(self, update: OnlyMarketDataInboundUpdate) -> None:
+        """Real-time Gateway management port; never exposed through Cluster Context."""
+
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime accepts market data only while RUNNING")
+        self._services.market_data_inbound.put(update)
+
+    def drain_market_data_inbound(self) -> tuple[OnlyMarketDataProcessingResult, ...]:
+        """Drain the independent market-data FIFO through the sole Processor."""
+
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime accepts market data only while RUNNING")
+        results: list[OnlyMarketDataProcessingResult] = []
+        while (update := self._services.market_data_inbound.get()) is not None:
+            results.append(self._services.market_data_processor.process(update))
+        return tuple(results)
+
+    def replay_historical_bars(
+        self,
+        source: OnlyInMemoryHistoricalDataSource,
+        request: OnlyHistoricalBarRequest,
+    ) -> OnlyHistoricalReplayResult:
+        """Load through HistoricalDataSource, then merge/advance/process through ReplayService."""
+
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime accepts historical replay only while RUNNING")
+        if not self._services.market_data_source_registry.contains(source.source_id):
+            self._services.market_data_source_registry.register(source)
+        stream = source.load_bars(request)
+        cursor = self._services.historical_replay_service.prepare(
+            OnlyHistoricalReplayConfig((stream,), source_priority=(source.source_id,))
+        )
+        return self._services.historical_replay_service.run(cursor)
 
     def drain_broker_inbound(self) -> tuple[object, ...]:
         """Drain FIFO updates through the Runtime-owned sole business processor."""
@@ -1362,6 +1610,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             raise OnlyRuntimeContextError("first-phase Cluster supports one Bar subscription")
         cluster = next(item for item in self.clusters if item.config.cluster_id == str(cluster_id))
         registration = OnlyClusterBarSubscription(cluster, subscription, tuple(sorted(set(indicator_ids))))
+        self._known_market_data_instruments.update(item.instrument_id for item in subscription.bar_types)
         self._services.dispatcher.register(registration)
         self._subscriptions[cluster_id] = registration
         return subscription.subscription_id

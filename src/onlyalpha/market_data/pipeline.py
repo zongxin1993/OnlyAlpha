@@ -174,7 +174,12 @@ class OnlyMarketDataPipeline:
     def unregister_subscription(self, subscription: OnlyBarSubscription) -> None:
         self._aggregation_manager.unregister_subscription(subscription)
 
-    def process_bar(self, bar: OnlyBar) -> OnlyMarketDataUpdateResult:
+    def process_bar(
+        self,
+        bar: OnlyBar,
+        *,
+        input_quality_flags: tuple[str, ...] = (),
+    ) -> OnlyMarketDataUpdateResult:
         self._sequence += 1
         facts: list[OnlyEvent] = [self._fact(OnlyBarReceivedEvent, OnlyKnownEventType.BAR_RECEIVED, bar, bar)]
         try:
@@ -196,7 +201,7 @@ class OnlyMarketDataPipeline:
                 )
             histories = self._cache.histories_all()
             indicator_result = self._indicator_pipeline.update(updated, histories)
-            quality_flags = tuple(
+            quality_flags = input_quality_flags + tuple(
                 f"OPTIONAL_INDICATOR_MISSING:{failure.indicator_id}" for failure in indicator_result.failures
             )
             now_ns = self._clock.timestamp_ns()

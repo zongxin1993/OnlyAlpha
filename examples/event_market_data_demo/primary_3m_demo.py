@@ -1,19 +1,20 @@
-"""Explicit 3m primary-period demo."""
+"""Explicit 3m primary via HistoricalReplayService."""
 
-from common import OnlyDemoBarCluster, only_demo_bar, only_demo_system, only_demo_types
-
-from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription
-from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from examples.event_market_data_demo.common import run_minutes
+from examples.integration_demo.environment import OnlyIntegrationCluster, OnlyIntegrationEnvironment
+from onlyalpha.domain.identifiers import OnlyClusterId
 
 
 def main() -> None:
-    bar_1m, bar_3m = only_demo_types()
-    pipeline, dispatcher, _ = only_demo_system()
-    cluster = OnlyDemoBarCluster("Cluster-B")
-    subscription = OnlyBarSubscription((bar_1m, bar_3m), primary_bar_type=bar_3m)
-    dispatcher.register(OnlyClusterBarSubscription(cluster, subscription))
-    for minute in range(3):
-        dispatcher.dispatch(pipeline.process_bar(only_demo_bar(bar_1m, minute)))
+    env = OnlyIntegrationEnvironment()
+    cluster = OnlyIntegrationCluster(
+        (env.bar_1m, env.bar_3m),
+        OnlyClusterId("primary-3m-cluster"),
+        primary_bar_type=env.bar_3m,
+    )
+    env.runtime.add_cluster(env.runtime.config.engine_id, cluster)
+    run_minutes(env)
+    assert len(cluster.snapshots) == 1
 
 
 if __name__ == "__main__":
