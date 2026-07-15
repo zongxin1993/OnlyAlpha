@@ -96,3 +96,6 @@ Order Snapshot 的 `cluster_id` 是后续 Position Allocation 的归属依据，
 OrderService 通过窄 Position Reservation Port 在卖单 Risk ACCEPT、Order 创建后立即建立预占，并在发送/券商确认时推进
 阶段；标准化 Fill、拒单、撤单和过期回报消费或释放预占。OrderManager 本身不直接依赖或修改 Position；账户 Position、
 Allocation、Account 与 Risk 的完整成交编排仍属于后续 ExecutionProcessor。
+
+M1 补充：Backtest Runtime 已通过同步 `process_trade()` 把标准化 Fill 编排到 Position、Allocation 和 Strategy Ledger。
+这不是撮合器或真实 ExecutionProcessor；Placeholder 仍不生成成交，持久化事务恢复仍未实现。

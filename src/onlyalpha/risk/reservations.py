@@ -151,6 +151,43 @@ class OnlyRiskReservationManager:
             cluster_id=cluster_id,
         )
 
+    def consume_for_order(
+        self,
+        order_id: OnlyOrderId,
+        timestamp: OnlyTimestamp,
+        *,
+        runtime_id: OnlyRuntimeId,
+        cluster_id: OnlyClusterId,
+    ) -> OnlyRiskReservationResult:
+        reservation_id = self._reservation_id_by_order_id.get(order_id)
+        if reservation_id is None:
+            return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.NOT_FOUND, False, None)
+        reservation = self._reservations[reservation_id]
+        if reservation.runtime_id != runtime_id or reservation.cluster_id != cluster_id:
+            return OnlyRiskReservationResult(
+                OnlyRiskReservationApplyResult.INVALID,
+                False,
+                reservation,
+                "Reservation Scope mismatch",
+            )
+        if reservation.state is OnlyRiskReservationState.CONSUMED:
+            return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.DUPLICATE, False, reservation)
+        if reservation.state is not OnlyRiskReservationState.ACTIVE:
+            return OnlyRiskReservationResult(
+                OnlyRiskReservationApplyResult.INVALID,
+                False,
+                reservation,
+                f"Reservation is not ACTIVE: {reservation.state.value}",
+            )
+        updated = replace(
+            reservation,
+            state=OnlyRiskReservationState.CONSUMED,
+            updated_at=timestamp,
+            version=reservation.version + 1,
+        )
+        self._reservations[reservation_id] = updated
+        return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.APPLIED, True, updated)
+
     def release_cluster(
         self,
         cluster_id: OnlyClusterId,

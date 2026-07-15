@@ -131,3 +131,8 @@ Order 状态域属于 Runtime，而非 Engine 或 Cluster。Runtime 独占 `Only
 Cluster 只通过 `ctx.positions.account/cluster` 读取不可变 Snapshot。Broker Position Snapshot 只能进入字段级
 AuthorityPolicy 和 ReconciliationService，不得覆盖本地历史。详见 [Position 组件](position.md) 与
 [ADR-0013](adr/0013-position-allocation-settlement-and-reconciliation.md)。
+
+## 11. M1 Vertical Slice
+
+Backtest Runtime 已完成标准化成交的同步编排，复用 Order、Risk、Position、Allocation 和 Strategy Ledger 正式接口。
+Event 只在状态成功改变后发布，不参与状态迁移。统一验证环境位于 `examples/integration_demo/`。

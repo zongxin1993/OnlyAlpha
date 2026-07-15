@@ -134,6 +134,11 @@ class OnlyPositionAllocationManager:
     def snapshot_all(self) -> tuple[OnlyPositionAllocationSnapshot, ...]:
         return tuple(sorted((item.snapshot() for item in self._active.values()), key=self._sort_key))
 
+    def closed(self) -> tuple[OnlyPositionAllocationSnapshot, ...]:
+        """Return immutable closed Allocation history in deterministic order."""
+
+        return tuple(self._closed)
+
     def unallocated(self) -> tuple[OnlyUnallocatedPosition, ...]:
         return tuple(
             sorted(self._unallocated.values(), key=lambda item: (str(item.account_id), str(item.instrument_id)))

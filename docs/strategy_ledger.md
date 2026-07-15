@@ -61,4 +61,5 @@ Manager 先完成状态修改和持久化，再发布事实 Event。内存 Repos
 ## 7. Demo 与限制
 
 `examples/strategy_ledger_demo/` 包含九个示例。当前胜负统计按 realized delta 更新，尚未建立 Closed Position Result，因此不把
-每个 Fill 宣称为完整交易；完整 ExecutionProcessor、AccountManager 和真实券商同步留给后续阶段。
+每个 Fill 宣称为完整交易；Backtest Runtime 已完成标准化 Fill 到 Ledger 的同步纵切面编排，但持久化 ExecutionProcessor、
+AccountManager 和真实券商同步仍留给后续阶段。

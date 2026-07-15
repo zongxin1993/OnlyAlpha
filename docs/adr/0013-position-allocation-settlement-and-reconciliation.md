@@ -45,3 +45,8 @@
 
 Position 测试覆盖 Average Cost、Linear PnL、生命周期、超卖、重复/乱序 Trade、双层归因、Unallocated、T+1、
 Restriction/Reservation、券商对账、不可变序列化、Runtime 隔离及 100 次确定性重放。
+
+## M1 实施记录（2026-07-15）
+
+Backtest Runtime 已落实本 ADR 的固定同步顺序：标准化 Order Fill 后调用 Account Position、Cluster Allocation，随后调用
+Strategy Ledger。Position 事实通过 Runtime EventBus Adapter 在成功修改后发布；Event 不参与状态迁移。

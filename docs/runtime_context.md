@@ -130,3 +130,6 @@ cluster_allocation = ctx.positions.cluster.get(instrument_id)
 
 Context 自动绑定 Runtime、默认 Account 和当前 Cluster，只返回不可变 Snapshot。它不暴露 Manager、Reservation、
 Settlement、Reconciliation 或 Unallocated 写入能力。
+
+M1 整合验证确认 `ctx.orders`、`ctx.risk`、`ctx.positions`、`ctx.ledger` 均为 Cluster-scoped View。完整成交编排只存在于
+Runtime 管理入口；Cluster Context 不含 Manager、EventBus、Pipeline、Gateway 或 Placeholder Execution。

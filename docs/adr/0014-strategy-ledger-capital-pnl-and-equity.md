@@ -26,3 +26,8 @@ Cluster PnL 不再依赖账户平均价，多个策略可在同一 Account/Instr
 
 第一版不支持多币种换汇、保证金、融资融券、Funding、分红、自动再平衡、策略间转账、完整 AccountManager、真实券商现金同步
 或完整 ExecutionProcessor。
+
+## M1 实施记录（2026-07-15）
+
+Backtest Runtime 已在 Allocation 更新后构造 `OnlyStrategyTradeAccountingInput`，消费既有 Cash Reservation 并立即完成
+Allocation-authoritative Valuation。Order Update 独立入口保持原行为；完整纵切面入口避免重复消费同一现金预占。

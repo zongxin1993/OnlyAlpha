@@ -71,3 +71,14 @@ docs/reports/<component>_integration_report.md
 ```
 
 未完成 Vertical Slice 更新或历史场景回归时，不得标记本任务完成。
+
+## M1 架构整合实现
+
+统一环境位于 `examples/integration_demo/`，只组装现有 Runtime 资源和正式接口。12 个顺序场景覆盖 Runtime 启动、
+1m→3m、Order/Risk、买卖成交、Position、Allocation、Strategy Ledger、T+1、收益和最终 Snapshot。
+
+标准化成交由 `OnlyBacktestRuntime.process_trade()` 在 Runtime 单写入者线程按固定顺序编排：Order Fill Update →
+Position Reservation → Account Position → Cluster Allocation → Strategy Ledger Accounting/Valuation → Risk Reservation
+完成 → fact Event drain。Placeholder 仍只记录请求，不生成 Accepted、Fill 或 Trade。
+
+自动化入口为 `tests/integration/` 和 `scripts/run_component_validation.sh`。

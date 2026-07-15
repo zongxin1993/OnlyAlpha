@@ -363,6 +363,25 @@ class OnlyRiskService:
             self._refresh_snapshot(cluster_id, account_id, timestamp)
         return result
 
+    def consume_order(
+        self,
+        order_id: OnlyOrderId,
+        cluster_id: OnlyClusterId,
+        account_id: OnlyAccountId,
+        timestamp: OnlyTimestamp,
+    ) -> OnlyRiskReservationResult:
+        """Complete an Order Reservation after the full fill chain succeeds."""
+
+        result = self._reservations.consume_for_order(
+            order_id,
+            timestamp,
+            runtime_id=self.runtime_id,
+            cluster_id=cluster_id,
+        )
+        if result.changed:
+            self._refresh_snapshot(cluster_id, account_id, timestamp)
+        return result
+
     def release_reservation(
         self,
         reservation_id: OnlyRiskReservationId,
