@@ -108,16 +108,17 @@ Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。未来 Live
 ## 10. Demo 与限制
 
 `examples/runtime_context_demo` 包含基础闭环、多 Cluster、Runtime 隔离和 Cluster 失败四个 Demo。
-当前支持受限 `ctx.orders` 和 Runtime 私有 OrderManager；仍不包含风控、撮合、账户、真实 Gateway、Storage、
-多线程 Runtime 或 Runtime 重启。旧四参数 Backtest Runtime 构造器仅为骨架兼容；新代码应使用
+该专项 Demo 聚焦受限 `ctx.orders` 和 Runtime 私有 OrderManager；完整集成环境已包含风控、虚拟撮合和账户，仍不包含
+真实 Gateway、Storage、多线程 Runtime 或 Runtime 重启。旧四参数 Backtest Runtime 构造器仅为骨架兼容；新代码应使用
 `OnlyRuntimeConfig + OnlyTradingCalendar + initial_time`。
 
 ## 11. Order capability
 
 每个 Runtime 创建一个 OrderManager、Query/Command Service、UpdateProcessor 和 Event Publisher Adapter。
 每个 Cluster Context 只获得绑定本 Cluster 的 `OnlyOrderServiceView`。View 可提交、撤单及读取本 Cluster
-Snapshot，不能取得 Manager、Gateway、Repository 或状态修改函数。外部标准化 Update 只能通过
-`OnlyBacktestRuntime.process_order_update()` 在 RUNNING 生命周期内应用。
+Snapshot，不能取得 Manager、Gateway、Repository 或状态修改函数。Broker 回报只能由
+`OnlyBacktestRuntime.receive_broker_update()` 放入 Runtime Inbound Queue，并由
+`drain_broker_inbound()` 交给 Runtime 独占的 `OnlyExecutionProcessor` 应用。Runtime 不暴露直达 Order Processor 的入口。
 
 ## 12. Position capability
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from decimal import Decimal
 from enum import StrEnum
+from typing import cast
 
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountType
 from onlyalpha.account.events import OnlyAccountEvent, OnlyAccountEventPublisher
@@ -15,23 +16,16 @@ from onlyalpha.account.identifiers import OnlyAccountReservationId
 from onlyalpha.account.manager import OnlyAccountManager
 from onlyalpha.account.models import (
     OnlyAccountConfig,
-    OnlyAccountMutationResult,
     OnlyAccountReservation,
-    OnlyAccountTradeCashFlow,
     OnlyAccountValuation,
 )
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.account.reservations import OnlyAccountReservationManager
 from onlyalpha.account.views import OnlyAccountQueryService, OnlyAccountQueryView
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
+from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.updates import (
-    OnlyBrokerAccountUpdate,
-    OnlyBrokerConnectionUpdate,
     OnlyBrokerInboundUpdate,
-    OnlyBrokerOrderAcceptedUpdate,
-    OnlyBrokerOrderCancelledUpdate,
-    OnlyBrokerOrderRejectedUpdate,
-    OnlyBrokerPositionUpdate,
     OnlyBrokerTradeUpdate,
 )
 from onlyalpha.cache.base import OnlyCache
@@ -51,10 +45,7 @@ from onlyalpha.core.clock import (
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
-    OnlyDirection,
-    OnlyOffset,
     OnlyOrderSide,
-    OnlyOrderStatus,
     OnlyRuntimeMode,
     OnlySessionType,
 )
@@ -76,6 +67,17 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
+from onlyalpha.execution import (
+    OnlyExecutionEventPublisher,
+    OnlyExecutionInvariantChecker,
+    OnlyExecutionProcessingResult,
+    OnlyExecutionProcessor,
+    OnlyExecutionProcessorConfig,
+    OnlyExecutionSequenceTracker,
+    OnlyExecutionUpdateDeduplicator,
+    OnlyInMemoryExecutionAuditStore,
+    OnlyInMemoryExecutionReconciliationQueue,
+)
 from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorRegistration, OnlyIndicatorValue
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
@@ -90,13 +92,7 @@ from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDat
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
-from onlyalpha.order.execution.models import (
-    OnlyGatewayOrderAcceptedUpdate,
-    OnlyGatewayOrderCancelledUpdate,
-    OnlyGatewayOrderFillUpdate,
-    OnlyGatewayOrderRejectedUpdate,
-    OnlyGatewayOrderUpdate,
-)
+from onlyalpha.order.execution.models import OnlyGatewayOrderFillUpdate
 from onlyalpha.order.execution.placeholder import OnlyPlaceholderExecutionService
 from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.execution.service import OnlyExecutionService
@@ -104,22 +100,16 @@ from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, Onl
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.publisher import OnlyRuntimeOrderEventPublisherAdapter
 from onlyalpha.order.query import OnlyOrderQueryService
-from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
-from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionSide, OnlySettlementBucket
+from onlyalpha.position.enums import OnlyPositionSide
 from onlyalpha.position.events import OnlyPositionEvent
-from onlyalpha.position.identifiers import OnlyGatewayId
 from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.manager import OnlyPositionManager
 from onlyalpha.position.models import (
-    OnlyBrokerPositionSnapshot as OnlyLocalBrokerPositionSnapshot,
-)
-from onlyalpha.position.models import (
     OnlyPositionAllocationSnapshot,
-    OnlyPositionMutationResult,
     OnlyPositionTrade,
     OnlySettlementResult,
 )
@@ -151,16 +141,10 @@ from onlyalpha.runtime.context import (
     OnlySubscriptionService,
     OnlyTimerService,
 )
-from onlyalpha.strategy_ledger.enums import OnlyStrategyFeeType
-from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.models import (
-    OnlyStrategyFeeEntry,
-    OnlyStrategyLedgerMutationResult,
-    OnlyStrategyLedgerSnapshot,
     OnlyStrategyMarkPrice,
-    OnlyStrategyTradeAccountingInput,
 )
 from onlyalpha.strategy_ledger.order_port import OnlyOrderStrategyCashReservationAdapter
 from onlyalpha.strategy_ledger.publisher import OnlyRuntimeStrategyLedgerEventPublisherAdapter
@@ -267,19 +251,6 @@ class OnlyRuntimeBarResult:
     events_dispatched: int
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyRuntimeTradeResult:
-    """Result of one Runtime-owned standardized fill orchestration."""
-
-    order: OnlyOrderMutationResult
-    position: OnlyPositionMutationResult | None
-    allocation_status: OnlyPositionMutationStatus | None
-    ledger: OnlyStrategyLedgerMutationResult | None
-    final_ledger: OnlyStrategyLedgerSnapshot | None
-    events_dispatched: int
-    account: OnlyAccountMutationResult | None = None
-
-
 @dataclass(slots=True)
 class OnlyRuntimeServices:
     """Runtime-private mutable service container; never exposed through Context."""
@@ -310,6 +281,12 @@ class OnlyRuntimeServices:
     account_query: OnlyAccountQueryService
     broker_inbound: OnlyVirtualBrokerUpdateQueue
     broker_gateway: OnlyVirtualBrokerGateway | None
+    execution_processor: OnlyExecutionProcessor
+    execution_event_publisher: OnlyExecutionEventPublisher
+    execution_audit_store: OnlyInMemoryExecutionAuditStore
+    execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
+    execution_update_deduplicator: OnlyExecutionUpdateDeduplicator
+    execution_sequence_tracker: OnlyExecutionSequenceTracker
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -597,6 +574,28 @@ class OnlyRuntime:
         return self._services.execution_service
 
     @property
+    def execution_processor(self) -> OnlyExecutionProcessor:
+        """Runtime-owned sole business consumer for Broker inbound updates."""
+
+        return self._services.execution_processor
+
+    @property
+    def execution_audit_store(self) -> OnlyInMemoryExecutionAuditStore:
+        return self._services.execution_audit_store
+
+    @property
+    def execution_reconciliation_queue(self) -> OnlyInMemoryExecutionReconciliationQueue:
+        return self._services.execution_reconciliation_queue
+
+    @property
+    def execution_update_deduplicator(self) -> OnlyExecutionUpdateDeduplicator:
+        return self._services.execution_update_deduplicator
+
+    @property
+    def execution_sequence_tracker(self) -> OnlyExecutionSequenceTracker:
+        return self._services.execution_sequence_tracker
+
+    @property
     def broker_gateway(self) -> OnlyVirtualBrokerGateway | None:
         return self._services.broker_gateway
 
@@ -779,22 +778,24 @@ class OnlyBacktestRuntime(OnlyRuntime):
             scope=scope,
             queue_policy=runtime_config.event_queue_policy,
         )
+        execution_event_publisher = OnlyExecutionEventPublisher(owned_bus)
+        event_sink = cast(OnlyEventBus, execution_event_publisher)
         self._strategy_ledger_manager.bind_publisher(
             OnlyRuntimeStrategyLedgerEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
-                owned_bus,
+                event_sink,
             )
         )
         self._position_manager.bind_publisher(
             OnlyRuntimePositionEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
-                owned_bus,
+                event_sink,
             )
         )
         self._account_manager.bind_publisher(
             OnlyRuntimeAccountEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
-                owned_bus,
+                event_sink,
             )
         )
         account_initial_cash = (
@@ -844,7 +845,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlySequenceOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
             OnlySequenceClientOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
         )
-        order_publisher = OnlyRuntimeOrderEventPublisherAdapter(owned_bus)
+        order_publisher = OnlyRuntimeOrderEventPublisherAdapter(event_sink)
         order_query = OnlyOrderQueryService(order_manager)
         position_manager = self._position_manager
         allocation_manager = self._allocation_manager
@@ -884,7 +885,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlyInstrumentRiskMappingView(self._instruments),
             OnlyMarketRuleRiskMappingView(self._market_rules),
             order_query,
-            OnlyRuntimeRiskEventPublisherAdapter(owned_bus),
+            OnlyRuntimeRiskEventPublisherAdapter(event_sink),
             account_rules=(OnlyAvailableBalanceRiskRule(), OnlyAvailablePositionRiskRule()),
             account_risk=OnlyAccountManagerRiskView(self._account_query),
             position_risk=OnlyPositionRiskView(position_query, clock.timestamp_ns),
@@ -896,6 +897,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_gateway = (
             OnlyVirtualBrokerGateway(
                 runtime_config.virtual_broker_config,
+                runtime_config.runtime_id,  # type: ignore[arg-type]
                 clock,
                 broker_inbound.put,
             )
@@ -928,6 +930,63 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_position_reservations,
             order_cash_reservations,
         )
+        account_reconciliation = OnlyAccountReconciliationService(self._account_manager)
+        position_reconciliation = OnlyPositionReconciliationService(
+            runtime_config.runtime_id,  # type: ignore[arg-type]
+            position_manager,
+            allocation_manager,
+            OnlyPositionAuthorityPolicy(runtime_config.mode),
+            position_reservations,
+        )
+        execution_audit_store = OnlyInMemoryExecutionAuditStore()
+        execution_reconciliation_queue = OnlyInMemoryExecutionReconciliationQueue()
+        execution_update_deduplicator = OnlyExecutionUpdateDeduplicator()
+        execution_sequence_tracker = OnlyExecutionSequenceTracker()
+        execution_invariant_checker = OnlyExecutionInvariantChecker(
+            position_manager,
+            allocation_manager,
+            self._strategy_ledger_manager,
+            self._account_manager,
+            position_reservations,
+            risk_service,
+        )
+        execution_processor = OnlyExecutionProcessor(
+            OnlyExecutionProcessorConfig(
+                runtime_config.engine_id,  # type: ignore[arg-type]
+                runtime_config.runtime_id,  # type: ignore[arg-type]
+                (
+                    runtime_config.virtual_broker_config.gateway_id
+                    if runtime_config.virtual_broker_config is not None
+                    else OnlyBrokerGatewayId("placeholder"),
+                ),
+                (runtime_config.default_account_id,),  # type: ignore[arg-type]
+            ),
+            clock,
+            self._instruments,
+            order_query,
+            order_update_processor,
+            position_manager,
+            allocation_manager,
+            self._strategy_ledger_manager,
+            self._account_manager,
+            risk_service,
+            position_reservations,
+            order_position_reservations,
+            account_cash_reservations.consume,
+            account_cash_reservations.release,
+            position_reconciliation,
+            account_reconciliation,
+            execution_invariant_checker,
+            execution_event_publisher,
+            execution_audit_store,
+            execution_reconciliation_queue,
+            execution_update_deduplicator,
+            execution_sequence_tracker,
+            self._apply_strategy_valuation,
+            self._apply_account_valuation,
+            self._set_broker_connection_state,
+            runtime_config.strategy_base_currency,
+        )
         self._services = OnlyRuntimeServices(
             clock,
             owned_bus,
@@ -955,20 +1014,17 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._account_query,
             broker_inbound,
             broker_gateway,
+            execution_processor,
+            execution_event_publisher,
+            execution_audit_store,
+            execution_reconciliation_queue,
+            execution_update_deduplicator,
+            execution_sequence_tracker,
         )
         self._valuation_versions: dict[OnlyStrategyLedgerKey, int] = {}
         self._account_valuation_version = 0
-        self._processed_broker_updates: set[object] = set()
         self._broker_results: list[object] = []
         self._broker_connection_state: object | None = None
-        self._account_reconciliation = OnlyAccountReconciliationService(self._account_manager)
-        self._position_reconciliation = OnlyPositionReconciliationService(
-            runtime_config.runtime_id,  # type: ignore[arg-type]
-            position_manager,
-            allocation_manager,
-            OnlyPositionAuthorityPolicy(runtime_config.mode),
-            position_reservations,
-        )
 
     def register_instrument(
         self,
@@ -1014,142 +1070,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._state = OnlyRuntimeState.FAILED
             raise
 
-    def process_order_update(self, update: OnlyGatewayOrderUpdate) -> OnlyOrderMutationResult:
-        """Apply one normalized external update on the owning Runtime thread."""
+    def drain_broker_inbound(self) -> tuple[object, ...]:
+        """Drain FIFO updates through the Runtime-owned sole business processor."""
 
         if self._state is not OnlyRuntimeState.RUNNING:
-            raise OnlyLifecycleError("Runtime accepts Order updates only while RUNNING")
-        result = self._services.order_update_processor.process(update)
-        self._services.event_bus.drain()
-        return result
-
-    def drain_broker_inbound(self) -> tuple[object, ...]:
-        """Apply normalized Broker facts on the single Runtime owner thread."""
-
-        results: list[object] = []
-        for update in self._services.broker_inbound.drain():
-            if update.update_id in self._processed_broker_updates:
-                continue
-            self._processed_broker_updates.add(update.update_id)
-            if isinstance(update, OnlyBrokerConnectionUpdate):
-                self._broker_connection_state = update.state
-                results.append(update)
-            elif isinstance(update, OnlyBrokerOrderAcceptedUpdate):
-                results.append(
-                    self.process_order_update(
-                        OnlyGatewayOrderAcceptedUpdate(
-                            runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
-                            order_id=update.order_id,
-                            ts_event=update.ts_event,
-                            ts_init=update.ts_init,
-                            external_sequence=update.source_sequence,
-                            external_event_id=str(update.update_id),
-                            metadata=update.metadata,
-                            venue_order_id=update.venue_order_id,
-                        )
-                    )
-                )
-            elif isinstance(update, OnlyBrokerOrderRejectedUpdate):
-                results.append(
-                    self.process_order_update(
-                        OnlyGatewayOrderRejectedUpdate(
-                            runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
-                            order_id=update.order_id,
-                            ts_event=update.ts_event,
-                            ts_init=update.ts_init,
-                            external_sequence=update.source_sequence,
-                            external_event_id=str(update.update_id),
-                            metadata=update.metadata,
-                            rejection=update.rejection,
-                        )
-                    )
-                )
-            elif isinstance(update, OnlyBrokerOrderCancelledUpdate):
-                results.append(
-                    self.process_order_update(
-                        OnlyGatewayOrderCancelledUpdate(
-                            runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
-                            order_id=update.order_id,
-                            ts_event=update.ts_event,
-                            ts_init=update.ts_init,
-                            external_sequence=update.source_sequence,
-                            external_event_id=str(update.update_id),
-                            metadata=update.metadata,
-                        )
-                    )
-                )
-            elif isinstance(update, OnlyBrokerTradeUpdate):
-                order = self._services.order_query.require(update.order_id)
-                fill_update = OnlyGatewayOrderFillUpdate(
-                    runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
-                    order_id=update.order_id,
-                    ts_event=update.ts_event,
-                    ts_init=update.ts_init,
-                    external_sequence=update.source_sequence,
-                    external_event_id=str(update.update_id),
-                    metadata=update.metadata,
-                    fill=update.fill,
-                )
-                fee = update.fill.fee or OnlyMoney(Decimal(0), self.config.strategy_base_currency)
-                instrument = self._instruments[order.instrument_id]
-                trade = OnlyPositionTrade(
-                    update.fill.trade_id,
-                    update.fill.venue_trade_id,
-                    order.order_id,
-                    order.cluster_id,
-                    order.runtime_id,
-                    order.account_id,
-                    order.instrument_id,
-                    order.side,
-                    OnlyDirection.BUY if order.side is OnlyOrderSide.BUY else OnlyDirection.SELL,
-                    OnlyOffset.OPEN if order.side is OnlyOrderSide.BUY else OnlyOffset.CLOSE,
-                    OnlyPositionSide.LONG,
-                    update.fill.price,
-                    update.fill.quantity,
-                    fee,
-                    update.ts_event,
-                    update.ts_init,
-                    update.source_sequence,
-                    execution_id=str(update.update_id),
-                    settlement_bucket=(
-                        OnlySettlementBucket.UNSETTLED
-                        if order.side is OnlyOrderSide.BUY
-                        else OnlySettlementBucket.SETTLED
-                    ),
-                    multiplier=instrument.contract_multiplier,
-                )
-                results.append(self.process_trade(fill_update, trade))
-            elif isinstance(update, OnlyBrokerPositionUpdate):
-                broker = update.snapshot
-                settled_value = broker.available_quantity.value + broker.frozen_quantity.value
-                settled = type(broker.quantity)(settled_value, broker.quantity.precision)
-                unsettled = type(broker.quantity)(broker.quantity.value - settled_value, broker.quantity.precision)
-                results.append(
-                    self._position_reconciliation.reconcile(
-                        OnlyLocalBrokerPositionSnapshot(
-                            OnlyGatewayId(str(broker.gateway_id)),
-                            broker.account_id,
-                            broker.instrument_id,
-                            OnlyPositionSide.LONG,
-                            broker.quantity,
-                            broker.available_quantity,
-                            broker.frozen_quantity,
-                            settled,
-                            unsettled,
-                            unsettled,
-                            settled,
-                            broker.average_price,
-                            None,
-                            broker.snapshot_time,
-                            broker.source_sequence,
-                        )
-                    )
-                )
-            elif isinstance(update, OnlyBrokerAccountUpdate):
-                results.append(self._account_reconciliation.reconcile(update.snapshot))
-            else:
-                raise TypeError(f"unsupported Runtime Broker update: {type(update).__name__}")
+            raise OnlyLifecycleError("Runtime accepts Broker updates only while RUNNING")
+        results = list(self._services.execution_processor.process_many(self._services.broker_inbound.drain()))
         self._broker_results.extend(results)
+        self._services.event_bus.drain()
         return tuple(results)
 
     def receive_broker_update(self, update: OnlyBrokerInboundUpdate) -> None:
@@ -1163,119 +1091,17 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
     def process_trade(
         self,
-        update: OnlyGatewayOrderFillUpdate,
-        trade: OnlyPositionTrade,
-    ) -> OnlyRuntimeTradeResult:
-        """Apply Order, Position, Allocation and Ledger changes in Runtime order.
+        update: OnlyBrokerTradeUpdate,
+    ) -> OnlyExecutionProcessingResult:
+        """Convenience ingress that still enforces Queue then ExecutionProcessor."""
 
-        The caller supplies already-standardized Gateway facts.  Placeholder Execution
-        never manufactures an acceptance, fill or trade.
-        """
-
-        if self._state is not OnlyRuntimeState.RUNNING:
-            raise OnlyLifecycleError("Runtime accepts Trades only while RUNNING")
-        order_before = self._services.order_query.require(update.order_id)
-        self._validate_trade(update, trade, order_before)
-        allocation_key = OnlyPositionAllocationKey(
-            trade.runtime_id,
-            trade.account_id,
-            trade.cluster_id,  # type: ignore[arg-type]
-            trade.instrument_id,
-            trade.position_side,
-        )
-        allocation_before = self._services.allocation_manager.get_snapshot(allocation_key)
-        order_result = self._services.order_update_processor.process(
-            update,
-            consume_cash_reservation=False,
-        )
-        if not order_result.changed:
-            dispatched = self._services.event_bus.drain()
-            return OnlyRuntimeTradeResult(order_result, None, None, None, None, dispatched)
-
-        position_result = self._services.position_manager.apply_trade(trade)
-        allocation_status = self._services.allocation_manager.apply_trade(trade)
-        allocation_after = self._allocation_snapshot(allocation_key)
-        ledger_key = OnlyStrategyLedgerKey(
-            trade.runtime_id,
-            trade.account_id,
-            trade.cluster_id,  # type: ignore[arg-type]
-            self.config.strategy_base_currency,
-        )
-        ledger_snapshot = self._services.strategy_ledger_manager.require_snapshot(ledger_key)
-        cash_reservation = next(
-            (item for item in ledger_snapshot.reservations if item.order_id == trade.order_id),
-            None,
-        )
-        realized_before = self._allocation_money(allocation_before, realized=True)
-        realized_after = self._allocation_money(allocation_after, realized=True)
-        cost_before = self._allocation_cost(allocation_before, trade)
-        cost_after = self._allocation_cost(allocation_after, trade)
-        fee_entry = OnlyStrategyFeeEntry(
-            OnlyStrategyFeeEntryId(f"SFEE-{trade.runtime_id}-{trade.trade_id}"),
-            ledger_key,
-            trade.fee,
-            OnlyStrategyFeeType.COMMISSION,
-            trade.trade_id,
-            trade.order_id,
-            trade.ts_event,
-            trade.ts_init,
-            trade.external_sequence or 0,
-        )
-        ledger_result = self._services.strategy_ledger_manager.apply_trade_accounting(
-            ledger_key,
-            OnlyStrategyTradeAccountingInput(
-                trade,
-                order_result.snapshot,
-                allocation_before,
-                allocation_after,
-                realized_after - realized_before,
-                cost_after - cost_before,
-                (fee_entry,),
-                cash_reservation,
-                trade.ts_event,
-                trade.external_sequence or 0,
-            ),
-        )
-        self._apply_strategy_valuation(ledger_key, trade)
-        self._account_cash_reservations.consume(update.fill, trade.ts_init)
-        quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
-        notional = OnlyMoney(
-            (trade.price.value * trade.quantity.value * trade.multiplier.value).quantize(quantum),
-            self.config.strategy_base_currency,
-        )
-        account_result = self._services.account_manager.apply_trade_cash_flow(
-            OnlyAccountTradeCashFlow(
-                trade.runtime_id,
-                trade.account_id,
-                trade.order_id,
-                trade.trade_id,
-                trade.side,
-                notional,
-                trade.fee,
-                position_result.realized_pnl_delta,
-                trade.ts_init,
-                trade.external_sequence or 0,
-            )
-        )
-        self._apply_account_valuation(trade)
-        if order_result.snapshot.status is OnlyOrderStatus.FILLED:
-            self._services.risk_service.consume_order(
-                trade.order_id,
-                order_result.snapshot.cluster_id,
-                trade.account_id,
-                trade.ts_init,
-            )
-        final_ledger = self._services.strategy_ledger_manager.require_snapshot(ledger_key)
-        dispatched = self._services.event_bus.drain()
-        return OnlyRuntimeTradeResult(
-            order_result,
-            position_result,
-            allocation_status,
-            ledger_result,
-            final_ledger,
-            dispatched,
-            account_result,
-        )
+        before = len(self._broker_results)
+        self.receive_broker_update(update)
+        self.drain_broker_inbound()
+        result = self._broker_results[before]
+        if not isinstance(result, OnlyExecutionProcessingResult):
+            raise TypeError("Trade ingress did not produce an Execution processing result")
+        return result
 
     def settle_positions(
         self,
@@ -1447,6 +1273,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._account_valuation_version,
             )
         )
+
+    def _set_broker_connection_state(self, state: object) -> None:
+        self._broker_connection_state = state
 
     def _make_context(self, cluster_id: OnlyClusterId) -> OnlyClusterContext:
         def allowed_bar_types() -> frozenset[OnlyBarType]:

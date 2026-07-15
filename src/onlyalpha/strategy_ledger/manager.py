@@ -189,7 +189,11 @@ class OnlyStrategyLedgerManager:
         return before
 
     def apply_trade_accounting(
-        self, key: OnlyStrategyLedgerKey, accounting: OnlyStrategyTradeAccountingInput
+        self,
+        key: OnlyStrategyLedgerKey,
+        accounting: OnlyStrategyTradeAccountingInput,
+        *,
+        consume_cash_reservation: bool = True,
     ) -> OnlyStrategyLedgerMutationResult:
         ledger = self._require_entity(key)
         before = self._snapshot(ledger)
@@ -220,8 +224,9 @@ class OnlyStrategyLedgerManager:
                 or accounting.cash_reservation.reservation_id != reservation.reservation_id
             ):
                 raise ValueError("BUY accounting requires its Strategy Cash Reservation")
-            actual = self._trade_notional(key, accounting) + accounting.trade.fee
-            self.consume_cash_reservation(key, accounting.trade.order_id, actual, accounting.ts_event)
+            if consume_cash_reservation:
+                actual = self._trade_notional(key, accounting) + accounting.trade.fee
+                self.consume_cash_reservation(key, accounting.trade.order_id, actual, accounting.ts_event)
         cash_delta, realized_delta, fee_delta = ledger.apply_trade(accounting)
         self._trade_fingerprints.update(fingerprints)
         self._fee_ids.update(entry.entry_id for entry in accounting.fee_entries)

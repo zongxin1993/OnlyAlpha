@@ -42,6 +42,7 @@ from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.execution import OnlyExecutionProcessingResult
 from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
@@ -51,7 +52,6 @@ from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositi
 from onlyalpha.runtime.runtime import (
     OnlyBacktestRuntime,
     OnlyRuntimeConfig,
-    OnlyRuntimeTradeResult,
 )
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 from onlyalpha.virtual_broker import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
@@ -193,7 +193,12 @@ class OnlyIntegrationCluster(OnlyCluster):
 class OnlyIntegrationEnvironment:
     """Owns one Runtime and drives the complete deterministic vertical slice."""
 
-    def __init__(self, *, maximum_fill_quantity: OnlyQuantity | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        maximum_fill_quantity: OnlyQuantity | None = None,
+        virtual_broker: bool = True,
+    ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
             OnlyVenueId("XSHG"),
@@ -236,13 +241,17 @@ class OnlyIntegrationEnvironment:
                 OnlyRuntimeMode.BACKTEST,
                 strategy_initial_capital="1000000.00",
                 strategy_base_currency=CNY,
-                virtual_broker_config=OnlyVirtualBrokerConfig(
-                    OnlyBrokerGatewayId("virtual-integration"),
-                    OnlyAccountId(ACCOUNT_ID),
-                    CNY,
-                    OnlyMoney(Decimal("1000000.00"), CNY),
-                    maximum_fill_quantity=maximum_fill_quantity,
-                    commission_model=OnlyFixedCommissionModel(OnlyMoney(Decimal("1.00"), CNY)),
+                virtual_broker_config=(
+                    OnlyVirtualBrokerConfig(
+                        OnlyBrokerGatewayId("virtual-integration"),
+                        OnlyAccountId(ACCOUNT_ID),
+                        CNY,
+                        OnlyMoney(Decimal("1000000.00"), CNY),
+                        maximum_fill_quantity=maximum_fill_quantity,
+                        commission_model=OnlyFixedCommissionModel(OnlyMoney(Decimal("1.00"), CNY)),
+                    )
+                    if virtual_broker
+                    else None
                 ),
             ),
             self.calendar,
@@ -256,8 +265,8 @@ class OnlyIntegrationEnvironment:
         self.market_updates: list[OnlyMarketDataUpdateResult] = []
         self.buy_order: OnlyOrderSubmitResult | None = None
         self.sell_order: OnlyOrderSubmitResult | None = None
-        self.buy_trade_result: OnlyRuntimeTradeResult | None = None
-        self.sell_trade_result: OnlyRuntimeTradeResult | None = None
+        self.buy_trade_result: OnlyExecutionProcessingResult | None = None
+        self.sell_trade_result: OnlyExecutionProcessingResult | None = None
 
     @property
     def context(self) -> object:
@@ -289,13 +298,15 @@ class OnlyIntegrationEnvironment:
         self.buy_order = self.cluster.submit_results[-1]
         return self.buy_order
 
-    def fill_buy(self) -> OnlyRuntimeTradeResult:
+    def fill_buy(self) -> OnlyExecutionProcessingResult:
         if self.buy_order is None or self.buy_order.order_id is None:
             raise RuntimeError("buy Order must be submitted first")
         before = len(self.runtime.broker_results)
         self.process_bar(DAY_ONE, 4, "10.00")
         self.buy_trade_result = next(
-            item for item in self.runtime.broker_results[before:] if isinstance(item, OnlyRuntimeTradeResult)
+            item
+            for item in self.runtime.broker_results[before:]
+            if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
         )
         return self.buy_trade_result
 
@@ -308,7 +319,7 @@ class OnlyIntegrationEnvironment:
         self.event_recorder.capture(self.runtime.event_bus)
         return results
 
-    def submit_and_fill_sell(self) -> OnlyRuntimeTradeResult:
+    def submit_and_fill_sell(self) -> OnlyExecutionProcessingResult:
         self.cluster.pending_order = OnlyOrderRequest(
             OnlyOrderRequestId("integration-sell"),
             INSTRUMENT_ID,
@@ -325,7 +336,9 @@ class OnlyIntegrationEnvironment:
         before = len(self.runtime.broker_results)
         self.process_bar(DAY_TWO, 2, "12.00")
         self.sell_trade_result = next(
-            item for item in self.runtime.broker_results[before:] if isinstance(item, OnlyRuntimeTradeResult)
+            item
+            for item in self.runtime.broker_results[before:]
+            if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
         )
         return self.sell_trade_result
 
@@ -335,6 +348,26 @@ class OnlyIntegrationEnvironment:
 
     def deterministic_projection(self) -> tuple[object, ...]:
         snapshot = self.final_snapshot()
+        execution_results = tuple(
+            (
+                str(item.update_id),
+                item.update_type,
+                item.status.value,
+                item.sequence,
+                tuple((step.step.value, step.status.value, step.summary) for step in item.mutation_bundle.steps),
+                None if item.order_snapshot is None else item.order_snapshot.to_json(),
+                None if item.position_snapshot is None else item.position_snapshot.to_json(),
+                None if item.allocation_snapshot is None else item.allocation_snapshot.to_json(),
+                None if item.ledger_snapshot is None else item.ledger_snapshot.to_json(),
+                None if item.account_snapshot is None else item.account_snapshot.to_json(),
+                None if item.risk_snapshot is None else item.risk_snapshot.to_json(),
+                item.audit_record.to_json(),
+                (None if item.reconciliation_request is None else item.reconciliation_request.to_json()),
+                tuple(str(event.event_type) for event in item.generated_events),
+            )
+            for item in self.runtime.broker_results
+            if isinstance(item, OnlyExecutionProcessingResult)
+        )
         return (
             snapshot.runtime_state,
             tuple(item.to_json() for item in snapshot.order_snapshots),
@@ -346,6 +379,9 @@ class OnlyIntegrationEnvironment:
             tuple(item.to_json() for item in snapshot.broker_order_snapshots),
             snapshot.active_risk_reservations,
             snapshot.position_reservation_state,
+            tuple(item.to_json() for item in self.runtime.risk_service.reservations.snapshot_all()),
+            execution_results,
+            tuple(item.to_json() for item in self.runtime.execution_reconciliation_queue.requests()),
             tuple(
                 (item.event_type, item.source, item.sequence, item.timestamp_ns, item.cluster_id)
                 for item in snapshot.event_trace

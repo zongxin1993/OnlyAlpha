@@ -78,3 +78,14 @@
 - Rule: Virtual Broker 必须维护独立 Account、Order 和 Trade Store。
 - Rule: Matching Engine 与 Gateway 分离，Next-Bar 撮合不得读取未来数据。
 - Rule: Commission、Slippage 和 Latency 使用独立、精确且可配置的模型。
+- Rule: 所有 Broker Update 必须通过 Runtime Inbound Queue。
+- Rule: OnlyExecutionProcessor 是 Broker Update 的唯一业务处理入口。
+- Rule: BrokerGateway 不得直接修改任何 Manager。
+- Rule: Trade 必须按 Order、Position、Allocation、StrategyLedger、Account、Reservation、Risk、Invariant、Event 固定顺序更新。
+- Rule: Event 只能在完整跨组件状态成功形成后发布。
+- Rule: ExecutionProcessor 统一协调彼此独立的 Reservation 生命周期。
+- Rule: 重复 Broker Update 和重复 Trade 必须幂等。
+- Rule: 迟到 Update 不得导致状态回退；无法安全应用的乱序 Trade 必须进入 Reconciliation。
+- Rule: 中途失败不得发布完整成功 Event。
+- Rule: Backtest、Paper、Live 和 Virtual Broker 必须共用同一 ExecutionProcessor API。
+- Rule: 所有新增组件必须接入完整 Vertical Slice 并运行全部历史回归。

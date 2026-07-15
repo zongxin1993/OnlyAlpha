@@ -10,6 +10,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     broker_order = env.runtime.broker_gateway.query_orders(order.account_id)[0]
     now = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
     stale = OnlyBrokerOrderAcceptedUpdate(
+        runtime_id=env.runtime.config.runtime_id,
         gateway_id=env.runtime.broker_gateway.config.gateway_id,
         account_id=order.account_id,
         update_id=OnlyBrokerUpdateId("scenario-stale-accepted"),

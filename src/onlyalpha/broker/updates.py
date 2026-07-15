@@ -9,12 +9,13 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerPositionSnapshot
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRejection
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyVenueOrderId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyVenueOrderId
 from onlyalpha.domain.time import OnlyTimestamp
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyBrokerInboundUpdate(OnlyDomainModel):
+    runtime_id: OnlyRuntimeId
     gateway_id: OnlyBrokerGatewayId
     account_id: OnlyAccountId
     update_id: OnlyBrokerUpdateId

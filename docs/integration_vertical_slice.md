@@ -30,7 +30,7 @@ docs/integration_vertical_slice.md
 
 ```text
 Bar → MarketData Pipeline → Snapshot → Cluster → Order → Risk → ExecutionService
-→ Virtual Broker → Matching Engine → Broker Update → Runtime Inbound Queue → Order
+→ Virtual Broker → Matching Engine → Broker Update → Runtime Inbound Queue → OnlyExecutionProcessor → Order
 → Position → Position Allocation → Strategy Ledger → Account → Risk Update → Event → Final Snapshot
 ```
 
@@ -63,12 +63,12 @@ docs/reports/<component>_integration_report.md
 
 ## M1 架构整合实现
 
-统一环境位于 `examples/integration_demo/`，只组装现有 Runtime 资源和正式接口。18 个场景覆盖 Runtime 启动、
+统一环境位于 `examples/integration_demo/`，只组装现有 Runtime 资源和正式接口。23 个场景覆盖 Runtime 启动、
 1m→3m、Order/Risk、Virtual Broker 买卖成交、Position、Allocation、Strategy Ledger、Account、T+1、部分成交、撤单、
 多 Cluster、Broker/Local 冲突、重复/乱序回报和最终 Snapshot。
 
 标准化成交由 `OnlyVirtualBrokerGateway` 的独立 Broker Store 与 Matching Engine 产生，经 Runtime inbound queue 后由
-`OnlyBacktestRuntime.process_trade()` 在单写入者线程按固定顺序编排。Placeholder 仍保留为无 Broker 配置 Runtime 的
+Runtime 独占 `OnlyExecutionProcessor` 在单写入者线程按固定顺序编排。Placeholder 仍保留为无 Broker 配置 Runtime 的
 明确边界，但统一集成主场景不再使用它或手工制造成交。
 
 自动化入口为 `tests/integration/` 和 `scripts/run_component_validation.sh`。

@@ -22,3 +22,6 @@ Order 创建后，Runtime 同时协调 Risk Reservation、Account Cash Reservati
 状态和生命周期，不共享内部对象。成交后 Account 从标准化 Trade Cash Flow 更新，估值使用账户 Position 与已关闭行情。
 
 第一版不支持多币种换汇、保证金、融资融券、负债、期货/期权账户和 corporate action 现金流。
+
+所有 Broker Account Update 由 ExecutionProcessor 分派到 `OnlyAccountReconciliationService`；Trade cash flow 位于 Ledger 后、
+Reservation 前。Account Manager 事实经 Processor 缓冲，不会在后续 Reservation/Risk/Invariant 失败时形成完整成功事件。

@@ -1,10 +1,10 @@
 # OnlyAlpha Integration Demo
 
-本 Demo 使用一个 `OnlyIntegrationEnvironment` 和正式 Runtime/Context/Broker/Manager 接口，运行 18 个自动化场景：
+本 Demo 使用统一 `OnlyIntegrationEnvironment` 和正式 Runtime/Context/Broker/Manager 接口，运行 23 个自动化场景：
 
 ```text
 Runtime → 1m/3m Pipeline → Cluster → Order → Risk → ExecutionService → Virtual Broker
-→ Next-Bar Matching → Runtime Inbound Queue → Order → Position → Allocation
+→ Next-Bar Matching → Runtime Inbound Queue → OnlyExecutionProcessor → Order → Position → Allocation
 → Strategy Ledger → Account → Risk → Event → Snapshot
 ```
 

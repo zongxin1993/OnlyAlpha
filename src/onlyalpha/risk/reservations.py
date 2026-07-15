@@ -38,6 +38,20 @@ class OnlyRiskReservation(OnlyDomainModel):
     state: OnlyRiskReservationState = OnlyRiskReservationState.ACTIVE
     version: int = 1
     release_reason: OnlyRiskReleaseReason | None = None
+    consumed_notional: OnlyMoney | None = None
+    consumed_quantity: OnlyQuantity | None = None
+
+    @property
+    def remaining_notional(self) -> OnlyMoney | None:
+        if self.reserved_notional is None:
+            return None
+        consumed = Decimal(0) if self.consumed_notional is None else self.consumed_notional.amount
+        return OnlyMoney(self.reserved_notional.amount - consumed, self.reserved_notional.currency)
+
+    @property
+    def remaining_quantity(self) -> OnlyQuantity:
+        consumed = Decimal(0) if self.consumed_quantity is None else self.consumed_quantity.value
+        return OnlyQuantity(self.reserved_quantity.value - consumed, self.reserved_quantity.precision)
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +202,59 @@ class OnlyRiskReservationManager:
         self._reservations[reservation_id] = updated
         return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.APPLIED, True, updated)
 
+    def consume_fill_for_order(
+        self,
+        order_id: OnlyOrderId,
+        quantity: OnlyQuantity,
+        notional: OnlyMoney,
+        timestamp: OnlyTimestamp,
+        *,
+        runtime_id: OnlyRuntimeId,
+        cluster_id: OnlyClusterId,
+        complete: bool,
+    ) -> OnlyRiskReservationResult:
+        reservation_id = self._reservation_id_by_order_id.get(order_id)
+        if reservation_id is None:
+            return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.NOT_FOUND, False, None)
+        reservation = self._reservations[reservation_id]
+        if reservation.runtime_id != runtime_id or reservation.cluster_id != cluster_id:
+            return OnlyRiskReservationResult(
+                OnlyRiskReservationApplyResult.INVALID, False, reservation, "Reservation Scope mismatch"
+            )
+        if reservation.state is OnlyRiskReservationState.CONSUMED:
+            return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.DUPLICATE, False, reservation)
+        if reservation.state is not OnlyRiskReservationState.ACTIVE:
+            return OnlyRiskReservationResult(
+                OnlyRiskReservationApplyResult.INVALID,
+                False,
+                reservation,
+                f"Reservation is not ACTIVE: {reservation.state.value}",
+            )
+        previous_quantity = Decimal(0) if reservation.consumed_quantity is None else reservation.consumed_quantity.value
+        consumed_quantity = min(reservation.reserved_quantity.value, previous_quantity + quantity.value)
+        quantity_value = OnlyQuantity(consumed_quantity, reservation.reserved_quantity.precision)
+        consumed_notional = reservation.consumed_notional
+        if reservation.reserved_notional is not None:
+            if notional.currency != reservation.reserved_notional.currency:
+                return OnlyRiskReservationResult(
+                    OnlyRiskReservationApplyResult.INVALID, False, reservation, "Reservation currency mismatch"
+                )
+            previous_notional = Decimal(0) if consumed_notional is None else consumed_notional.amount
+            consumed_notional = OnlyMoney(
+                min(reservation.reserved_notional.amount, previous_notional + notional.amount),
+                reservation.reserved_notional.currency,
+            )
+        updated = replace(
+            reservation,
+            consumed_quantity=quantity_value,
+            consumed_notional=consumed_notional,
+            state=OnlyRiskReservationState.CONSUMED if complete else OnlyRiskReservationState.ACTIVE,
+            updated_at=timestamp,
+            version=reservation.version + 1,
+        )
+        self._reservations[reservation_id] = updated
+        return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.APPLIED, True, updated)
+
     def release_cluster(
         self,
         cluster_id: OnlyClusterId,
@@ -225,10 +292,10 @@ class OnlyRiskReservationManager:
     ) -> OnlyMoney:
         amount = sum(
             (
-                item.reserved_notional.amount
+                item.remaining_notional.amount
                 for item in self.snapshot_active()
-                if item.reserved_notional is not None
-                and item.reserved_notional.currency == currency
+                if item.remaining_notional is not None
+                and item.remaining_notional.currency == currency
                 and (cluster_id is None or item.cluster_id == cluster_id)
                 and (account_id is None or item.account_id == account_id)
                 and (instrument_id is None or item.instrument_id == instrument_id)
@@ -246,7 +313,7 @@ class OnlyRiskReservationManager:
     ) -> Decimal:
         return sum(
             (
-                item.reserved_quantity.value
+                item.remaining_quantity.value
                 for item in self.snapshot_active()
                 if item.instrument_id == instrument_id
                 and (cluster_id is None or item.cluster_id == cluster_id)

@@ -4,6 +4,9 @@
 与 Runtime 的 AccountManager、OrderManager、PositionManager 和 StrategyLedgerManager 物理分离。主动查询返回 Broker
 Snapshot，异步事实只通过 Runtime inbound callback/queue 进入本地系统。
 
+Gateway 构造时绑定强类型 Runtime ID，并把它放入每条 Update；它仍只调用 Queue Port。Queue 之后唯一允许的业务消费者是
+Runtime-owned ExecutionProcessor。
+
 默认 `OnlyNextBarMatchingEngine` 固定规则：Bar N 提交、Bar N+1 检查；BUY LIMIT 在 low <= limit 时成交，SELL LIMIT
 在 high >= limit 时成交，第一版成交价固定为 LIMIT_PRICE；MARKET 使用下一 Bar open。接受时冻结 Broker 现金或已结算持仓，
 成交/撤单后只修改 Broker Store 并发送标准化 Update。
