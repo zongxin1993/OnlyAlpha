@@ -123,3 +123,10 @@ priority 或订阅注册顺序作为准备步骤。
 sequence 幂等、迟到 Accepted/Fill、Manager 索引、open order、Runtime 隔离、Cluster Scope、Context 禁止
 能力、Placeholder、事件变更后发布、序列化和 100 次确定性重放。测试不得通过 EventBus handler 驱动
 状态，不得由 Placeholder 生成 Accepted、Cancelled 或 Fill。
+
+## 12. Position 测试
+
+`tests/position` 覆盖 NETTING Long-only 开增减平、每轮新 PositionId、Average Cost、Linear PnL、账户/Cluster 独立
+成本、T+1 Bucket、Restriction、Reservation 全阶段和券商冻结去重、Unallocated、不变量、Broker Difference/Severity/
+阻断、不可变 Snapshot、序列化、重复与迟到 Trade、Runtime 隔离、Event 顺序及 100 次确定性重放。券商对账测试必须
+断言本地总量没有被静默覆盖。

@@ -4,7 +4,7 @@ from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskErrorInfo
-from onlyalpha.risk.enums import OnlyRiskRuleScope
+from onlyalpha.risk.enums import OnlyRiskRejectionCode, OnlyRiskRuleScope
 from onlyalpha.risk.identifiers import OnlyRiskRuleId
 from onlyalpha.risk.rules.base import OnlyRiskRule, OnlyRiskRuleMetadata
 
@@ -74,5 +74,35 @@ class OnlyAvailablePositionRiskRule(OnlyRiskRule):
                     context.ts_event,
                     context.ts_init,
                 )
+            )
+        cluster_snapshot = context.position_risk.cluster_snapshot(
+            context.account_id,
+            context.cluster_id,
+            request.instrument_id,
+        )
+        if cluster_snapshot is None:
+            return OnlyRiskDecision.failed(
+                OnlyRiskErrorInfo(
+                    self.rule_id,
+                    self.scope,
+                    "OnlyRiskDataUnavailableError",
+                    "Cluster Position Allocation Snapshot is unavailable",
+                    context.runtime_id,
+                    context.cluster_id,
+                    context.account_id,
+                    request.request_id,
+                    context.ts_event,
+                    context.ts_init,
+                )
+            )
+        if request.quantity.value > min(
+            snapshot.available_quantity.value,
+            cluster_snapshot.available_quantity.value,
+        ):
+            return self._reject(
+                OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                "sell exceeds account or Cluster available Position",
+                requested_value=str(request.quantity.value),
+                allowed_value=str(min(snapshot.available_quantity.value, cluster_snapshot.available_quantity.value)),
             )
         return self._accept()

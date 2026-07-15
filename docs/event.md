@@ -39,3 +39,9 @@ subscription ID、handler 和原异常的结构化结果，不阻断其他 handl
 Order Event 是 `CREATED/SUBMITTED/ACCEPTED/PARTIALLY_FILLED/FILLED/CANCEL_REQUESTED/CANCELLED/
 REJECTED/EXPIRED/FAILED` 已发生的事实。Manager 先完成状态机、幂等与 Scope 校验，成功变更后才创建事件；
 重复、过期、冲突或非法更新不发布。EventBus 只负责观察与投递，任何 handler 都不承担订单迁移。
+
+## Position facts
+
+Position、Allocation、Settlement、Restriction、Reservation 和 Reconciliation 状态通过同步函数修改，成功更新实体、
+索引、Repository 与版本后才发布过去式 Fact。EventBus 不驱动 Position 状态机；重复 Trade 不产生 Event，迟到 Trade
+进入严格 Reconciliation 流程。

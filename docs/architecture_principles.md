@@ -47,3 +47,19 @@
 - Rule: Risk REJECT 和 ERROR 都不得创建 Order 或调用 Execution，ERROR 默认 Fail Closed。
 - Rule: ACCEPT 后必须立即建立 Reservation，使同一回调中的后续订单看到最新预占。
 - Rule: Risk 业务顺序不得依赖注册顺序或 EventBus priority。
+- Rule: 每个 Runtime 拥有独立账户 Position 状态域。
+- Rule: 账户真实 Position 与 Cluster Allocation 必须分离。
+- Rule: 策略收益必须基于自身 Trade 和 Allocation 计算。
+- Rule: 无法归因的持仓必须进入 Unallocated。
+- Rule: 普通 Cluster 只能操作自己的 Allocation。
+- Rule: Position 修改使用函数调用，Event 只通知已发生事实。
+- Rule: PositionManager 不直接依赖券商 SDK。
+- Rule: Position 使用 Settlement Bucket 表达 T+1 和今昨仓。
+- Rule: Available Quantity 是派生值，不是无条件可信的持久化字段。
+- Rule: 本地 Position Reservation 与券商冻结必须区分。
+- Rule: Broker Snapshot 不得静默覆盖本地 Position 历史。
+- Rule: 关键持仓冲突必须阻止相关交易。
+- Rule: 重复 Trade 必须幂等。
+- Rule: 乱序 Trade 必须进入严格处理或 Reconciliation。
+- Rule: Cluster 只能通过 ctx.positions 读取不可变 Snapshot。
+- Rule: 每次完整开平仓周期使用新的 PositionId。

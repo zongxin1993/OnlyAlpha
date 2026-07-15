@@ -89,6 +89,13 @@ class OnlyPositionRiskView(Protocol):
         self, account_id: OnlyAccountId, instrument_id: OnlyInstrumentId
     ) -> OnlyPositionRiskSnapshot | None: ...
 
+    def cluster_snapshot(
+        self,
+        account_id: OnlyAccountId,
+        cluster_id: OnlyClusterId,
+        instrument_id: OnlyInstrumentId,
+    ) -> OnlyPositionRiskSnapshot | None: ...
+
 
 class OnlyUnavailableAccountRiskView:
     @property
@@ -107,4 +114,13 @@ class OnlyUnavailablePositionRiskView:
 
     def snapshot(self, account_id: OnlyAccountId, instrument_id: OnlyInstrumentId) -> OnlyPositionRiskSnapshot | None:
         del account_id, instrument_id
+        return None
+
+    def cluster_snapshot(
+        self,
+        account_id: OnlyAccountId,
+        cluster_id: OnlyClusterId,
+        instrument_id: OnlyInstrumentId,
+    ) -> OnlyPositionRiskSnapshot | None:
+        del account_id, cluster_id, instrument_id
         return None
