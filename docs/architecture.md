@@ -8,6 +8,10 @@ Runtime 还独占 `OnlyExecutionProcessor`。它是 Queue 后所有 Broker Updat
 Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量通过后提交缓冲事实。详见
 `docs/execution_processor.md` 与 ADR 0016。
 
+Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
+复用 Domain Bar/Tick，来源元数据保存在 Update Envelope；历史数据只有 ReplayService 能推进 Backtest Clock。详见
+`docs/market_data_source.md`、`docs/historical_replay.md` 与 ADR 0017。
+
 Strategy Ledger 是 Runtime-owned 单写入者状态域：Runtime 独占 Manager，Cluster 只通过 `ctx.ledger` 读取自己的虚拟资金、
 收益与净值。它与券商真实账户分离，并位于 Position Allocation 更新之后。详见 `docs/strategy_ledger.md` 与 ADR 0014。
 

@@ -1,26 +1,22 @@
-"""Two primary periods sharing one Runtime Aggregator."""
+"""Two Clusters sharing the Runtime-owned Aggregator through formal Replay."""
 
-from common import OnlyDemoBarCluster, only_demo_bar, only_demo_system, only_demo_types
-
-from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription
-from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from examples.event_market_data_demo.common import run_minutes
+from examples.integration_demo.environment import OnlyIntegrationCluster, OnlyIntegrationEnvironment
+from onlyalpha.domain.identifiers import OnlyClusterId
 
 
 def main() -> None:
-    bar_1m, bar_3m = only_demo_types()
-    pipeline, dispatcher, manager = only_demo_system()
-    dispatcher.register(
-        OnlyClusterBarSubscription(OnlyDemoBarCluster("Cluster-A"), OnlyBarSubscription((bar_1m, bar_3m)))
+    env = OnlyIntegrationEnvironment()
+    second = OnlyIntegrationCluster(
+        (env.bar_1m, env.bar_3m),
+        OnlyClusterId("integration-cluster-b"),
+        env.bar_3m,
     )
-    dispatcher.register(
-        OnlyClusterBarSubscription(
-            OnlyDemoBarCluster("Cluster-B"),
-            OnlyBarSubscription((bar_1m, bar_3m), primary_bar_type=bar_3m),
-        )
-    )
-    for minute in range(3):
-        dispatcher.dispatch(pipeline.process_bar(only_demo_bar(bar_1m, minute)))
-    print(f"shared_aggregators={manager.aggregator_count} created={manager.creation_count}")
+    env.runtime.add_cluster(env.runtime.config.engine_id, second)
+    run_minutes(env)
+    assert len(env.cluster.snapshots) == 3
+    assert len(second.snapshots) == 1
+    assert env.runtime.market_data_pipeline.aggregation_manager.aggregator_count == 1
 
 
 if __name__ == "__main__":

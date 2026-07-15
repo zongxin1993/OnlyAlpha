@@ -10,6 +10,18 @@ from onlyalpha.account.models import OnlyAccountSnapshot
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerOrderSnapshot
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
+from onlyalpha.data.audit import OnlyMarketDataAuditStore
+from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
+from onlyalpha.data.processor import (
+    OnlyMarketDataDeduplicator,
+    OnlyMarketDataGapDetector,
+    OnlyMarketDataProcessor,
+    OnlyMarketDataSequenceTracker,
+)
+from onlyalpha.data.queue import OnlyMarketDataInboundQueue
+from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
+from onlyalpha.data.replay import OnlyHistoricalReplayService
+from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
@@ -167,9 +179,10 @@ class OnlyIntegrationCluster(OnlyCluster):
         self,
         bar_types: tuple[OnlyBarType, ...],
         cluster_id: OnlyClusterId = CLUSTER_ID,
+        primary_bar_type: OnlyBarType | None = None,
     ) -> None:
         super().__init__(OnlyClusterConfig(str(cluster_id)))
-        self._subscription = OnlyBarSubscription(bar_types)
+        self._subscription = OnlyBarSubscription(bar_types, primary_bar_type=primary_bar_type)
         self.pending_order: OnlyOrderRequest | None = None
         self.submit_results: list[OnlyOrderSubmitResult] = []
         self.snapshots: list[OnlyMarketDataSnapshot] = []
@@ -258,6 +271,17 @@ class OnlyIntegrationEnvironment:
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
         )
         self.runtime.register_instrument(self.instrument)
+        self.market_data_source_registry: OnlyMarketDataSourceRegistry = self.runtime.market_data_source_registry
+        self.historical_data_source: OnlyInMemoryHistoricalDataSource = self.runtime.historical_data_source
+        self.reference_data_source: OnlyInMemoryReferenceDataSource = self.runtime.reference_data_source
+        self.market_data_gateway: OnlyInMemoryMarketDataGateway = self.runtime.market_data_gateway
+        self.market_data_inbound_queue: OnlyMarketDataInboundQueue = self.runtime.market_data_inbound_queue
+        self.market_data_processor: OnlyMarketDataProcessor = self.runtime.market_data_processor
+        self.market_data_deduplicator: OnlyMarketDataDeduplicator = self.runtime.market_data_deduplicator
+        self.market_data_sequence_tracker: OnlyMarketDataSequenceTracker = self.runtime.market_data_sequence_tracker
+        self.market_data_gap_detector: OnlyMarketDataGapDetector = self.runtime.market_data_gap_detector
+        self.historical_replay_service: OnlyHistoricalReplayService = self.runtime.historical_replay_service
+        self.market_data_audit_store: OnlyMarketDataAuditStore = self.runtime.market_data_audit_store
         self.cluster = OnlyIntegrationCluster((self.bar_1m, self.bar_3m))
         self.runtime.add_cluster(ENGINE_ID, self.cluster)
         self.event_recorder = OnlyEventRecorder()
@@ -279,7 +303,7 @@ class OnlyIntegrationEnvironment:
         self.event_recorder.capture(self.runtime.event_bus)
 
     def process_bar(self, day: date, minute: int, close: str) -> OnlyMarketDataUpdateResult:
-        result = self.runtime.process_bar(self._bar(day, minute, close))
+        result = self.runtime.process_bar(self.make_bar(day, minute, close))
         self.market_updates.append(result.update)
         self.event_recorder.capture(self.runtime.event_bus)
         return result.update
@@ -383,6 +407,29 @@ class OnlyIntegrationEnvironment:
             execution_results,
             tuple(item.to_json() for item in self.runtime.execution_reconciliation_queue.requests()),
             tuple(
+                (
+                    item.audit_id,
+                    str(item.source_id),
+                    str(item.update_id),
+                    item.status.value,
+                    item.source_sequence,
+                    item.processing_sequence,
+                    str(item.data_version),
+                    tuple(sorted(flag.value for flag in item.quality_flags)),
+                    item.ts_event.unix_nanos,
+                )
+                for item in self.market_data_audit_store.records()
+            ),
+            tuple(
+                (
+                    item.index,
+                    str(item.update.update_id),
+                    item.clock_time_ns,
+                    item.result.status.value,
+                )
+                for item in self.historical_replay_service.events
+            ),
+            tuple(
                 (item.event_type, item.source, item.sequence, item.timestamp_ns, item.cluster_id)
                 for item in snapshot.event_trace
             ),
@@ -414,7 +461,7 @@ class OnlyIntegrationEnvironment:
         reservation = self.runtime.position_reservation_manager.get(self.sell_order.order_id)
         assert reservation is not None and reservation.remaining_quantity.value == 0
 
-    def _bar(self, day: date, minute: int, close: str) -> OnlyBar:
+    def make_bar(self, day: date, minute: int, close: str) -> OnlyBar:
         start = datetime.combine(day, time(1, 30), tzinfo=UTC) + timedelta(minutes=minute)
         value = Decimal(close)
         return OnlyBar(

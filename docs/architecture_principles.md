@@ -89,3 +89,12 @@
 - Rule: 中途失败不得发布完整成功 Event。
 - Rule: Backtest、Paper、Live 和 Virtual Broker 必须共用同一 ExecutionProcessor API。
 - Rule: 所有新增组件必须接入完整 Vertical Slice 并运行全部历史回归。
+- Rule: 市场数据平面与交易执行平面必须分离，MarketDataGateway 不属于 BrokerGateway。
+- Rule: 实时与历史数据使用统一 Domain 类型，来源元数据保存在不可变 Update Envelope。
+- Rule: 实时数据必须通过独立有界 MarketData Inbound Queue。
+- Rule: 历史数据必须通过 HistoricalReplayService，且只有它能因数据推进 Backtest Clock。
+- Rule: 所有标准化数据必须经过 MarketDataProcessor。
+- Rule: 正式确定性回测默认使用版本化本地数据，在线源必须显式标记非确定性风险。
+- Rule: Source、Sequence、Version、UTC 双时间与 Quality 必须可追踪。
+- Rule: Gap Detection 必须理解 TradingCalendar 与 Session。
+- Rule: Cluster 不得访问 DataSource、MarketDataGateway、ReplayService、Processor 或 Inbound Queue。

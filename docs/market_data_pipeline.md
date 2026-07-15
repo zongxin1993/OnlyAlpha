@@ -75,3 +75,9 @@ Unix 纳秒，Bar 保存 Decimal/UTC/强类型 Domain DTO。相同序列在新 R
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
 - Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext；真实 Gateway 尚未实现。
 - Indicator 值首版限 Decimal/int/string/bool/None，复杂向量需后续稳定 DTO。
+
+## 11. 标准数据入口
+
+Pipeline 不负责连接、读文件、推进 Clock、Source 去重或数据质量判定。所有生产输入先成为带 Source/Sequence/Version/Quality 的
+`OnlyMarketDataInboundUpdate`，实时经独立 Queue、历史经 ReplayService，再由 `OnlyMarketDataProcessor` 调用 Pipeline。输入
+Quality 合并进 immutable Snapshot；重复 Update 在 Pipeline 前停止。

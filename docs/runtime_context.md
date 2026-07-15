@@ -26,7 +26,8 @@ Runtime 在每次 `on_bar` 前、派生 Bar/Indicator/MarketData Snapshot 完成
 - `logger`：自动绑定 Runtime/Cluster/Mode 字段。
 
 Context 不含 EventBus、可变 Cache、Aggregator、Indicator 内部对象、Gateway、Storage、Engine、
-其他 Cluster 或内部 Service Container。Cluster 不能伪造 Scope，也不能推进 Runtime Clock。
+其他 Cluster 或内部 Service Container。它也不暴露 MarketDataGateway、Historical/Reference DataSource、MarketDataProcessor、
+HistoricalReplayService 或 MarketData Inbound Queue。Cluster 不能伪造 Scope，也不能推进 Runtime Clock。
 
 ## 3. Context 层次
 
