@@ -11,6 +11,7 @@ from onlyalpha.order.execution.models import (
     OnlyGatewayOrderUpdate,
 )
 from onlyalpha.order.manager import OnlyOrderManager
+from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
 from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
@@ -24,11 +25,13 @@ class OnlyOrderUpdateProcessor:
         manager: OnlyOrderManager,
         publisher: OnlyOrderEventPublisher,
         risk_service: OnlyRiskService | None = None,
+        position_reservations: OnlyOrderPositionReservationPort | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._manager = manager
         self._publisher = publisher
         self._risk_service = risk_service
+        self._position_reservations = position_reservations
 
     def process(self, update: OnlyGatewayOrderUpdate) -> OnlyOrderMutationResult:
         if update.runtime_id != self._runtime_id:
@@ -74,6 +77,15 @@ class OnlyOrderUpdateProcessor:
             raise TypeError(f"unsupported Gateway update: {type(update).__name__}")
         if result.changed:
             self._publisher.publish_many(result.events)
+            if self._position_reservations is not None:
+                if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
+                    self._position_reservations.acknowledged(result.order_id, update.ts_init)
+                elif isinstance(update, OnlyGatewayOrderFillUpdate):
+                    self._position_reservations.consume(
+                        result.order_id,
+                        update.fill.quantity,
+                        update.ts_init,
+                    )
             release_reason = None
             if isinstance(update, OnlyGatewayOrderCancelledUpdate):
                 release_reason = OnlyRiskReleaseReason.ORDER_CANCELLED
@@ -90,5 +102,11 @@ class OnlyOrderUpdateProcessor:
                     result.snapshot.account_id,
                     release_reason,
                     update.ts_init,
+                )
+            if release_reason is not None and self._position_reservations is not None:
+                self._position_reservations.release(
+                    result.order_id,
+                    update.ts_init,
+                    broker_confirmed=not isinstance(update, OnlyGatewayOrderCancelledUpdate),
                 )
         return result

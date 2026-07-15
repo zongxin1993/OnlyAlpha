@@ -63,11 +63,17 @@ from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
+from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
+from onlyalpha.position.manager import OnlyPositionManager
+from onlyalpha.position.queries import OnlyPositionQueryService
+from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter, OnlyPositionReservationManager
+from onlyalpha.position.views import OnlyPositionContextView, OnlyPositionRiskView
 from onlyalpha.risk.contexts import OnlyRiskStateUpdateContext
 from onlyalpha.risk.factory import OnlyRiskProfileFactory
 from onlyalpha.risk.identifiers import OnlyRiskProfileId, OnlyRiskRuleId
 from onlyalpha.risk.profile import OnlyRiskProfile, OnlyRiskProfileConfig, OnlyRiskRuleConfig
 from onlyalpha.risk.publisher import OnlyRuntimeRiskEventPublisherAdapter
+from onlyalpha.risk.rules.account import OnlyAvailablePositionRiskRule
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.views import (
     OnlyInstrumentRiskMappingView,
@@ -182,6 +188,10 @@ class OnlyRuntimeServices:
     order_service: OnlyOrderService
     order_update_processor: OnlyOrderUpdateProcessor
     risk_service: OnlyRiskService
+    position_manager: OnlyPositionManager
+    allocation_manager: OnlyPositionAllocationManager
+    position_reservation_manager: OnlyPositionReservationManager
+    position_query: OnlyPositionQueryService
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -223,6 +233,19 @@ class OnlyRuntime:
         self._state = OnlyRuntimeState.CREATED
         self._services: OnlyRuntimeServices
         self._last_error: str | None = None
+        # Position is a Runtime state domain even where the mode-specific market/execution
+        # assembly is intentionally deferred (Live/Paper/Research in the current phase).
+        self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
+        self._allocation_manager = OnlyPositionAllocationManager(config.runtime_id)  # type: ignore[arg-type]
+        self._position_query = OnlyPositionQueryService(
+            self._position_manager,
+            self._allocation_manager,
+        )
+        self._position_reservation_manager = OnlyPositionReservationManager(
+            config.runtime_id,  # type: ignore[arg-type]
+            self._position_manager,
+            self._allocation_manager,
+        )
 
     @property
     def runtime_id(self) -> str:
@@ -235,6 +258,22 @@ class OnlyRuntime:
     @property
     def clusters(self) -> tuple[OnlyCluster, ...]:
         return self._services.cluster_manager.clusters
+
+    @property
+    def position_manager(self) -> OnlyPositionManager:
+        """Runtime management port; never passed directly to a Cluster."""
+
+        return self._position_manager
+
+    @property
+    def allocation_manager(self) -> OnlyPositionAllocationManager:
+        """Runtime management port for Cluster attribution updates."""
+
+        return self._allocation_manager
+
+    @property
+    def position_reservation_manager(self) -> OnlyPositionReservationManager:
+        return self._position_reservation_manager
 
     def add_cluster(self, engine_id: str | OnlyEngineId, cluster: OnlyCluster) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
@@ -429,6 +468,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         order_publisher = OnlyRuntimeOrderEventPublisherAdapter(owned_bus)
         order_query = OnlyOrderQueryService(order_manager)
+        position_manager = self._position_manager
+        allocation_manager = self._allocation_manager
+        position_query = self._position_query
+        position_reservations = self._position_reservation_manager
+        order_position_reservations = OnlyOrderPositionReservationAdapter(position_reservations)
         risk_service = OnlyRiskService(
             runtime_config.engine_id,  # type: ignore[arg-type]
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -438,6 +482,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlyMarketRuleRiskMappingView(self._market_rules),
             order_query,
             OnlyRuntimeRiskEventPublisherAdapter(owned_bus),
+            account_rules=(OnlyAvailablePositionRiskRule(),),
+            position_risk=OnlyPositionRiskView(position_query, clock.timestamp_ns),
         )
         order_service = OnlyOrderService(
             order_manager,
@@ -446,12 +492,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
             risk_service,
             risk_service.make_evaluation_context,
+            order_position_reservations,
         )
         order_update_processor = OnlyOrderUpdateProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
             order_manager,
             order_publisher,
             risk_service,
+            order_position_reservations,
         )
         self._services = OnlyRuntimeServices(
             clock,
@@ -467,6 +515,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_service,
             order_update_processor,
             risk_service,
+            position_manager,
+            allocation_manager,
+            position_reservations,
+            position_query,
         )
 
     def register_instrument(
@@ -561,6 +613,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._services.order_service,
                 self._services.order_query,
                 lambda: self._order_commands_enabled(cluster_id),
+            ),
+            OnlyPositionContextView(
+                self.config.default_account_id,  # type: ignore[arg-type]
+                cluster_id,
+                self._services.position_query,
             ),
             OnlyRiskSnapshotView(lambda: self._services.risk_service.get_snapshot(cluster_id)),
             OnlyRuntimeLogger(_LOGGER, self.config.runtime_id, cluster_id, self.config.mode),  # type: ignore[arg-type]

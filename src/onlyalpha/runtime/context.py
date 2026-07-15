@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
     from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
     from onlyalpha.order.views import OnlyOrderServiceView
+    from onlyalpha.position.views import OnlyPositionContextView
     from onlyalpha.risk.views import OnlyRiskSnapshotView
 
 
@@ -176,6 +177,7 @@ class OnlyRuntimeContext:
     subscriptions: OnlySubscriptionService
     timers: OnlyTimerService
     orders: OnlyOrderServiceView
+    positions: OnlyPositionContextView
     risk: OnlyRiskSnapshotView
     logger: OnlyRuntimeLogger
 

@@ -115,3 +115,15 @@ Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。未来 Live
 每个 Cluster Context 只获得绑定本 Cluster 的 `OnlyOrderServiceView`。View 可提交、撤单及读取本 Cluster
 Snapshot，不能取得 Manager、Gateway、Repository 或状态修改函数。外部标准化 Update 只能通过
 `OnlyBacktestRuntime.process_order_update()` 在 RUNNING 生命周期内应用。
+
+## 12. Position capability
+
+`ctx.positions` 明确拆分为 `account` 与 `cluster`：
+
+```python
+account_position = ctx.positions.account.get(instrument_id)
+cluster_allocation = ctx.positions.cluster.get(instrument_id)
+```
+
+Context 自动绑定 Runtime、默认 Account 和当前 Cluster，只返回不可变 Snapshot。它不暴露 Manager、Reservation、
+Settlement、Reconciliation 或 Unallocated 写入能力。
