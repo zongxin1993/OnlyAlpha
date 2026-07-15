@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 
-type OnlyIndicatorValue = Decimal | int | str | bool | None
+
+class OnlyStructuredIndicatorValue(ABC):
+    """Immutable, explicitly serializable value produced by an Indicator."""
+
+    @property
+    @abstractmethod
+    def value_type(self) -> str: ...
+
+    @abstractmethod
+    def to_dict(self) -> Mapping[str, object]: ...
+
+
+type OnlyIndicatorValue = Decimal | int | str | bool | OnlyStructuredIndicatorValue | None
 
 
 @dataclass(frozen=True, order=True, slots=True)

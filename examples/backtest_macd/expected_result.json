@@ -1,0 +1,16 @@
+{
+  "status": "COMPLETED",
+  "generated_bar_count": 720,
+  "processed_bar_count": 720,
+  "order_count": 2,
+  "trade_count": 2,
+  "golden_cross_count": 1,
+  "death_cross_count": 1,
+  "blocked_t1_exit_count": 1,
+  "final_position_quantity": "0",
+  "realized_pnl": "-1040.00",
+  "fees": "2.00",
+  "final_cash": "998958.00",
+  "final_equity": "998958.00",
+  "determinism_fingerprint": "9a001bcf340a1c155453804ffe2dd90a85883094a9bb3ca445c68d31a49b3f22"
+}

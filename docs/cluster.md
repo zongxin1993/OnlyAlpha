@@ -1,5 +1,9 @@
 # Cluster 与策略插件设计
 
+`OnlyMacdExampleCluster` 是正式示例：MACD 由 IndicatorPipeline 在回调前完成，策略只从 `ctx.market_data`、
+`ctx.orders` 与自身 `ctx.positions.cluster` 读取/提交。它查询 open Order 防止重复提交，并从 Allocation available quantity
+判断能否退出；不假设提交即成交，也不包含 T+1 日期分支。
+
 每个 Cluster 拥有独立 Strategy Ledger，但只获得 `ctx.ledger` 只读 View；不能读取其他 Cluster、修改 Ledger 或访问券商真实
 账户账。可通过 `strategy_initial_capital` 覆盖 Runtime 固定资金默认值。
 

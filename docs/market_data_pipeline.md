@@ -1,5 +1,8 @@
 # MarketData Pipeline
 
+结构化指标值必须实现显式 immutable/serializable `OnlyStructuredIndicatorValue`。当前 `OnlyMacdSnapshot` 保存 DIF、DEA、
+Histogram、Warmup 和事件时间；它仍由 Runtime-owned IndicatorPipeline 在 Snapshot/Cluster 前更新。
+
 ## 1. 基础 Bar 输入
 
 首版命令入口是 `OnlyMarketDataPipeline.process_bar(OnlyBar)`，支持外部、已关闭、revision=0 的 1m TIME

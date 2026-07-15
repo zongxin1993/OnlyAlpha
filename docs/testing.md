@@ -1,5 +1,11 @@
 # 测试规范
 
+## Product-style backtest acceptance
+
+成品式 Demo 还必须覆盖配置加载、正式 Runtime API、Calendar-aware synthetic source、指标精确值、Warmup、Context 权限、
+VirtualBroker/ExecutionProcessor 成交、T+1、固定 Seed 噪声、结果导出和至少 100 次完整确定性重放。指纹比较必须覆盖 MarketData
+Audit、Clock、指标序列、策略信号、Order/Trade ID、Execution Audit、稳定 Event 序列及最终 Snapshot。
+
 Strategy Ledger 必测固定资金、连续 Cash Reservation、买卖成交、Fee、Allocation 收益归因、多 Cluster/Runtime Scope、不可变
 Snapshot、双视图、Risk Fail Closed、幂等、无损序列化、Replay、HWM/Drawdown 与固定时钟确定性。
 

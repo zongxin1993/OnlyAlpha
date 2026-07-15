@@ -1,5 +1,11 @@
 # 持续集成与 Vertical Slice 强制要求
 
+## Product-style Demo 扩展
+
+完整产品 Demo 不得使用 `OnlyIntegrationEnvironment` 作为用户入口。用户入口必须是配置 → 正式 Runtime → Result；统一集成 Demo
+可以调用该正式 API 并将 Result fingerprint 纳入其投影，但不能复制装配或手工驱动 Manager。合成数据必须实现
+HistoricalDataSource，策略必须实现 Cluster，成交必须经 VirtualBroker queue 与 ExecutionProcessor。
+
 本任务必须遵守：
 
 ```text

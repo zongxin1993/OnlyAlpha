@@ -3,6 +3,9 @@
 `OnlyHistoricalReplayService` 是历史数据驱动 Backtest Clock 的唯一所有者。DataSource 不持有 Clock，Processor 不推进 Clock，
 Runtime 旧 `process_bar()` 只保留为单记录版本化 Source/Request 的 Replay facade。
 
+Synthetic product backtest 与 Parquet 使用同一 Replay 路径。Source 不能推进 Clock；Runtime 产品 `run()` 只准备正式
+HistoricalDataStream 并调用 ReplayService。确定性指纹包含 Replay update/Clock 顺序和 MarketData Audit。
+
 稳定全序为：
 
 ```text

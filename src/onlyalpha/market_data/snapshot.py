@@ -12,7 +12,7 @@ from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorValue
+from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorValue, OnlyStructuredIndicatorValue
 from onlyalpha.market_data.subscriptions import only_bar_type_id
 
 
@@ -242,6 +242,8 @@ class OnlyMarketDataSnapshot:
     def _encode_indicator(value: OnlyIndicatorValue) -> object:
         if isinstance(value, Decimal):
             return {"kind": "decimal", "value": str(value)}
+        if isinstance(value, OnlyStructuredIndicatorValue):
+            return {"kind": "structured", "value_type": value.value_type, "value": dict(value.to_dict())}
         return {"kind": "scalar", "value": value}
 
     @staticmethod
@@ -252,4 +254,10 @@ class OnlyMarketDataSnapshot:
             value = payload.get("value")
             if value is None or isinstance(value, str | int | bool):
                 return value
+        if payload.get("kind") == "structured" and payload.get("value_type") == "MACD":
+            from onlyalpha.indicator.macd import OnlyMacdSnapshot
+
+            value = payload.get("value")
+            if isinstance(value, Mapping):
+                return OnlyMacdSnapshot.from_dict(value)
         raise ValueError("invalid indicator value payload")

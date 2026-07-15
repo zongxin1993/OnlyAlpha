@@ -15,5 +15,5 @@ def test_each_vertical_slice_scenario_is_automated(scenario_count: int) -> None:
 
 def test_full_vertical_slice_runs_in_one_environment() -> None:
     reports = run_all()
-    assert len(reports) == 33
+    assert len(reports) == 34
     assert all(report.passed for report in reports)
