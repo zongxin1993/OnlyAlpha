@@ -15,6 +15,7 @@ from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorValue
 
 if TYPE_CHECKING:
+    from onlyalpha.account.views import OnlyAccountQueryView
     from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
     from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
     from onlyalpha.order.views import OnlyOrderServiceView
@@ -179,6 +180,7 @@ class OnlyRuntimeContext:
     timers: OnlyTimerService
     orders: OnlyOrderServiceView
     positions: OnlyPositionContextView
+    accounts: OnlyAccountQueryView
     ledger: OnlyStrategyLedgerContextView
     risk: OnlyRiskSnapshotView
     logger: OnlyRuntimeLogger

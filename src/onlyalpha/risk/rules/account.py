@@ -32,7 +32,14 @@ class OnlyAvailableBalanceRiskRule(OnlyRiskRule):
                     context.ts_init,
                 )
             )
-        if request.price is None:
+        reference_price = (
+            request.price
+            if request.price is not None
+            else context.market_data.primary_bar.close
+            if context.market_data is not None
+            else None
+        )
+        if reference_price is None:
             return OnlyRiskDecision.failed(
                 OnlyRiskErrorInfo(
                     self.rule_id,
@@ -46,6 +53,34 @@ class OnlyAvailableBalanceRiskRule(OnlyRiskRule):
                     context.ts_event,
                     context.ts_init,
                 )
+            )
+        if not snapshot.allows_new_orders:
+            return self._reject(
+                OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                f"Account status blocks new orders: {snapshot.status}",
+            )
+        instrument = context.instruments.get(request.instrument_id)
+        if instrument is None:
+            return self._reject(
+                OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                "Account balance check requires a known Instrument",
+            )
+        balance = next(
+            (item for item in snapshot.available_balances if item.currency == instrument.settlement_currency),
+            None,
+        )
+        if balance is None:
+            return self._reject(
+                OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                "Account has no available balance in the order currency",
+            )
+        required = reference_price.value * request.quantity.value
+        if request.side is OnlyOrderSide.BUY and required > balance.amount:
+            return self._reject(
+                OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                "order notional exceeds Account available cash",
+                requested_value=str(required),
+                allowed_value=str(balance.amount),
             )
         return self._accept()
 

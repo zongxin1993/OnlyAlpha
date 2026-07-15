@@ -63,3 +63,8 @@ Manager 先完成状态修改和持久化，再发布事实 Event。内存 Repos
 `examples/strategy_ledger_demo/` 包含九个示例。当前胜负统计按 realized delta 更新，尚未建立 Closed Position Result，因此不把
 每个 Fill 宣称为完整交易；Backtest Runtime 已完成标准化 Fill 到 Ledger 的同步纵切面编排，但持久化 ExecutionProcessor、
 AccountManager 和真实券商同步仍留给后续阶段。
+## 与 Account 的边界
+
+Strategy Ledger 继续按 Cluster 记录固定初始资金、Allocation 成本、费用和 PnL；AccountManager 记录同一 Runtime 账户的合并
+现金与权益。多个 Ledger 可以共享一个 Account，但不能读取或复用 Account/Virtual Broker 内部对象。Runtime 对同一 Fill
+分别投递强类型 accounting input，账户合并成本不得反向污染 Cluster 归因。

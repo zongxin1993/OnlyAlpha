@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
+from onlyalpha.account.models import OnlyAccountSnapshot
+from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerOrderSnapshot
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
@@ -13,7 +16,6 @@ from onlyalpha.domain.enums import (
     OnlyAggregationSource,
     OnlyBarAggregation,
     OnlyCurrencyType,
-    OnlyDirection,
     OnlyMarketType,
     OnlyOffset,
     OnlyOrderSide,
@@ -23,39 +25,36 @@ from onlyalpha.domain.enums import (
     OnlyRuntimeMode,
     OnlySessionType,
 )
-from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRequest, OnlyOrderSnapshot
+from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
+    OnlyAccountId,
     OnlyCalendarId,
     OnlyClusterId,
     OnlyInstrumentId,
     OnlyOrderRequestId,
     OnlyRawSymbol,
-    OnlyRuntimeId,
     OnlySymbol,
-    OnlyTradeId,
     OnlyVenueId,
-    OnlyVenueOrderId,
-    OnlyVenueTradeId,
 )
 from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
-from onlyalpha.order.execution.models import OnlyGatewayOrderAcceptedUpdate, OnlyGatewayOrderFillUpdate
 from onlyalpha.order.results import OnlyOrderSubmitResult
-from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionSide, OnlySettlementBucket
-from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot, OnlyPositionTrade
+from onlyalpha.position.enums import OnlyPositionMutationStatus
+from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.runtime.runtime import (
     OnlyBacktestRuntime,
     OnlyRuntimeConfig,
     OnlyRuntimeTradeResult,
 )
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
+from onlyalpha.virtual_broker import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
 
 ENGINE_ID = "integration-engine"
 RUNTIME_ID = "integration-runtime"
@@ -111,6 +110,9 @@ class OnlyIntegrationSnapshot:
     account_positions: tuple[OnlyPositionSnapshot, ...]
     cluster_allocations: tuple[OnlyPositionAllocationSnapshot, ...]
     ledger_snapshots: tuple[OnlyStrategyLedgerSnapshot, ...]
+    account_snapshots: tuple[OnlyAccountSnapshot, ...]
+    broker_account_snapshot: OnlyBrokerAccountSnapshot | None
+    broker_order_snapshots: tuple[OnlyBrokerOrderSnapshot, ...]
     active_risk_reservations: int
     position_reservation_state: str | None
     event_trace: tuple[OnlyRecordedEvent, ...]
@@ -141,6 +143,17 @@ class OnlyReportBuilder:
             env.runtime.position_manager.snapshot_all(),
             env.runtime.allocation_manager.snapshot_all(),
             env.runtime.strategy_ledger_manager.list_ledgers(),
+            env.runtime.account_manager.list_accounts(),
+            (
+                None
+                if env.runtime.broker_gateway is None
+                else env.runtime.broker_gateway.query_account(OnlyAccountId(ACCOUNT_ID))
+            ),
+            (
+                ()
+                if env.runtime.broker_gateway is None
+                else env.runtime.broker_gateway.query_orders(OnlyAccountId(ACCOUNT_ID))
+            ),
             len(env.runtime.risk_service.reservations.snapshot_active()),
             position_reservation,
             env.event_recorder.events,
@@ -150,8 +163,12 @@ class OnlyReportBuilder:
 class OnlyIntegrationCluster(OnlyCluster):
     """Small strategy fixture using only the production Runtime Context."""
 
-    def __init__(self, bar_types: tuple[OnlyBarType, ...]) -> None:
-        super().__init__(OnlyClusterConfig(str(CLUSTER_ID)))
+    def __init__(
+        self,
+        bar_types: tuple[OnlyBarType, ...],
+        cluster_id: OnlyClusterId = CLUSTER_ID,
+    ) -> None:
+        super().__init__(OnlyClusterConfig(str(cluster_id)))
         self._subscription = OnlyBarSubscription(bar_types)
         self.pending_order: OnlyOrderRequest | None = None
         self.submit_results: list[OnlyOrderSubmitResult] = []
@@ -176,7 +193,7 @@ class OnlyIntegrationCluster(OnlyCluster):
 class OnlyIntegrationEnvironment:
     """Owns one Runtime and drives the complete deterministic vertical slice."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, maximum_fill_quantity: OnlyQuantity | None = None) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
             OnlyVenueId("XSHG"),
@@ -219,6 +236,14 @@ class OnlyIntegrationEnvironment:
                 OnlyRuntimeMode.BACKTEST,
                 strategy_initial_capital="1000000.00",
                 strategy_base_currency=CNY,
+                virtual_broker_config=OnlyVirtualBrokerConfig(
+                    OnlyBrokerGatewayId("virtual-integration"),
+                    OnlyAccountId(ACCOUNT_ID),
+                    CNY,
+                    OnlyMoney(Decimal("1000000.00"), CNY),
+                    maximum_fill_quantity=maximum_fill_quantity,
+                    commission_model=OnlyFixedCommissionModel(OnlyMoney(Decimal("1.00"), CNY)),
+                ),
             ),
             self.calendar,
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
@@ -267,19 +292,23 @@ class OnlyIntegrationEnvironment:
     def fill_buy(self) -> OnlyRuntimeTradeResult:
         if self.buy_order is None or self.buy_order.order_id is None:
             raise RuntimeError("buy Order must be submitted first")
-        self._accept(self.buy_order, 1)
-        self.buy_trade_result = self._fill(self.buy_order, 2, "10.00", "1.00", OnlyOrderSide.BUY)
+        before = len(self.runtime.broker_results)
+        self.process_bar(DAY_ONE, 4, "10.00")
+        self.buy_trade_result = next(
+            item for item in self.runtime.broker_results[before:] if isinstance(item, OnlyRuntimeTradeResult)
+        )
         return self.buy_trade_result
 
     def settle_next_day(self) -> tuple[object, ...]:
+        # Close the final day-one aggregation window before changing TradingDay.
+        self.process_bar(DAY_ONE, 5, "10.00")
         results = self.runtime.settle_positions(OnlyTradingDay(DAY_ONE), OnlyTradingDay(DAY_TWO))
+        # The day-two Bar advances the independent Broker settlement and sends its snapshots inbound.
+        self.process_bar(DAY_TWO, 0, "10.00")
         self.event_recorder.capture(self.runtime.event_bus)
         return results
 
     def submit_and_fill_sell(self) -> OnlyRuntimeTradeResult:
-        # Close the current shared 3m aggregation window before advancing the calendar day.
-        self.process_bar(DAY_ONE, 4, "10.00")
-        self.process_bar(DAY_ONE, 5, "10.00")
         self.cluster.pending_order = OnlyOrderRequest(
             OnlyOrderRequestId("integration-sell"),
             INSTRUMENT_ID,
@@ -289,12 +318,15 @@ class OnlyIntegrationEnvironment:
             price=OnlyPrice(Decimal("12.00"), 2),
             offset=OnlyOffset.CLOSE,
         )
-        self.process_bar(DAY_TWO, 0, "12.00")
+        self.process_bar(DAY_TWO, 1, "12.00")
         self.sell_order = self.cluster.submit_results[-1]
         if self.sell_order.order_id is None:
             raise RuntimeError("sell Order was not created")
-        self._accept(self.sell_order, 3)
-        self.sell_trade_result = self._fill(self.sell_order, 4, "12.00", "1.00", OnlyOrderSide.SELL)
+        before = len(self.runtime.broker_results)
+        self.process_bar(DAY_TWO, 2, "12.00")
+        self.sell_trade_result = next(
+            item for item in self.runtime.broker_results[before:] if isinstance(item, OnlyRuntimeTradeResult)
+        )
         return self.sell_trade_result
 
     def final_snapshot(self) -> OnlyIntegrationSnapshot:
@@ -309,6 +341,9 @@ class OnlyIntegrationEnvironment:
             tuple(item.to_json() for item in snapshot.account_positions),
             tuple(item.to_json() for item in snapshot.cluster_allocations),
             tuple(item.to_json() for item in snapshot.ledger_snapshots),
+            tuple(item.to_json() for item in snapshot.account_snapshots),
+            None if snapshot.broker_account_snapshot is None else snapshot.broker_account_snapshot.to_json(),
+            tuple(item.to_json() for item in snapshot.broker_order_snapshots),
             snapshot.active_risk_reservations,
             snapshot.position_reservation_state,
             tuple(
@@ -328,6 +363,12 @@ class OnlyIntegrationEnvironment:
         assert ledger.pnl.realized_pnl.amount == Decimal("200.00")
         assert ledger.pnl.net_pnl.amount == Decimal("198.00")
         assert ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view
+        account = self.runtime.account_manager.list_accounts()[0]
+        assert account.cash.cash_balance.amount == Decimal("1000198.00")
+        assert account.equity.amount == Decimal("1000198.00")
+        assert self.runtime.broker_gateway is not None
+        broker_account = self.runtime.broker_gateway.query_account(OnlyAccountId(ACCOUNT_ID))
+        assert broker_account.cash_balance == account.cash.cash_balance
         assert self.buy_trade_result is not None
         assert self.sell_trade_result is not None
         assert self.buy_trade_result.allocation_status is OnlyPositionMutationStatus.APPLIED
@@ -336,86 +377,6 @@ class OnlyIntegrationEnvironment:
             raise AssertionError("sell Order is missing")
         reservation = self.runtime.position_reservation_manager.get(self.sell_order.order_id)
         assert reservation is not None and reservation.remaining_quantity.value == 0
-
-    def _accept(self, order: OnlyOrderSubmitResult, sequence: int) -> None:
-        if order.order_id is None:
-            raise RuntimeError("Order ID is unavailable")
-        now = OnlyTimestamp.from_unix_nanos(self.runtime.clock.timestamp_ns())
-        self.runtime.process_order_update(
-            OnlyGatewayOrderAcceptedUpdate(
-                runtime_id=OnlyRuntimeId(RUNTIME_ID),
-                order_id=order.order_id,
-                ts_event=now,
-                ts_init=now,
-                external_sequence=sequence,
-                external_event_id=f"accepted-{sequence}",
-                venue_order_id=OnlyVenueOrderId(f"venue-order-{sequence}"),
-            )
-        )
-        self.event_recorder.capture(self.runtime.event_bus)
-
-    def _fill(
-        self,
-        order: OnlyOrderSubmitResult,
-        sequence: int,
-        price: str,
-        fee: str,
-        side: OnlyOrderSide,
-    ) -> OnlyRuntimeTradeResult:
-        if order.order_id is None or order.snapshot is None:
-            raise RuntimeError("Order Snapshot is unavailable")
-        now = OnlyTimestamp.from_unix_nanos(self.runtime.clock.timestamp_ns())
-        trade_id = OnlyTradeId(f"trade-{sequence}")
-        venue_trade_id = OnlyVenueTradeId(f"venue-trade-{sequence}")
-        money = OnlyMoney(Decimal(fee), CNY)
-        fill = OnlyOrderFill(
-            trade_id,
-            order.order_id,
-            OnlyPrice(Decimal(price), 2),
-            OnlyQuantity(Decimal("100"), 0),
-            now,
-            now,
-            venue_trade_id=venue_trade_id,
-            fee=money,
-            external_sequence=sequence,
-            external_event_id=f"fill-{sequence}",
-        )
-        update = OnlyGatewayOrderFillUpdate(
-            runtime_id=OnlyRuntimeId(RUNTIME_ID),
-            order_id=order.order_id,
-            ts_event=now,
-            ts_init=now,
-            external_sequence=sequence,
-            external_event_id=f"fill-{sequence}",
-            fill=fill,
-        )
-        trade = OnlyPositionTrade(
-            trade_id,
-            venue_trade_id,
-            order.order_id,
-            CLUSTER_ID,
-            OnlyRuntimeId(RUNTIME_ID),
-            order.snapshot.account_id,
-            INSTRUMENT_ID,
-            side,
-            OnlyDirection.BUY if side is OnlyOrderSide.BUY else OnlyDirection.SELL,
-            OnlyOffset.OPEN if side is OnlyOrderSide.BUY else OnlyOffset.CLOSE,
-            OnlyPositionSide.LONG,
-            OnlyPrice(Decimal(price), 2),
-            OnlyQuantity(Decimal("100"), 0),
-            money,
-            now,
-            now,
-            sequence,
-            execution_id=f"execution-{sequence}",
-            settlement_bucket=(
-                OnlySettlementBucket.UNSETTLED if side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
-            ),
-            multiplier=self.instrument.contract_multiplier,
-        )
-        result = self.runtime.process_trade(update, trade)
-        self.event_recorder.capture(self.runtime.event_bus)
-        return result
 
     def _bar(self, day: date, minute: int, close: str) -> OnlyBar:
         start = datetime.combine(day, time(1, 30), tzinfo=UTC) + timedelta(minutes=minute)
