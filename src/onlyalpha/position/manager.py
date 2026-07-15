@@ -98,6 +98,13 @@ class OnlyPositionManager:
             trade.fee,
         )
 
+    def bind_publisher(self, publisher: OnlyPositionEventPublisher) -> None:
+        """Bind the Runtime fact adapter before any Position state exists."""
+
+        if self._active or self._closed:
+            raise ValueError("Position publisher must bind before Position creation")
+        self._publisher = publisher
+
     def get_snapshot(self, key: OnlyPositionKey) -> OnlyPositionSnapshot | None:
         self._require_scope(key.runtime_id)
         entity = self._active.get(key)

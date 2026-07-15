@@ -25,7 +25,7 @@ from onlyalpha.core.clock import (
 )
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
+from onlyalpha.domain.enums import OnlyOrderStatus, OnlyRuntimeMode, OnlySessionType
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyCalendarId,
@@ -38,7 +38,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.market_rules import OnlyMarketRule
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
@@ -55,7 +55,7 @@ from onlyalpha.market_data.dispatcher import (
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, OnlyBarSubscriptionId
-from onlyalpha.order.execution.models import OnlyGatewayOrderUpdate
+from onlyalpha.order.execution.models import OnlyGatewayOrderFillUpdate, OnlyGatewayOrderUpdate
 from onlyalpha.order.execution.placeholder import OnlyPlaceholderExecutionService
 from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
@@ -66,9 +66,20 @@ from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
+from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionSide
+from onlyalpha.position.events import OnlyPositionEvent
+from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.manager import OnlyPositionManager
+from onlyalpha.position.models import (
+    OnlyPositionAllocationSnapshot,
+    OnlyPositionMutationResult,
+    OnlyPositionTrade,
+    OnlySettlementResult,
+)
+from onlyalpha.position.ports import OnlyPositionEventPublisher
 from onlyalpha.position.queries import OnlyPositionQueryService
 from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter, OnlyPositionReservationManager
+from onlyalpha.position.settlement import OnlySettlementService
 from onlyalpha.position.views import OnlyPositionContextView, OnlyPositionRiskView
 from onlyalpha.risk.contexts import OnlyRiskStateUpdateContext
 from onlyalpha.risk.factory import OnlyRiskProfileFactory
@@ -91,11 +102,21 @@ from onlyalpha.runtime.context import (
     OnlySubscriptionService,
     OnlyTimerService,
 )
+from onlyalpha.strategy_ledger.enums import OnlyStrategyFeeType
+from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
+from onlyalpha.strategy_ledger.models import (
+    OnlyStrategyFeeEntry,
+    OnlyStrategyLedgerMutationResult,
+    OnlyStrategyLedgerSnapshot,
+    OnlyStrategyMarkPrice,
+    OnlyStrategyTradeAccountingInput,
+)
 from onlyalpha.strategy_ledger.order_port import OnlyOrderStrategyCashReservationAdapter
 from onlyalpha.strategy_ledger.publisher import OnlyRuntimeStrategyLedgerEventPublisherAdapter
 from onlyalpha.strategy_ledger.query import OnlyStrategyLedgerQueryService
+from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
 from onlyalpha.strategy_ledger.views import (
     OnlyStrategyLedgerContextView,
     OnlyStrategyLedgerRiskView,
@@ -188,6 +209,18 @@ class OnlyRuntimeBarResult:
     events_dispatched: int
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyRuntimeTradeResult:
+    """Result of one Runtime-owned standardized fill orchestration."""
+
+    order: OnlyOrderMutationResult
+    position: OnlyPositionMutationResult | None
+    allocation_status: OnlyPositionMutationStatus | None
+    ledger: OnlyStrategyLedgerMutationResult | None
+    final_ledger: OnlyStrategyLedgerSnapshot | None
+    events_dispatched: int
+
+
 @dataclass(slots=True)
 class OnlyRuntimeServices:
     """Runtime-private mutable service container; never exposed through Context."""
@@ -204,6 +237,7 @@ class OnlyRuntimeServices:
     order_query: OnlyOrderQueryService
     order_service: OnlyOrderService
     order_update_processor: OnlyOrderUpdateProcessor
+    execution_service: OnlyPlaceholderExecutionService
     risk_service: OnlyRiskService
     position_manager: OnlyPositionManager
     allocation_manager: OnlyPositionAllocationManager
@@ -211,6 +245,8 @@ class OnlyRuntimeServices:
     position_query: OnlyPositionQueryService
     strategy_ledger_manager: OnlyStrategyLedgerManager
     strategy_ledger_query: OnlyStrategyLedgerQueryService
+    settlement_service: OnlySettlementService
+    strategy_valuation_service: OnlyStrategyValuationService
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -242,6 +278,30 @@ class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
             return self._manager.execute_bar(cluster_id, bar, snapshot)
         finally:
             self._set_snapshot(cluster_id, None)
+
+
+class OnlyRuntimePositionEventPublisherAdapter(OnlyPositionEventPublisher):
+    """Publishes completed Position facts to the owning Runtime EventBus."""
+
+    def __init__(self, engine_id: OnlyEngineId, event_bus: OnlyEventBus) -> None:
+        self._engine_id = engine_id
+        self._event_bus = event_bus
+
+    def publish(self, event: OnlyPositionEvent) -> None:
+        self._event_bus.publish(
+            OnlyEvent(
+                event.event_type,
+                event.timestamp.to_datetime(),
+                self._engine_id,
+                event.runtime_id,
+                "position_manager",
+                event.sequence,
+                payload=event.to_dict(),
+                cluster_id=event.cluster_id,
+                timestamp_ns=event.timestamp.unix_nanos,
+                ts_init_ns=event.timestamp.unix_nanos,
+            )
+        )
 
 
 class OnlyRuntime:
@@ -303,6 +363,34 @@ class OnlyRuntime:
         """Runtime management port; never exposed through Cluster Context."""
 
         return self._strategy_ledger_manager
+
+    @property
+    def clock(self) -> OnlyBacktestClock:
+        """Runtime management clock; Cluster receives only ``OnlyClockView``."""
+
+        return self._services.clock
+
+    @property
+    def event_bus(self) -> OnlyEventBus:
+        """Runtime management EventBus; never injected into Cluster Context."""
+
+        return self._services.event_bus
+
+    @property
+    def market_data_pipeline(self) -> OnlyMarketDataPipeline:
+        return self._services.pipeline
+
+    @property
+    def order_manager(self) -> OnlyOrderManager:
+        return self._services.order_manager
+
+    @property
+    def risk_service(self) -> OnlyRiskService:
+        return self._services.risk_service
+
+    @property
+    def execution_service(self) -> OnlyPlaceholderExecutionService:
+        return self._services.execution_service
 
     def add_cluster(self, engine_id: str | OnlyEngineId, cluster: OnlyCluster) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
@@ -489,6 +577,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 owned_bus,
             )
         )
+        self._position_manager.bind_publisher(
+            OnlyRuntimePositionEventPublisherAdapter(
+                runtime_config.engine_id,  # type: ignore[arg-type]
+                owned_bus,
+            )
+        )
         market_cache = OnlyMarketDataCache(runtime_config.history_limit)
         aggregation = OnlyBarAggregationManager(selected_calendar, clock)
         indicators = OnlyIndicatorPipeline()
@@ -548,9 +642,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._strategy_ledger_query, runtime_config.strategy_base_currency
             ),
         )
+        execution_service = OnlyPlaceholderExecutionService()
         order_service = OnlyOrderService(
             order_manager,
-            OnlyPlaceholderExecutionService(),
+            execution_service,
             order_publisher,
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
             risk_service,
@@ -579,6 +674,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_query,
             order_service,
             order_update_processor,
+            execution_service,
             risk_service,
             position_manager,
             allocation_manager,
@@ -586,7 +682,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_query,
             self._strategy_ledger_manager,
             self._strategy_ledger_query,
+            OnlySettlementService(position_manager, allocation_manager),
+            OnlyStrategyValuationService(),
         )
+        self._valuation_versions: dict[OnlyStrategyLedgerKey, int] = {}
 
     def register_instrument(
         self,
@@ -634,6 +733,240 @@ class OnlyBacktestRuntime(OnlyRuntime):
         result = self._services.order_update_processor.process(update)
         self._services.event_bus.drain()
         return result
+
+    def process_trade(
+        self,
+        update: OnlyGatewayOrderFillUpdate,
+        trade: OnlyPositionTrade,
+    ) -> OnlyRuntimeTradeResult:
+        """Apply Order, Position, Allocation and Ledger changes in Runtime order.
+
+        The caller supplies already-standardized Gateway facts.  Placeholder Execution
+        never manufactures an acceptance, fill or trade.
+        """
+
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime accepts Trades only while RUNNING")
+        order_before = self._services.order_query.require(update.order_id)
+        self._validate_trade(update, trade, order_before)
+        allocation_key = OnlyPositionAllocationKey(
+            trade.runtime_id,
+            trade.account_id,
+            trade.cluster_id,  # type: ignore[arg-type]
+            trade.instrument_id,
+            trade.position_side,
+        )
+        allocation_before = self._services.allocation_manager.get_snapshot(allocation_key)
+        order_result = self._services.order_update_processor.process(
+            update,
+            consume_cash_reservation=False,
+        )
+        if not order_result.changed:
+            dispatched = self._services.event_bus.drain()
+            return OnlyRuntimeTradeResult(order_result, None, None, None, None, dispatched)
+
+        position_result = self._services.position_manager.apply_trade(trade)
+        allocation_status = self._services.allocation_manager.apply_trade(trade)
+        allocation_after = self._allocation_snapshot(allocation_key)
+        ledger_key = OnlyStrategyLedgerKey(
+            trade.runtime_id,
+            trade.account_id,
+            trade.cluster_id,  # type: ignore[arg-type]
+            self.config.strategy_base_currency,
+        )
+        ledger_snapshot = self._services.strategy_ledger_manager.require_snapshot(ledger_key)
+        cash_reservation = next(
+            (item for item in ledger_snapshot.reservations if item.order_id == trade.order_id),
+            None,
+        )
+        realized_before = self._allocation_money(allocation_before, realized=True)
+        realized_after = self._allocation_money(allocation_after, realized=True)
+        cost_before = self._allocation_cost(allocation_before, trade)
+        cost_after = self._allocation_cost(allocation_after, trade)
+        fee_entry = OnlyStrategyFeeEntry(
+            OnlyStrategyFeeEntryId(f"SFEE-{trade.runtime_id}-{trade.trade_id}"),
+            ledger_key,
+            trade.fee,
+            OnlyStrategyFeeType.COMMISSION,
+            trade.trade_id,
+            trade.order_id,
+            trade.ts_event,
+            trade.ts_init,
+            trade.external_sequence or 0,
+        )
+        ledger_result = self._services.strategy_ledger_manager.apply_trade_accounting(
+            ledger_key,
+            OnlyStrategyTradeAccountingInput(
+                trade,
+                order_result.snapshot,
+                allocation_before,
+                allocation_after,
+                realized_after - realized_before,
+                cost_after - cost_before,
+                (fee_entry,),
+                cash_reservation,
+                trade.ts_event,
+                trade.external_sequence or 0,
+            ),
+        )
+        self._apply_strategy_valuation(ledger_key, trade)
+        if order_result.snapshot.status is OnlyOrderStatus.FILLED:
+            self._services.risk_service.consume_order(
+                trade.order_id,
+                order_result.snapshot.cluster_id,
+                trade.account_id,
+                trade.ts_init,
+            )
+        final_ledger = self._services.strategy_ledger_manager.require_snapshot(ledger_key)
+        dispatched = self._services.event_bus.drain()
+        return OnlyRuntimeTradeResult(
+            order_result,
+            position_result,
+            allocation_status,
+            ledger_result,
+            final_ledger,
+            dispatched,
+        )
+
+    def settle_positions(
+        self,
+        previous_trading_day: OnlyTradingDay,
+        trading_day: OnlyTradingDay,
+    ) -> tuple[OnlySettlementResult, ...]:
+        """Run existing calendar-derived Position and Allocation settlement."""
+
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime settles Positions only while RUNNING")
+        return self._services.settlement_service.settle_account(
+            self.config.default_account_id,  # type: ignore[arg-type]
+            previous_trading_day,
+            trading_day,
+        )
+
+    def _validate_trade(
+        self,
+        update: OnlyGatewayOrderFillUpdate,
+        trade: OnlyPositionTrade,
+        order: object,
+    ) -> None:
+        from onlyalpha.domain.execution import OnlyOrderSnapshot
+
+        if not isinstance(order, OnlyOrderSnapshot):
+            raise TypeError("Order query must return OnlyOrderSnapshot")
+        fill = update.fill
+        if trade.cluster_id is None:
+            raise ValueError("Runtime strategy Trade requires cluster attribution")
+        expected = (
+            update.runtime_id,
+            update.order_id,
+            fill.trade_id,
+            fill.venue_trade_id,
+            fill.price,
+            fill.quantity,
+            fill.ts_event,
+            fill.ts_init,
+            order.cluster_id,
+            order.account_id,
+            order.instrument_id,
+            order.side,
+            order.offset,
+        )
+        actual = (
+            trade.runtime_id,
+            trade.order_id,
+            trade.trade_id,
+            trade.venue_trade_id,
+            trade.price,
+            trade.quantity,
+            trade.ts_event,
+            trade.ts_init,
+            trade.cluster_id,
+            trade.account_id,
+            trade.instrument_id,
+            trade.side,
+            trade.offset,
+        )
+        if actual != expected:
+            raise ValueError("Position Trade does not match standardized Order Fill")
+        expected_fee = OnlyMoney(Decimal(0), self.config.strategy_base_currency) if fill.fee is None else fill.fee
+        if trade.fee != expected_fee:
+            raise ValueError("Position Trade fee does not match Order Fill")
+        instrument = self._instruments.get(trade.instrument_id)
+        if instrument is None or trade.multiplier != instrument.contract_multiplier:
+            raise ValueError("Position Trade requires the registered Instrument multiplier")
+        if trade.position_side is not OnlyPositionSide.LONG:
+            raise ValueError("first-phase Runtime trade orchestration supports LONG only")
+
+    def _allocation_snapshot(
+        self,
+        key: OnlyPositionAllocationKey,
+    ) -> OnlyPositionAllocationSnapshot | None:
+        active = self._services.allocation_manager.get_snapshot(key)
+        if active is not None:
+            return active
+        return next(
+            (item for item in reversed(self._services.allocation_manager.closed()) if item.key == key),
+            None,
+        )
+
+    def _allocation_money(
+        self,
+        snapshot: OnlyPositionAllocationSnapshot | None,
+        *,
+        realized: bool,
+    ) -> OnlyMoney:
+        if snapshot is None:
+            return OnlyMoney(Decimal(0), self.config.strategy_base_currency)
+        return snapshot.realized_pnl if realized else snapshot.fees
+
+    def _allocation_cost(
+        self,
+        snapshot: OnlyPositionAllocationSnapshot | None,
+        trade: OnlyPositionTrade,
+    ) -> OnlyMoney:
+        if snapshot is None or snapshot.average_open_price is None:
+            return OnlyMoney(Decimal(0), self.config.strategy_base_currency)
+        quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
+        amount = (snapshot.average_open_price.value * snapshot.total_quantity.value * trade.multiplier.value).quantize(
+            quantum
+        )
+        return OnlyMoney(amount, self.config.strategy_base_currency)
+
+    def _apply_strategy_valuation(
+        self,
+        key: OnlyStrategyLedgerKey,
+        trade: OnlyPositionTrade,
+    ) -> None:
+        allocations = self._services.allocation_manager.list_by_cluster(key.cluster_id)
+        candidates = tuple(
+            bar
+            for registration in self._subscriptions.values()
+            for bar_type in registration.subscription.bar_types
+            if bar_type.instrument_id == trade.instrument_id
+            if (bar := self._services.market_data_cache.latest_closed(bar_type)) is not None
+        )
+        if allocations and not candidates:
+            raise ValueError("Strategy valuation requires a closed market-data mark")
+        marks: tuple[OnlyStrategyMarkPrice, ...] = ()
+        trading_day: OnlyTradingDay | None = None
+        if candidates:
+            latest = max(candidates, key=lambda item: item.ts_event)
+            version = self._valuation_versions.get(key, 0) + 1
+            marks = (OnlyStrategyMarkPrice(trade.instrument_id, latest.close, version, "MARKET_DATA_SNAPSHOT"),)
+            trading_day = OnlyTradingDay(latest.trading_day)
+        else:
+            version = self._valuation_versions.get(key, 0) + 1
+        self._valuation_versions[key] = version
+        valuation = self._services.strategy_valuation_service.value(
+            key,
+            allocations,
+            marks,
+            {trade.instrument_id: trade.multiplier},
+            trade.ts_event,
+            trade.ts_init,
+            version,
+        )
+        self._services.strategy_ledger_manager.apply_valuation(valuation, trading_day)
 
     def _make_context(self, cluster_id: OnlyClusterId) -> OnlyClusterContext:
         def allowed_bar_types() -> frozenset[OnlyBarType]:

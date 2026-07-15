@@ -36,7 +36,12 @@ class OnlyOrderUpdateProcessor:
         self._position_reservations = position_reservations
         self._cash_reservations = cash_reservations
 
-    def process(self, update: OnlyGatewayOrderUpdate) -> OnlyOrderMutationResult:
+    def process(
+        self,
+        update: OnlyGatewayOrderUpdate,
+        *,
+        consume_cash_reservation: bool = True,
+    ) -> OnlyOrderMutationResult:
         if update.runtime_id != self._runtime_id:
             raise ValueError("Gateway update belongs to another Runtime")
         if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
@@ -92,7 +97,7 @@ class OnlyOrderUpdateProcessor:
             if self._cash_reservations is not None:
                 if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
                     self._cash_reservations.acknowledged(result.order_id, update.ts_init)
-                elif isinstance(update, OnlyGatewayOrderFillUpdate):
+                elif isinstance(update, OnlyGatewayOrderFillUpdate) and consume_cash_reservation:
                     self._cash_reservations.consume(update.fill, update.ts_init)
             release_reason = None
             if isinstance(update, OnlyGatewayOrderCancelledUpdate):

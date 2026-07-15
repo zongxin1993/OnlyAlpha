@@ -11,6 +11,7 @@ _EXPORTS = {
     "OnlyRuntimeManager": "onlyalpha.runtime.runtime",
     "OnlyRuntimeState": "onlyalpha.runtime.runtime",
     "OnlyRuntimeStatus": "onlyalpha.runtime.runtime",
+    "OnlyRuntimeTradeResult": "onlyalpha.runtime.runtime",
 }
 
 __all__ = sorted(_EXPORTS)

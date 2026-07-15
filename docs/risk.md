@@ -101,3 +101,6 @@ Fail Closed 和 Snapshot。
 卖出审批同时读取账户真实 Position 与当前 Cluster Allocation 的只读 Snapshot：请求数量必须不超过两者有效可用量的
 较小值。Position Reservation 与名义金额 Risk Reservation 分离；前者预占可卖仓位，后者服务资金/名义金额约束。
 Position 处于 RECONCILING 时可用量为零，关键券商冲突必须阻断相关 Instrument。
+
+完整成交终态由 Runtime 在 Position、Allocation 和 Ledger 全部成功后把 Risk Order Reservation 从 ACTIVE 推进为既有
+`CONSUMED` 状态。部分成交仍保守保留活动预占；取消、拒绝、失败和过期继续使用 RELEASED 生命周期。
