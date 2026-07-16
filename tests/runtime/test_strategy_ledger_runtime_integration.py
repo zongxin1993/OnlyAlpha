@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.domain.identifiers import OnlyClusterId
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 
 
 def test_each_runtime_owns_manager_and_context_is_cluster_scoped(

@@ -1,10 +1,11 @@
 from examples.integration_demo.environment import OnlyIntegrationEnvironment, OnlyScenarioReport
-from onlyalpha.backtest import OnlyBacktestConfig, OnlyBacktestStatus
-from onlyalpha.runtime import OnlyBacktestRuntime
+from onlyalpha.config import OnlyRunConfig
+from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
+from onlyalpha.runtime.defaults import only_default_run_service
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
-    result = OnlyBacktestRuntime.from_config(OnlyBacktestConfig.load("examples/backtest_macd/config.yaml")).run()
+    result = only_default_run_service().run(OnlyRunConfig.load("examples/backtest_macd/config.yaml"), export=False)
     assert result.status is OnlyBacktestStatus.COMPLETED
     assert result.execution.order_count == 2
     assert result.execution.trade_count == 2

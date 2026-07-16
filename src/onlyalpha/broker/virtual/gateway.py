@@ -34,13 +34,13 @@ from onlyalpha.broker.updates import (
     OnlyBrokerPositionUpdate,
     OnlyBrokerTradeUpdate,
 )
-from onlyalpha.broker.virtual_broker.commission import OnlyCommissionModel, OnlyFixedCommissionModel
-from onlyalpha.broker.virtual_broker.config import OnlyVirtualBrokerConfig
-from onlyalpha.broker.virtual_broker.latency import OnlyLatencyModel, OnlyZeroLatencyModel
-from onlyalpha.broker.virtual_broker.matching import OnlyMatchingEngine, OnlyNextBarMatchingEngine
-from onlyalpha.broker.virtual_broker.scheduler import OnlyVirtualBrokerScheduler
-from onlyalpha.broker.virtual_broker.slippage import OnlyNoSlippageModel, OnlySlippageModel
-from onlyalpha.broker.virtual_broker.stores import (
+from onlyalpha.broker.virtual.commission import OnlyCommissionModel, OnlyFixedCommissionModel
+from onlyalpha.broker.virtual.config import OnlyVirtualBrokerConfig
+from onlyalpha.broker.virtual.latency import OnlyLatencyModel, OnlyZeroLatencyModel
+from onlyalpha.broker.virtual.matching import OnlyMatchingEngine, OnlyNextBarMatchingEngine
+from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerScheduler
+from onlyalpha.broker.virtual.slippage import OnlyNoSlippageModel, OnlySlippageModel
+from onlyalpha.broker.virtual.stores import (
     OnlyVirtualBrokerAccountStore,
     OnlyVirtualBrokerOrderStore,
     OnlyVirtualBrokerTradeStore,

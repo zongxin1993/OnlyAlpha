@@ -54,10 +54,11 @@ Cluster 不接触具体 Gateway、撮合器、EventBus、可变 Cache、Aggregat
 
 ## 6. Backtest
 
-正式成品式入口为 `OnlyBacktestConfig.load(path) → OnlyBacktestRuntime.from_config(config) → run()`。Assembler 负责注册
-Instrument、Indicator、Cluster、Synthetic HistoricalDataSource 与 VirtualBroker；用户脚本不装配 Manager。`run()` 负责
-生命周期、Replay、最终不变量、Result 和资源关闭。闭合 Bar 在 Broker 对账与 Cluster 回调前更新 Account/Strategy 估值；
-Calendar-derived TradingDay 切换驱动本地 SettlementService。
+正式成品式入口为 `OnlyRunConfig.load(path) → OnlyEngineRunService.run(config)`。通用 Assembler 仅从 Runtime Registry
+取得 `OnlyRuntime`；Backtest Factory 再通过 DataSource、Broker 与 Strategy Registry 装配抽象组件。调用方只使用
+`initialize/run/pause/resume/stop/close/snapshot` 父接口，Replay、Broker drain、最终不变量、Result 与资源关闭封装在
+`OnlyBacktestRuntime.run()` 内。闭合 Bar 在 Broker 对账与 Cluster 回调前更新 Account/Strategy 估值；Calendar-derived
+TradingDay 切换驱动本地 SettlementService。
 
 历史数据驱动虚拟时钟。
 

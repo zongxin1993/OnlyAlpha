@@ -17,7 +17,8 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyS
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeConfig
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
 
 @pytest.fixture
@@ -54,7 +55,7 @@ def runtime_calendar() -> OnlyTradingCalendar:
 def make_runtime(runtime_calendar: OnlyTradingCalendar) -> Callable[[str], OnlyBacktestRuntime]:
     def build(runtime_id: str) -> OnlyBacktestRuntime:
         return OnlyBacktestRuntime(
-            OnlyRuntimeConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
+            OnlyRuntimeAssemblyConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
             runtime_calendar,
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
         )

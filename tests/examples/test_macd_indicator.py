@@ -4,18 +4,20 @@ from decimal import Decimal
 
 import pytest
 
-from onlyalpha.backtest import OnlyBacktestConfig
+from onlyalpha.config import OnlyRunConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.indicator import OnlyIndicatorId, OnlyMacdIndicator, OnlyMacdIndicatorConfig, OnlyMacdSnapshot
 
 
-def _bar(config: OnlyBacktestConfig, index: int, close: str) -> OnlyBar:
+def _bar(config: OnlyRunConfig, index: int, close: str) -> OnlyBar:
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC) + timedelta(minutes=index)
     value = Decimal(close)
     return OnlyBar(
-        bar_type=config.primary_bar_type,
+        bar_type=config.strategies[0]
+        .common.subscriptions.instrument_bars[0]
+        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id),
         open=OnlyPrice(value, 2),
         high=OnlyPrice(value, 2),
         low=OnlyPrice(value, 2),
@@ -38,9 +40,14 @@ def _bar(config: OnlyBacktestConfig, index: int, close: str) -> OnlyBar:
 
 
 def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
-    config = OnlyBacktestConfig.load("examples/backtest_macd/config.yaml")
+    config = OnlyRunConfig.load("examples/backtest_macd/config.yaml")
+    bar_type = (
+        config.strategies[0]
+        .common.subscriptions.instrument_bars[0]
+        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+    )
     indicator = OnlyMacdIndicator(
-        OnlyMacdIndicatorConfig(OnlyIndicatorId("macd-test"), config.primary_bar_type, 2, 3, 2, warmup_bars=3)
+        OnlyMacdIndicatorConfig(OnlyIndicatorId("macd-test"), bar_type, 2, 3, 2, warmup_bars=3)
     )
     values = [indicator.update(_bar(config, index, close), ()) for index, close in enumerate(("1", "2", "3"))]
     assert all(isinstance(item, OnlyMacdSnapshot) for item in values)
@@ -55,9 +62,14 @@ def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
 
 
 def test_macd_rejects_out_of_order_and_open_bars() -> None:
-    config = OnlyBacktestConfig.load("examples/backtest_macd/config.yaml")
+    config = OnlyRunConfig.load("examples/backtest_macd/config.yaml")
+    bar_type = (
+        config.strategies[0]
+        .common.subscriptions.instrument_bars[0]
+        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+    )
     indicator = OnlyMacdIndicator(
-        OnlyMacdIndicatorConfig(OnlyIndicatorId("macd-order"), config.primary_bar_type, 2, 3, 2, warmup_bars=3)
+        OnlyMacdIndicatorConfig(OnlyIndicatorId("macd-order"), bar_type, 2, 3, 2, warmup_bars=3)
     )
     indicator.update(_bar(config, 2, "3"), ())
     with pytest.raises(ValueError, match="out-of-order"):

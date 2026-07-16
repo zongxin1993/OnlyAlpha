@@ -6,7 +6,7 @@ from onlyalpha.cluster.base import OnlyClusterConfig
 from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 
 
 def test_backtest_runtime_closes_1m_3m_snapshot_loop(

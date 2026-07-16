@@ -7,8 +7,9 @@ from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.context import OnlyRuntimeContextError
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeState
+from onlyalpha.runtime.runtime import OnlyRuntimeState
 
 
 def test_runtime_and_cluster_lifecycle_is_manager_owned(
