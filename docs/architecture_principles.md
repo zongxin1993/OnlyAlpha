@@ -109,3 +109,16 @@
 - Rule: Source、Sequence、Version、UTC 双时间与 Quality 必须可追踪。
 - Rule: Gap Detection 必须理解 TradingCalendar 与 Session。
 - Rule: Cluster 不得访问 DataSource、MarketDataGateway、ReplayService、Processor 或 Inbound Queue。
+- Rule: OnlyEngine/Runtime 管理多个相互隔离的 OnlyCluster。
+- Rule: 一个 OnlyCluster 只能持有一个 OnlyStrategy，并可持有多个 OnlyFactor。
+- Rule: 一个计算型 OnlyFactor 可以使用一个或多个 OnlyIndicator。
+- Rule: OnlyStrategy 读取 Factor Snapshot/Score，不主持通用 Indicator。
+- Rule: OnlyFactor 不得提交订单或修改 Position、Ledger、Account 与 Risk 状态。
+- Rule: OnlyIndicator 是无交易副作用的最底层计算单元，专有结果通过强类型 Snapshot 输出。
+- Rule: Indicator Canonical Score 必须保留 Dimension；原始 Snapshot 是权威结果。
+- Rule: Factor 必须输出 Factor Snapshot 和 Factor Score。
+- Rule: Indicator 实例必须按 Runtime、Cluster、Factor、Indicator Scope 隔离。
+- Rule: Factor 在 on_initialize 中通过 Indicator Factory Registry 创建 Indicator。
+- Rule: Runtime 和 Assembly 不得识别 MACD、RSI 等具体指标。
+- Rule: 通用 Indicator 可位于核心库；示例 Factor 与 Strategy 必须位于 examples。
+- Rule: MarketData → Indicator → TimeSeries Factor → CrossSection Factor → Strategy → Order 顺序固定。

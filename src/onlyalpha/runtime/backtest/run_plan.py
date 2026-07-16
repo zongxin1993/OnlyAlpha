@@ -7,13 +7,16 @@ import json
 from dataclasses import replace
 from datetime import datetime
 
+from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.config import OnlyRunConfig
 from onlyalpha.data.models import OnlyHistoricalBarRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
+from onlyalpha.domain.identifiers import OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.models import OnlyExecutionProcessingResult
+from onlyalpha.factor.snapshot import OnlyFactorSnapshot
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,
@@ -21,9 +24,9 @@ from onlyalpha.runtime.backtest.result import (
     OnlyBacktestResult,
     OnlyBacktestRunSummary,
     OnlyBacktestStatus,
+    OnlyClusterResult,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
-from onlyalpha.strategies.macd import OnlyMacdExampleCluster
 
 
 class OnlyBacktestRunPlan:
@@ -32,12 +35,12 @@ class OnlyBacktestRunPlan:
         config: OnlyRunConfig,
         source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
-        strategy: OnlyMacdExampleCluster,
+        cluster: OnlyCluster,
     ) -> None:
         self._config = config
         self._source = source
         self._request = request
-        self._strategy = strategy
+        self._cluster = cluster
         self._completed = False
 
         self._runtime: OnlyBacktestRuntime | None = None
@@ -94,7 +97,13 @@ class OnlyBacktestRunPlan:
             )
         )
         invariant_results = self._invariants(account, ledger, blocking_execution)
-        signals = self._strategy.signals
+        strategy_extension = dict(self._cluster.strategy.build_result_extension())
+        cluster_result = OnlyClusterResult(
+            OnlyClusterId(self._cluster.config.cluster_id),
+            strategy_extension,
+            tuple(dict(item.to_dict()) for item in self._factor_snapshots()),
+            tuple(dict(item.to_dict()) for item in self._cluster.indicator_snapshots),
+        )
         quality = tuple(
             sorted(
                 {flag.value for record in runtime.market_data_audit_store.records() for flag in record.quality_flags}
@@ -106,7 +115,7 @@ class OnlyBacktestRunPlan:
                 OnlyBacktestStatus.COMPLETED,
                 OnlyTimestamp.from_datetime(self._require_start_time()),
                 OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
-                (self._strategy.strategy_config.cluster_id,),
+                (OnlyClusterId(self._cluster.config.cluster_id),),
             ),
             OnlyBacktestDataSummary(
                 str(self._source.source_id),
@@ -121,9 +130,6 @@ class OnlyBacktestRunPlan:
                 len(orders),
                 sum(item.status is OnlyOrderStatus.REJECTED for item in orders),
                 len(trades),
-                sum(item.signal_type == "GOLDEN_CROSS" for item in signals),
-                sum(item.signal_type in {"DEATH_CROSS", "PENDING_EXIT"} for item in signals),
-                sum(item.signal_type == "DEATH_CROSS_BLOCKED" for item in signals),
             ),
             OnlyBacktestPerformanceSummary(
                 account_config.initial_cash,
@@ -140,7 +146,7 @@ class OnlyBacktestRunPlan:
             accounts,
             orders,
             trades,
-            signals,
+            (cluster_result,),
             invariant_results,
             "",
         )
@@ -163,7 +169,8 @@ class OnlyBacktestRunPlan:
                 (item.index, str(item.update.update_id), item.clock_time_ns, item.result.status.value)
                 for item in runtime.historical_replay_service.events
             ],
-            "macd": [dict(item.to_dict()) for item in self._strategy.macd_trace],
+            "factors": [dict(item.to_dict()) for item in self._factor_snapshots()],
+            "indicators": [dict(item.to_dict()) for item in self._cluster.indicator_snapshots],
             "execution": [item.to_dict() for item in runtime.execution_audit_store.records()],
             "events": [
                 (
@@ -180,6 +187,10 @@ class OnlyBacktestRunPlan:
             json.dumps(projection, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         return replace(result, determinism_fingerprint=fingerprint)
+
+    def _factor_snapshots(self) -> tuple[OnlyFactorSnapshot, ...]:
+        result = self._cluster.last_pipeline_result
+        return () if result is None else result.factor_snapshots
 
     def _invariants(
         self,

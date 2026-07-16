@@ -20,7 +20,8 @@ from onlyalpha.event.model import (
     OnlyMarketDataPipelineFailedEvent,
     OnlyMarketDataSnapshotReadyEvent,
 )
-from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorRequirement
+from onlyalpha.indicator.base import OnlyIndicatorRequirement
+from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.indicator.pipeline import (
     OnlyIndicatorFailure,
     OnlyIndicatorPipeline,

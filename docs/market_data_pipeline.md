@@ -1,7 +1,6 @@
 # MarketData Pipeline
 
-结构化指标值必须实现显式 immutable/serializable `OnlyStructuredIndicatorValue`。当前 `OnlyMacdSnapshot` 保存 DIF、DEA、
-Histogram、Warmup 和事件时间；它仍由 Runtime-owned IndicatorPipeline 在 Snapshot/Cluster 前更新。
+MarketData Snapshot 只表达标准化、聚合后的不可变行情视图。具体指标不再附着在 Bar Subscription 或策略可见的 MarketData View；Factor 通过 Cluster-scoped Indicator Registry 创建和读取强类型 Indicator Snapshot。
 
 ## 1. 基础 Bar 输入
 
@@ -13,7 +12,8 @@ Bar。要求 `ts_event == bar_end`、Runtime Clock 不早于事件、BarType 内
 
 ```text
 校验/去重 → 基础 Bar Cache → Runtime Aggregation Manager → 派生 Bar 校验/Cache
-→ 受影响 Indicator → Required Dependency Barrier → 不可变 Snapshot → Dispatcher → Cluster.on_bar
+→ 不可变 MarketData Snapshot → Dispatcher → Cluster Pipeline
+→ scoped Indicator → TimeSeries Factor → CrossSection Factor → Required Factor Barrier → Strategy
 ```
 
 Pipeline 内是直接同步调用，EventBus 只传播完成事实。`OnlyDataReadyBarrier` 的 Cache、Aggregation、
@@ -35,20 +35,17 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 `OnlyMarketDataCache` 是 Runtime 所有的可变内部真值，按 BarType 保存 latest closed、history 与单调 version。
 只有 Pipeline 可更新。Cluster 不获得 Cache 引用，只读取 Snapshot 中复制为 tuple/MappingProxy 的数据。
 
-## 5. Indicator Ready Barrier
+## 5. Indicator 与 Factor Ready Barrier
 
-`OnlyIndicatorPipeline` 按稳定 Indicator ID 更新当前时间片受影响的共享指标。Required 失败抛
-`OnlyMarketDataPipelineError` 并阻止 Snapshot/策略；Optional 失败进入 Snapshot quality flag，策略可继续。
-Cache 已更新后才计算指标，Snapshot 创建后才执行策略。策略私有状态仍留在 Cluster，不塞进全局 Pipeline。
+Cluster Pipeline 按完整 Runtime/Cluster/Factor/Indicator Scope 更新匹配 BarType 的 Indicator，再按稳定依赖计划执行 Factor。Indicator/Factor Snapshot 的 Ready 与质量显式输出；Required Factor 未 Ready 时 Strategy 不执行。Runtime/Assembly 不识别具体指标，Strategy 不读 Indicator Registry。
 
 ## 6. Snapshot
 
 `OnlyMarketDataSnapshot` 使用 Unix 纳秒 ts_event/ts_init、Runtime/Cluster Scope、主 Bar、当前时间片 updated
-BarTypes、latest closed/history、Indicator value/version、TradingDay、SessionType 和 quality flags。所有映射
-只读，Bar 本身 frozen。Cluster View 只包含其订阅的 BarType/Indicator。
+BarTypes、latest closed/history、TradingDay、SessionType 和 quality flags。所有映射只读，Bar 本身 frozen。Cluster View 只包含其订阅的 BarType。
 
 查询 API 包括 `latest_closed/require_latest_closed/current_partial/was_updated/require_same_event_time`、
-`indicator/require_indicator/history`。`require_same_event_time` 只接受 `bar_end == primary_bar.end`。
+`history`。`require_same_event_time` 只接受 `bar_end == primary_bar.end`。
 
 ## 7. 主周期与多 Cluster
 

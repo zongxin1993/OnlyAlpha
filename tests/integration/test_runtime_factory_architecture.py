@@ -40,7 +40,7 @@ def test_concrete_implementations_live_below_parent_component_packages() -> None
 
 
 def test_product_entry_uses_only_common_run_service() -> None:
-    source = Path("examples/backtest_macd/run.py").read_text(encoding="utf-8")
+    source = Path("examples/run.py").read_text(encoding="utf-8")
     assert "OnlyRunConfig" in source
     assert "only_default_run_service" in source
     assert "OnlyBacktestRuntime" not in source

@@ -11,7 +11,6 @@ from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterFai
 from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.domain.identifiers import OnlyClusterId
 from onlyalpha.domain.market import OnlyBar
-from onlyalpha.indicator.base import OnlyIndicatorId
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshotError
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
@@ -21,7 +20,6 @@ from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 class OnlyClusterBarSubscription:
     cluster: OnlyCluster
     subscription: OnlyBarSubscription
-    indicator_ids: tuple[OnlyIndicatorId, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +27,6 @@ class OnlyBarDispatchPlan:
     cluster_id: OnlyClusterId
     cluster: OnlyCluster
     subscription: OnlyBarSubscription
-    indicator_ids: tuple[OnlyIndicatorId, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +93,14 @@ class OnlyDirectBarDispatchExecutor:
 
         assert isinstance(snapshot, OnlyMarketDataSnapshot)
         try:
-            cluster.on_bar(bar, OnlyBarContext(snapshot, self._clock_view))
+            if cluster.context is None:
+                from typing import cast
+
+                from onlyalpha.strategy.context import OnlyStrategyBarContext, OnlyStrategyContext
+
+                cluster.strategy.on_bar(OnlyStrategyBarContext(cast(OnlyStrategyContext, None), bar, snapshot))
+            else:
+                cluster.on_bar(bar, OnlyBarContext(snapshot, self._clock_view))
         except Exception as exc:
             failure = OnlyClusterFailure(
                 snapshot.runtime_id,
@@ -134,7 +138,6 @@ class OnlyStrategyBarDispatcher:
             cluster_id,
             registration.cluster,
             registration.subscription,
-            tuple(sorted(set(registration.indicator_ids))),
         )
 
     def unregister(self, cluster_id: OnlyClusterId) -> bool:
@@ -169,7 +172,6 @@ class OnlyStrategyBarDispatcher:
                     cluster_id=cluster_id,
                     bar_types=plan.subscription.bar_types,
                     primary_bar_type=primary_bar_type,
-                    indicator_ids=plan.indicator_ids,
                 )
                 execution = self._executor.execute_bar(
                     cluster_id,

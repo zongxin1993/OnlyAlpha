@@ -5,17 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
+from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.config import OnlyRunConfig
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult, OnlyRuntimeFactoryRegistry
-from onlyalpha.strategy.factory import OnlyStrategyFactoryRegistry
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyComponentFactoryRegistries:
     data_sources: OnlyDataSourceFactoryRegistry
     brokers: OnlyBrokerFactoryRegistry
-    strategies: OnlyStrategyFactoryRegistry
+    clusters: OnlyClusterFactory
 
 
 class OnlyEngineRunAssembler:

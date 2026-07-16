@@ -10,9 +10,12 @@ Runtime 在每次 `on_bar` 前、派生 Bar/Indicator/MarketData Snapshot 完成
 ## 1. 所有权
 
 每个 `OnlyBacktestRuntime` 独占 `OnlyBacktestClock`、有 Runtime Scope 的 `OnlyEventBus`、
-`OnlyMarketDataCache`、`OnlyBarAggregationManager`、`OnlyIndicatorPipeline`、
+`OnlyMarketDataCache`、`OnlyBarAggregationManager`、通用 MarketData barrier、
 `OnlyMarketDataPipeline`、`OnlyStrategyBarDispatcher` 和 `OnlyClusterManager`。内部
 `OnlyRuntimeServices` 只用于装配，绝不进入 Cluster Context。不同 Runtime 不共享可变资源。
+
+具体 Indicator 不归 Runtime 装配或识别。每个 Cluster 持有独立的 Indicator Registry，Factor 在初始化时通过受限
+Factory Registry 创建 Indicator；Cluster Pipeline 在 Strategy 回调前更新它们。
 
 ## 2. Context 能力
 
@@ -69,15 +72,15 @@ Cluster：`CREATED → LOADED → INITIALIZED → STARTING → RUNNING → STOPP
 校验 Runtime RUNNING
 → BacktestClock.advance_to(bar.ts_event)
 → 触发 deadline <= ts_event 的 Timer（同时间 Timer 先于 Bar）
-→ MarketData Pipeline：校验/Cache/聚合/Indicator/Barrier/Snapshot
+→ MarketData Pipeline：校验/Cache/聚合/Barrier/Snapshot
 → 发布已完成事实到 Runtime EventBus
 → Dispatcher 按稳定 Cluster ID 选择主周期执行计划
-→ ClusterManager 串行调用、记录失败并隔离 Cluster
+→ ClusterManager 串行执行 Cluster 的 Indicator→Factor→Strategy、记录失败并隔离 Cluster
 → drain EventBus 并返回结构化结果
 ```
 
 Backtest Runtime 不读取系统当前时间、不开线程、不 sleep。Clock 到达 Bar 时刻后 Pipeline 才处理 Bar；
-策略回调前所有可生成派生 Bar、Required Indicator 和不可变 Snapshot 已同步完成。
+策略回调前所有可生成派生 Bar、Required Factor 和不可变 Snapshot 已同步完成。
 
 ## 6. Subscription 与主周期
 
@@ -139,3 +142,11 @@ Runtime 管理入口；Cluster Context 不含 Manager、EventBus、Pipeline、Ga
 
 `ctx.accounts` 是绑定默认 account_id 的 `OnlyAccountQueryView`，只暴露 `current()` 和受 Scope 检查的 `get()`，返回 frozen
 `OnlyAccountSnapshot`。它不暴露 AccountManager、Broker Gateway、Reconciliation、Reservation Command 或 inbound queue。
+# Strategy、Factor 与 Indicator Context 分层
+
+当前 Cluster Context 只用于容器初始化、订阅和 Runtime capability 装配。Cluster 将其裁剪为两类组件 Context：
+
+- `OnlyStrategyContext`：Clock、MarketData、Factors、Instrument、Orders、Positions、Ledger、Accounts、Risk、Logger、Timers；没有 Indicator mutation、Runtime、Manager、Broker 或 EventBus。
+- `OnlyFactorContext`：Clock、MarketData、Indicators、Dependent Factors、Instrument、Logger；没有 Orders、交易状态 mutation、Broker 或 Risk approval。
+
+Indicator 默认只接收明确 Bar 输入，不接收 Runtime Context。所有 Context 只能绑定一次；生命周期外访问失败。

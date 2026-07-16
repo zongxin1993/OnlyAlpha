@@ -12,7 +12,6 @@ from onlyalpha.core.clock import OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
 from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
-from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorValue
 
 if TYPE_CHECKING:
     from onlyalpha.account.views import OnlyAccountQueryView
@@ -59,20 +58,18 @@ class OnlyRuntimeLogger:
 class OnlyMarketDataView:
     """Read-only, subscription-scoped access to closed market-data facts."""
 
-    __slots__ = ("__allowed", "__history", "__indicator", "__latest", "__snapshot")
+    __slots__ = ("__allowed", "__history", "__latest", "__snapshot")
 
     def __init__(
         self,
         allowed: Callable[[], frozenset[OnlyBarType]],
         latest: Callable[[OnlyBarType], OnlyBar | None],
         history: Callable[[OnlyBarType, int], tuple[OnlyBar, ...]],
-        indicator: Callable[[OnlyIndicatorId], OnlyIndicatorValue | None],
         snapshot: Callable[[], OnlyMarketDataSnapshot | None],
     ) -> None:
         self.__allowed = allowed
         self.__latest = latest
         self.__history = history
-        self.__indicator = indicator
         self.__snapshot = snapshot
 
     def latest_closed(self, bar_type: OnlyBarType) -> OnlyBar | None:
@@ -82,9 +79,6 @@ class OnlyMarketDataView:
     def history(self, bar_type: OnlyBarType, count: int) -> tuple[OnlyBar, ...]:
         self.__require_bar_type(bar_type)
         return self.__history(bar_type, count)
-
-    def indicator(self, indicator_id: OnlyIndicatorId) -> OnlyIndicatorValue | None:
-        return self.__indicator(indicator_id)
 
     def current_snapshot(self) -> OnlyMarketDataSnapshot | None:
         return self.__snapshot()
@@ -120,7 +114,7 @@ class OnlySubscriptionService:
     def __init__(
         self,
         subscribe: Callable[
-            [OnlyBarSubscription, tuple[OnlyIndicatorId, ...]],
+            [OnlyBarSubscription],
             OnlyBarSubscriptionId,
         ],
     ) -> None:
@@ -129,10 +123,8 @@ class OnlySubscriptionService:
     def subscribe_bars(
         self,
         subscription: OnlyBarSubscription,
-        *,
-        indicator_ids: tuple[OnlyIndicatorId, ...] = (),
     ) -> OnlyBarSubscriptionId:
-        return self.__subscribe(subscription, indicator_ids)
+        return self.__subscribe(subscription)
 
 
 class OnlyTimerService:

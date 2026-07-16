@@ -124,11 +124,13 @@ class OnlyClusterManager:
     def pause_all(self) -> None:
         for managed in self._clusters.values():
             if managed.state is OnlyClusterState.RUNNING:
+                managed.cluster.on_pause()
                 self._transition(managed, OnlyClusterState.PAUSED)
 
     def resume_all(self) -> None:
         for managed in self._clusters.values():
             if managed.state is OnlyClusterState.PAUSED:
+                managed.cluster.on_resume()
                 self._transition(managed, OnlyClusterState.RUNNING)
 
     def stop(self, cluster_id: OnlyClusterId) -> None:

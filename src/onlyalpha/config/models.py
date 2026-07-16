@@ -26,6 +26,8 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.factor.identifiers import OnlyFactorId
+from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 
 type OnlyJsonValue = str | int | float | bool | None | list[OnlyJsonValue] | dict[str, OnlyJsonValue]
 type OnlyJsonMapping = Mapping[str, OnlyJsonValue]
@@ -154,30 +156,49 @@ class OnlyStrategySubscriptionConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyStrategyCommonConfig:
-    cluster_id: OnlyClusterId
-    account_id: OnlyAccountId
-    enabled: bool
-    subscriptions: OnlyStrategySubscriptionConfig
-    risk_profile_id: str | None = None
-    metadata: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyStrategyImportConfig:
-    factory_id: str
-    strategy_path: str | None
-    config_path: str | None
-    common: OnlyStrategyCommonConfig
+    strategy_path: str
+    config_path: str
     extensions: OnlyJsonMapping
 
     def __post_init__(self) -> None:
-        if not self.factory_id:
-            raise OnlyConfigError("strategy factory_id cannot be empty")
-        if self.strategy_path is not None:
-            _validate_import_path(self.strategy_path, "strategy_path")
-        if self.config_path is not None:
-            _validate_import_path(self.config_path, "config_path")
+        _validate_import_path(self.strategy_path, "strategy_path")
+        _validate_import_path(self.config_path, "config_path")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyIndicatorSpecConfig:
+    indicator_id: OnlyIndicatorId
+    indicator_type: OnlyIndicatorTypeId
+    parameters: OnlyJsonMapping
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFactorImportConfig:
+    factor_id: OnlyFactorId
+    factor_type: str
+    factor_path: str
+    config_path: str
+    subscriptions: OnlyStrategySubscriptionConfig
+    indicators: tuple[OnlyIndicatorSpecConfig, ...]
+    dependencies: tuple[OnlyFactorId, ...]
+    required: bool
+    extensions: OnlyJsonMapping
+
+    def __post_init__(self) -> None:
+        _validate_import_path(self.factor_path, "factor_path")
+        _validate_import_path(self.config_path, "config_path")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyClusterImportConfig:
+    cluster_id: OnlyClusterId
+    account_id: OnlyAccountId
+    enabled: bool
+    strategy: OnlyStrategyImportConfig
+    factors: tuple[OnlyFactorImportConfig, ...]
+    risk_profile_id: str | None = None
+    metadata: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 
 
 def _load_document(path: Path) -> OnlyJsonMapping:

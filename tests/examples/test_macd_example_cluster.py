@@ -1,11 +1,11 @@
 import ast
 from pathlib import Path
 
-from onlyalpha.strategies.macd import OnlyMacdExampleCluster
+from examples.strategies.macd import OnlyMacdStrategy
 
 
-def test_macd_cluster_source_uses_only_context_capabilities() -> None:
-    path = Path("src/onlyalpha/strategies/macd.py")
+def test_macd_strategy_source_uses_only_strategy_context_capabilities() -> None:
+    path = Path("examples/strategies/macd/strategy.py")
     tree = ast.parse(path.read_text(encoding="utf-8"))
     forbidden = {
         "order_manager",
@@ -20,4 +20,5 @@ def test_macd_cluster_source_uses_only_context_capabilities() -> None:
     assert attributes.isdisjoint(forbidden)
     assert "list_open" in attributes
     assert "submit" in attributes
-    assert OnlyMacdExampleCluster.__mro__[1].__name__ == "OnlyCluster"
+    assert OnlyMacdStrategy.__mro__[1].__name__ == "OnlyStrategy"
+    assert "indicators" not in attributes

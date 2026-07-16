@@ -5,7 +5,7 @@ from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
 from onlyalpha.runtime.defaults import only_default_run_service
 
-CONFIG = Path("examples/backtest_macd/config.yaml")
+CONFIG = Path("examples/configs/backtest/macd/run.yaml")
 
 
 def test_synthetic_macd_full_product_vertical_slice() -> None:
@@ -25,10 +25,11 @@ def test_synthetic_macd_full_product_vertical_slice() -> None:
 
 def test_synthetic_macd_t1_is_derived_from_allocation_availability() -> None:
     result = only_default_run_service().run(OnlyRunConfig.load(CONFIG), export=False)
-    assert result.execution.blocked_t1_exit_count == 1
-    assert [item.signal_type for item in result.signals] == [
+    signals = result.cluster_results[0].strategy_result_extension["signals"]
+    assert isinstance(signals, list)
+    assert [item["signal_type"] for item in signals] == [
         "GOLDEN_CROSS",
         "DEATH_CROSS_BLOCKED",
         "PENDING_EXIT",
     ]
-    assert result.signals[1].ts_event.unix_nanos < result.signals[2].ts_event.unix_nanos
+    assert signals[1]["ts_event_ns"] < signals[2]["ts_event_ns"]

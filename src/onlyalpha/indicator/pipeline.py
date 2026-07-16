@@ -1,21 +1,19 @@
-"""Synchronous indicator update barrier and Runtime-owned value cache."""
-
-from __future__ import annotations
+"""Generic Runtime-level data barrier; Cluster Factors own concrete registrations."""
 
 from dataclasses import dataclass
 from types import MappingProxyType
 
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.indicator.base import (
-    OnlyIndicatorId,
     OnlyIndicatorRegistration,
     OnlyIndicatorRequirement,
     OnlyIndicatorValue,
 )
+from onlyalpha.indicator.identifiers import OnlyIndicatorId
 
 
 class OnlyIndicatorPipelineError(Exception):
-    """Required indicator could not be prepared for strategy execution."""
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +30,7 @@ class OnlyIndicatorUpdateResult:
 
 
 class OnlyIndicatorPipeline:
-    """Runtime-level shared indicators, updated before Snapshot construction."""
+    """Contains no concrete indicator knowledge; product Factors use their scoped registry."""
 
     def __init__(self) -> None:
         self._registrations: dict[OnlyIndicatorId, OnlyIndicatorRegistration] = {}
@@ -41,8 +39,7 @@ class OnlyIndicatorPipeline:
 
     def register(self, registration: OnlyIndicatorRegistration) -> None:
         indicator_id = registration.indicator.indicator_id
-        existing = self._registrations.get(indicator_id)
-        if existing is not None and existing != registration:
+        if indicator_id in self._registrations:
             raise ValueError(f"indicator_id already registered: {indicator_id}")
         self._registrations[indicator_id] = registration
 
@@ -55,6 +52,7 @@ class OnlyIndicatorPipeline:
         updated_bars: dict[OnlyBarType, OnlyBar],
         histories: dict[OnlyBarType, tuple[OnlyBar, ...]],
     ) -> OnlyIndicatorUpdateResult:
+        del histories
         updated: list[OnlyIndicatorId] = []
         failures: list[OnlyIndicatorFailure] = []
         for registration in self.registrations:
@@ -63,8 +61,8 @@ class OnlyIndicatorPipeline:
             if bar is None:
                 continue
             try:
-                value = indicator.update(bar, histories[indicator.bar_type])
-                self._values[indicator.indicator_id] = value
+                indicator.update_bar(bar)
+                self._values[indicator.indicator_id] = indicator.snapshot()
                 self._versions[indicator.indicator_id] = self._versions.get(indicator.indicator_id, 0) + 1
                 updated.append(indicator.indicator_id)
             except Exception as exc:
@@ -72,7 +70,6 @@ class OnlyIndicatorPipeline:
                 failures.append(failure)
                 if registration.requirement is OnlyIndicatorRequirement.REQUIRED:
                     raise OnlyIndicatorPipelineError(f"required indicator failed: {indicator.indicator_id}") from exc
-                self._values.pop(indicator.indicator_id, None)
         return OnlyIndicatorUpdateResult(tuple(updated), tuple(failures))
 
     def values(self) -> MappingProxyType[OnlyIndicatorId, OnlyIndicatorValue]:

@@ -1,4 +1,4 @@
-"""Indicator identities, requirements, and deterministic update contract."""
+"""Side-effect-free indicator contracts."""
 
 from __future__ import annotations
 
@@ -7,13 +7,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from typing import Generic, TypeVar
 
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
+from onlyalpha.indicator.score import OnlyIndicatorScore
+from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot, OnlyWarmupProgress
+
+OnlyIndicatorSnapshotT = TypeVar("OnlyIndicatorSnapshotT", bound=OnlyIndicatorSnapshot, covariant=True)
 
 
 class OnlyStructuredIndicatorValue(ABC):
-    """Immutable, explicitly serializable value produced by an Indicator."""
-
     @property
     @abstractmethod
     def value_type(self) -> str: ...
@@ -22,21 +26,7 @@ class OnlyStructuredIndicatorValue(ABC):
     def to_dict(self) -> Mapping[str, object]: ...
 
 
-type OnlyIndicatorValue = Decimal | int | str | bool | OnlyStructuredIndicatorValue | None
-
-
-@dataclass(frozen=True, order=True, slots=True)
-class OnlyIndicatorId:
-    value: str
-
-    def __post_init__(self) -> None:
-        normalized = self.value.strip()
-        if not normalized:
-            raise ValueError("indicator_id is required")
-        object.__setattr__(self, "value", normalized)
-
-    def __str__(self) -> str:
-        return self.value
+type OnlyIndicatorValue = Decimal | int | str | bool | OnlyStructuredIndicatorValue | OnlyIndicatorSnapshot | None
 
 
 class OnlyIndicatorRequirement(StrEnum):
@@ -44,8 +34,8 @@ class OnlyIndicatorRequirement(StrEnum):
     OPTIONAL = "OPTIONAL"
 
 
-class OnlyIndicator(ABC):
-    """Purely synchronous incremental indicator contract."""
+class OnlyIndicator(ABC, Generic[OnlyIndicatorSnapshotT]):  # noqa: UP046
+    """Deterministic lowest-level computation with no trading capabilities."""
 
     @property
     @abstractmethod
@@ -53,13 +43,38 @@ class OnlyIndicator(ABC):
 
     @property
     @abstractmethod
+    def indicator_type(self) -> OnlyIndicatorTypeId: ...
+
+    @property
+    @abstractmethod
+    def ready(self) -> bool: ...
+
+    @property
+    @abstractmethod
+    def warmup_progress(self) -> OnlyWarmupProgress: ...
+
+    @abstractmethod
+    def reset(self) -> None: ...
+
+    @abstractmethod
+    def snapshot(self) -> OnlyIndicatorSnapshotT: ...
+
+    def canonical_score(self) -> OnlyIndicatorScore | None:
+        return None
+
+
+class OnlyBarIndicator(OnlyIndicator[OnlyIndicatorSnapshotT], ABC):
+    @property
+    @abstractmethod
     def bar_type(self) -> OnlyBarType: ...
 
     @abstractmethod
-    def update(self, bar: OnlyBar, history: tuple[OnlyBar, ...]) -> OnlyIndicatorValue: ...
+    def update_bar(self, bar: OnlyBar) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyIndicatorRegistration:
-    indicator: OnlyIndicator
-    requirement: OnlyIndicatorRequirement
+    """A scoped indicator owned by one Factor."""
+
+    indicator: OnlyBarIndicator[OnlyIndicatorSnapshot]
+    requirement: OnlyIndicatorRequirement = OnlyIndicatorRequirement.REQUIRED
