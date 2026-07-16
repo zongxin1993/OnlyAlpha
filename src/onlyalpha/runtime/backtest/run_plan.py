@@ -1,13 +1,20 @@
-"""Formal product assembly and run plan for OnlyBacktestRuntime."""
+"""Backtest-owned replay plan and deterministic result construction."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import replace
+from datetime import datetime
 
-from onlyalpha.backtest.config import OnlyBacktestConfig
-from onlyalpha.backtest.result import (
+from onlyalpha.config import OnlyRunConfig
+from onlyalpha.data.models import OnlyHistoricalBarRequest
+from onlyalpha.data.ports import OnlyHistoricalDataSource
+from onlyalpha.domain.enums import OnlyOrderStatus
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
+from onlyalpha.execution.models import OnlyExecutionProcessingResult
+from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,
     OnlyBacktestPerformanceSummary,
@@ -15,93 +22,41 @@ from onlyalpha.backtest.result import (
     OnlyBacktestRunSummary,
     OnlyBacktestStatus,
 )
-from onlyalpha.broker.virtual_broker import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
-from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
-from onlyalpha.data.synthetic import OnlySyntheticHistoricalDataSource
-from onlyalpha.domain.enums import OnlyOrderStatus, OnlyRuntimeMode
-from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
-from onlyalpha.execution.models import OnlyExecutionProcessingResult
-from onlyalpha.indicator.base import OnlyIndicatorRegistration, OnlyIndicatorRequirement
-from onlyalpha.indicator.macd import OnlyMacdIndicator
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeConfig
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.strategies.macd import OnlyMacdExampleCluster
 
 
-class OnlyBacktestRuntimeAssembler:
-    """The sole configuration-to-Runtime product assembly boundary."""
-
-    def build(self, config: OnlyBacktestConfig) -> OnlyBacktestRuntime:
-        broker_config = OnlyVirtualBrokerConfig(
-            config.broker_gateway_id,
-            config.account_id,
-            config.base_currency,
-            config.initial_cash,
-            commission_model=OnlyFixedCommissionModel(config.fixed_commission),
-        )
-        runtime = OnlyBacktestRuntime(
-            OnlyRuntimeConfig(
-                config.engine_id,
-                config.runtime_id,
-                OnlyRuntimeMode.BACKTEST,
-                default_account_id=config.account_id,
-                strategy_initial_capital=config.initial_cash.amount,
-                strategy_base_currency=config.base_currency,
-                virtual_broker_config=broker_config,
-            ),
-            config.calendar,
-            config.start_time,
-        )
-        runtime.register_instrument(config.instrument)
-        runtime.register_indicator(
-            OnlyIndicatorRegistration(OnlyMacdIndicator(config.macd), OnlyIndicatorRequirement.REQUIRED)
-        )
-        strategy = OnlyMacdExampleCluster(config.strategy)
-        runtime.add_cluster(config.engine_id, strategy)
-        source = OnlySyntheticHistoricalDataSource(config.synthetic_source)
-        request = OnlyHistoricalBarRequest(
-            f"{config.runtime_id}-synthetic-bars",
-            frozenset({config.instrument.instrument_id}),
-            frozenset({config.primary_bar_type}),
-            OnlyHistoricalDataRange(config.start_time, config.end_time),
-            config.synthetic_source.data_version,
-            batch_size=config.batch_size,
-        )
-        plan = _OnlyBacktestRunPlan(config, runtime, source, request, strategy)
-        runtime._only_bind_product_runner(plan.run)
-        return runtime
-
-
-class _OnlyBacktestRunPlan:
+class OnlyBacktestRunPlan:
     def __init__(
         self,
-        config: OnlyBacktestConfig,
-        runtime: OnlyBacktestRuntime,
-        source: OnlySyntheticHistoricalDataSource,
+        config: OnlyRunConfig,
+        source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
         strategy: OnlyMacdExampleCluster,
     ) -> None:
         self._config = config
-        self._runtime = runtime
         self._source = source
         self._request = request
         self._strategy = strategy
         self._completed = False
 
-    def run(self) -> OnlyBacktestResult:
+        self._runtime: OnlyBacktestRuntime | None = None
+
+    def execute(self, runtime: OnlyBacktestRuntime) -> OnlyBacktestResult:
         if self._completed:
             raise RuntimeError("a configured Backtest Runtime can be run only once")
         self._completed = True
-        self._runtime.start()
+        self._runtime = runtime
+        runtime.start()
         try:
             generated = self._source.load_bars(self._request)
-            replay = self._runtime.replay_historical_bars(self._source, self._request)
+            replay = runtime.replay_historical_bars(self._source, self._request)
             if replay.failed or replay.rejected:
                 raise RuntimeError(f"historical replay failed={replay.failed} rejected={replay.rejected}")
-            self._runtime.drain_broker_inbound()
+            runtime.drain_broker_inbound()
             result = self._build_result(len(generated.records), replay.processed, replay.duplicate, replay.gap_detected)
         finally:
-            self._runtime.close()
+            runtime.close()
         return result
 
     def _build_result(
@@ -111,12 +66,13 @@ class _OnlyBacktestRunPlan:
         duplicate_count: int,
         gap_count: int,
     ) -> OnlyBacktestResult:
-        runtime = self._runtime
+        runtime = self._require_runtime()
         orders = runtime.order_manager.snapshot_all()
         gateway = runtime.broker_gateway
         if gateway is None:
             raise RuntimeError("product backtest requires Virtual Broker")
-        trades = gateway.query_trades(self._config.account_id)
+        account_config = self._config.accounts[0]
+        trades = gateway.query_trades(account_config.account_id)
         positions = runtime.position_manager.snapshot_all()
         allocations = runtime.allocation_manager.snapshot_all()
         ledgers = runtime.strategy_ledger_manager.list_ledgers()
@@ -148,13 +104,13 @@ class _OnlyBacktestRunPlan:
             OnlyBacktestRunSummary(
                 self._config.runtime_id,
                 OnlyBacktestStatus.COMPLETED,
-                OnlyTimestamp.from_datetime(self._config.start_time),
+                OnlyTimestamp.from_datetime(self._require_start_time()),
                 OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
-                (self._config.strategy.cluster_id,),
+                (self._strategy.strategy_config.cluster_id,),
             ),
             OnlyBacktestDataSummary(
-                str(self._config.synthetic_source.source_id),
-                str(self._config.synthetic_source.data_version),
+                str(self._source.source_id),
+                str(self._config.data_sources[0].data_version),
                 generated_count,
                 processed_count,
                 duplicate_count,
@@ -170,7 +126,7 @@ class _OnlyBacktestRunPlan:
                 sum(item.signal_type == "DEATH_CROSS_BLOCKED" for item in signals),
             ),
             OnlyBacktestPerformanceSummary(
-                self._config.initial_cash,
+                account_config.initial_cash,
                 account.equity,
                 account.realized_pnl,
                 account.unrealized_pnl,
@@ -241,10 +197,20 @@ class _OnlyBacktestRunPlan:
             == account.cash.cash_balance.amount + account.position_market_value.amount,
             "LEDGER_EQUITY_VIEWS": ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view,
             "NO_EXECUTION_FAILURE": not blocking_execution,
-            "NO_ACTIVE_RISK_RESERVATION": not self._runtime.risk_service.reservations.snapshot_active(),
+            "NO_ACTIVE_RISK_RESERVATION": not self._require_runtime().risk_service.reservations.snapshot_active(),
             "NO_BLOCKING_RECONCILIATION": not blocking_execution,
         }
         failures = tuple(name for name, passed in checks.items() if not passed)
         if failures:
             raise RuntimeError(f"backtest invariant failure: {failures}")
         return tuple(f"{name}:PASS" for name in checks)
+
+    def _require_runtime(self) -> OnlyBacktestRuntime:
+        if self._runtime is None:
+            raise RuntimeError("Backtest RunPlan is not executing")
+        return self._runtime
+
+    def _require_start_time(self) -> datetime:
+        if self._config.start_time is None:
+            raise RuntimeError("BACKTEST requires runtime.start_time")
+        return self._config.start_time

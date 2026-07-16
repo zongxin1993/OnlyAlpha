@@ -3,15 +3,14 @@
 ## Public API
 
 ```python
-config = OnlyBacktestConfig.load("examples/backtest_macd/config.yaml")
-runtime = OnlyBacktestRuntime.from_config(config)
-result = runtime.run()
-result.save("output")
+config = OnlyRunConfig.load("examples/backtest_macd/config.yaml")
+service = only_default_run_service()
+result = service.run(config)
 ```
 
-`OnlyBacktestConfig` resolves UTC range, Instrument, Calendar sessions, source version/seed, BarType, indicator, Cluster,
-account, commission and Virtual Broker configuration. `from_config` is the formal assembly boundary. `run` owns Runtime
-lifecycle, historical replay, final invariant evaluation and closure.
+`OnlyRunConfig` parses only common fields and opaque `extensions`. Runtime-specific, Synthetic, Virtual Broker and MACD
+parameters are parsed by their concrete factories. `OnlyEngineRunService` is the public boundary; Backtest `run()` owns
+historical replay and final invariant evaluation, while `OnlyRuntimeResultExporter` owns the standard output layout.
 
 ## Fixed workflow
 
@@ -29,9 +28,9 @@ available Allocation.
 
 ## Result
 
-`OnlyBacktestResult` contains run/data/execution/performance summaries, immutable final Position/Allocation/Ledger/Account
-snapshots, Order and Broker Trade facts, strategy signals, invariant results and a deterministic fingerprint. `save` writes
-the stable JSON files, `equity.csv` and `run_report.md`. It is deliberately not a full research analytics platform.
+`OnlyBacktestResult` implements the common `OnlyRuntimeResult` view and contains run/data/execution/performance summaries,
+immutable final Position/Allocation/Ledger/Account snapshots, Order and Broker Trade facts, strategy signals, invariant results
+and a deterministic fingerprint. Export writes below `root/engine_id/runtime_id/run_id`; Runtime and Result do not write files.
 
 ## Current limits
 

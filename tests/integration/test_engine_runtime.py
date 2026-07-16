@@ -6,7 +6,8 @@ from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.engine.engine import OnlyEngine, OnlyEngineState
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeState
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.runtime import OnlyRuntimeState
 
 
 class OnlyFailingCluster(OnlyCluster):

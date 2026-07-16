@@ -1,14 +1,15 @@
 from pathlib import Path
 
-from onlyalpha.backtest import OnlyBacktestConfig, OnlyBacktestStatus
+from onlyalpha.config import OnlyRunConfig
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
-from onlyalpha.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
+from onlyalpha.runtime.defaults import only_default_run_service
 
 CONFIG = Path("examples/backtest_macd/config.yaml")
 
 
 def test_synthetic_macd_full_product_vertical_slice() -> None:
-    result = OnlyBacktestRuntime.from_config(OnlyBacktestConfig.load(CONFIG)).run()
+    result = only_default_run_service().run(OnlyRunConfig.load(CONFIG), export=False)
     assert result.status is OnlyBacktestStatus.COMPLETED
     assert result.data.generated_bar_count == 720
     assert result.data.processed_bar_count == 720
@@ -23,7 +24,7 @@ def test_synthetic_macd_full_product_vertical_slice() -> None:
 
 
 def test_synthetic_macd_t1_is_derived_from_allocation_availability() -> None:
-    result = OnlyBacktestRuntime.from_config(OnlyBacktestConfig.load(CONFIG)).run()
+    result = only_default_run_service().run(OnlyRunConfig.load(CONFIG), export=False)
     assert result.execution.blocked_t1_exit_count == 1
     assert [item.signal_type for item in result.signals] == [
         "GOLDEN_CROSS",

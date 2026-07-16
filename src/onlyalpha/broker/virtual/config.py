@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
-from onlyalpha.broker.virtual_broker.commission import OnlyCommissionModel
-from onlyalpha.broker.virtual_broker.latency import OnlyLatencyModel
-from onlyalpha.broker.virtual_broker.slippage import OnlySlippageModel
+from onlyalpha.broker.virtual.commission import OnlyCommissionModel
+from onlyalpha.broker.virtual.latency import OnlyLatencyModel
+from onlyalpha.broker.virtual.slippage import OnlySlippageModel
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity

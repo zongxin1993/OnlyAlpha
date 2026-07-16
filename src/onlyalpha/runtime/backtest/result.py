@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import csv
-import json
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
 from onlyalpha.account.models import OnlyAccountSnapshot
 from onlyalpha.broker.models import OnlyBrokerTradeSnapshot
@@ -90,6 +87,10 @@ class OnlyBacktestResult:
     def runtime_id(self) -> OnlyRuntimeId:
         return self.run.runtime_id
 
+    @property
+    def runtime_type(self) -> str:
+        return "BACKTEST"
+
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": 1,
@@ -151,47 +152,3 @@ class OnlyBacktestResult:
             "invariant_results": list(self.invariant_results),
             "determinism_fingerprint": self.determinism_fingerprint,
         }
-
-    def save(self, output: str | Path) -> None:
-        """Write the stable public result set without Manager access."""
-
-        output_path = Path(output)
-        output_path.mkdir(parents=True, exist_ok=True)
-        self._write_json(output_path / "result.json", self.to_dict())
-        self._write_json(output_path / "orders.json", [item.to_dict() for item in self.orders])
-        self._write_json(output_path / "trades.json", [item.to_dict() for item in self.trades])
-        self._write_json(output_path / "positions.json", [item.to_dict() for item in self.final_positions])
-        self._write_json(output_path / "allocations.json", [item.to_dict() for item in self.final_allocations])
-        self._write_json(output_path / "ledgers.json", [item.to_dict() for item in self.final_ledgers])
-        self._write_json(output_path / "accounts.json", [item.to_dict() for item in self.final_accounts])
-        with (output_path / "equity.csv").open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(("point", "equity", "currency"))
-            writer.writerow(
-                ("initial", self.performance.initial_equity.amount, self.performance.initial_equity.currency.code)
-            )
-            writer.writerow(
-                ("final", self.performance.final_equity.amount, self.performance.final_equity.currency.code)
-            )
-        (output_path / "run_report.md").write_text(self._markdown_report(), encoding="utf-8")
-
-    @staticmethod
-    def _write_json(path: Path, payload: object) -> None:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-
-    def _markdown_report(self) -> str:
-        return "\n".join(
-            (
-                "# OnlyAlpha MACD Backtest Run",
-                "",
-                f"- Status: {self.status.value}",
-                f"- Runtime: {self.runtime_id}",
-                f"- Bars: {self.data.processed_bar_count}",
-                f"- Orders: {self.execution.order_count}",
-                f"- Trades: {self.execution.trade_count}",
-                f"- Final equity: {self.performance.final_equity.amount} {self.performance.final_equity.currency.code}",
-                f"- Fingerprint: `{self.determinism_fingerprint}`",
-                f"- Invariants: {', '.join(self.invariant_results)}",
-                "",
-            )
-        )

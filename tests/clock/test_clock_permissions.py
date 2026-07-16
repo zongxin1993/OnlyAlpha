@@ -4,7 +4,7 @@ from onlyalpha.cache.memory import OnlyMemoryCache
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.core.clock import OnlyBacktestClock, OnlyClockView
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 
 
 def test_cluster_receives_clock_view_without_advancement_capability() -> None:

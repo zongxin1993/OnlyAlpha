@@ -18,7 +18,8 @@ from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeConfig
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
 
 def only_demo_bar_types() -> tuple[OnlyBarType, OnlyBarType]:
@@ -48,7 +49,7 @@ def only_demo_runtime(runtime_id: str) -> OnlyBacktestRuntime:
         ),
     )
     runtime = OnlyBacktestRuntime(
-        OnlyRuntimeConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
+        OnlyRuntimeAssemblyConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
     )

@@ -1,8 +1,8 @@
 # OnlyAlpha 总体架构
 
-正式回测产品入口通过 `OnlyBacktestConfig → OnlyBacktestRuntime.from_config → run → OnlyBacktestResult` 组合既有组件。
-Product-style Demo 不建立 Integration fixture 旁路；Synthetic Source 实现 HistoricalDataSource，MACD Strategy 实现 Cluster，
-成交仍经过 VirtualBroker Queue 与 ExecutionProcessor。详见 `docs/backtest.md` 与 ADR 0018。
+正式运行入口通过 `OnlyRunConfig → OnlyEngineRunService → OnlyRuntimeFactoryRegistry → OnlyRuntime.run()` 组合既有组件。
+通用配置与装配层只依赖抽象 Factory；BACKTEST 的 Replay/RunPlan 保留在 `runtime/backtest/`，Synthetic、Virtual Broker 与
+MACD 分别位于父组件子目录。成交仍经过 Virtual Broker Queue 与 ExecutionProcessor。详见 `docs/backtest.md` 与 ADR 0019。
 
 Account 是 Runtime-owned 账户级本地真值，Strategy Ledger 是 Cluster 虚拟账，两者不共享状态。Runtime 独占 Manager，
 Cluster 分别只通过 `ctx.accounts` 与 `ctx.ledger` 读取 immutable Snapshot。Broker Gateway 不持有 Manager，所有异步回报先

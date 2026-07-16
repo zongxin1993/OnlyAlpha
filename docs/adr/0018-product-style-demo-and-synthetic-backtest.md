@@ -1,6 +1,6 @@
 # ADR 0018: Product-style demo and synthetic backtest
 
-- Status: Accepted
+- Status: Superseded by ADR 0019
 - Date: 2026-07-15
 - Modules: backtest, runtime, data, indicator, cluster, virtual_broker, execution
 

@@ -5,18 +5,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from onlyalpha.backtest import OnlyBacktestConfig
-from onlyalpha.runtime import OnlyBacktestRuntime
+from onlyalpha.config import OnlyRunConfig
+from onlyalpha.runtime.defaults import only_default_run_service
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the OnlyAlpha synthetic MACD backtest")
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    config = OnlyBacktestConfig.load(args.config)
-    result = OnlyBacktestRuntime.from_config(config).run()
-    result.save(args.output)
+    config = OnlyRunConfig.load(args.config)
+    result = only_default_run_service().run(config)
     print(f"status={result.status.value}")
     print(f"orders={result.execution.order_count} trades={result.execution.trade_count}")
     print(f"final_equity={result.performance.final_equity.amount}")

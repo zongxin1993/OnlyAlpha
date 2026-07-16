@@ -6,8 +6,9 @@ from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig, OnlyClusterState
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.context import OnlyRuntimeContextError, OnlyTimerContext
-from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeState
+from onlyalpha.runtime.runtime import OnlyRuntimeState
 
 
 class OnlyOrderedCluster(OnlyCluster):

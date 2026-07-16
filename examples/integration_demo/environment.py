@@ -9,6 +9,7 @@ from decimal import Decimal
 from onlyalpha.account.models import OnlyAccountSnapshot
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerOrderSnapshot
+from onlyalpha.broker.virtual import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.data.audit import OnlyMarketDataAuditStore
 from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
@@ -61,12 +62,9 @@ from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.order.results import OnlyOrderSubmitResult
 from onlyalpha.position.enums import OnlyPositionMutationStatus
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
-from onlyalpha.runtime.runtime import (
-    OnlyBacktestRuntime,
-    OnlyRuntimeConfig,
-)
+from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
-from onlyalpha.virtual_broker import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
 
 ENGINE_ID = "integration-engine"
 RUNTIME_ID = "integration-runtime"
@@ -248,7 +246,7 @@ class OnlyIntegrationEnvironment:
             OnlyAggregationSource.INTERNAL,
         )
         self.runtime = OnlyBacktestRuntime(
-            OnlyRuntimeConfig(
+            OnlyRuntimeAssemblyConfig(
                 ENGINE_ID,
                 RUNTIME_ID,
                 OnlyRuntimeMode.BACKTEST,
