@@ -15,6 +15,7 @@ from onlyalpha.backtest.result import (
     OnlyBacktestRunSummary,
     OnlyBacktestStatus,
 )
+from onlyalpha.broker.virtual_broker import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.data.synthetic import OnlySyntheticHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus, OnlyRuntimeMode
@@ -25,7 +26,6 @@ from onlyalpha.indicator.base import OnlyIndicatorRegistration, OnlyIndicatorReq
 from onlyalpha.indicator.macd import OnlyMacdIndicator
 from onlyalpha.runtime.runtime import OnlyBacktestRuntime, OnlyRuntimeConfig
 from onlyalpha.strategies.macd import OnlyMacdExampleCluster
-from onlyalpha.virtual_broker import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
 
 
 class OnlyBacktestRuntimeAssembler:

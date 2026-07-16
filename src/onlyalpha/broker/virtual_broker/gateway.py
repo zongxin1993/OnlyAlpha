@@ -34,6 +34,17 @@ from onlyalpha.broker.updates import (
     OnlyBrokerPositionUpdate,
     OnlyBrokerTradeUpdate,
 )
+from onlyalpha.broker.virtual_broker.commission import OnlyCommissionModel, OnlyFixedCommissionModel
+from onlyalpha.broker.virtual_broker.config import OnlyVirtualBrokerConfig
+from onlyalpha.broker.virtual_broker.latency import OnlyLatencyModel, OnlyZeroLatencyModel
+from onlyalpha.broker.virtual_broker.matching import OnlyMatchingEngine, OnlyNextBarMatchingEngine
+from onlyalpha.broker.virtual_broker.scheduler import OnlyVirtualBrokerScheduler
+from onlyalpha.broker.virtual_broker.slippage import OnlyNoSlippageModel, OnlySlippageModel
+from onlyalpha.broker.virtual_broker.stores import (
+    OnlyVirtualBrokerAccountStore,
+    OnlyVirtualBrokerOrderStore,
+    OnlyVirtualBrokerTradeStore,
+)
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRejection
@@ -47,17 +58,6 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.virtual_broker.commission import OnlyCommissionModel, OnlyFixedCommissionModel
-from onlyalpha.virtual_broker.config import OnlyVirtualBrokerConfig
-from onlyalpha.virtual_broker.latency import OnlyLatencyModel, OnlyZeroLatencyModel
-from onlyalpha.virtual_broker.matching import OnlyMatchingEngine, OnlyNextBarMatchingEngine
-from onlyalpha.virtual_broker.scheduler import OnlyVirtualBrokerScheduler
-from onlyalpha.virtual_broker.slippage import OnlyNoSlippageModel, OnlySlippageModel
-from onlyalpha.virtual_broker.stores import (
-    OnlyVirtualBrokerAccountStore,
-    OnlyVirtualBrokerOrderStore,
-    OnlyVirtualBrokerTradeStore,
-)
 
 
 class OnlyVirtualBrokerGateway:

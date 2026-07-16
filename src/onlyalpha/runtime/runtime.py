@@ -29,6 +29,9 @@ from onlyalpha.broker.updates import (
     OnlyBrokerInboundUpdate,
     OnlyBrokerTradeUpdate,
 )
+from onlyalpha.broker.virtual_broker.config import OnlyVirtualBrokerConfig
+from onlyalpha.broker.virtual_broker.gateway import OnlyVirtualBrokerGateway
+from onlyalpha.broker.virtual_broker.scheduler import OnlyVirtualBrokerUpdateQueue
 from onlyalpha.cache.base import OnlyCache
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import (
@@ -189,9 +192,6 @@ from onlyalpha.strategy_ledger.views import (
     OnlyStrategyLedgerContextView,
     OnlyStrategyLedgerRiskView,
 )
-from onlyalpha.virtual_broker.config import OnlyVirtualBrokerConfig
-from onlyalpha.virtual_broker.gateway import OnlyVirtualBrokerGateway
-from onlyalpha.virtual_broker.scheduler import OnlyVirtualBrokerUpdateQueue
 
 _LOGGER = logging.getLogger(__name__)
 
