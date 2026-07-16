@@ -64,6 +64,10 @@ from onlyalpha.position.enums import OnlyPositionMutationStatus
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
+from onlyalpha.strategy.base import OnlyStrategy
+from onlyalpha.strategy.config import OnlyStrategyConfig
+from onlyalpha.strategy.context import OnlyStrategyBarContext
+from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 
 ENGINE_ID = "integration-engine"
@@ -170,8 +174,29 @@ class OnlyReportBuilder:
         )
 
 
+class OnlyIntegrationStrategy(OnlyStrategy):
+    """Small strategy fixture using only the production Strategy Context."""
+
+    def __init__(self, strategy_id: str) -> None:
+        super().__init__(OnlyStrategyConfig(OnlyStrategyId(strategy_id)))
+        self.pending_order: OnlyOrderRequest | None = None
+        self.submit_results: list[OnlyOrderSubmitResult] = []
+        self.snapshots: list[OnlyMarketDataSnapshot] = []
+
+    def on_initialize(self) -> None:
+        pass
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        if not isinstance(context.snapshot, OnlyMarketDataSnapshot):
+            raise TypeError("integration Strategy requires MarketDataSnapshot")
+        self.snapshots.append(context.snapshot)
+        if self.pending_order is not None:
+            self.submit_results.append(context.strategy.orders.submit(self.pending_order))  # type: ignore[union-attr]
+            self.pending_order = None
+
+
 class OnlyIntegrationCluster(OnlyCluster):
-    """Small strategy fixture using only the production Runtime Context."""
+    """Container fixture; callback behavior is delegated to one Strategy."""
 
     def __init__(
         self,
@@ -179,26 +204,31 @@ class OnlyIntegrationCluster(OnlyCluster):
         cluster_id: OnlyClusterId = CLUSTER_ID,
         primary_bar_type: OnlyBarType | None = None,
     ) -> None:
-        super().__init__(OnlyClusterConfig(str(cluster_id)))
-        self._subscription = OnlyBarSubscription(bar_types, primary_bar_type=primary_bar_type)
-        self.pending_order: OnlyOrderRequest | None = None
-        self.submit_results: list[OnlyOrderSubmitResult] = []
-        self.snapshots: list[OnlyMarketDataSnapshot] = []
+        strategy = OnlyIntegrationStrategy(f"{cluster_id}-strategy")
+        super().__init__(
+            OnlyClusterConfig(
+                str(cluster_id),
+                OnlyBarSubscription(bar_types, primary_bar_type=primary_bar_type),
+            ),
+            strategy,
+        )
+        self.integration_strategy = strategy
 
-    def on_initialize(self) -> None:
-        assert self.context is not None
-        self.context.subscriptions.subscribe_bars(self._subscription)
+    @property
+    def pending_order(self) -> OnlyOrderRequest | None:
+        return self.integration_strategy.pending_order
 
-    def on_bar(self, bar: OnlyBar, context: object) -> None:
-        del bar
-        from onlyalpha.cluster.bar_context import OnlyBarContext
+    @pending_order.setter
+    def pending_order(self, value: OnlyOrderRequest | None) -> None:
+        self.integration_strategy.pending_order = value
 
-        if not isinstance(context, OnlyBarContext):
-            raise TypeError("integration Cluster requires OnlyBarContext")
-        self.snapshots.append(context.snapshot)
-        if self.pending_order is not None:
-            self.submit_results.append(context.runtime.orders.submit(self.pending_order))
-            self.pending_order = None
+    @property
+    def submit_results(self) -> list[OnlyOrderSubmitResult]:
+        return self.integration_strategy.submit_results
+
+    @property
+    def snapshots(self) -> list[OnlyMarketDataSnapshot]:
+        return self.integration_strategy.snapshots
 
 
 class OnlyIntegrationEnvironment:

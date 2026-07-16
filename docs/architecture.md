@@ -1,8 +1,12 @@
 # OnlyAlpha 总体架构
 
 正式运行入口通过 `OnlyRunConfig → OnlyEngineRunService → OnlyRuntimeFactoryRegistry → OnlyRuntime.run()` 组合既有组件。
-通用配置与装配层只依赖抽象 Factory；BACKTEST 的 Replay/RunPlan 保留在 `runtime/backtest/`，Synthetic、Virtual Broker 与
-MACD 分别位于父组件子目录。成交仍经过 Virtual Broker Queue 与 ExecutionProcessor。详见 `docs/backtest.md` 与 ADR 0019。
+通用配置与装配层只依赖抽象 Factory；BACKTEST 的 Replay/RunPlan 保留在 `runtime/backtest/`，Synthetic 与 Virtual Broker
+位于父组件子目录。标准 Indicator 位于核心指标库，示例 Factor/Strategy 位于 `examples/`。成交仍经过 Virtual Broker Queue
+与 ExecutionProcessor。详见 `docs/backtest.md`、ADR 0019 与 ADR 0020。
+
+策略运行关系固定为 `Engine → Runtime → Cluster(one Strategy, zero-or-more Factors) → Indicator`。Cluster 是隔离容器，
+不是 Strategy；Factor 组合 Indicator 且没有交易权限；Strategy 只读取 Factor Snapshot/Score 并通过受限 Context 下单。
 
 Account 是 Runtime-owned 账户级本地真值，Strategy Ledger 是 Cluster 虚拟账，两者不共享状态。Runtime 独占 Manager，
 Cluster 分别只通过 `ctx.accounts` 与 `ctx.ledger` 读取 immutable Snapshot。Broker Gateway 不持有 Manager，所有异步回报先
@@ -59,7 +63,10 @@ core            通用基础能力
 event           事件定义和 Event Bus
 engine          顶层生命周期和组件协调
 runtime         不同运行环境
-cluster         策略运行单元和插件管理
+cluster         独立策略容器和组件生命周期
+strategy        交易决策与受限交易能力
+factor          时序/截面因子、依赖图与评分
+indicator       无交易副作用的底层滚动计算
 gateway         行情与交易外部适配
 execution       订单、成交、持仓和账户
 risk            风控
@@ -110,7 +117,7 @@ api / cli
 
 ## 6. 扩展方式
 
-新增策略：增加 Cluster 类和配置。
+新增策略：增加 Strategy/Factor 示例或插件配置；Cluster 容器核心不变。
 
 新增市场：增加 Gateway、Market Rule 和 Instrument Provider，不修改 Engine 核心。
 
@@ -122,9 +129,10 @@ api / cli
 
 ## 7. 当前实现边界
 
-`src/onlyalpha` 当前包含 Phase 1 骨架、Pure Financial Domain 和最小 Account/Virtual Broker 纵切面：可组合多个 Runtime 和
-Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。Live/Paper 类型仍不连接真实 SDK；
-Backtest 已有确定性 Next-Bar 最小撮合但没有完整历史数据驱动；Research 不含完整因子管线。真实交易必须实现相同 Broker Ports。
+`src/onlyalpha` 当前包含 Phase 1 骨架、Pure Financial Domain、Strategy/Factor/Indicator 运行模型和 Account/Virtual Broker
+纵切面：可组合多个 Runtime/Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。
+Backtest 已有配置驱动的 Synthetic 历史 Replay 与确定性 Next-Bar 撮合；Live/Paper 类型仍不连接真实 SDK，Research 尚未形成
+面向生产的研究工作流。真实交易必须实现相同 Broker Ports。
 
 Domain 仅依赖标准库和自身模块。`core` 及其上的所有模块可以依赖 Domain，Domain 不得依赖 core 或其他外层模块。
 

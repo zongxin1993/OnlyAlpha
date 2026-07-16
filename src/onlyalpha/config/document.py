@@ -19,14 +19,16 @@ from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBarSpecificationConfig,
     OnlyBrokerRuntimeConfig,
+    OnlyClusterImportConfig,
     OnlyConfigError,
     OnlyDataSourceCoverageConfig,
     OnlyDataSourceRuntimeConfig,
+    OnlyFactorImportConfig,
+    OnlyIndicatorSpecConfig,
     OnlyInstrumentBarSubscriptionConfig,
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyReferenceDataConfig,
-    OnlyStrategyCommonConfig,
     OnlyStrategyImportConfig,
     OnlyStrategySubscriptionConfig,
     OnlySubscriptionRole,
@@ -65,6 +67,8 @@ from onlyalpha.domain.value import (
     OnlyPrice,
     OnlyQuantity,
 )
+from onlyalpha.factor.identifiers import OnlyFactorId
+from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 
 
 class OnlyRunConfigError(OnlyConfigError):
@@ -109,7 +113,7 @@ class OnlyRunConfig:
     data_sources: tuple[OnlyDataSourceRuntimeConfig, ...]
     accounts: tuple[OnlyAccountRuntimeConfig, ...]
     brokers: tuple[OnlyBrokerRuntimeConfig, ...]
-    strategies: tuple[OnlyStrategyImportConfig, ...]
+    clusters: tuple[OnlyClusterImportConfig, ...]
     output: OnlyOutputConfig
     source_path: Path
     normalized_payload: OnlyJsonMapping
@@ -192,21 +196,29 @@ class OnlyRunConfig:
             if account.initial_cash.currency != self.base_currency:
                 raise OnlyRunConfigError(f"{account.account_id} currency differs from runtime base currency")
         seen_clusters: set[str] = set()
-        for strategy in self.strategies:
-            cluster_id = str(strategy.common.cluster_id)
+        for cluster in self.clusters:
+            cluster_id = str(cluster.cluster_id)
             if cluster_id in seen_clusters:
                 raise OnlyRunConfigError(f"duplicate cluster_id {cluster_id}")
             seen_clusters.add(cluster_id)
-            if str(strategy.common.account_id) not in accounts:
-                raise OnlyRunConfigError(f"{cluster_id} references unknown account {strategy.common.account_id}")
-            for instrument_subscription in strategy.common.subscriptions.instrument_bars:
-                if str(instrument_subscription.instrument_id) not in instruments:
-                    raise OnlyRunConfigError(f"{cluster_id} references unknown {instrument_subscription.instrument_id}")
-            for universe_subscription in strategy.common.subscriptions.universe_bars:
-                if universe_subscription.universe_id not in universes:
-                    raise OnlyRunConfigError(
-                        f"{cluster_id} references unknown universe {universe_subscription.universe_id}"
-                    )
+            if str(cluster.account_id) not in accounts:
+                raise OnlyRunConfigError(f"{cluster_id} references unknown account {cluster.account_id}")
+            factor_ids = {factor.factor_id for factor in cluster.factors}
+            if len(factor_ids) != len(cluster.factors):
+                raise OnlyRunConfigError(f"{cluster_id} has duplicate factor_id")
+            for factor in cluster.factors:
+                if not set(factor.dependencies) <= factor_ids:
+                    raise OnlyRunConfigError(f"{factor.factor_id} references unknown Factor dependency")
+                for instrument_subscription in factor.subscriptions.instrument_bars:
+                    if str(instrument_subscription.instrument_id) not in instruments:
+                        raise OnlyRunConfigError(
+                            f"{cluster_id} references unknown {instrument_subscription.instrument_id}"
+                        )
+                for universe_subscription in factor.subscriptions.universe_bars:
+                    if universe_subscription.universe_id not in universes:
+                        raise OnlyRunConfigError(
+                            f"{cluster_id} references unknown universe {universe_subscription.universe_id}"
+                        )
 
 
 class _OnlyRunConfigParser:
@@ -232,7 +244,7 @@ class _OnlyRunConfigParser:
                 runtime.base_currency,
             ),
             brokers=self._brokers(self._list(self.root.get("brokers"), "$.brokers")),
-            strategies=self._strategies(self._list(self.root.get("strategies"), "$.strategies")),
+            clusters=self._clusters(self._list(self.root.get("clusters"), "$.clusters")),
             output=self._output(self._map(self.root.get("output", {}), "$.output")),
             source_path=self.source,
             normalized_payload=self.root,
@@ -431,55 +443,78 @@ class _OnlyRunConfigParser:
             )
         return tuple(result)
 
-    def _strategies(self, values: list[OnlyJsonValue]) -> tuple[OnlyStrategyImportConfig, ...]:
+    def _clusters(self, values: list[OnlyJsonValue]) -> tuple[OnlyClusterImportConfig, ...]:
         result = []
         for i, value in enumerate(values):
-            p = f"$.strategies[{i}]"
+            p = f"$.clusters[{i}]"
             raw = self._map(value, p)
-            common = self._map(raw.get("common"), f"{p}.common")
-            subscriptions = self._map(common.get("subscriptions"), f"{p}.common.subscriptions")
-            instrument_bars = tuple(
-                self._instrument_bar(
-                    self._map(x, f"{p}.common.subscriptions.instrument_bars[{j}]"),
-                    f"{p}.common.subscriptions.instrument_bars[{j}]",
-                )
-                for j, x in enumerate(
-                    self._list(subscriptions.get("instrument_bars", []), f"{p}.common.subscriptions.instrument_bars")
-                )
-            )
-            universe_bars = tuple(
-                self._universe_bar(
-                    self._map(x, f"{p}.common.subscriptions.universe_bars[{j}]"),
-                    f"{p}.common.subscriptions.universe_bars[{j}]",
-                )
-                for j, x in enumerate(
-                    self._list(subscriptions.get("universe_bars", []), f"{p}.common.subscriptions.universe_bars")
-                )
-            )
-            metadata_raw = self._map(common.get("metadata", {}), f"{p}.common.metadata")
+            strategy = self._map(raw.get("strategy"), f"{p}.strategy")
+            metadata_raw = self._map(raw.get("metadata", {}), f"{p}.metadata")
             result.append(
-                OnlyStrategyImportConfig(
-                    self._str(raw.get("factory_id", raw.get("strategy_type", "import")), f"{p}.factory_id"),
-                    None
-                    if raw.get("strategy_path") is None
-                    else self._str(raw.get("strategy_path"), f"{p}.strategy_path"),
-                    None if raw.get("config_path") is None else self._str(raw.get("config_path"), f"{p}.config_path"),
-                    OnlyStrategyCommonConfig(
-                        OnlyClusterId(self._str(common.get("cluster_id"), f"{p}.common.cluster_id")),
-                        OnlyAccountId(self._str(common.get("account_id"), f"{p}.common.account_id")),
-                        self._bool(common.get("enabled", True), f"{p}.common.enabled"),
-                        OnlyStrategySubscriptionConfig(instrument_bars, universe_bars),
-                        None
-                        if common.get("risk_profile_id") is None
-                        else self._str(common.get("risk_profile_id"), f"{p}.common.risk_profile_id"),
-                        MappingProxyType(
-                            {k: self._str(v, f"{p}.common.metadata.{k}") for k, v in metadata_raw.items()}
-                        ),
+                OnlyClusterImportConfig(
+                    OnlyClusterId(self._str(raw.get("cluster_id"), f"{p}.cluster_id")),
+                    OnlyAccountId(self._str(raw.get("account_id"), f"{p}.account_id")),
+                    self._bool(raw.get("enabled", True), f"{p}.enabled"),
+                    OnlyStrategyImportConfig(
+                        self._str(strategy.get("class_path"), f"{p}.strategy.class_path"),
+                        self._str(strategy.get("config_path"), f"{p}.strategy.config_path"),
+                        self._map(strategy.get("extensions", {}), f"{p}.strategy.extensions"),
                     ),
-                    self._map(raw.get("extensions", {}), f"{p}.extensions"),
+                    tuple(
+                        self._factor(self._map(item, f"{p}.factors[{j}]"), f"{p}.factors[{j}]")
+                        for j, item in enumerate(self._list(raw.get("factors", []), f"{p}.factors"))
+                    ),
+                    None
+                    if raw.get("risk_profile_id") is None
+                    else self._str(raw.get("risk_profile_id"), f"{p}.risk_profile_id"),
+                    MappingProxyType({k: self._str(v, f"{p}.metadata.{k}") for k, v in metadata_raw.items()}),
                 )
             )
         return tuple(result)
+
+    def _factor(self, raw: OnlyJsonMapping, path: str) -> OnlyFactorImportConfig:
+        subscriptions = self._map(raw.get("subscriptions"), f"{path}.subscriptions")
+        instrument_bars = tuple(
+            self._instrument_bar(
+                self._map(item, f"{path}.subscriptions.instrument_bars[{i}]"),
+                f"{path}.subscriptions.instrument_bars[{i}]",
+            )
+            for i, item in enumerate(
+                self._list(subscriptions.get("instrument_bars", []), f"{path}.subscriptions.instrument_bars")
+            )
+        )
+        universe_bars = tuple(
+            self._universe_bar(
+                self._map(item, f"{path}.subscriptions.universe_bars[{i}]"), f"{path}.subscriptions.universe_bars[{i}]"
+            )
+            for i, item in enumerate(
+                self._list(subscriptions.get("universe_bars", []), f"{path}.subscriptions.universe_bars")
+            )
+        )
+        indicators = tuple(
+            OnlyIndicatorSpecConfig(
+                OnlyIndicatorId(self._str(item.get("indicator_id"), f"{p}.indicator_id")),
+                OnlyIndicatorTypeId(self._str(item.get("type"), f"{p}.type")),
+                self._map(item.get("parameters", {}), f"{p}.parameters"),
+            )
+            for i, value in enumerate(self._list(raw.get("indicators", []), f"{path}.indicators"))
+            for p in (f"{path}.indicators[{i}]",)
+            for item in (self._map(value, p),)
+        )
+        return OnlyFactorImportConfig(
+            OnlyFactorId(self._str(raw.get("factor_id"), f"{path}.factor_id")),
+            self._str(raw.get("factor_type"), f"{path}.factor_type").upper(),
+            self._str(raw.get("class_path"), f"{path}.class_path"),
+            self._str(raw.get("config_path"), f"{path}.config_path"),
+            OnlyStrategySubscriptionConfig(instrument_bars, universe_bars),
+            indicators,
+            tuple(
+                OnlyFactorId(self._str(item, f"{path}.dependencies[{i}]"))
+                for i, item in enumerate(self._list(raw.get("dependencies", []), f"{path}.dependencies"))
+            ),
+            self._bool(raw.get("required", True), f"{path}.required"),
+            self._map(raw.get("extensions", {}), f"{path}.extensions"),
+        )
 
     def _instrument_bar(self, raw: OnlyJsonMapping, path: str) -> OnlyInstrumentBarSubscriptionConfig:
         return OnlyInstrumentBarSubscriptionConfig(

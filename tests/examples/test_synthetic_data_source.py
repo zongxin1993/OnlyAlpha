@@ -12,7 +12,7 @@ from onlyalpha.data.synthetic import (
 )
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 
-CONFIG = Path("examples/backtest_macd/config.yaml")
+CONFIG = Path("examples/configs/backtest/macd/run.yaml")
 
 
 def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:
@@ -26,8 +26,9 @@ def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:
 def _load(config: OnlyRunConfig, source: OnlySyntheticHistoricalDataSource | None = None):
     source = source or _source(config)
     bar_type = (
-        config.strategies[0]
-        .common.subscriptions.instrument_bars[0]
+        config.clusters[0]
+        .factors[0]
+        .subscriptions.instrument_bars[0]
         .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
     assert config.start_time is not None and config.end_time is not None

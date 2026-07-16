@@ -2,38 +2,46 @@ from collections.abc import Callable
 
 import pytest
 
-from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig, OnlyClusterState
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.context import OnlyRuntimeContextError, OnlyTimerContext
 from onlyalpha.runtime.runtime import OnlyRuntimeState
+from onlyalpha.strategy.base import OnlyStrategy
+from onlyalpha.strategy.config import OnlyStrategyConfig
+from onlyalpha.strategy.context import OnlyStrategyBarContext, OnlyStrategyTimerContext
+from onlyalpha.strategy.identifiers import OnlyStrategyId
+
+
+class OnlyOrderedStrategy(OnlyStrategy):
+    def __init__(self, strategy_id: str, *, fail_on_second: bool = False) -> None:
+        super().__init__(OnlyStrategyConfig(OnlyStrategyId(strategy_id)))
+        self.order: list[str] = []
+        self.fail_on_second = fail_on_second
+
+    def on_initialize(self) -> None:
+        self.context.timers.schedule_at("same-time", self.context.clock.timestamp_ns() + 3 * 60 * 1_000_000_000)
+
+    def on_timer(self, context: OnlyStrategyTimerContext) -> None:
+        assert isinstance(context.timer, OnlyTimerContext)
+        self.order.append(f"timer:{context.timer.event.deadline_ns}")
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        self.order.append(f"bar:{context.snapshot.ts_event.unix_nanos}")  # type: ignore[union-attr]
+        if self.fail_on_second and len([item for item in self.order if item.startswith("bar:")]) == 2:
+            raise RuntimeError("expected cluster failure")
 
 
 class OnlyOrderedCluster(OnlyCluster):
-    def __init__(self, config: OnlyClusterConfig, subscription: OnlyBarSubscription) -> None:
-        super().__init__(config)
-        self.subscription = subscription
-        self.order: list[str] = []
+    def __init__(self, config: OnlyClusterConfig, subscription: OnlyBarSubscription, *, fail: bool = False) -> None:
+        strategy = OnlyOrderedStrategy(f"{config.cluster_id}-strategy", fail_on_second=fail)
+        super().__init__(OnlyClusterConfig(config.cluster_id, subscription, config.values), strategy)
+        self.ordered_strategy = strategy
 
-    def on_initialize(self) -> None:
-        assert self.context is not None
-        self.context.subscriptions.subscribe_bars(self.subscription)
-        self.context.timers.schedule_at("same-time", self.context.clock.timestamp_ns() + 3 * 60 * 1_000_000_000)
-
-    def on_timer(self, context: OnlyTimerContext) -> None:
-        self.order.append(f"timer:{context.event.deadline_ns}")
-
-    def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
-        self.order.append(f"bar:{context.snapshot.ts_event.unix_nanos}")
-
-
-class OnlyFailOnSecondBar(OnlyOrderedCluster):
-    def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
-        super().on_bar(bar, context)
-        if len([item for item in self.order if item.startswith("bar:")]) == 2:
-            raise RuntimeError("expected cluster failure")
+    @property
+    def order(self) -> list[str]:
+        return self.ordered_strategy.order
 
 
 def test_same_timestamp_timer_fires_before_bar(
@@ -77,7 +85,7 @@ def test_failed_cluster_stops_receiving_while_healthy_cluster_continues(
 ) -> None:
     runtime = make_runtime("runtime")
     subscription = OnlyBarSubscription(runtime_types)
-    failing = OnlyFailOnSecondBar(OnlyClusterConfig("a-failing"), subscription)
+    failing = OnlyOrderedCluster(OnlyClusterConfig("a-failing"), subscription, fail=True)
     healthy = OnlyOrderedCluster(OnlyClusterConfig("b-healthy"), subscription)
     runtime.add_cluster("engine", failing)
     runtime.add_cluster("engine", healthy)

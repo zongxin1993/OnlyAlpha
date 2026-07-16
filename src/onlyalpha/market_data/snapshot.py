@@ -12,7 +12,8 @@ from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorValue, OnlyStructuredIndicatorValue
+from onlyalpha.indicator.base import OnlyIndicatorValue, OnlyStructuredIndicatorValue
+from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.market_data.subscriptions import only_bar_type_id
 
 
@@ -110,7 +111,6 @@ class OnlyMarketDataSnapshot:
         cluster_id: OnlyClusterId,
         bar_types: tuple[OnlyBarType, ...],
         primary_bar_type: OnlyBarType,
-        indicator_ids: tuple[OnlyIndicatorId, ...],
     ) -> OnlyMarketDataSnapshot:
         allowed = frozenset(bar_types)
         primary = self.bars.latest_closed_bars.get(primary_bar_type)
@@ -131,8 +131,8 @@ class OnlyMarketDataSnapshot:
                 {key: value for key, value in self.bars.partial_bars.items() if key in allowed},
                 {key: value for key, value in self.bars.data_versions.items() if key in allowed},
             ),
-            indicator_values={key: value for key, value in self.indicator_values.items() if key in indicator_ids},
-            indicator_versions={key: value for key, value in self.indicator_versions.items() if key in indicator_ids},
+            indicator_values={},
+            indicator_versions={},
             trading_day=primary.trading_day,
             session_type=primary.session_type,
             quality_flags=self.quality_flags,
@@ -254,10 +254,4 @@ class OnlyMarketDataSnapshot:
             value = payload.get("value")
             if value is None or isinstance(value, str | int | bool):
                 return value
-        if payload.get("kind") == "structured" and payload.get("value_type") == "MACD":
-            from onlyalpha.indicator.macd import OnlyMacdSnapshot
-
-            value = payload.get("value")
-            if isinstance(value, Mapping):
-                return OnlyMacdSnapshot.from_dict(value)
         raise ValueError("invalid indicator value payload")

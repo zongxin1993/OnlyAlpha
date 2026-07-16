@@ -96,16 +96,17 @@ class OnlySyntheticDataSourceFactory:
 
     @staticmethod
     def _bar_type(request: OnlyDataSourceBuildRequest, instrument_id: OnlyInstrumentId) -> OnlyBarType:
-        for strategy in request.run_config.strategies:
-            for instrument_subscription in strategy.common.subscriptions.instrument_bars:
-                if instrument_subscription.instrument_id == instrument_id:
-                    return instrument_subscription.bar_specification.to_bar_type(instrument_id)
-            for universe_subscription in strategy.common.subscriptions.universe_bars:
-                universe = next(
-                    x for x in request.run_config.universes if x.universe_id == universe_subscription.universe_id
-                )
-                if instrument_id in universe.instrument_ids:
-                    return universe_subscription.bar_specification.to_bar_type(instrument_id)
+        for cluster in request.run_config.clusters:
+            for factor in cluster.factors:
+                for instrument_subscription in factor.subscriptions.instrument_bars:
+                    if instrument_subscription.instrument_id == instrument_id:
+                        return instrument_subscription.bar_specification.to_bar_type(instrument_id)
+                for universe_subscription in factor.subscriptions.universe_bars:
+                    universe = next(
+                        x for x in request.run_config.universes if x.universe_id == universe_subscription.universe_id
+                    )
+                    if instrument_id in universe.instrument_ids:
+                        return universe_subscription.bar_specification.to_bar_type(instrument_id)
         raise ValueError(f"no Bar subscription for synthetic instrument {instrument_id}")
 
     @staticmethod

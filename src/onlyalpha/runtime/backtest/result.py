@@ -12,7 +12,6 @@ from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
-from onlyalpha.strategies.macd import OnlyMacdSignal
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 
 
@@ -47,9 +46,14 @@ class OnlyBacktestExecutionSummary:
     order_count: int
     rejected_order_count: int
     trade_count: int
-    golden_cross_count: int
-    death_cross_count: int
-    blocked_t1_exit_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyClusterResult:
+    cluster_id: OnlyClusterId
+    strategy_result_extension: dict[str, object]
+    factor_results: tuple[dict[str, object], ...]
+    indicator_diagnostics: tuple[dict[str, object], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +79,7 @@ class OnlyBacktestResult:
     final_accounts: tuple[OnlyAccountSnapshot, ...]
     orders: tuple[OnlyOrderSnapshot, ...]
     trades: tuple[OnlyBrokerTradeSnapshot, ...]
-    signals: tuple[OnlyMacdSignal, ...]
+    cluster_results: tuple[OnlyClusterResult, ...]
     invariant_results: tuple[str, ...]
     determinism_fingerprint: str
 
@@ -115,9 +119,6 @@ class OnlyBacktestResult:
                 "order_count": self.execution.order_count,
                 "rejected_order_count": self.execution.rejected_order_count,
                 "trade_count": self.execution.trade_count,
-                "golden_cross_count": self.execution.golden_cross_count,
-                "death_cross_count": self.execution.death_cross_count,
-                "blocked_t1_exit_count": self.execution.blocked_t1_exit_count,
             },
             "performance": {
                 "initial_equity": self.performance.initial_equity.to_dict(),
@@ -138,16 +139,14 @@ class OnlyBacktestResult:
             "final_accounts": [item.to_dict() for item in self.final_accounts],
             "orders": [item.to_dict() for item in self.orders],
             "trades": [item.to_dict() for item in self.trades],
-            "signals": [
+            "cluster_results": [
                 {
-                    "sequence": item.sequence,
-                    "signal_type": item.signal_type,
-                    "ts_event_ns": item.ts_event.unix_nanos,
-                    "dif": item.dif,
-                    "dea": item.dea,
-                    "order_request_id": None if item.order_request_id is None else str(item.order_request_id),
+                    "cluster_id": str(item.cluster_id),
+                    "strategy_result_extension": item.strategy_result_extension,
+                    "factor_results": list(item.factor_results),
+                    "indicator_diagnostics": list(item.indicator_diagnostics),
                 }
-                for item in self.signals
+                for item in self.cluster_results
             ],
             "invariant_results": list(self.invariant_results),
             "determinism_fingerprint": self.determinism_fingerprint,

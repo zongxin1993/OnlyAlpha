@@ -9,7 +9,7 @@ from onlyalpha.runtime.defaults import only_default_run_service
 
 
 def test_macd_backtest_product_api_and_result_export(tmp_path: Path) -> None:
-    config = OnlyRunConfig.load("examples/backtest_macd/config.yaml")
+    config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
     config = replace(config, output=replace(config.output, root_directory=str(tmp_path), overwrite=True))
     service = only_default_run_service()
     result = service.run(config)

@@ -1,46 +1,37 @@
-"""Strongly typed strategy factories and registry."""
+"""Dynamic Strategy factory; it never creates Factors or Indicators."""
 
-from __future__ import annotations
-
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from importlib import import_module
 
-from onlyalpha.cluster.base import OnlyCluster
-from onlyalpha.config import OnlyRunConfig, OnlyStrategyImportConfig
-from onlyalpha.indicator.base import OnlyIndicatorRegistration
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyStrategyBuildRequest:
-    config: OnlyStrategyImportConfig
-    run_config: OnlyRunConfig
+from onlyalpha.strategy.base import OnlyStrategy
+from onlyalpha.strategy.config import OnlyStrategyConfig
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyStrategyBuildResult:
-    cluster: OnlyCluster
-    indicators: tuple[OnlyIndicatorRegistration, ...] = ()
+class OnlyStrategyCreateRequest:
+    strategy_path: str
+    config_path: str
+    parameters: Mapping[str, object]
 
 
-class OnlyStrategyFactory(Protocol):
-    @property
-    def factory_id(self) -> str: ...
+def only_load_type(path: str) -> type[object]:
+    module_name, class_name = path.split(":", 1)
+    candidate = getattr(import_module(module_name), class_name)
+    if not isinstance(candidate, type):
+        raise TypeError(f"{path} does not reference a class")
+    return candidate
 
-    def create(self, request: OnlyStrategyBuildRequest) -> OnlyStrategyBuildResult: ...
 
-
-class OnlyStrategyFactoryRegistry:
-    def __init__(self) -> None:
-        self._factories: dict[str, OnlyStrategyFactory] = {}
-
-    def register(self, factory: OnlyStrategyFactory) -> None:
-        key = factory.factory_id.upper()
-        if key in self._factories:
-            raise ValueError(f"duplicate strategy factory: {key}")
-        self._factories[key] = factory
-
-    def require(self, factory_id: str) -> OnlyStrategyFactory:
-        try:
-            return self._factories[factory_id.upper()]
-        except KeyError as exc:
-            raise ValueError(f"STRATEGY_FACTORY_NOT_AVAILABLE: {factory_id}") from exc
+class OnlyStrategyFactory:
+    def create(self, request: OnlyStrategyCreateRequest) -> OnlyStrategy:
+        config_type = only_load_type(request.config_path)
+        strategy_type = only_load_type(request.strategy_path)
+        if not issubclass(config_type, OnlyStrategyConfig):
+            raise TypeError("Strategy config class must derive from OnlyStrategyConfig")
+        if not issubclass(strategy_type, OnlyStrategy):
+            raise TypeError("Strategy class must derive from OnlyStrategy")
+        from_mapping = getattr(config_type, "from_mapping", None)
+        if not callable(from_mapping):
+            raise TypeError("Strategy config class must define from_mapping()")
+        return strategy_type(from_mapping(request.parameters))

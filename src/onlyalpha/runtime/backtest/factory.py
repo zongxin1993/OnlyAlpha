@@ -12,8 +12,6 @@ from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
-from onlyalpha.strategies.macd import OnlyMacdExampleCluster
-from onlyalpha.strategy.factory import OnlyStrategyBuildRequest
 
 
 class OnlyBacktestRuntimeFactory:
@@ -39,19 +37,18 @@ class OnlyBacktestRuntimeFactory:
         broker = components.brokers.require(broker_common.gateway_type).create(
             OnlyBrokerBuildRequest(broker_common, account, config)
         )
-        strategy_results = tuple(
-            components.strategies.require(item.factory_id).create(OnlyStrategyBuildRequest(item, config))
-            for item in config.strategies
-            if item.common.enabled
-        )
+        clusters = tuple(components.clusters.create(item, config) for item in config.clusters if item.enabled)
+        if len(clusters) != 1:
+            raise ValueError("first-phase product Backtest requires exactly one enabled Cluster")
         source_common = config.data_sources[0]
         source = components.data_sources.require(source_common.source_type).create(
             OnlyDataSourceBuildRequest(source_common, config, config.runtime.runtime_id)
         )
         bar_types = frozenset(
-            result.cluster.strategy_config.primary_bar_type
-            for result in strategy_results
-            if isinstance(result.cluster, OnlyMacdExampleCluster)
+            bar_type
+            for cluster in clusters
+            if cluster.config.subscription is not None
+            for bar_type in cluster.config.subscription.bar_types
         )
         instrument_ids = frozenset(item.instrument_id for item in bar_types)
         request_model = OnlyHistoricalBarRequest(
@@ -62,10 +59,8 @@ class OnlyBacktestRuntimeFactory:
             source_common.data_version,
             batch_size=source_common.batch_size,
         )
-        strategy = strategy_results[0].cluster
-        if not isinstance(strategy, OnlyMacdExampleCluster):
-            raise ValueError("first-phase Backtest result builder requires MACD example strategy")
-        plan = OnlyBacktestRunPlan(config, source, request_model, strategy)
+        cluster = clusters[0]
+        plan = OnlyBacktestRunPlan(config, source, request_model, cluster)
         calendar = config.reference_data.calendars[0]
         runtime = OnlyBacktestRuntime(
             OnlyRuntimeAssemblyConfig(
@@ -83,8 +78,6 @@ class OnlyBacktestRuntimeFactory:
         )
         for instrument in config.reference_data.instruments:
             runtime.register_instrument(instrument)
-        for result in strategy_results:
-            for indicator in result.indicators:
-                runtime.register_indicator(indicator)
-            runtime.add_cluster(config.engine_id, result.cluster)
+        for cluster in clusters:
+            runtime.add_cluster(config.engine_id, cluster)
         return OnlyRuntimeBuildResult(runtime=runtime)

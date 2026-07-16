@@ -1,9 +1,13 @@
-"""MACD indicator implementation."""
+from onlyalpha.indicator.macd.config import OnlyMacdIndicatorConfig
+from onlyalpha.indicator.macd.factory import OnlyMacdIndicatorFactory
+from onlyalpha.indicator.macd.indicator import OnlyMacdIndicator
+from onlyalpha.indicator.macd.snapshot import OnlyMacdCrossState, OnlyMacdSnapshot
 
-from onlyalpha.indicator.macd.indicator import (
-    OnlyMacdIndicator,
-    OnlyMacdIndicatorConfig,
-    OnlyMacdSnapshot,
-)
-
-__all__ = ["OnlyMacdIndicator", "OnlyMacdIndicatorConfig", "OnlyMacdSnapshot"]
+__all__ = [
+    "OnlyMacdCrossState",
+    "OnlyMacdIndicator",
+    "OnlyMacdIndicatorConfig",
+    "OnlyMacdIndicatorFactory",
+    "OnlyMacdSnapshot",
+]
+# ruff: noqa: F401

@@ -71,7 +71,6 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
-from onlyalpha.indicator.base import OnlyIndicatorId, OnlyIndicatorRegistration, OnlyIndicatorValue
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
@@ -553,11 +552,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if market_rule is not None:
             self._market_rules[instrument.instrument_id] = market_rule
 
-    def register_indicator(self, registration: OnlyIndicatorRegistration) -> None:
-        if self._state is not OnlyRuntimeState.CREATED:
-            raise OnlyLifecycleError("Indicators must be registered while Runtime is CREATED")
-        self._services.indicator_pipeline.register(registration)
-
     def process_bar(self, bar: OnlyBar) -> OnlyRuntimeBarResult:
         """Compatibility facade implemented as a one-record local historical replay."""
 
@@ -952,12 +946,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         def history(bar_type: OnlyBarType, count: int) -> tuple[OnlyBar, ...]:
             return self._services.market_data_cache.history(bar_type, count)
 
-        def indicator(indicator_id: OnlyIndicatorId) -> OnlyIndicatorValue | None:
-            registration = self._subscriptions.get(cluster_id)
-            if registration is None or indicator_id not in registration.indicator_ids:
-                raise OnlyRuntimeContextError("Cluster cannot read an undeclared Indicator")
-            return self._services.indicator_pipeline.values().get(indicator_id)
-
         def current_snapshot() -> OnlyMarketDataSnapshot | None:
             return self._current_snapshots.get(cluster_id)
 
@@ -967,11 +955,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             cluster_id,
             self.config.mode,
             OnlyClockView(self._services.clock),
-            OnlyMarketDataView(allowed_bar_types, latest, history, indicator, current_snapshot),
+            OnlyMarketDataView(allowed_bar_types, latest, history, current_snapshot),
             OnlyInstrumentView(self._instruments),
-            OnlySubscriptionService(
-                lambda subscription, indicator_ids: self._subscribe(cluster_id, subscription, indicator_ids)
-            ),
+            OnlySubscriptionService(lambda subscription: self._subscribe(cluster_id, subscription)),
             OnlyTimerService(
                 lambda timer_id, when_ns: self._schedule_at(cluster_id, timer_id, when_ns),
                 lambda timer_id, delay_ns: self._schedule_after(cluster_id, timer_id, delay_ns),
@@ -1018,14 +1004,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self,
         cluster_id: OnlyClusterId,
         subscription: OnlyBarSubscription,
-        indicator_ids: tuple[OnlyIndicatorId, ...],
     ) -> OnlyBarSubscriptionId:
         if self._services.cluster_manager.state_of(cluster_id) is not OnlyClusterState.LOADED:
             raise OnlyRuntimeContextError("Bar subscriptions are accepted only during Cluster initialization")
         if cluster_id in self._subscriptions:
             raise OnlyRuntimeContextError("first-phase Cluster supports one Bar subscription")
         cluster = next(item for item in self.clusters if item.config.cluster_id == str(cluster_id))
-        registration = OnlyClusterBarSubscription(cluster, subscription, tuple(sorted(set(indicator_ids))))
+        registration = OnlyClusterBarSubscription(cluster, subscription)
         self._known_market_data_instruments.update(item.instrument_id for item in subscription.bar_types)
         self._services.dispatcher.register(registration)
         self._subscriptions[cluster_id] = registration
