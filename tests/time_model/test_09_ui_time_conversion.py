@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from onlyalpha.domain.enums import OnlyTimeDisplayMode
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
-from onlyalpha.time_conversion import OnlyTimeConversionService
+from onlyalpha.utils.time_conversion import OnlyTimeConversionService
 
 
 def test_display_conversion_never_changes_utc_truth() -> None:
