@@ -1,0 +1,1 @@
+"""OnlyAlpha example plugin package."""

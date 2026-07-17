@@ -1,1 +1,0 @@
-"""Executable OnlyAlpha examples."""

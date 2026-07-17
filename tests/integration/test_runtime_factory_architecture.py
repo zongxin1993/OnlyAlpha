@@ -39,10 +39,11 @@ def test_concrete_implementations_live_below_parent_component_packages() -> None
     assert all(Path(path).is_file() for path in required)
 
 
-def test_product_entry_uses_only_common_run_service() -> None:
-    source = Path("examples/run.py").read_text(encoding="utf-8")
-    assert "OnlyRunConfig" in source
-    assert "only_default_run_service" in source
+def test_product_entry_uses_only_engine_public_api() -> None:
+    source = Path("src/onlyalpha/cli.py").read_text(encoding="utf-8")
+    assert "OnlyEngine" in source
+    assert "add_cluster_from_file" in source
+    assert "only_default_run_service" not in source
     assert "OnlyBacktestRuntime" not in source
     assert ".from_config(" not in source
     assert ".save(" not in source

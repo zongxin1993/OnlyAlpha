@@ -16,10 +16,10 @@ from onlyalpha.strategy.factory import OnlyStrategyFactory
 
 
 def _as_runtime(runtime_type: str) -> OnlyRunConfig:
-    baseline = OnlyRunConfig.load("examples/configs/backtest/macd/run.json")
+    baseline = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["type"] = runtime_type
-    return OnlyRunConfig.from_mapping(payload, source_path="examples/configs/backtest/macd/run.json")
+    return OnlyRunConfig.from_mapping(payload, source_path="tests/fixtures/legacy_macd/run.json")
 
 
 def test_backtest_factory_is_selected_through_common_run_service() -> None:

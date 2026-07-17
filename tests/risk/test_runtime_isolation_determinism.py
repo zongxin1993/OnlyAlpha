@@ -1,12 +1,12 @@
-from examples.runtime_context_demo.common import (
-    only_demo_bar,
-    only_demo_bar_types,
-    only_demo_runtime,
-)
 from onlyalpha.cluster.base import OnlyClusterConfig
 from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from tests.runtime_support.common import (
+    only_demo_bar,
+    only_demo_bar_types,
+    only_demo_runtime,
+)
 
 
 def test_runtime_risk_state_and_reservations_are_isolated(order_request) -> None:

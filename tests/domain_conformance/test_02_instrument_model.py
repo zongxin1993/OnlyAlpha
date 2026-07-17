@@ -1,4 +1,3 @@
-from examples.domain_conformance.fixtures.instruments import build_instruments
 from onlyalpha.domain.instrument import (
     OnlyCryptoPerpetual,
     OnlyCryptoSpot,
@@ -8,6 +7,7 @@ from onlyalpha.domain.instrument import (
     OnlyFxPair,
     OnlyOption,
 )
+from tests.domain_conformance.support.instruments import build_instruments
 
 
 def test_all_target_market_instruments_are_describable_and_round_trip() -> None:

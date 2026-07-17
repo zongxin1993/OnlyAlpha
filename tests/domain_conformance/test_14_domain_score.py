@@ -1,4 +1,4 @@
-from examples.domain_conformance.scoring import OnlyDomainConformanceScore
+from tests.domain_conformance.support.scoring import OnlyDomainConformanceScore
 
 
 def test_score_has_no_veto_and_recommends_next_phase() -> None:

@@ -32,3 +32,6 @@ matching Indicator.update_bar
 Manager 仍是 Cluster 状态唯一真值：`CREATED → LOADED → INITIALIZED → STARTING → RUNNING → PAUSED → STOPPING → STOPPED`，异常进入 `FAILED`。初始化顺序为 Factor Context 绑定、Factor 初始化并创建 Indicator、Strategy Context 绑定、Strategy 初始化、订阅批准。暂停/恢复/停止会转发到 Strategy，停止按逆序停止 Factor。
 
 不同 Cluster 不共享可变 Strategy、Factor 或 Indicator 实例。Cluster 只能持有 Runtime 提供的受限 Context，不接触 Gateway、Broker、Manager、EventBus、DataSource 或可变 Cache。
+
+产品配置遵守“一文件一 Cluster”。Engine 在运行前通过 `add_cluster(config)` 返回不可变 `OnlyClusterHandle`；外部不持有
+Cluster 内部可变对象。卸载通过 `OnlyClusterRemovalPolicy` 执行并减少共享资源引用，禁止直接从 Registry 删除对象。

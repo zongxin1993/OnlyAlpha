@@ -41,7 +41,7 @@ def _bar(config: OnlyRunConfig, index: int, close: str) -> OnlyBar:
 
 
 def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
-    config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
+    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
     bar_type = (
         config.clusters[0]
         .factors[0]
@@ -68,7 +68,7 @@ def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
 
 
 def test_macd_rejects_out_of_order_and_open_bars() -> None:
-    config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
+    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
     bar_type = (
         config.clusters[0]
         .factors[0]

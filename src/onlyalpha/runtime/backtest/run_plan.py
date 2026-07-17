@@ -35,12 +35,12 @@ class OnlyBacktestRunPlan:
         config: OnlyRunConfig,
         source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
-        cluster: OnlyCluster,
+        clusters: tuple[OnlyCluster, ...],
     ) -> None:
         self._config = config
         self._source = source
         self._request = request
-        self._cluster = cluster
+        self._clusters = clusters
         self._completed = False
 
         self._runtime: OnlyBacktestRuntime | None = None
@@ -80,9 +80,8 @@ class OnlyBacktestRunPlan:
         allocations = runtime.allocation_manager.snapshot_all()
         ledgers = runtime.strategy_ledger_manager.list_ledgers()
         accounts = runtime.account_manager.list_accounts()
-        if len(ledgers) != 1 or len(accounts) != 1:
-            raise RuntimeError("single-cluster product demo requires one Ledger and one Account")
-        ledger = ledgers[0]
+        if len(ledgers) != len(self._clusters) or len(accounts) != 1:
+            raise RuntimeError("product Backtest requires one Ledger per Cluster and one shared Account")
         account = accounts[0]
         blocking_execution = tuple(
             item
@@ -96,13 +95,15 @@ class OnlyBacktestRunPlan:
                 )
             )
         )
-        invariant_results = self._invariants(account, ledger, blocking_execution)
-        strategy_extension = dict(self._cluster.strategy.build_result_extension())
-        cluster_result = OnlyClusterResult(
-            OnlyClusterId(self._cluster.config.cluster_id),
-            strategy_extension,
-            tuple(dict(item.to_dict()) for item in self._factor_snapshots()),
-            tuple(dict(item.to_dict()) for item in self._cluster.indicator_snapshots),
+        invariant_results = self._invariants(account, ledgers, blocking_execution)
+        cluster_results = tuple(
+            OnlyClusterResult(
+                OnlyClusterId(cluster.config.cluster_id),
+                dict(cluster.strategy.build_result_extension()),
+                tuple(dict(item.to_dict()) for item in self._factor_snapshots(cluster)),
+                tuple(dict(item.to_dict()) for item in cluster.indicator_snapshots),
+            )
+            for cluster in self._clusters
         )
         quality = tuple(
             sorted(
@@ -115,7 +116,7 @@ class OnlyBacktestRunPlan:
                 OnlyBacktestStatus.COMPLETED,
                 OnlyTimestamp.from_datetime(self._require_start_time()),
                 OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
-                (OnlyClusterId(self._cluster.config.cluster_id),),
+                tuple(OnlyClusterId(cluster.config.cluster_id) for cluster in self._clusters),
             ),
             OnlyBacktestDataSummary(
                 str(self._source.source_id),
@@ -137,8 +138,8 @@ class OnlyBacktestRunPlan:
                 account.realized_pnl,
                 account.unrealized_pnl,
                 account.fees,
-                ledger.performance.return_since_start,
-                ledger.performance.maximum_drawdown,
+                ledgers[0].performance.return_since_start,
+                ledgers[0].performance.maximum_drawdown,
             ),
             positions,
             allocations,
@@ -146,7 +147,7 @@ class OnlyBacktestRunPlan:
             accounts,
             orders,
             trades,
-            (cluster_result,),
+            cluster_results,
             invariant_results,
             "",
         )
@@ -169,8 +170,22 @@ class OnlyBacktestRunPlan:
                 (item.index, str(item.update.update_id), item.clock_time_ns, item.result.status.value)
                 for item in runtime.historical_replay_service.events
             ],
-            "factors": [dict(item.to_dict()) for item in self._factor_snapshots()],
-            "indicators": [dict(item.to_dict()) for item in self._cluster.indicator_snapshots],
+            "factors": (
+                [dict(item.to_dict()) for item in self._factor_snapshots(self._clusters[0])]
+                if len(self._clusters) == 1
+                else {
+                    cluster.config.cluster_id: [dict(item.to_dict()) for item in self._factor_snapshots(cluster)]
+                    for cluster in self._clusters
+                }
+            ),
+            "indicators": (
+                [dict(item.to_dict()) for item in self._clusters[0].indicator_snapshots]
+                if len(self._clusters) == 1
+                else {
+                    cluster.config.cluster_id: [dict(item.to_dict()) for item in cluster.indicator_snapshots]
+                    for cluster in self._clusters
+                }
+            ),
             "execution": [item.to_dict() for item in runtime.execution_audit_store.records()],
             "events": [
                 (
@@ -188,25 +203,32 @@ class OnlyBacktestRunPlan:
         ).hexdigest()
         return replace(result, determinism_fingerprint=fingerprint)
 
-    def _factor_snapshots(self) -> tuple[OnlyFactorSnapshot, ...]:
-        result = self._cluster.last_pipeline_result
+    @staticmethod
+    def _factor_snapshots(cluster: OnlyCluster) -> tuple[OnlyFactorSnapshot, ...]:
+        result = cluster.last_pipeline_result
         return () if result is None else result.factor_snapshots
 
     def _invariants(
         self,
         account: object,
-        ledger: object,
+        ledgers: tuple[object, ...],
         blocking_execution: tuple[OnlyExecutionProcessingResult, ...],
     ) -> tuple[str, ...]:
         from onlyalpha.account.models import OnlyAccountSnapshot
         from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 
-        if not isinstance(account, OnlyAccountSnapshot) or not isinstance(ledger, OnlyStrategyLedgerSnapshot):
+        if not isinstance(account, OnlyAccountSnapshot) or not all(
+            isinstance(ledger, OnlyStrategyLedgerSnapshot) for ledger in ledgers
+        ):
             raise TypeError("backtest result requires immutable Account and Ledger snapshots")
         checks = {
             "ACCOUNT_EQUITY": account.equity.amount
             == account.cash.cash_balance.amount + account.position_market_value.amount,
-            "LEDGER_EQUITY_VIEWS": ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view,
+            "LEDGER_EQUITY_VIEWS": all(
+                ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view
+                for ledger in ledgers
+                if isinstance(ledger, OnlyStrategyLedgerSnapshot)
+            ),
             "NO_EXECUTION_FAILURE": not blocking_execution,
             "NO_ACTIVE_RISK_RESERVATION": not self._require_runtime().risk_service.reservations.snapshot_active(),
             "NO_BLOCKING_RECONCILIATION": not blocking_execution,

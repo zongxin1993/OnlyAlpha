@@ -1,0 +1,8 @@
+initial_price: "10.00"
+volume: {base_volume: "10000", variation_steps: 0}
+noise: {enabled: false, maximum_price_steps: 0}
+segments:
+  - {type: FLAT, duration_bars: 20, volatility: "0.02"}
+  - {type: UPTREND, duration_bars: 50, end_price: "12.00", volatility: "0.03", volume_multiplier: "1.20"}
+  - {type: DOWNTREND, duration_bars: 60, end_price: "9.00", volatility: "0.04", volume_multiplier: "1.30"}
+  - {type: FLAT, duration_bars: 590, volatility: "0.02"}

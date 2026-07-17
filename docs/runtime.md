@@ -54,7 +54,7 @@ Cluster 不接触具体 Gateway、撮合器、EventBus、可变 Cache、Aggregat
 
 ## 6. Backtest
 
-正式成品式入口为 `OnlyRunConfig.load(path) → OnlyEngineRunService.run(config)`。通用 Assembler 仅从 Runtime Registry
+正式成品式入口为 `CLI → OnlyEngine.add_cluster(OnlyClusterRunConfig) → OnlyEngine.run()`。Engine 内部通用 Assembler 仅从 Runtime Registry
 取得 `OnlyRuntime`；Backtest Factory 再通过 DataSource、Broker 与 Strategy Registry 装配抽象组件。调用方只使用
 `initialize/run/pause/resume/stop/close/snapshot` 父接口，Replay、Broker drain、最终不变量、Result 与资源关闭封装在
 `OnlyBacktestRuntime.run()` 内。闭合 Bar 在 Broker 对账与 Cluster 回调前更新 Account/Strategy 估值；Calendar-derived
@@ -88,6 +88,10 @@ TradingDay 切换驱动本地 SettlementService。
 夜盘与 TradingDay；不得从 UTC date、本地自然 date 或 Runtime 自建规则推导。
 Backtest 数据按历史 Calendar 与 Instrument 版本解析。当前已实现最小 Next-Bar Virtual Broker 撮合；完整历史数据驱动与
 更复杂撮合仍必须遵守 `docs/time_model.md` 和 `docs/virtual_broker.md`。
+
+Engine 使用 `OnlyRuntimeCompatibilityKey` 按 Runtime 类型、时间范围、Clock/Replay、数据版本、Broker 与 Account 环境分组。
+仅环境兼容且资源 Fingerprint 一致的 Cluster 才进入同一 Backtest Runtime；不兼容配置创建独立 Runtime。共享 Runtime
+仍保持一个 Order/Position/Account 单写入者状态域，而 Strategy、Factor、Indicator、Allocation 与 Ledger 按 Cluster 隔离。
 
 每个 Runtime 独占并在关闭时关闭自己的 `OnlyClock`。Cluster Context 只接收只读
 `OnlyClockView`；Timer 必须通过自动命名空间化的 `OnlyTimerService` 注册。只有 Backtest Runtime

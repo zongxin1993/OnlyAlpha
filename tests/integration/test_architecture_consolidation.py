@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from examples.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
-from examples.integration_demo.run_all import SCENARIOS
 from onlyalpha.risk.enums import OnlyRiskReservationState
+from tests.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
+from tests.integration_demo.run_all import SCENARIOS
 
 
 def complete_environment() -> OnlyIntegrationEnvironment:
@@ -143,7 +143,7 @@ def test_event_bus_does_not_drive_production_state_machines() -> None:
 def test_integration_demo_does_not_modify_manager_internals() -> None:
     forbidden_attributes = {"_active", "_state", "_ledgers", "_reservations", "_by_order"}
     offenders: list[str] = []
-    for path in Path("examples/integration_demo").rglob("*.py"):
+    for path in Path("tests/integration_demo").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in forbidden_attributes:
