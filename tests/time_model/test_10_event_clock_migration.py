@@ -8,7 +8,7 @@ from onlyalpha.core.errors import OnlyValidationError as OnlyCoreValidationError
 from onlyalpha.domain.errors import OnlyValidationError as OnlyDomainValidationError
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.time_conversion import migrate_legacy_datetime
+from onlyalpha.utils.time_conversion import migrate_legacy_datetime
 
 
 def test_event_and_backtest_clock_reject_non_utc_internal_time() -> None:
