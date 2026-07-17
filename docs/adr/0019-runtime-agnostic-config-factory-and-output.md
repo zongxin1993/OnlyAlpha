@@ -1,6 +1,6 @@
 # ADR 0019: Runtime-agnostic configuration, factories and result output
 
-- Status: Accepted
+- Status: Superseded by ADR 0021
 - Date: 2026-07-16
 - Modules: config, runtime, data, broker, strategy, output, application
 

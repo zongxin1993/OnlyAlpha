@@ -3,7 +3,6 @@ from decimal import Decimal
 
 import pytest
 
-from examples.runtime_context_demo.common import only_demo_runtime
 from onlyalpha.core.clock import OnlyBacktestClock, OnlyClockView
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlyMarketType, OnlyOrderSide, OnlyOrderType, OnlySessionType
@@ -32,6 +31,7 @@ from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.publisher import OnlyNoOpRiskEventPublisher
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.views import OnlyInstrumentRiskMappingView, OnlyMarketRuleRiskMappingView
+from tests.runtime_support.common import only_demo_runtime
 
 
 @pytest.fixture

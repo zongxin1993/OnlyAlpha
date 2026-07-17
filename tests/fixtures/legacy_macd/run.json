@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "engine": {"engine_id": "onlyalpha-demo"},
+  "runtime": {
+    "runtime_id": "macd-backtest-demo",
+    "type": "BACKTEST",
+    "start_time": "2026-01-05T01:30:00Z",
+    "end_time": "2026-01-08T07:01:00Z",
+    "base_currency": "CNY",
+    "extensions": {"replay": {"stop_on_data_error": true}}
+  },
+  "reference_data": {
+    "calendars": [{
+      "calendar_id": "CN_XSHG", "venue": "XSHG", "timezone": "Asia/Shanghai",
+      "sessions": [
+        {"name": "morning", "opens_at": "09:30:00", "closes_at": "11:30:00", "session_type": "CONTINUOUS"},
+        {"name": "afternoon", "opens_at": "13:00:00", "closes_at": "15:00:00", "session_type": "CONTINUOUS"}
+      ], "holidays": []
+    }],
+    "instruments": [{
+      "instrument_id": "TESTETF.XSHG", "symbol": "TESTETF", "venue": "XSHG", "asset_class": "ETF",
+      "timezone": "Asia/Shanghai", "trading_calendar_id": "CN_XSHG", "settlement_rule_id": "CN_EQUITY_T_PLUS_1",
+      "price_precision": 2, "quantity_precision": 0, "price_increment": "0.01",
+      "quantity_increment": "100", "lot_size": "100", "maximum_quantity": "100000000"
+    }]
+  },
+  "universes": [{"universe_id": "macd-universe", "type": "STATIC", "instruments": ["TESTETF.XSHG"]}],
+  "data_sources": [{
+    "source_id": "synthetic-cn-etf", "type": "SYNTHETIC", "data_version": "macd-demo-v1", "batch_size": 128,
+    "coverage": {"universe_ids": ["macd-universe"]},
+    "extensions": {"market_config": "synthetic_market.yaml", "random_seed": 20260715}
+  }],
+  "accounts": [{
+    "account_id": "macd-backtest-demo-DEFAULT", "gateway_id": "virtual-macd-demo",
+    "initial_cash": {"value": "1000000.00", "currency": "CNY"}
+  }],
+  "brokers": [{
+    "gateway_id": "virtual-macd-demo", "type": "VIRTUAL",
+    "extensions": {
+      "matching": {"type": "NEXT_BAR"},
+      "commission": {"type": "FIXED", "fixed_amount": {"value": "1.00", "currency": "CNY"}},
+      "slippage": {"type": "NONE"}
+    }
+  }],
+  "clusters": [{
+    "cluster_id": "macd-example", "account_id": "macd-backtest-demo-DEFAULT", "enabled": true,
+    "strategy": {
+      "class_path": "onlyalpha_examples.strategies.macd.strategy:OnlyMacdStrategy",
+      "config_path": "onlyalpha_examples.strategies.macd.config:OnlyMacdStrategyConfig",
+      "extensions": {
+        "strategy_id": "macd-strategy", "signal_factor_id": "macd-signal",
+        "instrument_id": "TESTETF.XSHG", "trade_quantity": "1000",
+        "allow_reentry": false, "exit_mode": "FULL_AVAILABLE"
+      }
+    },
+    "factors": [{
+      "factor_id": "macd-signal", "factor_type": "TIME_SERIES",
+      "class_path": "onlyalpha_examples.factors.macd_signal.factor:OnlyMacdSignalFactor",
+      "config_path": "onlyalpha_examples.factors.macd_signal.config:OnlyMacdSignalFactorConfig",
+      "required": true,
+      "subscriptions": {"instrument_bars": [{
+        "instrument_id": "TESTETF.XSHG",
+        "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST", "source": "EXTERNAL"},
+        "role": "PRIMARY"
+      }]},
+      "indicators": [{
+        "indicator_id": "macd-primary", "type": "MACD",
+        "parameters": {"fast_period": 3, "slow_period": 6, "signal_period": 3, "warmup_bars": 8}
+      }]
+    }]
+  }],
+  "output": {"root_directory": "user_data/legacy-tests", "layout": "STANDARD", "formats": ["JSON", "CSV", "MARKDOWN"], "overwrite": true}
+}

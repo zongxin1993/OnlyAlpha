@@ -15,7 +15,7 @@ from onlyalpha.indicator.rsi import OnlyRsiSnapshot
 
 
 def _bar_type():
-    config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
+    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
     spec = config.clusters[0].factors[0].subscriptions.instrument_bars[0]
     return spec.bar_specification.to_bar_type(spec.instrument_id)
 

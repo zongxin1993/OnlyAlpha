@@ -30,7 +30,7 @@ def test_bar_subscription_has_no_indicator_ids_and_runtime_factory_is_algorithm_
 
 
 def test_config_and_product_model_are_cluster_strategy_factor_indicator() -> None:
-    config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
+    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
     assert len(config.clusters) == 1
     cluster = config.clusters[0]
     assert cluster.strategy.strategy_path.endswith(":OnlyMacdStrategy")

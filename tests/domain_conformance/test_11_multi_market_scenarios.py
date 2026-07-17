@@ -1,4 +1,4 @@
-from examples.domain_conformance.scenarios import run_all_scenarios
+from tests.domain_conformance.support.scenarios import run_all_scenarios
 
 
 def test_all_ten_market_scenarios_complete() -> None:

@@ -1,1 +1,0 @@
-"""Pure Domain conformance demonstration."""

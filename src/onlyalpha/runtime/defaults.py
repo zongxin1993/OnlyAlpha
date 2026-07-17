@@ -1,5 +1,7 @@
 """Trusted local composition root for built-in factories."""
 
+from dataclasses import dataclass
+
 from onlyalpha.application.run import OnlyEngineRunService
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.broker.virtual.factory import OnlyVirtualBrokerFactory
@@ -19,7 +21,13 @@ from onlyalpha.runtime.shadow.factory import OnlyShadowRuntimeFactory
 from onlyalpha.strategy.factory import OnlyStrategyFactory
 
 
-def only_default_run_service() -> OnlyEngineRunService:
+@dataclass(frozen=True, slots=True)
+class OnlyEngineServices:
+    assembler: OnlyEngineRunAssembler
+    run_service: OnlyEngineRunService
+
+
+def only_default_engine_services() -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     data_sources.register(OnlySyntheticDataSourceFactory())
     brokers = OnlyBrokerFactoryRegistry()
@@ -39,4 +47,11 @@ def only_default_run_service() -> OnlyEngineRunService:
         runtimes,
         OnlyComponentFactoryRegistries(data_sources, brokers, clusters),
     )
-    return OnlyEngineRunService(assembler, OnlyRuntimeResultExporter())
+    run_service = OnlyEngineRunService(assembler, OnlyRuntimeResultExporter())
+    return OnlyEngineServices(assembler, run_service)
+
+
+def only_default_run_service() -> OnlyEngineRunService:
+    """Compatibility entry for Runtime-level tests; CLI uses OnlyEngine."""
+
+    return only_default_engine_services().run_service

@@ -2,6 +2,7 @@
 
 # ruff: noqa: F401
 
+from onlyalpha.config.cluster_document import OnlyClusterRunConfig
 from onlyalpha.config.document import (
     OnlyOutputConfig,
     OnlyRunConfig,
@@ -26,6 +27,7 @@ __all__ = [
     "OnlyAccountRuntimeConfig",
     "OnlyBrokerRuntimeConfig",
     "OnlyClusterImportConfig",
+    "OnlyClusterRunConfig",
     "OnlyDataSourceRuntimeConfig",
     "OnlyFactorImportConfig",
     "OnlyIndicatorSpecConfig",

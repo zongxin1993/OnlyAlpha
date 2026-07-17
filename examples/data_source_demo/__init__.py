@@ -1,1 +1,0 @@
-"""Runnable MarketData Source examples."""

@@ -4,8 +4,8 @@ from onlyalpha.config import OnlyRunConfig
 
 
 def test_yaml_and_json_normalize_to_the_same_run_config() -> None:
-    yaml_config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
-    json_config = OnlyRunConfig.load("examples/configs/backtest/macd/run.json")
+    yaml_config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
+    json_config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.json")
     assert yaml_config.runtime == json_config.runtime
     assert yaml_config.reference_data == json_config.reference_data
     assert yaml_config.universes == json_config.universes
@@ -16,7 +16,7 @@ def test_yaml_and_json_normalize_to_the_same_run_config() -> None:
 
 
 def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -> None:
-    baseline = OnlyRunConfig.load("examples/configs/backtest/macd/run.json")
+    baseline = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.json")
     for runtime_type in ("BACKTEST", "PAPER", "LIVE", "SHADOW", "RESEARCH"):
         payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
         payload["runtime"]["type"] = runtime_type

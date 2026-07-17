@@ -38,8 +38,8 @@ class OnlyBacktestRuntimeFactory:
             OnlyBrokerBuildRequest(broker_common, account, config)
         )
         clusters = tuple(components.clusters.create(item, config) for item in config.clusters if item.enabled)
-        if len(clusters) != 1:
-            raise ValueError("first-phase product Backtest requires exactly one enabled Cluster")
+        if not clusters:
+            raise ValueError("product Backtest requires at least one enabled Cluster")
         source_common = config.data_sources[0]
         source = components.data_sources.require(source_common.source_type).create(
             OnlyDataSourceBuildRequest(source_common, config, config.runtime.runtime_id)
@@ -59,8 +59,7 @@ class OnlyBacktestRuntimeFactory:
             source_common.data_version,
             batch_size=source_common.batch_size,
         )
-        cluster = clusters[0]
-        plan = OnlyBacktestRunPlan(config, source, request_model, cluster)
+        plan = OnlyBacktestRunPlan(config, source, request_model, clusters)
         calendar = config.reference_data.calendars[0]
         runtime = OnlyBacktestRuntime(
             OnlyRuntimeAssemblyConfig(

@@ -8,7 +8,7 @@ from onlyalpha.cluster.demo import OnlyDemoCluster, OnlyDemoRecord
 from onlyalpha.cluster.loader import OnlyClusterLoader
 from onlyalpha.cluster.manager import OnlyClusterManager
 from onlyalpha.cluster.registry import OnlyClusterRegistry
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyClusterRunConfig, OnlyRunConfig
 from onlyalpha.core.clock import (
     OnlyBacktestClock,
     OnlyClock,
@@ -53,6 +53,7 @@ __all__ = [
     "OnlyClusterContext",
     "OnlyClusterLoader",
     "OnlyClusterRegistry",
+    "OnlyClusterRunConfig",
     "OnlyDemoCluster",
     "OnlyDemoRecord",
     "OnlyEngine",

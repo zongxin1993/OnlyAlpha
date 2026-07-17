@@ -1,15 +1,15 @@
 # Product Backtest
 
-## Public API
+## Product API
 
 ```python
-config = OnlyRunConfig.load("examples/configs/backtest/macd/run.yaml")
-service = only_default_run_service()
-result = service.run(config)
+engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("onlyalpha"), Path("user_data")))
+engine.add_cluster_from_file("examples/clusters/macd/config.yaml")
+result = engine.run()
 ```
 
-`OnlyRunConfig` parses common fields and Cluster-owned Strategy/Factor import specs. Runtime-specific, Synthetic and Virtual Broker
-parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngineRunService` is the public boundary; Backtest `run()` owns
+`OnlyClusterRunConfig` parses common fields and Cluster-owned Strategy/Factor import specs. Runtime-specific, Synthetic and Virtual Broker
+parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the product boundary; Backtest `run()` owns
 historical replay and final invariant evaluation, while `OnlyRuntimeResultExporter` owns the standard output layout.
 
 ## Fixed workflow
@@ -31,10 +31,10 @@ available Allocation.
 
 `OnlyBacktestResult` implements the common `OnlyRuntimeResult` view and contains run/data/execution/performance summaries,
 immutable final Position/Allocation/Ledger/Account snapshots, Order and Broker Trade facts, generic Cluster/Factor/Indicator extensions, invariant results
-and a deterministic fingerprint. Export writes below `root/engine_id/runtime_id/run_id`; Runtime and Result do not write files.
+and a deterministic fingerprint. Export writes below `user_data/runs/engine_id/run_id`; Runtime and Result do not write files.
 
 ## Current limits
 
-The first product assembler supports local synthetic closed TIME Bars, one CNY cash account, one ETF, Long-only Average Cost,
-one enabled Cluster, fixed commission, no slippage and Next-Bar matching. Live/Paper adapters, portfolio analytics, multi-currency,
+Each first-phase Backtest Runtime supports local synthetic closed TIME Bars, one CNY cash account, one ETF, Long-only Average Cost,
+one Cluster, fixed commission, no slippage and Next-Bar matching. One Engine coordinates multiple isolated Backtest runtimes. Live/Paper adapters, portfolio analytics, multi-currency,
 corporate actions, order-book matching and persistent recovery remain separate future work.

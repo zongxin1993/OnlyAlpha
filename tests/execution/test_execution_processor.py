@@ -5,12 +5,6 @@ from decimal import Decimal
 
 import pytest
 
-from examples.integration_demo.environment import (
-    ACCOUNT_ID,
-    CNY,
-    DAY_ONE,
-    OnlyIntegrationEnvironment,
-)
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.broker.updates import (
     OnlyBrokerOrderAcceptedUpdate,
@@ -31,6 +25,12 @@ from onlyalpha.execution import (
     OnlyExecutionMutationStep,
     OnlyExecutionProcessingResult,
     OnlyExecutionProcessingStatus,
+)
+from tests.integration_demo.environment import (
+    ACCOUNT_ID,
+    CNY,
+    DAY_ONE,
+    OnlyIntegrationEnvironment,
 )
 
 

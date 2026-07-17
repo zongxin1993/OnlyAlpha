@@ -1,11 +1,11 @@
 import ast
 from pathlib import Path
 
-from examples.strategies.macd import OnlyMacdStrategy
+from onlyalpha_examples.strategies.macd import OnlyMacdStrategy
 
 
 def test_macd_strategy_source_uses_only_strategy_context_capabilities() -> None:
-    path = Path("examples/strategies/macd/strategy.py")
+    path = Path("plugins/onlyalpha_examples/src/onlyalpha_examples/strategies/macd/strategy.py")
     tree = ast.parse(path.read_text(encoding="utf-8"))
     forbidden = {
         "order_manager",

@@ -12,7 +12,7 @@ from onlyalpha.data.synthetic import (
 )
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 
-CONFIG = Path("examples/configs/backtest/macd/run.yaml")
+CONFIG = Path("tests/fixtures/legacy_macd/run.yaml")
 
 
 def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:

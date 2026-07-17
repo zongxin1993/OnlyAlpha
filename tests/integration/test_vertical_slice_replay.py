@@ -1,5 +1,5 @@
-from examples.integration_demo.environment import OnlyIntegrationEnvironment
-from examples.integration_demo.run_all import SCENARIOS
+from tests.integration_demo.environment import OnlyIntegrationEnvironment
+from tests.integration_demo.run_all import SCENARIOS
 
 
 def replay() -> tuple[object, ...]:

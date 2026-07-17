@@ -69,7 +69,7 @@ docs/reports/<component>_integration_report.md
 
 ## M1 架构整合实现
 
-统一环境位于 `examples/integration_demo/`，只组装现有 Runtime 资源和正式接口。23 个场景覆盖 Runtime 启动、
+统一测试环境位于 `tests/integration_demo/`，只组装现有 Runtime 资源和正式接口。23 个场景覆盖 Runtime 启动、
 1m→3m、Order/Risk、Virtual Broker 买卖成交、Position、Allocation、Strategy Ledger、Account、T+1、部分成交、撤单、
 多 Cluster、Broker/Local 冲突、重复/乱序回报和最终 Snapshot。
 
@@ -77,7 +77,7 @@ docs/reports/<component>_integration_report.md
 Runtime 独占 `OnlyExecutionProcessor` 在单写入者线程按固定顺序编排。Placeholder 仍保留为无 Broker 配置 Runtime 的
 明确边界，但统一集成主场景不再使用它或手工制造成交。
 
-自动化入口为 `tests/integration/` 和 `scripts/run_component_validation.sh`。
+自动化入口为 `tests/integration/`、`python -m tests.integration_demo.run_all` 和 `scripts/run_component_validation.sh`。
 
 ## Market Data Source 扩展
 
@@ -94,4 +94,4 @@ HistoricalDataSource / MarketDataGateway
 旧 `Runtime.process_bar()` 只是单记录本地 Replay facade，不再直接推进 Clock 或调用 Pipeline。统一环境为 33 个场景；新增
 024～033 验证装配、正式历史入口、Audit、双 Queue、Registry、Reference Data、Lookahead、Snapshot Quality、顺序和闭环。
 
-Product MACD 场景使用 `clusters[].strategy + clusters[].factors[]` 配置，经 Cluster/Strategy/Factor/Indicator Factory 与受限 Context 运行；Runtime 不识别 MACD。通用结果通过 Cluster extension、Factor result 和 Indicator diagnostics 输出。该场景与完整 Vertical Slice 均执行 100 次确定性重放。
+Product MACD 场景使用单 Cluster 文档的 `strategy + factors[]` 配置，经 CLI 等价 Engine 入口与 Factory 运行；Runtime 不识别 MACD。通用结果通过 Cluster extension、Factor result 和 Indicator diagnostics 输出。该场景与完整 Vertical Slice 均执行 100 次确定性重放。

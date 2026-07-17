@@ -15,12 +15,16 @@
 - 状态汇总；
 - 优雅关闭；
 - 系统级错误处理。
+- 单 Cluster 配置加载与 Cluster Handle；
+- Runtime Compatibility 分组；
+- 共享基础设施冲突检查和引用计数；
+- user_data 运行结果汇总。
 
 ## 2. 生命周期
 
 ```text
 CREATED
-INITIALIZING
+CONFIGURING
 READY
 RUNNING
 STOPPING
@@ -38,6 +42,13 @@ start()
 stop()
 close()
 
+add_cluster_from_file(path)
+add_cluster(config)
+remove_cluster(cluster_id, policy)
+validate()
+run()
+snapshot()
+
 register_runtime(...)
 remove_runtime(...)
 start_runtime(...)
@@ -51,6 +62,8 @@ stop_cluster(...)
 get_status()
 health_check()
 ```
+
+Backtest 历史回放中途加入/卸载 Cluster 在首阶段返回结构化“不支持当前 Runtime 阶段”；API、状态门禁、失败回滚与资源释放已存在。
 
 ## 4. 禁止职责
 

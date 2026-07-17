@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from examples.integration_demo.environment import DAY_ONE, INSTRUMENT_ID, OnlyIntegrationEnvironment
 from onlyalpha.data.enums import (
     OnlyMarketDataProcessingStatus,
     OnlyMarketDataQualityFlag,
@@ -35,6 +34,7 @@ from onlyalpha.data.sources import (
     OnlyParquetHistoricalDataSource,
 )
 from onlyalpha.domain.time import OnlyTimestamp
+from tests.integration_demo.environment import DAY_ONE, INSTRUMENT_ID, OnlyIntegrationEnvironment
 
 
 def update_for(

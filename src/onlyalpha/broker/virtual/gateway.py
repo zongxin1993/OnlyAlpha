@@ -425,6 +425,9 @@ class OnlyVirtualBrokerGateway:
         self.order_store.save(updated)
         trade = OnlyBrokerTradeSnapshot(self.config.gateway_id, self.config.account_id, trade_id, fill, fill_sequence)
         self.trade_store.save(trade)
+        positions = self.account_store.position_snapshots(timestamp)
+        position_snapshot = next(item for item in positions if item.instrument_id == order.instrument_id)
+        account_snapshot = self.account_store.account_snapshot(timestamp)
 
         def publish() -> None:
             self._emit(
@@ -435,21 +438,19 @@ class OnlyVirtualBrokerGateway:
                 order_id=order.order_id,
                 fill=fill,
             )
-            positions = self.account_store.position_snapshots(timestamp)
-            position = next(item for item in positions if item.instrument_id == order.instrument_id)
             self._emit(
                 OnlyBrokerPositionUpdate,
                 timestamp,
                 str(order.order_id),
                 str(trade_id),
-                snapshot=position,
+                snapshot=position_snapshot,
             )
             self._emit(
                 OnlyBrokerAccountUpdate,
                 timestamp,
                 str(order.order_id),
                 str(trade_id),
-                snapshot=self.account_store.account_snapshot(timestamp),
+                snapshot=account_snapshot,
             )
 
         self.scheduler.schedule(timestamp.unix_nanos + self._latency.fill_latency_ns, publish)

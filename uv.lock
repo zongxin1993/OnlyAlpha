@@ -238,6 +238,7 @@ name = "onlyalpha"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "onlyalpha-examples" },
     { name = "pre-commit" },
     { name = "pyarrow" },
     { name = "pyyaml" },
@@ -252,6 +253,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "onlyalpha-examples", editable = "plugins/onlyalpha_examples" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pyarrow", specifier = ">=21.0.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
@@ -263,6 +265,17 @@ dev = [
     { name = "pytest", specifier = ">=8.4" },
     { name = "ruff", specifier = ">=0.11" },
 ]
+
+[[package]]
+name = "onlyalpha-examples"
+version = "0.1.0"
+source = { editable = "plugins/onlyalpha_examples" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha" }]
 
 [[package]]
 name = "packaging"

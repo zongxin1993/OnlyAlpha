@@ -1,5 +1,5 @@
-from examples.domain_conformance.fixtures.instruments import build_instruments
-from examples.domain_conformance.fixtures.market_data import build_bar, build_quote_tick, build_trade_tick
+from tests.domain_conformance.support.instruments import build_instruments
+from tests.domain_conformance.support.market_data import build_bar, build_quote_tick, build_trade_tick
 
 
 def test_core_scenario_objects_round_trip_without_float() -> None:

@@ -5,7 +5,7 @@ from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
 from onlyalpha.runtime.defaults import only_default_run_service
 
-CONFIG = Path("examples/configs/backtest/macd/run.yaml")
+CONFIG = Path("tests/fixtures/legacy_macd/run.yaml")
 
 
 def test_synthetic_macd_full_product_vertical_slice() -> None:
