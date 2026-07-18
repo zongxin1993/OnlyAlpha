@@ -1,9 +1,9 @@
-from onlyalpha.config import OnlyRunConfig
-from onlyalpha.runtime.defaults import only_default_run_service
+from onlyalpha.config import OnlyClusterRunConfig
+from tests.runtime_runner import only_run_cluster_runtime
 
 
 def test_product_cluster_runs_indicator_factor_strategy_and_waits_for_required_warmup() -> None:
-    result = only_default_run_service().run(OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml"), export=False)
+    result = only_run_cluster_runtime(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"))
     cluster = result.cluster_results[0]
     assert cluster.strategy_result_extension["callback_count"] == 713
     assert cluster.factor_results[0]["factor_id"] == "macd-signal"

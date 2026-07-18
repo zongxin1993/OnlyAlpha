@@ -62,5 +62,5 @@
       "parameters": {"fast_period": 3, "slow_period": 6, "signal_period": 3, "warmup_bars": 8}
     }]
   }],
-  "output": {"enabled": true}
+  "output": {"formats": ["JSON"]}
 }

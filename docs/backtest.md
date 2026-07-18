@@ -9,8 +9,8 @@ result = engine.run()
 ```
 
 `OnlyClusterRunConfig` parses common fields and Cluster-owned Strategy/Factor import specs. Runtime-specific, Synthetic and Virtual Broker
-parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the product boundary; Backtest `run()` owns
-historical replay and final invariant evaluation, while `OnlyRuntimeResultExporter` owns the standard output layout.
+parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the sole product boundary; Backtest `run()` owns
+historical replay and final invariant evaluation, while `OnlyEngineResultExporter` writes through `OnlyUserDataLayout`.
 
 ## Fixed workflow
 

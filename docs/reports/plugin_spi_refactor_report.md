@@ -61,7 +61,7 @@ Broker、DataSource 逆序 stop 后 close。创建、连接、启动失败均逆
 ## 配置模型变化
 
 公共 YAML/JSON 字段统一为 `plugin`，内部规范化为 `plugin_id`；`enabled` 控制资源是否参与规划。旧 `type` 仅兼容到 0.2，
-使用时发出 `DeprecationWarning`，与 `plugin` 同时出现立即失败。`extensions` 完全交由对应 Factory 解析。
+该阶段曾短期兼容旧字段；后续接口唯一性清理已删除兼容分支，DataSource/Broker 的 `type` 现在作为未知字段失败。
 
 ## Synthetic 与 Virtual 迁移结果
 

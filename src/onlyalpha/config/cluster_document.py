@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import cast
 
 from onlyalpha.config.document import (
+    OnlyClusterConfigError,
     OnlyOutputConfig,
-    OnlyRunConfigError,
     OnlyRuntimeAssemblyPlan,
     OnlyRuntimeConfig,
-    _OnlyRunConfigParser,
+    _OnlyClusterDocumentParser,
 )
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
@@ -87,8 +87,8 @@ class OnlyClusterRunConfig:
     @classmethod
     def _parse(cls, root: OnlyJsonMapping, source: Path) -> OnlyClusterRunConfig:
         if "clusters" in root:
-            raise OnlyRunConfigError("single-Cluster documents must use 'cluster', not 'clusters'")
-        parser = _OnlyRunConfigParser(source, root)
+            raise OnlyClusterConfigError("single-Cluster documents must use 'cluster', not 'clusters'")
+        parser = _OnlyClusterDocumentParser(source, root)
         cluster_raw = parser._map(root.get("cluster"), "$.cluster")
         cluster_id = parser._str(cluster_raw.get("cluster_id"), "$.cluster.cluster_id")
         runtime_raw: dict[str, object] = dict(parser._map(root.get("runtime"), "$.runtime"))
@@ -114,8 +114,7 @@ class OnlyClusterRunConfig:
         data_sources = parser._sources(parser._list(root.get("data_sources"), "$.data_sources"))
         accounts = parser._accounts(parser._list(root.get("accounts"), "$.accounts"), runtime.base_currency)
         brokers = parser._brokers(parser._list(root.get("brokers"), "$.brokers"))
-        output_raw = parser._map(root.get("output", {}), "$.output")
-        output = parser._output(_normalize_mapping({k: v for k, v in output_raw.items() if k != "enabled"}, "$.output"))
+        output = parser._output(parser._map(root.get("output", {}), "$.output"))
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
 
         # Reuse the shared reference validator without retaining a multi-Cluster

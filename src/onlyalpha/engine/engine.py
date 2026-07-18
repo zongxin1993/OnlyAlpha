@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError
-from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
+from onlyalpha.domain.identifiers import OnlyClusterId
 from onlyalpha.engine.infrastructure import OnlyInfrastructureRegistry
 from onlyalpha.engine.models import (
     OnlyClusterHandle,
@@ -46,24 +46,18 @@ class OnlyEngine:
 
     def __init__(
         self,
-        config: OnlyEngineConfig | str,
+        config: OnlyEngineConfig,
         storage: OnlyStorage | None = None,
         *,
         services: OnlyEngineServices | None = None,
     ) -> None:
-        if isinstance(config, str):
-            if not config.strip():
-                raise ValueError("engine_id is required")
-            self.config = OnlyEngineConfig(OnlyEngineId(config), Path.cwd() / "user_data")
-            self._product_mode = False
-        else:
-            self.config = config
-            self._product_mode = True
+        if not isinstance(config, OnlyEngineConfig):
+            raise TypeError("config must be OnlyEngineConfig")
+        self.config = config
         self.engine_id = str(self.config.engine_id)
         self.storage = storage
         self.state = OnlyEngineState.CREATED
         self._services = services
-        self._legacy_runtimes: dict[str, OnlyRuntime] = {}
         self._cluster_definitions: dict[OnlyClusterId, OnlyClusterRunConfig] = {}
         self._cluster_sessions: dict[OnlyClusterId, OnlyClusterSession] = {}
         self._runtime_sessions: dict[str, OnlyRuntimeSession] = {}
@@ -74,9 +68,7 @@ class OnlyEngine:
 
     @property
     def runtimes(self) -> tuple[OnlyRuntime, ...]:
-        if self._product_mode:
-            return tuple(item.runtime for item in self._runtime_sessions.values())
-        return tuple(self._legacy_runtimes.values())
+        return tuple(item.runtime for item in self._runtime_sessions.values())
 
     @property
     def cluster_definitions(self) -> tuple[OnlyClusterRunConfig, ...]:
@@ -204,13 +196,7 @@ class OnlyEngine:
         )
 
     def initialize(self) -> None:
-        if not self._product_mode:
-            if self.state is not OnlyEngineState.CREATED:
-                raise OnlyLifecycleError("engine can only initialize from CREATED")
-            for runtime in self._legacy_runtimes.values():
-                runtime.initialize()
-            self.state = OnlyEngineState.READY
-            return
+        self._require_not_terminated("initialize")
         if self._cluster_sessions:
             if self.state is OnlyEngineState.READY:
                 return
@@ -262,28 +248,24 @@ class OnlyEngine:
             self._runtime_sessions.clear()
             self._cluster_sessions.clear()
             self._execution_plan = None
+            for cluster_id in reversed(tuple(self._cluster_definitions)):
+                self._infrastructure.release(cluster_id)
             self.state = OnlyEngineState.FAILED
             raise
 
     def start(self) -> None:
         if self.state is not OnlyEngineState.READY:
             raise OnlyLifecycleError("engine can only start from READY")
-        sessions = self.runtime_sessions if self._product_mode else ()
-        if self._product_mode:
-            for session in sessions:
-                session.runtime.start()
-                session.state = "RUNNING"
-                for cluster_id in session.bound_cluster_ids:
-                    self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.RUNNING
-                    self._handles[cluster_id] = replace(
-                        self._handles[cluster_id], status=OnlyEngineClusterStatus.RUNNING
-                    )
-        else:
-            for runtime in self._legacy_runtimes.values():
-                runtime.start()
+        for session in self.runtime_sessions:
+            session.runtime.start()
+            session.state = "RUNNING"
+            for cluster_id in session.bound_cluster_ids:
+                self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.RUNNING
+                self._handles[cluster_id] = replace(self._handles[cluster_id], status=OnlyEngineClusterStatus.RUNNING)
         self.state = OnlyEngineState.RUNNING
 
     def run(self) -> OnlyEngineRunResult:
+        self._require_not_terminated("run")
         validation = self.validate()
         if not validation.valid:
             return OnlyEngineRunResult(
@@ -371,7 +353,7 @@ class OnlyEngine:
     def stop(self) -> None:
         if self.state is OnlyEngineState.STOPPED:
             return
-        if self._product_mode and not self._runtime_sessions:
+        if not self._runtime_sessions:
             for cluster_id in reversed(tuple(self._cluster_definitions)):
                 self._infrastructure.release(cluster_id)
             if self.storage is not None:
@@ -379,22 +361,18 @@ class OnlyEngine:
             self.state = OnlyEngineState.STOPPED
             return
         self.state = OnlyEngineState.STOPPING
-        if self._product_mode:
-            for session in reversed(self.runtime_sessions):
-                for cluster_id in reversed(session.bound_cluster_ids):
-                    session.runtime.stop_cluster(cluster_id)
-                    if self._cluster_sessions[cluster_id].state is not OnlyEngineClusterStatus.FAILED:
-                        self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.STOPPED
-                        self._handles[cluster_id] = replace(
-                            self._handles[cluster_id], status=OnlyEngineClusterStatus.STOPPED
-                        )
-                session.runtime.close()
-                session.state = "STOPPED"
-            for cluster_id in reversed(tuple(self._cluster_definitions)):
-                self._infrastructure.release(cluster_id)
-        else:
-            for runtime in reversed(tuple(self._legacy_runtimes.values())):
-                runtime.stop()
+        for session in reversed(self.runtime_sessions):
+            for cluster_id in reversed(session.bound_cluster_ids):
+                session.runtime.stop_cluster(cluster_id)
+                if self._cluster_sessions[cluster_id].state is not OnlyEngineClusterStatus.FAILED:
+                    self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.STOPPED
+                    self._handles[cluster_id] = replace(
+                        self._handles[cluster_id], status=OnlyEngineClusterStatus.STOPPED
+                    )
+            session.runtime.close()
+            session.state = "STOPPED"
+        for cluster_id in reversed(tuple(self._cluster_definitions)):
+            self._infrastructure.release(cluster_id)
         if self.storage is not None:
             self.storage.close()
         self.state = OnlyEngineState.STOPPED
@@ -420,14 +398,9 @@ class OnlyEngine:
             plugin_resources,
         )
 
-    def register_runtime(self, runtime: OnlyRuntime) -> None:
-        """Deprecated low-level API retained for core lifecycle tests."""
-
-        if self._product_mode or self.state is not OnlyEngineState.CREATED:
-            raise OnlyLifecycleError("runtimes must be registered on a legacy Engine before initialization")
-        if runtime.runtime_id in self._legacy_runtimes:
-            raise OnlyDuplicateIdError(f"runtime already registered: {runtime.runtime_id}")
-        self._legacy_runtimes[runtime.runtime_id] = runtime
+    def _require_not_terminated(self, operation: str) -> None:
+        if self.state in {OnlyEngineState.STOPPED, OnlyEngineState.FAILED}:
+            raise OnlyLifecycleError(f"ENGINE_ALREADY_TERMINATED: cannot {operation}")
 
     def _require_services(self) -> OnlyEngineServices:
         if self._services is None:
