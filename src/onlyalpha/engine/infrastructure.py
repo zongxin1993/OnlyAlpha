@@ -18,36 +18,6 @@ class OnlyResourceConfigurationConflict(ValueError):
     pass
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyRuntimeCompatibilityKey:
-    runtime_type: str
-    start_time: str
-    end_time: str
-    clock_policy: str
-    replay_policy: str
-    data_version: str
-    broker_environment: str
-    account_environment: str
-
-    @classmethod
-    def from_config(cls, config: OnlyClusterRunConfig) -> OnlyRuntimeCompatibilityKey:
-        run = config.run_config
-        source_versions = ",".join(sorted(str(item.data_version) for item in run.data_sources))
-        broker_environment = _fingerprint(tuple(_broker_projection(item) for item in run.brokers))
-        account_environment = _fingerprint(tuple(_account_projection(item) for item in run.accounts))
-        replay = run.runtime.extensions.get("replay", {})
-        return cls(
-            run.runtime.runtime_type,
-            "" if run.start_time is None else run.start_time.isoformat(),
-            "" if run.end_time is None else run.end_time.isoformat(),
-            "HISTORICAL_REPLAY" if run.runtime.runtime_type == "BACKTEST" else "LIVE_CLOCK",
-            _fingerprint(replay),
-            source_versions,
-            broker_environment,
-            account_environment,
-        )
-
-
 @dataclass(slots=True)
 class _OnlyResourceRecord:
     fingerprint: str
@@ -100,15 +70,19 @@ class OnlyInfrastructureRegistry:
     def reference_counts(self) -> tuple[tuple[str, int], ...]:
         return tuple((key, self._records[key].reference_count) for key in sorted(self._records))
 
+    def references_for(self, cluster_id: object) -> tuple[str, ...]:
+        return self._cluster_resources.get(str(cluster_id), ())
+
     @staticmethod
     def _resource_projections(config: OnlyClusterRunConfig) -> tuple[tuple[str, object], ...]:
-        run = config.run_config
         values: list[tuple[str, object]] = []
-        values.extend((f"calendar:{item.calendar_id}", item.to_dict()) for item in run.reference_data.calendars)
-        values.extend((f"instrument:{item.instrument_id}", item.to_dict()) for item in run.reference_data.instruments)
-        values.extend((f"data_source:{item.source_id}", _source_projection(item)) for item in run.data_sources)
-        values.extend((f"broker:{item.gateway_id}", _broker_projection(item)) for item in run.brokers)
-        values.extend((f"account:{item.account_id}", _account_projection(item)) for item in run.accounts)
+        values.extend((f"calendar:{item.calendar_id}", item.to_dict()) for item in config.reference_data.calendars)
+        values.extend(
+            (f"instrument:{item.instrument_id}", item.to_dict()) for item in config.reference_data.instruments
+        )
+        values.extend((f"data_source:{item.source_id}", _source_projection(item)) for item in config.data_sources)
+        values.extend((f"broker:{item.gateway_id}", _broker_projection(item)) for item in config.brokers)
+        values.extend((f"account:{item.account_id}", _account_projection(item)) for item in config.accounts)
         return tuple(values)
 
 

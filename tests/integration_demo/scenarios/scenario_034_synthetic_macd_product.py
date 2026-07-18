@@ -9,7 +9,7 @@ from tests.integration_demo.environment import OnlyIntegrationEnvironment, OnlyS
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     with TemporaryDirectory(prefix="onlyalpha-vertical-slice-") as directory:
         engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("vertical-slice"), Path(directory)))
-        engine.add_cluster_from_file("examples/clusters/macd/config.yaml")
+        engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
         result = engine.run()
     assert result.status == "COMPLETED"
     projection = result.cluster_results[0]

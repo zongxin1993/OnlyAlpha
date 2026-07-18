@@ -105,7 +105,14 @@ class OnlyOutputConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyRunConfig:
+class OnlyRuntimeAssemblyPlan:
+    """Internal Runtime assembly DTO.
+
+    This is not a user configuration document. Product configuration is
+    represented by ``OnlyClusterRunConfig`` and the Engine creates this plan
+    only after Runtime compatibility planning.
+    """
+
     schema_version: str
     runtime: OnlyRuntimeConfig
     reference_data: OnlyReferenceDataConfig
@@ -137,21 +144,6 @@ class OnlyRunConfig:
     @property
     def base_currency(self) -> OnlyCurrency:
         return self.runtime.base_currency
-
-    @classmethod
-    def load(cls, path: str | Path) -> OnlyRunConfig:
-        source = Path(path).expanduser().resolve()
-        return _OnlyRunConfigParser(source, _load_document(source)).parse()
-
-    @classmethod
-    def from_mapping(
-        cls,
-        payload: Mapping[str, object],
-        *,
-        source_path: str | Path = "<mapping>",
-    ) -> OnlyRunConfig:
-        normalized = _normalize_mapping(cast(Mapping[object, object], payload), "$")
-        return _OnlyRunConfigParser(Path(source_path), normalized).parse()
 
     def __post_init__(self) -> None:
         self._validate_references()
@@ -219,6 +211,26 @@ class OnlyRunConfig:
                         raise OnlyRunConfigError(
                             f"{cluster_id} references unknown universe {universe_subscription.universe_id}"
                         )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyRunConfig(OnlyRuntimeAssemblyPlan):
+    """Deprecated legacy multi-Cluster document used only by historical tests."""
+
+    @classmethod
+    def load(cls, path: str | Path) -> OnlyRunConfig:
+        source = Path(path).expanduser().resolve()
+        return _OnlyRunConfigParser(source, _load_document(source)).parse()
+
+    @classmethod
+    def from_mapping(
+        cls,
+        payload: Mapping[str, object],
+        *,
+        source_path: str | Path = "<mapping>",
+    ) -> OnlyRunConfig:
+        normalized = _normalize_mapping(cast(Mapping[object, object], payload), "$")
+        return _OnlyRunConfigParser(Path(source_path), normalized).parse()
 
 
 class _OnlyRunConfigParser:
@@ -444,33 +456,31 @@ class _OnlyRunConfigParser:
         return tuple(result)
 
     def _clusters(self, values: list[OnlyJsonValue]) -> tuple[OnlyClusterImportConfig, ...]:
-        result = []
-        for i, value in enumerate(values):
-            p = f"$.clusters[{i}]"
-            raw = self._map(value, p)
-            strategy = self._map(raw.get("strategy"), f"{p}.strategy")
-            metadata_raw = self._map(raw.get("metadata", {}), f"{p}.metadata")
-            result.append(
-                OnlyClusterImportConfig(
-                    OnlyClusterId(self._str(raw.get("cluster_id"), f"{p}.cluster_id")),
-                    OnlyAccountId(self._str(raw.get("account_id"), f"{p}.account_id")),
-                    self._bool(raw.get("enabled", True), f"{p}.enabled"),
-                    OnlyStrategyImportConfig(
-                        self._str(strategy.get("class_path"), f"{p}.strategy.class_path"),
-                        self._str(strategy.get("config_path"), f"{p}.strategy.config_path"),
-                        self._map(strategy.get("extensions", {}), f"{p}.strategy.extensions"),
-                    ),
-                    tuple(
-                        self._factor(self._map(item, f"{p}.factors[{j}]"), f"{p}.factors[{j}]")
-                        for j, item in enumerate(self._list(raw.get("factors", []), f"{p}.factors"))
-                    ),
-                    None
-                    if raw.get("risk_profile_id") is None
-                    else self._str(raw.get("risk_profile_id"), f"{p}.risk_profile_id"),
-                    MappingProxyType({k: self._str(v, f"{p}.metadata.{k}") for k, v in metadata_raw.items()}),
-                )
-            )
-        return tuple(result)
+        return tuple(
+            self._cluster(self._map(value, f"$.clusters[{i}]"), f"$.clusters[{i}]") for i, value in enumerate(values)
+        )
+
+    def _cluster(self, raw: OnlyJsonMapping, path: str) -> OnlyClusterImportConfig:
+        strategy = self._map(raw.get("strategy"), f"{path}.strategy")
+        metadata_raw = self._map(raw.get("metadata", {}), f"{path}.metadata")
+        return OnlyClusterImportConfig(
+            OnlyClusterId(self._str(raw.get("cluster_id"), f"{path}.cluster_id")),
+            OnlyAccountId(self._str(raw.get("account_id"), f"{path}.account_id")),
+            self._bool(raw.get("enabled", True), f"{path}.enabled"),
+            OnlyStrategyImportConfig(
+                self._str(strategy.get("class_path"), f"{path}.strategy.class_path"),
+                self._str(strategy.get("config_path"), f"{path}.strategy.config_path"),
+                self._map(strategy.get("extensions", {}), f"{path}.strategy.extensions"),
+            ),
+            tuple(
+                self._factor(self._map(item, f"{path}.factors[{i}]"), f"{path}.factors[{i}]")
+                for i, item in enumerate(self._list(raw.get("factors", []), f"{path}.factors"))
+            ),
+            None
+            if raw.get("risk_profile_id") is None
+            else self._str(raw.get("risk_profile_id"), f"{path}.risk_profile_id"),
+            MappingProxyType({k: self._str(v, f"{path}.metadata.{k}") for k, v in metadata_raw.items()}),
+        )
 
     def _factor(self, raw: OnlyJsonMapping, path: str) -> OnlyFactorImportConfig:
         subscriptions = self._map(raw.get("subscriptions"), f"{path}.subscriptions")

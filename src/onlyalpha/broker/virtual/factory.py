@@ -42,7 +42,7 @@ class OnlyVirtualBrokerFactory:
         return OnlyVirtualBrokerConfig(
             request.config.gateway_id,
             request.account.account_id,
-            request.run_config.runtime.base_currency,
+            request.assembly_plan.runtime.base_currency,
             request.account.initial_cash,
             commission_model=commission_model,
         )

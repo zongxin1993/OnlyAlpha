@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
-from onlyalpha.config import OnlyRunConfig
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult, OnlyRuntimeFactoryRegistry
+from onlyalpha.runtime.planning import OnlyRuntimePlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,12 +27,24 @@ class OnlyEngineRunAssembler:
         self._runtime_factories = runtime_factories
         self._component_factories = component_factories
 
-    def build(self, config: OnlyRunConfig) -> OnlyRuntimeBuildResult:
+    def build(self, plan: OnlyRuntimePlan) -> OnlyRuntimeBuildResult:
         try:
-            factory = self._runtime_factories.require(config.runtime.runtime_type)
+            factory = self._runtime_factories.require(plan.compatibility_key.runtime_type)
         except ValueError as exc:
             return OnlyRuntimeBuildResult(
                 failure_code="RUNTIME_FACTORY_NOT_AVAILABLE",
                 failure_message=str(exc),
             )
-        return factory.create(OnlyRuntimeBuildRequest(config, self._component_factories))
+        return factory.create(OnlyRuntimeBuildRequest(plan, self._component_factories))
+
+    def validate(self, plan: OnlyRuntimePlan) -> OnlyRuntimeBuildResult:
+        """Validate factory availability without constructing Runtime objects."""
+
+        try:
+            self._runtime_factories.require(plan.compatibility_key.runtime_type)
+        except ValueError as exc:
+            return OnlyRuntimeBuildResult(
+                failure_code="RUNTIME_FACTORY_NOT_AVAILABLE",
+                failure_message=str(exc),
+            )
+        return OnlyRuntimeBuildResult()

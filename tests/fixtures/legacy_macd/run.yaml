@@ -85,8 +85,8 @@ clusters:
     account_id: macd-backtest-demo-DEFAULT
     enabled: true
     strategy:
-      class_path: onlyalpha_examples.strategies.macd.strategy:OnlyMacdStrategy
-      config_path: onlyalpha_examples.strategies.macd.config:OnlyMacdStrategyConfig
+      class_path: tests.runtime_support.macd_plugin:OnlyTestMacdStrategy
+      config_path: tests.runtime_support.macd_plugin:OnlyTestMacdStrategyConfig
       extensions:
         strategy_id: macd-strategy
         signal_factor_id: macd-signal
@@ -97,8 +97,8 @@ clusters:
     factors:
       - factor_id: macd-signal
         factor_type: TIME_SERIES
-        class_path: onlyalpha_examples.factors.macd_signal.factor:OnlyMacdSignalFactor
-        config_path: onlyalpha_examples.factors.macd_signal.config:OnlyMacdSignalFactorConfig
+        class_path: tests.runtime_support.macd_plugin:OnlyTestMacdFactor
+        config_path: tests.runtime_support.macd_plugin:OnlyTestMacdFactorConfig
         required: true
         subscriptions:
           instrument_bars:

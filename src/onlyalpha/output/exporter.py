@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import copyfile
 
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.runtime.result import OnlyRuntimeResult
 
 
@@ -31,7 +31,7 @@ class OnlyRuntimeOutputManifest:
 
 
 class OnlyRuntimeResultExporter:
-    def export(self, config: OnlyRunConfig, result: OnlyRuntimeResult) -> OnlyRuntimeOutputManifest:
+    def export(self, config: OnlyRuntimeAssemblyPlan, result: OnlyRuntimeResult) -> OnlyRuntimeOutputManifest:
         projection = result.to_dict()
         normalized = dict(config.normalized_payload)
         config_json = json.dumps(normalized, sort_keys=True, separators=(",", ":"))

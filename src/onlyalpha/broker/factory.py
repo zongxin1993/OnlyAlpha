@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.broker.virtual.config import OnlyVirtualBrokerConfig
-from onlyalpha.config import OnlyAccountRuntimeConfig, OnlyBrokerRuntimeConfig, OnlyRunConfig
+from onlyalpha.config import OnlyAccountRuntimeConfig, OnlyBrokerRuntimeConfig, OnlyRuntimeAssemblyPlan
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerBuildRequest:
     config: OnlyBrokerRuntimeConfig
     account: OnlyAccountRuntimeConfig
-    run_config: OnlyRunConfig
+    assembly_plan: OnlyRuntimeAssemblyPlan
 
 
 class OnlyBrokerFactory(Protocol):
