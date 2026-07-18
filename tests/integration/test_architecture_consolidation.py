@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.risk.enums import OnlyRiskReservationState
-from tests.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
-from tests.integration_demo.run_all import SCENARIOS
+
+from ..integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
+from ..integration_demo.run_all import SCENARIOS
 
 
 def complete_environment() -> OnlyIntegrationEnvironment:

@@ -1,4 +1,4 @@
-from tests.integration_demo.environment import INSTRUMENT_ID, OnlyIntegrationEnvironment, OnlyScenarioReport
+from ..environment import INSTRUMENT_ID, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

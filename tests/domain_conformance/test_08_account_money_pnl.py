@@ -3,7 +3,8 @@ from decimal import Decimal
 from onlyalpha.domain.account import OnlyPnLCalculator
 from onlyalpha.domain.enums import OnlyPositionDirection
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from tests.domain_conformance.support.instruments import build_instruments
+
+from .support.instruments import build_instruments
 
 
 def test_linear_and_inverse_pnl_use_settlement_currency() -> None:

@@ -2,7 +2,8 @@ import pytest
 
 from onlyalpha.plugin import OnlyPluginDescriptor
 from onlyalpha.plugin.errors import OnlyPluginDescriptorError
-from tests.plugin.conftest import only_test_descriptor
+
+from .conftest import only_test_descriptor
 
 
 def test_plugin_descriptor_requires_stable_lowercase_id() -> None:

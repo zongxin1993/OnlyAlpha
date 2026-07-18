@@ -31,7 +31,8 @@ from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.publisher import OnlyNoOpRiskEventPublisher
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.views import OnlyInstrumentRiskMappingView, OnlyMarketRuleRiskMappingView
-from tests.runtime_support.common import only_demo_runtime
+
+from ..runtime_support.common import only_demo_runtime
 
 
 @pytest.fixture

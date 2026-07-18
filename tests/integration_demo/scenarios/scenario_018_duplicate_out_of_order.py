@@ -1,7 +1,8 @@
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.broker.updates import OnlyBrokerOrderAcceptedUpdate
 from onlyalpha.domain.time import OnlyTimestamp
-from tests.integration_demo.environment import OnlyIntegrationEnvironment, OnlyScenarioReport
+
+from ..environment import OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

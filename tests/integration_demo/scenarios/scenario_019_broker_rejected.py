@@ -8,7 +8,8 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderRequestId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.execution import OnlyExecutionProcessingResult, OnlyExecutionProcessingStatus
-from tests.integration_demo.environment import (
+
+from ..environment import (
     ACCOUNT_ID,
     DAY_ONE,
     OnlyIntegrationEnvironment,

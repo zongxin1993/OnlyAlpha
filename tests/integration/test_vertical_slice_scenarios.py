@@ -1,7 +1,7 @@
 import pytest
 
-from tests.integration_demo.environment import OnlyIntegrationEnvironment
-from tests.integration_demo.run_all import SCENARIOS, run_all
+from ..integration_demo.environment import OnlyIntegrationEnvironment
+from ..integration_demo.run_all import SCENARIOS, run_all
 
 
 @pytest.mark.parametrize("scenario_count", range(1, len(SCENARIOS) + 1))

@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from tests.integration_demo.environment import CLUSTER_ID, OnlyIntegrationEnvironment, OnlyScenarioReport
+from ..environment import CLUSTER_ID, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

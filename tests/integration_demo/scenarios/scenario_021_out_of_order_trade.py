@@ -8,7 +8,8 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyTradeId, OnlyVenueTr
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import OnlyExecutionProcessingResult, OnlyExecutionProcessingStatus
-from tests.integration_demo.environment import ACCOUNT_ID, CNY, OnlyIntegrationEnvironment, OnlyScenarioReport
+
+from ..environment import ACCOUNT_ID, CNY, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

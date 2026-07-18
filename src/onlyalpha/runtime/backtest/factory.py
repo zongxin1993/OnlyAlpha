@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerUpdateQueue
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
@@ -83,7 +84,7 @@ class OnlyBacktestRuntimeFactory:
                     resource_id=str(plan.data_request.source_id),
                 ) from exc
             try:
-                gateway = plan.broker_factory.create(plan.broker_request)
+                gateway = cast(OnlyBacktestBrokerGateway, plan.broker_factory.create(plan.broker_request))
             except Exception as exc:
                 raise OnlyPluginError(
                     "PLUGIN_CREATE_FAILED",

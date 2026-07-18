@@ -1,95 +1,77 @@
 # OnlyAlpha 路线图
 
-## 当前状态（2026-07-13）
+## 当前状态（2026-07-18）
 
-Phase 0 文档分析、Phase 1 最小骨架和 Pure Financial Domain 第一版已建立。这里的“完成”不代表回测、模拟盘或实盘行为已经迁移。明确未包含任何真实策略、撮合算法、订单执行或券商 Gateway。
+OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
 
-Domain 第一版包含金融值对象、强类型 ID、跨市场 Instrument、订单状态机、成交事实、持仓/账户/组合快照、Tick/Bar/OrderBook 和 TradingCalendar。复杂估值、FX 转换、交易所规则与事件聚合器仍需后续阶段实现。
+## Phase 0：分析与架构基线（已完成）
 
-## Phase 0：分析
+- MyQuant 行为分析与 NautilusTrader 领域模型研究；
+- Engine / Runtime / Cluster、Event、Clock、Cache / Storage 架构与 ADR；
+- 三仓职责和核心仓独立依赖方向。
 
-- MyQuant 分析；
-- NautilusTrader 资产模型研究；
-- 模块映射；
-- ADR。
+## Phase 1：核心运行骨架（已完成）
 
-## Phase 1：基础骨架
+- Engine / Runtime / Cluster 生命周期；
+- Cluster Definition、Session 与 Runtime Session；
+- Runtime 兼容性分组和多 Cluster 隔离；
+- 有界 Event Bus、确定性 Clock、配置、Cache 与 Storage；
+- Strategy / Factor / Indicator 分层及受限 Context；
+- DataSource / Broker Plugin SPI 与 Entry Point 发现。
 
-- Domain；
-- Engine；
-- Runtime；
-- Cluster；
-- Event Bus；
-- Clock；
-- Config；
-- Logging；
-- Tests。
+## Phase 2A：确定性回测内核（基本完成）
 
-已实现的最小边界：Engine/Runtime/Cluster 生命周期、静态注册与显式模块加载、有界同步 Event Bus、Live/Backtest Clock、Memory Cache、SQLite Storage、基础金融值对象及确定性测试。Config/Logging 目前使用标准 Python 能力，独立子系统延后到真实用例出现时。
+- Synthetic Historical Replay；
+- Virtual Broker 与基础 Next-Bar 撮合；
+- Risk / Order / ExecutionProcessor；
+- Position / Allocation、Strategy Ledger / Account；
+- 单 Cluster、多 Cluster与共享 Runtime 分组；
+- user_data 输出、完整纵切面和确定性重放。
 
-## Phase 2：A 股回测
+“基本完成”不表示具备完整市场仿真：当前实现用于验证正式产品链和交易不变量。
 
-- A 股 Instrument；
-- 历史数据；
-- 撮合；
-- 手续费；
-- 滑点；
-- T+1；
-- 涨跌停；
-- 报告。
+## Phase 2B：真实历史数据（未完成）
 
-## Phase 3：Paper
+- 真实 A 股历史行情 DataSource；
+- 数据版本、质量、缺口和交易日历治理；
+- 复权、公司行为与参考数据；
+- 大规模数据读取和回放验证。
 
-- 实时行情；
-- 模拟成交；
-- 风控；
-- 状态恢复。
+## Phase 2C：A 股市场规则（部分完成）
 
-## Phase 4：A 股实盘
+已具备 T+1 基础持仓语义和可扩展规则边界。尚缺：
 
-- Market Gateway；
-- Trade Gateway；
-- 账户；
-- 持仓；
-- 委托；
-- 成交；
-- 重连；
-- 对账。
+- 完整涨跌停、停牌、交易单位与申报规则；
+- 完整手续费、印花税及其他费用；
+- 成交量约束和更完整撮合语义；
+- 历史规则版本化验证。
 
-## Phase 5：投研
+## Phase 2D：回测分析与报告（未完成）
 
-- 因子；
-- Pipeline；
-- IC；
-- 分组；
-- 图表；
-- 报告。
+- 标准绩效指标、归因和回撤分析；
+- 完整回测报告与可复现产物；
+- 批量参数实验和结果比较。
 
-## Phase 6：Web
+## Phase 3：Paper 产品循环（未完成）
 
-- Application Service；
-- REST；
-- WebSocket/SSE；
-- 权限；
-- 控制台。
+实时行情、模拟成交、状态恢复和可操作产品入口尚未闭环。
 
-## Phase 7：多市场
+## Phase 4：Live 产品循环（未完成）
 
-建议顺序：
+真实行情/交易 Gateway、重连、同步和生产级对账尚未闭环。本阶段开始前继续保持真实交易禁用。
 
-1. 中国期货；
-2. 港股；
-3. 美股；
-4. 数字货币；
-5. 外汇；
-6. 期权。
+## Phase 5：Research 工作流（未完成）
 
-## Phase 8：性能与扩展
+因子接口已有基础边界；数据探索、IC/分组分析、实验管理、统计和绘图工作流尚未形成产品循环。
 
-- 多进程回测；
-- 大规模因子；
-- Redis/Postgres；
-- 远程 Worker；
-- 分布式任务。
+## Phase 6：Web（未完成）
 
-在核心模型稳定前不提前进入 Phase 8。
+Application Service、REST、WebSocket/SSE、权限和控制台尚未实现。
+
+## Phase 7：多市场（未完成）
+
+领域模型保留扩展能力；中国期货、港股、美股、数字资产、外汇和期权产品适配尚未开始。
+
+## Phase 8：性能与分布式（未完成）
+
+多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。

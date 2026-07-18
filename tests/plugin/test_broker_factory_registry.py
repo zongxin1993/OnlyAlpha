@@ -3,7 +3,8 @@ import pytest
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.plugin import OnlyPluginType
 from onlyalpha.plugin.errors import OnlyPluginDescriptorError, OnlyPluginRegistryError
-from tests.plugin.conftest import OnlyTestFactory, only_test_descriptor
+
+from .conftest import OnlyTestFactory, only_test_descriptor
 
 
 def test_broker_registry_enforces_plugin_type_and_unknown_id() -> None:

@@ -3,7 +3,8 @@ import pytest
 from onlyalpha.plugin import OnlyPluginApiVersion, OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.compatibility import only_validate_plugin_compatibility
 from onlyalpha.plugin.errors import OnlyPluginApiVersionError, OnlyPluginDescriptorError
-from tests.plugin.conftest import only_test_descriptor
+
+from .conftest import only_test_descriptor
 
 
 def _version(major: int, minor: int) -> OnlyPluginDescriptor:

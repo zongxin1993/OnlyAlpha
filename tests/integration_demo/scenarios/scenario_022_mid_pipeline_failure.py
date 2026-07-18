@@ -1,7 +1,8 @@
 from collections.abc import Callable
 
 from onlyalpha.execution import OnlyExecutionProcessingResult, OnlyExecutionProcessingStatus
-from tests.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
+
+from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

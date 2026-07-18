@@ -14,7 +14,8 @@ from onlyalpha.domain.enums import (
 from onlyalpha.domain.identifiers import OnlyTradeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyQuoteTick, OnlyTradeTick
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
-from tests.domain_conformance.support.instruments import build_instruments
+
+from .instruments import build_instruments
 
 NOW = datetime(2026, 1, 5, 1, 31, tzinfo=UTC)
 

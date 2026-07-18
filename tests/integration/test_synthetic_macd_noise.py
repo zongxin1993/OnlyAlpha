@@ -1,7 +1,8 @@
 import json
 
 from onlyalpha.config import OnlyClusterRunConfig
-from tests.runtime_runner import only_run_cluster_runtime
+
+from ..runtime_runner import only_run_cluster_runtime
 
 
 def _config(seed: int) -> OnlyClusterRunConfig:

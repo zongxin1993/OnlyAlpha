@@ -165,4 +165,15 @@ AuthorityPolicy 和 ReconciliationService，不得覆盖本地历史。详见 [P
 
 Backtest Runtime 已通过 Runtime-owned ExecutionProcessor 完成标准化成交的同步编排，复用 Order、Risk、Position、Allocation 和 Strategy Ledger 正式接口。
 Virtual Broker 已替换统一场景中的手工成交注入，并接入 Account/Risk 更新。Event 只在状态成功改变后发布，不参与状态迁移。
-统一验证环境位于 `examples/integration_demo/`。
+统一验证环境位于 `tests/integration_demo/`。
+
+## 12. 公共 API 与内部边界
+
+外部用户通过 `onlyalpha.engine` 的 `OnlyEngine`、`OnlyEngineConfig` 及其公开结果 DTO 启动产品链，通过
+`onlyalpha.config` 使用 `OnlyClusterRunConfig` 和公开配置值对象。Domain 公共模型从 `onlyalpha.domain.*` 导入；Strategy、
+Factor 与 Indicator 接口分别从同名顶层包导入。DataSource/Broker 插件必须以 `onlyalpha.plugin.api` 为稳定入口，并仅使用其中
+的 Factory、CreateRequest、Descriptor、Capability、Lifecycle 以及明确公开的 Domain/Port。
+
+Runtime Planner、Assembly Plan、Assembler、Engine/Cluster/Runtime Session、Infrastructure Registry、各领域 Manager、
+Registry 内部容器及 ExecutionProcessor 编排细节属于内部实现。它们不从 `onlyalpha`、`onlyalpha.engine` 或
+`onlyalpha.runtime` 的公共 `__all__` 导出，插件不得依赖这些对象。内部模块路径仍可供核心仓自身使用，但不承诺外部兼容性。

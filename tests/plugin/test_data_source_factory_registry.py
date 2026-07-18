@@ -2,7 +2,8 @@ import pytest
 
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.plugin.errors import OnlyPluginRegistryError
-from tests.plugin.conftest import OnlyTestFactory, only_test_descriptor
+
+from .conftest import OnlyTestFactory, only_test_descriptor
 
 
 def test_data_source_registry_resolves_and_reports_descriptors() -> None:
