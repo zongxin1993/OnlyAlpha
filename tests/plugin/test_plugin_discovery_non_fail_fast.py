@@ -3,7 +3,8 @@ import pytest
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.plugin.discovery import only_discover_plugins
-from tests.plugin.test_plugin_discovery_fail_fast import _OnlyEntries
+
+from .test_plugin_discovery_fail_fast import _OnlyEntries
 
 
 def test_plugin_discovery_non_fail_fast_records_failure(monkeypatch: pytest.MonkeyPatch) -> None:

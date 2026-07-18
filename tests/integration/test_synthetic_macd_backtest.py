@@ -3,7 +3,8 @@ from pathlib import Path
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
-from tests.runtime_runner import only_run_cluster_runtime
+
+from ..runtime_runner import only_run_cluster_runtime
 
 CONFIG = Path("tests/fixtures/legacy_macd/cluster.json")
 

@@ -37,6 +37,15 @@ def test_data_source_and_broker_type_aliases_are_rejected() -> None:
         OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
 
 
+@pytest.mark.parametrize("section", ["data_sources", "brokers"])
+def test_plugin_and_legacy_type_conflict_fails_clearly(section: str) -> None:
+    original = OnlyClusterRunConfig.load(CONFIG)
+    payload = json.loads(json.dumps(dict(original.normalized_payload)))
+    payload[section][0]["type"] = payload[section][0]["plugin"]
+    with pytest.raises(OnlyClusterConfigError, match=rf"\$\.{section}\[0\] UNKNOWN_FIELD: type"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
+
+
 def test_plugin_field_is_required() -> None:
     original = OnlyClusterRunConfig.load(CONFIG)
     payload = json.loads(json.dumps(dict(original.normalized_payload)))

@@ -2,8 +2,8 @@
 
 from collections.abc import Callable
 
-from tests.integration_demo.environment import OnlyIntegrationEnvironment, OnlyScenarioReport
-from tests.integration_demo.scenarios import (
+from .environment import OnlyIntegrationEnvironment, OnlyScenarioReport
+from .scenarios import (
     scenario_001_runtime_start,
     scenario_002_bar_aggregation,
     scenario_003_order_submit,

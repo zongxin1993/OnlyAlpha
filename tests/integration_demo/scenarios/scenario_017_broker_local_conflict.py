@@ -6,7 +6,8 @@ from onlyalpha.broker.updates import OnlyBrokerAccountUpdate
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney
-from tests.integration_demo.environment import ACCOUNT_ID, CNY, OnlyIntegrationEnvironment, OnlyScenarioReport
+
+from ..environment import ACCOUNT_ID, CNY, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

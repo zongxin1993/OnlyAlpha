@@ -3,7 +3,8 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.value import OnlyQuantity
-from tests.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
+
+from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

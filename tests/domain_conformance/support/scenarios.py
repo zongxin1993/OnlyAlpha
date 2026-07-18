@@ -44,7 +44,8 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
 from onlyalpha.order.manager import OnlyOrderManager
-from tests.domain_conformance.support.instruments import build_instruments
+
+from .instruments import build_instruments
 
 
 @dataclass(frozen=True, slots=True)

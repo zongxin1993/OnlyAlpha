@@ -3,7 +3,8 @@ import pytest
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.plugin import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.errors import OnlyPluginRegistryError
-from tests.plugin.conftest import OnlyTestFactory, only_test_descriptor
+
+from .conftest import OnlyTestFactory, only_test_descriptor
 
 
 def test_same_factory_is_idempotent_but_different_implementation_conflicts() -> None:

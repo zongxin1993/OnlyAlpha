@@ -3,7 +3,8 @@ from tempfile import TemporaryDirectory
 
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
-from tests.integration_demo.environment import OnlyIntegrationEnvironment, OnlyScenarioReport
+
+from ..environment import OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:

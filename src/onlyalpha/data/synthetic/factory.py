@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import cast
 
 import yaml  # type: ignore[import-untyped]
 
@@ -21,7 +22,7 @@ from onlyalpha.data.synthetic.source import (
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities, OnlyPluginValidationIssue
-from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
+from onlyalpha.plugin.data_source import OnlyDataSource, OnlyDataSourceCreateRequest
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
 
 
@@ -68,7 +69,7 @@ class OnlySyntheticDataSourceFactory:
             )
         return tuple(issues)
 
-    def create(self, request: OnlyDataSourceCreateRequest) -> OnlySyntheticHistoricalDataSource:
+    def create(self, request: OnlyDataSourceCreateRequest) -> OnlyDataSource:
         config = request.plugin_config
         if not isinstance(config, OnlySyntheticPluginConfig):
             raise TypeError("Synthetic Factory requires OnlySyntheticPluginConfig")
@@ -81,14 +82,17 @@ class OnlySyntheticDataSourceFactory:
         items = tuple(
             self._instrument(request, instrument_id, market) for instrument_id in sorted(instrument_ids, key=str)
         )
-        return OnlySyntheticHistoricalDataSource(
-            OnlySyntheticHistoricalDataSourceConfig(
-                request.source_id,
-                request.runtime_id,
-                request.data_version,
-                items,
-                config.random_seed,
-            )
+        return cast(
+            OnlyDataSource,
+            OnlySyntheticHistoricalDataSource(
+                OnlySyntheticHistoricalDataSourceConfig(
+                    request.source_id,
+                    request.runtime_id,
+                    request.data_version,
+                    items,
+                    config.random_seed,
+                )
+            ),
         )
 
     def _instrument(

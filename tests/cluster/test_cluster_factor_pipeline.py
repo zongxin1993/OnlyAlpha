@@ -1,5 +1,6 @@
 from onlyalpha.config import OnlyClusterRunConfig
-from tests.runtime_runner import only_run_cluster_runtime
+
+from ..runtime_runner import only_run_cluster_runtime
 
 
 def test_product_cluster_runs_indicator_factor_strategy_and_waits_for_required_warmup() -> None:

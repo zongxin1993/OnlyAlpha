@@ -33,6 +33,7 @@ def test_backtest_rejects_non_utc_and_backward_time() -> None:
     with pytest.raises(OnlyValidationError, match="backwards"):
         clock.advance_to(only_datetime_to_unix_ns(START))
 
+
 def test_snapshot_restore_is_time_only() -> None:
     clock = OnlyVirtualClock(100)
     snapshot = clock.snapshot()

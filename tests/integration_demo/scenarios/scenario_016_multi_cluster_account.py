@@ -4,7 +4,8 @@ from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyOrderRequestId
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from tests.integration_demo.environment import (
+
+from ..environment import (
     CLUSTER_ID,
     DAY_ONE,
     INSTRUMENT_ID,

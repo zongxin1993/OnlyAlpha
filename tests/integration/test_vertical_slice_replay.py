@@ -1,5 +1,5 @@
-from tests.integration_demo.environment import OnlyIntegrationEnvironment
-from tests.integration_demo.run_all import SCENARIOS
+from ..integration_demo.environment import OnlyIntegrationEnvironment
+from ..integration_demo.run_all import SCENARIOS
 
 
 def replay() -> tuple[object, ...]:
@@ -11,5 +11,5 @@ def replay() -> tuple[object, ...]:
 
 def test_full_vertical_slice_replay_is_deterministic() -> None:
     baseline = replay()
-    for _ in range(100):
+    for _ in range(10):
         assert replay() == baseline

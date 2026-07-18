@@ -26,7 +26,8 @@ from onlyalpha.execution import (
     OnlyExecutionProcessingResult,
     OnlyExecutionProcessingStatus,
 )
-from tests.integration_demo.environment import (
+
+from ..integration_demo.environment import (
     ACCOUNT_ID,
     CNY,
     DAY_ONE,
