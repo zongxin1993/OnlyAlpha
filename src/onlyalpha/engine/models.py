@@ -108,6 +108,8 @@ class OnlyEngineValidationResult:
     runtime_group_count: int
     errors: tuple[str, ...]
     output_root: Path
+    plugins: tuple[str, ...] = ()
+    plugin_bindings: tuple[str, ...] = ()
 
     @property
     def exit_code(self) -> int:
@@ -121,6 +123,8 @@ class OnlyEngineValidationResult:
             f"output_root={self.output_root}",
         ]
         lines.extend(f"error={item}" for item in self.errors)
+        lines.extend(f"plugin={item}" for item in self.plugins)
+        lines.extend(f"binding={item}" for item in self.plugin_bindings)
         return "\n".join(lines)
 
 
@@ -156,3 +160,4 @@ class OnlyEngineSnapshot:
     state: OnlyEngineState
     clusters: tuple[OnlyClusterHandle, ...]
     resource_reference_counts: tuple[tuple[str, int], ...]
+    plugin_resources: tuple[object, ...] = ()

@@ -91,11 +91,18 @@ class OnlyDataSourceCoverageConfig:
 @dataclass(frozen=True, slots=True)
 class OnlyDataSourceRuntimeConfig:
     source_id: OnlyMarketDataSourceId
-    source_type: str
+    plugin_id: str
+    enabled: bool
     data_version: OnlyDataVersion
     coverage: OnlyDataSourceCoverageConfig
     batch_size: int = 1024
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
+
+    @property
+    def source_type(self) -> str:
+        """Deprecated compatibility view; use plugin_id."""
+
+        return self.plugin_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,8 +115,15 @@ class OnlyAccountRuntimeConfig:
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerRuntimeConfig:
     gateway_id: OnlyBrokerGatewayId
-    gateway_type: str
+    plugin_id: str
+    enabled: bool
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
+
+    @property
+    def gateway_type(self) -> str:
+        """Deprecated compatibility view; use plugin_id."""
+
+        return self.plugin_id
 
 
 @dataclass(frozen=True, slots=True)

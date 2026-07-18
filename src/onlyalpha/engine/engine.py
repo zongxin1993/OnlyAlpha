@@ -180,6 +180,27 @@ class OnlyEngine:
             len(plan.runtime_plans),
             tuple(errors),
             self.config.user_data_root,
+            self._plugin_descriptions(services),
+            tuple(
+                sorted(
+                    (
+                        f"data_source:{source.source_id}->{source.plugin_id}"
+                        for config in self.cluster_definitions
+                        for source in config.data_sources
+                        if source.enabled
+                    ),
+                )
+            )
+            + tuple(
+                sorted(
+                    (
+                        f"broker:{broker.gateway_id}->{broker.plugin_id}"
+                        for config in self.cluster_definitions
+                        for broker in config.brokers
+                        if broker.enabled
+                    ),
+                )
+            ),
         )
 
     def initialize(self) -> None:
@@ -312,7 +333,10 @@ class OnlyEngine:
         except Exception as exc:
             failures.append(f"{type(exc).__name__}: {exc}")
         finally:
-            self.stop()
+            try:
+                self.stop()
+            except Exception as exc:
+                failures.append(f"{type(exc).__name__}: {exc}")
         for config in executed:
             if self._cluster_sessions.get(config.cluster_id) is not None:
                 status = self._cluster_sessions[config.cluster_id].state
@@ -376,11 +400,24 @@ class OnlyEngine:
         self.state = OnlyEngineState.STOPPED
 
     def snapshot(self) -> OnlyEngineSnapshot:
+        reference_counts = dict(self._infrastructure.reference_counts)
+        plugin_resources = tuple(
+            replace(
+                snapshot,
+                reference_count=reference_counts.get(
+                    f"{'data_source' if snapshot.plugin_type == 'DATA_SOURCE' else 'broker'}:{snapshot.resource_id}",
+                    snapshot.reference_count,
+                ),
+            )
+            for session in self.runtime_sessions
+            for snapshot in session.runtime.plugin_resource_snapshots
+        )
         return OnlyEngineSnapshot(
             self.config.engine_id,
             self.state,
             self.cluster_handles,
             self._infrastructure.reference_counts,
+            plugin_resources,
         )
 
     def register_runtime(self, runtime: OnlyRuntime) -> None:
@@ -396,6 +433,20 @@ class OnlyEngine:
         if self._services is None:
             self._services = only_default_engine_services()
         return self._services
+
+    @staticmethod
+    def _plugin_descriptions(services: OnlyEngineServices) -> tuple[str, ...]:
+        values = []
+        for record in (*services.data_sources.records(), *services.brokers.records()):
+            descriptor = record.descriptor
+            values.append(
+                f"{descriptor.plugin_type.value}:{descriptor.plugin_id}@{descriptor.plugin_version} "
+                f"api={descriptor.api_version} origin={record.origin} capabilities={descriptor.capabilities}"
+            )
+        values.extend(
+            f"FAILED:{item.group}:{item.name}:{item.code}:{item.message}" for item in services.plugin_discovery.failures
+        )
+        return tuple(sorted(values))
 
     def _unsupported_cluster_operation(self, cluster_id: OnlyClusterId, operation: str) -> OnlyClusterOperationResult:
         if cluster_id not in self._cluster_definitions:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
@@ -41,10 +42,13 @@ class OnlyEngineRunAssembler:
         """Validate factory availability without constructing Runtime objects."""
 
         try:
-            self._runtime_factories.require(plan.compatibility_key.runtime_type)
+            factory = self._runtime_factories.require(plan.compatibility_key.runtime_type)
         except ValueError as exc:
             return OnlyRuntimeBuildResult(
                 failure_code="RUNTIME_FACTORY_NOT_AVAILABLE",
                 failure_message=str(exc),
             )
+        validate = getattr(factory, "validate", None)
+        if callable(validate):
+            return cast(OnlyRuntimeBuildResult, validate(OnlyRuntimeBuildRequest(plan, self._component_factories)))
         return OnlyRuntimeBuildResult()

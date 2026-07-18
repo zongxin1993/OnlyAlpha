@@ -246,6 +246,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "onlyalpha-test-plugin" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -260,9 +261,21 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.15" },
+    { name = "onlyalpha-test-plugin", directory = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
     { name = "pytest", specifier = ">=8.4" },
     { name = "ruff", specifier = ">=0.11" },
 ]
+
+[[package]]
+name = "onlyalpha-test-plugin"
+version = "0.1.0"
+source = { directory = "tests/fixtures/external_plugins/onlyalpha_test_plugin" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", specifier = ">=0.1,<0.2" }]
 
 [[package]]
 name = "packaging"

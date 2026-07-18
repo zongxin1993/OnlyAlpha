@@ -12,7 +12,11 @@ def test_strategy_context_exposes_factor_view_but_no_indicator_registry_or_manag
 
 
 def test_macd_strategy_reads_factor_and_does_not_compute_or_create_macd() -> None:
-    tree = ast.parse(Path("tests/runtime_support/macd_plugin.py").read_text(encoding="utf-8"))
+    tree = ast.parse(
+        Path(
+            "tests/fixtures/external_plugins/onlyalpha_test_plugin/src/onlyalpha_test_plugin/macd_plugin.py"
+        ).read_text(encoding="utf-8")
+    )
     strategy = next(
         node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyTestMacdStrategy"
     )

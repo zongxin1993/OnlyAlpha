@@ -28,7 +28,8 @@ class OnlyRuntimeCompatibilityKey:
             tuple(
                 {
                     "gateway_id": str(item.gateway_id),
-                    "type": item.gateway_type,
+                    "plugin": item.plugin_id,
+                    "enabled": item.enabled,
                     "extensions": dict(item.extensions),
                 }
                 for item in config.brokers

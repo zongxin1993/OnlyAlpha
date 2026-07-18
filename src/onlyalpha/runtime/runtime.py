@@ -17,9 +17,8 @@ from onlyalpha.account.models import (
 )
 from onlyalpha.account.reservations import OnlyAccountReservationManager
 from onlyalpha.account.views import OnlyAccountQueryService
+from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.virtual.config import OnlyVirtualBrokerConfig
-from onlyalpha.broker.virtual.gateway import OnlyVirtualBrokerGateway
-from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerUpdateQueue
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import (
     OnlyClusterExecutionResult,
@@ -89,6 +88,9 @@ from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.service import OnlyOrderService
+from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerInboundQueue
+from onlyalpha.plugin.errors import OnlyPluginLifecycleError
+from onlyalpha.plugin.lifecycle import OnlyPluginResource, OnlyPluginResourceSnapshot
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.events import OnlyPositionEvent
 from onlyalpha.position.manager import OnlyPositionManager
@@ -139,6 +141,8 @@ class OnlyRuntimeAssemblyConfig:
     strategy_initial_capital: Decimal | str = Decimal("1000000.00")
     strategy_base_currency: OnlyCurrency = OnlyCurrency("CNY", 2)
     virtual_broker_config: OnlyVirtualBrokerConfig | None = None
+    broker_gateway_id: OnlyBrokerGatewayId | None = None
+    account_initial_cash: OnlyMoney | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -224,8 +228,8 @@ class OnlyRuntimeServices:
     strategy_valuation_service: OnlyStrategyValuationService
     account_manager: OnlyAccountManager
     account_query: OnlyAccountQueryService
-    broker_inbound: OnlyVirtualBrokerUpdateQueue
-    broker_gateway: OnlyVirtualBrokerGateway | None
+    broker_inbound: OnlyBrokerInboundQueue
+    broker_gateway: OnlyBacktestBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
     execution_event_publisher: OnlyExecutionEventPublisher
     execution_audit_store: OnlyInMemoryExecutionAuditStore
@@ -433,6 +437,7 @@ class OnlyRuntime:
         self._state = OnlyRuntimeState.CREATED
         self._services: OnlyRuntimeServices
         self._last_error: str | None = None
+        self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
         self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
@@ -556,11 +561,11 @@ class OnlyRuntime:
         return self._services.execution_sequence_tracker
 
     @property
-    def broker_gateway(self) -> OnlyVirtualBrokerGateway | None:
+    def broker_gateway(self) -> OnlyBacktestBrokerGateway | None:
         return self._services.broker_gateway
 
     @property
-    def broker_inbound_queue(self) -> OnlyVirtualBrokerUpdateQueue:
+    def broker_inbound_queue(self) -> OnlyBrokerInboundQueue:
         return self._services.broker_inbound
 
     @property
@@ -647,15 +652,48 @@ class OnlyRuntime:
     def initialize(self) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
             raise OnlyLifecycleError("Runtime can only initialize from CREATED")
-        self._services.cluster_manager.initialize_all()
-        self._state = OnlyRuntimeState.READY
+        initialized: list[OnlyPluginResource] = []
+        current_resource: OnlyPluginResource | None = None
+        try:
+            for resource in self._plugin_resources:
+                current_resource = resource
+                resource.initialize()
+                initialized.append(resource)
+                resource.connect()
+            self._services.cluster_manager.initialize_all()
+            self._state = OnlyRuntimeState.READY
+        except Exception as exc:
+            self._rollback_plugin_resources(tuple(initialized))
+            self._state = OnlyRuntimeState.FAILED
+            failing = self._plugin_context(current_resource)
+            raise OnlyPluginLifecycleError(
+                "PLUGIN_INITIALIZATION_FAILED",
+                str(exc),
+                plugin_id=failing[0],
+                resource_id=failing[1],
+            ) from exc
 
     def start(self) -> None:
         if self._state is OnlyRuntimeState.CREATED:
             self.initialize()
         if self._state is not OnlyRuntimeState.READY:
             raise OnlyLifecycleError("Runtime can only start from READY")
-        self._services.cluster_manager.start_all()
+        current_resource: OnlyPluginResource | None = None
+        try:
+            for resource in self._plugin_resources:
+                current_resource = resource
+                resource.start()
+            self._services.cluster_manager.start_all()
+        except Exception as exc:
+            self._rollback_plugin_resources(self._plugin_resources)
+            self._state = OnlyRuntimeState.FAILED
+            failing = self._plugin_context(current_resource)
+            raise OnlyPluginLifecycleError(
+                "PLUGIN_START_FAILED",
+                str(exc),
+                plugin_id=failing[0],
+                resource_id=failing[1],
+            ) from exc
         self._state = OnlyRuntimeState.RUNNING
         self._publish_runtime_fact("RUNTIME_STARTED")
         self._services.event_bus.drain()
@@ -678,15 +716,37 @@ class OnlyRuntime:
         self._state = OnlyRuntimeState.STOPPING
         self._services.cluster_manager.stop_all()
         self._services.event_bus.drain()
+        failure = self._run_plugin_cleanup("stop")
+        if failure is not None:
+            self._state = OnlyRuntimeState.FAILED
+            raise failure
         self._state = OnlyRuntimeState.STOPPED
 
     def close(self) -> None:
         if self._state is OnlyRuntimeState.CLOSED:
             return
-        self.stop()
-        self._services.cluster_manager.unload_all()
-        self._services.event_bus.close()
-        self._services.clock.close()
+        failure: Exception | None = None
+        try:
+            self.stop()
+        except Exception as exc:
+            failure = exc
+        try:
+            self._services.cluster_manager.unload_all()
+        except Exception as exc:
+            failure = failure or exc
+        plugin_failure = self._run_plugin_cleanup("close")
+        failure = failure or plugin_failure
+        try:
+            self._services.event_bus.close()
+        except Exception as exc:
+            failure = failure or exc
+        try:
+            self._services.clock.close()
+        except Exception as exc:
+            failure = failure or exc
+        if failure is not None:
+            self._state = OnlyRuntimeState.FAILED
+            raise failure
         self._state = OnlyRuntimeState.CLOSED
 
     def run(self) -> object:
@@ -694,6 +754,68 @@ class OnlyRuntime:
 
     def snapshot(self) -> OnlyRuntimeStatus:
         return self.status()
+
+    @property
+    def plugin_resource_snapshots(self) -> tuple[OnlyPluginResourceSnapshot, ...]:
+        return tuple(
+            OnlyPluginResourceSnapshot(
+                resource.plugin_descriptor.plugin_id,
+                resource.plugin_descriptor.plugin_type.value,
+                resource.plugin_resource_id,
+                resource.state,
+                resource.health(),
+                resource.plugin_descriptor.capabilities,
+                1,
+            )
+            for resource in self._plugin_resources
+        )
+
+    def _bind_plugin_resources(self, resources: tuple[OnlyPluginResource, ...]) -> None:
+        if self._state is not OnlyRuntimeState.CREATED or self._plugin_resources:
+            raise OnlyLifecycleError("plugin resources must be bound once while Runtime is CREATED")
+        self._plugin_resources = resources
+
+    def _rollback_plugin_resources(self, resources: tuple[OnlyPluginResource, ...]) -> None:
+        for operation in ("stop", "close"):
+            for resource in reversed(resources):
+                try:
+                    getattr(resource, operation)()
+                except Exception:
+                    plugin_id, resource_id = self._plugin_context(resource)
+                    _LOGGER.exception(
+                        "plugin rollback %s failed: plugin_id=%s resource_id=%s",
+                        operation,
+                        plugin_id,
+                        resource_id,
+                    )
+
+    def _run_plugin_cleanup(self, operation: str) -> OnlyPluginLifecycleError | None:
+        first_failure: OnlyPluginLifecycleError | None = None
+        for resource in reversed(self._plugin_resources):
+            try:
+                getattr(resource, operation)()
+            except Exception as exc:
+                plugin_id, resource_id = self._plugin_context(resource)
+                _LOGGER.exception(
+                    "plugin %s failed: plugin_id=%s resource_id=%s",
+                    operation,
+                    plugin_id,
+                    resource_id,
+                )
+                if first_failure is None:
+                    first_failure = OnlyPluginLifecycleError(
+                        f"PLUGIN_{operation.upper()}_FAILED",
+                        str(exc),
+                        plugin_id=plugin_id,
+                        resource_id=resource_id,
+                    )
+        return first_failure
+
+    @staticmethod
+    def _plugin_context(resource: OnlyPluginResource | None) -> tuple[str | None, str | None]:
+        if resource is None:
+            return None, None
+        return resource.plugin_descriptor.plugin_id, resource.plugin_resource_id
 
     def status(self) -> OnlyRuntimeStatus:
         clusters = self._services.cluster_manager.status()

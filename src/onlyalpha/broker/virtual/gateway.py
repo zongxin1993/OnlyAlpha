@@ -58,6 +58,32 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities
+from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
+from onlyalpha.plugin.lifecycle import (
+    OnlyPluginHealth,
+    OnlyPluginHealthStatus,
+    OnlyPluginLifecycleState,
+)
+from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
+
+ONLY_VIRTUAL_PLUGIN_DESCRIPTOR = OnlyPluginDescriptor(
+    "virtual",
+    OnlyPluginType.BROKER,
+    "1.0.0",
+    ONLYALPHA_PLUGIN_API_VERSION,
+    "OnlyAlpha Virtual Broker",
+    "OnlyAlpha",
+    OnlyBrokerPluginCapabilities(
+        submit_order=True,
+        cancel_order=True,
+        query_orders=True,
+        query_trades=True,
+        query_account=True,
+        query_positions=True,
+        simulated_execution=True,
+    ),
+)
 
 
 class OnlyVirtualBrokerGateway:
@@ -106,12 +132,32 @@ class OnlyVirtualBrokerGateway:
         self._accepted_bar: dict[object, int] = {}
         self._current_day: date | None = None
         self._latest_bars: dict[object, OnlyBar] = {}
+        self._plugin_state = OnlyPluginLifecycleState.CREATED
+
+    @property
+    def plugin_descriptor(self) -> OnlyPluginDescriptor:
+        return ONLY_VIRTUAL_PLUGIN_DESCRIPTOR
+
+    @property
+    def plugin_resource_id(self) -> str:
+        return str(self.config.gateway_id)
+
+    @property
+    def state(self) -> OnlyPluginLifecycleState:
+        return self._plugin_state
+
+    def initialize(self) -> None:
+        if self._plugin_state is OnlyPluginLifecycleState.CREATED:
+            self._plugin_state = OnlyPluginLifecycleState.INITIALIZED
 
     @property
     def capabilities(self) -> OnlyBrokerCapabilities:
         return OnlyBrokerCapabilities(frozenset(OnlyBrokerCapability))
 
     def connect(self) -> OnlyBrokerConnectionResult:
+        if self._plugin_state is OnlyPluginLifecycleState.CREATED:
+            self.initialize()
+        self._plugin_state = OnlyPluginLifecycleState.CONNECTING
         self._state = OnlyBrokerConnectionState.CONNECTED
         self._state_time = self._now()
         self._emit(
@@ -121,7 +167,39 @@ class OnlyVirtualBrokerGateway:
             "connect",
             state=self._state,
         )
+        self._plugin_state = OnlyPluginLifecycleState.CONNECTED
         return OnlyBrokerConnectionResult(OnlyBrokerOperationStatus.RECEIVED, self.connection_snapshot())
+
+    def start(self) -> None:
+        if self._plugin_state is OnlyPluginLifecycleState.INITIALIZED:
+            self.connect()
+        if self._state is OnlyBrokerConnectionState.CONNECTED:
+            result = self.authenticate()
+            if result.status is not OnlyBrokerOperationStatus.RECEIVED:
+                self._plugin_state = OnlyPluginLifecycleState.FAILED
+                raise RuntimeError("Virtual Broker authentication failed")
+        if self._state is OnlyBrokerConnectionState.READY:
+            self._plugin_state = OnlyPluginLifecycleState.RUNNING
+
+    def stop(self) -> None:
+        if self._plugin_state is OnlyPluginLifecycleState.STOPPED:
+            return
+        self._plugin_state = OnlyPluginLifecycleState.STOPPING
+        if self._state is not OnlyBrokerConnectionState.DISCONNECTED:
+            self.disconnect()
+        self._plugin_state = OnlyPluginLifecycleState.STOPPED
+
+    def close(self) -> None:
+        self.stop()
+
+    def health(self) -> OnlyPluginHealth:
+        if self._plugin_state is OnlyPluginLifecycleState.RUNNING:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.HEALTHY)
+        if self._plugin_state is OnlyPluginLifecycleState.STOPPED:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.STOPPED)
+        if self._plugin_state is OnlyPluginLifecycleState.FAILED:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.UNHEALTHY, "Virtual Broker failed")
+        return OnlyPluginHealth(OnlyPluginHealthStatus.UNKNOWN)
 
     def authenticate(self) -> OnlyBrokerConnectionResult:
         if self._state is not OnlyBrokerConnectionState.CONNECTED:

@@ -33,8 +33,8 @@ Risk、Order、ExecutionProcessor、Position、Allocation、Strategy Ledger、Ac
 
 ## 修改场景
 
-核心 MACD 回归改用 `tests/runtime_support/macd_plugin.py` 明确 Test Adapter 和核心测试 fixture，消除对已经拆出的兄弟仓库
-源码/路径依赖。原信号、T+1、订单 ID、结果扩展和确定性预期保持不变。
+该阶段核心 MACD 回归曾使用 `tests/runtime_support/macd_plugin.py`。后续 Plugin SPI 重构已将其迁入独立安装的测试
+distribution，并通过 Entry Point/公共注册接口加载；原信号、T+1、订单 ID、结果扩展和确定性预期保持不变。
 
 ## 历史场景运行结果
 
@@ -78,7 +78,7 @@ Synthetic Historical Source 和 Virtual Broker 是正式内建确定性实现。
 ## 已知限制
 
 - deprecated `OnlyRunConfig` 名称与 `OnlyEngineRunService` 仍保护历史 Runtime 测试，产品链不使用；历史测试迁完后删除。
-- 三仓目录已建立，但外部插件/配置从 OnlyAlpha-examples 迁至 OnlyAlpha-plugins 属于后续独立任务。
+- 三仓目录已建立；官方 Strategy、Factor、扩展组件、Cluster 配置与真实基础设施适配器迁入 OnlyAlpha-plugins 属于后续任务。
 - Paper/Live/Research 产品循环仍未实现。
 
 ## 是否允许进入下一组件
