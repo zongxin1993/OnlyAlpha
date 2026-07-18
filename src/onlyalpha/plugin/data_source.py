@@ -11,7 +11,12 @@ from typing import Protocol
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig, OnlyUniverseConfig
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
-from onlyalpha.data.ports import OnlyHistoricalDataSource
+from onlyalpha.data.ports import (
+    OnlyHistoricalDataSource,
+    OnlyMarketDataGateway,
+    OnlyMarketDataUpdateSink,
+    OnlyReferenceDataSource,
+)
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.instrument import OnlyInstrument
@@ -40,9 +45,16 @@ class OnlyDataSourceCreateRequest:
     batch_size: int
     config_directory: Path
     logger: Logger
+    market_data_sink: OnlyMarketDataUpdateSink | None = None
 
 
-class OnlyDataSource(OnlyHistoricalDataSource, OnlyPluginResource, Protocol):
+class OnlyDataSource(
+    OnlyHistoricalDataSource,
+    OnlyMarketDataGateway,
+    OnlyReferenceDataSource,
+    OnlyPluginResource,
+    Protocol,
+):
     pass
 
 

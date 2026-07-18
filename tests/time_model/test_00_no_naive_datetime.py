@@ -14,7 +14,7 @@ def test_timestamp_rejects_naive_datetime() -> None:
 
 def test_production_code_has_no_implicit_local_clock_calls() -> None:
     source_root = Path(__file__).parents[2] / "src" / "onlyalpha"
-    source = "\n".join(path.read_text() for path in source_root.rglob("*.py"))
+    source = "\n".join(path.read_text(encoding="utf-8") for path in source_root.rglob("*.py"))
     assert "datetime.utcnow(" not in source
     assert "datetime.now()" not in source
     assert "datetime.fromtimestamp(value)" not in source
