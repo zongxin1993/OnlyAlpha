@@ -4,7 +4,6 @@ from onlyalpha.cache.memory import OnlyMemoryCache
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.engine.engine import OnlyEngine, OnlyEngineState
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeState
@@ -26,7 +25,6 @@ class OnlyFailingStrategy(OnlyStrategy):
 
 
 def test_engine_manages_multiple_runtimes_and_isolates_clusters() -> None:
-    engine = OnlyEngine("engine")
     runtimes = [
         OnlyBacktestRuntime(
             f"runtime-{index}",
@@ -38,21 +36,19 @@ def test_engine_manages_multiple_runtimes_and_isolates_clusters() -> None:
     ]
     healthy = OnlyDemoCluster(OnlyClusterConfig("healthy"))
     runtimes[0].add_cluster(
-        engine.engine_id,
+        "engine",
         OnlyCluster(
             OnlyClusterConfig("failing"),
             OnlyFailingStrategy(OnlyStrategyConfig(OnlyStrategyId("failing-strategy"))),
         ),
     )
-    runtimes[0].add_cluster(engine.engine_id, healthy)
+    runtimes[0].add_cluster("engine", healthy)
     for runtime in runtimes:
-        engine.register_runtime(runtime)
-
-    engine.initialize()
-    engine.start()
-    assert engine.state is OnlyEngineState.RUNNING
+        runtime.initialize()
+        runtime.start()
     assert all(runtime.state is OnlyRuntimeState.RUNNING for runtime in runtimes)
     assert healthy.started
-    engine.stop()
-    engine.stop()
-    assert engine.state is OnlyEngineState.STOPPED
+    for runtime in runtimes:
+        runtime.close()
+        runtime.close()
+    assert all(runtime.state is OnlyRuntimeState.CLOSED for runtime in runtimes)

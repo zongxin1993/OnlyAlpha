@@ -2,7 +2,7 @@ from dataclasses import fields
 from pathlib import Path
 
 from onlyalpha.cluster.base import OnlyCluster
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription
 from onlyalpha.strategy.base import OnlyStrategy
 
@@ -30,9 +30,8 @@ def test_bar_subscription_has_no_indicator_ids_and_runtime_factory_is_algorithm_
 
 
 def test_config_and_product_model_are_cluster_strategy_factor_indicator() -> None:
-    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
-    assert len(config.clusters) == 1
-    cluster = config.clusters[0]
+    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    cluster = config.cluster
     assert cluster.strategy.strategy_path.endswith(":OnlyTestMacdStrategy")
     assert len(cluster.factors) == 1
     assert cluster.factors[0].factor_path.endswith(":OnlyTestMacdFactor")

@@ -77,7 +77,7 @@ Synthetic Historical Source 和 Virtual Broker 是正式内建确定性实现。
 
 ## 已知限制
 
-- deprecated `OnlyRunConfig` 名称与 `OnlyEngineRunService` 仍保护历史 Runtime 测试，产品链不使用；历史测试迁完后删除。
+- 后续接口唯一性清理已迁移历史 Runtime 测试并删除旧配置名称与运行服务；本条仅记录当时阶段状态。
 - 三仓目录已建立；官方 Strategy、Factor、扩展组件、Cluster 配置与真实基础设施适配器迁入 OnlyAlpha-plugins 属于后续任务。
 - Paper/Live/Research 产品循环仍未实现。
 

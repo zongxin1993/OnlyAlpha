@@ -6,7 +6,10 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.runtime.defaults import OnlyEngineServices
@@ -74,3 +77,14 @@ def test_engine_output_contains_runtime_plan_and_normalized_configs(tmp_path: Pa
     assert (root / f"runtimes/{runtime_id}/summary.json").is_file()
     assert (root / "clusters/macd-demo/normalized_config.json").is_file()
     assert not (tmp_path / "output").exists()
+
+
+def test_engine_is_single_use_and_stop_is_idempotent(tmp_path: Path) -> None:
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("single-use"), tmp_path))
+    engine.add_cluster_from_file(CONFIG)
+    assert engine.run().status == "COMPLETED"
+    engine.stop()
+    with pytest.raises(OnlyLifecycleError, match="ENGINE_ALREADY_TERMINATED"):
+        engine.initialize()
+    with pytest.raises(OnlyLifecycleError, match="ENGINE_ALREADY_TERMINATED"):
+        engine.run()

@@ -98,12 +98,6 @@ class OnlyDataSourceRuntimeConfig:
     batch_size: int = 1024
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
 
-    @property
-    def source_type(self) -> str:
-        """Deprecated compatibility view; use plugin_id."""
-
-        return self.plugin_id
-
 
 @dataclass(frozen=True, slots=True)
 class OnlyAccountRuntimeConfig:
@@ -118,12 +112,6 @@ class OnlyBrokerRuntimeConfig:
     plugin_id: str
     enabled: bool
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
-
-    @property
-    def gateway_type(self) -> str:
-        """Deprecated compatibility view; use plugin_id."""
-
-        return self.plugin_id
 
 
 @dataclass(frozen=True, slots=True)

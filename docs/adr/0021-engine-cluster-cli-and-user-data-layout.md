@@ -14,7 +14,7 @@ Demo，输出缺少统一 user_data 边界。该结构不能让一个 Engine 从
 
 - 一个配置文件定义一个 Cluster；`OnlyClusterRunConfig` 原生持有 cluster/runtime/reference/data/account/broker/strategy/factor/output，
   不包装或构造 `OnlyRunConfig`。
-- Runtime 内部规划对象命名为 `OnlyRuntimeAssemblyPlan`；`OnlyRunConfig` 仅是历史源码兼容别名，不进入产品链。
+- Runtime 内部规划对象命名为 `OnlyRuntimeAssemblyPlan`；不存在旧产品配置别名。
 - CLI 支持重复 `--config`，只构造 OnlyEngine 并调用其公共接口。
 - OnlyEngine 是唯一产品入口，持有 Cluster Definition、Cluster Session、Runtime Session、状态、兼容性规划与运行汇总。
 - `add_cluster(config)` 是核心接口；`add_cluster_from_file(path)` 是文件适配器。
@@ -42,8 +42,7 @@ Demo，输出缺少统一 user_data 边界。该结构不能让一个 Engine 从
 
 ## Consequences
 
-产品入口是破坏性变更。`OnlyRunConfig` 名称与 RunService 仅作为明确 deprecated 的历史 Runtime 测试兼容层保留，不被 Engine、
-CLI、Planner、Assembler 或 Factory 使用，并计划在历史测试全部迁到 Engine 后删除。Compatible Backtest Cluster
+产品入口是破坏性变更。旧多 Cluster 配置、Runtime 级产品运行服务和独立输出器均已删除。Compatible Backtest Cluster
 共享同一 Runtime 和 Gateway；不兼容配置使用独立 Runtime。Live/Paper 安全动态撤单/等待属于后续实现。
 
 ## Validation

@@ -12,4 +12,5 @@ data_sources, accounts, brokers, strategy, factors, output
 公共字段并保留 `extensions`，组件专用参数由各自 Factory 解析。
 
 文件入口只是适配层；核心入口是 `engine.add_cluster(config)`，因此 Web/Application 后续可以从 Mapping 创建强类型配置。
-Runtime 内部暂复用已验证的 `OnlyRunConfig` 装配 DTO；该兼容类型不是新的产品文档入口。
+Engine 通过 `OnlyRuntimePlanner` 将配置转换为内部 `OnlyRuntimeAssemblyPlan`；不存在第二套产品配置文档。
+DataSource 和 Broker 必须使用 `plugin`，`type` 不作为别名；输出配置只允许 `formats` 和 `overwrite`。

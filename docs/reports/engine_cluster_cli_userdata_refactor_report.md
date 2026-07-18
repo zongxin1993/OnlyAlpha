@@ -86,7 +86,7 @@ Trade 后的 Snapshot 包含后续 Trade。现在在成交时捕获不可变 Pos
 - Backtest 回放中途动态加载/卸载不安全，当前返回结构化不支持；启动前 add/remove 完整可用。
 - STOP_ONLY 之外的 Live/Paper 撤单等待策略只有正式枚举/API，尚无真实 Broker 生命周期实现。
 - Live/Paper/Research 生产循环、多币种、保证金、Short/Hedging、持久化恢复不在本任务范围。
-- `OnlyRunConfig`/`OnlyEngineRunService` 暂作为 Runtime 内部兼容层和历史测试入口保留，不再是 CLI 产品入口。
+- 后续清理任务已删除旧多 Cluster 配置、Runtime 级产品运行服务和独立 Runtime 输出器；本报告此处仅记录当时阶段状态。
 
 ## 一票否决项审计
 

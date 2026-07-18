@@ -1,15 +1,15 @@
 from pathlib import Path
 
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
-from onlyalpha.runtime.defaults import only_default_run_service
+from tests.runtime_runner import only_run_cluster_runtime
 
-CONFIG = Path("tests/fixtures/legacy_macd/run.yaml")
+CONFIG = Path("tests/fixtures/legacy_macd/cluster.json")
 
 
 def test_synthetic_macd_full_product_vertical_slice() -> None:
-    result = only_default_run_service().run(OnlyRunConfig.load(CONFIG), export=False)
+    result = only_run_cluster_runtime(OnlyClusterRunConfig.load(CONFIG))
     assert result.status is OnlyBacktestStatus.COMPLETED
     assert result.data.generated_bar_count == 720
     assert result.data.processed_bar_count == 720
@@ -24,7 +24,7 @@ def test_synthetic_macd_full_product_vertical_slice() -> None:
 
 
 def test_synthetic_macd_t1_is_derived_from_allocation_availability() -> None:
-    result = only_default_run_service().run(OnlyRunConfig.load(CONFIG), export=False)
+    result = only_run_cluster_runtime(OnlyClusterRunConfig.load(CONFIG))
     signals = result.cluster_results[0].strategy_result_extension["signals"]
     assert isinstance(signals, list)
     assert [item["signal_type"] for item in signals] == [

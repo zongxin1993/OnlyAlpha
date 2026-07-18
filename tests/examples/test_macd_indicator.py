@@ -4,19 +4,18 @@ from decimal import Decimal
 
 import pytest
 
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.indicator import OnlyIndicatorId, OnlyMacdIndicator, OnlyMacdIndicatorConfig, OnlyMacdSnapshot
 
 
-def _bar(config: OnlyRunConfig, index: int, close: str) -> OnlyBar:
+def _bar(config: OnlyClusterRunConfig, index: int, close: str) -> OnlyBar:
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC) + timedelta(minutes=index)
     value = Decimal(close)
     return OnlyBar(
-        bar_type=config.clusters[0]
-        .factors[0]
+        bar_type=config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
         .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id),
         open=OnlyPrice(value, 2),
@@ -41,10 +40,9 @@ def _bar(config: OnlyRunConfig, index: int, close: str) -> OnlyBar:
 
 
 def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
-    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
+    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
     bar_type = (
-        config.clusters[0]
-        .factors[0]
+        config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
         .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
@@ -68,10 +66,9 @@ def test_macd_decimal_values_warmup_and_duplicate_idempotency() -> None:
 
 
 def test_macd_rejects_out_of_order_and_open_bars() -> None:
-    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
+    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
     bar_type = (
-        config.clusters[0]
-        .factors[0]
+        config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
         .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )

@@ -18,5 +18,5 @@ brokers:
     extensions: {environment: paper}
 ```
 
-核心只解析公共字段并原样传递 extensions。旧 `type` 兼容到 0.2：解析时产生 DeprecationWarning；同时提供 `plugin` 和
-`type` 会失败。内部只保留 `plugin_id`，不得通过任意 `class_path` 创建 DataSource/Broker。
+核心只解析公共字段并原样传递 extensions。DataSource/Broker 的 `type` 是未知字段并立即失败；唯一字段是 `plugin`。
+内部只保留 `plugin_id`，不得通过任意 `class_path` 创建 DataSource/Broker。`runtime.type` 仍只表示 Runtime 类型。

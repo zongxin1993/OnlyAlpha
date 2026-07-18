@@ -4,7 +4,7 @@ from datetime import time
 from decimal import Decimal
 from pathlib import Path
 
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.data.synthetic import (
@@ -17,20 +17,19 @@ from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.plugin import OnlyDataSourceCapabilities, OnlyPluginLifecycleState
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
-CONFIG = Path("tests/fixtures/legacy_macd/run.yaml")
+CONFIG = Path("tests/fixtures/legacy_macd/cluster.json")
 
 
-def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:
+def _source(config: OnlyClusterRunConfig) -> OnlySyntheticHistoricalDataSource:
     assert config.start_time is not None
     common = config.data_sources[0]
     bar_type = (
-        config.clusters[0]
-        .factors[0]
+        config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
         .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
     clock = OnlyBacktestClock(config.start_time)
-    event_bus = OnlyEventBus(scope=OnlyEventScope(config.engine_id, config.runtime_id))
+    event_bus = OnlyEventBus(scope=OnlyEventScope(config.runtime.engine_id, config.runtime_id))
     factory = OnlySyntheticDataSourceFactory()
     source = factory.create(
         OnlyDataSourceCreateRequest(
@@ -56,15 +55,14 @@ def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:
     return source
 
 
-def _load(config: OnlyRunConfig, source: OnlySyntheticHistoricalDataSource | None = None):
+def _load(config: OnlyClusterRunConfig, source: OnlySyntheticHistoricalDataSource | None = None):
     source = source or _source(config)
     if source.state is not OnlyPluginLifecycleState.RUNNING:
         source.initialize()
         source.connect()
         source.start()
     bar_type = (
-        config.clusters[0]
-        .factors[0]
+        config.cluster.factors[0]
         .subscriptions.instrument_bars[0]
         .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
     )
@@ -81,7 +79,7 @@ def _load(config: OnlyRunConfig, source: OnlySyntheticHistoricalDataSource | Non
 
 
 def test_synthetic_source_generates_calendar_aware_valid_versioned_bars() -> None:
-    config = OnlyRunConfig.load(CONFIG)
+    config = OnlyClusterRunConfig.load(CONFIG)
     stream = _load(config)
     assert len(stream.records) == 720
     assert sum(len(batch) for batch in stream.batches()) == 720
@@ -104,7 +102,7 @@ def test_synthetic_source_generates_calendar_aware_valid_versioned_bars() -> Non
 
 
 def test_synthetic_source_seed_is_reproducible_and_noise_changes_data() -> None:
-    config = OnlyRunConfig.load(CONFIG)
+    config = OnlyClusterRunConfig.load(CONFIG)
     source = _source(config)
     instrument_config = replace(
         source.config.instruments[0],

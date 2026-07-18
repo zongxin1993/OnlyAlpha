@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
@@ -15,8 +15,8 @@ from onlyalpha.indicator.rsi import OnlyRsiSnapshot
 
 
 def _bar_type():
-    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
-    spec = config.clusters[0].factors[0].subscriptions.instrument_bars[0]
+    config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    spec = config.cluster.factors[0].subscriptions.instrument_bars[0]
     return spec.bar_specification.to_bar_type(spec.instrument_id)
 
 

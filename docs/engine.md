@@ -6,7 +6,7 @@
 
 - 组件初始化；
 - 生命周期；
-- Runtime 注册和管理；
+- Runtime 规划和 Session 管理；
 - Cluster 管理入口；
 - Event Bus；
 - Gateway 管理；
@@ -36,8 +36,8 @@ FAILED
 
 产品链路固定为：`add_cluster()` 只校验并注册不可变 Definition；`initialize()` 生成
 `OnlyEngineExecutionPlan` 并装配/持有真实 `OnlyRuntimeSession` 与 `OnlyClusterSession`；`start()` 启动 Session；`run()`
-只执行已装配 Runtime；`stop()` 按 Cluster、Runtime、基础设施、输出/存储的逆序幂等关闭。Engine 不委托
-`OnlyEngineRunService`，也不把多个配置重新合并成旧用户文档。
+只执行已装配 Runtime；`stop()` 按 Cluster、Runtime、基础设施、输出/存储的逆序幂等关闭。一个 Engine 实例只能运行
+一次，进入 `STOPPED` 或 `FAILED` 后必须新建 Engine。
 
 ```text
 OnlyEngine
@@ -47,14 +47,12 @@ OnlyEngine
 └── execution_plan: OnlyEngineExecutionPlan
 ```
 
-## 3. 建议接口
+## 3. 唯一产品接口
 
 ```python
 initialize()
 start()
 stop()
-close()
-
 add_cluster_from_file(path)
 add_cluster(config)
 remove_cluster(cluster_id, policy)
@@ -62,18 +60,9 @@ validate()
 run()
 snapshot()
 
-register_runtime(...)
-remove_runtime(...)
-start_runtime(...)
-stop_runtime(...)
-
-load_cluster(...)
-unload_cluster(...)
 start_cluster(...)
-stop_cluster(...)
-
-get_status()
-health_check()
+pause_cluster(...)
+resume_cluster(...)
 ```
 
 Backtest 历史回放中途加入/卸载 Cluster 在首阶段返回结构化“不支持当前 Runtime 阶段”；API、状态门禁、失败回滚与资源释放已存在。

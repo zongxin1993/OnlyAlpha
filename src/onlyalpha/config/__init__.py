@@ -4,9 +4,8 @@
 
 from onlyalpha.config.cluster_document import OnlyClusterRunConfig
 from onlyalpha.config.document import (
+    OnlyClusterConfigError,
     OnlyOutputConfig,
-    OnlyRunConfig,
-    OnlyRunConfigError,
     OnlyRuntimeAssemblyPlan,
     OnlyRuntimeConfig,
 )
@@ -36,8 +35,7 @@ __all__ = [
     "OnlyJsonValue",
     "OnlyOutputConfig",
     "OnlyReferenceDataConfig",
-    "OnlyRunConfig",
-    "OnlyRunConfigError",
+    "OnlyClusterConfigError",
     "OnlyRuntimeConfig",
     "OnlyRuntimeAssemblyPlan",
     "OnlyStrategyImportConfig",

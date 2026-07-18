@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 
-from onlyalpha.application.run import OnlyEngineRunService
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.broker.virtual.factory import OnlyVirtualBrokerFactory
 from onlyalpha.cluster.factory import OnlyClusterFactory
@@ -10,7 +9,6 @@ from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 from onlyalpha.factor.factory import OnlyFactorFactory
 from onlyalpha.indicator import only_default_indicator_factories
-from onlyalpha.output import OnlyRuntimeResultExporter
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries, OnlyEngineRunAssembler
@@ -54,9 +52,3 @@ def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineService
         OnlyComponentFactoryRegistries(data_sources, brokers, clusters),
     )
     return OnlyEngineServices(assembler, data_sources, brokers, discovery)
-
-
-def only_default_run_service() -> OnlyEngineRunService:
-    """Deprecated compatibility entry for legacy Runtime-level tests."""
-
-    return OnlyEngineRunService(only_default_engine_services().assembler, OnlyRuntimeResultExporter())

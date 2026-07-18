@@ -6,14 +6,12 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.config.models import (
@@ -37,7 +35,6 @@ from onlyalpha.config.models import (
     OnlyUniverseConfig,
     OnlyUniverseType,
     _instrument_id,
-    _load_document,
     _normalize_mapping,
 )
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
@@ -72,7 +69,7 @@ from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 
 
-class OnlyRunConfigError(OnlyConfigError):
+class OnlyClusterConfigError(OnlyConfigError):
     pass
 
 
@@ -88,19 +85,17 @@ class OnlyRuntimeConfig:
 
     def __post_init__(self) -> None:
         if self.runtime_type not in {"BACKTEST", "PAPER", "LIVE", "SHADOW", "RESEARCH"}:
-            raise OnlyRunConfigError(f"unsupported runtime.type value: {self.runtime_type}")
+            raise OnlyClusterConfigError(f"unsupported runtime.type value: {self.runtime_type}")
         if self.start_time is not None:
             only_require_utc(self.start_time, "runtime.start_time")
         if self.end_time is not None:
             only_require_utc(self.end_time, "runtime.end_time")
         if self.start_time is not None and self.end_time is not None and self.start_time >= self.end_time:
-            raise OnlyRunConfigError("runtime.start_time must be before end_time")
+            raise OnlyClusterConfigError("runtime.start_time must be before end_time")
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyOutputConfig:
-    root_directory: str = "output"
-    layout: str = "STANDARD"
     formats: tuple[str, ...] = ("JSON",)
     overwrite: bool = False
 
@@ -157,111 +152,67 @@ class OnlyRuntimeAssemblyPlan:
         accounts = {str(x.account_id) for x in self.accounts}
 
         if len(instruments) != len(self.reference_data.instruments):
-            raise OnlyRunConfigError("duplicate instrument_id")
+            raise OnlyClusterConfigError("duplicate instrument_id")
         if len(calendars) != len(self.reference_data.calendars):
-            raise OnlyRunConfigError("duplicate calendar_id")
+            raise OnlyClusterConfigError("duplicate calendar_id")
         if len(universes) != len(self.universes):
-            raise OnlyRunConfigError("duplicate universe_id")
+            raise OnlyClusterConfigError("duplicate universe_id")
         if len(brokers) != len(self.brokers):
-            raise OnlyRunConfigError("duplicate gateway_id")
+            raise OnlyClusterConfigError("duplicate gateway_id")
         if len(accounts) != len(self.accounts):
-            raise OnlyRunConfigError("duplicate account_id")
+            raise OnlyClusterConfigError("duplicate account_id")
 
         for instrument in self.reference_data.instruments:
             if str(instrument.trading_calendar_id) not in calendars:
-                raise OnlyRunConfigError(
+                raise OnlyClusterConfigError(
                     f"{instrument.instrument_id} references unknown calendar {instrument.trading_calendar_id}"
                 )
         for universe in self.universes:
             for instrument_id in universe.instrument_ids:
                 if str(instrument_id) not in instruments:
-                    raise OnlyRunConfigError(f"{universe.universe_id} references unknown {instrument_id}")
+                    raise OnlyClusterConfigError(f"{universe.universe_id} references unknown {instrument_id}")
         for source in self.data_sources:
             for universe_id in source.coverage.universe_ids:
                 if universe_id not in universes:
-                    raise OnlyRunConfigError(f"{source.source_id} references unknown universe {universe_id}")
+                    raise OnlyClusterConfigError(f"{source.source_id} references unknown universe {universe_id}")
             for instrument_id in source.coverage.instrument_ids:
                 if str(instrument_id) not in instruments:
-                    raise OnlyRunConfigError(f"{source.source_id} references unknown {instrument_id}")
+                    raise OnlyClusterConfigError(f"{source.source_id} references unknown {instrument_id}")
         for account in self.accounts:
             if str(account.gateway_id) not in brokers:
-                raise OnlyRunConfigError(f"{account.account_id} references unknown gateway {account.gateway_id}")
+                raise OnlyClusterConfigError(f"{account.account_id} references unknown gateway {account.gateway_id}")
             if account.initial_cash.currency != self.base_currency:
-                raise OnlyRunConfigError(f"{account.account_id} currency differs from runtime base currency")
+                raise OnlyClusterConfigError(f"{account.account_id} currency differs from runtime base currency")
         seen_clusters: set[str] = set()
         for cluster in self.clusters:
             cluster_id = str(cluster.cluster_id)
             if cluster_id in seen_clusters:
-                raise OnlyRunConfigError(f"duplicate cluster_id {cluster_id}")
+                raise OnlyClusterConfigError(f"duplicate cluster_id {cluster_id}")
             seen_clusters.add(cluster_id)
             if str(cluster.account_id) not in accounts:
-                raise OnlyRunConfigError(f"{cluster_id} references unknown account {cluster.account_id}")
+                raise OnlyClusterConfigError(f"{cluster_id} references unknown account {cluster.account_id}")
             factor_ids = {factor.factor_id for factor in cluster.factors}
             if len(factor_ids) != len(cluster.factors):
-                raise OnlyRunConfigError(f"{cluster_id} has duplicate factor_id")
+                raise OnlyClusterConfigError(f"{cluster_id} has duplicate factor_id")
             for factor in cluster.factors:
                 if not set(factor.dependencies) <= factor_ids:
-                    raise OnlyRunConfigError(f"{factor.factor_id} references unknown Factor dependency")
+                    raise OnlyClusterConfigError(f"{factor.factor_id} references unknown Factor dependency")
                 for instrument_subscription in factor.subscriptions.instrument_bars:
                     if str(instrument_subscription.instrument_id) not in instruments:
-                        raise OnlyRunConfigError(
+                        raise OnlyClusterConfigError(
                             f"{cluster_id} references unknown {instrument_subscription.instrument_id}"
                         )
                 for universe_subscription in factor.subscriptions.universe_bars:
                     if universe_subscription.universe_id not in universes:
-                        raise OnlyRunConfigError(
+                        raise OnlyClusterConfigError(
                             f"{cluster_id} references unknown universe {universe_subscription.universe_id}"
                         )
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyRunConfig(OnlyRuntimeAssemblyPlan):
-    """Deprecated legacy multi-Cluster document used only by historical tests."""
-
-    @classmethod
-    def load(cls, path: str | Path) -> OnlyRunConfig:
-        source = Path(path).expanduser().resolve()
-        return _OnlyRunConfigParser(source, _load_document(source)).parse()
-
-    @classmethod
-    def from_mapping(
-        cls,
-        payload: Mapping[str, object],
-        *,
-        source_path: str | Path = "<mapping>",
-    ) -> OnlyRunConfig:
-        normalized = _normalize_mapping(cast(Mapping[object, object], payload), "$")
-        return _OnlyRunConfigParser(Path(source_path), normalized).parse()
-
-
-class _OnlyRunConfigParser:
+class _OnlyClusterDocumentParser:
     def __init__(self, source: Path, root: OnlyJsonMapping) -> None:
         self.source = source
         self.root = root
-
-    def parse(self) -> OnlyRunConfig:
-        engine = self._map(self.root.get("engine", {}), "$.engine")
-        runtime = self._runtime(self._map(self.root.get("runtime"), "$.runtime"), engine)
-        reference = self._reference(
-            self._map(self.root.get("reference_data"), "$.reference_data"),
-            runtime.base_currency,
-        )
-        return OnlyRunConfig(
-            schema_version=self._str(self.root.get("schema_version", "1.0"), "$.schema_version"),
-            runtime=runtime,
-            reference_data=reference,
-            universes=self._universes(self._list(self.root.get("universes", []), "$.universes")),
-            data_sources=self._sources(self._list(self.root.get("data_sources"), "$.data_sources")),
-            accounts=self._accounts(
-                self._list(self.root.get("accounts"), "$.accounts"),
-                runtime.base_currency,
-            ),
-            brokers=self._brokers(self._list(self.root.get("brokers"), "$.brokers")),
-            clusters=self._clusters(self._list(self.root.get("clusters"), "$.clusters")),
-            output=self._output(self._map(self.root.get("output", {}), "$.output")),
-            source_path=self.source,
-            normalized_payload=self.root,
-        )
 
     def _runtime(self, raw: OnlyJsonMapping, engine: OnlyJsonMapping) -> OnlyRuntimeConfig:
         currency = OnlyCurrency(
@@ -320,7 +271,7 @@ class _OnlyRunConfigParser:
     def _instrument(self, raw: OnlyJsonMapping, path: str, base_currency: OnlyCurrency) -> OnlyETF:
         asset_class = self._str(raw.get("asset_class", "ETF"), f"{path}.asset_class")
         if asset_class != "ETF":
-            raise OnlyRunConfigError(f"{path}.asset_class={asset_class!r} is not yet supported")
+            raise OnlyClusterConfigError(f"{path}.asset_class={asset_class!r} is not yet supported")
         instrument_id = _instrument_id(
             self._str(raw.get("instrument_id"), f"{path}.instrument_id"),
             f"{path}.instrument_id",
@@ -565,9 +516,10 @@ class _OnlyRunConfigParser:
         )
 
     def _output(self, raw: OnlyJsonMapping) -> OnlyOutputConfig:
+        unknown = set(raw) - {"formats", "overwrite"}
+        if unknown:
+            raise OnlyClusterConfigError(f"$.output UNKNOWN_FIELD: {sorted(unknown)[0]}")
         return OnlyOutputConfig(
-            self._str(raw.get("root_directory", raw.get("directory", "output")), "$.output.root_directory"),
-            self._str(raw.get("layout", "STANDARD"), "$.output.layout").upper(),
             tuple(
                 self._str(x, f"$.output.formats[{i}]").upper()
                 for i, x in enumerate(self._list(raw.get("formats", ["JSON"]), "$.output.formats"))
@@ -577,54 +529,46 @@ class _OnlyRunConfigParser:
 
     def _plugin_id(self, raw: OnlyJsonMapping, path: str) -> str:
         plugin = raw.get("plugin")
-        legacy_type = raw.get("type")
-        if plugin is not None and legacy_type is not None:
-            raise OnlyRunConfigError(f"{path} cannot define both plugin and deprecated type")
-        if plugin is not None:
-            return self._str(plugin, f"{path}.plugin").lower()
-        if legacy_type is None:
-            raise OnlyRunConfigError(f"{path}.plugin is required")
-        warnings.warn(
-            f"{path}.type is deprecated; use plugin (type will be removed in 0.2)",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        return self._str(legacy_type, f"{path}.type").lower()
+        if "type" in raw:
+            raise OnlyClusterConfigError(f"{path} UNKNOWN_FIELD: type")
+        if plugin is None:
+            raise OnlyClusterConfigError(f"{path}.plugin is required")
+        return self._str(plugin, f"{path}.plugin").lower()
 
     @staticmethod
     def _map(value: object, path: str) -> OnlyJsonMapping:
         if not isinstance(value, Mapping):
-            raise OnlyRunConfigError(f"{path} must be a mapping")
+            raise OnlyClusterConfigError(f"{path} must be a mapping")
         return _normalize_mapping(value, path)
 
     @staticmethod
     def _list(value: object, path: str) -> list[OnlyJsonValue]:
         if not isinstance(value, list):
-            raise OnlyRunConfigError(f"{path} must be a list")
+            raise OnlyClusterConfigError(f"{path} must be a list")
         return value
 
     @staticmethod
     def _str(value: object, path: str) -> str:
         if not isinstance(value, str) or not value.strip():
-            raise OnlyRunConfigError(f"{path} must be a non-empty string")
+            raise OnlyClusterConfigError(f"{path} must be a non-empty string")
         return value.strip()
 
     @staticmethod
     def _bool(value: object, path: str) -> bool:
         if not isinstance(value, bool):
-            raise OnlyRunConfigError(f"{path} must be boolean")
+            raise OnlyClusterConfigError(f"{path} must be boolean")
         return value
 
     @staticmethod
     def _int(value: object, path: str, minimum: int) -> int:
         if isinstance(value, bool):
-            raise OnlyRunConfigError(f"{path} must be integer")
+            raise OnlyClusterConfigError(f"{path} must be integer")
         try:
             result = int(str(value))
         except (TypeError, ValueError) as exc:
-            raise OnlyRunConfigError(f"{path} must be integer") from exc
+            raise OnlyClusterConfigError(f"{path} must be integer") from exc
         if result < minimum:
-            raise OnlyRunConfigError(f"{path} must be >= {minimum}")
+            raise OnlyClusterConfigError(f"{path} must be >= {minimum}")
         return result
 
     @staticmethod
@@ -632,13 +576,13 @@ class _OnlyRunConfigParser:
         try:
             result = Decimal(str(value))
         except Exception as exc:
-            raise OnlyRunConfigError(f"{path} must be decimal") from exc
+            raise OnlyClusterConfigError(f"{path} must be decimal") from exc
         if not result.is_finite():
-            raise OnlyRunConfigError(f"{path} must be finite")
+            raise OnlyClusterConfigError(f"{path} must be finite")
         if positive and result <= 0:
-            raise OnlyRunConfigError(f"{path} must be > 0")
+            raise OnlyClusterConfigError(f"{path} must be > 0")
         if non_negative and result < 0:
-            raise OnlyRunConfigError(f"{path} must be >= 0")
+            raise OnlyClusterConfigError(f"{path} must be >= 0")
         return result
 
     @staticmethod
@@ -646,10 +590,10 @@ class _OnlyRunConfigParser:
         if value is None:
             return None
         if not isinstance(value, str):
-            raise OnlyRunConfigError(f"{path} must be ISO-8601 UTC string")
+            raise OnlyClusterConfigError(f"{path} must be ISO-8601 UTC string")
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
         except ValueError as exc:
-            raise OnlyRunConfigError(f"{path} invalid timestamp") from exc
+            raise OnlyClusterConfigError(f"{path} invalid timestamp") from exc
         only_require_utc(parsed, path)
         return parsed

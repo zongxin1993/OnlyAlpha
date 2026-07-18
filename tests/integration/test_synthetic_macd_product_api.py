@@ -1,36 +1,30 @@
 import json
-from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
-from onlyalpha.config import OnlyRunConfig
-from onlyalpha.runtime.backtest.result import OnlyBacktestStatus
-from onlyalpha.runtime.defaults import only_default_run_service
+from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 
 
 def test_macd_backtest_product_api_and_result_export(tmp_path: Path) -> None:
-    config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
-    config = replace(config, output=replace(config.output, root_directory=str(tmp_path), overwrite=True))
-    service = only_default_run_service()
-    result = service.run(config)
-    assert result.status is OnlyBacktestStatus.COMPLETED
-    assert service.last_manifest is not None
-    run_directory = service.last_manifest.layout.run_directory
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("product-api"), tmp_path))
+    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
+    result = engine.run()
+    assert result.status == "COMPLETED"
+    assert result.manifest_path is not None
+    run_directory = result.manifest_path.parent
     assert {
-        "config",
-        "runtime",
-        "market_data",
-        "execution",
-        "portfolio",
-        "strategies",
-        "reports",
+        "engine",
+        "clusters",
+        "runtimes",
+        "shared",
         "logs",
     } <= {item.name for item in run_directory.iterdir()}
     expected = json.loads(Path("tests/fixtures/legacy_macd/expected_result.json").read_text(encoding="utf-8"))
-    assert result.status.value == expected["status"]
-    assert result.data.generated_bar_count == expected["generated_bar_count"]
-    assert result.data.processed_bar_count == expected["processed_bar_count"]
-    assert result.execution.order_count == expected["order_count"]
-    assert result.execution.trade_count == expected["trade_count"]
-    assert result.performance.final_equity.amount == Decimal(expected["final_equity"])
-    assert result.determinism_fingerprint == expected["determinism_fingerprint"]
+    projection = result.cluster_results[0]
+    assert projection["run"]["status"] == expected["status"]
+    assert projection["data"]["generated_bar_count"] == expected["generated_bar_count"]
+    assert projection["data"]["processed_bar_count"] == expected["processed_bar_count"]
+    assert len(projection["orders"]) == expected["order_count"]
+    assert len(projection["trades"]) == expected["trade_count"]
+    assert Decimal(projection["performance"]["final_equity"]["amount"]) == Decimal(expected["final_equity"])
