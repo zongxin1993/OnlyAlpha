@@ -4,7 +4,7 @@
 
 ```python
 engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("onlyalpha"), Path("user_data")))
-engine.add_cluster_from_file("examples/clusters/macd/config.yaml")
+engine.add_cluster_from_file("../OnlyAlpha-plugins/clusters/my_cluster/config.yaml")
 result = engine.run()
 ```
 

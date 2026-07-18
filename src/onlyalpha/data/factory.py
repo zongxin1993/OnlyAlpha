@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from onlyalpha.config import OnlyDataSourceRuntimeConfig, OnlyRunConfig
+from onlyalpha.config import OnlyDataSourceRuntimeConfig, OnlyRuntimeAssemblyPlan
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 
@@ -13,7 +13,7 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 @dataclass(frozen=True, slots=True)
 class OnlyDataSourceBuildRequest:
     config: OnlyDataSourceRuntimeConfig
-    run_config: OnlyRunConfig
+    assembly_plan: OnlyRuntimeAssemblyPlan
     runtime_id: OnlyRuntimeId
 
 

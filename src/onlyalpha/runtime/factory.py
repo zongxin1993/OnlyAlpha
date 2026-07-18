@@ -5,14 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyRuntimeAssemblyPlan
+from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntime
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyRuntimeBuildRequest:
-    config: OnlyRunConfig
+    plan: OnlyRuntimePlan
     components: object
+
+    @property
+    def config(self) -> OnlyRuntimeAssemblyPlan:
+        return self.plan.assembly_plan
 
 
 @dataclass(frozen=True, slots=True)

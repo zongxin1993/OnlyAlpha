@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
-from onlyalpha.config import OnlyClusterImportConfig, OnlyRunConfig
+from onlyalpha.config import OnlyClusterImportConfig, OnlyRuntimeAssemblyPlan
 from onlyalpha.factor.factory import OnlyFactorCreateRequest, OnlyFactorFactory
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, only_bar_type_id
@@ -21,7 +21,7 @@ class OnlyClusterFactory:
         self._factors = factors
         self._indicators = indicators
 
-    def create(self, config: OnlyClusterImportConfig, run_config: OnlyRunConfig) -> OnlyCluster:
+    def create(self, config: OnlyClusterImportConfig, run_config: OnlyRuntimeAssemblyPlan) -> OnlyCluster:
         strategy_parameters: dict[str, object] = dict(config.strategy.extensions)
         strategy_parameters.update(
             {

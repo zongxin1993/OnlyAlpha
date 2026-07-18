@@ -2,6 +2,9 @@
 
 OnlyAlpha 是 MyQuant 的重构版本，目标是建设一个模块化、可扩展、可测试，并能够逐步支持多市场、多资产类别的量化交易与投研平台。
 
+本工作区由三个独立项目组成：`OnlyAlpha` 是核心库，`OnlyAlpha-examples` 负责全部官方示例，`OnlyAlpha-plugins`
+负责全部官方 Strategy、Factor、扩展组件和 Cluster 配置。完整边界见 `docs/workspace_structure.md`。
+
 ## 目录
 
 ```text

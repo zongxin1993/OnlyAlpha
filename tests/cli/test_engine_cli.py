@@ -2,16 +2,16 @@ from pathlib import Path
 
 from onlyalpha.cli import main, only_parse_args, only_resolve_config_paths, only_resolve_user_data_root
 
-CONFIG = "examples/clusters/macd/config.yaml"
-FAST_CONFIG = "examples/clusters/macd_fast/config.yaml"
+CONFIG = "tests/fixtures/legacy_macd/cluster.json"
+FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
 
 
 def test_repeated_config_order_is_preserved_and_deduplicated() -> None:
     args = only_parse_args(["run", "--config", FAST_CONFIG, "--config", CONFIG, "--config", FAST_CONFIG])
     paths = only_resolve_config_paths(args)
-    assert [item.name for item in paths] == ["config.yaml", "config.yaml"]
-    assert "macd_fast" in str(paths[0])
-    assert "macd/config" in str(paths[1])
+    assert [item.name for item in paths] == ["cluster_fast.json", "cluster.json"]
+    assert paths[0].name == "cluster_fast.json"
+    assert paths[1].name == "cluster.json"
 
 
 def test_user_data_precedence(tmp_path: Path, monkeypatch: object) -> None:

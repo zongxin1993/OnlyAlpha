@@ -1,7 +1,7 @@
 # ADR 0021: Engine、单 Cluster 配置、CLI 与 user_data
 
 - Status: Accepted
-- Date: 2026-07-17
+- Date: 2026-07-18
 - Modules: cli, engine, config, runtime, output, examples, plugins
 - Numbering: 任务建议使用 0019，但 0019 已是 Accepted 决策；本 ADR 使用下一个连续编号并 Supersede 0019 的产品入口/输出部分。
 
@@ -12,17 +12,20 @@ Demo，输出缺少统一 user_data 边界。该结构不能让一个 Engine 从
 
 ## Decision
 
-- 一个配置文件定义一个 Cluster，产品类型为 `OnlyClusterRunConfig`；旧 `OnlyRunConfig` 只保留为 Runtime 内部兼容 DTO。
+- 一个配置文件定义一个 Cluster；`OnlyClusterRunConfig` 原生持有 cluster/runtime/reference/data/account/broker/strategy/factor/output，
+  不包装或构造 `OnlyRunConfig`。
+- Runtime 内部规划对象命名为 `OnlyRuntimeAssemblyPlan`；`OnlyRunConfig` 仅是历史源码兼容别名，不进入产品链。
 - CLI 支持重复 `--config`，只构造 OnlyEngine 并调用其公共接口。
-- OnlyEngine 是唯一产品入口，管理 Cluster Handle、状态、Runtime 兼容性规划与运行汇总。
+- OnlyEngine 是唯一产品入口，持有 Cluster Definition、Cluster Session、Runtime Session、状态、兼容性规划与运行汇总。
 - `add_cluster(config)` 是核心接口；`add_cluster_from_file(path)` 是文件适配器。
 - Engine 提供动态 add/remove/start/pause/resume API。首阶段 Backtest 回放中动态变更返回明确不支持状态。
 - 加载按事务执行；资源冲突或注册失败释放已经获取的引用，不留下活动 Cluster。
 - Calendar、Instrument、DataSource、Broker、Account 由 Infrastructure Registry 按 ID、Fingerprint 和引用计数协调。
 - 相同 ID/相同配置复用逻辑资源；相同 ID/不同配置返回 `RESOURCE_CONFIGURATION_CONFLICT`。
 - Runtime 使用包含类型、时间、Clock/Replay、Data Version、Broker/Account 环境的 Compatibility Key 分组。
+- RuntimeAssembler 只接受 `OnlyRuntimePlan` 并装配对象；Engine 独占 initialize/start/run/stop 和结果汇总。
 - 所有产品产物统一写入 `user_data/runs/<engine>/<run>/...`，Cluster 是一级结果边界。
-- Examples 只保留 Cluster 配置和 README；示例 Strategy/Factor 位于独立 `onlyalpha_examples` 插件。
+- 三仓职责固定为 OnlyAlpha 核心、OnlyAlpha-examples 官方示例、OnlyAlpha-plugins 官方 Strategy/Factor/扩展/Cluster 配置。
 - 回测继续使用正式 Synthetic Source、Historical Replay、Virtual Broker Queue 和 ExecutionProcessor 链。
 
 ## Rejected alternatives
@@ -39,7 +42,8 @@ Demo，输出缺少统一 user_data 边界。该结构不能让一个 Engine 从
 
 ## Consequences
 
-产品入口是破坏性变更，但底层 `OnlyRunConfig`/RunService 兼容层暂保留以保护 Runtime 测试。Compatible Backtest Cluster
+产品入口是破坏性变更。`OnlyRunConfig` 名称与 RunService 仅作为明确 deprecated 的历史 Runtime 测试兼容层保留，不被 Engine、
+CLI、Planner、Assembler 或 Factory 使用，并计划在历史测试全部迁到 Engine 后删除。Compatible Backtest Cluster
 共享同一 Runtime 和 Gateway；不兼容配置使用独立 Runtime。Live/Paper 安全动态撤单/等待属于后续实现。
 
 ## Validation

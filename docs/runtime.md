@@ -1,5 +1,12 @@
 # Runtime 设计
 
+## Runtime Planning
+
+`OnlyRuntimePlanner` 使用 Runtime 类型、起止时间、Clock/Replay policy、Data Version、Broker Environment 和 Account
+Environment 生成 `OnlyRuntimeCompatibilityKey`。兼容 Cluster 进入同一个 `OnlyRuntimePlan`，不兼容 Cluster 必须进入不同
+Runtime Session。`OnlyEngineRunAssembler` 只接受明确的 `OnlyRuntimePlan` 并负责对象装配，不读取配置文件、不执行生命周期、
+不汇总或导出结果。
+
 ## 1. Runtime 类型
 
 ```text

@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from onlyalpha.cluster.base import OnlyCluster
-from onlyalpha.config import OnlyRunConfig
+from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.data.models import OnlyHistoricalBarRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
@@ -32,7 +32,7 @@ from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 class OnlyBacktestRunPlan:
     def __init__(
         self,
-        config: OnlyRunConfig,
+        config: OnlyRuntimeAssemblyPlan,
         source: OnlyHistoricalDataSource,
         request: OnlyHistoricalBarRequest,
         clusters: tuple[OnlyCluster, ...],
@@ -50,17 +50,12 @@ class OnlyBacktestRunPlan:
             raise RuntimeError("a configured Backtest Runtime can be run only once")
         self._completed = True
         self._runtime = runtime
-        runtime.start()
-        try:
-            generated = self._source.load_bars(self._request)
-            replay = runtime.replay_historical_bars(self._source, self._request)
-            if replay.failed or replay.rejected:
-                raise RuntimeError(f"historical replay failed={replay.failed} rejected={replay.rejected}")
-            runtime.drain_broker_inbound()
-            result = self._build_result(len(generated.records), replay.processed, replay.duplicate, replay.gap_detected)
-        finally:
-            runtime.close()
-        return result
+        generated = self._source.load_bars(self._request)
+        replay = runtime.replay_historical_bars(self._source, self._request)
+        if replay.failed or replay.rejected:
+            raise RuntimeError(f"historical replay failed={replay.failed} rejected={replay.rejected}")
+        runtime.drain_broker_inbound()
+        return self._build_result(len(generated.records), replay.processed, replay.duplicate, replay.gap_detected)
 
     def _build_result(
         self,

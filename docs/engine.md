@@ -34,6 +34,19 @@ FAILED
 
 非法状态迁移必须被拒绝。
 
+产品链路固定为：`add_cluster()` 只校验并注册不可变 Definition；`initialize()` 生成
+`OnlyEngineExecutionPlan` 并装配/持有真实 `OnlyRuntimeSession` 与 `OnlyClusterSession`；`start()` 启动 Session；`run()`
+只执行已装配 Runtime；`stop()` 按 Cluster、Runtime、基础设施、输出/存储的逆序幂等关闭。Engine 不委托
+`OnlyEngineRunService`，也不把多个配置重新合并成旧用户文档。
+
+```text
+OnlyEngine
+├── cluster_definitions: OnlyClusterRunConfig[]
+├── cluster_sessions: OnlyClusterSession[]
+├── runtime_sessions: OnlyRuntimeSession[]
+└── execution_plan: OnlyEngineExecutionPlan
+```
+
 ## 3. 建议接口
 
 ```python

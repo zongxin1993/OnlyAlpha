@@ -7,6 +7,7 @@ from onlyalpha.config.document import (
     OnlyOutputConfig,
     OnlyRunConfig,
     OnlyRunConfigError,
+    OnlyRuntimeAssemblyPlan,
     OnlyRuntimeConfig,
 )
 from onlyalpha.config.models import (
@@ -38,6 +39,7 @@ __all__ = [
     "OnlyRunConfig",
     "OnlyRunConfigError",
     "OnlyRuntimeConfig",
+    "OnlyRuntimeAssemblyPlan",
     "OnlyStrategyImportConfig",
     "OnlyUniverseConfig",
 ]

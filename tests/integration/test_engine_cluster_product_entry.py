@@ -3,8 +3,8 @@ from pathlib import Path
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 
-CONFIG = "examples/clusters/macd/config.yaml"
-FAST_CONFIG = "examples/clusters/macd_fast/config.yaml"
+CONFIG = "tests/fixtures/legacy_macd/cluster.json"
+FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
 
 
 def _run(tmp_path: Path, *configs: str):

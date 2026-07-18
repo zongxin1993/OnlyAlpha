@@ -1,12 +1,15 @@
 import ast
 from pathlib import Path
 
-from onlyalpha_examples.strategies.macd import OnlyMacdStrategy
+from tests.runtime_support.macd_plugin import OnlyTestMacdStrategy
 
 
 def test_macd_strategy_source_uses_only_strategy_context_capabilities() -> None:
-    path = Path("plugins/onlyalpha_examples/src/onlyalpha_examples/strategies/macd/strategy.py")
+    path = Path("tests/runtime_support/macd_plugin.py")
     tree = ast.parse(path.read_text(encoding="utf-8"))
+    strategy = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyTestMacdStrategy"
+    )
     forbidden = {
         "order_manager",
         "position_manager",
@@ -16,9 +19,9 @@ def test_macd_strategy_source_uses_only_strategy_context_capabilities() -> None:
         "broker_gateway",
         "execution_processor",
     }
-    attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    attributes = {node.attr for node in ast.walk(strategy) if isinstance(node, ast.Attribute)}
     assert attributes.isdisjoint(forbidden)
     assert "list_open" in attributes
     assert "submit" in attributes
-    assert OnlyMacdStrategy.__mro__[1].__name__ == "OnlyStrategy"
+    assert OnlyTestMacdStrategy.__mro__[1].__name__ == "OnlyStrategy"
     assert "indicators" not in attributes

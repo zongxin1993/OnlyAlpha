@@ -31,11 +31,11 @@ class OnlySyntheticDataSourceFactory:
         extensions = request.config.extensions
         market_name = self._string(extensions.get("market_config"), "data_sources[].extensions.market_config")
         random_seed = self._integer(extensions.get("random_seed", 0), "random_seed")
-        market_path = (request.run_config.source_path.parent / market_name).resolve()
+        market_path = (request.assembly_plan.source_path.parent / market_name).resolve()
         market = self._mapping(yaml.safe_load(market_path.read_text(encoding="utf-8")), "synthetic market")
         instrument_ids = set(request.config.coverage.instrument_ids)
         for universe_id in request.config.coverage.universe_ids:
-            universe = next(item for item in request.run_config.universes if item.universe_id == universe_id)
+            universe = next(item for item in request.assembly_plan.universes if item.universe_id == universe_id)
             instrument_ids.update(universe.instrument_ids)
         items = tuple(
             self._instrument(request, instrument_id, market) for instrument_id in sorted(instrument_ids, key=str)
@@ -57,11 +57,11 @@ class OnlySyntheticDataSourceFactory:
         market: Mapping[str, object],
     ) -> OnlySyntheticInstrumentDataConfig:
         instrument = next(
-            item for item in request.run_config.reference_data.instruments if item.instrument_id == instrument_id
+            item for item in request.assembly_plan.reference_data.instruments if item.instrument_id == instrument_id
         )
         if instrument.trading_calendar_id is None:
             raise ValueError(f"synthetic instrument {instrument.instrument_id} requires a TradingCalendar")
-        calendar = request.run_config.reference_data.calendar_by_id[instrument.trading_calendar_id]
+        calendar = request.assembly_plan.reference_data.calendar_by_id[instrument.trading_calendar_id]
         bar_type = self._bar_type(request, instrument.instrument_id)
         segments = tuple(
             OnlySyntheticPriceSegment(
@@ -96,14 +96,14 @@ class OnlySyntheticDataSourceFactory:
 
     @staticmethod
     def _bar_type(request: OnlyDataSourceBuildRequest, instrument_id: OnlyInstrumentId) -> OnlyBarType:
-        for cluster in request.run_config.clusters:
+        for cluster in request.assembly_plan.clusters:
             for factor in cluster.factors:
                 for instrument_subscription in factor.subscriptions.instrument_bars:
                     if instrument_subscription.instrument_id == instrument_id:
                         return instrument_subscription.bar_specification.to_bar_type(instrument_id)
                 for universe_subscription in factor.subscriptions.universe_bars:
                     universe = next(
-                        x for x in request.run_config.universes if x.universe_id == universe_subscription.universe_id
+                        x for x in request.assembly_plan.universes if x.universe_id == universe_subscription.universe_id
                     )
                     if instrument_id in universe.instrument_ids:
                         return universe_subscription.bar_specification.to_bar_type(instrument_id)

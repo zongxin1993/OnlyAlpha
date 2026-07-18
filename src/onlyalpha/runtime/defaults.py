@@ -24,7 +24,6 @@ from onlyalpha.strategy.factory import OnlyStrategyFactory
 @dataclass(frozen=True, slots=True)
 class OnlyEngineServices:
     assembler: OnlyEngineRunAssembler
-    run_service: OnlyEngineRunService
 
 
 def only_default_engine_services() -> OnlyEngineServices:
@@ -47,11 +46,10 @@ def only_default_engine_services() -> OnlyEngineServices:
         runtimes,
         OnlyComponentFactoryRegistries(data_sources, brokers, clusters),
     )
-    run_service = OnlyEngineRunService(assembler, OnlyRuntimeResultExporter())
-    return OnlyEngineServices(assembler, run_service)
+    return OnlyEngineServices(assembler)
 
 
 def only_default_run_service() -> OnlyEngineRunService:
-    """Compatibility entry for Runtime-level tests; CLI uses OnlyEngine."""
+    """Deprecated compatibility entry for legacy Runtime-level tests."""
 
-    return only_default_engine_services().run_service
+    return OnlyEngineRunService(only_default_engine_services().assembler, OnlyRuntimeResultExporter())

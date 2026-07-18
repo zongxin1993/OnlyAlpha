@@ -33,9 +33,9 @@ def test_config_and_product_model_are_cluster_strategy_factor_indicator() -> Non
     config = OnlyRunConfig.load("tests/fixtures/legacy_macd/run.yaml")
     assert len(config.clusters) == 1
     cluster = config.clusters[0]
-    assert cluster.strategy.strategy_path.endswith(":OnlyMacdStrategy")
+    assert cluster.strategy.strategy_path.endswith(":OnlyTestMacdStrategy")
     assert len(cluster.factors) == 1
-    assert cluster.factors[0].factor_path.endswith(":OnlyMacdSignalFactor")
+    assert cluster.factors[0].factor_path.endswith(":OnlyTestMacdFactor")
     assert [str(item.indicator_type) for item in cluster.factors[0].indicators] == ["MACD"]
     assert not issubclass(type(cluster.strategy), OnlyCluster)
     assert not issubclass(OnlyStrategy, OnlyCluster)

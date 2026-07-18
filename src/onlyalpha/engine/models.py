@@ -5,8 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntimeId
+
+if TYPE_CHECKING:
+    from onlyalpha.cluster.base import OnlyCluster
+    from onlyalpha.runtime.planning import OnlyRuntimeCompatibilityKey
+    from onlyalpha.runtime.runtime import OnlyRuntime
 
 
 class OnlyClusterLoadError(Exception):
@@ -61,6 +67,25 @@ class OnlyClusterHandle:
     runtime_id: OnlyRuntimeId
     status: OnlyEngineClusterStatus
     config_fingerprint: str
+
+
+@dataclass(slots=True)
+class OnlyClusterSession:
+    cluster_id: OnlyClusterId
+    cluster: OnlyCluster
+    runtime_id: OnlyRuntimeId
+    state: OnlyEngineClusterStatus
+    resource_references: tuple[str, ...]
+    configuration_fingerprint: str
+
+
+@dataclass(slots=True)
+class OnlyRuntimeSession:
+    runtime_id: OnlyRuntimeId
+    runtime: OnlyRuntime
+    compatibility_key: OnlyRuntimeCompatibilityKey
+    bound_cluster_ids: tuple[OnlyClusterId, ...]
+    state: str
 
 
 @dataclass(frozen=True, slots=True)

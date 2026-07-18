@@ -4,14 +4,15 @@ import pytest
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyRunConfigError
 
-CONFIG = "examples/clusters/macd/config.yaml"
+CONFIG = "tests/fixtures/legacy_macd/cluster.json"
 
 
 def test_single_cluster_document_parses_to_typed_config() -> None:
     config = OnlyClusterRunConfig.load(CONFIG)
     assert str(config.cluster_id) == "macd-demo"
     assert config.runtime_type == "BACKTEST"
-    assert len(config.run_config.clusters) == 1
+    assert config.cluster.strategy == config.strategy
+    assert not hasattr(config, "run_config")
 
 
 def test_single_cluster_document_rejects_legacy_clusters_array() -> None:

@@ -9,8 +9,8 @@ from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
 from onlyalpha.engine import OnlyClusterLoadError, OnlyClusterRemovalPolicy, OnlyEngine, OnlyEngineConfig
 from onlyalpha.engine.infrastructure import OnlyResourceConfigurationConflict
 
-CONFIG = "examples/clusters/macd/config.yaml"
-FAST_CONFIG = "examples/clusters/macd_fast/config.yaml"
+CONFIG = "tests/fixtures/legacy_macd/cluster.json"
+FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
 
 
 def _engine(tmp_path: Path) -> OnlyEngine:
