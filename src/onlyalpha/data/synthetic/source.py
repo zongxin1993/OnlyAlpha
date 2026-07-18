@@ -31,6 +31,24 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
+from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
+from onlyalpha.plugin.lifecycle import (
+    OnlyPluginHealth,
+    OnlyPluginHealthStatus,
+    OnlyPluginLifecycleState,
+)
+from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
+
+ONLY_SYNTHETIC_PLUGIN_DESCRIPTOR = OnlyPluginDescriptor(
+    "synthetic",
+    OnlyPluginType.DATA_SOURCE,
+    "1.0.0",
+    ONLYALPHA_PLUGIN_API_VERSION,
+    "OnlyAlpha Synthetic Historical Data",
+    "OnlyAlpha",
+    OnlyDataSourceCapabilities(historical_bars=True),
+)
 
 
 class OnlySyntheticPriceSegmentType(StrEnum):
@@ -140,6 +158,52 @@ class OnlySyntheticHistoricalDataSource:
 
     def __init__(self, config: OnlySyntheticHistoricalDataSourceConfig) -> None:
         self.config = config
+        self._state = OnlyPluginLifecycleState.CREATED
+
+    @property
+    def plugin_descriptor(self) -> OnlyPluginDescriptor:
+        return ONLY_SYNTHETIC_PLUGIN_DESCRIPTOR
+
+    @property
+    def plugin_resource_id(self) -> str:
+        return str(self.source_id)
+
+    @property
+    def state(self) -> OnlyPluginLifecycleState:
+        return self._state
+
+    def initialize(self) -> None:
+        if self._state is OnlyPluginLifecycleState.CREATED:
+            self._state = OnlyPluginLifecycleState.INITIALIZED
+
+    def connect(self) -> None:
+        if self._state is OnlyPluginLifecycleState.CREATED:
+            self.initialize()
+        if self._state is OnlyPluginLifecycleState.INITIALIZED:
+            self._state = OnlyPluginLifecycleState.CONNECTING
+            self._state = OnlyPluginLifecycleState.CONNECTED
+
+    def start(self) -> None:
+        if self._state is OnlyPluginLifecycleState.INITIALIZED:
+            self.connect()
+        if self._state is OnlyPluginLifecycleState.CONNECTED:
+            self._state = OnlyPluginLifecycleState.RUNNING
+
+    def stop(self) -> None:
+        if self._state is OnlyPluginLifecycleState.STOPPED:
+            return
+        self._state = OnlyPluginLifecycleState.STOPPING
+        self._state = OnlyPluginLifecycleState.STOPPED
+
+    def close(self) -> None:
+        self.stop()
+
+    def health(self) -> OnlyPluginHealth:
+        if self._state is OnlyPluginLifecycleState.RUNNING:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.HEALTHY)
+        if self._state is OnlyPluginLifecycleState.STOPPED:
+            return OnlyPluginHealth(OnlyPluginHealthStatus.STOPPED)
+        return OnlyPluginHealth(OnlyPluginHealthStatus.UNKNOWN)
 
     @property
     def source_id(self) -> OnlyMarketDataSourceId:

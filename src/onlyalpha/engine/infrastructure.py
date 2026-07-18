@@ -92,7 +92,8 @@ def _fingerprint(value: object) -> str:
 
 def _source_projection(value: OnlyDataSourceRuntimeConfig) -> object:
     return {
-        "type": value.source_type,
+        "plugin": value.plugin_id,
+        "enabled": value.enabled,
         "version": str(value.data_version),
         "coverage": value.coverage,
         "extensions": dict(value.extensions),
@@ -101,7 +102,8 @@ def _source_projection(value: OnlyDataSourceRuntimeConfig) -> object:
 
 def _broker_projection(value: OnlyBrokerRuntimeConfig) -> object:
     return {
-        "type": value.gateway_type,
+        "plugin": value.plugin_id,
+        "enabled": value.enabled,
         "extensions": dict(value.extensions),
     }
 

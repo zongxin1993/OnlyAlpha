@@ -4,8 +4,8 @@
 组合既有组件。一个配置文件定义一个 Cluster；Engine 持有 Cluster Definition、Cluster Session 和 Runtime Session，负责
 完整生命周期、Runtime 兼容性分组、共享资源冲突/引用计数和 user_data。
 通用配置与装配层只依赖抽象 Factory；BACKTEST 的 Replay/RunPlan 保留在 `runtime/backtest/`，Synthetic 与 Virtual Broker
-位于父组件子目录。标准 Indicator 位于核心指标库，官方 Factor/Strategy/Cluster 配置归属并列的
-`OnlyAlpha-plugins` 项目，官方运行示例归属 `OnlyAlpha-examples`。成交仍经过 Virtual Broker Queue
+位于父组件子目录。标准 Indicator 位于核心指标库，全部官方 Factor/Strategy、扩展组件和 Cluster 配置归属并列的
+`OnlyAlpha-plugins` 项目，官方示例入口及其生成结果归属 `OnlyAlpha-examples`。成交仍经过 Virtual Broker Queue
 与 ExecutionProcessor。详见 `docs/backtest.md`、ADR 0019 与 ADR 0020。
 
 策略运行关系固定为 `Engine → Runtime → Cluster(one Strategy, zero-or-more Factors) → Indicator`。Cluster 是隔离容器，

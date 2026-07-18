@@ -1,14 +1,15 @@
-"""Synthetic HistoricalDataSource factory and private extension parser."""
+"""Synthetic DataSource plugin Factory and extension parser."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
 import yaml  # type: ignore[import-untyped]
 
-from onlyalpha.data.factory import OnlyDataSourceBuildRequest
 from onlyalpha.data.synthetic.source import (
+    ONLY_SYNTHETIC_PLUGIN_DESCRIPTOR,
     OnlySyntheticHistoricalDataSource,
     OnlySyntheticHistoricalDataSourceConfig,
     OnlySyntheticInstrumentDataConfig,
@@ -18,51 +19,89 @@ from onlyalpha.data.synthetic.source import (
     OnlySyntheticVolumeModel,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities, OnlyPluginValidationIssue
+from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
+from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
+
+
+@dataclass(frozen=True, slots=True)
+class OnlySyntheticPluginConfig:
+    market_config: str
+    random_seed: int
 
 
 class OnlySyntheticDataSourceFactory:
     @property
-    def factory_id(self) -> str:
-        return "SYNTHETIC"
+    def descriptor(self) -> OnlyPluginDescriptor:
+        return ONLY_SYNTHETIC_PLUGIN_DESCRIPTOR
 
-    def create(self, request: OnlyDataSourceBuildRequest) -> OnlySyntheticHistoricalDataSource:
-        extensions = request.config.extensions
-        market_name = self._string(extensions.get("market_config"), "data_sources[].extensions.market_config")
-        random_seed = self._integer(extensions.get("random_seed", 0), "random_seed")
-        market_path = (request.assembly_plan.source_path.parent / market_name).resolve()
+    def parse_config(self, extensions: Mapping[str, object]) -> OnlySyntheticPluginConfig:
+        return OnlySyntheticPluginConfig(
+            self._string(extensions.get("market_config"), "data_sources[].extensions.market_config"),
+            self._integer(extensions.get("random_seed", 0), "random_seed"),
+        )
+
+    def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
+        issues: list[OnlyPluginValidationIssue] = []
+        capabilities = self.descriptor.capabilities
+        if not isinstance(capabilities, OnlyDataSourceCapabilities):
+            issues.append(OnlyPluginValidationIssue("PLUGIN_DESCRIPTOR_INVALID", "invalid capabilities"))
+        else:
+            issues.extend(
+                OnlyPluginValidationIssue(
+                    "PLUGIN_CAPABILITY_NOT_SUPPORTED",
+                    f"Synthetic DataSource does not support {name}",
+                    name,
+                )
+                for name in capabilities.missing(request.requested_capabilities)
+            )
+        if not isinstance(request.plugin_config, OnlySyntheticPluginConfig):
+            issues.append(OnlyPluginValidationIssue("PLUGIN_CONFIG_INVALID", "invalid Synthetic plugin config"))
+        elif not (request.config_directory / request.plugin_config.market_config).is_file():
+            issues.append(
+                OnlyPluginValidationIssue(
+                    "PLUGIN_CONFIG_INVALID",
+                    "synthetic market_config does not exist",
+                    "market_config",
+                )
+            )
+        return tuple(issues)
+
+    def create(self, request: OnlyDataSourceCreateRequest) -> OnlySyntheticHistoricalDataSource:
+        config = request.plugin_config
+        if not isinstance(config, OnlySyntheticPluginConfig):
+            raise TypeError("Synthetic Factory requires OnlySyntheticPluginConfig")
+        market_path = (request.config_directory / config.market_config).resolve()
         market = self._mapping(yaml.safe_load(market_path.read_text(encoding="utf-8")), "synthetic market")
-        instrument_ids = set(request.config.coverage.instrument_ids)
-        for universe_id in request.config.coverage.universe_ids:
-            universe = next(item for item in request.assembly_plan.universes if item.universe_id == universe_id)
+        instrument_ids = set(request.coverage.instrument_ids)
+        for universe_id in request.coverage.universe_ids:
+            universe = next(item for item in request.universes if item.universe_id == universe_id)
             instrument_ids.update(universe.instrument_ids)
         items = tuple(
             self._instrument(request, instrument_id, market) for instrument_id in sorted(instrument_ids, key=str)
         )
         return OnlySyntheticHistoricalDataSource(
             OnlySyntheticHistoricalDataSourceConfig(
-                request.config.source_id,
+                request.source_id,
                 request.runtime_id,
-                request.config.data_version,
+                request.data_version,
                 items,
-                random_seed,
+                config.random_seed,
             )
         )
 
     def _instrument(
         self,
-        request: OnlyDataSourceBuildRequest,
+        request: OnlyDataSourceCreateRequest,
         instrument_id: OnlyInstrumentId,
         market: Mapping[str, object],
     ) -> OnlySyntheticInstrumentDataConfig:
-        instrument = next(
-            item for item in request.assembly_plan.reference_data.instruments if item.instrument_id == instrument_id
-        )
+        instrument = request.instruments[instrument_id]
         if instrument.trading_calendar_id is None:
             raise ValueError(f"synthetic instrument {instrument.instrument_id} requires a TradingCalendar")
-        calendar = request.assembly_plan.reference_data.calendar_by_id[instrument.trading_calendar_id]
-        bar_type = self._bar_type(request, instrument.instrument_id)
+        calendar = request.calendars[instrument.trading_calendar_id]
+        bar_type = request.bar_types[instrument_id]
         segments = tuple(
             OnlySyntheticPriceSegment(
                 OnlySyntheticPriceSegmentType(self._string(item.get("type"), "segment.type")),
@@ -93,21 +132,6 @@ class OnlySyntheticDataSourceFactory:
                 self._integer(noise.get("maximum_price_steps", 0), "noise.maximum_price_steps"),
             ),
         )
-
-    @staticmethod
-    def _bar_type(request: OnlyDataSourceBuildRequest, instrument_id: OnlyInstrumentId) -> OnlyBarType:
-        for cluster in request.assembly_plan.clusters:
-            for factor in cluster.factors:
-                for instrument_subscription in factor.subscriptions.instrument_bars:
-                    if instrument_subscription.instrument_id == instrument_id:
-                        return instrument_subscription.bar_specification.to_bar_type(instrument_id)
-                for universe_subscription in factor.subscriptions.universe_bars:
-                    universe = next(
-                        x for x in request.assembly_plan.universes if x.universe_id == universe_subscription.universe_id
-                    )
-                    if instrument_id in universe.instrument_ids:
-                        return universe_subscription.bar_specification.to_bar_type(instrument_id)
-        raise ValueError(f"no Bar subscription for synthetic instrument {instrument_id}")
 
     @staticmethod
     def _mapping(value: object, path: str) -> Mapping[str, object]:

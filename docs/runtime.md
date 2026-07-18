@@ -67,6 +67,10 @@ Cluster 不接触具体 Gateway、撮合器、EventBus、可变 Cache、Aggregat
 `OnlyBacktestRuntime.run()` 内。闭合 Bar 在 Broker 对账与 Cluster 回调前更新 Account/Strategy 估值；Calendar-derived
 TradingDay 切换驱动本地 SettlementService。
 
+DataSource/Broker 的内建与外部实现均由 Factory Registry 解析。组合根注册内建 Factory 并扫描 Entry Point；Runtime Factory
+负责 `parse_config -> Capability Validation -> create`，Runtime 只管理创建后的资源生命周期。启动顺序为 DataSource、Broker
+的 initialize/connect/start 后启动 Cluster；停止与关闭按 Broker、DataSource 逆序执行，单个资源清理失败不会跳过其余资源。
+
 历史数据驱动虚拟时钟。
 
 必须可配置：

@@ -50,7 +50,7 @@ universes:
 
 data_sources:
   - source_id: synthetic-cn-etf
-    type: SYNTHETIC
+    plugin: synthetic
     data_version: macd-demo-v1
     batch_size: 128
     coverage:
@@ -68,7 +68,7 @@ accounts:
 
 brokers:
   - gateway_id: virtual-macd-demo
-    type: VIRTUAL
+    plugin: virtual
     extensions:
       matching:
         type: NEXT_BAR
@@ -85,8 +85,8 @@ clusters:
     account_id: macd-backtest-demo-DEFAULT
     enabled: true
     strategy:
-      class_path: tests.runtime_support.macd_plugin:OnlyTestMacdStrategy
-      config_path: tests.runtime_support.macd_plugin:OnlyTestMacdStrategyConfig
+      class_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategy
+      config_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategyConfig
       extensions:
         strategy_id: macd-strategy
         signal_factor_id: macd-signal
@@ -97,8 +97,8 @@ clusters:
     factors:
       - factor_id: macd-signal
         factor_type: TIME_SERIES
-        class_path: tests.runtime_support.macd_plugin:OnlyTestMacdFactor
-        config_path: tests.runtime_support.macd_plugin:OnlyTestMacdFactorConfig
+        class_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdFactor
+        config_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdFactorConfig
         required: true
         subscriptions:
           instrument_bars:

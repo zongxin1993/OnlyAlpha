@@ -92,6 +92,8 @@ from onlyalpha.order.publisher import OnlyRuntimeOrderEventPublisherAdapter
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
+from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerInboundQueue
+from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
 from onlyalpha.position.enums import OnlyPositionSide
 from onlyalpha.position.keys import OnlyPositionAllocationKey
@@ -164,6 +166,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         calendar: OnlyTradingCalendar | None = None,
         engine_id: str = "engine",
         run_plan: OnlyBacktestRunPlanPort | None = None,
+        owned_clock: OnlyBacktestClock | None = None,
+        owned_event_bus: OnlyEventBus | None = None,
+        broker_gateway: OnlyBacktestBrokerGateway | None = None,
+        broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
+        plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
         if isinstance(config, str):
             if not isinstance(calendar_or_clock, OnlyBacktestClock):
@@ -184,8 +191,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 raise TypeError("Backtest Runtime requires an initial UTC time")
             runtime_config = config
             selected_calendar = calendar_or_clock
-            clock = OnlyBacktestClock(initial_time_or_event_bus)
-            event_bus = None
+            clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
+            event_bus = owned_event_bus
         super().__init__(runtime_config)
         self._selected_calendar = selected_calendar
         scope = OnlyEventScope(runtime_config.engine_id, runtime_config.runtime_id)  # type: ignore[arg-type]
@@ -214,20 +221,19 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 event_sink,
             )
         )
-        account_initial_cash = (
+        account_initial_cash = runtime_config.account_initial_cash or (
             runtime_config.virtual_broker_config.initial_cash
             if runtime_config.virtual_broker_config is not None
             else OnlyMoney(Decimal(str(runtime_config.strategy_initial_capital)), runtime_config.strategy_base_currency)
         )
+        configured_gateway_id = runtime_config.broker_gateway_id
+        if configured_gateway_id is None and runtime_config.virtual_broker_config is not None:
+            configured_gateway_id = runtime_config.virtual_broker_config.gateway_id
         self._account_manager.create_account(
             OnlyAccountConfig(
                 runtime_config.runtime_id,  # type: ignore[arg-type]
                 runtime_config.default_account_id,  # type: ignore[arg-type]
-                (
-                    str(runtime_config.virtual_broker_config.gateway_id)
-                    if runtime_config.virtual_broker_config is not None
-                    else "placeholder"
-                ),
+                (str(configured_gateway_id) if configured_gateway_id is not None else "placeholder"),
                 OnlyAccountType.CASH,
                 runtime_config.strategy_base_currency,
                 account_initial_cash,
@@ -310,8 +316,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._strategy_ledger_query, runtime_config.strategy_base_currency
             ),
         )
-        broker_inbound = OnlyVirtualBrokerUpdateQueue(runtime_config.event_capacity)
-        broker_gateway = (
+        broker_inbound = (
+            broker_inbound_queue
+            if broker_inbound_queue is not None
+            else OnlyVirtualBrokerUpdateQueue(runtime_config.event_capacity)
+        )
+        selected_broker_gateway = broker_gateway or (
             OnlyVirtualBrokerGateway(
                 runtime_config.virtual_broker_config,
                 runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -321,12 +331,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             if runtime_config.virtual_broker_config is not None
             else None
         )
-        if broker_gateway is not None:
-            broker_gateway.connect()
-            broker_gateway.authenticate()
         execution_service: OnlyExecutionService = (
-            OnlyBrokerExecutionService(broker_gateway, clock)
-            if broker_gateway is not None
+            OnlyBrokerExecutionService(selected_broker_gateway, clock)
+            if selected_broker_gateway is not None
             else OnlyPlaceholderExecutionService()
         )
         order_service = OnlyOrderService(
@@ -372,9 +379,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 runtime_config.engine_id,  # type: ignore[arg-type]
                 runtime_config.runtime_id,  # type: ignore[arg-type]
                 (
-                    runtime_config.virtual_broker_config.gateway_id
-                    if runtime_config.virtual_broker_config is not None
-                    else OnlyBrokerGatewayId("placeholder"),
+                    runtime_config.broker_gateway_id
+                    or (
+                        runtime_config.virtual_broker_config.gateway_id
+                        if runtime_config.virtual_broker_config is not None
+                        else OnlyBrokerGatewayId("placeholder")
+                    ),
                 ),
                 (runtime_config.default_account_id,),  # type: ignore[arg-type]
             ),
@@ -450,13 +460,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 )
                 self._last_market_trading_day = trading_day
             self._apply_market_valuations(result.base_bar, trading_day)
-            if broker_gateway is not None:
-                broker_gateway.on_bar(result.base_bar)
+            if selected_broker_gateway is not None:
+                selected_broker_gateway.on_bar(result.base_bar)
                 drain_execution_updates()
 
         def after_market_dispatch() -> None:
-            if broker_gateway is not None:
-                broker_gateway.run_due()
+            if selected_broker_gateway is not None:
+                selected_broker_gateway.run_due()
                 drain_execution_updates()
             owned_bus.drain()
 
@@ -502,7 +512,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._account_manager,
             self._account_query,
             broker_inbound,
-            broker_gateway,
+            selected_broker_gateway,
             execution_processor,
             execution_event_publisher,
             execution_audit_store,
@@ -526,6 +536,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._broker_connection_state: object | None = None
         self._legacy_market_data_sequence = 0
         self._run_plan = run_plan
+        resources = plugin_resources
+        if not resources and selected_broker_gateway is not None:
+            resources = (selected_broker_gateway,)
+        if resources:
+            self._bind_plugin_resources(resources)
 
     def run(self) -> object:
         """Execute a configured product backtest through Replay and Runtime-owned services."""

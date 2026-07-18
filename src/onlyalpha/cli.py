@@ -74,7 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fail_fast=args.fail_fast,
                 log_level=args.log_level,
             ),
-            services=only_default_engine_services(),
+            services=only_default_engine_services(fail_fast=args.fail_fast),
         )
         for config_path in only_resolve_config_paths(args):
             try:

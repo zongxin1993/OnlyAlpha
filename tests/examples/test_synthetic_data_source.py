@@ -1,23 +1,56 @@
+import logging
 from dataclasses import replace
 from datetime import time
 from decimal import Decimal
 from pathlib import Path
 
 from onlyalpha.config import OnlyRunConfig
-from onlyalpha.data.factory import OnlyDataSourceBuildRequest
+from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.data.synthetic import (
     OnlySyntheticHistoricalDataSource,
     OnlySyntheticNoiseModel,
 )
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
+from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.plugin import OnlyDataSourceCapabilities, OnlyPluginLifecycleState
+from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 CONFIG = Path("tests/fixtures/legacy_macd/run.yaml")
 
 
 def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:
-    source = OnlySyntheticDataSourceFactory().create(
-        OnlyDataSourceBuildRequest(config.data_sources[0], config, config.runtime.runtime_id)
+    assert config.start_time is not None
+    common = config.data_sources[0]
+    bar_type = (
+        config.clusters[0]
+        .factors[0]
+        .subscriptions.instrument_bars[0]
+        .bar_specification.to_bar_type(config.reference_data.instruments[0].instrument_id)
+    )
+    clock = OnlyBacktestClock(config.start_time)
+    event_bus = OnlyEventBus(scope=OnlyEventScope(config.engine_id, config.runtime_id))
+    factory = OnlySyntheticDataSourceFactory()
+    source = factory.create(
+        OnlyDataSourceCreateRequest(
+            common.source_id,
+            factory.parse_config(common.extensions),
+            config.runtime.runtime_type,
+            OnlyDataSourceCapabilities(historical_bars=True),
+            clock,
+            event_bus,
+            config.reference_data.instrument_by_id,
+            {bar_type.instrument_id: bar_type},
+            config.reference_data.calendar_by_id,
+            config.universes,
+            common.coverage,
+            config.runtime_id,
+            common.data_version,
+            common.batch_size,
+            config.source_path.parent,
+            logging.getLogger(__name__),
+        )
     )
     assert isinstance(source, OnlySyntheticHistoricalDataSource)
     return source
@@ -25,6 +58,10 @@ def _source(config: OnlyRunConfig) -> OnlySyntheticHistoricalDataSource:
 
 def _load(config: OnlyRunConfig, source: OnlySyntheticHistoricalDataSource | None = None):
     source = source or _source(config)
+    if source.state is not OnlyPluginLifecycleState.RUNNING:
+        source.initialize()
+        source.connect()
+        source.start()
     bar_type = (
         config.clusters[0]
         .factors[0]

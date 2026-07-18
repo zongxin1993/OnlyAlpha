@@ -1,40 +1,57 @@
-"""Strongly typed Broker factories and registry."""
+"""Broker plugin Factory Registry."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+from onlyalpha.plugin.broker import OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
+from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, OnlyPluginOriginType, OnlyPluginType
+from onlyalpha.plugin.errors import OnlyPluginRegistryError
+from onlyalpha.plugin.registry import OnlyPluginFactoryRecord, only_register_plugin_factory
 
-from onlyalpha.broker.virtual.config import OnlyVirtualBrokerConfig
-from onlyalpha.config import OnlyAccountRuntimeConfig, OnlyBrokerRuntimeConfig, OnlyRuntimeAssemblyPlan
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyBrokerBuildRequest:
-    config: OnlyBrokerRuntimeConfig
-    account: OnlyAccountRuntimeConfig
-    assembly_plan: OnlyRuntimeAssemblyPlan
-
-
-class OnlyBrokerFactory(Protocol):
-    @property
-    def factory_id(self) -> str: ...
-
-    def create(self, request: OnlyBrokerBuildRequest) -> OnlyVirtualBrokerConfig: ...
+OnlyBrokerFactory = OnlyBrokerGatewayFactory
 
 
 class OnlyBrokerFactoryRegistry:
     def __init__(self) -> None:
-        self._factories: dict[str, OnlyBrokerFactory] = {}
+        self._records: dict[str, OnlyPluginFactoryRecord] = {}
 
-    def register(self, factory: OnlyBrokerFactory) -> None:
-        key = factory.factory_id.upper()
-        if key in self._factories:
-            raise ValueError(f"duplicate Broker factory: {key}")
-        self._factories[key] = factory
+    def register(
+        self,
+        factory: OnlyBrokerGatewayFactory,
+        *,
+        origin: OnlyPluginOrigin | None = None,
+    ) -> None:
+        only_register_plugin_factory(
+            self._records,
+            factory,
+            origin or OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha"),
+            OnlyPluginType.BROKER,
+        )
 
-    def require(self, factory_id: str) -> OnlyBrokerFactory:
+    def resolve(self, plugin_id: str) -> OnlyBrokerGatewayFactory:
         try:
-            return self._factories[factory_id.upper()]
+            return self._records[plugin_id.lower()].factory  # type: ignore[return-value]
         except KeyError as exc:
-            raise ValueError(f"BROKER_FACTORY_NOT_AVAILABLE: {factory_id}") from exc
+            raise OnlyPluginRegistryError(
+                "PLUGIN_NOT_FOUND",
+                "Broker plugin is not registered",
+                plugin_id=plugin_id,
+            ) from exc
+
+    def require(self, plugin_id: str) -> OnlyBrokerGatewayFactory:
+        """Deprecated alias for resolve()."""
+
+        return self.resolve(plugin_id)
+
+    def descriptors(self) -> tuple[OnlyPluginDescriptor, ...]:
+        return tuple(self._records[key].descriptor for key in sorted(self._records))
+
+    def records(self) -> tuple[OnlyPluginFactoryRecord, ...]:
+        return tuple(self._records[key] for key in sorted(self._records))
+
+
+__all__ = [
+    "OnlyBrokerCreateRequest",
+    "OnlyBrokerFactory",
+    "OnlyBrokerFactoryRegistry",
+    "OnlyBrokerGatewayFactory",
+]

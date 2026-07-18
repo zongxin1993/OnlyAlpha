@@ -25,7 +25,7 @@
   },
   "universes": [{"universe_id": "macd-demo-universe", "type": "STATIC", "instruments": ["TESTETF.XSHG"]}],
   "data_sources": [{
-    "source_id": "synthetic-cn-etf", "type": "SYNTHETIC", "data_version": "macd-engine-demo-v1",
+    "source_id": "synthetic-cn-etf", "plugin": "synthetic", "data_version": "macd-engine-demo-v1",
     "batch_size": 128, "coverage": {"universe_ids": ["macd-demo-universe"]},
     "extensions": {"market_config": "synthetic_market.yaml", "random_seed": 20260715}
   }],
@@ -34,15 +34,15 @@
     "initial_cash": {"value": "1000000.00", "currency": "CNY"}
   }],
   "brokers": [{
-    "gateway_id": "virtual-main", "type": "VIRTUAL", "extensions": {
+    "gateway_id": "virtual-main", "plugin": "virtual", "extensions": {
       "matching": {"type": "NEXT_BAR"},
       "commission": {"type": "FIXED", "fixed_amount": {"value": "1.00", "currency": "CNY"}},
       "slippage": {"type": "NONE"}
     }
   }],
   "strategy": {
-    "class_path": "tests.runtime_support.macd_plugin:OnlyTestMacdStrategy",
-    "config_path": "tests.runtime_support.macd_plugin:OnlyTestMacdStrategyConfig",
+    "class_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategy",
+    "config_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategyConfig",
     "extensions": {
       "strategy_id": "macd-fast-strategy", "signal_factor_id": "macd-fast-signal",
       "instrument_id": "TESTETF.XSHG", "trade_quantity": "1000"
@@ -50,8 +50,8 @@
   },
   "factors": [{
     "factor_id": "macd-fast-signal", "factor_type": "TIME_SERIES",
-    "class_path": "tests.runtime_support.macd_plugin:OnlyTestMacdFactor",
-    "config_path": "tests.runtime_support.macd_plugin:OnlyTestMacdFactorConfig", "required": true,
+    "class_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdFactor",
+    "config_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdFactorConfig", "required": true,
     "subscriptions": {"instrument_bars": [{
       "instrument_id": "TESTETF.XSHG",
       "bar_specification": {"step": 1, "aggregation": "TIME", "price_type": "LAST", "source": "EXTERNAL"},

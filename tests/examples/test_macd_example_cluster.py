@@ -1,11 +1,11 @@
 import ast
 from pathlib import Path
 
-from tests.runtime_support.macd_plugin import OnlyTestMacdStrategy
+from onlyalpha_test_plugin.macd_plugin import OnlyTestMacdStrategy
 
 
 def test_macd_strategy_source_uses_only_strategy_context_capabilities() -> None:
-    path = Path("tests/runtime_support/macd_plugin.py")
+    path = Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/src/onlyalpha_test_plugin/macd_plugin.py")
     tree = ast.parse(path.read_text(encoding="utf-8"))
     strategy = next(
         node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyTestMacdStrategy"

@@ -91,7 +91,8 @@ HistoricalDataSource / MarketDataGateway
 → Position → Allocation → StrategyLedger → Account → Event / Report
 ```
 
-旧 `Runtime.process_bar()` 只是单记录本地 Replay facade，不再直接推进 Clock 或调用 Pipeline。统一环境为 33 个场景；新增
-024～033 验证装配、正式历史入口、Audit、双 Queue、Registry、Reference Data、Lookahead、Snapshot Quality、顺序和闭环。
+旧 `Runtime.process_bar()` 只是单记录本地 Replay facade，不再直接推进 Clock 或调用 Pipeline。统一环境当前为 35 个场景；
+024～033 验证装配、正式历史入口、Audit、双 Queue、Registry、Reference Data、Lookahead、Snapshot Quality、顺序和闭环，
+034 验证 Synthetic/Virtual 产品回测，035 验证外部 DataSource/Broker 通过 Entry Point 接入同一纵向链路。
 
 Product MACD 场景使用单 Cluster 文档的 `strategy + factors[]` 配置，经 CLI 等价 Engine 入口与 Factory 运行；Runtime 不识别 MACD。通用结果通过 Cluster extension、Factor result 和 Indicator diagnostics 输出。该场景与完整 Vertical Slice 均执行 100 次确定性重放。

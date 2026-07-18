@@ -1,4 +1,4 @@
-"""Test-only MACD Strategy/Factor adapter for core vertical-slice tests."""
+"""Installed test-only MACD Strategy/Factor fixture for CLI vertical slices."""
 
 from __future__ import annotations
 

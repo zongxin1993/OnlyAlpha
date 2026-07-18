@@ -26,3 +26,17 @@ def test_mapping_round_trip_preserves_config_facts() -> None:
     restored = OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
     assert restored.cluster_id == original.cluster_id
     assert restored.runtime_id == original.runtime_id
+
+
+def test_deprecated_type_normalizes_to_plugin_id_and_conflicts_with_plugin() -> None:
+    original = OnlyClusterRunConfig.load(CONFIG)
+    payload = json.loads(json.dumps(dict(original.normalized_payload)))
+    payload["data_sources"][0]["type"] = payload["data_sources"][0].pop("plugin")
+    payload["brokers"][0]["type"] = payload["brokers"][0].pop("plugin")
+    with pytest.warns(DeprecationWarning, match="type is deprecated"):
+        parsed = OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
+    assert parsed.data_sources[0].plugin_id == "synthetic"
+    assert parsed.brokers[0].plugin_id == "virtual"
+    payload["data_sources"][0]["plugin"] = "synthetic"
+    with pytest.raises(OnlyRunConfigError, match="cannot define both plugin"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)

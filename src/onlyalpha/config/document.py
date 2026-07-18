@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
@@ -391,7 +392,8 @@ class _OnlyRunConfigParser:
             result.append(
                 OnlyDataSourceRuntimeConfig(
                     OnlyMarketDataSourceId(self._str(raw.get("source_id"), f"{p}.source_id")),
-                    self._str(raw.get("type"), f"{p}.type"),
+                    self._plugin_id(raw, p),
+                    self._bool(raw.get("enabled", True), f"{p}.enabled"),
                     OnlyDataVersion(self._str(raw.get("data_version"), f"{p}.data_version")),
                     OnlyDataSourceCoverageConfig(
                         tuple(
@@ -449,7 +451,8 @@ class _OnlyRunConfigParser:
             result.append(
                 OnlyBrokerRuntimeConfig(
                     OnlyBrokerGatewayId(self._str(raw.get("gateway_id"), f"{p}.gateway_id")),
-                    self._str(raw.get("type"), f"{p}.type"),
+                    self._plugin_id(raw, p),
+                    self._bool(raw.get("enabled", True), f"{p}.enabled"),
                     self._map(raw.get("extensions", {}), f"{p}.extensions"),
                 )
             )
@@ -571,6 +574,22 @@ class _OnlyRunConfigParser:
             ),
             self._bool(raw.get("overwrite", False), "$.output.overwrite"),
         )
+
+    def _plugin_id(self, raw: OnlyJsonMapping, path: str) -> str:
+        plugin = raw.get("plugin")
+        legacy_type = raw.get("type")
+        if plugin is not None and legacy_type is not None:
+            raise OnlyRunConfigError(f"{path} cannot define both plugin and deprecated type")
+        if plugin is not None:
+            return self._str(plugin, f"{path}.plugin").lower()
+        if legacy_type is None:
+            raise OnlyRunConfigError(f"{path}.plugin is required")
+        warnings.warn(
+            f"{path}.type is deprecated; use plugin (type will be removed in 0.2)",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return self._str(legacy_type, f"{path}.type").lower()
 
     @staticmethod
     def _map(value: object, path: str) -> OnlyJsonMapping:
