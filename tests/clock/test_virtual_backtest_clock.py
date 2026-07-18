@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -24,13 +25,13 @@ def test_virtual_clock_preserves_nanoseconds_as_authoritative_value() -> None:
 
 
 def test_backtest_rejects_non_utc_and_backward_time() -> None:
-    clock = OnlyBacktestClock(START)
+    non_utc_dt = datetime(2026, 1, 5, 9, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
     with pytest.raises(OnlyValidationError, match="UTC"):
-        OnlyBacktestClock(datetime(2026, 1, 5, 9, 30).astimezone())
+        OnlyBacktestClock(non_utc_dt)
+    clock = OnlyBacktestClock(START)
     clock.advance_by(1)
     with pytest.raises(OnlyValidationError, match="backwards"):
         clock.advance_to(only_datetime_to_unix_ns(START))
-
 
 def test_snapshot_restore_is_time_only() -> None:
     clock = OnlyVirtualClock(100)
