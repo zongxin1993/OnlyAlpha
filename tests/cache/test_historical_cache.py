@@ -38,11 +38,17 @@ class OnlyFakeProvider:
         self.bar = build_bar()
 
     def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
-        return OnlyHistoricalCacheKey("fake", "bars", request.instrument_id, request.bar_type, request.adjustment)
+        return OnlyHistoricalCacheKey("fake", "bars", request.instrument_id, request.bar_type, request.price_adjustment)
 
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
         self.calls += 1
-        return OnlyHistoricalFetchResult((self.bar,), (time_range,), OnlyDataQualityReport(True), {"vendor": "fake"})
+        return OnlyHistoricalFetchResult(
+            (self.bar,),
+            (time_range,),
+            (OnlyTimeRange(self.bar.bar_start, self.bar.bar_end),),
+            OnlyDataQualityReport(True),
+            {"vendor": "fake"},
+        )
 
 
 def test_first_load_writes_then_reads_parquet_and_cache_only_does_not_fetch(tmp_path) -> None:

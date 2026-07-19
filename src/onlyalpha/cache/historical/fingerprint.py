@@ -12,7 +12,8 @@ def only_cache_key_payload(key: OnlyHistoricalCacheKey) -> dict[str, object]:
         "dataset_type": key.dataset_type,
         "instrument_id": str(key.instrument_id),
         "bar_type": key.bar_type.to_dict(),
-        "adjustment": key.adjustment,
+        "price_adjustment": key.price_adjustment.value,
+        "adjustment_reference": key.adjustment_reference,
         "schema_version": key.schema_version,
         "time_semantics_version": key.time_semantics_version,
     }

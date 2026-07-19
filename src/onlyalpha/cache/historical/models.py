@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 
@@ -36,7 +37,8 @@ class OnlyHistoricalCacheKey:
     dataset_type: str
     instrument_id: OnlyInstrumentId
     bar_type: OnlyBarType
-    adjustment: str
+    price_adjustment: OnlyAdjustmentType
+    adjustment_reference: str | None = None
     schema_version: int = 1
     time_semantics_version: int = 1
 
@@ -46,7 +48,8 @@ class OnlyHistoricalDataRequest:
     instrument_id: OnlyInstrumentId
     bar_type: OnlyBarType
     time_range: OnlyTimeRange
-    adjustment: str = "raw"
+    price_adjustment: OnlyAdjustmentType = OnlyAdjustmentType.RAW
+    adjustment_reference: str | None = None
     metadata: Mapping[str, OnlyJsonValue] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -79,7 +82,8 @@ class OnlyDataQualityReport:
 @dataclass(frozen=True, slots=True)
 class OnlyHistoricalFetchResult:
     records: tuple[OnlyBar, ...]
-    actual_coverage: tuple[OnlyTimeRange, ...]
+    resolved_ranges: tuple[OnlyTimeRange, ...]
+    observed_ranges: tuple[OnlyTimeRange, ...]
     quality_report: OnlyDataQualityReport
     source_metadata: Mapping[str, OnlyJsonValue]
 
@@ -87,7 +91,8 @@ class OnlyHistoricalFetchResult:
 @dataclass(frozen=True, slots=True)
 class OnlyCacheManifest:
     key: OnlyHistoricalCacheKey
-    coverage: tuple[OnlyTimeRange, ...]
+    resolved_ranges: tuple[OnlyTimeRange, ...]
+    observed_ranges: tuple[OnlyTimeRange, ...]
     row_count: int
     partition_hashes: Mapping[str, str]
     content_fingerprint: str
@@ -103,7 +108,8 @@ class OnlyCacheInspection:
     exists: bool
     valid: bool
     key: OnlyHistoricalCacheKey
-    coverage: tuple[OnlyTimeRange, ...]
+    resolved_ranges: tuple[OnlyTimeRange, ...]
+    observed_ranges: tuple[OnlyTimeRange, ...]
     missing_ranges: tuple[OnlyTimeRange, ...]
     manifest: OnlyCacheManifest | None
     issues: tuple[OnlyDataQualityIssue, ...] = ()
