@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
-from datetime import UTC, datetime
+from dataclasses import FrozenInstanceError, replace
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -150,6 +150,38 @@ def test_default_1m_primary_calls_three_times_and_third_snapshot_is_ready(
     third = cluster.calls[-1][1]
     assert third.updated_bar_types == frozenset({bar_1m, bar_3m})
     assert third.latest_closed(bar_3m).bar_end == make_bar(2).bar_end  # type: ignore[union-attr]
+
+
+def test_external_daily_bar_runs_through_pipeline_and_dispatches(
+    shanghai_calendar, bar_1m, make_bar
+) -> None:
+    daily_bar_type = replace(
+        bar_1m,
+        specification=replace(bar_1m.specification, step=1440),
+    )
+    cluster = OnlyRecordingCluster("daily")
+    pipeline, dispatcher, manager = _system(
+        shanghai_calendar,
+        (OnlyClusterBarSubscription(cluster, OnlyBarSubscription((daily_bar_type,))),),
+    )
+    minute_bar = make_bar(0)
+    daily_bar = replace(
+        minute_bar,
+        bar_type=daily_bar_type,
+        bar_end=minute_bar.bar_start + timedelta(hours=5, minutes=30),
+        ts_event=minute_bar.bar_start + timedelta(hours=5, minutes=30),
+        ts_init=minute_bar.bar_start + timedelta(hours=5, minutes=30),
+    )
+
+    update = pipeline.process_bar(daily_bar)
+    dispatcher.dispatch(update)
+
+    assert update.base_bar == daily_bar
+    assert update.derived_bars == ()
+    assert manager.aggregator_count == 0
+    assert len(cluster.calls) == 1
+    assert cluster.calls[0][0] == daily_bar
+    assert cluster.calls[0][1].primary_bar == daily_bar
 
 
 def test_explicit_3m_primary_calls_once_with_latest_1m(shanghai_calendar, bar_1m, bar_3m, make_bar) -> None:

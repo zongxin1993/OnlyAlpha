@@ -271,8 +271,6 @@ class OnlyMarketDataPipeline:
             raise OnlyMarketDataPipelineError("base input must be externally aggregated")
         if bar.bar_type.specification.aggregation is not OnlyBarAggregation.TIME:
             raise OnlyMarketDataPipelineError("first-phase base input must be a time Bar")
-        if bar.bar_type.specification.step != 1:
-            raise OnlyMarketDataPipelineError("first-phase base input must be 1m")
         if bar.ts_event != bar.bar_end:
             raise OnlyMarketDataPipelineError("closed base Bar ts_event must equal bar_end")
         if bar.revision != 0 and self._revision_policy is OnlyBarRevisionPolicy.REJECT:
