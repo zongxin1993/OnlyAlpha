@@ -43,6 +43,10 @@ profile. A profile may be marked Stable only when every enabled capability is co
 pack. Scenario runners must traverse Engine, Risk, Virtual Broker, ExecutionProcessor, and Results and must never forge
 fills or mutate account/position state for assertions.
 
+Scenario code belongs in `onlyalpha.scenario`. Parser and Assertion code must not import Broker, Risk, Runtime managers,
+or Profile rule implementations. PAPER/LIVE/SHADOW capability gaps must be explicit; never translate their actions into a
+hidden BACKTEST path. Parser/planner tests are not evidence that an Engine scenario or Conformance Pack passes.
+
 ## Commit & Pull Request Guidelines
 
 History uses concise prefixes such as `Feat:` and `Fix:`. Keep commits scoped to one boundary and write imperative summaries, for example `Fix: preserve replay root failure`. Pull requests should explain the behavior change, architecture impact, tests executed, and known limitations; link related issues or ADRs. Include screenshots only for user-facing output changes, and never commit credentials, tokens, generated `user_data`, caches, or run artifacts.

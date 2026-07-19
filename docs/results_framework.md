@@ -54,3 +54,6 @@ Artifact 先写 staging、读回验证，再发布 Manifest；失败不留下宣
 Result、Analysis 和 Artifact Content 指纹基于排序后的规范内容。它们包含事实、最终状态、稳定诊断和数据内容身份；排除 run_id、墙钟时间、绝对路径、PID、hostname、traceback、临时目录与文件时间。相同配置和数据应产生相同指纹。
 
 当前范围不包含 HTML、图表、高级风险指标、归因、参数实验或跨币种汇率换算。
+
+Scenario Assertion 只能消费本结果链的标准事实。Profile timeline、compiled rule identity、market decisions、settlements、
+margin、fees 和 action records 仍需由正式 Collector 收口；Assertion 不得离线推导这些事实。
