@@ -79,15 +79,23 @@ class OnlyPosition:
             self.broker_available_quantity,
         )
 
-    def apply_trade(self, trade: OnlyPositionTrade, pnl_model: OnlyPnLModel) -> OnlyMoney:
+    def apply_trade(
+        self,
+        trade: OnlyPositionTrade,
+        pnl_model: OnlyPnLModel,
+        own_order_reserved_quantity: OnlyQuantity | None = None,
+    ) -> OnlyMoney:
         before_quantity = self.total_quantity
         if trade.side is OnlyOrderSide.BUY:
             self._increase(trade)
             pnl_delta = OnlyMoney(Decimal(0), trade.fee.currency)
         else:
             if trade.quantity.value > self.snapshot().available_quantity.value:
-                # A fill may consume quantity already held by its own order freeze.
-                usable_with_order_freeze = self.snapshot().available_quantity.value + self.order_frozen_quantity.value
+                # A fill may consume quantity held by its own reservation. The
+                # explicit quantity avoids treating another order's freeze as
+                # available when broker availability is already reduced.
+                own_reserved = Decimal(0) if own_order_reserved_quantity is None else own_order_reserved_quantity.value
+                usable_with_order_freeze = self.snapshot().available_quantity.value + own_reserved
                 if trade.quantity.value > usable_with_order_freeze:
                     raise OnlyPositionOverSellError("sell exceeds effective available Position quantity")
             if self.average_open_price is None:

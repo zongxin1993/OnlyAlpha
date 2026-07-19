@@ -44,7 +44,11 @@ class OnlyPositionManager:
         self._cycles: dict[OnlyPositionKey, int] = {}
         self._event_sequence = 0
 
-    def apply_trade(self, trade: OnlyPositionTrade) -> OnlyPositionMutationResult:
+    def apply_trade(
+        self,
+        trade: OnlyPositionTrade,
+        own_order_reserved_quantity: OnlyQuantity | None = None,
+    ) -> OnlyPositionMutationResult:
         self._require_scope(trade.runtime_id)
         fingerprints = self._fingerprints(trade)
         key = OnlyPositionKey(
@@ -81,7 +85,11 @@ class OnlyPositionManager:
             self._cycles[key] = cycle
             position = OnlyPosition(self._position_id(key, cycle), key, trade)
             self._active[key] = position
-        pnl_delta = position.apply_trade(trade, self._pnl_model)
+        pnl_delta = position.apply_trade(
+            trade,
+            self._pnl_model,
+            own_order_reserved_quantity,
+        )
         self._trade_fingerprints.update(fingerprints)
         after = position.snapshot()
         self._save(after)
