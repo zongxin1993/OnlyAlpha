@@ -137,6 +137,9 @@ class OnlyEngineRunResult:
     failures: tuple[str, ...]
     manifest_path: Path | None
     determinism_fingerprint: str
+    backtest_reports: tuple[dict[str, object], ...] = ()
+    console_reports: tuple[str, ...] = ()
+    report_paths: tuple[Path, ...] = ()
 
     @property
     def exit_code(self) -> int:
@@ -151,6 +154,8 @@ class OnlyEngineRunResult:
             "failures": list(self.failures),
             "manifest_path": None if self.manifest_path is None else str(self.manifest_path),
             "determinism_fingerprint": self.determinism_fingerprint,
+            "backtest_reports": list(self.backtest_reports),
+            "report_paths": [str(item) for item in self.report_paths],
         }
 
 

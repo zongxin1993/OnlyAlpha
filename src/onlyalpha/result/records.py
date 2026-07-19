@@ -1,0 +1,239 @@
+"""Immutable provider-neutral result records.
+
+These DTOs deliberately contain no Runtime, plugin, dataframe, or file handles.
+Decimal values remain Decimal until an output adapter serializes them.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
+from types import MappingProxyType
+
+from onlyalpha.domain.time import only_require_utc
+
+
+def _freeze(value: Mapping[str, object]) -> Mapping[str, object]:
+    return MappingProxyType(dict(value))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlySequencedResultRecord:
+    sequence: int
+
+    def __post_init__(self) -> None:
+        if isinstance(self.sequence, bool) or self.sequence < 0:
+            raise ValueError("result sequence cannot be negative")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlySignalResultRecord(OnlySequencedResultRecord):
+    signal_id: str
+    cluster_id: str
+    strategy_id: str
+    instrument_id: str
+    signal_type: str
+    ts_event: datetime
+    trading_day: date
+    factor_id: str | None = None
+    score: Decimal | None = None
+    confidence: Decimal | None = None
+    related_order_request_id: str | None = None
+    payload: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.ts_event, "signal ts_event")
+        if not all((self.signal_id, self.cluster_id, self.strategy_id, self.instrument_id, self.signal_type)):
+            raise ValueError("signal identity and type are required")
+        object.__setattr__(self, "payload", _freeze(self.payload))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyOrderRequestResultRecord(OnlySequencedResultRecord):
+    request_id: str
+    runtime_id: str
+    cluster_id: str
+    strategy_id: str
+    account_id: str
+    instrument_id: str
+    side: str
+    offset: str
+    order_type: str
+    quantity: Decimal
+    submitted_at: datetime
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    tags: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.submitted_at, "order request submitted_at")
+        if self.quantity <= 0:
+            raise ValueError("order request quantity must be positive")
+        object.__setattr__(self, "tags", tuple(self.tags))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyOrderResultRecord(OnlySequencedResultRecord):
+    order_id: str
+    request_id: str
+    runtime_id: str
+    cluster_id: str
+    strategy_id: str
+    account_id: str
+    instrument_id: str
+    side: str
+    offset: str
+    order_type: str
+    requested_quantity: Decimal
+    filled_quantity: Decimal
+    remaining_quantity: Decimal
+    status: str
+    submitted_at: datetime
+    accepted_at: datetime | None = None
+    completed_at: datetime | None = None
+    rejection_code: str | None = None
+    rejection_message: str | None = None
+    tags: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.submitted_at, "order submitted_at")
+        for name, value in (("accepted_at", self.accepted_at), ("completed_at", self.completed_at)):
+            if value is not None:
+                only_require_utc(value, name)
+        if min(self.requested_quantity, self.filled_quantity, self.remaining_quantity) < 0:
+            raise ValueError("order quantities cannot be negative")
+        if self.filled_quantity + self.remaining_quantity != self.requested_quantity:
+            raise ValueError("filled plus remaining quantity must equal requested quantity")
+        object.__setattr__(self, "tags", tuple(self.tags))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyExecutionResultRecord(OnlySequencedResultRecord):
+    execution_id: str
+    order_id: str
+    request_id: str
+    runtime_id: str
+    cluster_id: str
+    strategy_id: str
+    account_id: str
+    instrument_id: str
+    side: str
+    offset: str
+    quantity: Decimal
+    price: Decimal
+    turnover: Decimal
+    commission: Decimal
+    fees: Decimal
+    slippage: Decimal
+    ts_event: datetime
+    trading_day: date
+    venue: str
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.ts_event, "execution ts_event")
+        if self.quantity <= 0 or self.price <= 0:
+            raise ValueError("execution price and quantity must be positive")
+        if min(self.turnover, self.commission, self.fees) < 0:
+            raise ValueError("execution turnover and fees cannot be negative")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyPositionResultRecord(OnlySequencedResultRecord):
+    ts_event: datetime
+    trading_day: date
+    runtime_id: str
+    cluster_id: str | None
+    strategy_id: str | None
+    account_id: str
+    instrument_id: str
+    total_quantity: Decimal
+    available_quantity: Decimal
+    frozen_quantity: Decimal
+    average_price: Decimal | None
+    mark_price: Decimal | None
+    market_value: Decimal | None
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal | None
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.ts_event, "position ts_event")
+        if min(self.total_quantity, self.available_quantity, self.frozen_quantity) < 0:
+            raise ValueError("position quantities cannot be negative")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyAccountResultRecord(OnlySequencedResultRecord):
+    ts_event: datetime
+    trading_day: date
+    runtime_id: str
+    account_id: str
+    currency: str
+    cash: Decimal
+    frozen_cash: Decimal
+    market_value: Decimal | None
+    equity: Decimal | None
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal | None
+    commission: Decimal
+    fees: Decimal
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.ts_event, "account ts_event")
+        if self.frozen_cash < 0 or self.commission < 0 or self.fees < 0:
+            raise ValueError("account frozen cash and fees cannot be negative")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyEquityResultRecord(OnlySequencedResultRecord):
+    ts_event: datetime
+    trading_day: date
+    runtime_id: str
+    account_id: str
+    cluster_id: str | None
+    currency: str
+    cash: Decimal
+    market_value: Decimal | None
+    equity: Decimal | None
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal | None
+    commission: Decimal
+    fees: Decimal
+    gross_exposure: Decimal | None
+    net_exposure: Decimal | None
+    position_count: int
+    complete: bool
+    snapshot_phase: str = "POST_BAR_PROCESSING"
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.ts_event, "equity ts_event")
+        if self.position_count < 0:
+            raise ValueError("position_count cannot be negative")
+        if self.complete and (self.market_value is None or self.equity is None):
+            raise ValueError("complete equity record requires market value and equity")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestFacts:
+    signals: tuple[OnlySignalResultRecord, ...] = ()
+    order_requests: tuple[OnlyOrderRequestResultRecord, ...] = ()
+    orders: tuple[OnlyOrderResultRecord, ...] = ()
+    executions: tuple[OnlyExecutionResultRecord, ...] = ()
+    positions: tuple[OnlyPositionResultRecord, ...] = ()
+    accounts: tuple[OnlyAccountResultRecord, ...] = ()
+    equity: tuple[OnlyEquityResultRecord, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("signals", "order_requests", "orders", "executions", "positions", "accounts", "equity"):
+            records = tuple(getattr(self, name))
+            if tuple(sorted(records, key=lambda item: item.sequence)) != records:
+                raise ValueError(f"{name} must be ordered by stable sequence")
+            object.__setattr__(self, name, records)

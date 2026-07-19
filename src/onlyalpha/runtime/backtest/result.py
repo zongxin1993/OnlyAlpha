@@ -12,6 +12,8 @@ from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
+from onlyalpha.result.diagnostics import OnlyBacktestDiagnostics
+from onlyalpha.result.records import OnlyBacktestFacts
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 
 
@@ -82,6 +84,9 @@ class OnlyBacktestResult:
     cluster_results: tuple[OnlyClusterResult, ...]
     invariant_results: tuple[str, ...]
     determinism_fingerprint: str
+    facts: OnlyBacktestFacts = OnlyBacktestFacts()
+    diagnostics: OnlyBacktestDiagnostics = OnlyBacktestDiagnostics()
+    result_fingerprint: str = ""
 
     @property
     def status(self) -> OnlyBacktestStatus:
@@ -150,4 +155,28 @@ class OnlyBacktestResult:
             ],
             "invariant_results": list(self.invariant_results),
             "determinism_fingerprint": self.determinism_fingerprint,
+            "result_fingerprint": self.result_fingerprint,
+            "fact_counts": {
+                "signals": len(self.facts.signals),
+                "order_requests": len(self.facts.order_requests),
+                "orders": len(self.facts.orders),
+                "executions": len(self.facts.executions),
+                "positions": len(self.facts.positions),
+                "accounts": len(self.facts.accounts),
+                "equity": len(self.facts.equity),
+            },
+            "diagnostics": {
+                "failure_count": self.diagnostics.total_failure_count,
+                "warning_count": len(self.diagnostics.warnings),
+                "first_failure": (
+                    None
+                    if self.diagnostics.first_failure is None
+                    else {
+                        "stage": self.diagnostics.first_failure.stage.value,
+                        "exception_type": self.diagnostics.first_failure.exception_type,
+                        "message": self.diagnostics.first_failure.message,
+                        "sequence": self.diagnostics.first_failure.sequence,
+                    }
+                ),
+            },
         }

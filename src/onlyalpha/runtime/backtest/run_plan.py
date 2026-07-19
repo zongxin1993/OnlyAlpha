@@ -7,7 +7,8 @@ import json
 from dataclasses import replace
 from datetime import datetime
 
-from onlyalpha.cluster.base import OnlyCluster
+from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
+from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.data.models import OnlyHistoricalBarRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
@@ -17,6 +18,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.models import OnlyExecutionProcessingResult
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
+from onlyalpha.result.fingerprint import only_result_fingerprint
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,
@@ -44,18 +46,31 @@ class OnlyBacktestRunPlan:
         self._completed = False
 
         self._runtime: OnlyBacktestRuntime | None = None
+        self._collector = OnlyBacktestResultCollector()
 
     def execute(self, runtime: OnlyBacktestRuntime) -> OnlyBacktestResult:
         if self._completed:
             raise RuntimeError("a configured Backtest Runtime can be run only once")
         self._completed = True
         self._runtime = runtime
+        self._collector.start()
         generated = self._source.load_bars(self._request)
         replay = runtime.replay_historical_bars(self._source, self._request)
-        if replay.failed or replay.rejected:
-            raise RuntimeError(f"historical replay failed={replay.failed} rejected={replay.rejected}")
         runtime.drain_broker_inbound()
-        return self._build_result(len(generated.records), replay.processed, replay.duplicate, replay.gap_detected)
+        status = (
+            OnlyBacktestStatus.FAILED
+            if replay.failed
+            or replay.rejected
+            or any(cluster.state is OnlyClusterState.FAILED for cluster in self._clusters)
+            else OnlyBacktestStatus.COMPLETED
+        )
+        return self._build_result(
+            len(generated.records),
+            replay.processed,
+            replay.duplicate,
+            replay.gap_detected,
+            status,
+        )
 
     def _build_result(
         self,
@@ -63,6 +78,7 @@ class OnlyBacktestRunPlan:
         processed_count: int,
         duplicate_count: int,
         gap_count: int,
+        status: OnlyBacktestStatus,
     ) -> OnlyBacktestResult:
         runtime = self._require_runtime()
         orders = runtime.order_manager.snapshot_all()
@@ -90,7 +106,9 @@ class OnlyBacktestRunPlan:
                 )
             )
         )
-        invariant_results = self._invariants(account, ledgers, blocking_execution)
+        invariant_results = (
+            self._invariants(account, ledgers, blocking_execution) if status is OnlyBacktestStatus.COMPLETED else ()
+        )
         cluster_results = tuple(
             OnlyClusterResult(
                 OnlyClusterId(cluster.config.cluster_id),
@@ -105,10 +123,11 @@ class OnlyBacktestRunPlan:
                 {flag.value for record in runtime.market_data_audit_store.records() for flag in record.quality_flags}
             )
         )
+        collected = self._collector.seal(runtime, self._clusters)
         result = OnlyBacktestResult(
             OnlyBacktestRunSummary(
                 self._config.runtime_id,
-                OnlyBacktestStatus.COMPLETED,
+                status,
                 OnlyTimestamp.from_datetime(self._require_start_time()),
                 OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
                 tuple(OnlyClusterId(cluster.config.cluster_id) for cluster in self._clusters),
@@ -145,6 +164,8 @@ class OnlyBacktestRunPlan:
             cluster_results,
             invariant_results,
             "",
+            collected.facts,
+            collected.diagnostics,
         )
         projection = result.to_dict()
         projection["determinism_fingerprint"] = ""
@@ -196,7 +217,18 @@ class OnlyBacktestRunPlan:
         fingerprint = hashlib.sha256(
             json.dumps(projection, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return replace(result, determinism_fingerprint=fingerprint)
+        result = replace(result, determinism_fingerprint=fingerprint)
+        result_fingerprint = only_result_fingerprint(
+            {
+                "facts": result.facts,
+                "final_positions": result.final_positions,
+                "final_allocations": result.final_allocations,
+                "final_ledgers": result.final_ledgers,
+                "final_accounts": result.final_accounts,
+                "diagnostics": result.diagnostics,
+            }
+        )
+        return replace(result, result_fingerprint=result_fingerprint)
 
     @staticmethod
     def _factor_snapshots(cluster: OnlyCluster) -> tuple[OnlyFactorSnapshot, ...]:

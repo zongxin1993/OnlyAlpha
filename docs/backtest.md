@@ -30,11 +30,8 @@ available Allocation.
 ## Result
 
 `OnlyBacktestResult` implements the common `OnlyRuntimeResult` view and contains run/data/execution/performance summaries,
-immutable final Position/Allocation/Ledger/Account snapshots, Order and Broker Trade facts, generic Cluster/Factor/Indicator extensions, invariant results
-and a deterministic fingerprint. Export writes below `user_data/runs/engine_id/run_id`; Runtime and Result do not write files.
+immutable final Position/Allocation/Ledger/Account snapshots, standard facts, structured diagnostics, generic extensions and stable fingerprints. Engine 在 Runtime 完成后依次调用纯 Analytics、原子 Artifact Writer 与 Report；Runtime 和 Result 不写文件。完整边界见 `results_framework.md`。
 
 ## Current limits
 
-Each first-phase Backtest Runtime supports local synthetic closed TIME Bars, one CNY cash account, one ETF, Long-only Average Cost,
-one Cluster, fixed commission, no slippage and Next-Bar matching. One Engine coordinates multiple isolated Backtest runtimes. Live/Paper adapters, portfolio analytics, multi-currency,
-corporate actions, order-book matching and persistent recovery remain separate future work.
+First-phase Backtest 支持 Synthetic 或插件历史 Bar、Virtual Broker、Long-only 持仓、固定费用和 Next-Bar 撮合；兼容 Cluster 可共享 Runtime，不兼容组保持隔离。高级组合分析、跨币种换算、公司行为、订单簿撮合和持久恢复仍属后续工作。
