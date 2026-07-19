@@ -1,7 +1,46 @@
 # OnlyAlpha 工程交接说明
 
 > 更新时间：2026-07-19（Asia/Shanghai）  
-> 当前任务：`prompts/rebuild_unified_market_runtime.md` 统一市场规则运行时
+> 当前任务：`prompts/Multi-Market_Scenario_Framework.md` Deterministic Multi-Market Scenario Framework
+
+## Deterministic Multi-Market Scenario Framework（2026-07-19）
+
+### 本轮完成
+
+- 新增修改前源码审计报告和 ADR 0027；
+- 新增独立 `onlyalpha.scenario` 包：不可变 Domain、稳定错误码、严格 YAML/JSON Parser、runtime-neutral Command
+  planning、只读 Assertion Engine 和 canonical input fingerprint；
+- Parser 拒绝未知字段、非字符串 Decimal、非 UTC 时间、重复 Action/Expectation 和缺失引用，并通过正式
+  `OnlyClusterRunConfig.from_mapping()` 复用 Market/Reference 配置语义；
+- BACKTEST/PAPER/LIVE/SHADOW 使用相同 Action/Command；后三者明确返回
+  `SCENARIO_RUNTIME_MODE_UNSUPPORTED`，不降级为 Backtest；
+- 删除 production 包中无调用方、明确 test-only 的 `OnlyNoOpExecutionReconciliationPort`；
+- 新增/更新 Scenario、README、Runtime、Backtest、Results、Conformance、Roadmap 和 AGENTS 文档。
+
+### 明确未完成（不得宣称）
+
+- Action Strategy、exact-bar provider、正式 Engine Scenario Runner 和 Scenario Artifact 尚未实现；
+- Collector 的 profile timeline、compiled identity、market decision、settlement、margin、fee、action 投影尚未收口；
+- A-share T+1、Generic T0、Generic Futures、Crypto Spot、跨 Profile version 五个 Engine 场景尚未运行；
+- Futures HEDGING Position、Margin/Account 事务链以及 Futures/Crypto 产品 Config 装配仍是正式内核缺口；
+- 重复运行 result fingerprint、零行 Scenario schema、完整 Runtime factory contract 尚未完成；没有 Profile 可升级 Stable。
+
+### 本轮真实验证
+
+- `../.venv/bin/pytest -q tests/scenario`：6 passed；
+- `../.venv/bin/pytest -q`：388 passed；
+- `../.venv/bin/ruff check .`：通过；
+- `../.venv/bin/mypy`：347 source files 通过；
+- `git diff --check`：通过；
+- `../.venv/bin/ruff format --check .`：未通过，仅报告既有文件 `src/onlyalpha/market/runtime_rules.py` 和
+  `tests/market_data/test_pipeline_dispatch.py` 需要格式化；本轮 Scenario 文件已通过 format check。
+
+### 下一步
+
+1. 在现有 DataSource SPI 上提供 exact-bar Scenario Source，以正式 Strategy/Factor Factory 装配 Action Strategy；
+2. Runner 只调用 `OnlyEngine.run()`，把 Backtest Result facts 投影到 Assertion；
+3. 先补 Collector 再完成 A 股/T0；修复正式 Futures/Crypto 内核后再完成对应场景；
+4. 扩展现有 Artifact Writer，最后执行五场景、确定性和全仓门禁。
 
 ## Unified Market Runtime Rules（2026-07-19）
 

@@ -1,5 +1,8 @@
 # Product Backtest
 
+Deterministic Scenario 是 Backtest 外层消费者，不是 Backtest 专用 API。人工 Bar 仍须走 DataSource、Replay、Pipeline 和
+Strategy dispatch；Action 仍经公共 `ctx.orders`。当前 Scenario Runner 尚未接通，禁止以 `process_bar()` 组件测试宣称完成。
+
 ## Product API
 
 ```python

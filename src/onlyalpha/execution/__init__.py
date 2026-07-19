@@ -29,7 +29,6 @@ from .state import (
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
-    OnlyNoOpExecutionReconciliationPort,
 )
 
 __all__ = [
@@ -57,5 +56,4 @@ __all__ = [
     "OnlyExecutionUpdateDeduplicator",
     "OnlyInMemoryExecutionAuditStore",
     "OnlyInMemoryExecutionReconciliationQueue",
-    "OnlyNoOpExecutionReconciliationPort",
 ]

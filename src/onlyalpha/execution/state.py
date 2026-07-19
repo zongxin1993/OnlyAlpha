@@ -66,10 +66,3 @@ class OnlyInMemoryExecutionReconciliationQueue:
 
     def requests(self) -> tuple[OnlyExecutionReconciliationRequest, ...]:
         return tuple(self._requests)
-
-
-class OnlyNoOpExecutionReconciliationPort:
-    """Explicit test-only sink; production Runtime never selects this by default."""
-
-    def request_reconciliation(self, request: OnlyExecutionReconciliationRequest) -> None:
-        del request
