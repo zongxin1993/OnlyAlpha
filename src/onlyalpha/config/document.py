@@ -56,7 +56,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
     OnlyVenueId,
 )
-from onlyalpha.domain.instrument import OnlyETF
+from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
@@ -268,9 +268,14 @@ class _OnlyClusterDocumentParser:
             ),
         )
 
-    def _instrument(self, raw: OnlyJsonMapping, path: str, base_currency: OnlyCurrency) -> OnlyETF:
+    def _instrument(self, raw: OnlyJsonMapping, path: str, base_currency: OnlyCurrency) -> OnlyInstrument:
         asset_class = self._str(raw.get("asset_class", "ETF"), f"{path}.asset_class")
-        if asset_class != "ETF":
+        instrument_type: type[OnlyETF] | type[OnlyEquity]
+        if asset_class == "ETF":
+            instrument_type = OnlyETF
+        elif asset_class == "EQUITY":
+            instrument_type = OnlyEquity
+        else:
             raise OnlyClusterConfigError(f"{path}.asset_class={asset_class!r} is not yet supported")
         instrument_id = _instrument_id(
             self._str(raw.get("instrument_id"), f"{path}.instrument_id"),
@@ -280,7 +285,7 @@ class _OnlyClusterDocumentParser:
         price_precision = self._int(raw.get("price_precision", 2), f"{path}.price_precision", 0)
         quantity_precision = self._int(raw.get("quantity_precision", 0), f"{path}.quantity_precision", 0)
         lot = self._decimal(raw.get("lot_size"), f"{path}.lot_size", positive=True)
-        return OnlyETF(
+        return instrument_type(
             instrument_id=instrument_id,
             raw_symbol=OnlyRawSymbol(symbol),
             market_type=OnlyMarketType.CASH,

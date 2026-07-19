@@ -44,8 +44,8 @@ class OnlyParquetHistoricalCacheStore:
                     key.instrument_id,
                 )
                 self._quarantine(key, issue.message)
-                return OnlyCacheInspection(True, False, key, (), (requested_range,), None, (issue,))
-            return OnlyCacheInspection(False, False, key, (), (requested_range,), None)
+                return OnlyCacheInspection(True, False, key, (), (), (requested_range,), None, (issue,))
+            return OnlyCacheInspection(False, False, key, (), (), (requested_range,), None)
         try:
             manifest = self._load_manifest(key)
             if manifest.key != key:
@@ -55,12 +55,14 @@ class OnlyParquetHistoricalCacheStore:
                 if not path.is_file() or self._hash(path) != expected:
                     raise ValueError(f"partition hash mismatch: {relative}")
                 pq.read_metadata(path)
-            missing = only_missing_ranges(requested_range, manifest.coverage)
-            return OnlyCacheInspection(True, not missing, key, manifest.coverage, missing, manifest)
+            missing = only_missing_ranges(requested_range, manifest.resolved_ranges)
+            return OnlyCacheInspection(
+                True, not missing, key, manifest.resolved_ranges, manifest.observed_ranges, missing, manifest
+            )
         except (OSError, ValueError, KeyError, json.JSONDecodeError, pa.ArrowException) as exc:
             issue = OnlyDataQualityIssue("CORRUPT_CACHE", OnlyDataQualitySeverity.ERROR, str(exc), key.instrument_id)
             self._quarantine(key, str(exc))
-            return OnlyCacheInspection(True, False, key, (), (requested_range,), None, (issue,))
+            return OnlyCacheInspection(True, False, key, (), (), (requested_range,), None, (issue,))
 
     def read(self, key: OnlyHistoricalCacheKey, time_range: OnlyTimeRange) -> tuple[OnlyBar, ...]:
         manifest = self._load_manifest(key)
@@ -82,7 +84,7 @@ class OnlyParquetHistoricalCacheStore:
         old_manifest: OnlyCacheManifest | None = None
         if self._manifest_path(key).exists():
             old_manifest = self._load_manifest(key)
-            for covered in old_manifest.coverage:
+            for covered in old_manifest.observed_ranges:
                 existing.extend(self.read(key, covered))
         merged = {bar.ts_event: bar for bar in existing}
         merged.update({bar.ts_event: bar for bar in result.records})
@@ -112,11 +114,17 @@ class OnlyParquetHistoricalCacheStore:
                 pq.write_table(table, target, compression="zstd")
                 pq.read_table(target)
                 hashes[relative] = self._hash(target)
-            coverage = only_merge_ranges((*(old_manifest.coverage if old_manifest else ()), *result.actual_coverage))
+            resolved = only_merge_ranges(
+                (*(old_manifest.resolved_ranges if old_manifest else ()), *result.resolved_ranges)
+            )
+            observed = only_merge_ranges(
+                (*(old_manifest.observed_ranges if old_manifest else ()), *result.observed_ranges)
+            )
             audit_time = old_manifest.updated_at if old_manifest else datetime(1970, 1, 1, tzinfo=UTC)
             manifest = OnlyCacheManifest(
                 key,
-                coverage,
+                resolved,
+                observed,
                 len(records),
                 hashes,
                 only_content_fingerprint(key, hashes),
@@ -169,7 +177,11 @@ class OnlyParquetHistoricalCacheStore:
             key,
             tuple(
                 OnlyTimeRange(datetime.fromisoformat(item["start"]), datetime.fromisoformat(item["end"]))
-                for item in raw["coverage"]
+                for item in raw["resolved_ranges"]
+            ),
+            tuple(
+                OnlyTimeRange(datetime.fromisoformat(item["start"]), datetime.fromisoformat(item["end"]))
+                for item in raw["observed_ranges"]
             ),
             int(raw["row_count"]),
             dict(raw["partition_hashes"]),
@@ -185,7 +197,12 @@ class OnlyParquetHistoricalCacheStore:
     def _dump_manifest(value: OnlyCacheManifest) -> str:
         payload = {
             "key": only_cache_key_payload(value.key),
-            "coverage": [{"start": item.start.isoformat(), "end": item.end.isoformat()} for item in value.coverage],
+            "resolved_ranges": [
+                {"start": item.start.isoformat(), "end": item.end.isoformat()} for item in value.resolved_ranges
+            ],
+            "observed_ranges": [
+                {"start": item.start.isoformat(), "end": item.end.isoformat()} for item in value.observed_ranges
+            ],
             "row_count": value.row_count,
             "partition_hashes": dict(value.partition_hashes),
             "content_fingerprint": value.content_fingerprint,

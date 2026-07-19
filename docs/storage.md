@@ -86,9 +86,12 @@ opaque bytes 骨架，尚未引入交易时间表 Schema。
 `OnlyHistoricalCacheService` 组合供应商无关 Provider 与 `OnlyParquetHistoricalCacheStore`。
 默认产品链把 Store 根目录注入为 `<user_data>/cache/market_data`，插件不得从当前工作目录推断缓存位置。
 
-缓存身份包含 source、dataset、Instrument、Bar Type、adjustment、Schema 与时间语义版本。
+缓存身份包含 source、dataset、Instrument、Bar Type、通用 `OnlyAdjustmentType`、可选复权参考锚点、Schema 与时间语义版本。
+前复权供应商可把请求终点作为复权参考锚点，禁止不同终点错误复用同一缓存身份。
 Manifest 的审计时间和绝对路径不进入内容指纹。Parquet 保存标准 `OnlyBar` 的无损确定性 JSON 与纳秒事件时间，
 按事件年份分区；写入使用 staging、回读验证和原子替换。Manifest、Hash 或 Parquet 损坏会进入 quarantine，
 不会进入 Replay。`CACHE_ONLY` 禁止 Provider；`PREFER_CACHE` 只请求缺口；`FORCE_REFRESH` 请求整个范围。
 
 MiniQMT 负责供应商字段验证、symbol/exchange 映射和 Asia/Shanghai→UTC 解释；核心不导入 MiniQMT。
+
+Manifest 分开记录 `resolved_ranges` 与 `observed_ranges`。前者表示供应商成功确认的完整查询区间，允许包含周末、节假日、停牌或合法空区间，并作为 Cache 完整性判定依据；后者仅表示实际 Bar 的 Session 区间，不得代替 resolved coverage。Tushare 等插件只返回这两类通用语义，不在核心引入供应商 SDK、代码映射或复权字符串。
