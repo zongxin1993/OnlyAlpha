@@ -133,6 +133,15 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
     ts_event: datetime
     trading_day: date
     venue: str
+    position_side: str | None = None
+    position_effect: str | None = None
+    reference_price: Decimal | None = None
+    contract_multiplier: Decimal = Decimal(1)
+    market_profile_id: str | None = None
+    rule_set_id: str | None = None
+    settlement_instruction_id: str | None = None
+    fee_breakdown: Mapping[str, Decimal] = field(default_factory=dict)
+    liquidity: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         OnlySequencedResultRecord.__post_init__(self)
@@ -141,6 +150,56 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
             raise ValueError("execution price and quantity must be positive")
         if min(self.turnover, self.commission, self.fees) < 0:
             raise ValueError("execution turnover and fees cannot be negative")
+        object.__setattr__(self, "fee_breakdown", MappingProxyType(dict(self.fee_breakdown)))
+        object.__setattr__(self, "liquidity", _freeze(self.liquidity))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlySettlementResultRecord(OnlySequencedResultRecord):
+    account_id: str
+    instrument_id: str
+    execution_id: str
+    asset_quantity: Decimal
+    cash_amount: Decimal
+    trade_time: datetime
+    asset_available_time: datetime
+    cash_available_time: datetime
+    settlement_time: datetime
+    status: str
+    settlement_model_id: str
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        for name in ("trade_time", "asset_available_time", "cash_available_time", "settlement_time"):
+            only_require_utc(getattr(self, name), name)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyMarginResultRecord(OnlySequencedResultRecord):
+    account_id: str
+    instrument_id: str
+    position_side: str
+    initial_margin: Decimal
+    maintenance_margin: Decimal
+    used_margin: Decimal
+    available_margin: Decimal
+    margin_ratio: Decimal | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyMarketRuleDecisionResultRecord(OnlySequencedResultRecord):
+    account_id: str
+    instrument_id: str
+    market_profile_id: str
+    rule_set_id: str
+    rule_type: str
+    decision: str
+    reason: str | None
+    ts_event: datetime
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.ts_event, "market rule decision ts_event")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -230,9 +289,23 @@ class OnlyBacktestFacts:
     positions: tuple[OnlyPositionResultRecord, ...] = ()
     accounts: tuple[OnlyAccountResultRecord, ...] = ()
     equity: tuple[OnlyEquityResultRecord, ...] = ()
+    settlements: tuple[OnlySettlementResultRecord, ...] = ()
+    margin: tuple[OnlyMarginResultRecord, ...] = ()
+    market_rule_decisions: tuple[OnlyMarketRuleDecisionResultRecord, ...] = ()
 
     def __post_init__(self) -> None:
-        for name in ("signals", "order_requests", "orders", "executions", "positions", "accounts", "equity"):
+        for name in (
+            "signals",
+            "order_requests",
+            "orders",
+            "executions",
+            "positions",
+            "accounts",
+            "equity",
+            "settlements",
+            "margin",
+            "market_rule_decisions",
+        ):
             records = tuple(getattr(self, name))
             if tuple(sorted(records, key=lambda item: item.sequence)) != records:
                 raise ValueError(f"{name} must be ordered by stable sequence")

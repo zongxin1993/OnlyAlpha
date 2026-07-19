@@ -1,7 +1,42 @@
 # OnlyAlpha 工程交接说明
 
 > 更新时间：2026-07-19（Asia/Shanghai）  
-> 当前任务：`prompts/backtest_result_summary.md` 回测结果对象与事件边界审计、Tushare 正式回测验收
+> 当前任务：`prompts/Market_Simulation_Framework.md` 多市场仿真框架
+
+## 0. Multi-Market Simulation Framework（2026-07-19）
+
+### 已完成
+
+- 完整审计 Position/T+1/Futures/Crypto/Account/Broker/Results，确认复用现有 Instrument、Calendar、Position 与 Result；
+- 新增 `onlyalpha.market`：版本化 Profile Resolver、Settlement 四维时间、LONG_ONLY/NETTING/HEDGING、Position Effect、
+  Short Rule、Margin、Session Phase、Reference、Price/Quantity/Fee/Liquidity/Slippage/Matching；
+- 内建 `CN_A_SHARE_CASH@2025.1`、`GENERIC_T0_CASH`、`GENERIC_MARGIN_FUTURES`、
+  `GENERIC_24X7_CRYPTO_SPOT`；
+- A 股基础规则覆盖 Reference 驱动的主板 10%、ST 5%、创业板/科创板 20%、停牌门禁、整手买入、零股清仓、
+  最低佣金、卖出印花税、过户费、T+1 资产可用与现金当日交易可用；未知板块 strict error；
+- 扩展现有 `OnlyBacktestFacts` 和 Artifact Writer：`settlements.parquet`、`margin.parquet`、
+  `market_rule_decisions.parquet`，Cash Profile 保持零行稳定 Schema；
+- 新增 ADR 0024 与八份专题文档，更新 roadmap 和仓库协作规则；
+- 定向测试真实结果：22 passed（market + artifact + result）；核心全量 `374 passed`，Ruff lint、Mypy（333 source
+  files）、本次修改文件 format check 与 `git diff --check` 通过。全仓 format check 仍仅被既有未修改文件
+  `tests/market_data/test_pipeline_dispatch.py` 阻塞。
+
+### 明确未完成（不得宣称正式支持）
+
+- Profile 尚未装配进 Runtime config/factory、Virtual Broker 与 ExecutionProcessor；新 Result 事实目前只具备模型/Artifact，
+  Collector 尚未从交易处理链生成记录；
+- Generic Futures 的生产 SELL OPEN/BUY CLOSE、margin 占用/释放与 A 股 T+0/T+1 正式 Engine 纵切面尚未完成；
+- 跨 Fill 最低佣金 accumulator、完整 Reference Provider/Repository、四个 OnlyAlpha-examples 示例尚未完成；
+- Tushare 配置显式 Profile、在线/CACHE_ONLY 对照以及 Plugins/Examples 三仓门禁尚未执行；
+- 港股、美股、正式期货、Perpetual、Borrow/Funding/Liquidation、Tick/Order Book 均仅预留。
+
+### 下一步顺序
+
+1. 给配置增加 opt-in `market_simulation`，Legacy 缺省行为不变；
+2. Runtime 解析 Reference/Profile，在 Risk 与 Broker 分别执行 pre-trade/match-time 决策；
+3. ExecutionProcessor 消费 settlement instruction、position effect、margin change、fee breakdown；
+4. Collector 生成三类新增事实，完成指纹覆盖；
+5. 通过正式 Engine 增加四个示例，再执行 Tushare 与三仓完整门禁。
 
 ## 1. 修改前分析
 

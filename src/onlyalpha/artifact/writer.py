@@ -62,6 +62,9 @@ class OnlyBacktestArtifactWriter:
                         "positions",
                         "accounts",
                         "equity",
+                        "settlements",
+                        "margin",
+                        "market_rule_decisions",
                     )
                 },
                 "performance": _json_value(analysis.performance),
@@ -103,6 +106,15 @@ class OnlyBacktestArtifactWriter:
                 "accounts.parquet": ("ACCOUNTS", self._accounts_table(facts)),
                 "equity.parquet": ("EQUITY", self._equity_table(facts, analysis)),
                 "signals.parquet": ("SIGNALS", self._signals_table(facts)),
+                "settlements.parquet": (
+                    "SETTLEMENTS",
+                    _table(_SETTLEMENT_SCHEMA, [_record(item) for item in facts.settlements]),
+                ),
+                "margin.parquet": ("MARGIN", _table(_MARGIN_SCHEMA, [_record(item) for item in facts.margin])),
+                "market_rule_decisions.parquet": (
+                    "MARKET_RULE_DECISIONS",
+                    _table(_MARKET_RULE_DECISION_SCHEMA, [_record(item) for item in facts.market_rule_decisions]),
+                ),
             }
             for relative_path, (artifact_type, table) in tables.items():
                 path = staging / relative_path
@@ -379,6 +391,48 @@ _SIGNAL_SCHEMA = pa.schema(
         ("confidence", _RATIO_DECIMAL),
         ("related_order_request_id", pa.string()),
         ("payload_json", pa.string()),
+    ]
+)
+_SETTLEMENT_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("account_id", pa.string()),
+        ("instrument_id", pa.string()),
+        ("execution_id", pa.string()),
+        ("asset_quantity", _DECIMAL),
+        ("cash_amount", _DECIMAL),
+        ("trade_time", _TIMESTAMP),
+        ("asset_available_time", _TIMESTAMP),
+        ("cash_available_time", _TIMESTAMP),
+        ("settlement_time", _TIMESTAMP),
+        ("status", pa.string()),
+        ("settlement_model_id", pa.string()),
+    ]
+)
+_MARGIN_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("account_id", pa.string()),
+        ("instrument_id", pa.string()),
+        ("position_side", pa.string()),
+        ("initial_margin", _DECIMAL),
+        ("maintenance_margin", _DECIMAL),
+        ("used_margin", _DECIMAL),
+        ("available_margin", _DECIMAL),
+        ("margin_ratio", _RATIO_DECIMAL),
+    ]
+)
+_MARKET_RULE_DECISION_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("account_id", pa.string()),
+        ("instrument_id", pa.string()),
+        ("market_profile_id", pa.string()),
+        ("rule_set_id", pa.string()),
+        ("rule_type", pa.string()),
+        ("decision", pa.string()),
+        ("reason", pa.string()),
+        ("ts_event", _TIMESTAMP),
     ]
 )
 

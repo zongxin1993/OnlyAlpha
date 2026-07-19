@@ -102,6 +102,9 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
         "accounts.parquet",
         "equity.parquet",
         "signals.parquet",
+        "settlements.parquet",
+        "margin.parquet",
+        "market_rule_decisions.parquet",
     }
     assert expected == {item.name for item in tmp_path.iterdir()}
     assert manifest.result_fingerprint == result.result_fingerprint
@@ -109,6 +112,8 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
     assert all(len(item.sha256) == 64 for item in manifest.artifacts)
     assert pq.read_table(tmp_path / "orders.parquet").num_rows == 0
     assert pq.read_table(tmp_path / "orders.parquet").num_columns > 0
+    assert pq.read_table(tmp_path / "settlements.parquet").num_rows == 0
+    assert pq.read_table(tmp_path / "margin.parquet").num_rows == 0
     account = pq.read_table(tmp_path / "accounts.parquet").to_pylist()[0]
     assert account["cash"] == Decimal("1000000.010000000000000000")
     assert account["frozen_cash"] == Decimal("0.010000000000000000")
