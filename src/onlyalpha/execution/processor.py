@@ -23,9 +23,11 @@ from onlyalpha.domain.enums import OnlyDirection, OnlyOffset, OnlyOrderSide, Onl
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.market.models import OnlyPositionEffect
+from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest, OnlyTradeInstructionPort
 from onlyalpha.order.enums import OnlyOrderApplyResult
 from onlyalpha.order.execution.models import (
     OnlyGatewayOrderAcceptedUpdate,
@@ -137,6 +139,7 @@ class OnlyExecutionProcessor:
         account_valuation: OnlyAccountValuation,
         connection_state: OnlyConnectionStateConsumer,
         base_currency: object,
+        market_rules: OnlyTradeInstructionPort | None = None,
     ) -> None:
         self.config = config
         self._clock = clock
@@ -164,6 +167,7 @@ class OnlyExecutionProcessor:
         self._account_valuation = account_valuation
         self._connection_state = connection_state
         self._base_currency = base_currency
+        self._market_rules = market_rules
         self._processing_sequence = 0
 
     def process(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionProcessingResult:
@@ -930,6 +934,29 @@ class OnlyExecutionProcessor:
     ) -> OnlyPositionTrade:
         instrument = self._instruments[order.instrument_id]
         fee = update.fill.fee or OnlyMoney(Decimal(0), instrument.settlement_currency)
+        settlement_bucket = (
+            OnlySettlementBucket.UNSETTLED if order.side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
+        )
+        if self._market_rules is not None:
+            instruction = self._market_rules.build_trade_instruction(
+                OnlyTradeApplicationRequest(
+                    str(order.instrument_id),
+                    str(order.order_id),
+                    str(update.fill.trade_id),
+                    str(order.account_id),
+                    order.side,
+                    update.fill.quantity.value,
+                    update.fill.price.value,
+                    update.ts_event.to_datetime(),
+                    OnlyTradingDay(update.ts_event.to_datetime().date()),
+                    OnlyPositionEffect.OPEN if order.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE,
+                )
+            )
+            settlement_bucket = (
+                OnlySettlementBucket.SETTLED
+                if instruction.settlement_instruction.asset_available_on.value <= update.ts_event.to_datetime().date()
+                else OnlySettlementBucket.UNSETTLED
+            )
         return OnlyPositionTrade(
             update.fill.trade_id,
             update.fill.venue_trade_id,
@@ -949,9 +976,7 @@ class OnlyExecutionProcessor:
             update.ts_init,
             update.source_sequence,
             execution_id=str(update.update_id),
-            settlement_bucket=OnlySettlementBucket.UNSETTLED
-            if order.side is OnlyOrderSide.BUY
-            else OnlySettlementBucket.SETTLED,
+            settlement_bucket=settlement_bucket,
             multiplier=instrument.contract_multiplier,
         )
 

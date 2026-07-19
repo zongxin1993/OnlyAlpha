@@ -30,7 +30,7 @@ from onlyalpha.risk.identifiers import OnlyRiskProfileId
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.publisher import OnlyNoOpRiskEventPublisher
 from onlyalpha.risk.service import OnlyRiskService
-from onlyalpha.risk.views import OnlyInstrumentRiskMappingView, OnlyMarketRuleRiskMappingView
+from onlyalpha.risk.views import OnlyInstrumentRiskMappingView
 
 from ..runtime_support.common import only_demo_runtime
 
@@ -93,7 +93,6 @@ def risk_service(order_manager: OnlyOrderManager, order_request: OnlyOrderReques
         OnlyClockView(clock),
         calendar,
         OnlyInstrumentRiskMappingView({instrument.instrument_id: instrument}),
-        OnlyMarketRuleRiskMappingView({}),
         OnlyOrderQueryService(order_manager),
         OnlyNoOpRiskEventPublisher(),
     )

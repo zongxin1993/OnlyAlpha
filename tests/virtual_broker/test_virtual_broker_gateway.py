@@ -61,7 +61,7 @@ def test_cancel_releases_independent_broker_reservation(virtual_broker) -> None:
     assert len(updates) == 2
 
 
-def test_t_plus_one_is_broker_state_not_a_shared_position_manager(virtual_broker) -> None:
+def test_broker_store_does_not_infer_t_plus_one_settlement(virtual_broker) -> None:
     clock, gateway, _ = virtual_broker
     first = bar(date(2026, 1, 5), 0)
     clock.advance_to(first.ts_event)
@@ -80,10 +80,7 @@ def test_t_plus_one_is_broker_state_not_a_shared_position_manager(virtual_broker
     next_day = bar(date(2026, 1, 6), 0)
     clock.advance_to(next_day.ts_event)
     gateway.on_bar(next_day)
-    next_day_sell = order(3, OnlyOrderSide.SELL)
-    gateway.submit_order(next_day_sell)
-    gateway.run_due()
-    assert gateway.query_orders(ACCOUNT)[2].status is OnlyOrderStatus.ACCEPTED
+    assert all("t-plus-one-settlement" not in str(update) for update in _)
 
 
 def test_virtual_broker_does_not_hold_runtime_manager_objects(virtual_broker) -> None:

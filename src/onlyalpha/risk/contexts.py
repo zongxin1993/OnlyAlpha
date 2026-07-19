@@ -12,7 +12,6 @@ from onlyalpha.risk.ports import (
     OnlyAccountRiskView,
     OnlyClusterPermissionView,
     OnlyInstrumentRiskView,
-    OnlyMarketRuleRiskView,
     OnlyOrderRiskView,
     OnlyPositionRiskView,
     OnlyRiskReservationView,
@@ -29,7 +28,6 @@ class OnlyRiskEvaluationContext:
     ts_init: OnlyTimestamp
     clock: OnlyClockView
     instruments: OnlyInstrumentRiskView
-    market_rules: OnlyMarketRuleRiskView
     trading_calendar: OnlyTradingCalendar
     orders: OnlyOrderRiskView
     reservations: OnlyRiskReservationView

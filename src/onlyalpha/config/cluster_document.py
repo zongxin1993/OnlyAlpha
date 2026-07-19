@@ -22,7 +22,7 @@ from onlyalpha.config.models import (
     OnlyDataSourceRuntimeConfig,
     OnlyFactorImportConfig,
     OnlyJsonMapping,
-    OnlyMarketSimulationConfig,
+    OnlyMarketConfig,
     OnlyReferenceDataConfig,
     OnlyStrategyImportConfig,
     OnlyUniverseConfig,
@@ -48,7 +48,7 @@ class OnlyClusterRunConfig:
     strategy: OnlyStrategyImportConfig
     factors: tuple[OnlyFactorImportConfig, ...]
     output: OnlyOutputConfig
-    market_simulation: OnlyMarketSimulationConfig | None
+    market: OnlyMarketConfig
     source_path: Path
     normalized_payload: OnlyJsonMapping
 
@@ -118,7 +118,7 @@ class OnlyClusterRunConfig:
         accounts = parser._accounts(parser._list(root.get("accounts"), "$.accounts"), runtime.base_currency)
         brokers = parser._brokers(parser._list(root.get("brokers"), "$.brokers"))
         output = parser._output(parser._map(root.get("output", {}), "$.output"))
-        market_simulation = _parse_market_simulation(parser, root)
+        market = _parse_market(parser, root)
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
 
         # Reuse the shared reference validator without retaining a multi-Cluster
@@ -131,6 +131,7 @@ class OnlyClusterRunConfig:
             data_sources,
             accounts,
             brokers,
+            market,
             (cluster,),
             output,
             source,
@@ -148,25 +149,22 @@ class OnlyClusterRunConfig:
             cluster.strategy,
             cluster.factors,
             output,
-            market_simulation,
+            market,
             source,
             root,
         )
 
 
-def _parse_market_simulation(
-    parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping
-) -> OnlyMarketSimulationConfig | None:
-    value = root.get("market_simulation")
-    if value is None:
-        return None
-    raw = parser._map(value, "$.market_simulation")
-    profile_value = parser._str(raw.get("profile"), "$.market_simulation.profile")
+def _parse_market(parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping) -> OnlyMarketConfig:
+    if "market_simulation" in root:
+        raise OnlyClusterConfigError("UNKNOWN_FIELD: market_simulation; use required 'market'")
+    raw = parser._map(root.get("market"), "$.market")
+    profile_value = parser._str(raw.get("profile"), "$.market.profile")
     try:
         profile = OnlyMarketProfileId(profile_value)
     except ValueError as exc:
         raise OnlyClusterConfigError(f"unknown market profile: {profile_value}") from exc
     version_value = raw.get("version")
-    version = None if version_value is None else parser._str(version_value, "$.market_simulation.version")
-    overrides = parser._map(raw.get("overrides", {}), "$.market_simulation.overrides")
-    return OnlyMarketSimulationConfig(profile, version, overrides)
+    version = None if version_value is None else parser._str(version_value, "$.market.version")
+    overrides = parser._map(raw.get("overrides", {}), "$.market.overrides")
+    return OnlyMarketConfig(profile, version, overrides)

@@ -19,7 +19,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert isinstance(cluster_results, list)
     signals = cluster_results[0]["strategy_result_extension"]["signals"]
     assert isinstance(signals, list)
-    assert sum(item["signal_type"] == "DEATH_CROSS_BLOCKED" for item in signals) == 1
+    assert sum(item["signal_type"] == "DEATH_CROSS" for item in signals) == 1
     env.product_backtest_fingerprint = result.determinism_fingerprint
     return env.report_builder.scenario(
         "034",

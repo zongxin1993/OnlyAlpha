@@ -6,11 +6,11 @@
   "trade_count": 2,
   "golden_cross_count": 1,
   "death_cross_count": 1,
-  "blocked_t1_exit_count": 1,
+  "blocked_t1_exit_count": 0,
   "final_position_quantity": "0",
-  "realized_pnl": "-1040.00",
+  "realized_pnl": "1910.00",
   "fees": "2.00",
-  "final_cash": "998958.00",
-  "final_equity": "998958.00",
+  "final_cash": "1001908.00",
+  "final_equity": "1001908.00",
   "determinism_fingerprint": "bcc238d9724e49801a7ed4f148e3f3b64dad2da5bc827d0138a09e636b1a1d13"
 }

@@ -1,11 +1,10 @@
 """Ten deterministic pure-Domain market scenarios."""
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from onlyalpha.domain.account import OnlyPnL, OnlyPnLCalculator, OnlyPosition
-from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
     OnlyAggregationSource,
@@ -35,10 +34,6 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType, OnlyTradeTick
 from onlyalpha.domain.market_rules import (
     OnlyFeeSchedule,
-    OnlyLotSizeRule,
-    OnlyMarketRule,
-    OnlySettlementRule,
-    OnlyTradingRule,
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate
@@ -86,30 +81,12 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
         now = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
         price = OnlyPrice(Decimal(ONLY_PRICES[name]), instrument.price_precision)
         quantity = OnlyQuantity(Decimal(ONLY_QUANTITIES[name]), instrument.quantity_precision)
-        lot = instrument.lot_size.value if instrument.lot_size else instrument.step_size.value
-        minimum = instrument.minimum_notional
-        calendar = OnlyTradingCalendar(
-            f"{name}-calendar",
-            instrument.instrument_id.venue,
-            "UTC",
-            (OnlyTradingSession("regular", time(0), time(23, 59, 59)),),
-            (),
-            (),
-        )
         fee = OnlyFeeSchedule(
             f"{name}-fees",
             OnlyRate(Decimal("0.0001"), 4),
             OnlyRate(Decimal("0.0002"), 4),
             OnlyMoney(Decimal(1).scaleb(-instrument.quote_currency.precision), instrument.quote_currency),
             datetime(2020, 1, 1, tzinfo=UTC),
-        )
-        rule = OnlyMarketRule(
-            name,
-            OnlyLotSizeRule(lot, instrument.step_size.value),
-            OnlySettlementRule(1),
-            OnlyTradingRule(minimum),
-            fee_schedule=fee,
-            calendar=calendar,
         )
         offset = OnlyOffset.OPEN if instrument.market_type.value == "DERIVATIVE" else OnlyOffset.NONE
         request = OnlyOrderRequest(
@@ -123,9 +100,8 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
             offset=offset,
             price=price,
         )
-        validation = rule.validate_order(instrument, request)
-        if not validation.is_valid:
-            return OnlyScenarioResult(name, False, ",".join(validation.violations))
+        if not instrument.is_valid_quantity(request.quantity) or not instrument.is_valid_price(price):
+            return OnlyScenarioResult(name, False, "instrument_reference_validation")
         runtime_id = OnlyRuntimeId("demo-runtime")
         manager = OnlyOrderManager(
             OnlyEngineId("demo-engine"),
@@ -213,7 +189,7 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
             trading_day=date(2026, 1, 5),
             session_type=OnlySessionType.REGULAR,
         )
-        objects = (instrument, rule, tick, bar, order, trade, position)
+        objects = (instrument, tick, bar, order, trade, position)
         if not all(type(item).from_json(item.to_json()) == item for item in objects):
             return OnlyScenarioResult(name, False, "serialization")
         return OnlyScenarioResult(name, True)

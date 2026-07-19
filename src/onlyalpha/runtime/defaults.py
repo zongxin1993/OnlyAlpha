@@ -9,6 +9,8 @@ from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 from onlyalpha.factor.factory import OnlyFactorFactory
 from onlyalpha.indicator import only_default_indicator_factories
+from onlyalpha.market.profiles import only_builtin_market_profile_registry
+from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries, OnlyEngineRunAssembler
@@ -49,6 +51,12 @@ def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineService
     runtimes.register(OnlyResearchRuntimeFactory())
     assembler = OnlyEngineRunAssembler(
         runtimes,
-        OnlyComponentFactoryRegistries(data_sources, brokers, clusters),
+        OnlyComponentFactoryRegistries(
+            data_sources,
+            brokers,
+            clusters,
+            only_builtin_market_profile_registry(),
+            OnlyMarketRuleCompiler(),
+        ),
     )
     return OnlyEngineServices(assembler, data_sources, brokers, discovery)

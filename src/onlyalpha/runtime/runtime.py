@@ -73,6 +73,7 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
 from onlyalpha.market_data.dispatcher import (
@@ -143,6 +144,7 @@ class OnlyRuntimeAssemblyConfig:
     virtual_broker_config: OnlyVirtualBrokerConfig | None = None
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
+    market_rule_engine: OnlyMarketRuleEngine | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(

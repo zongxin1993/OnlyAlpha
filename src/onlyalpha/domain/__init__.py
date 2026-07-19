@@ -111,7 +111,6 @@ from onlyalpha.domain.market_rules import (
     OnlyFeeSchedule,
     OnlyFeeScheduleCatalog,
     OnlyLotSizeRule,
-    OnlyMarketRule,
     OnlyPriceLadder,
     OnlyPriceLimitRule,
     OnlySettlementRule,

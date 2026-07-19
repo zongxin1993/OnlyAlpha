@@ -9,6 +9,8 @@ from typing import cast
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
+from onlyalpha.market.registry import OnlyMarketProfileRegistry
+from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult, OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.planning import OnlyRuntimePlan
 
@@ -18,6 +20,8 @@ class OnlyComponentFactoryRegistries:
     data_sources: OnlyDataSourceFactoryRegistry
     brokers: OnlyBrokerFactoryRegistry
     clusters: OnlyClusterFactory
+    market_profiles: OnlyMarketProfileRegistry
+    market_rule_compiler: OnlyMarketRuleCompiler
 
 
 class OnlyEngineRunAssembler:

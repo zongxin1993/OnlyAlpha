@@ -15,8 +15,10 @@ from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRa
 from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
+from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import (
@@ -87,6 +89,9 @@ class OnlyBacktestRuntimeFactory:
                 ) from exc
             try:
                 gateway = cast(OnlyBacktestBrokerGateway, plan.broker_factory.create(plan.broker_request))
+                bind_market_rules = getattr(gateway, "bind_market_rules", None)
+                if callable(bind_market_rules):
+                    bind_market_rules(plan.runtime_config.market_rule_engine)
             except Exception as exc:
                 raise OnlyPluginError(
                     "PLUGIN_CREATE_FAILED",
@@ -156,6 +161,34 @@ class OnlyBacktestRuntimeFactory:
         account = config.accounts[0]
         broker_common = brokers[0]
         source_common = sources[0]
+        calendar = config.reference_data.calendars[0]
+
+        def advance_trading_day(day: OnlyTradingDay, lag: int) -> OnlyTradingDay:
+            from datetime import timedelta
+
+            candidate = day.value
+            remaining = lag
+            while remaining > 0:
+                candidate += timedelta(days=1)
+                if calendar.is_trading_day(candidate):
+                    remaining -= 1
+            return OnlyTradingDay(candidate)
+
+        references = {
+            str(instrument.instrument_id): only_instrument_reference(
+                instrument,
+                profile_id=config.market.profile.value,
+            )
+            for instrument in config.reference_data.instruments
+        }
+        market_rule_engine = OnlyMarketRuleEngine(
+            registry=components.market_profiles,
+            compiler=components.market_rule_compiler,
+            request=config.market.to_request(),
+            runtime_mode=OnlyRuntimeMode.BACKTEST,
+            references=references,
+            advance_trading_day=advance_trading_day,
+        )
         runtime_config = OnlyRuntimeAssemblyConfig(
             config.engine_id,
             config.runtime_id,
@@ -165,6 +198,7 @@ class OnlyBacktestRuntimeFactory:
             strategy_base_currency=config.runtime.base_currency,
             broker_gateway_id=broker_common.gateway_id,
             account_initial_cash=account.initial_cash,
+            market_rule_engine=market_rule_engine,
         )
         clock = OnlyBacktestClock(config.start_time)
         event_bus = OnlyEventBus(

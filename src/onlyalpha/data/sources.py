@@ -21,7 +21,6 @@ from onlyalpha.data.ports import OnlyMarketDataCapabilities
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.time import OnlyTimestamp
 
 
@@ -292,12 +291,10 @@ class OnlyInMemoryReferenceDataSource:
         source_id: OnlyMarketDataSourceId,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
         calendars: Mapping[OnlyCalendarId, OnlyTradingCalendar],
-        market_rules: Mapping[OnlyInstrumentId, OnlyMarketRule],
     ) -> None:
         self._source_id = source_id
         self._instruments = instruments
         self._calendars = calendars
-        self._market_rules = market_rules
 
     @property
     def source_id(self) -> OnlyMarketDataSourceId:
@@ -308,9 +305,6 @@ class OnlyInMemoryReferenceDataSource:
 
     def calendar(self, calendar_id: OnlyCalendarId) -> OnlyTradingCalendar | None:
         return self._calendars.get(calendar_id)
-
-    def market_rule(self, instrument_id: OnlyInstrumentId) -> OnlyMarketRule | None:
-        return self._market_rules.get(instrument_id)
 
 
 OnlyFileReferenceDataSource = OnlyInMemoryReferenceDataSource

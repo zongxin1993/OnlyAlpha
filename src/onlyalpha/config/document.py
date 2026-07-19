@@ -27,6 +27,7 @@ from onlyalpha.config.models import (
     OnlyInstrumentBarSubscriptionConfig,
     OnlyJsonMapping,
     OnlyJsonValue,
+    OnlyMarketConfig,
     OnlyReferenceDataConfig,
     OnlyStrategyImportConfig,
     OnlyStrategySubscriptionConfig,
@@ -116,6 +117,7 @@ class OnlyRuntimeAssemblyPlan:
     data_sources: tuple[OnlyDataSourceRuntimeConfig, ...]
     accounts: tuple[OnlyAccountRuntimeConfig, ...]
     brokers: tuple[OnlyBrokerRuntimeConfig, ...]
+    market: OnlyMarketConfig
     clusters: tuple[OnlyClusterImportConfig, ...]
     output: OnlyOutputConfig
     source_path: Path

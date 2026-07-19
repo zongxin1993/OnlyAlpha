@@ -54,6 +54,7 @@ class OnlyRuntimeMode(StrEnum):
     LIVE = "LIVE"
     PAPER = "PAPER"
     BACKTEST = "BACKTEST"
+    SHADOW = "SHADOW"
     RESEARCH = "RESEARCH"
 
 

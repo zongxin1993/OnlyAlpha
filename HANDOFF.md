@@ -1,7 +1,37 @@
 # OnlyAlpha 工程交接说明
 
 > 更新时间：2026-07-19（Asia/Shanghai）  
-> 当前任务：`prompts/Market_Simulation_Framework.md` 多市场仿真框架
+> 当前任务：`prompts/rebuild_unified_market_runtime.md` 统一市场规则运行时
+
+## Unified Market Runtime Rules（2026-07-19）
+
+### 本轮实现
+
+- 新增 ADR 0026 和修改前审计报告；ADR 0024/0025 已标记部分被替代；
+- 删除 `OnlyMarketSimulationConfig` 和可选旧路径，产品配置必须显式使用 `market`；旧 key 拒绝加载；
+- 新增 Compiler、immutable Compiled Rules、compiled identity/fingerprint 和 `OnlyMarketRuleEngine`；引擎按
+  Instrument/Trading Day/Reference fingerprint 解析与缓存规则；
+- Composition Root 持有 Registry/Compiler，Backtest Factory 完成 Config → Registry → Compiler → Rule Engine →
+  Runtime 注入；
+- Risk 不再依赖旧 Market Rule Mapping；Virtual Broker 不再按日期写死 T+1，而是应用 Settlement
+  Instruction；ExecutionProcessor 通过 Trade Instruction 选择 Position settlement bucket；
+- 新增 Runtime-owned `OnlySettlementManager` 和 `OnlyMarginManager`，覆盖四维结算和
+  reserve/occupy/release 生命周期；
+- 删除旧 `OnlyMarketRule` Runtime/DataSource 接口，增加 Profile import 边界门禁。
+
+### 明确未完成（不得宣称）
+
+- Futures HEDGING 的生产 Position Manager 双向写入、Margin 与 Account 的完整事务链尚未收口；
+- Collector 的 Profile timeline/compiled identity/market decision/settlement/margin/fee 全量事实投影尚未收口；
+- Scenario YAML DSL、Conformance Packs、US/HK、Tushare Profile 自动加载、Web/CLI market commands 未实现。
+
+### 本轮真实门禁
+
+- `../.venv/bin/pytest -q`：382 passed；
+- `../.venv/bin/ruff check .`：通过；
+- `../.venv/bin/mypy`：340 source files 通过；
+- `git diff --check`：通过；
+- `ruff format --check .` 仍只被未修改的既有文件 `tests/market_data/test_pipeline_dispatch.py` 阻塞。
 
 ## Versioned Market Profiles and Conformance Suite（2026-07-19）
 
@@ -9,7 +39,7 @@
 
 - 新增 `OnlyMarketProfileFamily/Version/Status/Request/Registry`，支持有效期不重叠校验、按日期 Auto 解析、Pinned Version、Removed 拒绝和 Deprecated 固定加载边界；
 - 新增完整 Capability Set、受限 Override Policy、Resolved Profile 与 Rules Manifest；Reference/Override/Capability 进入确定性规则指纹；
-- `OnlyClusterRunConfig` 增加 opt-in `market_simulation.profile/version/overrides`，数值 Override 强制字符串 Decimal；缺省为 `None`，Legacy 行为不变；
+- 该轮的 optional/Legacy 配置结论已被 ADR 0026 和本轮必填 `market` 设计替代；
 - 新增 `OnlyOrderFeeAccumulator`，以累计应收减累计已收避免多 Fill 重复最低佣金；
 - 新增 Conformance Pack/Scenario/Registry 身份与 Stable Capability coverage gate；
 - 新增 ADR 0025 及 Registry、配置、Capability、Conformance、DSL、Override、Web Query 文档。
@@ -60,7 +90,7 @@
 
 ### 下一步顺序
 
-1. 给配置增加 opt-in `market_simulation`，Legacy 缺省行为不变；
+1. 已由 ADR 0026 完成必填 `market` 配置迁移；
 2. Runtime 解析 Reference/Profile，在 Risk 与 Broker 分别执行 pre-trade/match-time 决策；
 3. ExecutionProcessor 消费 settlement instruction、position effect、margin change、fee breakdown；
 4. Collector 生成三类新增事实，完成指纹覆盖；

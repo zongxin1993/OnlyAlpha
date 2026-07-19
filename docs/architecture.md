@@ -1,5 +1,9 @@
 # OnlyAlpha 总体架构
 
+Market 规则依赖链为 `OnlyMarketConfig → Profile Registry → Resolver → Rule Compiler →
+OnlyMarketRuleEngine → restricted Runtime Ports`。Profile 不得进入 Risk、Broker、Execution、Position、Settlement、
+Margin、Account 或 Collector。Backtest/Paper/Live/Shadow 共用该语义，详见 ADR 0026。
+
 正式运行入口通过 `CLI → OnlyEngine → OnlyClusterRunConfig[] → OnlyRuntimePlanner → OnlyRuntimeSession → OnlyRuntime.run()`
 组合既有组件。一个配置文件定义一个 Cluster；Engine 持有 Cluster Definition、Cluster Session 和 Runtime Session，负责
 完整生命周期、Runtime 兼容性分组、共享资源冲突/引用计数和 user_data。

@@ -7,17 +7,12 @@ from typing import Protocol
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
 
 
 class OnlyInstrumentRiskView(Protocol):
     def get(self, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None: ...
-
-
-class OnlyMarketRuleRiskView(Protocol):
-    def get(self, instrument_id: OnlyInstrumentId) -> OnlyMarketRule | None: ...
 
 
 class OnlyOrderRiskView(Protocol):
