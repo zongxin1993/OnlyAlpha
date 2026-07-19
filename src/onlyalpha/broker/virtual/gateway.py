@@ -46,7 +46,7 @@ from onlyalpha.broker.virtual.stores import (
     OnlyVirtualBrokerTradeStore,
 )
 from onlyalpha.core.clock import OnlyClock
-from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
+from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRejection
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -262,6 +262,7 @@ class OnlyVirtualBrokerGateway:
             venue_order_id,
             request.instrument_id,
             request.side,
+            request.offset,
             request.order_type,
             request.quantity,
             type(request.quantity)(Decimal(0), request.quantity.precision),
@@ -393,7 +394,9 @@ class OnlyVirtualBrokerGateway:
             return
         required = price.value * current.remaining_quantity.value
         reservable = (
-            self.account_store.reserve_buy(required)
+            True
+            if current.offset is OnlyOffset.OPEN and current.side is OnlyOrderSide.SELL
+            else self.account_store.reserve_buy(required)
             if current.side is OnlyOrderSide.BUY
             else self.account_store.reserve_sell(current.instrument_id, current.remaining_quantity.value)
         )
@@ -512,7 +515,16 @@ class OnlyVirtualBrokerGateway:
                 price,
                 reserved,
                 fee.amount,
+                quantity.precision,
                 asset_available=asset_available,
+            )
+        elif order.offset is OnlyOffset.OPEN:
+            self.account_store.apply_short_open(
+                order.instrument_id,
+                quantity.value,
+                price,
+                fee.amount,
+                quantity.precision,
             )
         else:
             self.account_store.apply_sell(order.instrument_id, quantity.value, price, fee.amount)

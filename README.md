@@ -1,5 +1,9 @@
 # OnlyAlpha
 
+Market Scenario 现可通过正式 `OnlyEngine` 执行 exact bars/actions，并产出标准事实、断言、指纹和 Artifact。产品入口为
+`onlyalpha scenario validate/run` 与 `onlyalpha market profiles/profile`。自动执行当前仅支持 BACKTEST；内建 Profile 仍全部为
+Experimental。
+
 OnlyAlpha 是一个独立开发的模块化量化交易核心，强调确定性、可测试边界和可扩展的多市场领域模型。当前采用模块化单体架构，以 `OnlyEngine` 统一协调 Runtime 与相互隔离的 Cluster。
 
 Backtest、Paper、Live 和 Shadow 共用同一套版本化 Market Rules：必填 `market` → Profile Registry →

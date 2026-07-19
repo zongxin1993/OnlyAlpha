@@ -1,7 +1,39 @@
 # OnlyAlpha 工程交接说明
 
 > 更新时间：2026-07-19（Asia/Shanghai）  
-> 当前任务：`prompts/Multi-Market_Scenario_Framework.md` Deterministic Multi-Market Scenario Framework
+> 当前任务：`prompts/Multi-Market_Conformance_Packs_and_Product_Integration.md`
+> Multi-Market Conformance Packs and Product Integration
+
+## Multi-Market Conformance Packs and Product Integration（进行中，2026-07-19）
+
+### 本轮完成
+
+- 正式 exact Scenario DataSource、Action Strategy 和 `OnlyEngine` Scenario Runner；Generic T0 场景重复运行 result fingerprint 一致；
+- 修复 Virtual Broker fractional quantity snapshot 与货币精度，修正 INFO reconciliation 被误判为 blocking failure；
+- Collector/Backtest Artifact 增加 profile timeline、compiled identity 和 market decision；
+- 删除旧手工 capability coverage Pack，新增版本化 Pack Domain/Registry、Conformance Runner、coverage、stability/release evaluator；
+- 增加 Scenario/Market CLI、JSON Query DTO、审计报告、ADR 0028 和产品文档。
+
+### 正式通过
+
+- `CN_A_SHARE_T1_ENGINE@1.0`、`GENERIC_T0_CASH_ENGINE@1.0`、`GENERIC_CRYPTO_SPOT_ENGINE@1.0`：正式 Engine Scenario PASSED；
+- Generic T0 自动 Pack Runner 测试 PASSED；Futures/Cross-Version 尚未通过，因此五 Pack 门禁未完成；
+- BACKTEST 可自动执行；PAPER/LIVE/SHADOW 只规划并返回明确 capability error；
+- 所有内建 Profile 仍为 Experimental。
+
+### 明确未完成（不得宣称任务完成）
+
+- CN A-share 完整 capability Pack、Futures SELL OPEN/BUY CLOSE Margin 事务链、Crypto 完整 Pack、Cross-Version Pack 尚未完成；
+- Settlement/Margin/Fee 标准 Collector 事实仍未由完整交易事务生成；Conformance CLI/repository/query 尚未产品化；
+- 因上述门禁未满足，没有 Profile 可升级 Stable，也没有五 Pack 全部通过证据；
+- Plugins/Examples 三仓门禁、US/HK、Perpetual、Web Server、在线 Tushare 未执行。
+
+### 本轮真实验证
+
+- `../.venv/bin/pytest -q`：391 passed；
+- 定向 Scenario/CLI/Conformance：12 passed；
+- `../.venv/bin/ruff check .`：通过；`../.venv/bin/mypy`：352 source files 通过；`git diff --check`：通过；
+- `../.venv/bin/ruff format --check .`：未通过，仅剩既有 `tests/market_data/test_pipeline_dispatch.py` 需格式化；本轮文件已格式化。
 
 ## Deterministic Multi-Market Scenario Framework（2026-07-19）
 

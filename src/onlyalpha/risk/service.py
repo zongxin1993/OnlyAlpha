@@ -251,6 +251,7 @@ class OnlyRiskService:
                     context.trading_calendar.trading_day_at(context.ts_event),
                     Decimal(0) if position is None else position.available_quantity.value,
                     available_cash,
+                    available_cash,
                 )
             )
             if not market_decision.accepted:

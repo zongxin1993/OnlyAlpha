@@ -129,6 +129,7 @@ class OnlyBrokerOrderSnapshot(OnlyDomainModel):
     venue_order_id: OnlyVenueOrderId
     instrument_id: OnlyInstrumentId
     side: OnlyOrderSide
+    offset: OnlyOffset
     order_type: OnlyOrderType
     quantity: OnlyQuantity
     filled_quantity: OnlyQuantity

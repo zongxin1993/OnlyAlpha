@@ -21,11 +21,14 @@ from onlyalpha.result.diagnostics import (
 from onlyalpha.result.records import (
     OnlyAccountResultRecord,
     OnlyBacktestFacts,
+    OnlyCompiledMarketRuleResultRecord,
     OnlyEquityResultRecord,
     OnlyExecutionResultRecord,
+    OnlyMarketRuleDecisionResultRecord,
     OnlyOrderRequestResultRecord,
     OnlyOrderResultRecord,
     OnlyPositionResultRecord,
+    OnlyProfileTimelineResultRecord,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 
@@ -168,6 +171,57 @@ class OnlyBacktestResultCollector:
                     complete=True,
                 )
             )
+        rule_engine = runtime.config.market_rule_engine
+        compiled_records: list[OnlyCompiledMarketRuleResultRecord] = []
+        timeline_records: list[OnlyProfileTimelineResultRecord] = []
+        decision_records: list[OnlyMarketRuleDecisionResultRecord] = []
+        if rule_engine is not None:
+            for identity in rule_engine.compiled_identities:
+                compiled_records.append(
+                    OnlyCompiledMarketRuleResultRecord(
+                        sequence=next_sequence(),
+                        instrument_id=identity.instrument_id,
+                        venue_id=identity.venue,
+                        trading_day=identity.trading_day,
+                        profile_id=identity.profile_id,
+                        profile_version=identity.profile_version,
+                        compiled_rules_fingerprint=identity.compiled_rules_fingerprint,
+                        reference_fingerprint=identity.reference_fingerprint,
+                        runtime_mode=identity.runtime_mode.value,
+                    )
+                )
+                timeline_records.append(
+                    OnlyProfileTimelineResultRecord(
+                        sequence=next_sequence(),
+                        runtime_id=str(runtime.runtime_id),
+                        profile_id=identity.profile_id,
+                        profile_version=identity.profile_version,
+                        trading_day=identity.trading_day,
+                        effective_from=None,
+                        effective_to=None,
+                        resolved_rules_fingerprint=identity.resolved_profile_fingerprint,
+                        reference_fingerprint=identity.reference_fingerprint,
+                        override_fingerprint=hashlib.sha256(b"{}").hexdigest(),
+                        runtime_mode=identity.runtime_mode.value,
+                    )
+                )
+            default_account = "" if not account_records else account_records[0].account_id
+            for decision in rule_engine.decisions:
+                accepted = getattr(decision, "accepted", getattr(decision, "matched", False))
+                reason = getattr(decision, "reason_code", getattr(decision, "unfilled_reason", None))
+                decision_records.append(
+                    OnlyMarketRuleDecisionResultRecord(
+                        sequence=next_sequence(),
+                        account_id=default_account,
+                        instrument_id=decision.compiled_identity.instrument_id,
+                        market_profile_id=decision.compiled_identity.profile_id,
+                        rule_set_id=decision.compiled_identity.compiled_rules_fingerprint,
+                        rule_type=type(decision).__name__,
+                        decision="ACCEPTED" if accepted else "REJECTED",
+                        reason=reason,
+                        ts_event=now,
+                    )
+                )
         failures: list[OnlyBacktestFailure] = []
         for audit in runtime.market_data_audit_store.records():
             if audit.failure is None and audit.status is not OnlyMarketDataProcessingStatus.REJECTED:
@@ -239,6 +293,9 @@ class OnlyBacktestResultCollector:
                 positions=positions,
                 accounts=tuple(account_records),
                 equity=tuple(equity_records),
+                market_rule_decisions=tuple(decision_records),
+                profile_timeline=tuple(timeline_records),
+                compiled_market_rules=tuple(compiled_records),
             ),
             diagnostics,
             sequence,

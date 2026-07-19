@@ -140,6 +140,7 @@ class OnlyEngineRunResult:
     backtest_reports: tuple[dict[str, object], ...] = ()
     console_reports: tuple[str, ...] = ()
     report_paths: tuple[Path, ...] = ()
+    runtime_results: tuple[object, ...] = ()
 
     @property
     def exit_code(self) -> int:

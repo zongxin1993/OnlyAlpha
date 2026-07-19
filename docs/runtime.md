@@ -1,5 +1,7 @@
 # Runtime 设计
 
+Scenario Action/Command 在 BACKTEST/PAPER/LIVE/SHADOW 间一致；当前仅 BACKTEST 支持确定性自动推进，其他模式不降级。
+
 Runtime Factory 必须先从必填 `market` 配置解析 Profile，再构建 `OnlyMarketRuleEngine`。Runtime 组件只接收
 Pre-Trade、Match-Time 或 Instruction Port，不得接收 Profile/Resolved Profile/Registry。引擎按 Trading Day
 编译，不假设整个运行区间内市场版本不变。

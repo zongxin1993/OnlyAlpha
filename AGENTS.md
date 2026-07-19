@@ -47,6 +47,9 @@ Scenario code belongs in `onlyalpha.scenario`. Parser and Assertion code must no
 or Profile rule implementations. PAPER/LIVE/SHADOW capability gaps must be explicit; never translate their actions into a
 hidden BACKTEST path. Parser/planner tests are not evidence that an Engine scenario or Conformance Pack passes.
 
+Conformance Runner may call only the public Scenario Runner. Capability coverage must come from required Scenario PASSED
+results; query services are read-only and CLI adapters must not access Runtime or Manager internals.
+
 ## Commit & Pull Request Guidelines
 
 History uses concise prefixes such as `Feat:` and `Fix:`. Keep commits scoped to one boundary and write imperative summaries, for example `Fix: preserve replay root failure`. Pull requests should explain the behavior change, architecture impact, tests executed, and known limitations; link related issues or ADRs. Include screenshots only for user-facing output changes, and never commit credentials, tokens, generated `user_data`, caches, or run artifacts.

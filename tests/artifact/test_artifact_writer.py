@@ -105,6 +105,8 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
         "settlements.parquet",
         "margin.parquet",
         "market_rule_decisions.parquet",
+        "profile_timeline.parquet",
+        "compiled_market_rules.parquet",
     }
     assert expected == {item.name for item in tmp_path.iterdir()}
     assert manifest.result_fingerprint == result.result_fingerprint

@@ -102,7 +102,7 @@ class OnlyBacktestRunPlan:
                 item.status is OnlyExecutionProcessingStatus.FAILED
                 or (
                     item.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
-                    and not any("WARNING" in summary for summary in item.audit_record.mutation_summary)
+                    and any("ERROR" in summary for summary in item.audit_record.mutation_summary)
                 )
             )
         )

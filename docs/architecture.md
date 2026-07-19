@@ -1,5 +1,8 @@
 # OnlyAlpha 总体架构
 
+产品验证依赖固定为 `CLI/Application → Conformance Runner → Scenario Runner → OnlyEngine`。Conformance 不依赖交易 Manager，
+Scenario Runner 不直接操作交易组件，Collector 只读正式 query/audit，Query 不执行 Command。
+
 Market 规则依赖链为 `OnlyMarketConfig → Profile Registry → Resolver → Rule Compiler →
 OnlyMarketRuleEngine → restricted Runtime Ports`。Profile 不得进入 Risk、Broker、Execution、Position、Settlement、
 Margin、Account 或 Collector。Backtest/Paper/Live/Shadow 共用该语义，详见 ADR 0026。

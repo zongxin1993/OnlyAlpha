@@ -101,12 +101,15 @@ class OnlyMinimumNotionalRiskRule(OnlyRiskRule):
         minimum = instrument.minimum_notional
         if minimum is None:
             return self._accept()
-        if request.price is None:
+        price = request.price
+        if price is None and context.market_data is not None:
+            price = context.market_data.primary_bar.close
+        if price is None:
             return self._reject(
                 OnlyRiskRejectionCode.REQUIRED_RISK_DATA_MISSING,
                 "Price is required to validate minimum notional",
             )
-        notional = request.price.value * request.quantity.value * instrument.contract_multiplier.value
+        notional = price.value * request.quantity.value * instrument.contract_multiplier.value
         if notional < minimum.amount:
             return self._reject(
                 OnlyRiskRejectionCode.MINIMUM_NOTIONAL_NOT_MET,

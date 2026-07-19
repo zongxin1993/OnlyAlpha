@@ -98,6 +98,7 @@ class OnlyMarketScenarioParser:
             bars,
             actions,
             expectations,
+            product,
             self._mapping(root.get("extensions", {}), "$.extensions"),
         )
 
@@ -109,6 +110,54 @@ class OnlyMarketScenarioParser:
         instrument_id = self._string(
             self._mapping(instruments[0], "$.reference.instruments[0]").get("instrument_id"), "instrument_id"
         )
+        bars = self._list(self._mapping(root.get("data"), "$.data").get("bars"), "$.data.bars")
+        actions = self._list(root.get("actions"), "$.actions")
+        strategy_actions = []
+        for raw_action in actions:
+            action = self._mapping(raw_action, "$.actions[]")
+            trigger = self._mapping(action.get("trigger"), "$.actions[].trigger")
+            command = self._mapping(action.get("command"), "$.actions[].command")
+            item: dict[str, object] = {
+                "action_id": action["action_id"],
+                "sequence": trigger.get("sequence", 0),
+                "type": command["type"],
+            }
+            if command["type"] == "CANCEL_ORDER":
+                item["target_action_id"] = command["action_id"]
+            else:
+                item.update(
+                    {
+                        "instrument_id": command["instrument_id"],
+                        "side": command["side"],
+                        "order_type": command["order_type"],
+                        "quantity": command["quantity"],
+                        "offset": "NONE"
+                        if command.get("position_effect", "AUTO") == "AUTO"
+                        else command["position_effect"],
+                        "time_in_force": command.get("time_in_force", "DAY"),
+                    }
+                )
+                if command.get("price") is not None:
+                    item["price"] = command["price"]
+            strategy_actions.append(item)
+        exact_bars = []
+        for raw_bar in bars:
+            bar = self._mapping(raw_bar, "$.data.bars[]")
+            event = self._timestamp(bar["ts_event"], "$.data.bars[].ts_event")
+            initialized = self._timestamp(bar.get("ts_init", bar["ts_event"]), "$.data.bars[].ts_init")
+            exact_bars.append(
+                {
+                    "instrument_id": bar["instrument_id"],
+                    "ts_event_ns": int(event.timestamp() * 1_000_000_000),
+                    "ts_init_ns": int(initialized.timestamp() * 1_000_000_000),
+                    "sequence": bar["sequence"],
+                    "open": bar["open"],
+                    "high": bar["high"],
+                    "low": bar["low"],
+                    "close": bar["close"],
+                    "volume": bar["volume"],
+                }
+            )
         return {
             "schema_version": "1.0",
             "market": dict(self._mapping(root.get("market"), "$.market")),
@@ -128,10 +177,10 @@ class OnlyMarketScenarioParser:
             "data_sources": [
                 {
                     "source_id": "scenario-data",
-                    "plugin": "synthetic",
+                    "plugin": "scenario-exact",
                     "data_version": "scenario-v1",
                     "coverage": {"instrument_ids": [instrument_id]},
-                    "extensions": {},
+                    "extensions": {"bars": exact_bars},
                 }
             ],
             "accounts": [
@@ -143,11 +192,38 @@ class OnlyMarketScenarioParser:
             ],
             "brokers": [{"gateway_id": "scenario-broker", "plugin": "virtual", "extensions": {}}],
             "strategy": {
-                "class_path": "onlyalpha.strategy.base:OnlyNoopStrategy",
-                "config_path": "onlyalpha.strategy.config:OnlyStrategyConfig",
-                "extensions": {},
+                "class_path": "onlyalpha.scenario.action_strategy:OnlyScenarioActionStrategy",
+                "config_path": "onlyalpha.scenario.action_strategy:OnlyScenarioActionStrategyConfig",
+                "extensions": {
+                    "strategy_id": "scenario-action-strategy",
+                    "factor_id": "scenario-bar-factor",
+                    "actions": strategy_actions,
+                },
             },
-            "factors": [],
+            "factors": [
+                {
+                    "factor_id": "scenario-bar-factor",
+                    "factor_type": "TIME_SERIES",
+                    "class_path": "onlyalpha.scenario.action_strategy:OnlyScenarioBarFactor",
+                    "config_path": "onlyalpha.scenario.action_strategy:OnlyScenarioBarFactorConfig",
+                    "required": True,
+                    "subscriptions": {
+                        "instrument_bars": [
+                            {
+                                "instrument_id": instrument_id,
+                                "bar_specification": {
+                                    "step": 1,
+                                    "aggregation": "TIME",
+                                    "price_type": "LAST",
+                                    "source": "EXTERNAL",
+                                },
+                                "role": "PRIMARY",
+                            }
+                        ]
+                    },
+                    "indicators": [],
+                }
+            ],
         }
 
     def _bars(

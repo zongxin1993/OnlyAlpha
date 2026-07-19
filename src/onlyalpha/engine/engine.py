@@ -391,6 +391,7 @@ class OnlyEngine:
             tuple(backtest_reports),
             tuple(console_reports),
             tuple(report_paths),
+            tuple(backtest_results),
         )
 
     def stop(self) -> None:

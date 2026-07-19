@@ -42,11 +42,14 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyAggregationSource,
+    OnlyAssetClass,
     OnlyBarAggregation,
+    OnlyContractType,
     OnlyCurrencyType,
     OnlyMarketType,
     OnlyPriceType,
     OnlySessionType,
+    OnlySettlementType,
 )
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -57,7 +60,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
     OnlyVenueId,
 )
-from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyInstrument
+from onlyalpha.domain.instrument import OnlyCryptoSpot, OnlyEquity, OnlyETF, OnlyFuture, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
@@ -65,6 +68,7 @@ from onlyalpha.domain.value import (
     OnlyMultiplier,
     OnlyPrice,
     OnlyQuantity,
+    OnlyRate,
 )
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
@@ -237,15 +241,23 @@ class _OnlyClusterDocumentParser:
             self._calendar(self._map(x, f"$.reference_data.calendars[{i}]"), f"$.reference_data.calendars[{i}]")
             for i, x in enumerate(self._list(raw.get("calendars"), "$.reference_data.calendars"))
         )
-        instruments = tuple(
-            self._instrument(
-                self._map(x, f"$.reference_data.instruments[{i}]"),
-                f"$.reference_data.instruments[{i}]",
-                currency,
-            )
-            for i, x in enumerate(self._list(raw.get("instruments"), "$.reference_data.instruments"))
+        instrument_raw = self._list(raw.get("instruments"), "$.reference_data.instruments")
+        instrument_mappings = tuple(
+            self._map(x, f"$.reference_data.instruments[{i}]") for i, x in enumerate(instrument_raw)
         )
-        return OnlyReferenceDataConfig(calendars, instruments)
+        instruments = tuple(
+            self._instrument(item, f"$.reference_data.instruments[{i}]", currency)
+            for i, item in enumerate(instrument_mappings)
+        )
+        attributes = MappingProxyType(
+            {
+                str(instrument.instrument_id): MappingProxyType(
+                    {key: item[key] for key in ("board", "st_status") if key in item}
+                )
+                for instrument, item in zip(instruments, instrument_mappings, strict=True)
+            }
+        )
+        return OnlyReferenceDataConfig(calendars, instruments, attributes)
 
     def _calendar(self, raw: OnlyJsonMapping, path: str) -> OnlyTradingCalendar:
         sessions = tuple(
@@ -268,17 +280,14 @@ class _OnlyClusterDocumentParser:
                 date.fromisoformat(self._str(x, f"{path}.holidays[{i}]"))
                 for i, x in enumerate(self._list(raw.get("holidays", []), f"{path}.holidays"))
             ),
+            weekend_days=tuple(
+                self._int(x, f"{path}.weekend_days[{i}]", 0)
+                for i, x in enumerate(self._list(raw.get("weekend_days", [5, 6]), f"{path}.weekend_days"))
+            ),
         )
 
     def _instrument(self, raw: OnlyJsonMapping, path: str, base_currency: OnlyCurrency) -> OnlyInstrument:
         asset_class = self._str(raw.get("asset_class", "ETF"), f"{path}.asset_class")
-        instrument_type: type[OnlyETF] | type[OnlyEquity]
-        if asset_class == "ETF":
-            instrument_type = OnlyETF
-        elif asset_class == "EQUITY":
-            instrument_type = OnlyEquity
-        else:
-            raise OnlyClusterConfigError(f"{path}.asset_class={asset_class!r} is not yet supported")
         instrument_id = _instrument_id(
             self._str(raw.get("instrument_id"), f"{path}.instrument_id"),
             f"{path}.instrument_id",
@@ -287,10 +296,9 @@ class _OnlyClusterDocumentParser:
         price_precision = self._int(raw.get("price_precision", 2), f"{path}.price_precision", 0)
         quantity_precision = self._int(raw.get("quantity_precision", 0), f"{path}.quantity_precision", 0)
         lot = self._decimal(raw.get("lot_size"), f"{path}.lot_size", positive=True)
-        return instrument_type(
+        common: dict[str, object] = dict(
             instrument_id=instrument_id,
             raw_symbol=OnlyRawSymbol(symbol),
-            market_type=OnlyMarketType.CASH,
             quote_currency=base_currency,
             settlement_currency=base_currency,
             price_precision=price_precision,
@@ -321,6 +329,48 @@ class _OnlyClusterDocumentParser:
             ),
             timezone=OnlyTimeZone(self._str(raw.get("timezone"), f"{path}.timezone")).name,
         )
+        if asset_class == "ETF":
+            return OnlyETF(market_type=OnlyMarketType.CASH, **common)  # type: ignore[arg-type]
+        if asset_class == "EQUITY":
+            return OnlyEquity(market_type=OnlyMarketType.CASH, **common)  # type: ignore[arg-type]
+        if asset_class == "FUTURES":
+            expiration = self._optional_utc(raw.get("expiration_time"), f"{path}.expiration_time")
+            last_trade = self._optional_utc(raw.get("last_trade_time"), f"{path}.last_trade_time")
+            if expiration is None or last_trade is None:
+                raise OnlyClusterConfigError(f"{path} Futures requires expiration_time and last_trade_time")
+            return OnlyFuture(
+                asset_class=OnlyAssetClass.COMMODITY,
+                market_type=OnlyMarketType.DERIVATIVE,
+                underlying=_instrument_id(self._str(raw.get("underlying"), f"{path}.underlying"), f"{path}.underlying"),
+                expiration_time=expiration,
+                last_trade_time=last_trade,
+                settlement_type=OnlySettlementType(
+                    self._str(raw.get("settlement_type", "CASH"), f"{path}.settlement_type")
+                ),
+                contract_type=OnlyContractType(self._str(raw.get("contract_type", "LINEAR"), f"{path}.contract_type")),
+                margin_currency=base_currency,
+                initial_margin_rate=OnlyRate(
+                    self._decimal(raw.get("initial_margin_rate", "0.10"), f"{path}.initial_margin_rate"), 4
+                ),
+                maintenance_margin_rate=OnlyRate(
+                    self._decimal(raw.get("maintenance_margin_rate", "0.08"), f"{path}.maintenance_margin_rate"),
+                    4,
+                ),
+                **common,  # type: ignore[arg-type]
+            )
+        if asset_class == "CRYPTO_SPOT":
+            base_code = self._str(raw.get("base_currency"), f"{path}.base_currency")
+            crypto_base = OnlyCurrency(base_code, 8, OnlyCurrencyType.CRYPTO)
+            minimum_notional = self._decimal(
+                raw.get("minimum_notional", "0"), f"{path}.minimum_notional", non_negative=True
+            )
+            common["minimum_notional"] = OnlyMoney(minimum_notional, base_currency)
+            return OnlyCryptoSpot(
+                market_type=OnlyMarketType.CASH,
+                base_currency=crypto_base,
+                **common,  # type: ignore[arg-type]
+            )
+        raise OnlyClusterConfigError(f"{path}.asset_class={asset_class!r} is not supported")
 
     def _universes(self, values: list[OnlyJsonValue]) -> tuple[OnlyUniverseConfig, ...]:
         result = []

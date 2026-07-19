@@ -298,6 +298,8 @@ class OnlyTradeInstructionPort(Protocol):
 
 
 OnlyReferenceProvider = Callable[[str, OnlyTradingDay], OnlyInstrumentReferenceSnapshot]
+
+
 class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePort, OnlyTradeInstructionPort):
     """Controlled Runtime service. Business components never receive Profiles."""
 
@@ -323,6 +325,11 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
     @property
     def decisions(self) -> tuple[OnlyMarketOrderDecision | OnlyMarketMatchDecision, ...]:
         return tuple(self._decisions)
+
+    @property
+    def compiled_identities(self) -> tuple[OnlyCompiledMarketRuleIdentity, ...]:
+        """Stable public query projection for collectors and artifacts."""
+        return tuple(item.identity for _, item in sorted(self._cache.items(), key=lambda pair: pair[0]))
 
     def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketRules:
         reference = self._reference(instrument_id, trading_day)

@@ -25,3 +25,15 @@ def test_user_data_precedence(tmp_path: Path, monkeypatch: object) -> None:
 def test_dry_run_does_not_create_run_output(tmp_path: Path) -> None:
     assert main(["run", "--config", CONFIG, "--user-data", str(tmp_path), "--dry-run"]) == 0
     assert not (tmp_path / "runs").exists()
+
+
+def test_scenario_validate_run_and_market_query_cli(tmp_path: Path, capsys: object) -> None:
+    scenario = "examples/scenarios/generic_t0_cash.yaml"
+    assert main(["scenario", "validate", scenario, "--format", "json"]) == 0
+    assert '"valid": true' in capsys.readouterr().out  # type: ignore[attr-defined]
+
+    assert main(["scenario", "run", scenario, "--user-data", str(tmp_path), "--format", "json"]) == 0
+    assert '"status": "PASSED"' in capsys.readouterr().out  # type: ignore[attr-defined]
+
+    assert main(["market", "profiles", "--format", "json"]) == 0
+    assert "GENERIC_T0_CASH" in capsys.readouterr().out  # type: ignore[attr-defined]

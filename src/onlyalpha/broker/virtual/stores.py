@@ -22,6 +22,7 @@ class _OnlyVirtualPositionState:
     settled_quantity: Decimal
     frozen_quantity: Decimal
     average_price: OnlyPrice | None
+    quantity_precision: int
 
 
 class OnlyVirtualBrokerAccountStore:
@@ -42,6 +43,7 @@ class OnlyVirtualBrokerAccountStore:
         self.sequence = 0
 
     def reserve_buy(self, amount: Decimal) -> bool:
+        amount = amount.quantize(Decimal(1).scaleb(-self.currency.precision))
         if amount > self.cash - self.frozen_cash:
             return False
         self.frozen_cash += amount
@@ -61,14 +63,18 @@ class OnlyVirtualBrokerAccountStore:
         price: OnlyPrice,
         reserved: Decimal,
         fee: Decimal,
+        quantity_precision: int,
         *,
         asset_available: bool = False,
     ) -> None:
-        cost = price.value * quantity
+        quantum = Decimal(1).scaleb(-self.currency.precision)
+        cost = (price.value * quantity).quantize(quantum)
+        reserved = reserved.quantize(quantum)
+        fee = fee.quantize(quantum)
         self.frozen_cash -= reserved
         self.cash -= cost + fee
         state = self.positions.setdefault(
-            instrument_id, _OnlyVirtualPositionState(Decimal(0), Decimal(0), Decimal(0), None)
+            instrument_id, _OnlyVirtualPositionState(Decimal(0), Decimal(0), Decimal(0), None, quantity_precision)
         )
         total_cost = (state.average_price.value * state.quantity if state.average_price else Decimal(0)) + cost
         state.quantity += quantity
@@ -76,8 +82,8 @@ class OnlyVirtualBrokerAccountStore:
         # engine. Runtime availability is governed by SettlementInstruction.
         if asset_available:
             state.settled_quantity += quantity
-        quantum = Decimal(1).scaleb(-price.precision)
-        state.average_price = OnlyPrice((total_cost / state.quantity).quantize(quantum), price.precision)
+        price_quantum = Decimal(1).scaleb(-price.precision)
+        state.average_price = OnlyPrice((total_cost / state.quantity).quantize(price_quantum), price.precision)
 
     def apply_sell(
         self,
@@ -90,9 +96,30 @@ class OnlyVirtualBrokerAccountStore:
         state.frozen_quantity -= quantity
         state.settled_quantity -= quantity
         state.quantity -= quantity
-        self.cash += price.value * quantity - fee
+        quantum = Decimal(1).scaleb(-self.currency.precision)
+        self.cash += (price.value * quantity).quantize(quantum) - fee.quantize(quantum)
         if state.quantity == 0:
             state.average_price = None
+
+    def apply_short_open(
+        self,
+        instrument_id: OnlyInstrumentId,
+        quantity: Decimal,
+        price: OnlyPrice,
+        fee: Decimal,
+        quantity_precision: int,
+    ) -> None:
+        state = self.positions.setdefault(
+            instrument_id, _OnlyVirtualPositionState(Decimal(0), Decimal(0), Decimal(0), None, quantity_precision)
+        )
+        total_cost = state.average_price.value * state.quantity if state.average_price else Decimal(0)
+        total_cost += price.value * quantity
+        state.quantity += quantity
+        state.settled_quantity += quantity
+        quantum = Decimal(1).scaleb(-price.precision)
+        state.average_price = OnlyPrice((total_cost / state.quantity).quantize(quantum), price.precision)
+        cash_quantum = Decimal(1).scaleb(-self.currency.precision)
+        self.cash -= fee.quantize(cash_quantum)
 
     def release_order(self, order: OnlyBrokerOrderSnapshot) -> None:
         remaining = order.remaining_quantity.value
@@ -124,13 +151,14 @@ class OnlyVirtualBrokerAccountStore:
             )
             for instrument_id, state in self.positions.items()
         )
+        quantum = Decimal(1).scaleb(-self.currency.precision)
         return OnlyBrokerAccountSnapshot(
             self.gateway_id,
             self.account_id,
             OnlyMoney(self.cash, self.currency),
             OnlyMoney(self.cash - self.frozen_cash, self.currency),
             OnlyMoney(self.frozen_cash, self.currency),
-            OnlyMoney(self.cash + position_value, self.currency),
+            OnlyMoney((self.cash + position_value).quantize(quantum), self.currency),
             timestamp,
             self.sequence,
         )
@@ -142,9 +170,9 @@ class OnlyVirtualBrokerAccountStore:
                 self.gateway_id,
                 self.account_id,
                 instrument_id,
-                OnlyQuantity(state.quantity, 0),
-                OnlyQuantity(state.settled_quantity - state.frozen_quantity, 0),
-                OnlyQuantity(state.frozen_quantity, 0),
+                OnlyQuantity(state.quantity, state.quantity_precision),
+                OnlyQuantity(state.settled_quantity - state.frozen_quantity, state.quantity_precision),
+                OnlyQuantity(state.frozen_quantity, state.quantity_precision),
                 state.average_price,
                 timestamp,
                 self.sequence,
