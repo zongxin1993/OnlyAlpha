@@ -26,6 +26,16 @@ Use four-space indentation, 120-character lines, double quotes, complete type an
 
 Pytest discovers `test_*.py` under `tests/`. Add unit tests for invariants and failure paths, direct integration tests for neighboring components, and a deterministic vertical-slice regression for behavior crossing Runtime boundaries. Use fixed clocks, input data, and expected fingerprints. Do not weaken assertions, delete historical scenarios, or hide failures with `skip`.
 
+## Multi-Market Simulation Rules
+
+Market-specific behavior belongs in versioned `onlyalpha.market` profiles and Instrument Reference, never in generic Order,
+Position, Account, Broker, Engine, Analytics, or Report code. Keep settlement, availability, position mode, short/borrow,
+margin, session, price, quantity, fee, liquidity, slippage, and matching as orthogonal rules. Reuse existing Instrument,
+Calendar, Position Side/Mode, ExecutionProcessor, and Result types; do not create parallel financial models. New public
+market types use the `Only` prefix, Decimal semantics, effective intervals, stable fingerprints, explainable decisions, and
+tests proving both an A-share case and a non-A-share Generic case. Do not describe a reserved interface as production
+support; preserve Legacy configs unless a profile is explicitly selected.
+
 ## Commit & Pull Request Guidelines
 
 History uses concise prefixes such as `Feat:` and `Fix:`. Keep commits scoped to one boundary and write imperative summaries, for example `Fix: preserve replay root failure`. Pull requests should explain the behavior change, architecture impact, tests executed, and known limitations; link related issues or ADRs. Include screenshots only for user-facing output changes, and never commit credentials, tokens, generated `user_data`, caches, or run artifacts.

@@ -13,9 +13,12 @@ from onlyalpha.result.records import (
     OnlyBacktestFacts,
     OnlyEquityResultRecord,
     OnlyExecutionResultRecord,
+    OnlyMarginResultRecord,
+    OnlyMarketRuleDecisionResultRecord,
     OnlyOrderRequestResultRecord,
     OnlyOrderResultRecord,
     OnlyPositionResultRecord,
+    OnlySettlementResultRecord,
     OnlySignalResultRecord,
 )
 
@@ -27,11 +30,14 @@ __all__ = [
     "OnlyBacktestWarning",
     "OnlyEquityResultRecord",
     "OnlyExecutionResultRecord",
+    "OnlyMarginResultRecord",
+    "OnlyMarketRuleDecisionResultRecord",
     "OnlyOrderRequestResultRecord",
     "OnlyOrderResultRecord",
     "OnlyPositionResultRecord",
     "OnlyResultDiagnosticSeverity",
     "OnlyResultFailureStage",
     "OnlySignalResultRecord",
+    "OnlySettlementResultRecord",
     "only_result_fingerprint",
 ]
