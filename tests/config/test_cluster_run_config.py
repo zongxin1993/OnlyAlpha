@@ -52,3 +52,22 @@ def test_plugin_field_is_required() -> None:
     payload["data_sources"][0].pop("plugin")
     with pytest.raises(OnlyClusterConfigError, match="plugin is required"):
         OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
+
+
+def test_market_is_required_and_legacy_market_simulation_is_rejected() -> None:
+    original = OnlyClusterRunConfig.load(CONFIG)
+    payload = json.loads(json.dumps(dict(original.normalized_payload)))
+    payload.pop("market")
+    with pytest.raises(OnlyClusterConfigError, match=r"\$\.market"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
+    payload["market_simulation"] = {"profile": "GENERIC_T0_CASH"}
+    with pytest.raises(OnlyClusterConfigError, match="market_simulation"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
+
+
+def test_market_override_decimal_values_must_be_quoted() -> None:
+    original = OnlyClusterRunConfig.load(CONFIG)
+    payload = json.loads(json.dumps(dict(original.normalized_payload)))
+    payload["market"]["overrides"] = {"liquidity": {"maximum_participation_rate": 0.1}}
+    with pytest.raises(ValueError, match="quoted Decimal string"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)

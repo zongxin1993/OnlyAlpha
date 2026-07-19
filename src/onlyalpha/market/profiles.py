@@ -59,7 +59,7 @@ def only_generic_t0_cash_profile() -> OnlyMarketProfile:
         OnlyMarketProfileId.GENERIC_T0_CASH,
         "GENERIC",
         None,
-        (OnlyAssetClass.EQUITY,),
+        (OnlyAssetClass.EQUITY, OnlyAssetClass.FUND),
         _DAY_SESSION,
         _T0_SETTLEMENT,
         OnlyPositionAccountingModel(OnlyMarketPositionMode.LONG_ONLY),

@@ -2,6 +2,9 @@
 
 OnlyAlpha 是一个独立开发的模块化量化交易核心，强调确定性、可测试边界和可扩展的多市场领域模型。当前采用模块化单体架构，以 `OnlyEngine` 统一协调 Runtime 与相互隔离的 Cluster。
 
+Backtest、Paper、Live 和 Shadow 共用同一套版本化 Market Rules：必填 `market` → Profile Registry →
+Compiler → `OnlyMarketRuleEngine` → 受限 Runtime Ports。市场制度不属于 Broker 或仿真专用配置。
+
 ## 三仓职责
 
 - `OnlyAlpha`：核心框架、领域模型、运行时、内建基础实现和公共 SPI；

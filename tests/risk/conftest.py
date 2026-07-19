@@ -38,7 +38,7 @@ from onlyalpha.risk.identifiers import OnlyRiskProfileId
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.publisher import OnlyInMemoryRiskEventPublisher
 from onlyalpha.risk.service import OnlyRiskService
-from onlyalpha.risk.views import OnlyInstrumentRiskMappingView, OnlyMarketRuleRiskMappingView
+from onlyalpha.risk.views import OnlyInstrumentRiskMappingView
 
 
 @dataclass(slots=True)
@@ -120,7 +120,6 @@ def build_harness(instrument: OnlyEquity):
             OnlyClockView(clock),
             calendar,
             OnlyInstrumentRiskMappingView({instrument.instrument_id: instrument}),
-            OnlyMarketRuleRiskMappingView({}),
             query,
             risk_publisher,
         )

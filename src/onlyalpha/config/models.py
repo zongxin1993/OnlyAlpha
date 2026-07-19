@@ -117,15 +117,15 @@ class OnlyBrokerRuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyMarketSimulationConfig:
-    """Opt-in profile selection; absence preserves the legacy runtime path."""
+class OnlyMarketConfig:
+    """Required market definition shared by every Runtime mode."""
 
     profile: OnlyMarketProfileId
     version: str | None = None
     overrides: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
-        _require_decimal_strings(self.overrides, "$.market_simulation.overrides")
+        _require_decimal_strings(self.overrides, "$.market.overrides")
 
     def to_request(self) -> OnlyMarketProfileRequest:
         return OnlyMarketProfileRequest(self.profile, self.version, self.overrides)

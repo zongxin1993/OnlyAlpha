@@ -56,6 +56,10 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
+from onlyalpha.market.models import OnlyMarketProfileId
+from onlyalpha.market.profiles import only_builtin_market_profile_registry
+from onlyalpha.market.registry import OnlyMarketProfileRequest
+from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine, only_instrument_reference
 from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
@@ -275,6 +279,18 @@ class OnlyIntegrationEnvironment:
             OnlyBarSpecification(3, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
             OnlyAggregationSource.INTERNAL,
         )
+        market_rules = OnlyMarketRuleEngine(
+            registry=only_builtin_market_profile_registry(),
+            compiler=OnlyMarketRuleCompiler(),
+            request=OnlyMarketProfileRequest(OnlyMarketProfileId.CN_A_SHARE_CASH),
+            runtime_mode=OnlyRuntimeMode.BACKTEST,
+            references={
+                str(self.instrument.instrument_id): only_instrument_reference(
+                    self.instrument, profile_id=OnlyMarketProfileId.CN_A_SHARE_CASH.value, board="MAIN"
+                )
+            },
+            advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
+        )
         self.runtime = OnlyBacktestRuntime(
             OnlyRuntimeAssemblyConfig(
                 ENGINE_ID,
@@ -282,6 +298,7 @@ class OnlyIntegrationEnvironment:
                 OnlyRuntimeMode.BACKTEST,
                 strategy_initial_capital="1000000.00",
                 strategy_base_currency=CNY,
+                market_rule_engine=market_rules,
                 virtual_broker_config=(
                     OnlyVirtualBrokerConfig(
                         OnlyBrokerGatewayId("virtual-integration"),

@@ -20,6 +20,7 @@ class OnlyRuntimeCompatibilityKey:
     data_version: str
     broker_environment: str
     account_environment: str
+    market_environment: str
 
     @classmethod
     def from_config(cls, config: OnlyClusterRunConfig) -> OnlyRuntimeCompatibilityKey:
@@ -55,6 +56,13 @@ class OnlyRuntimeCompatibilityKey:
             source_versions,
             broker_environment,
             account_environment,
+            _fingerprint(
+                {
+                    "profile": config.market.profile.value,
+                    "version": config.market.version,
+                    "overrides": dict(config.market.overrides),
+                }
+            ),
         )
 
 
@@ -107,6 +115,7 @@ class OnlyRuntimePlanner:
             first.data_sources,
             first.accounts,
             first.brokers,
+            first.market,
             tuple(config.cluster for config in configs),
             first.output,
             first.source_path,

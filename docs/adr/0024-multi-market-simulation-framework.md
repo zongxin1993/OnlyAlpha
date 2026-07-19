@@ -1,6 +1,6 @@
 # ADR 0024: Multi-Market Simulation Framework
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0026
 - Date: 2026-07-19
 - Modules: market, broker, execution, position, result, artifact
 
@@ -10,7 +10,7 @@
 和 Matching 规则。Instrument Reference 提供每标的动态规格。Broker 只作规则判定和产生成交事实，ExecutionProcessor 保持唯一正式
 状态写入者；Result Collector 观察 Settlement、Margin 和 Rule Decision。
 
-Legacy 未声明 Profile 的配置保持原行为。A 股是第一个正式 Profile，三个 Generic Profile 只用于证明核心没有 T+1、整数股、
+ADR 0026 已删除 Legacy 缺省路径；所有 Runtime 必须显式声明 `market`。A 股是第一个正式 Profile，三个 Generic Profile 只用于证明核心没有 T+1、整数股、
 Long-only 或工作日硬编码。
 
 ## Rejected
@@ -25,4 +25,3 @@ Long-only 或工作日硬编码。
 
 规则变化进入 Profile 指纹，Settlement 的可用与法律清算分离，Cash 与 Margin 状态分离。完整 Futures/Perpetual 生产纵切面、
 Borrow、Funding、Liquidation、Tick/Order Book 撮合仍需后续 ADR/实现，不得因已有接口宣称正式支持。
-

@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0",
+  "market": {"profile": "GENERIC_T0_CASH"},
   "engine": {"engine_id": "onlyalpha-demo"},
   "runtime": {
     "runtime_id": "macd-backtest-demo",

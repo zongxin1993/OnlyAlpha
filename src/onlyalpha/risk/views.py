@@ -7,7 +7,6 @@ from onlyalpha.account.enums import OnlyAccountStatus
 from onlyalpha.account.views import OnlyAccountQueryService
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.risk.enums import OnlyRiskLevel
@@ -21,14 +20,6 @@ class OnlyInstrumentRiskMappingView:
 
     def get(self, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None:
         return self._instruments.get(instrument_id)
-
-
-class OnlyMarketRuleRiskMappingView:
-    def __init__(self, rules: Mapping[OnlyInstrumentId, OnlyMarketRule]) -> None:
-        self._rules = MappingProxyType(rules)
-
-    def get(self, instrument_id: OnlyInstrumentId) -> OnlyMarketRule | None:
-        return self._rules.get(instrument_id)
 
 
 class OnlyOrderRiskQueryView:

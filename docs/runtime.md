@@ -1,5 +1,9 @@
 # Runtime 设计
 
+Runtime Factory 必须先从必填 `market` 配置解析 Profile，再构建 `OnlyMarketRuleEngine`。Runtime 组件只接收
+Pre-Trade、Match-Time 或 Instruction Port，不得接收 Profile/Resolved Profile/Registry。引擎按 Trading Day
+编译，不假设整个运行区间内市场版本不变。
+
 ## Runtime Planning
 
 `OnlyRuntimePlanner` 使用 Runtime 类型、起止时间、Clock/Replay policy、Data Version、Broker Environment 和 Account

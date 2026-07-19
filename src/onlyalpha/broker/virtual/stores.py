@@ -61,6 +61,8 @@ class OnlyVirtualBrokerAccountStore:
         price: OnlyPrice,
         reserved: Decimal,
         fee: Decimal,
+        *,
+        asset_available: bool = False,
     ) -> None:
         cost = price.value * quantity
         self.frozen_cash -= reserved
@@ -70,6 +72,10 @@ class OnlyVirtualBrokerAccountStore:
         )
         total_cost = (state.average_price.value * state.quantity if state.average_price else Decimal(0)) + cost
         state.quantity += quantity
+        # Broker Store is an external snapshot, not the legal settlement
+        # engine. Runtime availability is governed by SettlementInstruction.
+        if asset_available:
+            state.settled_quantity += quantity
         quantum = Decimal(1).scaleb(-price.precision)
         state.average_price = OnlyPrice((total_cost / state.quantity).quantize(quantum), price.precision)
 

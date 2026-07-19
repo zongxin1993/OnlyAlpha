@@ -56,8 +56,10 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueTradeId,
 )
 from onlyalpha.domain.market import OnlyBar
-from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.market.models import OnlyPositionEffect
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, OnlyTradeApplicationRequest
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.lifecycle import (
@@ -66,6 +68,7 @@ from onlyalpha.plugin.lifecycle import (
     OnlyPluginLifecycleState,
 )
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
+from onlyalpha.settlement import OnlySettlementManager
 
 ONLY_VIRTUAL_PLUGIN_DESCRIPTOR = OnlyPluginDescriptor(
     "virtual",
@@ -105,6 +108,8 @@ class OnlyVirtualBrokerGateway:
         self.config = config
         self.runtime_id = runtime_id
         self._clock = clock
+        self._market_rules: OnlyMarketRuleEngine | None = None
+        self._settlements = OnlySettlementManager()
         self._inbound = inbound
         self._matching = matching_engine or OnlyNextBarMatchingEngine(config.maximum_fill_quantity)
         self._commission = (
@@ -303,24 +308,20 @@ class OnlyVirtualBrokerGateway:
         if self._current_day is None:
             self._current_day = bar.trading_day
         elif bar.trading_day > self._current_day:
-            self.account_store.settle()
             self._current_day = bar.trading_day
-            timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
-            for position in self.account_store.position_snapshots(timestamp):
-                self._emit(
-                    OnlyBrokerPositionUpdate,
-                    timestamp,
-                    str(position.instrument_id),
-                    "t-plus-one-settlement",
-                    snapshot=position,
-                )
-            self._emit(
-                OnlyBrokerAccountUpdate,
-                timestamp,
-                str(self.config.account_id),
-                "t-plus-one-settlement",
-                snapshot=self.account_store.account_snapshot(timestamp),
-            )
+            if self._market_rules is not None:
+                records = self._settlements.advance(OnlyTradingDay(bar.trading_day))
+                if any(record.available_quantity > 0 for record in records):
+                    self.account_store.settle()
+                    timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
+                    for position in self.account_store.position_snapshots(timestamp):
+                        self._emit(
+                            OnlyBrokerPositionUpdate,
+                            timestamp,
+                            str(position.instrument_id),
+                            "settlement-instruction-applied",
+                            snapshot=position,
+                        )
         timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
         for order in self.order_store.open(self.config.account_id):
             if order.status not in {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED}:
@@ -469,6 +470,25 @@ class OnlyVirtualBrokerGateway:
         self._trade_sequence += 1
         trade_id = OnlyTradeId(f"virtual-trade-{self._trade_sequence:08d}")
         venue_trade_id = OnlyVenueTradeId(f"virtual-venue-trade-{self._trade_sequence:08d}")
+        asset_available = False
+        if self._market_rules is not None:
+            trading_day = OnlyTradingDay(timestamp.to_datetime().date())
+            instruction = self._market_rules.build_trade_instruction(
+                OnlyTradeApplicationRequest(
+                    str(order.instrument_id),
+                    str(order.order_id),
+                    str(trade_id),
+                    str(order.account_id),
+                    order.side,
+                    quantity.value,
+                    price.value,
+                    timestamp.to_datetime(),
+                    trading_day,
+                    OnlyPositionEffect.OPEN if order.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE,
+                )
+            )
+            self._settlements.register(instruction.settlement_instruction)
+            asset_available = instruction.settlement_instruction.asset_available_on == trading_day
         fill_sequence = self._next_sequence()
         fill = OnlyOrderFill(
             trade_id,
@@ -486,7 +506,14 @@ class OnlyVirtualBrokerGateway:
         )
         reserved = (order.price.value if order.price is not None else price.value) * quantity.value
         if order.side is OnlyOrderSide.BUY:
-            self.account_store.apply_buy(order.instrument_id, quantity.value, price, reserved, fee.amount)
+            self.account_store.apply_buy(
+                order.instrument_id,
+                quantity.value,
+                price,
+                reserved,
+                fee.amount,
+                asset_available=asset_available,
+            )
         else:
             self.account_store.apply_sell(order.instrument_id, quantity.value, price, fee.amount)
         filled = type(order.filled_quantity)(
@@ -566,3 +593,10 @@ class OnlyVirtualBrokerGateway:
     def _require_account(self, account_id: OnlyAccountId) -> None:
         if account_id != self.config.account_id:
             raise KeyError(f"unknown Broker account: {account_id}")
+
+    def bind_market_rules(self, market_rules: OnlyMarketRuleEngine) -> None:
+        """Bind the Runtime-equivalent rule port before the Gateway starts."""
+
+        if self._market_rules is not None and self._market_rules is not market_rules:
+            raise ValueError("Virtual Broker market rule port is already bound")
+        self._market_rules = market_rules

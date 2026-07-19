@@ -19,6 +19,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.market.runtime_rules import OnlyPreTradeMarketContext, OnlyPreTradeMarketRulePort
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.risk.audit import OnlyOrderIntentAudit, OnlyRiskDecisionAudit
@@ -75,7 +76,6 @@ from onlyalpha.risk.state_store import OnlyInMemoryRiskStateStore
 from onlyalpha.risk.views import (
     OnlyClusterPermissionMappingView,
     OnlyInstrumentRiskMappingView,
-    OnlyMarketRuleRiskMappingView,
     OnlyOrderRiskQueryView,
 )
 
@@ -90,10 +90,10 @@ class OnlyRiskService:
         clock: OnlyClockView,
         trading_calendar: OnlyTradingCalendar,
         instruments: OnlyInstrumentRiskMappingView,
-        market_rules: OnlyMarketRuleRiskMappingView,
         order_query: OnlyOrderQueryService,
         publisher: OnlyRiskEventPublisher,
         *,
+        market_rules: OnlyPreTradeMarketRulePort | None = None,
         runtime_rules: tuple[OnlyRiskRule, ...] = (),
         account_rules: tuple[OnlyRiskRule, ...] = (),
         account_risk: OnlyAccountRiskView | None = None,
@@ -201,7 +201,6 @@ class OnlyRiskService:
             timestamp,
             self._clock,
             self._instruments,
-            self._market_rules,
             self._calendar,
             self._orders,
             self._reservations,
@@ -222,6 +221,55 @@ class OnlyRiskService:
     ) -> OnlyRiskDecision:
         if context.runtime_id != self.runtime_id:
             raise ValueError("Risk Evaluation Context belongs to another Runtime")
+        if self._market_rules is not None:
+            instrument = context.instruments.get(request.instrument_id)
+            price = request.price
+            if price is None and context.market_data is not None:
+                price = context.market_data.primary_bar.close
+            account = context.account_risk.snapshot(context.account_id)
+            position = context.position_risk.snapshot(context.account_id, request.instrument_id)
+            if instrument is None or price is None or account is None:
+                return OnlyRiskDecision.rejected(
+                    OnlyRiskRejection(
+                        OnlyRiskRuleId("market.pre_trade"),
+                        OnlyRiskRejectionCode.REQUIRED_RISK_DATA_MISSING,
+                        "Market pre-trade context is incomplete",
+                        OnlyRiskRuleScope.INSTRUMENT,
+                    )
+                )
+            available_cash = next(
+                (item.amount for item in account.available_balances if item.currency == instrument.settlement_currency),
+                Decimal(0),
+            )
+            market_decision = self._market_rules.evaluate_pre_trade(
+                OnlyPreTradeMarketContext(
+                    str(request.instrument_id),
+                    request.side,
+                    request.quantity.value,
+                    price.value,
+                    context.ts_event.to_datetime(),
+                    context.trading_calendar.trading_day_at(context.ts_event),
+                    Decimal(0) if position is None else position.available_quantity.value,
+                    available_cash,
+                )
+            )
+            if not market_decision.accepted:
+                code = {
+                    "INVALID_PRICE_TICK": OnlyRiskRejectionCode.INVALID_PRICE_INCREMENT,
+                    "OUTSIDE_DAILY_PRICE_LIMIT": OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED,
+                    "INSTRUMENT_NOT_TRADABLE": OnlyRiskRejectionCode.INSTRUMENT_NOT_TRADABLE,
+                    "INSUFFICIENT_CASH": OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                    "ASSET_NOT_AVAILABLE_T1": OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                }.get(market_decision.reason_code or "", OnlyRiskRejectionCode.INVALID_QUANTITY)
+                return OnlyRiskDecision.rejected(
+                    OnlyRiskRejection(
+                        OnlyRiskRuleId("market.pre_trade"),
+                        code,
+                        market_decision.reason_code or "Market rule rejected order",
+                        OnlyRiskRuleScope.INSTRUMENT,
+                        details={"market_reason_code": market_decision.reason_code or "UNKNOWN"},
+                    )
+                )
         if context.strategy_ledger is not None and not context.strategy_ledger.allows_new_orders(
             context.account_id, context.cluster_id
         ):

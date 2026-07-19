@@ -5,10 +5,7 @@ from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOffset, OnlyOrderSide
-from onlyalpha.domain.execution import OnlyOrderRequest
-from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate, only_decimal
 
@@ -126,43 +123,3 @@ class OnlyFeeScheduleCatalog(OnlyDomainModel):
 @dataclass(frozen=True, slots=True)
 class OnlyTradingRule(OnlyDomainModel):
     minimum_notional: OnlyMoney | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketRule(OnlyDomainModel):
-    rule_id: str
-    lot_size_rule: OnlyLotSizeRule
-    settlement_rule: OnlySettlementRule
-    trading_rule: OnlyTradingRule = OnlyTradingRule()
-    price_limit_rule: OnlyPriceLimitRule | None = None
-    tick_scheme: OnlyTickScheme | None = None
-    fee_schedule: OnlyFeeSchedule | None = None
-    calendar: OnlyTradingCalendar | None = None
-
-    def validate_order(
-        self,
-        instrument: OnlyInstrument,
-        request: OnlyOrderRequest,
-        price: OnlyPrice | None = None,
-    ) -> OnlyValidationResult:
-        violations: list[str] = []
-        target_price = price or request.limit_price
-        if request.instrument_id != instrument.instrument_id:
-            violations.append("instrument_id_mismatch")
-        if not instrument.is_valid_quantity(request.quantity):
-            violations.append("instrument_quantity")
-        if not self.lot_size_rule.validates(request.side, request.quantity):
-            violations.append("lot_size")
-        if request.offset not in self.settlement_rule.allowed_offsets:
-            violations.append("offset")
-        if target_price is not None:
-            if not instrument.is_valid_price(target_price):
-                violations.append("instrument_price")
-            if self.price_limit_rule and not self.price_limit_rule.validates(target_price):
-                violations.append("price_limit")
-            if self.tick_scheme and not self.tick_scheme.validates(target_price):
-                violations.append("price_ladder")
-            minimum = self.trading_rule.minimum_notional
-            if minimum and target_price.value * request.quantity.value < minimum.amount:
-                violations.append("minimum_notional")
-        return OnlyValidationResult(tuple(violations))

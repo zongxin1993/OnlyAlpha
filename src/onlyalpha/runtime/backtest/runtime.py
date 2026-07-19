@@ -56,7 +56,6 @@ from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyCalendarId, OnlyClusterId, OnlyInstrumentId, OnlyVenueId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
-from onlyalpha.domain.market_rules import OnlyMarketRule
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
@@ -112,7 +111,6 @@ from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.views import (
     OnlyAccountManagerRiskView,
     OnlyInstrumentRiskMappingView,
-    OnlyMarketRuleRiskMappingView,
     OnlyRiskSnapshotView,
 )
 from onlyalpha.runtime.context import (
@@ -257,7 +255,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._timer_results: list[OnlyClusterExecutionResult] = []
         self._instruments: dict[OnlyInstrumentId, OnlyInstrument] = {}
         self._known_market_data_instruments: set[OnlyInstrumentId] = set()
-        self._market_rules: dict[OnlyInstrumentId, OnlyMarketRule] = {}
         self._risk_profile_factory = OnlyRiskProfileFactory()
         manager = OnlyClusterManager(runtime_config.runtime_id, self._make_context, self._cleanup_cluster)  # type: ignore[arg-type]
         executor = OnlyManagedBarDispatchExecutor(manager, self._set_current_snapshot, self._prepare_risk_snapshot)
@@ -306,12 +303,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlyClockView(clock),
             selected_calendar,
             OnlyInstrumentRiskMappingView(self._instruments),
-            OnlyMarketRuleRiskMappingView(self._market_rules),
             order_query,
             OnlyRuntimeRiskEventPublisherAdapter(event_sink),
             account_rules=(OnlyAvailableBalanceRiskRule(), OnlyAvailablePositionRiskRule()),
             account_risk=OnlyAccountManagerRiskView(self._account_query),
             position_risk=OnlyPositionRiskView(position_query, clock.timestamp_ns),
+            market_rules=runtime_config.market_rule_engine,
             strategy_ledger_risk=OnlyStrategyLedgerRiskView(
                 self._strategy_ledger_query, runtime_config.strategy_base_currency
             ),
@@ -331,6 +328,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             if runtime_config.virtual_broker_config is not None
             else None
         )
+        if selected_broker_gateway is not None and runtime_config.market_rule_engine is not None:
+            bind_market_rules = getattr(selected_broker_gateway, "bind_market_rules", None)
+            if callable(bind_market_rules):
+                bind_market_rules(runtime_config.market_rule_engine)
         execution_service: OnlyExecutionService = (
             OnlyBrokerExecutionService(selected_broker_gateway, clock)
             if selected_broker_gateway is not None
@@ -413,6 +414,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._apply_account_valuation,
             self._set_broker_connection_state,
             runtime_config.strategy_base_currency,
+            runtime_config.market_rule_engine,
         )
         self._broker_results: list[object] = []
         historical_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history")
@@ -434,7 +436,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-reference"),
             self._instruments,
             {selected_calendar.calendar_id: selected_calendar},
-            self._market_rules,
         )
         market_data_audit_store = OnlyMarketDataAuditStore()
         market_data_deduplicator = OnlyMarketDataDeduplicator()
@@ -552,7 +553,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
     def register_instrument(
         self,
         instrument: OnlyInstrument,
-        market_rule: OnlyMarketRule | None = None,
     ) -> None:
         if self._state is not OnlyRuntimeState.CREATED or self.clusters:
             raise OnlyLifecycleError("Instruments must be registered before Clusters while Runtime is CREATED")
@@ -564,8 +564,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._services.reference_data_source.calendar(instrument.trading_calendar_id or OnlyCalendarId("XSHG"))
             or self._selected_calendar
         )
-        if market_rule is not None:
-            self._market_rules[instrument.instrument_id] = market_rule
 
     def process_bar(self, bar: OnlyBar) -> OnlyRuntimeBarResult:
         """Compatibility facade implemented as a one-record local historical replay."""

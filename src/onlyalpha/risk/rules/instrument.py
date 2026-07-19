@@ -24,9 +24,6 @@ class OnlyPriceIncrementRiskRule(OnlyRiskRule):
             request.price.precision == instrument.price_precision
             and request.price.value % instrument.tick_size.value == 0
         )
-        market_rule = context.market_rules.get(request.instrument_id)
-        if valid and market_rule is not None and market_rule.tick_scheme is not None:
-            valid = market_rule.tick_scheme.validates(request.price)
         if not valid:
             return self._reject(
                 OnlyRiskRejectionCode.INVALID_PRICE_INCREMENT,
@@ -49,9 +46,6 @@ class OnlyQuantityIncrementRiskRule(OnlyRiskRule):
             request.quantity.precision == instrument.quantity_precision
             and request.quantity.value % instrument.step_size.value == 0
         )
-        market_rule = context.market_rules.get(request.instrument_id)
-        if valid and market_rule is not None:
-            valid = market_rule.lot_size_rule.validates(request.side, request.quantity)
         if not valid:
             return self._reject(
                 OnlyRiskRejectionCode.INVALID_QUANTITY_INCREMENT,
@@ -104,10 +98,7 @@ class OnlyMinimumNotionalRiskRule(OnlyRiskRule):
         instrument = context.instruments.get(request.instrument_id)
         if instrument is None:
             return self._accept()
-        market_rule = context.market_rules.get(request.instrument_id)
         minimum = instrument.minimum_notional
-        if market_rule is not None and market_rule.trading_rule.minimum_notional is not None:
-            minimum = market_rule.trading_rule.minimum_notional
         if minimum is None:
             return self._accept()
         if request.price is None:
@@ -131,10 +122,7 @@ class OnlyTradingSessionRiskRule(OnlyRiskRule):
         super().__init__(_instrument_rule("instrument.trading_session", order))
 
     def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        market_rule = context.market_rules.get(request.instrument_id)
-        calendar = (
-            context.trading_calendar if market_rule is None or market_rule.calendar is None else market_rule.calendar
-        )
+        calendar = context.trading_calendar
         if not calendar.is_trading_time(context.ts_event) and not self._is_closed_bar_decision(request, context):
             return self._reject(
                 OnlyRiskRejectionCode.OUTSIDE_TRADING_SESSION,
@@ -174,17 +162,14 @@ class OnlyPriceLimitRiskRule(OnlyRiskRule):
         if request.price is None:
             return self._accept()
         instrument = context.instruments.get(request.instrument_id)
-        market_rule = context.market_rules.get(request.instrument_id)
         valid = instrument is None or (
             (instrument.minimum_price is None or request.price.value >= instrument.minimum_price.value)
             and (instrument.maximum_price is None or request.price.value <= instrument.maximum_price.value)
         )
-        if valid and market_rule is not None and market_rule.price_limit_rule is not None:
-            valid = market_rule.price_limit_rule.validates(request.price)
         if not valid:
             return self._reject(
                 OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED,
-                "Price exceeds configured Instrument or MarketRule limit",
+                "Price exceeds configured Instrument limit",
                 requested_value=str(request.price.value),
             )
         return self._accept()

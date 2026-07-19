@@ -20,7 +20,6 @@ from onlyalpha.data.models import (
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.market_rules import OnlyMarketRule
 
 OnlyMarketDataCapabilities = frozenset[OnlyMarketDataCapability]
 OnlyMarketDataUpdateSink = Callable[[OnlyMarketDataInboundUpdate], None]
@@ -79,14 +78,9 @@ class OnlyTradingCalendarDataSource(Protocol):
     def calendar(self, calendar_id: OnlyCalendarId) -> OnlyTradingCalendar | None: ...
 
 
-class OnlyMarketRuleDataSource(Protocol):
-    def market_rule(self, instrument_id: OnlyInstrumentId) -> OnlyMarketRule | None: ...
-
-
 class OnlyReferenceDataSource(
     OnlyInstrumentDataSource,
     OnlyTradingCalendarDataSource,
-    OnlyMarketRuleDataSource,
     Protocol,
 ):
     @property

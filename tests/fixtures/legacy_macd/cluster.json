@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0",
+  "market": {"profile": "GENERIC_T0_CASH"},
   "cluster": {
     "cluster_id": "macd-demo", "account_id": "backtest-account", "enabled": true,
     "runtime_type": "BACKTEST", "risk_profile_id": "cn-equity-default"
