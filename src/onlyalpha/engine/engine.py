@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+from onlyalpha.analytics import OnlyBacktestAnalyticsService
+from onlyalpha.artifact import OnlyBacktestArtifactWriter, OnlyRunArtifactTarget
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyClusterId
@@ -29,6 +31,8 @@ from onlyalpha.engine.models import (
     OnlyRuntimeSession,
 )
 from onlyalpha.output import OnlyEngineResultExporter, OnlyUserDataLayout
+from onlyalpha.report import OnlyConsoleBacktestReport, OnlyJsonBacktestReport, OnlyMarkdownBacktestReport
+from onlyalpha.runtime.backtest.result import OnlyBacktestResult
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.runtime.planning import (
     OnlyEngineExecutionPlan,
@@ -278,6 +282,10 @@ class OnlyEngine:
                 "",
             )
         projections: list[dict[str, object]] = []
+        backtest_results: list[OnlyBacktestResult] = []
+        backtest_reports: list[dict[str, object]] = []
+        console_reports: list[str] = []
+        report_paths: list[Path] = []
         failures: list[str] = []
         executed: list[OnlyClusterRunConfig] = []
         try:
@@ -293,6 +301,8 @@ class OnlyEngine:
                     if not hasattr(result, "to_dict"):
                         raise TypeError("Runtime.run() must return a serializable result")
                     typed_result = cast(OnlyRuntimeResult, result)
+                    if isinstance(result, OnlyBacktestResult):
+                        backtest_results.append(result)
                     projection = typed_result.to_dict()
                     for config in runtime_plan.cluster_configs:
                         projections.append(self._cluster_projection(projection, config.cluster_id))
@@ -340,6 +350,36 @@ class OnlyEngine:
             engine_fingerprint,
             self._execution_plan,
         )
+        for result in backtest_results:
+            artifact_written = False
+            try:
+                analysis = OnlyBacktestAnalyticsService().analyze(result)
+                artifact_root = (
+                    manifest.path.parent
+                    if len(backtest_results) == 1
+                    else manifest.path.parent / "runtimes" / str(result.runtime_id) / "artifacts"
+                )
+                artifact_manifest = OnlyBacktestArtifactWriter().write(
+                    result,
+                    analysis,
+                    OnlyRunArtifactTarget(artifact_root),
+                )
+                artifact_written = True
+                backtest_reports.append(OnlyJsonBacktestReport().render(result, analysis, artifact_manifest))
+                console_reports.append(OnlyConsoleBacktestReport().render(result, analysis, artifact_manifest))
+                report_path = artifact_root / "report.md"
+                report_temp = artifact_root / ".report.md.tmp"
+                report_temp.write_text(
+                    OnlyMarkdownBacktestReport().render(result, analysis, artifact_manifest),
+                    encoding="utf-8",
+                )
+                report_temp.replace(report_path)
+                report_paths.append(report_path)
+            except Exception as exc:
+                stage = "REPORT" if artifact_written else "ARTIFACT_WRITE"
+                failures.append(f"{stage}: {type(exc).__name__}: {exc}")
+        if failures:
+            self.state = OnlyEngineState.FAILED
         return OnlyEngineRunResult(
             self.config.engine_id,
             run_id,
@@ -348,6 +388,9 @@ class OnlyEngine:
             tuple(failures),
             manifest.path,
             engine_fingerprint,
+            tuple(backtest_reports),
+            tuple(console_reports),
+            tuple(report_paths),
         )
 
     def stop(self) -> None:

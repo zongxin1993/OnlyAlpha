@@ -8,6 +8,7 @@ from typing import TypeVar
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.score import OnlyFactorScore
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
+from onlyalpha.result.strategy import OnlyStrategyResultRecorder
 from onlyalpha.runtime.context import OnlyRuntimeContext
 
 OnlyFactorSnapshotT = TypeVar("OnlyFactorSnapshotT", bound=OnlyFactorSnapshot)
@@ -38,11 +39,17 @@ class OnlyStrategyFactorView:
 class OnlyStrategyContext:
     """Whitelisted trading capabilities; no Runtime, Manager, Broker, or Indicator access."""
 
-    __slots__ = ("_factors", "_runtime")
+    __slots__ = ("_factors", "_results", "_runtime")
 
-    def __init__(self, runtime: OnlyRuntimeContext, factors: OnlyStrategyFactorView) -> None:
+    def __init__(
+        self,
+        runtime: OnlyRuntimeContext,
+        factors: OnlyStrategyFactorView,
+        results: OnlyStrategyResultRecorder,
+    ) -> None:
         self._runtime = runtime
         self._factors = factors
+        self._results = results
 
     @property
     def clock(self) -> object:
@@ -87,6 +94,10 @@ class OnlyStrategyContext:
     @property
     def timers(self) -> object:
         return self._runtime.timers
+
+    @property
+    def results(self) -> OnlyStrategyResultRecorder:
+        return self._results
 
 
 @dataclass(frozen=True, slots=True)

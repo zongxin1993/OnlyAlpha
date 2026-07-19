@@ -15,6 +15,8 @@ Glob 结果稳定排序，最后按绝对路径去重。至少必须得到一个
 `--fail-fast/--no-fail-fast` 控制 Cluster 失败策略。`--dry-run` 完成 Schema、动态类、引用、资源冲突、Runtime
 分组和输出计划校验，不运行历史回放，也不创建正式 run 目录。
 
+默认成功输出是单行简洁 JSON，包含旧 Engine 字段及 bar/signal/order/execution/trade 数量、基础绩效、三层结果指纹和报告路径，不输出完整事实列表。`--console-report` 在 JSON 前增加人类可读摘要；机器调用不要启用该选项。
+
 CLI 只构造 `OnlyEngine`、逐个调用 `add_cluster_from_file()`，最后调用 `validate()` 或 `run()`；它不创建
 Runtime、DataSource、Broker、Strategy、Factor 或 Indicator。
 

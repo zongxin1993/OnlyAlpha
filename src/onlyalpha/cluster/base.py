@@ -21,6 +21,7 @@ from onlyalpha.factor.snapshot import OnlyFactorSnapshot
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry, OnlyIndicatorRegistry
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
+from onlyalpha.result.strategy import OnlyStrategyResultRecorder
 from onlyalpha.runtime.context import OnlyClusterContext, OnlyTimerContext
 from onlyalpha.strategy.base import OnlyNoopStrategy, OnlyStrategy
 from onlyalpha.strategy.config import OnlyStrategyConfig
@@ -162,6 +163,7 @@ class OnlyCluster:
         strategy_context = OnlyStrategyContext(
             context,
             OnlyStrategyFactorView(self._factor_snapshots, self._factor_scores),
+            OnlyStrategyResultRecorder(self.config.cluster_id, str(self.strategy.strategy_id)),
         )
         self.strategy._only_cluster_bind(strategy_context)
         self.strategy.on_initialize()

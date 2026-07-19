@@ -61,6 +61,7 @@ def only_parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument("--fail-fast", action=argparse.BooleanOptionalAction, default=True)
+    run_parser.add_argument("--console-report", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -88,17 +89,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(validation.render())
             return validation.exit_code
         result = engine.run()
+        if args.console_report:
+            for index, console_report in enumerate(result.console_reports):
+                if index:
+                    print()
+                print(console_report)
+        payload = {
+            "engine_id": str(result.engine_id),
+            "run_id": result.run_id,
+            "status": result.status,
+            "cluster_count": len(result.cluster_results),
+            "failures": list(result.failures),
+            "manifest_path": None if result.manifest_path is None else str(result.manifest_path),
+            "determinism_fingerprint": result.determinism_fingerprint,
+        }
+        if len(result.backtest_reports) == 1:
+            report_payload = dict(result.backtest_reports[0])
+            report_payload.pop("status", None)
+            report_payload.pop("cluster_count", None)
+            payload.update(report_payload)
+            if result.report_paths:
+                payload["report_path"] = str(result.report_paths[0])
         print(
             json.dumps(
-                {
-                    "engine_id": str(result.engine_id),
-                    "run_id": result.run_id,
-                    "status": result.status,
-                    "cluster_count": len(result.cluster_results),
-                    "failures": list(result.failures),
-                    "manifest_path": None if result.manifest_path is None else str(result.manifest_path),
-                    "determinism_fingerprint": result.determinism_fingerprint,
-                },
+                payload,
                 ensure_ascii=False,
                 sort_keys=True,
             )
