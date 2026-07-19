@@ -36,6 +36,13 @@ market types use the `Only` prefix, Decimal semantics, effective intervals, stab
 tests proving both an A-share case and a non-A-share Generic case. Do not describe a reserved interface as production
 support; preserve Legacy configs unless a profile is explicitly selected.
 
+Profile family and version are separate identities. Register versions through `OnlyMarketProfileRegistry`; effective
+intervals are left-closed/right-open and may not overlap. Ordinary overrides are limited by
+`OnlyMarketProfileOverridePolicy`; changing settlement, position mode, short selling, or margin requires a custom
+profile. A profile may be marked Stable only when every enabled capability is covered by its Engine-based conformance
+pack. Scenario runners must traverse Engine, Risk, Virtual Broker, ExecutionProcessor, and Results and must never forge
+fills or mutate account/position state for assertions.
+
 ## Commit & Pull Request Guidelines
 
 History uses concise prefixes such as `Feat:` and `Fix:`. Keep commits scoped to one boundary and write imperative summaries, for example `Fix: preserve replay root failure`. Pull requests should explain the behavior change, architecture impact, tests executed, and known limitations; link related issues or ADRs. Include screenshots only for user-facing output changes, and never commit credentials, tokens, generated `user_data`, caches, or run artifacts.

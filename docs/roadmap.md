@@ -80,6 +80,8 @@ Application Service、REST、WebSocket/SSE、权限和控制台尚未实现。
 ## Phase 7：多市场（基础边界已开始）
 
 核心 Profile/规则边界与三个 Generic Profile 已建立；港股、美股、中国期货、数字资产衍生品、外汇和期权正式产品适配尚未开始。
+版本化 Registry、Auto/Pinned 解析、Capability、受限 Override 和 Conformance coverage gate 已建立；正式 Engine Scenario
+Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 
 ## Phase 8：性能与分布式（未完成）
 
