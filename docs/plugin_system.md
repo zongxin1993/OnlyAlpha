@@ -15,3 +15,5 @@ Cluster Config
 
 内建 `synthetic`、`virtual` 与外部插件使用同一条链。Broker 回报只能进入 Runtime-owned 有界 inbound queue，再由
 ExecutionProcessor 修改 Order/Position/Ledger/Account。核心不依赖 `OnlyAlpha-plugins`。
+
+内建 `scenario-exact` 遵循相同 DataSource Factory、生命周期和 SPI，只提供 exact input，不建立第二套 Replay。

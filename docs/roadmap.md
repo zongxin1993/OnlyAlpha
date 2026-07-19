@@ -4,9 +4,8 @@
 
 OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
 
-Scenario Framework 已完成 Domain、严格 Parser、runtime-neutral planning、只读 Assertion 和 input fingerprint。下一门禁是正式
-Scenario DataSource/Action Strategy/Engine Runner，随后补 Collector、Artifact、五个 Engine 场景和重复运行确定性。Futures/
-Crypto 必须先修正式 Config、Position、Margin、Account 链，禁止 Scenario 旁路。
+Scenario Framework 已完成 exact DataSource、Action Strategy、正式 Engine Runner、标准事实 Assertion、Artifact 和重复运行
+fingerprint。Generic T0 Engine Scenario 已通过；Futures 双向 Position/Margin、完整五 Pack 与 Cross-Version 仍是门禁。
 
 ## Phase 0：分析与架构基线（已完成）
 

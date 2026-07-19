@@ -203,6 +203,33 @@ class OnlyMarketRuleDecisionResultRecord(OnlySequencedResultRecord):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyProfileTimelineResultRecord(OnlySequencedResultRecord):
+    runtime_id: str
+    profile_id: str
+    profile_version: str
+    trading_day: date
+    effective_from: datetime | None
+    effective_to: datetime | None
+    resolved_rules_fingerprint: str
+    reference_fingerprint: str
+    override_fingerprint: str
+    runtime_mode: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyCompiledMarketRuleResultRecord(OnlySequencedResultRecord):
+    instrument_id: str
+    venue_id: str
+    trading_day: date
+    profile_id: str
+    profile_version: str
+    compiled_rules_fingerprint: str
+    reference_fingerprint: str
+    runtime_mode: str
+    schema_version: str = "1"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyPositionResultRecord(OnlySequencedResultRecord):
     ts_event: datetime
     trading_day: date
@@ -292,6 +319,8 @@ class OnlyBacktestFacts:
     settlements: tuple[OnlySettlementResultRecord, ...] = ()
     margin: tuple[OnlyMarginResultRecord, ...] = ()
     market_rule_decisions: tuple[OnlyMarketRuleDecisionResultRecord, ...] = ()
+    profile_timeline: tuple[OnlyProfileTimelineResultRecord, ...] = ()
+    compiled_market_rules: tuple[OnlyCompiledMarketRuleResultRecord, ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
@@ -305,6 +334,8 @@ class OnlyBacktestFacts:
             "settlements",
             "margin",
             "market_rule_decisions",
+            "profile_timeline",
+            "compiled_market_rules",
         ):
             records = tuple(getattr(self, name))
             if tuple(sorted(records, key=lambda item: item.sequence)) != records:

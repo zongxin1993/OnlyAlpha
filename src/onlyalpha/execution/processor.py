@@ -937,6 +937,13 @@ class OnlyExecutionProcessor:
         settlement_bucket = (
             OnlySettlementBucket.UNSETTLED if order.side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
         )
+        trade_offset = (
+            OnlyOffset.OPEN
+            if order.side is OnlyOrderSide.BUY
+            else OnlyOffset.CLOSE
+            if order.offset is OnlyOffset.NONE
+            else order.offset
+        )
         if self._market_rules is not None:
             instruction = self._market_rules.build_trade_instruction(
                 OnlyTradeApplicationRequest(
@@ -949,7 +956,7 @@ class OnlyExecutionProcessor:
                     update.fill.price.value,
                     update.ts_event.to_datetime(),
                     OnlyTradingDay(update.ts_event.to_datetime().date()),
-                    OnlyPositionEffect.OPEN if order.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE,
+                    OnlyPositionEffect(trade_offset.value),
                 )
             )
             settlement_bucket = (
@@ -967,8 +974,13 @@ class OnlyExecutionProcessor:
             order.instrument_id,
             order.side,
             OnlyDirection.BUY if order.side is OnlyOrderSide.BUY else OnlyDirection.SELL,
-            OnlyOffset.OPEN if order.side is OnlyOrderSide.BUY else OnlyOffset.CLOSE,
-            OnlyPositionSide.LONG,
+            trade_offset,
+            (
+                OnlyPositionSide.SHORT
+                if (order.side is OnlyOrderSide.SELL and trade_offset is OnlyOffset.OPEN)
+                or (order.side is OnlyOrderSide.BUY and trade_offset is not OnlyOffset.OPEN)
+                else OnlyPositionSide.LONG
+            ),
             update.fill.price,
             update.fill.quantity,
             fee,

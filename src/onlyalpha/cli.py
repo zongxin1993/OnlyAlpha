@@ -62,12 +62,81 @@ def only_parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument("--fail-fast", action=argparse.BooleanOptionalAction, default=True)
     run_parser.add_argument("--console-report", action="store_true")
+    scenario_parser = subparsers.add_parser("scenario")
+    scenario_commands = scenario_parser.add_subparsers(dest="scenario_command", required=True)
+    scenario_validate = scenario_commands.add_parser("validate")
+    scenario_validate.add_argument("file")
+    scenario_validate.add_argument("--format", choices=("text", "json"), default="text")
+    scenario_run = scenario_commands.add_parser("run")
+    scenario_run.add_argument("file")
+    scenario_run.add_argument("--user-data", metavar="DIRECTORY")
+    scenario_run.add_argument("--format", choices=("text", "json"), default="text")
+    market_parser = subparsers.add_parser("market")
+    market_commands = market_parser.add_subparsers(dest="market_command", required=True)
+    market_profiles = market_commands.add_parser("profiles")
+    market_profiles.add_argument("--format", choices=("text", "json"), default="text")
+    market_profile = market_commands.add_parser("profile")
+    market_profile.add_argument("profile_id")
+    market_profile.add_argument("--version")
+    market_profile.add_argument("--format", choices=("text", "json"), default="text")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = only_parse_args(argv)
+        if args.command == "scenario":
+            from dataclasses import asdict
+
+            from onlyalpha.scenario import (
+                OnlyMarketScenarioParser,
+                OnlyMarketScenarioRunner,
+                OnlyMarketScenarioRunRequest,
+            )
+
+            scenario = OnlyMarketScenarioParser().load(args.file)
+            if args.scenario_command == "validate":
+                payload = {"scenario_id": str(scenario.scenario_id), "version": str(scenario.version), "valid": True}
+                print(
+                    json.dumps(payload, sort_keys=True)
+                    if args.format == "json"
+                    else f"VALID {scenario.scenario_id}@{scenario.version}"
+                )
+                return 0
+            scenario_result = OnlyMarketScenarioRunner().run(
+                OnlyMarketScenarioRunRequest(scenario, only_resolve_user_data_root(args.user_data))
+            )
+            payload = {
+                "scenario_id": scenario_result.scenario_id,
+                "version": scenario_result.scenario_version,
+                "status": scenario_result.status,
+                "input_fingerprint": scenario_result.input_fingerprint,
+                "result_fingerprint": scenario_result.result_fingerprint,
+                "artifact_path": None if scenario_result.artifact_path is None else str(scenario_result.artifact_path),
+                "assertions": [asdict(item) for item in scenario_result.assertions.results],
+            }
+            print(
+                json.dumps(payload, default=str, sort_keys=True)
+                if args.format == "json"
+                else f"{scenario_result.status} {scenario_result.scenario_id}@{scenario_result.scenario_version} "
+                f"{scenario_result.result_fingerprint}"
+            )
+            return {"PASSED": 0, "FAILED": 1, "ERROR": 3}.get(scenario_result.status, 3)
+        if args.command == "market":
+            from dataclasses import asdict
+
+            from onlyalpha.application import OnlyMarketProfileQueryService
+            from onlyalpha.market.profiles import only_builtin_market_profile_registry
+
+            query = OnlyMarketProfileQueryService(only_builtin_market_profile_registry())
+            value = (
+                query.list_profiles()
+                if args.market_command == "profiles"
+                else query.profile(args.profile_id, args.version)
+            )
+            normalized = [asdict(item) for item in value] if isinstance(value, tuple) else asdict(value)
+            print(json.dumps(normalized, sort_keys=True) if args.format == "json" else json.dumps(normalized, indent=2))
+            return 0
         engine = OnlyEngine(
             OnlyEngineConfig(
                 OnlyEngineId(args.engine_id),
@@ -88,28 +157,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             validation = engine.validate()
             print(validation.render())
             return validation.exit_code
-        result = engine.run()
+        engine_result = engine.run()
         if args.console_report:
-            for index, console_report in enumerate(result.console_reports):
+            for index, console_report in enumerate(engine_result.console_reports):
                 if index:
                     print()
                 print(console_report)
         payload = {
-            "engine_id": str(result.engine_id),
-            "run_id": result.run_id,
-            "status": result.status,
-            "cluster_count": len(result.cluster_results),
-            "failures": list(result.failures),
-            "manifest_path": None if result.manifest_path is None else str(result.manifest_path),
-            "determinism_fingerprint": result.determinism_fingerprint,
+            "engine_id": str(engine_result.engine_id),
+            "run_id": engine_result.run_id,
+            "status": engine_result.status,
+            "cluster_count": len(engine_result.cluster_results),
+            "failures": list(engine_result.failures),
+            "manifest_path": None if engine_result.manifest_path is None else str(engine_result.manifest_path),
+            "determinism_fingerprint": engine_result.determinism_fingerprint,
         }
-        if len(result.backtest_reports) == 1:
-            report_payload = dict(result.backtest_reports[0])
+        if len(engine_result.backtest_reports) == 1:
+            report_payload = dict(engine_result.backtest_reports[0])
             report_payload.pop("status", None)
             report_payload.pop("cluster_count", None)
             payload.update(report_payload)
-            if result.report_paths:
-                payload["report_path"] = str(result.report_paths[0])
+            if engine_result.report_paths:
+                payload["report_path"] = str(engine_result.report_paths[0])
         print(
             json.dumps(
                 payload,
@@ -117,7 +186,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sort_keys=True,
             )
         )
-        return result.exit_code
+        return engine_result.exit_code
     except (OSError, ValueError) as exc:
         print(f"onlyalpha: {exc}")
         return 2

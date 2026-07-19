@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from onlyalpha.scenario import (
     OnlyMarketScenarioParser,
     OnlyMarketScenarioPlanner,
+    OnlyMarketScenarioRunner,
+    OnlyMarketScenarioRunRequest,
     OnlyScenarioAssertionEngine,
     OnlyScenarioAssertionStatus,
     OnlyScenarioError,
@@ -130,6 +133,24 @@ def test_assertion_engine_only_compares_supplied_standard_facts() -> None:
     )
     assert summary.passed
     assert summary.results[0].status is OnlyScenarioAssertionStatus.PASSED
+
+
+def test_scenario_runner_traverses_engine_and_is_deterministic(tmp_path: Path) -> None:
+    payload = scenario_payload()
+    second = deepcopy(payload["data"]["bars"][0])  # type: ignore[index]
+    second.update({"ts_event": "2026-01-05T01:32:00Z", "ts_init": "2026-01-05T01:32:00Z", "sequence": 2})
+    payload["data"]["bars"].append(second)  # type: ignore[index]
+    scenario = OnlyMarketScenarioParser().parse(payload)
+
+    first = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / "first"))
+    second_run = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / "second"))
+
+    assert first.status == second_run.status == "PASSED"
+    assert first.result_fingerprint == second_run.result_fingerprint
+    assert first.facts[OnlyScenarioFactType.ORDER][0]["status"] == "FILLED"
+    assert first.facts[OnlyScenarioFactType.PROFILE_TIMELINE]
+    assert first.facts[OnlyScenarioFactType.COMPILED_RULE]
+    assert (first.artifact_path / "manifest.json").is_file()  # type: ignore[operator]
 
 
 @pytest.mark.parametrize("mode", ["PAPER", "LIVE", "SHADOW"])

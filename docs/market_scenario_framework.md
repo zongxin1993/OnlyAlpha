@@ -1,5 +1,8 @@
 # Deterministic Market Scenario Framework
 
+当前正式链为 Parser → Planner → exact DataSource → Action Strategy (`ctx.orders`) → OnlyEngine → Runtime → Collector →
+Assertion → Artifact。BACKTEST 可自动执行；其他模式共享 schema 但明确返回 capability error。
+
 ```text
 Scenario Document → Parser → Planner → OnlyEngine → Runtime → Standard Facts → Assertion → Artifact
 ```

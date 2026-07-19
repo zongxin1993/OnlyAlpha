@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from onlyalpha.domain.enums import OnlyOrderStatus
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.execution import (
     OnlyCancelOrderRequest,
     OnlyOrderFailure,
@@ -111,7 +111,8 @@ class OnlyOrderService:
                 reservation.error or "Risk reservation failed",
                 risk_decision,
             )
-        if self._position_reservations is not None:
+        uses_position_reservation = not (request.side is OnlyOrderSide.SELL and request.offset is OnlyOffset.OPEN)
+        if self._position_reservations is not None and uses_position_reservation:
             try:
                 self._position_reservations.reserve(created.snapshot, timestamp)
             except Exception as exc:
@@ -150,7 +151,7 @@ class OnlyOrderService:
                     OnlyRiskReleaseReason.EXECUTION_REJECTED,
                     self._now(),
                 )
-                if self._position_reservations is not None:
+                if self._position_reservations is not None and uses_position_reservation:
                     self._position_reservations.release(created.order_id, self._now(), broker_confirmed=True)
                 failed = self._manager.apply_failed(
                     created.order_id,
@@ -172,7 +173,7 @@ class OnlyOrderService:
         self._publisher.publish_many(created.events)
         execution_result = self._execution.submit_order(created.snapshot)
         if execution_result.received:
-            if self._position_reservations is not None:
+            if self._position_reservations is not None and uses_position_reservation:
                 self._position_reservations.sent(created.order_id, self._now())
             if self._cash_reservations is not None:
                 self._cash_reservations.sent(created.order_id, self._now())
@@ -203,7 +204,7 @@ class OnlyOrderService:
             OnlyRiskReleaseReason.EXECUTION_REJECTED,
             self._now(),
         )
-        if self._position_reservations is not None:
+        if self._position_reservations is not None and uses_position_reservation:
             self._position_reservations.release(created.order_id, self._now(), broker_confirmed=True)
         if self._cash_reservations is not None:
             self._cash_reservations.release(created.order_id, self._now())

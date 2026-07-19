@@ -57,6 +57,14 @@ class OnlySubscriptionRole(StrEnum):
 class OnlyReferenceDataConfig:
     calendars: tuple[OnlyTradingCalendar, ...]
     instruments: tuple[OnlyInstrument, ...]
+    instrument_attributes: Mapping[str, Mapping[str, object]] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "instrument_attributes",
+            MappingProxyType({key: MappingProxyType(dict(value)) for key, value in self.instrument_attributes.items()}),
+        )
 
     @property
     def calendar_by_id(self) -> Mapping[OnlyCalendarId, OnlyTradingCalendar]:

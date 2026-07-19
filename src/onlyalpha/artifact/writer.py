@@ -65,6 +65,8 @@ class OnlyBacktestArtifactWriter:
                         "settlements",
                         "margin",
                         "market_rule_decisions",
+                        "profile_timeline",
+                        "compiled_market_rules",
                     )
                 },
                 "performance": _json_value(analysis.performance),
@@ -114,6 +116,14 @@ class OnlyBacktestArtifactWriter:
                 "market_rule_decisions.parquet": (
                     "MARKET_RULE_DECISIONS",
                     _table(_MARKET_RULE_DECISION_SCHEMA, [_record(item) for item in facts.market_rule_decisions]),
+                ),
+                "profile_timeline.parquet": (
+                    "PROFILE_TIMELINE",
+                    _table(_PROFILE_TIMELINE_SCHEMA, [_record(item) for item in facts.profile_timeline]),
+                ),
+                "compiled_market_rules.parquet": (
+                    "COMPILED_MARKET_RULES",
+                    _table(_COMPILED_MARKET_RULE_SCHEMA, [_record(item) for item in facts.compiled_market_rules]),
                 ),
             }
             for relative_path, (artifact_type, table) in tables.items():
@@ -433,6 +443,35 @@ _MARKET_RULE_DECISION_SCHEMA = pa.schema(
         ("decision", pa.string()),
         ("reason", pa.string()),
         ("ts_event", _TIMESTAMP),
+    ]
+)
+_PROFILE_TIMELINE_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("runtime_id", pa.string()),
+        ("profile_id", pa.string()),
+        ("profile_version", pa.string()),
+        ("trading_day", pa.date32()),
+        ("effective_from", _TIMESTAMP),
+        ("effective_to", _TIMESTAMP),
+        ("resolved_rules_fingerprint", pa.string()),
+        ("reference_fingerprint", pa.string()),
+        ("override_fingerprint", pa.string()),
+        ("runtime_mode", pa.string()),
+    ]
+)
+_COMPILED_MARKET_RULE_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("instrument_id", pa.string()),
+        ("venue_id", pa.string()),
+        ("trading_day", pa.date32()),
+        ("profile_id", pa.string()),
+        ("profile_version", pa.string()),
+        ("compiled_rules_fingerprint", pa.string()),
+        ("reference_fingerprint", pa.string()),
+        ("runtime_mode", pa.string()),
+        ("schema_version", pa.string()),
     ]
 )
 

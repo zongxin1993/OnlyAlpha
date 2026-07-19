@@ -178,6 +178,17 @@ class OnlyBacktestRuntimeFactory:
             str(instrument.instrument_id): only_instrument_reference(
                 instrument,
                 profile_id=config.market.profile.value,
+                board=(
+                    None
+                    if config.reference_data.instrument_attributes.get(str(instrument.instrument_id), {}).get("board")
+                    is None
+                    else str(config.reference_data.instrument_attributes[str(instrument.instrument_id)]["board"])
+                ),
+                st_status=bool(
+                    config.reference_data.instrument_attributes.get(str(instrument.instrument_id), {}).get(
+                        "st_status", False
+                    )
+                ),
             )
             for instrument in config.reference_data.instruments
         }

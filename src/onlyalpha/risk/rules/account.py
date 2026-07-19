@@ -1,6 +1,6 @@
 """Account/Position dependent Rules which fail closed when their Ports are unavailable."""
 
-from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskErrorInfo
@@ -92,7 +92,7 @@ class OnlyAvailablePositionRiskRule(OnlyRiskRule):
         )
 
     def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        if request.side is OnlyOrderSide.BUY:
+        if request.side is OnlyOrderSide.BUY or request.offset is OnlyOffset.OPEN:
             return self._accept()
         snapshot = context.position_risk.snapshot(context.account_id, request.instrument_id)
         if not context.position_risk.available or snapshot is None:

@@ -20,6 +20,7 @@ from onlyalpha.runtime.live.factory import OnlyLiveRuntimeFactory
 from onlyalpha.runtime.paper.factory import OnlyPaperRuntimeFactory
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 from onlyalpha.runtime.shadow.factory import OnlyShadowRuntimeFactory
+from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 from onlyalpha.strategy.factory import OnlyStrategyFactory
 
 
@@ -35,6 +36,7 @@ def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineService
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
     data_sources.register(OnlySyntheticDataSourceFactory(), origin=builtin)
+    data_sources.register(OnlyScenarioDataSourceFactory(), origin=builtin)
     brokers = OnlyBrokerFactoryRegistry()
     brokers.register(OnlyVirtualBrokerFactory(), origin=builtin)
     discovery = only_discover_plugins(data_sources, brokers, fail_fast=fail_fast)
