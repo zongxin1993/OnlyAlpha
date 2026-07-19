@@ -454,6 +454,51 @@ class OnlyFeeModel:
         return OnlyFeeBreakdown(self.currency, self.version, components=values, **standard)
 
 
+@dataclass(slots=True)
+class OnlyOrderFeeAccumulator:
+    """Charge the delta of cumulative order fees across partial fills."""
+
+    fee_model: OnlyFeeModel
+    side: OnlyOrderSide
+    multiplier: Decimal = Decimal(1)
+    cumulative_quantity: Decimal = Decimal(0)
+    cumulative_notional: Decimal = Decimal(0)
+    cumulative_charged: OnlyFeeBreakdown | None = None
+
+    def charge(self, *, quantity: Decimal, price: Decimal) -> OnlyFeeBreakdown:
+        if quantity <= 0 or price <= 0:
+            raise ValueError("fee accumulator fill quantity and price must be positive")
+        self.cumulative_quantity += quantity
+        self.cumulative_notional += quantity * price * self.multiplier
+        average_price = self.cumulative_notional / self.cumulative_quantity / self.multiplier
+        required = self.fee_model.calculate(
+            side=self.side,
+            quantity=self.cumulative_quantity,
+            price=average_price,
+            multiplier=self.multiplier,
+        )
+        previous = self.cumulative_charged or OnlyFeeBreakdown(required.currency, required.rule_version)
+        delta = OnlyFeeBreakdown(
+            required.currency,
+            required.rule_version,
+            commission=required.commission - previous.commission,
+            exchange_fee=required.exchange_fee - previous.exchange_fee,
+            clearing_fee=required.clearing_fee - previous.clearing_fee,
+            regulatory_fee=required.regulatory_fee - previous.regulatory_fee,
+            tax=required.tax - previous.tax,
+            transfer_fee=required.transfer_fee - previous.transfer_fee,
+            borrow_fee=required.borrow_fee - previous.borrow_fee,
+            funding_fee=required.funding_fee - previous.funding_fee,
+            other_fee=required.other_fee - previous.other_fee,
+            components={
+                key: required.components.get(key, Decimal(0)) - previous.components.get(key, Decimal(0))
+                for key in sorted(set(required.components) | set(previous.components))
+            },
+        )
+        self.cumulative_charged = required
+        return delta
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyLiquidityModel:
     model_type: OnlyLiquidityModelType

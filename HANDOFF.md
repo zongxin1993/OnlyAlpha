@@ -3,6 +3,34 @@
 > 更新时间：2026-07-19（Asia/Shanghai）  
 > 当前任务：`prompts/Market_Simulation_Framework.md` 多市场仿真框架
 
+## Versioned Market Profiles and Conformance Suite（2026-07-19）
+
+### 本轮完成
+
+- 新增 `OnlyMarketProfileFamily/Version/Status/Request/Registry`，支持有效期不重叠校验、按日期 Auto 解析、Pinned Version、Removed 拒绝和 Deprecated 固定加载边界；
+- 新增完整 Capability Set、受限 Override Policy、Resolved Profile 与 Rules Manifest；Reference/Override/Capability 进入确定性规则指纹；
+- `OnlyClusterRunConfig` 增加 opt-in `market_simulation.profile/version/overrides`，数值 Override 强制字符串 Decimal；缺省为 `None`，Legacy 行为不变；
+- 新增 `OnlyOrderFeeAccumulator`，以累计应收减累计已收避免多 Fill 重复最低佣金；
+- 新增 Conformance Pack/Scenario/Registry 身份与 Stable Capability coverage gate；
+- 新增 ADR 0025 及 Registry、配置、Capability、Conformance、DSL、Override、Web Query 文档。
+
+### 明确未完成
+
+- Profile 尚未装配入 Runtime Factory、Risk、Virtual Broker、ExecutionProcessor、Settlement/Margin Manager 和 Collector；
+- Scenario DSL Parser、Synthetic Reference Provider、Deterministic Action Strategy、Engine Runner、Assertion Engine 尚未实现；
+- A 股、Generic T0/Futures/Crypto 以及 US/HK Experimental Packs 尚未创建和运行；所有内建版本因此保持 Experimental；
+- Profile/Scenario Artifact、timeline、Query DTO/Port、CLI、OnlyAlpha-examples 和 Tushare Profile 自动加载尚未交付；
+- Plugins/Examples 未修改，三仓完整门禁和在线 Tushare 验收尚未执行。
+
+### 本轮已验证
+
+- `tests/market`: 8 passed；
+- config + market 定向：17 passed；
+- 核心全量 `374 passed`；Ruff lint 全仓通过；Mypy `335 source files` 通过；`git diff --check` 通过；
+- 全仓 `ruff format --check .` 仍仅被既有未修改的 `tests/market_data/test_pipeline_dispatch.py` 阻塞。
+
+`uv` 使用新 cache 时因沙箱网络无法下载依赖；随后使用工作区既有 `../.venv/bin/*` 完成上述真实验证。
+
 ## 0. Multi-Market Simulation Framework（2026-07-19）
 
 ### 已完成
