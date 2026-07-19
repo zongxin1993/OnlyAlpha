@@ -1,84 +1,320 @@
 # OnlyAlpha 工程交接说明
 
 > 更新时间：2026-07-19（Asia/Shanghai）  
-> 当前任务：`prompts/tushare_plugins_data_source.md` Tushare Historical DataSource 与日线回测纵切面
+> 当前任务：`prompts/backtest_result_summary.md` 回测结果对象与事件边界审计、Tushare 正式回测验收
 
 ## 1. 修改前分析
 
-- Historical Cache 已有 Provider/Store/Service、Parquet、Manifest、Hash、Fingerprint 和三种 Policy；首次写入后会 re-inspect 并从 Parquet 回读。
-- 原 `OnlyHistoricalFetchResult.actual_coverage` 同时承担供应商成功查询范围与实际 Bar 范围。MiniQMT 以首尾 Bar 推导 Coverage，周末、节假日或合法空区间会造成 `cache remains incomplete after fetch`。
-- 原 Cache Key 只有自由字符串 adjustment，不能以通用类型表达复权，也不能区分不同 QFQ 查询终点。
-- MiniQMT 通过 `OnlyDataSourceCreateRequest.historical_cache_service` 接入核心 Cache，但 Factory 会立即加载 XtQuant；本任务未在核心加入 MiniQMT/Tushare 兼容逻辑。
-- Domain 已有 `OnlyAdjustmentType`、`OnlyEquity`、`OnlyETF`、`OnlyTradingCalendar`；运行配置解析器此前只接受 ETF，600000 示例被迫错误声明为 ETF。
-- Examples 正式入口为 `onlyalpha run --config ... --user-data ...`，由 Entry Point、OnlyEngine、Backtest Runtime 和 Virtual Broker 装配。
+### 1.1 `onlyalpha run` 调用链
 
-## 2. API 调用
+正式入口为：
 
-- 参考 `vnpy_tushare` 稳定实现的 `set_token → pro_api → pro_bar`、SSE/SZSE/BSE 后缀、E/FD asset、`freq="D"`、返回倒序不可假定等行为；未复制 VeighNa 的 BaseDatafeed/HistoryRequest/BarData 等模型。
-- Adapter 是唯一接触 SDK 全局模块的位置：`set_token(token)`、`pro_api()`，再严格按官方 doc_id=109 示例调用 `pro_bar(ts_code,start_date,end_date,asset,freq,adj)`。官方说明先 `set_token` 后内部 API 参数不是必需的，因此不额外传入 SDK 私有/版本相关参数。
-- Provider 的 Fake Client 测试严格断言六个供应商参数。原始必需字段为 `ts_code/trade_date/open/high/low/close/vol`，`amount` 可选。
-- 官方 A 股日线文档确认：价格单位为元，`vol` 为手，`amount` 为千元。
+```text
+CLI
+→ OnlyEngine.add_cluster_from_file
+→ OnlyRuntimePlanner / OnlyEngineRunAssembler
+→ OnlyBacktestRuntime.run
+→ OnlyBacktestRunPlan.execute
+→ HistoricalDataSource.load_bars
+→ OnlyHistoricalReplayService
+→ OnlyMarketDataProcessor
+→ OnlyMarketDataPipeline
+→ OnlyStrategyBarDispatcher
+→ Cluster Indicator → Factor → Strategy
+→ OrderService / Risk
+→ Virtual Broker
+→ Broker inbound queue
+→ OnlyExecutionProcessor
+→ Order / Position / Allocation / StrategyLedger / Account
+→ OnlyBacktestRunPlan._build_result
+→ OnlyEngineResultExporter
+```
 
-## 3. 插件实现
+CLI 不直接读取 DataFrame、Cache 或 Manager。Engine 是产品入口，Runtime 拥有交易状态，Exporter 是当前唯一 run 文件写入边界。
 
-- 新增独立包 `OnlyAlpha-plugins/packages/onlyalpha-plugin-tushare/`，Entry Point 为 `onlyalpha.data_sources:tushare`，无 Broker Entry Point。
-- Config 支持 `token_env` 与直接 token，环境变量优先；token 字段 `repr=False`，错误、Metadata、Manifest、Key、Fingerprint 均不含凭据。
-- Loader 延迟导入 SDK；Factory/DataSource 构造不读 Token、不创建 Client。只有 Cache Service 发现缺口并调用 Provider.fetch 时才解析 Secret 与构建 SDK Client。
-- Mapping 支持 XSHG→SH、XSHE→SZ、XBSE→BJ；资产按真实 Domain 类型 `OnlyEquity→E`、`OnlyETF→FD`，不按代码首位猜资产。
-- Provider 负责范围转换、`pro_bar`、Raw Validation、Session 时间归一化、OnlyBar、resolved/observed 与质量报告；不实现 Parquet、Manifest、Lock、Missing Range 或 Atomic Write。
-- DataSource 只调用核心 `OnlyHistoricalCacheService`；Doctor 为最小只读查询，不写 Cache、不打印 Token。
-- 已安装分发实际发现 `tushare` Entry Point；两个示例 dry-run 均 `valid=true`。
+### 1.2 现有结果对象与聚合
 
-## 4. 时间语义
+- `OnlyEngineRunResult`：`engine_id/run_id/status/cluster_results/failures/manifest_path/determinism_fingerprint`。
+- `OnlyRuntimeResult`：协议边界；Backtest 和 Unsupported Result 实现它。
+- `OnlyBacktestResult`：Run/Data/Execution/Performance 摘要、最终 Position/Allocation/Ledger/Account、全部 Order、Broker Trade、Cluster 扩展、不变量和确定性指纹。
+- `OnlyClusterResult`：仅包含 `cluster_id`、Strategy 任意扩展、最终 Factor Snapshot 和 Indicator Diagnostics，不是提示词要求的 Cluster-level 标准统计结果。
+- 共享 Runtime 的一个 `OnlyBacktestResult` 被 Engine 按 Cluster 投影；当前投影仍可能携带共享账户级完整结果，没有正式的 account_id 去重聚合器。
 
-- OnlyAlpha 请求始终为 UTC aware 半开 `[start,end)`；转换到 Asia/Shanghai 后，start 取当地自然日，end 减一微秒后取最后包含日，再生成 Tushare `YYYYMMDD` 包含式边界。
-- `trade_date` 直接构造 `OnlyTradingDay`，禁止从 UTC date 推导。
-- 通过请求 Instrument 的 `OnlyTradingCalendar.session_intervals_for_trading_day()` 得到 session_open/session_close；日 Bar 使用 `bar_start=session_open`、`bar_end=ts_event=session_close`，全部为 UTC aware。
-- 示例业务区间是 Asia/Shanghai `[2025-01-01,2025-04-01)`，配置保存为等价 UTC `[2024-12-31T16:00Z,2025-03-31T16:00Z)`。
+现有 `OnlyBacktestResult` 是应扩展/迁移的复用边界，不能另建同义平行体系。但它仍把订单和成交数组放入顶层 JSON，且 `OnlyBacktestExecutionSummary.trade_count` 实际取自 Broker `query_trades()` 的成交事实数量，不是 Round-Trip Trade 数量。
 
-## 5. 数值单位
+### 1.3 状态真值位置
 
-- OHLC：`Decimal(str(value))`，单位元，进入 `OnlyPrice`，不使用二进制 float 直接构造 Domain 值。
-- Volume：官方单位手，显式 `Decimal(str(vol)) * 100` 转为股，再规范 Decimal exponent 后构造 `OnlyQuantity`。
-- Amount：官方单位千元，显式 `Decimal(str(amount)) * 1000` 转为元，再构造 instrument quote currency 的 `OnlyMoney`；缺失时为 `None`。
-- 严格拒绝 None/NaN/Inf/非正价格、OHLC 不变量、负 volume/amount、symbol 不一致和冲突重复；完全相同重复去重并产生 Warning。
+- Order：Runtime-owned `OnlyOrderManager` / Repository，结束时 `snapshot_all()`。
+- Broker 成交：Virtual Gateway Trade Store，结束时 `query_trades(account_id)`；当前模型命名为 `OnlyBrokerTradeSnapshot`，语义是 Execution/Fill。
+- Position：`OnlyPositionManager`；Cluster 归因量在 `OnlyPositionAllocationManager`。
+- Strategy 虚拟账：`OnlyStrategyLedgerManager`，每 Cluster 一个 Ledger。
+- Account：`OnlyAccountManager`，当前产品回测要求一个共享现金账户。
+- Execution 审计：`OnlyExecutionAuditStore` 与 `runtime.broker_results`。
+- Market Data 审计：`OnlyMarketDataAuditStore`、Replay Event 和 Historical Cache Manifest。
 
-## 6. 复权
+Virtual Broker 在 `on_bar()` / `run_due()` 中撮合并把标准 Broker Update 放入 Runtime inbound queue；只有 `OnlyExecutionProcessor` 能依次修改 Order、Position、Allocation、Ledger、Account，并在不变量通过后发布事实。
 
-- 核心直接复用通用 `OnlyAdjustmentType.RAW/FORWARD/BACKWARD`；核心没有 Tushare 专用 none/qfq/hfq 字符串逻辑。
-- 插件映射为 RAW→`adj=None`、FORWARD→qfq、BACKWARD→hfq。
-- Cache Key 新增通用 `price_adjustment` 与 `adjustment_reference`。FORWARD 使用请求结束包含日作为 anchor，不同 adjustment 和不同 anchor 均形成不同身份与 Fingerprint。
+### 1.4 Strategy 扩展与信号
 
-## 7. Cache
+Strategy 目前只通过 `build_result_extension()` 返回任意 Mapping。MACD 示例把 `signals/callback_count/signal_state` 存在自身列表并导出；核心没有 `OnlyStrategySignalRecord` 或受限的 `record_signal()` 接口。Collector 不能把任意扩展 JSON 当作标准信号表，需先建立通用信号记录边界，同时保留旧扩展兼容性。
 
-- `OnlyHistoricalFetchResult`、Manifest、Inspection 现分开保存 `resolved_ranges` 和 `observed_ranges`。
-- Cache 完整性只看 resolved：供应商成功确认的请求区间可包含周末、节假日、停牌或合法空区间；observed 只记录实际 Bar Session。
-- Tushare 成功响应返回 `resolved_ranges=(requested_range,)`；异常、鉴权/权限/限流、格式错误或无法确认的交易日空响应不会 resolved。
-- Fake 纵切面证明首次 fetch→validate→Parquet/Manifest→re-inspect→Parquet read；第二次 CACHE_ONLY 无 Token、Client 创建次数和 SDK 调用次数均不增加，Bar 与 Fingerprint 一致。
-- MiniQMT Provider 同步改为返回 requested resolved range 与实际 observed range，修复原 Coverage 根因；未增加任何 Tushare 兼容代码。
+### 1.5 Manifest、输出配置和 user_data
 
-## 8. 测试与质量门禁
+- 运行目录已统一为 `<user_data>/runs/<engine_id>/<run_id>/`，由 `OnlyUserDataLayout` 计算，不依赖 `Path.cwd()`。
+- 当前 `manifest.json` 只有 schema、Engine/Run ID、Engine 确定性指纹和 Cluster 配置指纹。
+- 当前产物是 Engine/Runtime/Cluster JSON、`orders.json`、Portfolio Snapshot、配置副本和简短 Markdown；没有 Artifact Descriptor、文件 Hash、行数、`summary.json` 顶层标准格式、`diagnostics.json`、`data_manifest.json` 或 Parquet 报告。
+- `output.formats` 只解析 JSON/CSV/PARQUET 枚举集合与 overwrite，但 Exporter 尚未按该配置生成正式报告产物，也没有 artifacts/diagnostics 子配置。
+- JSON 写入直接 `write_text`，不是 staging + atomic replace；Manifest 还是最先写入。
 
-- OnlyAlpha：全量 `341 passed`；Ruff check 通过；512 files format check 通过；Mypy 313 source files 通过。
-- Tushare + MiniQMT 联合插件测试：`26 passed, 2 skipped`；skip 为无环境变量的真实 Tushare integration 和无真实 XtQuant 环境。新增 Adapter 测试确认 `set_token → pro_api → pro_bar` 且 `pro_bar` 只接收官方六项 Provider 参数。
-- OnlyAlpha-plugins 原生 workspace：`26 passed, 2 skipped`，Ruff check 通过，55 files format check 通过。Tushare 插件单独 Mypy 15 source files 通过；全插件 Mypy 仍被既有 MiniQMT 87 个 object typing 错误阻塞。
-- OnlyAlpha-examples：Ruff check 通过，11 files format check 通过；无 pytest 测试。
-- Entry Point 实际安装发现测试通过；两个 Tushare 配置 CLI dry-run 均 `valid=true`。
-- Token 字面量全 Workspace 扫描无匹配；三个仓库 `git diff --check` 通过。
-- 当前实际环境 Python 3.13.11 / Windows；未实际运行 Python 3.12、Linux、macOS 门禁。
+### 1.6 Fingerprint
 
-## 9. 真实回测验收
+Runtime `determinism_fingerprint` 基于 Backtest Result 投影以及 Market Data、Clock、Factor、Indicator、Execution Audit 和 Event Trace；Engine 再对 Cluster 投影构造 Engine 指纹。当前没有独立 `result_fingerprint`、失败指纹或明确稳定规范，也没有把 Historical Cache `content_fingerprint` 纳入标准结果对象。run_id/运行时间没有进入 Runtime 指纹，但仍需为新结果指纹建立显式包含/排除测试。
 
-- 安装并使用 Tushare 1.4.29。只读 Doctor 成功完成 SDK import、Token 解析和 Client 创建，但 `pro_bar` 对 600000.SH 的 2025-01-02 查询在 SDK 内因返回无 `close` 字段而重试三次并抛出 `OSError("ERROR.")`。
-- 用户提供的可用对照 `pro.daily(000001.SZ, 20260101..20260107)` 已原样复测，并与直接 `ts.pro_bar`、OnlyAlpha Adapter 比较：三者在本机均失败。HTTP tracing 证明 Tushare 1.4.29 实际访问 `http://api.waditu.com/dataapi/daily` 时收到 **HTTP 503、空 body**；SDK 对非 2xx 响应静默返回空 DataFrame，`pro_bar` 随后才因缺少 `close` 报错。1.4.21 使用相同端点与 `pro_bar(..., api=...)` 签名，隔离检查证明降级不能修复该服务端状态。Token 未打印或落盘。
-- 根据官方 doc_id=109 再次修正 Adapter：保持 `set_token`、`pro_api` 初始化，但 `pro_bar` 不再显式传 `api`，只传文档公开的 ts_code/start_date/end_date/asset/freq/adj；以 000001.SZ、20260101..20260107 重跑 Doctor，服务端仍返回同一空响应并最终失败，证明额外 `api` 参数不是失败根因。
-- 首次正式 CLI 已实际执行：status=FAILED，run_id=`run-d38fe542d3744bccaae389b556976330`，cluster_count=1，determinism_fingerprint=`58f4cd6b939e39bc6fefbadd1a656bd7ddf99b3058bc79b1e99158b7e44ac4c5`，失败为结构化 `TUSHARE_REQUEST_FAILED`；manifest 路径记录在该 run 输出中。无成功 fetch，因此无 rows_fetched/content_fingerprint/cache manifest 可记录。
-- 删除 Token 后已实际执行 CACHE_ONLY：status=FAILED，run_id=`run-30b9bd3f4f5c47ddb04292dc7447975f`，同一 determinism_fingerprint；因首次未生成完整 Cache，明确失败为 `valid cache does not fully cover the requested range`。该路径在读取 Token/创建 Client/访问 SDK 前失败。
-- 因供应商返回空响应，本次不能诚实声明真实两次回测、Bar、Content Fingerprint 或收益结果一致。
+### 1.7 结束状态与失败传播
 
-## 10. 本任务未完成项
+结束时通过 Manager 的 immutable snapshot 读取现金、权益、持仓、Allocation 和 Ledger。收益/最大回撤来自现有 Ledger Performance；没有逐 Bar Equity 序列，无法审计最大回撤路径。
 
-- Tushare `dataapi` 端点恢复非 503 响应后，重新执行用户的 000001.SZ 对照、Doctor、首次正式回测与无 Token CACHE_ONLY，记录 rows_fetched/rows_read/cache_hit/resolved/observed/content fingerprint 和两次回测一致性。
-- 为 Tushare SDK 异常进一步验证并稳定分类 AUTH/PERMISSION/RATE_LIMIT（当前 SDK 对该空响应只暴露 `OSError("ERROR.")`，不能可靠反推错误类别）。
-- 完成 Python 3.12、Linux、macOS 门禁。
-- 清理插件仓既有 MiniQMT Mypy 87 个 object typing 错误，使全插件 `uv run mypy packages` 通过；这不是 Tushare/MiniQMT 兼容逻辑。
+Replay 只汇总 processed/applied/duplicate/gap/rejected/failed。`OnlyBacktestRunPlan.execute()` 遇到 failed/rejected 后抛出 `RuntimeError("historical replay failed=N rejected=M")`；Engine 捕获后只保存字符串。Pipeline 内虽有带异常类型/消息的 failure fact，Dispatcher 也有 Cluster callback failure，但没有贯通到 CLI 的结构化首个根因、阶段、Instrument、Bar Type、时间和 traceback。
+
+### 1.8 现有分析类型能力
+
+- 已有 Account/Position/Ledger 的现金、权益、已实现/未实现盈亏和 Ledger maximum drawdown。
+- 已有 Broker 成交事实，但没有标准 `OnlyExecutionRecord`、FIFO Round-Trip Trade Builder、Trade PnL、Equity Point、Drawdown Curve、完整 Performance Statistics 或 Result Collector。
+- 当前金额、价格和数量真值使用 `Decimal` 领域值，可复用；不得转成 float。
+
+### 1.9 Event Bus 与 Collector 适配性
+
+Event Bus 已发布 Order、Execution、Position、Ledger、Account、Risk 和 Market Data 的过去式事实，适合 Collector 做只读订阅；它不应驱动状态机。仍缺少标准 Signal、Equity Snapshot、Replay 根因上下文等采集事实。Collector 还应直接读取只读 Manager/Audit/Cache 结果，不能解析日志或让 Broker 生成报告。
+
+当前每根 Bar 的正式边界是：
+
+```text
+Replay 推进 Clock
+→ Pipeline 校验、缓存、聚合、Indicator、Snapshot
+→ before_market_dispatch:
+   发布 Market Data facts
+   TradingDay settlement
+   使用当前 close 对已有持仓估值
+   Virtual Broker.on_bar 匹配此前订单
+   ExecutionProcessor 回灌成交
+→ Dispatcher:
+   Cluster Indicator → Factor → Strategy
+→ after_market_dispatch:
+   Virtual Broker.run_due
+   ExecutionProcessor 回灌到期更新
+   EventBus.drain
+```
+
+因此当前估值发生在本 Bar 策略回调和新订单成交之前。正式 Equity Collector 必须明确选择并测试采样点；不能在报告层无依据改成“本 Bar 全部成交后估值”。多标的估值已有“各持仓最新 closed Bar”逻辑，缺价会抛错而不是静默按零。
+
+### 1.10 Tushare 正式入口
+
+在线入口为 `OnlyAlpha-examples/examples/tushare_daily_backtest/config.yaml`，CACHE_ONLY 入口为相邻 `config_cache_only.yaml`，均通过 `onlyalpha run`、插件 Entry Point、核心 Cache 和 Virtual Broker。Token 仅通过临时环境变量传入，未写入仓库、配置、Cache Manifest 或运行结果。
+
+审计发现两个配置目前不可作为严格一致性对照：在线配置结束于 `2025-12-31T16:00Z` 且 `allow_reentry=true`；CACHE_ONLY 结束于 `2025-03-31T16:00Z` 且 `allow_reentry=false`。因此两次成功只能证明在线获取和无 Token 缓存重放均可用，不能证明结果指纹一致。
+
+## 2. 真实 Tushare 在线验收
+
+实际执行正式入口，user_data 使用隔离的 `/tmp/onlyalpha-backtest-result-user-data`，结果：
+
+```text
+status                  COMPLETED
+run_id                  run-09d797af8d5e4432b8d365054688cfb4
+bar_count               243 generated / 243 processed
+callback_count          236
+signal_count            36
+order_count             0
+execution_count         0（当前结果对象没有独立字段）
+round_trip_trade_count  不可用（当前 trade_count 是 Broker fill 语义）
+initial_equity          1000000.00 CNY
+ending_equity           1000000.00 CNY
+total_return            0E-8
+max_drawdown            0
+fees                    0 CNY
+final_positions         0
+cache_row_count         243
+cache_hit               false（首次在线获取后写 Cache 并从 Parquet 重读）
+content_fingerprint     8589d047e912876c16361e3de16ed28544a570fdec8653f54e258532b63a4980
+runtime_fingerprint     5117bbbd669e5b765be714358b949c1e733113f15ccb92b2eb3f9d27991b364e
+engine_fingerprint      6f1cbbf122f6891f3d7a064cf76897bfb7c60f87577f5ec8b37120dda3ff1fbd
+result_fingerprint      不可用
+```
+
+36 个 MACD `GOLDEN_CROSS` 扩展信号均带 buy request ID，但最终没有 Order。这暴露出现有 Strategy/Order 边界需要单独诊断：标准报告不能把信号数量推断为订单数量，也不能虚构交易收益。
+
+## 3. 无 Token CACHE_ONLY 验收
+
+移除环境变量后使用同一 user_data 实际运行成功：
+
+```text
+status                  COMPLETED
+run_id                  run-e18bd3727a3d4e309318f38f2b0c08e9
+bar_count               57 generated / 57 processed
+callback_count          50
+signal_count            1
+order_count             0
+execution_count         0（当前结果对象没有独立字段）
+initial_equity          1000000.00 CNY
+ending_equity           1000000.00 CNY
+total_return            0E-8
+max_drawdown            0
+final_positions         0
+cache_hit               true
+runtime_fingerprint     d5b4247c4d973014b5880b562a89b43a6a7534f1c75b69daaddabc72a1a6d446
+engine_fingerprint      59d7a3b40f6aa8f214b6be469f36d721ffd0d16716d38a9758066e768d9606db
+result_fingerprint      不可用
+```
+
+两次 Bar、Signal 和 Fingerprint 不同是配置范围和策略参数不同造成，不能判定为缓存非确定性。必须先使两份配置除 cache policy/token 外完全相同，再进行在线/CACHE_ONLY 一致性验收。
+
+## 4. 当前输出产物实证
+
+本次成功运行实际只生成：
+
+```text
+manifest.json
+engine/config.json
+engine/summary.json
+runtimes/<runtime_id>/summary.json
+runtimes/<runtime_id>/result.json
+clusters/<cluster_id>/normalized_config.json
+clusters/<cluster_id>/source_config.yaml
+clusters/<cluster_id>/fingerprint.txt
+clusters/<cluster_id>/summary.json
+clusters/<cluster_id>/orders/orders.json
+clusters/<cluster_id>/portfolio/snapshot.json
+clusters/<cluster_id>/report.md
+```
+
+提示词要求的 `summary.json` 顶层规范、`diagnostics.json`、`data_manifest.json`、`orders.parquet`、`executions.parquet`、`trades.parquet`、`positions.parquet`、`equity.parquet`、`signals.parquet`、Artifact Hash/row_count 和 `result_fingerprint` 均尚未实现。
+
+## 5. 本任务范围内未完成项
+
+本轮完成的是严格现状分析、事件边界确认和真实 Tushare/CACHE_ONLY 验收，没有虚构 `backtest_result_summary.md` 所列的大型结果纵切面已经完成。后续实现仍需：
+
+1. 以现有 `OnlyBacktestResult` 为迁移边界，建立 Engine/Runtime/Cluster 标准统计、Diagnostics 与 Artifact Descriptor；避免同义模型。
+2. 在 Runtime 生命周期内装配只读 `OnlyBacktestResultCollector`，订阅已有事实，并补充标准 Signal 与确定性 Equity 采样边界。
+3. 保留 Replay/Pipeline/Cluster/Execution 首个根因与有限样本，失败时也输出部分结果。
+4. 基于真实 Order 状态机统计订单；基于 Broker fill 形成 Execution；用 FIFO 只读配对 Long-only Round-Trip Trade，不能把 fill 数当 Trade 数。
+5. 输出稳定 Decimal Parquet Schema、原子发布、文件 Hash、`summary.json`、`diagnostics.json`、`data_manifest.json` 和 Artifact Manifest。
+6. 定义不含 run_id、时间、绝对路径和 traceback 的 `result_fingerprint`，并增加重复运行测试。
+7. 修正在线/CACHE_ONLY 示例的时间范围和 Strategy 参数，使两者只在 Cache Policy/Token 上不同，再验证 Bar、Signal、Order、Execution、Trade、Equity、Position、统计和结果指纹完全一致。
+8. 诊断“36 个买入信号但 0 个 Order”的真实 Strategy/Order 原因；在原因确认前不得声称 MACD 完整交易纵切面通过。
+9. 增加无交易、确定性买卖、部分成交能力判断、T+1、多 Cluster、共享账户、Replay/Pipeline/Artifact 失败和 Decimal 精度测试。
+10. 补齐提示词要求的回测结果、Artifact、Performance、Diagnostics 文档、ADR、README/ROADMAP 和确定性非外部示例；当前仓库路线图实际路径是 `docs/roadmap.md`，不是根目录 `ROADMAP.md`。
+
+## 6. 验证边界
+
+- 本轮实际环境为 macOS、Python 3.13.11。
+- 已执行一次真实 Tushare 在线正式回测和一次无 Token CACHE_ONLY 正式回测，二者均成功。
+- 本轮未修改核心、插件或示例代码，未执行三仓全量 pytest/Ruff/Mypy；没有把这些门禁标记为通过。
+- 未执行 Python 3.12、Windows、Linux 验证。
+
+## 7. MACD 交易与收益复验（后续修正）
+
+为响应“放宽 MACD 买卖点并校验收益”，已把 Tushare 示例设为 `allow_reentry=true, max_entries=2`，在线与 CACHE_ONLY 配置统一为全年区间。策略现在保存每次 `orders.submit()` 的真实 `created/submitted/order_id/error/risk_rejection`，不再把带 request ID 的 Signal 错当成已创建 Order。
+
+本次发现并修正三个纵切面缺陷：
+
+1. 日 Bar 在 15:00 session close 回调，半开 TradingCalendar 原先拒绝所有订单。`OnlyTradingSessionRiskRule` 现在只对“同 Instrument、同事件时间、immutable closed Bar Snapshot”放行收盘决策；任意盘后命令仍拒绝。
+2. 卖单 Broker ACK 后本地 risk freeze 已释放，Broker available 又因该单冻结为零；Fill 被错误判为 oversell。Position apply 现在显式接收该订单自己的 remaining reservation，不能借用其他订单冻结量。
+3. Allocation 重开新周期时，ExecutionProcessor 错把上一已关闭 Allocation 当作本次交易 before snapshot，导致历史 realized PnL 被反向计入第二次 BUY。before 现在只读 active snapshot；after 在平仓时才允许读取最新 closed snapshot。
+
+全年 243 根 Tushare 日 Bar、两轮完整买卖的 CACHE_ONLY 实测结果：
+
+```text
+status                  COMPLETED
+bar_count               243
+callback_count          236
+signal_count            4
+order_count             4（全部 FILLED，0 rejected）
+execution/fill_count    4
+round_trip_count        2（由两组 OPEN BUY / CLOSE SELL 人工核对；当前结果模型无标准 Round-Trip Trade）
+
+round_trip_1            BUY 1000 @ 10.1600 → SELL 1000 @ 10.1100 = -50.00 CNY
+round_trip_2            BUY 1000 @ 10.4200 → SELL 1000 @ 10.3800 = -40.00 CNY
+commission              4 × 1.00 = 4.00 CNY
+realized_pnl            -90.00 CNY
+net_pnl                 -94.00 CNY
+initial_equity          1000000.00 CNY
+ending_cash             999906.00 CNY
+ending_market_value     0.00 CNY
+ending_equity           999906.00 CNY
+total_return            -0.00009400
+maximum_drawdown        -0.00033993
+winning_round_trips     0
+losing_round_trips      2
+final_positions         0
+final_allocations       0
+```
+
+自洽校验全部成立：
+
+```text
+-50 - 40 = -90 realized PnL
+-90 - 4 fees = -94 net PnL
+1000000 - 94 = 999906 ending cash/equity
+Account cash = Account equity = Ledger cash = Ledger equity = 999906
+Ledger equity_by_cash_view = Ledger equity_by_pnl_view = 999906
+最终 Position/Allocation 均为空，unrealized PnL 与 market value 均为 0
+```
+
+相同缓存分别通过 `PREFER_CACHE` 配置与无 Token `CACHE_ONLY` 配置运行：两次 Engine determinism fingerprint 均为 `ce4685a25fcd6ae2a2b5be79e1a351fab1455db58d8fe3964e9adac37b657ac9`，两份 Cluster `summary.json` 的 SHA-256 均为 `f4148b50a4ee2294d07157aefea0a7f9376b8cd3424057e4ef57f57faae6a12c`。
+
+无限重复入场仍暴露 Virtual Broker Account Snapshot 与本地含手续费 Account 的长期 reconciliation difference；因此示例明确限制为两轮，未把该缺陷伪装成成功。正式 Result Collector、Round-Trip Trade、Equity Parquet 与 `result_fingerprint` 仍属于第 5 节未完成范围。
+
+本轮质量验证：OnlyAlpha 全量 `342 passed`，Ruff check 通过，Mypy 313 source files 通过；本轮修改的三个核心文件已按 Ruff 格式化。核心全仓 format check 仍被用户工作区中既有的 `tests/market_data/test_pipeline_dispatch.py` 格式差异阻塞，本轮未改该无关文件。OnlyAlpha-examples Ruff check、11 files format check 和 `git diff --check` 均通过。
+
+## 8. 用户现有 user_data 复验与对账修正
+
+用户以工作区根目录命令、现有 `OnlyAlpha-examples/user_data` 运行时，最初出现 155 条
+`OnlyBrokerAccountUpdate / RECONCILIATION_REQUIRED`。字段级诊断确认：Broker 与本地的
+`cash_balance/equity` 始终一致，差异只在 `available_cash/frozen_cash`；两笔完全成交 BUY
+因成交价优于下单预留价，分别遗留 40 和 20 CNY 的未释放账户预留（策略账本遗留 39 和
+19 CNY，差 2 CNY 是两笔手续费）。
+
+修正内容：
+
+1. Account reconciliation 的审计摘要保留 `severity/action` 和字段级 local/broker 值，失败样本保留 `mutation_summary`，便于直接识别真实阻断与告警。
+2. 回测收口按审计中的 `WARNING` 严重级别排除非阻断对账；`cash_balance/equity` 的 `BLOCK_ACCOUNT` 仍会失败。
+3. BUY Order 完全成交后，ExecutionProcessor 在消费实际 notional/fee 后立即释放 Account 与 Strategy Ledger 的价格改善余量；不能以放行告警掩盖预留泄漏。
+
+使用用户原命令等价方式对现有 165 行 Tushare Cache 复验，成功结果为：
+
+```text
+status                  COMPLETED
+run_id                  run-e75cda054a9046c4bab614e08ef84c6a
+engine_fingerprint      8d548d3577c2eecbb8970a0ed230b213680f074fa6106e0e2e83f759b88fa5c8
+bar_count               165 generated / 165 processed
+gap_count               34（EXPECTED_SESSION_GAP）
+order_count             4（0 rejected）
+execution/fill_count    4
+round_trip_count        2（由 2 次 realized PnL delta 核对）
+gross_profit            20.00 CNY
+gross_loss              -280.00 CNY
+realized_pnl            -260.00 CNY
+fees                    4.00 CNY
+net_pnl                 -264.00 CNY
+initial_equity          1000000.00 CNY
+ending_cash/equity      999736.00 CNY
+total_return            -0.00026400
+maximum_drawdown        -0.00034100
+win_rate                0.50000000
+profit_factor           0.07142857
+final_positions         0
+final_allocations       0
+account_frozen_cash     0.00 CNY
+ledger_reserved_cash    0.00 CNY
+```
+
+统计恒等式成立：`20 - 280 = -260 realized PnL`，`-260 - 4 = -264 net PnL`，
+`1000000 - 264 = 999736 ending cash/equity`，收益率为 `-264 / 1000000 = -0.00026400`。
+Account 与 Ledger 的 cash/equity/pnl 视图一致；所有预留剩余量为 0 且状态 `RELEASED`；五项
+回测不变量 `ACCOUNT_EQUITY / LEDGER_EQUITY_VIEWS / NO_EXECUTION_FAILURE /
+NO_ACTIVE_RISK_RESERVATION / NO_BLOCKING_RECONCILIATION` 全部 PASS。
+
+同一现有 Cache 再次运行得到 `run-e26f23905feb4cbe8e8c9db733560068`，Engine determinism
+fingerprint 仍为 `8d548d3577c2eecbb8970a0ed230b213680f074fa6106e0e2e83f759b88fa5c8`。
+新增价格改善余量释放回归测试后，OnlyAlpha 全量 `343 passed`；Ruff、Mypy（313 source
+files）、修改文件 format check、OnlyAlpha-examples Ruff/format check 与两仓 `git diff --check`
+均通过。

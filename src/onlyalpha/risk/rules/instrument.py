@@ -135,12 +135,35 @@ class OnlyTradingSessionRiskRule(OnlyRiskRule):
         calendar = (
             context.trading_calendar if market_rule is None or market_rule.calendar is None else market_rule.calendar
         )
-        if not calendar.is_trading_time(context.ts_event):
+        if not calendar.is_trading_time(context.ts_event) and not self._is_closed_bar_decision(request, context):
             return self._reject(
                 OnlyRiskRejectionCode.OUTSIDE_TRADING_SESSION,
                 "Order is outside the configured TradingCalendar session",
             )
         return self._accept()
+
+    @staticmethod
+    def _is_closed_bar_decision(
+        request: OnlyOrderRequest,
+        context: OnlyRiskEvaluationContext,
+    ) -> bool:
+        """Allow a strategy decision at an observed closed Bar boundary.
+
+        Trading sessions are half-open, so a daily Bar stamped exactly at the
+        session close is not itself trading time.  The immutable snapshot ties
+        this exception to the same instrument and event timestamp; arbitrary
+        after-hours commands remain rejected.
+        """
+
+        snapshot = context.market_data
+        return (
+            snapshot is not None
+            and snapshot.instrument_id == request.instrument_id
+            and snapshot.ts_event == context.ts_event
+            and snapshot.primary_bar.is_closed
+            and snapshot.primary_bar.instrument_id == request.instrument_id
+            and snapshot.primary_bar.ts_event == context.ts_event.to_datetime()
+        )
 
 
 class OnlyPriceLimitRiskRule(OnlyRiskRule):

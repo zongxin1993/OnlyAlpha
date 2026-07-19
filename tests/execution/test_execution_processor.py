@@ -80,6 +80,28 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     assert result.audit_record.to_json() == OnlyExecutionAuditRecord.from_json(result.audit_record.to_json()).to_json()
 
 
+def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
+    env = OnlyIntegrationEnvironment()
+    env.start()
+    for minute in range(3):
+        env.process_bar(DAY_ONE, minute, "10.00")
+    order = env.submit_buy()
+
+    env.process_bar(DAY_ONE, 4, "9.90")
+
+    assert order.order_id is not None
+    account = env.runtime.account_manager.list_accounts()[0]
+    account_reservation = next(item for item in account.reservations if item.order_id == order.order_id)
+    ledger = env.runtime.strategy_ledger_manager.list_ledgers()[0]
+    ledger_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
+    assert account.cash.frozen_cash.amount == 0
+    assert account_reservation.remaining_amount.amount == 0
+    assert account_reservation.state.value == "RELEASED"
+    assert ledger.cash.cash_reserved.amount == 0
+    assert ledger_reservation.remaining_amount.amount == 0
+    assert ledger_reservation.state.value == "RELEASED"
+
+
 def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
     env = OnlyIntegrationEnvironment()
     applied = _complete_buy(env)

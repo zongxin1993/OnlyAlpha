@@ -86,7 +86,7 @@ class OnlyBacktestRunPlan:
                 item.status is OnlyExecutionProcessingStatus.FAILED
                 or (
                     item.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
-                    and "WARNING" not in item.audit_record.mutation_summary
+                    and not any("WARNING" in summary for summary in item.audit_record.mutation_summary)
                 )
             )
         )
@@ -230,7 +230,27 @@ class OnlyBacktestRunPlan:
         }
         failures = tuple(name for name, passed in checks.items() if not passed)
         if failures:
-            raise RuntimeError(f"backtest invariant failure: {failures}")
+            execution_failures = tuple(
+                {
+                    "status": item.status.value,
+                    "sequence": item.sequence,
+                    "update_type": item.update_type,
+                    "order_id": None if item.audit_record.order_id is None else str(item.audit_record.order_id),
+                    "instrument_id": None
+                    if item.audit_record.instrument_id is None
+                    else str(item.audit_record.instrument_id),
+                    "failed_step": None if item.failure is None else item.failure.failed_step.value,
+                    "exception_type": None if item.failure is None else item.failure.exception_type,
+                    "message": None if item.failure is None else item.failure.message,
+                    "mutation_summary": item.audit_record.mutation_summary,
+                }
+                for item in blocking_execution[:10]
+            )
+            raise RuntimeError(
+                f"backtest invariant failure: {failures}; "
+                f"execution_failure_count={len(blocking_execution)}; "
+                f"execution_failure_samples={execution_failures}"
+            )
         return tuple(f"{name}:PASS" for name in checks)
 
     def _require_runtime(self) -> OnlyBacktestRuntime:

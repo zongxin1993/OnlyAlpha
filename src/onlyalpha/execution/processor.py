@@ -329,11 +329,21 @@ class OnlyExecutionProcessor:
             return status, None, None, None, None, invariant, None, ("POSITION_RECONCILIATION",)
         if isinstance(update, OnlyBrokerAccountUpdate):
             account_reconciliation = self._account_reconciliation.reconcile(update.snapshot)
+            difference_summary = tuple(
+                f"{item.field}:local={item.local_value}:broker={item.broker_value}"
+                for item in account_reconciliation.differences
+            )
             steps.append(
                 OnlyExecutionMutationRecord(
                     OnlyExecutionMutationStep.ACCOUNT,
                     OnlyExecutionMutationStatus.APPLIED,
-                    account_reconciliation.action.value,
+                    ":".join(
+                        (
+                            account_reconciliation.severity.value,
+                            account_reconciliation.action.value,
+                            *difference_summary,
+                        )
+                    ),
                 )
             )
             invariant = OnlyExecutionInvariantResult(True)
@@ -523,7 +533,13 @@ class OnlyExecutionProcessor:
                 OnlyExecutionMutationStep.ORDER, OnlyExecutionMutationStatus.APPLIED, order_result.current_status.value
             )
         )
-        position_result = self._positions.apply_trade(trade)
+        position_reservation = self._position_reservations.get(trade.order_id)
+        position_result = self._positions.apply_trade(
+            trade,
+            own_order_reserved_quantity=(
+                None if position_reservation is None else position_reservation.remaining_quantity
+            ),
+        )
         if position_result.status is not OnlyPositionMutationStatus.APPLIED:
             raise ValueError(f"Position rejected validated Trade: {position_result.status.value}")
         steps.append(
@@ -531,7 +547,6 @@ class OnlyExecutionProcessor:
                 OnlyExecutionMutationStep.POSITION, OnlyExecutionMutationStatus.APPLIED, position_result.status.value
             )
         )
-        position_reservation = self._position_reservations.get(trade.order_id)
         allocation_status = self._allocations.apply_trade(
             trade,
             own_order_reserved_quantity=(
@@ -545,7 +560,7 @@ class OnlyExecutionProcessor:
                 OnlyExecutionMutationStep.ALLOCATION, OnlyExecutionMutationStatus.APPLIED, allocation_status.value
             )
         )
-        allocation_after = self._allocation_snapshot(allocation_key)
+        allocation_after = self._allocation_snapshot(allocation_key, include_closed=True)
         ledger_key = OnlyStrategyLedgerKey(
             trade.runtime_id,
             trade.account_id,
@@ -615,6 +630,10 @@ class OnlyExecutionProcessor:
             self._consume_account_reservation(update.fill, trade.ts_init)
             self._ledgers.consume_cash_reservation(ledger_key, trade.order_id, notional + trade.fee, trade.ts_init)
             reservation_results.extend(("ACCOUNT_CASH_CONSUMED", "STRATEGY_CASH_CONSUMED"))
+            if order_result.snapshot.status is OnlyOrderStatus.FILLED:
+                self._release_account_reservation(trade.order_id, trade.ts_init)
+                self._ledgers.release_cash_reservation(ledger_key, trade.order_id, trade.ts_init)
+                reservation_results.extend(("ACCOUNT_REMAINDER_RELEASED", "STRATEGY_REMAINDER_RELEASED"))
         else:
             self._position_reservation_port.consume(
                 trade.order_id,
@@ -946,12 +965,15 @@ class OnlyExecutionProcessor:
     def _allocation_snapshot(
         self,
         key: OnlyPositionAllocationKey,
+        *,
+        include_closed: bool = False,
     ) -> OnlyPositionAllocationSnapshot | None:
         active = self._allocations.get_snapshot(key)
-        return (
-            active
-            if active is not None
-            else next((item for item in reversed(self._allocations.closed()) if item.key == key), None)
+        if active is not None or not include_closed:
+            return active
+        return next(
+            (item for item in reversed(self._allocations.closed()) if item.key == key),
+            None,
         )
 
     def _allocation_money(
