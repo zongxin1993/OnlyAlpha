@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
@@ -14,6 +15,7 @@ from onlyalpha.runtime.runtime import OnlyRuntime
 class OnlyRuntimeBuildRequest:
     plan: OnlyRuntimePlan
     components: object
+    user_data_root: Path | None = None
 
     @property
     def config(self) -> OnlyRuntimeAssemblyPlan:

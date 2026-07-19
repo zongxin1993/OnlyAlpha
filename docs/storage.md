@@ -79,3 +79,16 @@ Calendar version 和 SessionType 必须作为独立业务字段保留。
 旧 naive 数据迁移必须提供来源 IANA 时区与迁移来源；DST 重复时间提供 fold，未知来源
 或不存在时间失败。迁移批次应保留原值、转换值与回滚映射。当前 SQLite Storage 是
 opaque bytes 骨架，尚未引入交易时间表 Schema。
+
+## 8. Historical Bar Cache
+
+标准接口位于 `onlyalpha.cache.historical`。`OnlyTimeRange` 使用 UTC 半开区间 `[start,end)`；
+`OnlyHistoricalCacheService` 组合供应商无关 Provider 与 `OnlyParquetHistoricalCacheStore`。
+默认产品链把 Store 根目录注入为 `<user_data>/cache/market_data`，插件不得从当前工作目录推断缓存位置。
+
+缓存身份包含 source、dataset、Instrument、Bar Type、adjustment、Schema 与时间语义版本。
+Manifest 的审计时间和绝对路径不进入内容指纹。Parquet 保存标准 `OnlyBar` 的无损确定性 JSON 与纳秒事件时间，
+按事件年份分区；写入使用 staging、回读验证和原子替换。Manifest、Hash 或 Parquet 损坏会进入 quarantine，
+不会进入 Replay。`CACHE_ONLY` 禁止 Provider；`PREFER_CACHE` 只请求缺口；`FORCE_REFRESH` 请求整个范围。
+
+MiniQMT 负责供应商字段验证、symbol/exchange 映射和 Asia/Shanghai→UTC 解释；核心不导入 MiniQMT。
