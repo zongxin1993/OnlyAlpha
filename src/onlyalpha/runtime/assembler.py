@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
@@ -28,7 +29,7 @@ class OnlyEngineRunAssembler:
         self._runtime_factories = runtime_factories
         self._component_factories = component_factories
 
-    def build(self, plan: OnlyRuntimePlan) -> OnlyRuntimeBuildResult:
+    def build(self, plan: OnlyRuntimePlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
         try:
             factory = self._runtime_factories.require(plan.compatibility_key.runtime_type)
         except ValueError as exc:
@@ -36,7 +37,7 @@ class OnlyEngineRunAssembler:
                 failure_code="RUNTIME_FACTORY_NOT_AVAILABLE",
                 failure_message=str(exc),
             )
-        return factory.create(OnlyRuntimeBuildRequest(plan, self._component_factories))
+        return factory.create(OnlyRuntimeBuildRequest(plan, self._component_factories, user_data_root))
 
     def validate(self, plan: OnlyRuntimePlan) -> OnlyRuntimeBuildResult:
         """Validate factory availability without constructing Runtime objects."""

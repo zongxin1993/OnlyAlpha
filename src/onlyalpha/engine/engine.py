@@ -209,7 +209,7 @@ class OnlyEngine:
         created: list[OnlyRuntime] = []
         try:
             for runtime_plan in plan.runtime_plans:
-                build = self._require_services().assembler.build(runtime_plan)
+                build = self._require_services().assembler.build(runtime_plan, self.config.user_data_root)
                 if build.runtime is None:
                     raise RuntimeError(f"{build.failure_code}: {build.failure_message}")
                 runtime = build.runtime

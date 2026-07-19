@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerUpdateQueue
+from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
@@ -16,6 +17,7 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
@@ -191,6 +193,15 @@ class OnlyBacktestRuntimeFactory:
             source_common.batch_size,
             config.source_path.parent,
             _LOGGER,
+            historical_cache_service=(
+                OnlyHistoricalCacheService(
+                    OnlyParquetHistoricalCacheStore(
+                        OnlyUserDataLayout(request.user_data_root).historical_market_data_cache_root
+                    )
+                )
+                if request.user_data_root is not None
+                else None
+            ),
         )
         self._raise_issues(
             data_factory.descriptor.plugin_id, str(source_common.source_id), data_factory.validate_request(data_request)

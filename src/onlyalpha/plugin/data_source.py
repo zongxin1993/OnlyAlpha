@@ -8,6 +8,7 @@ from logging import Logger
 from pathlib import Path
 from typing import Protocol
 
+from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig, OnlyUniverseConfig
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
@@ -46,6 +47,7 @@ class OnlyDataSourceCreateRequest:
     config_directory: Path
     logger: Logger
     market_data_sink: OnlyMarketDataUpdateSink | None = None
+    historical_cache_service: OnlyHistoricalCacheService | None = None
 
 
 class OnlyDataSource(
