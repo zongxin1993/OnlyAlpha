@@ -6,7 +6,7 @@ from decimal import ROUND_DOWN, Decimal
 
 from onlyalpha.core.clock import OnlyClockView
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyOrderType
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -19,9 +19,11 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyPreTradeMarketContext, OnlyPreTradeMarketRulePort
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
+from onlyalpha.position.enums import OnlyPositionSide
 from onlyalpha.risk.audit import OnlyOrderIntentAudit, OnlyRiskDecisionAudit
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext, OnlyRiskStateUpdateContext
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskRejection
@@ -227,7 +229,18 @@ class OnlyRiskService:
             if price is None and context.market_data is not None:
                 price = context.market_data.primary_bar.close
             account = context.account_risk.snapshot(context.account_id)
-            position = context.position_risk.snapshot(context.account_id, request.instrument_id)
+            effect = {
+                OnlyOffset.OPEN: OnlyPositionEffect.OPEN,
+                OnlyOffset.CLOSE: OnlyPositionEffect.CLOSE,
+                OnlyOffset.CLOSE_TODAY: OnlyPositionEffect.CLOSE_TODAY,
+                OnlyOffset.CLOSE_YESTERDAY: OnlyPositionEffect.CLOSE_YESTERDAY,
+            }.get(request.offset, OnlyPositionEffect.AUTO)
+            position_side = (
+                OnlyPositionSide.SHORT
+                if request.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN
+                else OnlyPositionSide.LONG
+            )
+            position = context.position_risk.snapshot(context.account_id, request.instrument_id, position_side)
             if instrument is None or price is None or account is None:
                 return OnlyRiskDecision.rejected(
                     OnlyRiskRejection(
@@ -251,7 +264,8 @@ class OnlyRiskService:
                     context.trading_calendar.trading_day_at(context.ts_event),
                     Decimal(0) if position is None else position.available_quantity.value,
                     available_cash,
-                    available_cash,
+                    available_cash if account.available_margin is None else account.available_margin.amount,
+                    position_effect=effect,
                 )
             )
             if not market_decision.accepted:

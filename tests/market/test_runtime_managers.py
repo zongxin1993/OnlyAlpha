@@ -29,10 +29,20 @@ def test_settlement_manager_tracks_four_independent_availability_dimensions() ->
 
 def test_margin_manager_reserve_occupy_and_release_lifecycle() -> None:
     manager = OnlyMarginManager()
-    manager.apply(OnlyMarginInstruction("RESERVE", "USD", Decimal(100), Decimal(80), "order-1", "trade-0"))
-    occupied = manager.apply(OnlyMarginInstruction("OCCUPY", "USD", Decimal(100), Decimal(0), "order-1", "trade-1"))
+    manager.apply(
+        OnlyMarginInstruction(
+            "RESERVE", "account-1", "FUTURE.X", "USD", Decimal(100), Decimal(80), "order-1", "trade-0"
+        )
+    )
+    occupied = manager.apply(
+        OnlyMarginInstruction("OCCUPY", "account-1", "FUTURE.X", "USD", Decimal(100), Decimal(80), "order-1", "trade-1")
+    )
     assert occupied.reserved_after == 0
     assert occupied.occupied_after == Decimal(100)
-    released = manager.apply(OnlyMarginInstruction("RELEASE", "USD", Decimal(100), Decimal(80), "order-1", "trade-2"))
+    released = manager.apply(
+        OnlyMarginInstruction(
+            "RELEASE", "account-1", "FUTURE.X", "USD", Decimal(100), Decimal(80), "order-2", "trade-2"
+        )
+    )
     assert released.occupied_after == 0
     assert released.maintenance_required_after == 0

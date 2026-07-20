@@ -235,11 +235,15 @@ class OnlySettlementRuntimeInstruction:
     cash_trade_available_on: OnlyTradingDay
     cash_withdrawable_on: OnlyTradingDay
     legal_settlement_on: OnlyTradingDay
+    account_id: str = ""
+    source_order_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarginInstruction:
     action: str
+    account_id: str
+    instrument_id: str
     currency: str
     amount: Decimal
     maintenance_required: Decimal
@@ -259,6 +263,7 @@ class OnlyCashInstruction:
     currency: str
     amount: Decimal
     available_on: OnlyTradingDay
+    settle_notional: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,6 +300,8 @@ class OnlyMatchTimeMarketRulePort(Protocol):
 
 class OnlyTradeInstructionPort(Protocol):
     def build_trade_instruction(self, request: OnlyTradeApplicationRequest) -> OnlyTradeApplicationInstruction: ...
+
+    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketRules: ...
 
 
 OnlyReferenceProvider = Callable[[str, OnlyTradingDay], OnlyInstrumentReferenceSnapshot]
@@ -465,14 +472,21 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                 request.price, request.quantity, reference.contract_multiplier
             )
             margin = OnlyMarginInstruction(
-                "RESERVE" if effect is OnlyPositionEffect.OPEN else "RELEASE",
+                "OCCUPY" if effect is OnlyPositionEffect.OPEN else "RELEASE",
+                request.account_id,
+                request.instrument_id,
                 reference.currency,
                 requirement.initial_margin,
                 requirement.maintenance_margin,
                 request.order_id,
                 request.trade_id,
             )
-        position_side = "SHORT" if request.side is OnlyOrderSide.SELL and effect is OnlyPositionEffect.OPEN else "LONG"
+        position_side = (
+            "SHORT"
+            if (request.side is OnlyOrderSide.SELL and effect is OnlyPositionEffect.OPEN)
+            or (request.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN)
+            else "LONG"
+        )
         position = OnlyPositionInstruction(
             request.instrument_id,
             position_side,
@@ -493,7 +507,10 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             settlement.cash_available_day,
             settlement.cash_available_day,
             settlement.legal_settlement_day,
+            request.account_id,
+            request.order_id,
         )
+        settles_notional = rules.margin_policy is None
         cash_sign = Decimal(-1) if request.side is OnlyOrderSide.BUY else Decimal(1)
         return OnlyTradeApplicationInstruction(
             position,
@@ -501,7 +518,10 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             margin,
             OnlyFeeInstruction(request.order_id, request.trade_id, fees),
             OnlyCashInstruction(
-                reference.currency, cash_sign * notional - fees.total_fee, settlement.cash_available_day
+                reference.currency,
+                (cash_sign * notional if settles_notional else Decimal(0)) - fees.total_fee,
+                settlement.cash_available_day,
+                settles_notional,
             ),
             rules.identity,
         )
@@ -521,6 +541,32 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         if rules.position_policy.mode is OnlyMarketPositionMode.LONG_ONLY:
             return OnlyPositionEffect.OPEN if context.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
         return OnlyPositionEffect.OPEN
+
+    def build_order_margin_instruction(
+        self,
+        request: OnlyTradeApplicationRequest,
+    ) -> OnlyMarginInstruction | None:
+        """Build a submission-time reservation from the compiled margin policy."""
+
+        rules = self.compiled_rules(request.instrument_id, request.trading_day)
+        if rules.margin_policy is None or request.position_effect is not OnlyPositionEffect.OPEN:
+            return None
+        reference = self._reference(request.instrument_id, request.trading_day)
+        requirement = rules.margin_policy.requirement(
+            request.price,
+            request.quantity,
+            reference.contract_multiplier,
+        )
+        return OnlyMarginInstruction(
+            "RESERVE",
+            request.account_id,
+            request.instrument_id,
+            reference.currency,
+            requirement.initial_margin,
+            requirement.maintenance_margin,
+            request.order_id,
+            request.trade_id,
+        )
 
 
 def only_instrument_reference(

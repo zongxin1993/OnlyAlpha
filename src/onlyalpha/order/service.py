@@ -15,6 +15,7 @@ from onlyalpha.order.enums import OnlyOrderFailureCode
 from onlyalpha.order.execution.models import OnlyExecutionCancelRequest
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderManager
+from onlyalpha.order.margin_port import OnlyOrderMarginReservationPort
 from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
 from onlyalpha.order.results import OnlyOrderCancelResult, OnlyOrderSubmitResult
@@ -36,6 +37,7 @@ class OnlyOrderService:
         risk_context: Callable[[OnlyClusterId, OnlyAccountId, OnlyTimestamp], OnlyRiskEvaluationContext],
         position_reservations: OnlyOrderPositionReservationPort | None = None,
         cash_reservations: OnlyOrderCashReservationPort | None = None,
+        margin_reservations: OnlyOrderMarginReservationPort | None = None,
     ) -> None:
         self._manager = manager
         self._execution = execution
@@ -45,6 +47,7 @@ class OnlyOrderService:
         self._risk_context = risk_context
         self._position_reservations = position_reservations
         self._cash_reservations = cash_reservations
+        self._margin_reservations = margin_reservations
 
     def submit(
         self,
@@ -112,6 +115,34 @@ class OnlyOrderService:
                 risk_decision,
             )
         uses_position_reservation = not (request.side is OnlyOrderSide.SELL and request.offset is OnlyOffset.OPEN)
+        if self._margin_reservations is not None:
+            try:
+                self._margin_reservations.reserve(created.snapshot, timestamp)
+            except Exception as exc:
+                self._risk_service.release_order(
+                    created.order_id,
+                    cluster_id,
+                    account_id,
+                    OnlyRiskReleaseReason.EXECUTION_REJECTED,
+                    self._now(),
+                )
+                failed = self._manager.apply_failed(
+                    created.order_id,
+                    self._now(),
+                    OnlyOrderFailure(OnlyOrderFailureCode.EXECUTION.value, str(exc)),
+                )
+                self._publisher.publish_many(created.events + failed.events)
+                return OnlyOrderSubmitResult(
+                    True,
+                    False,
+                    None,
+                    created.order_id,
+                    created.snapshot.client_order_id,
+                    failed.snapshot,
+                    created.events + failed.events,
+                    str(exc),
+                    risk_decision,
+                )
         if self._position_reservations is not None and uses_position_reservation:
             try:
                 self._position_reservations.reserve(created.snapshot, timestamp)
@@ -123,6 +154,8 @@ class OnlyOrderService:
                     OnlyRiskReleaseReason.EXECUTION_REJECTED,
                     self._now(),
                 )
+                if self._margin_reservations is not None:
+                    self._margin_reservations.release(created.order_id, self._now())
                 failed = self._manager.apply_failed(
                     created.order_id,
                     self._now(),
@@ -153,6 +186,8 @@ class OnlyOrderService:
                 )
                 if self._position_reservations is not None and uses_position_reservation:
                     self._position_reservations.release(created.order_id, self._now(), broker_confirmed=True)
+                if self._margin_reservations is not None:
+                    self._margin_reservations.release(created.order_id, self._now())
                 failed = self._manager.apply_failed(
                     created.order_id,
                     self._now(),
@@ -177,6 +212,8 @@ class OnlyOrderService:
                 self._position_reservations.sent(created.order_id, self._now())
             if self._cash_reservations is not None:
                 self._cash_reservations.sent(created.order_id, self._now())
+            if self._margin_reservations is not None:
+                self._margin_reservations.sent(created.order_id, self._now())
             submitted = self._manager.mark_submitted(created.order_id, self._now())
             self._publisher.publish_many(submitted.events)
             events = created.events + submitted.events
@@ -208,6 +245,8 @@ class OnlyOrderService:
             self._position_reservations.release(created.order_id, self._now(), broker_confirmed=True)
         if self._cash_reservations is not None:
             self._cash_reservations.release(created.order_id, self._now())
+        if self._margin_reservations is not None:
+            self._margin_reservations.release(created.order_id, self._now())
         return OnlyOrderSubmitResult(
             True,
             False,

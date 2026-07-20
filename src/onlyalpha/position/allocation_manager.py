@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
@@ -109,8 +108,8 @@ class OnlyPositionAllocationManager:
         if state is not None and state.last_order is not None and trade.stable_order < state.last_order:
             return OnlyPositionMutationStatus.STALE
         if state is None:
-            if trade.side is OnlyOrderSide.SELL:
-                raise OnlyPositionOverSellError("Cluster cannot sell another Cluster's Allocation")
+            if trade.closes_position:
+                raise OnlyPositionOverSellError("Cluster cannot close another Cluster's Allocation")
             state = self._new_state(key, trade)
             self._active[key] = state
         self._apply_to_state(state, trade, own_order_reserved_quantity)
@@ -244,13 +243,13 @@ class OnlyPositionAllocationManager:
         key = (trade.account_id, trade.instrument_id, trade.position_side)
         previous = self._unallocated.get(key)
         old_total = Decimal(0) if previous is None else previous.total_quantity.value
-        delta = trade.quantity.value if trade.side is OnlyOrderSide.BUY else -trade.quantity.value
+        delta = trade.quantity.value if trade.opens_position else -trade.quantity.value
         total = old_total + delta
         if total < 0:
             raise OnlyPositionOverSellError("unallocated sell exceeds unallocated Position")
         old_settled = Decimal(0) if previous is None else previous.settled_quantity.value
         old_unsettled = Decimal(0) if previous is None else previous.unsettled_quantity.value
-        if trade.side is OnlyOrderSide.BUY:
+        if trade.opens_position:
             if trade.settlement_bucket is OnlySettlementBucket.SETTLED:
                 old_settled += trade.quantity.value
             else:
@@ -300,7 +299,7 @@ class OnlyPositionAllocationManager:
         trade: OnlyPositionTrade,
         own_order_reserved_quantity: OnlyQuantity | None = None,
     ) -> None:
-        if trade.side is OnlyOrderSide.BUY:
+        if trade.opens_position:
             old = state.total.value
             new = old + trade.quantity.value
             raw_average = (

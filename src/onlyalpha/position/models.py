@@ -24,6 +24,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.position.enums import (
     OnlyAvailabilityState,
     OnlyPositionAuthority,
+    OnlyPositionMode,
     OnlyPositionMutationStatus,
     OnlyPositionRestrictionSource,
     OnlyPositionRestrictionType,
@@ -99,6 +100,7 @@ class OnlyPositionTrade(OnlyDomainModel):
     execution_id: str | None = None
     settlement_bucket: OnlySettlementBucket = OnlySettlementBucket.UNSETTLED
     multiplier: OnlyMultiplier = field(default_factory=lambda: OnlyMultiplier(Decimal(1), 0))
+    position_mode: OnlyPositionMode = OnlyPositionMode.NETTING
     metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -110,13 +112,19 @@ class OnlyPositionTrade(OnlyDomainModel):
             raise ValueError("Position Trade ts_init cannot precede ts_event")
         if self.external_sequence is not None and self.external_sequence < 0:
             raise ValueError("external_sequence cannot be negative")
-        if self.position_side is not OnlyPositionSide.LONG:
-            raise ValueError("first-phase Position Trade supports LONG only")
         if self.side is OnlyOrderSide.BUY and self.direction is not OnlyDirection.BUY:
             raise ValueError("side and direction disagree")
         if self.side is OnlyOrderSide.SELL and self.direction is not OnlyDirection.SELL:
             raise ValueError("side and direction disagree")
         object.__setattr__(self, "metadata", only_frozen_metadata(self.metadata))
+
+    @property
+    def opens_position(self) -> bool:
+        return self.offset in {OnlyOffset.NONE, OnlyOffset.OPEN}
+
+    @property
+    def closes_position(self) -> bool:
+        return self.offset in {OnlyOffset.CLOSE, OnlyOffset.CLOSE_TODAY, OnlyOffset.CLOSE_YESTERDAY}
 
     @property
     def stable_order(self) -> tuple[int, int, str]:

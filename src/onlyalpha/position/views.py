@@ -72,8 +72,9 @@ class OnlyAccountPositionRiskView:
         self,
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
     ) -> OnlyPositionRiskSnapshot | None:
-        snapshot = self._query.account(account_id, instrument_id)
+        snapshot = self._query.account(account_id, instrument_id, position_side)
         if snapshot is None:
             return None
         return OnlyPositionRiskSnapshot(
@@ -135,8 +136,9 @@ class OnlyPositionRiskView:
         self,
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
     ) -> OnlyPositionRiskSnapshot | None:
-        return self.account.snapshot(account_id, instrument_id)
+        return self.account.snapshot(account_id, instrument_id, position_side)
 
     def cluster_snapshot(
         self,

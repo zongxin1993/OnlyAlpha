@@ -28,6 +28,7 @@ class OnlyStrategyValuationService:
         ts_event: OnlyTimestamp,
         ts_init: OnlyTimestamp,
         valuation_version: int,
+        settle_notional_by_instrument: Mapping[OnlyInstrumentId, bool] | None = None,
     ) -> OnlyStrategyValuation:
         mark_by_instrument = {item.instrument_id: item for item in marks}
         lines: list[OnlyStrategyValuationLine] = []
@@ -47,12 +48,20 @@ class OnlyStrategyValuationService:
             market_amount = (mark.mark_price.value * allocation.total_quantity.value * multiplier.value).quantize(
                 quantum, ROUND_HALF_EVEN
             )
+            unrealized_amount = market_amount - cost_amount
+            if allocation.key.position_side.value == "SHORT":
+                unrealized_amount = -unrealized_amount
+            if settle_notional_by_instrument is not None and not settle_notional_by_instrument.get(
+                allocation.key.instrument_id, True
+            ):
+                cost_amount = Decimal(0).quantize(quantum)
+                market_amount = unrealized_amount
             lines.append(
                 OnlyStrategyValuationLine(
                     allocation.key.instrument_id,
                     OnlyMoney(cost_amount, key.base_currency),
                     OnlyMoney(market_amount, key.base_currency),
-                    OnlyMoney(market_amount - cost_amount, key.base_currency),
+                    OnlyMoney(unrealized_amount, key.base_currency),
                     mark.mark_price,
                     mark.price_version,
                 )

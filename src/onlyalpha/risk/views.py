@@ -120,4 +120,5 @@ class OnlyAccountManagerRiskView:
             value.status.value,
             value.equity,
             value.quality_flags,
+            value.available_margin,
         )

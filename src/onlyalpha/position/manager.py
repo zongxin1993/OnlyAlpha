@@ -2,12 +2,11 @@
 
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyPositionId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.position.entities import OnlyPosition
-from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionMutationStatus
+from onlyalpha.position.enums import OnlyPositionMutationStatus
 from onlyalpha.position.events import OnlyNullPositionEventPublisher, OnlyPositionEvent
 from onlyalpha.position.exceptions import OnlyPositionOverSellError
 from onlyalpha.position.keys import OnlyPositionKey
@@ -56,7 +55,7 @@ class OnlyPositionManager:
             trade.account_id,
             trade.instrument_id,
             trade.position_side,
-            OnlyPositionMode.NETTING,
+            trade.position_mode,
         )
         position = self._active.get(key)
         before = position.snapshot() if position is not None else None
@@ -79,8 +78,8 @@ class OnlyPositionManager:
                 "stale Trade requires reconciliation",
             )
         if position is None:
-            if trade.side is OnlyOrderSide.SELL:
-                raise OnlyPositionOverSellError("cannot sell without an active account Position")
+            if trade.closes_position:
+                raise OnlyPositionOverSellError("cannot close without an active account Position")
             cycle = self._cycles.get(key, 0) + 1
             self._cycles[key] = cycle
             position = OnlyPosition(self._position_id(key, cycle), key, trade)
@@ -96,7 +95,7 @@ class OnlyPositionManager:
         if after.status.value == "CLOSED":
             self._closed.append(after)
             del self._active[key]
-        event_type = self._event_type(before, after, trade.side)
+        event_type = self._event_type(before, after, trade.opens_position)
         self._publish(event_type, after, trade.ts_event)
         return OnlyPositionMutationResult(
             OnlyPositionMutationStatus.APPLIED,
@@ -252,13 +251,13 @@ class OnlyPositionManager:
     def _event_type(
         before: OnlyPositionSnapshot | None,
         after: OnlyPositionSnapshot,
-        side: OnlyOrderSide,
+        opens_position: bool,
     ) -> str:
         if before is None:
             return "POSITION_OPENED"
         if after.total_quantity.value == 0:
             return "POSITION_CLOSED"
-        return "POSITION_INCREASED" if side is OnlyOrderSide.BUY else "POSITION_REDUCED"
+        return "POSITION_INCREASED" if opens_position else "POSITION_REDUCED"
 
     @staticmethod
     def _unchanged(

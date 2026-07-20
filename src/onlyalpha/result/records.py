@@ -184,6 +184,28 @@ class OnlyMarginResultRecord(OnlySequencedResultRecord):
     used_margin: Decimal
     available_margin: Decimal
     margin_ratio: Decimal | None
+    margin_record_id: str = ""
+    order_id: str = ""
+    trade_id: str = ""
+    operation: str = ""
+    reserved_delta: Decimal = Decimal(0)
+    occupied_delta: Decimal = Decimal(0)
+    released_delta: Decimal = Decimal(0)
+    currency: str = ""
+    amount: Decimal = Decimal(0)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyFeeResultRecord(OnlySequencedResultRecord):
+    fee_record_id: str
+    account_id: str
+    instrument_id: str
+    order_id: str
+    trade_id: str
+    fee_type: str
+    accrued: Decimal
+    charged: Decimal
+    currency: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -246,6 +268,7 @@ class OnlyPositionResultRecord(OnlySequencedResultRecord):
     market_value: Decimal | None
     realized_pnl: Decimal
     unrealized_pnl: Decimal | None
+    position_side: str = "LONG"
 
     def __post_init__(self) -> None:
         OnlySequencedResultRecord.__post_init__(self)
@@ -269,6 +292,10 @@ class OnlyAccountResultRecord(OnlySequencedResultRecord):
     unrealized_pnl: Decimal | None
     commission: Decimal
     fees: Decimal
+    reserved_margin: Decimal = Decimal(0)
+    occupied_margin: Decimal = Decimal(0)
+    released_margin: Decimal = Decimal(0)
+    available_margin: Decimal = Decimal(0)
 
     def __post_init__(self) -> None:
         OnlySequencedResultRecord.__post_init__(self)
@@ -318,6 +345,7 @@ class OnlyBacktestFacts:
     equity: tuple[OnlyEquityResultRecord, ...] = ()
     settlements: tuple[OnlySettlementResultRecord, ...] = ()
     margin: tuple[OnlyMarginResultRecord, ...] = ()
+    fees: tuple[OnlyFeeResultRecord, ...] = ()
     market_rule_decisions: tuple[OnlyMarketRuleDecisionResultRecord, ...] = ()
     profile_timeline: tuple[OnlyProfileTimelineResultRecord, ...] = ()
     compiled_market_rules: tuple[OnlyCompiledMarketRuleResultRecord, ...] = ()
@@ -333,6 +361,7 @@ class OnlyBacktestFacts:
             "equity",
             "settlements",
             "margin",
+            "fees",
             "market_rule_decisions",
             "profile_timeline",
             "compiled_market_rules",

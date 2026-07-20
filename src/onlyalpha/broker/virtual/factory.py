@@ -12,7 +12,7 @@ from onlyalpha.broker.virtual.gateway import (
     ONLY_VIRTUAL_PLUGIN_DESCRIPTOR,
     OnlyVirtualBrokerGateway,
 )
-from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.plugin.broker import OnlyBrokerCreateRequest
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyPluginValidationIssue
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
@@ -24,6 +24,7 @@ class OnlyVirtualBrokerPluginConfig:
     commission_amount: Decimal
     matching_type: str
     slippage_type: str
+    maximum_fill_quantity: Decimal | None
 
 
 class OnlyVirtualBrokerFactory:
@@ -48,6 +49,7 @@ class OnlyVirtualBrokerFactory:
             Decimal(str(amount)),
             str(matching.get("type", "NEXT_BAR")).upper(),
             str(slippage.get("type", "NONE")).upper(),
+            None if matching.get("maximum_fill_quantity") is None else Decimal(str(matching["maximum_fill_quantity"])),
         )
 
     def validate_request(self, request: OnlyBrokerCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
@@ -86,6 +88,9 @@ class OnlyVirtualBrokerFactory:
             request.account_id,
             request.initial_cash.currency,
             request.initial_cash,
+            maximum_fill_quantity=None
+            if config.maximum_fill_quantity is None
+            else OnlyQuantity(config.maximum_fill_quantity, 8),
             commission_model=OnlyFixedCommissionModel(OnlyMoney(commission, request.initial_cash.currency)),
         )
         return OnlyVirtualBrokerGateway(

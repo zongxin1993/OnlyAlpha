@@ -26,8 +26,14 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.market.models import OnlyPositionEffect
-from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest, OnlyTradeInstructionPort
+from onlyalpha.fee.manager import OnlyFeeManager
+from onlyalpha.margin.manager import OnlyMarginManager
+from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
+from onlyalpha.market.runtime_rules import (
+    OnlyTradeApplicationInstruction,
+    OnlyTradeApplicationRequest,
+    OnlyTradeInstructionPort,
+)
 from onlyalpha.order.enums import OnlyOrderApplyResult
 from onlyalpha.order.execution.models import (
     OnlyGatewayOrderAcceptedUpdate,
@@ -40,7 +46,12 @@ from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
-from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionSide, OnlySettlementBucket
+from onlyalpha.position.enums import (
+    OnlyPositionMode,
+    OnlyPositionMutationStatus,
+    OnlyPositionSide,
+    OnlySettlementBucket,
+)
 from onlyalpha.position.identifiers import OnlyGatewayId
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 from onlyalpha.position.manager import OnlyPositionManager
@@ -54,6 +65,7 @@ from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
 from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter, OnlyPositionReservationManager
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.risk.service import OnlyRiskService
+from onlyalpha.settlement.manager import OnlySettlementManager
 from onlyalpha.strategy_ledger.enums import OnlyStrategyFeeType
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
@@ -96,6 +108,7 @@ OnlyAccountValuation = Callable[[OnlyPositionTrade], None]
 OnlyAccountReservationConsumer = Callable[[OnlyOrderFill, OnlyTimestamp], None]
 OnlyAccountReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyConnectionStateConsumer = Callable[[object], None]
+OnlyMarginReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyExecutionDispatchPayload = tuple[
     OnlyExecutionProcessingStatus,
     OnlyOrderMutationResult | None,
@@ -140,6 +153,11 @@ class OnlyExecutionProcessor:
         connection_state: OnlyConnectionStateConsumer,
         base_currency: object,
         market_rules: OnlyTradeInstructionPort | None = None,
+        settlement_manager: OnlySettlementManager | None = None,
+        margin_manager: OnlyMarginManager | None = None,
+        fee_manager: OnlyFeeManager | None = None,
+        release_margin_reservation: OnlyMarginReservationReleaser | None = None,
+        trading_day: Callable[[OnlyTimestamp], OnlyTradingDay] | None = None,
     ) -> None:
         self.config = config
         self._clock = clock
@@ -168,6 +186,12 @@ class OnlyExecutionProcessor:
         self._connection_state = connection_state
         self._base_currency = base_currency
         self._market_rules = market_rules
+        self._settlement_manager = settlement_manager
+        self._margin_manager = margin_manager
+        self._fee_manager = fee_manager
+        self._release_margin_reservation = release_margin_reservation
+        self._trading_day = trading_day
+        self._trade_instructions: dict[str, OnlyTradeApplicationInstruction] = {}
         self._processing_sequence = 0
 
     def process(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionProcessingResult:
@@ -458,6 +482,8 @@ class OnlyExecutionProcessor:
             self._events.publish_many(result.events)
             self._position_reservation_port.release(result.order_id, update.ts_init, broker_confirmed=True)
             self._release_account_reservation(result.order_id, update.ts_init)
+            if self._release_margin_reservation is not None:
+                self._release_margin_reservation(result.order_id, update.ts_init)
             ledger_key = OnlyStrategyLedgerKey(
                 self.config.runtime_id,
                 update.account_id,
@@ -564,6 +590,63 @@ class OnlyExecutionProcessor:
                 OnlyExecutionMutationStep.ALLOCATION, OnlyExecutionMutationStatus.APPLIED, allocation_status.value
             )
         )
+        instruction = self._trade_instructions.get(str(trade.trade_id))
+        if instruction is not None and self._settlement_manager is not None:
+            self._settlement_manager.register(instruction.settlement_instruction)
+            self._settlement_manager.advance(
+                self._trading_day(trade.ts_event)
+                if self._trading_day is not None
+                else OnlyTradingDay(trade.ts_event.to_datetime().date())
+            )
+            steps.append(
+                OnlyExecutionMutationRecord(
+                    OnlyExecutionMutationStep.SETTLEMENT,
+                    OnlyExecutionMutationStatus.APPLIED,
+                    instruction.settlement_instruction.instruction_id,
+                )
+            )
+        if instruction is not None and instruction.margin_instruction is not None and self._margin_manager is not None:
+            occupied_before = self._margin_manager.occupied(
+                instruction.margin_instruction.account_id,
+                instruction.margin_instruction.instrument_id,
+                instruction.margin_instruction.currency,
+            )
+            margin_record = self._margin_manager.apply(instruction.margin_instruction)
+            if instruction.margin_instruction.action == "OCCUPY":
+                self._accounts.apply_margin_change(
+                    trade.account_id,
+                    reserved_delta=-instruction.margin_instruction.amount,
+                    occupied_delta=instruction.margin_instruction.amount,
+                    timestamp=trade.ts_init,
+                )
+            else:
+                released_amount = occupied_before - margin_record.occupied_after
+                self._accounts.apply_margin_change(
+                    trade.account_id,
+                    occupied_delta=-released_amount,
+                    released_delta=released_amount,
+                    timestamp=trade.ts_init,
+                )
+            steps.append(
+                OnlyExecutionMutationRecord(
+                    OnlyExecutionMutationStep.MARGIN,
+                    OnlyExecutionMutationStatus.APPLIED,
+                    f"{margin_record.action}:{margin_record.amount}",
+                )
+            )
+        if instruction is not None and self._fee_manager is not None:
+            fee_records = self._fee_manager.apply(
+                instruction.fee_instruction,
+                account_id=str(trade.account_id),
+                instrument_id=str(trade.instrument_id),
+            )
+            steps.append(
+                OnlyExecutionMutationRecord(
+                    OnlyExecutionMutationStep.FEE,
+                    OnlyExecutionMutationStatus.APPLIED,
+                    f"records={len(fee_records)}",
+                )
+            )
         allocation_after = self._allocation_snapshot(allocation_key, include_closed=True)
         ledger_key = OnlyStrategyLedgerKey(
             trade.runtime_id,
@@ -584,6 +667,29 @@ class OnlyExecutionProcessor:
             trade.ts_init,
             trade.external_sequence or 0,
         )
+        notional = self._notional(trade)
+        settle_notional = True if instruction is None else instruction.cash_instruction.settle_notional
+        account_result = self._accounts.apply_trade_cash_flow(
+            OnlyAccountTradeCashFlow(
+                trade.runtime_id,
+                trade.account_id,
+                trade.order_id,
+                trade.trade_id,
+                trade.side,
+                notional,
+                trade.fee,
+                position_result.realized_pnl_delta,
+                trade.ts_init,
+                trade.external_sequence or 0,
+                settle_notional,
+            )
+        )
+        self._account_valuation(trade)
+        steps.append(
+            OnlyExecutionMutationRecord(
+                OnlyExecutionMutationStep.ACCOUNT, OnlyExecutionMutationStatus.APPLIED, account_result.status.value
+            )
+        )
         ledger_result = self._ledgers.apply_trade_accounting(
             ledger_key,
             OnlyStrategyTradeAccountingInput(
@@ -597,6 +703,7 @@ class OnlyExecutionProcessor:
                 reservation,
                 trade.ts_event,
                 trade.external_sequence or 0,
+                settle_notional,
             ),
             consume_cash_reservation=False,
         )
@@ -608,29 +715,8 @@ class OnlyExecutionProcessor:
                 ledger_result.status.value,
             )
         )
-        notional = self._notional(trade)
-        account_result = self._accounts.apply_trade_cash_flow(
-            OnlyAccountTradeCashFlow(
-                trade.runtime_id,
-                trade.account_id,
-                trade.order_id,
-                trade.trade_id,
-                trade.side,
-                notional,
-                trade.fee,
-                position_result.realized_pnl_delta,
-                trade.ts_init,
-                trade.external_sequence or 0,
-            )
-        )
-        self._account_valuation(trade)
-        steps.append(
-            OnlyExecutionMutationRecord(
-                OnlyExecutionMutationStep.ACCOUNT, OnlyExecutionMutationStatus.APPLIED, account_result.status.value
-            )
-        )
         reservation_results: list[str] = []
-        if trade.side is OnlyOrderSide.BUY:
+        if trade.opens_position and trade.side is OnlyOrderSide.BUY:
             self._consume_account_reservation(update.fill, trade.ts_init)
             self._ledgers.consume_cash_reservation(ledger_key, trade.order_id, notional + trade.fee, trade.ts_init)
             reservation_results.extend(("ACCOUNT_CASH_CONSUMED", "STRATEGY_CASH_CONSUMED"))
@@ -638,7 +724,7 @@ class OnlyExecutionProcessor:
                 self._release_account_reservation(trade.order_id, trade.ts_init)
                 self._ledgers.release_cash_reservation(ledger_key, trade.order_id, trade.ts_init)
                 reservation_results.extend(("ACCOUNT_REMAINDER_RELEASED", "STRATEGY_REMAINDER_RELEASED"))
-        else:
+        elif trade.closes_position:
             self._position_reservation_port.consume(
                 trade.order_id,
                 trade.quantity,
@@ -646,6 +732,9 @@ class OnlyExecutionProcessor:
                 allocation_hold_already_released=True,
             )
             reservation_results.append("POSITION_CONSUMED")
+        if order_result.snapshot.status is OnlyOrderStatus.FILLED and self._release_margin_reservation is not None:
+            self._release_margin_reservation(trade.order_id, trade.ts_init)
+            reservation_results.append("MARGIN_REMAINDER_RELEASED")
         self._risk.consume_order_fill(
             trade.order_id,
             order.cluster_id,
@@ -938,13 +1027,23 @@ class OnlyExecutionProcessor:
             OnlySettlementBucket.UNSETTLED if order.side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
         )
         trade_offset = (
-            OnlyOffset.OPEN
-            if order.side is OnlyOrderSide.BUY
-            else OnlyOffset.CLOSE
+            (OnlyOffset.OPEN if order.side is OnlyOrderSide.BUY else OnlyOffset.CLOSE)
             if order.offset is OnlyOffset.NONE
             else order.offset
         )
+        position_side = (
+            OnlyPositionSide.SHORT
+            if (order.side is OnlyOrderSide.SELL and trade_offset is OnlyOffset.OPEN)
+            or (order.side is OnlyOrderSide.BUY and trade_offset is not OnlyOffset.OPEN)
+            else OnlyPositionSide.LONG
+        )
+        position_mode = OnlyPositionMode.NETTING
         if self._market_rules is not None:
+            trading_day = (
+                self._trading_day(update.ts_event)
+                if self._trading_day is not None
+                else OnlyTradingDay(update.ts_event.to_datetime().date())
+            )
             instruction = self._market_rules.build_trade_instruction(
                 OnlyTradeApplicationRequest(
                     str(order.instrument_id),
@@ -955,10 +1054,15 @@ class OnlyExecutionProcessor:
                     update.fill.quantity.value,
                     update.fill.price.value,
                     update.ts_event.to_datetime(),
-                    OnlyTradingDay(update.ts_event.to_datetime().date()),
+                    trading_day,
                     OnlyPositionEffect(trade_offset.value),
                 )
             )
+            self._trade_instructions[str(update.fill.trade_id)] = instruction
+            position_side = OnlyPositionSide(instruction.position_instruction.position_side)
+            compiled = self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
+            if compiled.position_policy.mode is OnlyMarketPositionMode.HEDGING:
+                position_mode = OnlyPositionMode.HEDGING
             settlement_bucket = (
                 OnlySettlementBucket.SETTLED
                 if instruction.settlement_instruction.asset_available_on.value <= update.ts_event.to_datetime().date()
@@ -975,12 +1079,7 @@ class OnlyExecutionProcessor:
             order.side,
             OnlyDirection.BUY if order.side is OnlyOrderSide.BUY else OnlyDirection.SELL,
             trade_offset,
-            (
-                OnlyPositionSide.SHORT
-                if (order.side is OnlyOrderSide.SELL and trade_offset is OnlyOffset.OPEN)
-                or (order.side is OnlyOrderSide.BUY and trade_offset is not OnlyOffset.OPEN)
-                else OnlyPositionSide.LONG
-            ),
+            position_side,
             update.fill.price,
             update.fill.quantity,
             fee,
@@ -990,6 +1089,7 @@ class OnlyExecutionProcessor:
             execution_id=str(update.update_id),
             settlement_bucket=settlement_bucket,
             multiplier=instrument.contract_multiplier,
+            position_mode=position_mode,
         )
 
     def _notional(self, trade: OnlyPositionTrade) -> OnlyMoney:
@@ -1111,8 +1211,11 @@ class OnlyExecutionProcessor:
             OnlyExecutionMutationStep.ORDER,
             OnlyExecutionMutationStep.POSITION,
             OnlyExecutionMutationStep.ALLOCATION,
-            OnlyExecutionMutationStep.STRATEGY_LEDGER,
+            OnlyExecutionMutationStep.SETTLEMENT,
+            OnlyExecutionMutationStep.MARGIN,
+            OnlyExecutionMutationStep.FEE,
             OnlyExecutionMutationStep.ACCOUNT,
+            OnlyExecutionMutationStep.STRATEGY_LEDGER,
             OnlyExecutionMutationStep.RESERVATION,
             OnlyExecutionMutationStep.RISK,
             OnlyExecutionMutationStep.INVARIANT_CHECK,
