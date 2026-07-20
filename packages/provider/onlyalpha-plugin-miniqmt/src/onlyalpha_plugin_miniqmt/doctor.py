@@ -20,16 +20,10 @@ def diagnose(config: OnlyMiniQmtConfig) -> dict[str, object]:
         sdk = load_xtquant()
         checks["xtquant"] = True
         checks["market_data"] = sdk.xtdata.__name__ == "xtquant.xtdata"
-        checks["trading_api"] = (
-            sdk.xttrader.__name__ == "xtquant.xttrader"
-            and sdk.xttype.__name__ == "xtquant.xttype"
-        )
+        checks["trading_api"] = sdk.xttrader.__name__ == "xtquant.xttrader" and sdk.xttype.__name__ == "xtquant.xttype"
     except OnlyMiniQmtError as exc:
         checks["error"] = exc.to_dict()
-    checks["ok"] = all(
-        bool(checks[key])
-        for key in ("userdata_mini", "xtquant", "market_data", "trading_api")
-    )
+    checks["ok"] = all(bool(checks[key]) for key in ("userdata_mini", "xtquant", "market_data", "trading_api"))
     return checks
 
 

@@ -19,7 +19,5 @@ def utc_from_xt(value: object) -> datetime:
 
 
 def valid_ohlc(row: dict[str, object]) -> bool:
-    opened, high, low, closed = (
-        quantized_decimal(row[key], 4) for key in ("open", "high", "low", "close")
-    )
+    opened, high, low, closed = (quantized_decimal(row[key], 4) for key in ("open", "high", "low", "close"))
     return high >= max(opened, low, closed) and low <= min(opened, high, closed)

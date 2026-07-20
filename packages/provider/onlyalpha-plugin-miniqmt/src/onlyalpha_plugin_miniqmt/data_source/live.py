@@ -28,23 +28,15 @@ class OnlyMiniQmtLiveNormalizer:
 
         period = PERIODS.get(bar_type.specification.step)
         if period is None:
-            raise ValueError(
-                f"unsupported MiniQMT period: {bar_type.specification.step}m"
-            )
+            raise ValueError(f"unsupported MiniQMT period: {bar_type.specification.step}m")
         return period
 
     def publish(self, raw: object, instrument_id: object, period: str) -> None:
         for row in self._rows(raw):
-            update = (
-                self._quote(row, instrument_id)
-                if period == "tick"
-                else self._bar(row, instrument_id, period)
-            )
+            update = self._quote(row, instrument_id) if period == "tick" else self._bar(row, instrument_id, period)
             self._request.market_data_sink(update)
 
-    def _quote(
-        self, row: dict[str, object], instrument_id: object
-    ) -> OnlyMarketDataInboundUpdate:
+    def _quote(self, row: dict[str, object], instrument_id: object) -> OnlyMarketDataInboundUpdate:
         event = utc_from_xt(row["time"])
         bids, asks = row.get("bidPrice", ()), row.get("askPrice", ())
         bid_volumes, ask_volumes = row.get("bidVol", ()), row.get("askVol", ())
@@ -59,13 +51,9 @@ class OnlyMiniQmtLiveNormalizer:
             ask_price=OnlyPrice(quantized_decimal(asks[0], 4), 4),
             ask_quantity=OnlyQuantity(quantized_decimal(ask_volumes[0], 0), 0),
         )
-        return self._envelope(
-            instrument_id, event, OnlyMarketDataType.QUOTE, OnlyQuoteTickUpdate(quote)
-        )
+        return self._envelope(instrument_id, event, OnlyMarketDataType.QUOTE, OnlyQuoteTickUpdate(quote))
 
-    def _bar(
-        self, row: dict[str, object], instrument_id: object, period: str
-    ) -> OnlyMarketDataInboundUpdate:
+    def _bar(self, row: dict[str, object], instrument_id: object, period: str) -> OnlyMarketDataInboundUpdate:
         if not valid_ohlc(row):
             raise ValueError("invalid live MiniQMT OHLC")
         event = utc_from_xt(row["time"])
@@ -92,9 +80,7 @@ class OnlyMiniQmtLiveNormalizer:
             trading_day=event.date(),
             session_type=OnlySessionType.REGULAR,
         )
-        return self._envelope(
-            instrument_id, event, OnlyMarketDataType.BAR, OnlyBarUpdate(bar)
-        )
+        return self._envelope(instrument_id, event, OnlyMarketDataType.BAR, OnlyBarUpdate(bar))
 
     def _envelope(self, instrument_id, event, data_type, payload):
         self._sequence += 1

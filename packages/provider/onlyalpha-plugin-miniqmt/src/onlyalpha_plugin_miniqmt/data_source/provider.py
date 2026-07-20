@@ -25,9 +25,7 @@ class OnlyMiniQmtHistoricalDataProvider:
         self._data_version = data_version
         self._batch_size = batch_size
 
-    def build_cache_key(
-        self, request: OnlyHistoricalDataRequest
-    ) -> OnlyHistoricalCacheKey:
+    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
         return OnlyHistoricalCacheKey(
             str(self._create_request.source_id),
             "bars",
@@ -37,9 +35,7 @@ class OnlyMiniQmtHistoricalDataProvider:
             request.adjustment_reference,
         )
 
-    def fetch(
-        self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange
-    ) -> OnlyHistoricalFetchResult:
+    def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
         source_request = OnlyHistoricalBarRequest(
             f"cache:{request.instrument_id}",
             frozenset({request.instrument_id}),

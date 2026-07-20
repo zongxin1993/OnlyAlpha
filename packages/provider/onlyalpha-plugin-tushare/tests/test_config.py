@@ -6,9 +6,7 @@ from onlyalpha.domain.enums import OnlyAdjustmentType
 
 
 def test_token_environment_precedes_hidden_direct_config(monkeypatch) -> None:
-    config = OnlyTushareConfig.parse(
-        {"token_env": "TEST_TUSHARE_TOKEN", "token": "direct", "adjustment": "qfq"}
-    )
+    config = OnlyTushareConfig.parse({"token_env": "TEST_TUSHARE_TOKEN", "token": "direct", "adjustment": "qfq"})
     monkeypatch.setenv("TEST_TUSHARE_TOKEN", " environment ")
     assert config.resolve_token() == "environment"
     assert config.adjustment is OnlyAdjustmentType.FORWARD

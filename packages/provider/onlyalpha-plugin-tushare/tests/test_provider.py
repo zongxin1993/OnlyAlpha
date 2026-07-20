@@ -21,16 +21,10 @@ class OnlyFakeClient:
         return OnlyFakeFrame([row(trade_date="20250103")])
 
 
-def test_provider_parameters_time_units_and_session_semantics(
-    instrument, calendar, bar_type
-) -> None:
+def test_provider_parameters_time_units_and_session_semantics(instrument, calendar, bar_type) -> None:
     client = OnlyFakeClient()
-    provider = OnlyTushareHistoricalDataProvider(
-        "tushare-history", instrument, calendar, lambda: client
-    )
-    requested = OnlyTimeRange(
-        datetime(2024, 12, 31, 16, tzinfo=UTC), datetime(2025, 4, 1, 16, tzinfo=UTC)
-    )
+    provider = OnlyTushareHistoricalDataProvider("tushare-history", instrument, calendar, lambda: client)
+    requested = OnlyTimeRange(datetime(2024, 12, 31, 16, tzinfo=UTC), datetime(2025, 4, 1, 16, tzinfo=UTC))
     request = OnlyHistoricalDataRequest(instrument.instrument_id, bar_type, requested)
 
     result = provider.fetch(request, requested)
@@ -54,18 +48,10 @@ def test_provider_parameters_time_units_and_session_semantics(
     assert result.observed_ranges == (OnlyTimeRange(bar.bar_start, bar.bar_end),)
 
 
-def test_adjustment_and_anchor_are_cache_identity(
-    instrument, calendar, bar_type
-) -> None:
-    provider = OnlyTushareHistoricalDataProvider(
-        "tushare-history", instrument, calendar, OnlyFakeClient
-    )
-    requested = OnlyTimeRange(
-        datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC)
-    )
-    raw = provider.build_cache_key(
-        OnlyHistoricalDataRequest(instrument.instrument_id, bar_type, requested)
-    )
+def test_adjustment_and_anchor_are_cache_identity(instrument, calendar, bar_type) -> None:
+    provider = OnlyTushareHistoricalDataProvider("tushare-history", instrument, calendar, OnlyFakeClient)
+    requested = OnlyTimeRange(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC))
+    raw = provider.build_cache_key(OnlyHistoricalDataRequest(instrument.instrument_id, bar_type, requested))
     qfq_a = provider.build_cache_key(
         OnlyHistoricalDataRequest(
             instrument.instrument_id,
@@ -85,8 +71,6 @@ def test_adjustment_and_anchor_are_cache_identity(
         )
     )
     hfq = provider.build_cache_key(
-        OnlyHistoricalDataRequest(
-            instrument.instrument_id, bar_type, requested, OnlyAdjustmentType.BACKWARD
-        )
+        OnlyHistoricalDataRequest(instrument.instrument_id, bar_type, requested, OnlyAdjustmentType.BACKWARD)
     )
     assert len({raw, qfq_a, qfq_b, hfq}) == 4

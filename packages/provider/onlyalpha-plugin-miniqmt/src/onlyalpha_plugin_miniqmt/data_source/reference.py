@@ -4,7 +4,7 @@ from decimal import Decimal
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlyMarketType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyRawSymbol, OnlyVenueId
-from onlyalpha.domain.instrument import OnlyETF, OnlyEquity, OnlyIndex
+from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyIndex
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
 
@@ -33,9 +33,7 @@ def instrument(xtdata, instrument_id):
         quantity_precision=0,
         tick_size=OnlyPrice(Decimal(str(detail.get("PriceTick", "0.01"))), 4),
         step_size=OnlyQuantity(Decimal("1"), 0),
-        contract_multiplier=OnlyMultiplier(
-            Decimal(str(detail.get("VolumeMultiple", 1))), 0
-        ),
+        contract_multiplier=OnlyMultiplier(Decimal(str(detail.get("VolumeMultiple", 1))), 0),
         lot_size=OnlyQuantity(Decimal(str(detail.get("MinLimitOrderVolume", 100))), 0),
         timezone="Asia/Shanghai",
     )
@@ -47,11 +45,7 @@ def calendar(xtdata, calendar_id):
     days = xtdata.get_trading_calendar(market) or []
     parsed = {
         date.fromisoformat(
-            str(day).replace("-", "")[:4]
-            + "-"
-            + str(day).replace("-", "")[4:6]
-            + "-"
-            + str(day).replace("-", "")[6:8]
+            str(day).replace("-", "")[:4] + "-" + str(day).replace("-", "")[4:6] + "-" + str(day).replace("-", "")[6:8]
         )
         for day in days
     }

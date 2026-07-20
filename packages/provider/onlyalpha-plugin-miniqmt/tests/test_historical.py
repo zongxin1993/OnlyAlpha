@@ -83,9 +83,7 @@ def test_history_is_sorted_deduplicated_and_utc() -> None:
         },
     ]
     source = OnlyFakeXtData(rows)
-    create = SimpleNamespace(
-        runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt")
-    )
+    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
     result = load_bars(source, create, _request())
     assert len(result) == 2
     assert result[0].ts_event < result[1].ts_event
@@ -105,9 +103,7 @@ def test_invalid_ohlc_is_rejected() -> None:
             }
         ]
     )
-    create = SimpleNamespace(
-        runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt")
-    )
+    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
     with pytest.raises(ValueError, match="invalid OHLC"):
         load_bars(source, create, _request())
 
@@ -125,21 +121,15 @@ def test_cache_only_second_load_does_not_call_xtquant(tmp_path) -> None:
             }
         ]
     )
-    create = SimpleNamespace(
-        runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt")
-    )
+    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
     request = _request()
     bar_type = next(iter(request.bar_types))
     cache_request = OnlyHistoricalDataRequest(
         bar_type.instrument_id,
         bar_type,
-        OnlyTimeRange(
-            request.data_range.start_time, datetime(2026, 1, 5, 1, 31, tzinfo=UTC)
-        ),
+        OnlyTimeRange(request.data_range.start_time, datetime(2026, 1, 5, 1, 31, tzinfo=UTC)),
     )
-    provider = OnlyMiniQmtHistoricalDataProvider(
-        source, create, request.data_version, request.batch_size
-    )
+    provider = OnlyMiniQmtHistoricalDataProvider(source, create, request.data_version, request.batch_size)
     service = OnlyHistoricalCacheService(OnlyParquetHistoricalCacheStore(tmp_path))
     first = service.load(cache_request, provider)
     downloads = len(source.downloads)

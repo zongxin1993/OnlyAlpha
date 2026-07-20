@@ -51,9 +51,7 @@ from .time_semantics import only_tushare_date_range
 class OnlyTushareHistoricalDataSource:
     plugin_descriptor = DATA_DESCRIPTOR
 
-    def __init__(
-        self, request: OnlyDataSourceCreateRequest, config: OnlyTushareConfig
-    ) -> None:
+    def __init__(self, request: OnlyDataSourceCreateRequest, config: OnlyTushareConfig) -> None:
         self._request = request
         self._config = config
         self._state = OnlyPluginLifecycleState.CREATED
@@ -110,26 +108,18 @@ class OnlyTushareHistoricalDataSource:
         )
         return OnlyPluginHealth(status)
 
-    def load_bars(
-        self, request: OnlyHistoricalBarRequest
-    ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+    def load_bars(self, request: OnlyHistoricalBarRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         cache = self._request.historical_cache_service
         if cache is None:
-            raise OnlyTushareError(
-                "TUSHARE_CACHE_REQUIRED", "historical cache service is required"
-            )
+            raise OnlyTushareError("TUSHARE_CACHE_REQUIRED", "historical cache service is required")
         updates = []
         sequence = 0
         for bar_type in sorted(request.bar_types, key=str):
             instrument = self._request.instruments[bar_type.instrument_id]
             if instrument.trading_calendar_id is None:
-                raise OnlyTushareError(
-                    "TUSHARE_CALENDAR_REQUIRED", "instrument calendar is required"
-                )
+                raise OnlyTushareError("TUSHARE_CALENDAR_REQUIRED", "instrument calendar is required")
             calendar = self._request.calendars[instrument.trading_calendar_id]
-            time_range = OnlyTimeRange(
-                request.data_range.start_time, request.data_range.end_time
-            )
+            time_range = OnlyTimeRange(request.data_range.start_time, request.data_range.end_time)
             reference = None
             if self._config.adjustment is OnlyAdjustmentType.FORWARD:
                 reference = only_tushare_date_range(time_range, calendar)[1]
@@ -140,9 +130,7 @@ class OnlyTushareHistoricalDataSource:
                 self._config.adjustment,
                 reference,
             )
-            provider = OnlyTushareHistoricalDataProvider(
-                str(self.source_id), instrument, calendar, self._create_client
-            )
+            provider = OnlyTushareHistoricalDataProvider(str(self.source_id), instrument, calendar, self._create_client)
             result = cache.load(cache_request, provider, self._config.cache_policy)
             for bar in result.records:
                 sequence += 1
@@ -169,28 +157,20 @@ class OnlyTushareHistoricalDataSource:
                 )
         return OnlyHistoricalDataStream(tuple(updates), request.batch_size)
 
-    def load_quotes(
-        self, request: OnlyHistoricalQuoteRequest
-    ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+    def load_quotes(self, request: OnlyHistoricalQuoteRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         return OnlyHistoricalDataStream((), request.batch_size)
 
-    def load_trades(
-        self, request: OnlyHistoricalTradeRequest
-    ) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+    def load_trades(self, request: OnlyHistoricalTradeRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         return OnlyHistoricalDataStream((), request.batch_size)
 
-    def subscribe(
-        self, request: OnlyMarketDataSubscriptionRequest
-    ) -> OnlyMarketDataSubscriptionResult:
+    def subscribe(self, request: OnlyMarketDataSubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
         return OnlyMarketDataSubscriptionResult(
             OnlyMarketDataRequestStatus.UNSUPPORTED_CAPABILITY,
             None,
             "historical-only plugin",
         )
 
-    def unsubscribe(
-        self, request: OnlyMarketDataUnsubscriptionRequest
-    ) -> OnlyMarketDataSubscriptionResult:
+    def unsubscribe(self, request: OnlyMarketDataUnsubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
         return OnlyMarketDataSubscriptionResult(
             OnlyMarketDataRequestStatus.UNSUPPORTED_CAPABILITY,
             None,
@@ -209,12 +189,8 @@ class OnlyTushareHistoricalDataSource:
     def _create_client(self) -> OnlyTushareClient:
         return OnlyTushareSdkClient(load_tushare(), self._config.resolve_token())
 
-    def _connection(
-        self, state: OnlyMarketDataConnectionState
-    ) -> OnlyMarketDataConnectionResult:
+    def _connection(self, state: OnlyMarketDataConnectionState) -> OnlyMarketDataConnectionResult:
         return OnlyMarketDataConnectionResult(
             OnlyMarketDataRequestStatus.ACCEPTED,
-            OnlyMarketDataConnectionSnapshot(
-                OnlyMarketDataGatewayId(str(self.source_id)), state
-            ),
+            OnlyMarketDataConnectionSnapshot(OnlyMarketDataGatewayId(str(self.source_id)), state),
         )

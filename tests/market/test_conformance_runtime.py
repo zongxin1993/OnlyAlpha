@@ -16,7 +16,9 @@ from onlyalpha.scenario import OnlyMarketScenarioParser, OnlyMarketScenarioRunne
 
 
 def test_pack_coverage_is_earned_by_formal_scenario_result(tmp_path) -> None:
-    scenario = OnlyMarketScenarioParser().load(Path(__file__).parents[2] / "examples/scenarios/generic_t0_cash.yaml")
+    scenario = OnlyMarketScenarioParser().load(
+        Path(__file__).parents[2] / "tests/fixtures/scenarios/generic_t0_cash.yaml"
+    )
     packs = OnlyMarketConformancePackRegistry()
     packs.register(
         OnlyMarketConformancePack(
