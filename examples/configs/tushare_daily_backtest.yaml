@@ -1,0 +1,50 @@
+schema_version: "1.0"
+cluster: {cluster_id: tushare-daily-demo, enabled: true, runtime_type: BACKTEST, account_id: backtest-account, risk_profile_id: cn-equity-default}
+market: {profile: CN_A_SHARE_CASH}
+runtime:
+  start_time: "2024-12-31T16:00:00Z"
+  end_time: "2025-12-31T16:00:00Z"
+  base_currency: CNY
+  extensions: {replay: {stop_on_data_error: true}}
+reference_data:
+  calendars:
+    - calendar_id: CN_XSHG
+      venue: XSHG
+      timezone: Asia/Shanghai
+      sessions:
+        - {name: morning, opens_at: "09:30:00", closes_at: "11:30:00", session_type: CONTINUOUS}
+        - {name: afternoon, opens_at: "13:00:00", closes_at: "15:00:00", session_type: CONTINUOUS}
+      holidays: []
+  instruments:
+    - {instrument_id: 600000.XSHG, asset_class: EQUITY, timezone: Asia/Shanghai, trading_calendar_id: CN_XSHG, price_precision: 4, quantity_precision: 0, price_increment: "0.0001", quantity_increment: "1", lot_size: "100", minimum_quantity: "100", maximum_quantity: "100000000"}
+universes:
+  - {universe_id: tushare-demo-universe, type: STATIC, instruments: [600000.XSHG]}
+data_sources:
+  - source_id: tushare-history
+    plugin: tushare
+    data_version: tushare-history-v1
+    batch_size: 128
+    coverage: {universe_ids: [tushare-demo-universe]}
+    extensions: {mode: historical, token_env: ONLYALPHA_TUSHARE_TOKEN, frequency: 1d, adjustment: none, cache_policy: prefer_cache, strict_validation: true}
+accounts:
+  - {account_id: backtest-account, gateway_id: virtual-main, initial_cash: {value: "1000000.00", currency: CNY}}
+brokers:
+  - gateway_id: virtual-main
+    plugin: virtual
+    extensions: {matching: {type: NEXT_BAR}, commission: {type: FIXED, fixed_amount: {value: "1.00", currency: CNY}}, slippage: {type: NONE}}
+strategy:
+  class_path: examples.strategy.macd.strategy:OnlyMacdStrategy
+  config_path: examples.strategy.macd.config:OnlyMacdStrategyConfig
+  extensions: {strategy_id: macd-strategy, signal_factor_id: macd-signal, instrument_id: 600000.XSHG, trade_quantity: "1000", allow_reentry: true, max_entries: 2, exit_mode: FULL_AVAILABLE}
+factors:
+  - factor_id: macd-signal
+    factor_type: TIME_SERIES
+    class_path: examples.factor.time_series.macd_signal.factor:OnlyMacdSignalFactor
+    config_path: examples.factor.time_series.macd_signal.config:OnlyMacdSignalFactorConfig
+    required: true
+    subscriptions:
+      instrument_bars:
+        - {instrument_id: 600000.XSHG, bar_specification: {step: 1440, aggregation: TIME, price_type: LAST, source: EXTERNAL}, role: PRIMARY}
+    indicators:
+      - {indicator_id: macd-primary, type: MACD, parameters: {fast_period: 3, slow_period: 6, signal_period: 3, warmup_bars: 8}}
+output: {formats: [JSON]}
