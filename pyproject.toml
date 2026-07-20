@@ -14,7 +14,18 @@ dependencies = [
 onlyalpha = "onlyalpha.cli:main"
 
 [dependency-groups]
-dev = ["mypy>=1.15", "onlyalpha-test-plugin", "pre-commit>=4.6.0", "pytest>=8.4", "ruff>=0.11"]
+dev = [
+    "mypy>=1.15",
+    "onlyalpha-test-plugin",
+    "pre-commit>=4.6.0",
+    "pytest>=8.4",
+    "ruff>=0.11",
+]
+platform-plugins = ["onlyalpha-plugin-miniqmt; sys_platform == 'win32'"]
+
+[tool.uv.workspace]
+members = ["packages/provider/*", "packages/data/*", "packages/fake/*"]
+exclude = ["packages/provider/onlyalpha-plugin-miniqmt"]
 
 [build-system]
 requires = ["hatchling"]
@@ -47,4 +58,5 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
-onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin" }
+onlyalpha-plugin-miniqmt = { path = "packages/provider/onlyalpha-plugin-miniqmt", editable = true }
+onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
