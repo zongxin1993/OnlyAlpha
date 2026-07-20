@@ -2,7 +2,6 @@
 
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
@@ -86,7 +85,7 @@ class OnlyPosition:
         own_order_reserved_quantity: OnlyQuantity | None = None,
     ) -> OnlyMoney:
         before_quantity = self.total_quantity
-        if trade.side is OnlyOrderSide.BUY:
+        if trade.opens_position:
             self._increase(trade)
             pnl_delta = OnlyMoney(Decimal(0), trade.fee.currency)
         else:

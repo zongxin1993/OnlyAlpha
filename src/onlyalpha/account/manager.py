@@ -49,6 +49,9 @@ class OnlyAccount:
     version: int = 1
     last_external_sequence: int | None = None
     quality_flags: tuple[str, ...] = ()
+    reserved_margin: Decimal = Decimal(0)
+    occupied_margin: Decimal = Decimal(0)
+    released_margin: Decimal = Decimal(0)
 
 
 class OnlyAccountManager:
@@ -220,11 +223,14 @@ class OnlyAccountManager:
             state.quality_flags = tuple(sorted(set(state.quality_flags + ("STALE_TRADE",))))
             self._trade_ids.add(cash_flow.trade_id)
             return self._commit(state, before, cash_flow.timestamp, "ACCOUNT_RECONCILIATION_STARTED")
-        delta = (
-            -(cash_flow.notional.amount + cash_flow.fee.amount)
-            if cash_flow.side is OnlyOrderSide.BUY
-            else cash_flow.notional.amount - cash_flow.fee.amount
-        )
+        if cash_flow.settle_notional:
+            delta = (
+                -(cash_flow.notional.amount + cash_flow.fee.amount)
+                if cash_flow.side is OnlyOrderSide.BUY
+                else cash_flow.notional.amount - cash_flow.fee.amount
+            )
+        else:
+            delta = cash_flow.realized_pnl_delta.amount - cash_flow.fee.amount
         if state.cash_balance.amount + delta < 0:
             raise ValueError("Account Trade would create negative cash")
         state.cash_balance = OnlyMoney(state.cash_balance.amount + delta, state.config.base_currency)
@@ -233,6 +239,26 @@ class OnlyAccountManager:
         state.last_external_sequence = cash_flow.external_sequence
         self._trade_ids.add(cash_flow.trade_id)
         return self._commit(state, before, cash_flow.timestamp, "ACCOUNT_TRADE_APPLIED")
+
+    def apply_margin_change(
+        self,
+        account_id: OnlyAccountId,
+        *,
+        reserved_delta: Decimal = Decimal(0),
+        occupied_delta: Decimal = Decimal(0),
+        released_delta: Decimal = Decimal(0),
+        timestamp: OnlyTimestamp,
+    ) -> OnlyAccountMutationResult:
+        state = self._require(account_id)
+        before = self._snapshot(state)
+        state.reserved_margin += reserved_delta
+        state.occupied_margin += occupied_delta
+        state.released_margin += released_delta
+        if min(state.reserved_margin, state.occupied_margin, state.released_margin) < 0:
+            raise ValueError("Account margin cannot become negative")
+        if state.reserved_margin + state.occupied_margin > state.cash_balance.amount:
+            raise ValueError("Account margin exceeds cash collateral")
+        return self._commit(state, before, timestamp, "ACCOUNT_MARGIN_CHANGED")
 
     def apply_valuation(self, valuation: OnlyAccountValuation) -> OnlyAccountMutationResult:
         state = self._require(valuation.account_id)
@@ -306,6 +332,17 @@ class OnlyAccountManager:
             state.version,
             state.last_external_sequence,
             state.quality_flags,
+            reserved_margin=OnlyMoney(state.reserved_margin, currency),
+            occupied_margin=OnlyMoney(state.occupied_margin, currency),
+            released_margin=OnlyMoney(state.released_margin, currency),
+            available_margin=OnlyMoney(
+                state.cash_balance.amount
+                - state.frozen_cash.amount
+                - state.unsettled_cash.amount
+                - state.reserved_margin
+                - state.occupied_margin,
+                currency,
+            ),
         )
 
     def _commit(

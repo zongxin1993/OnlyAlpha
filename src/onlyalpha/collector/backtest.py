@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
@@ -24,11 +25,14 @@ from onlyalpha.result.records import (
     OnlyCompiledMarketRuleResultRecord,
     OnlyEquityResultRecord,
     OnlyExecutionResultRecord,
+    OnlyFeeResultRecord,
+    OnlyMarginResultRecord,
     OnlyMarketRuleDecisionResultRecord,
     OnlyOrderRequestResultRecord,
     OnlyOrderResultRecord,
     OnlyPositionResultRecord,
     OnlyProfileTimelineResultRecord,
+    OnlySettlementResultRecord,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 
@@ -125,6 +129,7 @@ class OnlyBacktestResultCollector:
                 market_value=None,
                 realized_pnl=item.realized_pnl.amount,
                 unrealized_pnl=None,
+                position_side=item.position_side.value,
             )
             for item in sorted(runtime.position_manager.snapshot_all(), key=lambda value: str(value.position_id))
         )
@@ -147,6 +152,12 @@ class OnlyBacktestResultCollector:
                     unrealized_pnl=account.unrealized_pnl.amount,
                     commission=Decimal(0),
                     fees=account.fees.amount,
+                    reserved_margin=Decimal(0) if account.reserved_margin is None else account.reserved_margin.amount,
+                    occupied_margin=Decimal(0) if account.occupied_margin is None else account.occupied_margin.amount,
+                    released_margin=Decimal(0) if account.released_margin is None else account.released_margin.amount,
+                    available_margin=Decimal(0)
+                    if account.available_margin is None
+                    else account.available_margin.amount,
                 )
             )
             equity_records.append(
@@ -222,6 +233,73 @@ class OnlyBacktestResultCollector:
                         ts_event=now,
                     )
                 )
+        settlement_records = tuple(
+            OnlySettlementResultRecord(
+                sequence=next_sequence(),
+                account_id=item.account_id,
+                instrument_id=item.instrument_id,
+                execution_id=item.source_trade_id,
+                asset_quantity=item.booked_quantity,
+                cash_amount=item.cash_amount,
+                trade_time=now,
+                asset_available_time=datetime.combine(item.processed_on.value, time(), UTC),
+                cash_available_time=datetime.combine(item.processed_on.value, time(), UTC),
+                settlement_time=datetime.combine(
+                    (item.legal_settlement_date or item.processed_on).value,
+                    time(),
+                    UTC,
+                ),
+                status=item.status,
+                settlement_model_id="MARKET_RULE_INSTRUCTION",
+            )
+            for item in runtime.settlement_manager.records
+        )
+        margin_records = tuple(
+            OnlyMarginResultRecord(
+                sequence=next_sequence(),
+                account_id=item.account_id,
+                instrument_id=item.instrument_id,
+                position_side="",
+                initial_margin=item.reserved_after + item.occupied_after,
+                maintenance_margin=item.maintenance_required_after,
+                used_margin=item.occupied_after,
+                available_margin=Decimal(0),
+                margin_ratio=None,
+                margin_record_id=f"MARGIN-{item.sequence:08d}",
+                order_id=item.source_order_id,
+                trade_id=item.source_trade_id,
+                operation=item.action,
+                reserved_delta=item.amount
+                if item.action == "RESERVE"
+                else -item.amount
+                if item.action == "OCCUPY"
+                else Decimal(0),
+                occupied_delta=item.amount
+                if item.action == "OCCUPY"
+                else -item.amount
+                if item.action == "RELEASE"
+                else Decimal(0),
+                released_delta=item.amount if item.action == "RELEASE" else Decimal(0),
+                currency=item.currency,
+                amount=item.amount,
+            )
+            for item in runtime.margin_manager.records
+        )
+        fee_records = tuple(
+            OnlyFeeResultRecord(
+                sequence=next_sequence(),
+                fee_record_id=item.fee_record_id,
+                account_id=item.account_id,
+                instrument_id=item.instrument_id,
+                order_id=item.order_id,
+                trade_id=item.trade_id,
+                fee_type=item.fee_type,
+                accrued=item.accrued,
+                charged=item.charged,
+                currency=item.currency,
+            )
+            for item in runtime.fee_manager.records
+        )
         failures: list[OnlyBacktestFailure] = []
         for audit in runtime.market_data_audit_store.records():
             if audit.failure is None and audit.status is not OnlyMarketDataProcessingStatus.REJECTED:
@@ -296,6 +374,9 @@ class OnlyBacktestResultCollector:
                 market_rule_decisions=tuple(decision_records),
                 profile_timeline=tuple(timeline_records),
                 compiled_market_rules=tuple(compiled_records),
+                settlements=settlement_records,
+                margin=margin_records,
+                fees=fee_records,
             ),
             diagnostics,
             sequence,

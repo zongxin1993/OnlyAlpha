@@ -22,6 +22,11 @@ class OnlySettlementRecord:
     withdrawable_cash: Decimal
     legal_settled: bool
     processed_on: OnlyTradingDay
+    sequence: int = 0
+    account_id: str = ""
+    source_order_id: str = ""
+    legal_settlement_date: OnlyTradingDay | None = None
+    status: str = "BOOKED"
 
 
 @dataclass(slots=True)
@@ -87,10 +92,12 @@ class OnlySettlementManager:
                 item.cash_amount if state.withdrawable_cash_released else Decimal(0),
                 state.legal_settled,
                 trading_day,
+                len(self._records) + 1,
+                item.account_id,
+                item.source_order_id,
+                item.legal_settlement_on,
+                "SETTLED" if state.legal_settled else "PENDING",
             )
             self._records.append(record)
             emitted.append(record)
         return tuple(emitted)
-
-
-OnlySettlementProcessor = OnlySettlementManager

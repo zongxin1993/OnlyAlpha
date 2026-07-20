@@ -393,12 +393,13 @@ class OnlyVirtualBrokerGateway:
             self._reject(current, causation_id, "MARKET order requires a reference Bar before acceptance")
             return
         required = price.value * current.remaining_quantity.value
+        closes = current.offset in {OnlyOffset.CLOSE, OnlyOffset.CLOSE_TODAY, OnlyOffset.CLOSE_YESTERDAY}
         reservable = (
             True
             if current.offset is OnlyOffset.OPEN and current.side is OnlyOrderSide.SELL
-            else self.account_store.reserve_buy(required)
-            if current.side is OnlyOrderSide.BUY
             else self.account_store.reserve_sell(current.instrument_id, current.remaining_quantity.value)
+            if closes or current.side is OnlyOrderSide.SELL
+            else self.account_store.reserve_buy(required)
         )
         if not reservable:
             self._reject(current, causation_id, "insufficient Broker cash or settled Position")
@@ -487,7 +488,11 @@ class OnlyVirtualBrokerGateway:
                     price.value,
                     timestamp.to_datetime(),
                     trading_day,
-                    OnlyPositionEffect.OPEN if order.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE,
+                    OnlyPositionEffect(
+                        (OnlyOffset.OPEN if order.side is OnlyOrderSide.BUY else OnlyOffset.CLOSE).value
+                        if order.offset is OnlyOffset.NONE
+                        else order.offset.value
+                    ),
                 )
             )
             self._settlements.register(instruction.settlement_instruction)
@@ -508,7 +513,18 @@ class OnlyVirtualBrokerGateway:
             f"virtual-fill-{self._trade_sequence:08d}",
         )
         reserved = (order.price.value if order.price is not None else price.value) * quantity.value
-        if order.side is OnlyOrderSide.BUY:
+        if order.side is OnlyOrderSide.BUY and order.offset in {
+            OnlyOffset.CLOSE,
+            OnlyOffset.CLOSE_TODAY,
+            OnlyOffset.CLOSE_YESTERDAY,
+        }:
+            self.account_store.apply_short_close(
+                order.instrument_id,
+                quantity.value,
+                price,
+                fee.amount,
+            )
+        elif order.side is OnlyOrderSide.BUY:
             self.account_store.apply_buy(
                 order.instrument_id,
                 quantity.value,

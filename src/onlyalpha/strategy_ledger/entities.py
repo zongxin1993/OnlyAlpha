@@ -226,7 +226,12 @@ class OnlyStrategyLedger:
         if self._allocation_cost_delta(accounting) != accounting.position_cost_delta:
             raise ValueError("position cost delta must come from Position Allocation")
         notional = self._notional(accounting)
-        if trade.side is OnlyOrderSide.BUY:
+        if not accounting.settle_notional:
+            cash_delta = OnlyMoney(
+                accounting.realized_pnl_delta.amount - trade.fee.amount,
+                self.key.base_currency,
+            )
+        elif trade.side is OnlyOrderSide.BUY:
             cash_delta = OnlyMoney(-(notional.amount + trade.fee.amount), self.key.base_currency)
         else:
             cash_delta = OnlyMoney(notional.amount - trade.fee.amount, self.key.base_currency)
@@ -243,7 +248,11 @@ class OnlyStrategyLedger:
             else OnlyStrategyCashEntryType.SELL_SETTLEMENT
         )
         signed_notional = OnlyMoney(
-            -notional.amount if trade.side is OnlyOrderSide.BUY else notional.amount,
+            accounting.realized_pnl_delta.amount
+            if not accounting.settle_notional
+            else -notional.amount
+            if trade.side is OnlyOrderSide.BUY
+            else notional.amount,
             self.key.base_currency,
         )
         self._record_cash(
@@ -378,12 +387,16 @@ class OnlyStrategyLedger:
                 raise ValueError("open Allocation requires average price")
             quantum = Decimal(1).scaleb(-self.key.base_currency.precision)
             multiplier = accounting.trade.multiplier.value
-            cost = (allocation.average_open_price.value * allocation.total_quantity.value * multiplier).quantize(
-                quantum, ROUND_HALF_EVEN
-            )
-            market = (accounting.trade.price.value * allocation.total_quantity.value * multiplier).quantize(
-                quantum, ROUND_HALF_EVEN
-            )
+            raw_cost = allocation.average_open_price.value * allocation.total_quantity.value * multiplier
+            raw_market = accounting.trade.price.value * allocation.total_quantity.value * multiplier
+            cost = raw_cost.quantize(quantum, ROUND_HALF_EVEN)
+            market = raw_market.quantize(quantum, ROUND_HALF_EVEN)
+            if not accounting.settle_notional:
+                unrealized = (market - cost) * (
+                    Decimal(-1) if accounting.trade.position_side.value == "SHORT" else Decimal(1)
+                )
+                cost = Decimal(0).quantize(quantum)
+                market = unrealized
             self._valuation_lines[instrument_id] = OnlyStrategyValuationLine(
                 instrument_id,
                 OnlyMoney(cost, self.key.base_currency),

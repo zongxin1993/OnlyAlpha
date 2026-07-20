@@ -104,6 +104,7 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
         "signals.parquet",
         "settlements.parquet",
         "margin.parquet",
+        "fees.parquet",
         "market_rule_decisions.parquet",
         "profile_timeline.parquet",
         "compiled_market_rules.parquet",

@@ -165,6 +165,7 @@ class OnlyStrategyTradeAccountingInput(OnlyDomainModel):
     cash_reservation: OnlyStrategyCashReservation | None
     ts_event: OnlyTimestamp
     sequence: int
+    settle_notional: bool = True
 
     def __post_init__(self) -> None:
         if self.trade.cluster_id is None:

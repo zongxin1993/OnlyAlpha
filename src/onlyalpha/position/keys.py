@@ -16,8 +16,8 @@ class OnlyPositionKey(OnlyDomainModel):
     position_mode: OnlyPositionMode = OnlyPositionMode.NETTING
 
     def __post_init__(self) -> None:
-        if self.position_mode is OnlyPositionMode.NETTING and self.position_side is OnlyPositionSide.SHORT:
-            raise ValueError("first-phase NETTING Position is long-only")
+        if self.position_side is OnlyPositionSide.FLAT:
+            raise ValueError("Position key cannot use FLAT side")
 
 
 @dataclass(frozen=True, slots=True)

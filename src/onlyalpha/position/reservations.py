@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -304,8 +304,9 @@ class OnlyOrderPositionReservationAdapter:
         self._manager = manager
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
-        if order.side is OnlyOrderSide.BUY:
+        if order.offset is OnlyOffset.OPEN or (order.offset is OnlyOffset.NONE and order.side is OnlyOrderSide.BUY):
             return
+        position_side = OnlyPositionSide.SHORT if order.side is OnlyOrderSide.BUY else OnlyPositionSide.LONG
         self._manager.create(
             order.account_id,
             order.cluster_id,
@@ -313,6 +314,7 @@ class OnlyOrderPositionReservationAdapter:
             order.order_id,
             order.quantity,
             timestamp,
+            position_side=position_side,
         )
 
     def sent(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> None:

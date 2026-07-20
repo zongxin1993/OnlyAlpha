@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
@@ -143,6 +144,7 @@ class OnlyMarketScenarioRunner:
                 OnlyScenarioFactType.MARKET_RULE_DECISION: backtest.facts.market_rule_decisions,
                 OnlyScenarioFactType.SETTLEMENT: backtest.facts.settlements,
                 OnlyScenarioFactType.MARGIN: backtest.facts.margin,
+                OnlyScenarioFactType.FEE: backtest.facts.fees,
                 OnlyScenarioFactType.PROFILE_TIMELINE: backtest.facts.profile_timeline,
                 OnlyScenarioFactType.COMPILED_RULE: backtest.facts.compiled_market_rules,
             }
@@ -187,6 +189,12 @@ class OnlyMarketScenarioRunner:
             "executions.parquet": facts[OnlyScenarioFactType.EXECUTION],
             "positions.parquet": facts[OnlyScenarioFactType.POSITION],
             "accounts.parquet": facts[OnlyScenarioFactType.ACCOUNT],
+            "settlements.parquet": facts[OnlyScenarioFactType.SETTLEMENT],
+            "margin.parquet": facts[OnlyScenarioFactType.MARGIN],
+            "fees.parquet": facts[OnlyScenarioFactType.FEE],
+            "market_rule_decisions.parquet": facts[OnlyScenarioFactType.MARKET_RULE_DECISION],
+            "profile_timeline.parquet": facts[OnlyScenarioFactType.PROFILE_TIMELINE],
+            "compiled_market_rules.parquet": facts[OnlyScenarioFactType.COMPILED_RULE],
         }
         manifest: dict[str, object] = {"schema_version": "1", "result_fingerprint": result_fingerprint, "datasets": {}}
         for name, rows in datasets.items():
@@ -199,7 +207,12 @@ class OnlyMarketScenarioRunner:
                 else pa.table({"schema_version": pa.array([], pa.string())})
             )
             pq.write_table(table, root / name)
-            manifest["datasets"][name] = {"row_count": table.num_rows, "schema": str(table.schema)}  # type: ignore[index]
+            digest = hashlib.sha256((root / name).read_bytes()).hexdigest()
+            manifest["datasets"][name] = {  # type: ignore[index]
+                "row_count": table.num_rows,
+                "schema": str(table.schema),
+                "sha256": digest,
+            }
         (root / "manifest.json").write_text(
             json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="utf-8"
         )

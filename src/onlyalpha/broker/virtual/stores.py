@@ -10,7 +10,7 @@ from onlyalpha.broker.models import (
     OnlyBrokerPositionSnapshot,
     OnlyBrokerTradeSnapshot,
 )
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
@@ -121,9 +121,32 @@ class OnlyVirtualBrokerAccountStore:
         cash_quantum = Decimal(1).scaleb(-self.currency.precision)
         self.cash -= fee.quantize(cash_quantum)
 
+    def apply_short_close(
+        self,
+        instrument_id: OnlyInstrumentId,
+        quantity: Decimal,
+        price: OnlyPrice,
+        fee: Decimal,
+    ) -> None:
+        state = self.positions[instrument_id]
+        if state.average_price is None or quantity > state.quantity:
+            raise ValueError("short close exceeds Broker Position")
+        state.frozen_quantity -= quantity
+        state.settled_quantity -= quantity
+        state.quantity -= quantity
+        quantum = Decimal(1).scaleb(-self.currency.precision)
+        realized = ((state.average_price.value - price.value) * quantity).quantize(quantum)
+        self.cash += realized - fee.quantize(quantum)
+        if state.quantity == 0:
+            state.average_price = None
+
     def release_order(self, order: OnlyBrokerOrderSnapshot) -> None:
         remaining = order.remaining_quantity.value
-        if order.side is OnlyOrderSide.BUY:
+        if order.side is OnlyOrderSide.BUY and order.offset not in {
+            OnlyOffset.CLOSE,
+            OnlyOffset.CLOSE_TODAY,
+            OnlyOffset.CLOSE_YESTERDAY,
+        }:
             assert order.price is not None
             self.frozen_cash -= order.price.value * remaining
         else:

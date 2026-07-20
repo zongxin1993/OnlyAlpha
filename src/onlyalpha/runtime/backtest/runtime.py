@@ -52,7 +52,7 @@ from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyCalendarId, OnlyClusterId, OnlyInstrumentId, OnlyVenueId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
@@ -71,6 +71,7 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
+from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
 from onlyalpha.market_data.dispatcher import (
@@ -94,7 +95,6 @@ from onlyalpha.order.views import OnlyOrderServiceView
 from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerInboundQueue
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
-from onlyalpha.position.enums import OnlyPositionSide
 from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionTrade, OnlySettlementResult
 from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
@@ -297,6 +297,18 @@ class OnlyBacktestRuntime(OnlyRuntime):
             strategy_cash_reservations,
         )
         self._account_cash_reservations = account_cash_reservations
+        order_margin_reservations = OnlyOrderMarginReservationAdapter(
+            self._margin_manager,
+            self._account_manager,
+            runtime_config.market_rule_engine,
+            self._instruments,
+            selected_calendar.trading_day_at,
+            lambda order: (
+                self._current_snapshots[order.cluster_id].primary_bar.close
+                if order.cluster_id in self._current_snapshots
+                else None
+            ),
+        )
         risk_service = OnlyRiskService(
             runtime_config.engine_id,  # type: ignore[arg-type]
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -346,6 +358,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             risk_service.make_evaluation_context,
             order_position_reservations,
             order_cash_reservations,
+            order_margin_reservations,
         )
         order_update_processor = OnlyOrderUpdateProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -415,6 +428,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._set_broker_connection_state,
             runtime_config.strategy_base_currency,
             runtime_config.market_rule_engine,
+            self._settlement_manager,
+            self._margin_manager,
+            self._fee_manager,
+            order_margin_reservations.release,
+            selected_calendar.trading_day_at,
         )
         self._broker_results: list[object] = []
         historical_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history")
@@ -509,6 +527,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._strategy_ledger_manager,
             self._strategy_ledger_query,
             OnlySettlementService(position_manager, allocation_manager),
+            self._settlement_manager,
+            self._margin_manager,
+            self._fee_manager,
             OnlyStrategyValuationService(),
             self._account_manager,
             self._account_query,
@@ -730,6 +751,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         fill = update.fill
         if trade.cluster_id is None:
             raise ValueError("Runtime strategy Trade requires cluster attribution")
+        expected_offset = (
+            (OnlyOffset.OPEN if order.side is OnlyOrderSide.BUY else OnlyOffset.CLOSE)
+            if order.offset is OnlyOffset.NONE
+            else order.offset
+        )
         expected = (
             update.runtime_id,
             update.order_id,
@@ -743,7 +769,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order.account_id,
             order.instrument_id,
             order.side,
-            order.offset,
+            expected_offset,
         )
         actual = (
             trade.runtime_id,
@@ -768,8 +794,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         instrument = self._instruments.get(trade.instrument_id)
         if instrument is None or trade.multiplier != instrument.contract_multiplier:
             raise ValueError("Position Trade requires the registered Instrument multiplier")
-        if trade.position_side is not OnlyPositionSide.LONG:
-            raise ValueError("first-phase Runtime trade orchestration supports LONG only")
 
     def _allocation_snapshot(
         self,
@@ -839,6 +863,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
             trade.ts_event,
             trade.ts_init,
             version,
+            {
+                allocation.key.instrument_id: self._settles_notional(
+                    allocation.key.instrument_id,
+                    trading_day,
+                )
+                for allocation in allocations
+            },
         )
         self._services.strategy_ledger_manager.apply_valuation(valuation, trading_day)
 
@@ -858,8 +889,18 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 raise ValueError("Account valuation requires a closed mark for every open Position")
             mark = max(candidates, key=lambda item: item.ts_event).close
             multiplier = instrument.contract_multiplier.value
-            market_value += mark.value * position.total_quantity.value * multiplier
-            unrealized += (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
+            pnl = (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
+            if position.key.position_side.value == "SHORT":
+                pnl = -pnl
+            unrealized += pnl
+            market_value += (
+                mark.value * position.total_quantity.value * multiplier
+                if self._settles_notional(
+                    position.key.instrument_id,
+                    self._selected_calendar.trading_day_at(trade.ts_event),
+                )
+                else pnl
+            )
         quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
         self._account_valuation_version += 1
         self._services.account_manager.apply_valuation(
@@ -912,6 +953,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 timestamp,
                 timestamp,
                 next_version,
+                {
+                    allocation.key.instrument_id: self._settles_notional(
+                        allocation.key.instrument_id,
+                        trading_day,
+                    )
+                    for allocation in allocations
+                },
             )
             self._services.strategy_ledger_manager.apply_valuation(valuation, trading_day)
 
@@ -930,8 +978,15 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 raise ValueError("Account mark-to-market requires a closed Bar for every Position")
             mark = max(candidates, key=lambda item: item.ts_event).close
             multiplier = instrument.contract_multiplier.value
-            market_value += mark.value * position.total_quantity.value * multiplier
-            unrealized += (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
+            pnl = (mark.value - position.average_open_price.value) * position.total_quantity.value * multiplier
+            if position.key.position_side.value == "SHORT":
+                pnl = -pnl
+            unrealized += pnl
+            market_value += (
+                mark.value * position.total_quantity.value * multiplier
+                if self._settles_notional(position.key.instrument_id, trading_day)
+                else pnl
+            )
         quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
         self._account_valuation_version += 1
         self._services.account_manager.apply_valuation(
@@ -944,6 +999,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._account_valuation_version,
             )
         )
+
+    def _settles_notional(self, instrument_id: OnlyInstrumentId, trading_day: OnlyTradingDay) -> bool:
+        engine = self.config.market_rule_engine
+        return engine is None or engine.compiled_rules(str(instrument_id), trading_day).margin_policy is None
 
     def _set_broker_connection_state(self, state: object) -> None:
         self._broker_connection_state = state

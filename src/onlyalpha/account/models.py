@@ -44,8 +44,6 @@ class OnlyAccountConfig(OnlyDomainModel):
             raise ValueError("Account config requires gateway and base-currency initial cash")
         if self.initial_cash.amount < 0:
             raise ValueError("Account initial cash cannot be negative")
-        if self.account_type is not OnlyAccountType.CASH:
-            raise ValueError("first-phase AccountManager supports CASH accounts only")
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +149,7 @@ class OnlyAccountTradeCashFlow(OnlyDomainModel):
     realized_pnl_delta: OnlyMoney
     timestamp: OnlyTimestamp
     external_sequence: int
+    settle_notional: bool = True
 
     def __post_init__(self) -> None:
         values = (self.notional, self.fee, self.realized_pnl_delta)
@@ -172,8 +171,8 @@ class OnlyAccountValuation(OnlyDomainModel):
     def __post_init__(self) -> None:
         if self.position_market_value.currency != self.unrealized_pnl.currency:
             raise ValueError("Account valuation requires one currency")
-        if self.position_market_value.amount < 0 or self.valuation_version < 1:
-            raise ValueError("Account valuation market value and version must be non-negative/positive")
+        if self.valuation_version < 1:
+            raise ValueError("Account valuation version must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +197,10 @@ class OnlyAccountSnapshot(OnlyDomainModel):
     last_external_sequence: int | None = None
     quality_flags: tuple[str, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict)
+    reserved_margin: OnlyMoney | None = None
+    occupied_margin: OnlyMoney | None = None
+    released_margin: OnlyMoney | None = None
+    available_margin: OnlyMoney | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -210,6 +213,18 @@ class OnlyAccountSnapshot(OnlyDomainModel):
         )
         if any(item.currency != self.base_currency for item in values):
             raise ValueError("Account Snapshot values require base currency")
+        margin_values = tuple(
+            item
+            for item in (
+                self.reserved_margin,
+                self.occupied_margin,
+                self.released_margin,
+                self.available_margin,
+            )
+            if item is not None
+        )
+        if any(item.currency != self.base_currency or item.amount < 0 for item in margin_values):
+            raise ValueError("Account margin values require base currency and non-negative amounts")
         if self.equity.amount != self.cash.cash_balance.amount + self.position_market_value.amount:
             raise ValueError("cash plus position market value must equal Account equity")
         object.__setattr__(self, "quality_flags", tuple(self.quality_flags))

@@ -152,9 +152,7 @@ def test_default_1m_primary_calls_three_times_and_third_snapshot_is_ready(
     assert third.latest_closed(bar_3m).bar_end == make_bar(2).bar_end  # type: ignore[union-attr]
 
 
-def test_external_daily_bar_runs_through_pipeline_and_dispatches(
-    shanghai_calendar, bar_1m, make_bar
-) -> None:
+def test_external_daily_bar_runs_through_pipeline_and_dispatches(shanghai_calendar, bar_1m, make_bar) -> None:
     daily_bar_type = replace(
         bar_1m,
         specification=replace(bar_1m.specification, step=1440),

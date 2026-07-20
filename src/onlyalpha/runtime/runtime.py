@@ -46,6 +46,7 @@ from onlyalpha.data.sources import (
     OnlyInMemoryReferenceDataSource,
 )
 from onlyalpha.domain.enums import (
+    OnlyOffset,
     OnlyOrderSide,
     OnlyRuntimeMode,
 )
@@ -72,7 +73,9 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
+from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
+from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
@@ -101,6 +104,7 @@ from onlyalpha.position.reservations import OnlyPositionReservationManager
 from onlyalpha.position.settlement import OnlySettlementService
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
+from onlyalpha.settlement.manager import OnlySettlementManager
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.query import OnlyStrategyLedgerQueryService
@@ -227,6 +231,9 @@ class OnlyRuntimeServices:
     strategy_ledger_manager: OnlyStrategyLedgerManager
     strategy_ledger_query: OnlyStrategyLedgerQueryService
     settlement_service: OnlySettlementService
+    settlement_manager: OnlySettlementManager
+    margin_manager: OnlyMarginManager
+    fee_manager: OnlyFeeManager
     strategy_valuation_service: OnlyStrategyValuationService
     account_manager: OnlyAccountManager
     account_query: OnlyAccountQueryService
@@ -347,7 +354,11 @@ class OnlyRuntimeAccountCashReservationAdapter:
         self._reservations: dict[OnlyOrderId, OnlyAccountReservationId] = {}
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
-        if order.side is not OnlyOrderSide.BUY:
+        if order.side is not OnlyOrderSide.BUY or order.offset in {
+            OnlyOffset.CLOSE,
+            OnlyOffset.CLOSE_TODAY,
+            OnlyOffset.CLOSE_YESTERDAY,
+        }:
             return
         instrument = self._instruments.get(order.instrument_id)
         if instrument is None or instrument.settlement_currency != self._currency:
@@ -463,6 +474,9 @@ class OnlyRuntime:
             reservation_manager=self._account_reservation_manager,
         )
         self._account_query = OnlyAccountQueryService(self._account_manager)
+        self._settlement_manager = OnlySettlementManager()
+        self._margin_manager = OnlyMarginManager()
+        self._fee_manager = OnlyFeeManager()
 
     @property
     def runtime_id(self) -> str:
@@ -511,6 +525,18 @@ class OnlyRuntime:
     @property
     def account_reservation_manager(self) -> OnlyAccountReservationManager:
         return self._account_reservation_manager
+
+    @property
+    def settlement_manager(self) -> OnlySettlementManager:
+        return self._settlement_manager
+
+    @property
+    def margin_manager(self) -> OnlyMarginManager:
+        return self._margin_manager
+
+    @property
+    def fee_manager(self) -> OnlyFeeManager:
+        return self._fee_manager
 
     @property
     def clock(self) -> OnlyBacktestClock:

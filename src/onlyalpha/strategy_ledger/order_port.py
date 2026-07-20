@@ -3,7 +3,7 @@
 from collections.abc import Callable, Mapping
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
@@ -32,7 +32,11 @@ class OnlyOrderStrategyCashReservationAdapter:
         self.__order_instruments: dict[OnlyOrderId, OnlyInstrumentId] = {}
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
-        if order.side is not OnlyOrderSide.BUY:
+        if order.side is not OnlyOrderSide.BUY or order.offset in {
+            OnlyOffset.CLOSE,
+            OnlyOffset.CLOSE_TODAY,
+            OnlyOffset.CLOSE_YESTERDAY,
+        }:
             return
         instrument = self.__instruments.get(order.instrument_id)
         if instrument is None:

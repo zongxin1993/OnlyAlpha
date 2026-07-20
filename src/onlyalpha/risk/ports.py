@@ -9,6 +9,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstr
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
+from onlyalpha.position.enums import OnlyPositionSide
 
 
 class OnlyInstrumentRiskView(Protocol):
@@ -62,6 +63,7 @@ class OnlyAccountRiskSnapshot(OnlyDomainModel):
     status: str = "ACTIVE"
     equity: OnlyMoney | None = None
     quality_flags: tuple[str, ...] = ()
+    available_margin: OnlyMoney | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +87,10 @@ class OnlyPositionRiskView(Protocol):
     def available(self) -> bool: ...
 
     def snapshot(
-        self, account_id: OnlyAccountId, instrument_id: OnlyInstrumentId
+        self,
+        account_id: OnlyAccountId,
+        instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
     ) -> OnlyPositionRiskSnapshot | None: ...
 
     def cluster_snapshot(
@@ -117,8 +122,13 @@ class OnlyUnavailablePositionRiskView:
     def available(self) -> bool:
         return False
 
-    def snapshot(self, account_id: OnlyAccountId, instrument_id: OnlyInstrumentId) -> OnlyPositionRiskSnapshot | None:
-        del account_id, instrument_id
+    def snapshot(
+        self,
+        account_id: OnlyAccountId,
+        instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+    ) -> OnlyPositionRiskSnapshot | None:
+        del account_id, instrument_id, position_side
         return None
 
     def cluster_snapshot(

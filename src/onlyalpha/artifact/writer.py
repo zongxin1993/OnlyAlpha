@@ -64,6 +64,7 @@ class OnlyBacktestArtifactWriter:
                         "equity",
                         "settlements",
                         "margin",
+                        "fees",
                         "market_rule_decisions",
                         "profile_timeline",
                         "compiled_market_rules",
@@ -113,6 +114,7 @@ class OnlyBacktestArtifactWriter:
                     _table(_SETTLEMENT_SCHEMA, [_record(item) for item in facts.settlements]),
                 ),
                 "margin.parquet": ("MARGIN", _table(_MARGIN_SCHEMA, [_record(item) for item in facts.margin])),
+                "fees.parquet": ("FEES", _table(_FEE_SCHEMA, [_record(item) for item in facts.fees])),
                 "market_rule_decisions.parquet": (
                     "MARKET_RULE_DECISIONS",
                     _table(_MARKET_RULE_DECISION_SCHEMA, [_record(item) for item in facts.market_rule_decisions]),
@@ -430,6 +432,20 @@ _MARGIN_SCHEMA = pa.schema(
         ("used_margin", _DECIMAL),
         ("available_margin", _DECIMAL),
         ("margin_ratio", _RATIO_DECIMAL),
+    ]
+)
+_FEE_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("fee_record_id", pa.string()),
+        ("account_id", pa.string()),
+        ("instrument_id", pa.string()),
+        ("order_id", pa.string()),
+        ("trade_id", pa.string()),
+        ("fee_type", pa.string()),
+        ("accrued", _DECIMAL),
+        ("charged", _DECIMAL),
+        ("currency", pa.string()),
     ]
 )
 _MARKET_RULE_DECISION_SCHEMA = pa.schema(
