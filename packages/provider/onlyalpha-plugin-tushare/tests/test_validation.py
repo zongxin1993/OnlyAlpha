@@ -25,9 +25,7 @@ def test_invalid_rows_fail_structurally(changes, code) -> None:
 
 def test_identical_duplicate_warns_but_conflict_fails() -> None:
     values = row()
-    rows, issues = only_validate_response(
-        OnlyFakeFrame([values, dict(values)]), "600000.SH"
-    )
+    rows, issues = only_validate_response(OnlyFakeFrame([values, dict(values)]), "600000.SH")
     assert len(rows) == len(issues) == 1
     with pytest.raises(OnlyTushareError) as caught:
         only_validate_response(OnlyFakeFrame([values, row(close=10.36)]), "600000.SH")
@@ -36,7 +34,5 @@ def test_identical_duplicate_warns_but_conflict_fails() -> None:
 
 def test_missing_column_fails() -> None:
     with pytest.raises(OnlyTushareError) as caught:
-        only_validate_response(
-            OnlyFakeFrame([row()], columns=("ts_code",)), "600000.SH"
-        )
+        only_validate_response(OnlyFakeFrame([row()], columns=("ts_code",)), "600000.SH")
     assert caught.value.code == "TUSHARE_REQUIRED_COLUMN_MISSING"

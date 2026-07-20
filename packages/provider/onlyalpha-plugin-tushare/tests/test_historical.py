@@ -34,12 +34,8 @@ def test_cache_vertical_slice_reloads_parquet_and_cache_only_skips_client(
         creations += 1
         return client
 
-    provider = OnlyTushareHistoricalDataProvider(
-        "tushare-history", instrument, calendar, create_client
-    )
-    requested = OnlyTimeRange(
-        datetime(2025, 1, 2, 16, tzinfo=UTC), datetime(2025, 1, 6, 16, tzinfo=UTC)
-    )
+    provider = OnlyTushareHistoricalDataProvider("tushare-history", instrument, calendar, create_client)
+    requested = OnlyTimeRange(datetime(2025, 1, 2, 16, tzinfo=UTC), datetime(2025, 1, 6, 16, tzinfo=UTC))
     request = OnlyHistoricalDataRequest(instrument.instrument_id, bar_type, requested)
     service = OnlyHistoricalCacheService(OnlyParquetHistoricalCacheStore(tmp_path))
 

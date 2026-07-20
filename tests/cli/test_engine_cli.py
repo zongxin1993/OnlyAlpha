@@ -28,7 +28,7 @@ def test_dry_run_does_not_create_run_output(tmp_path: Path) -> None:
 
 
 def test_scenario_validate_run_and_market_query_cli(tmp_path: Path, capsys: object) -> None:
-    scenario = "examples/scenarios/generic_t0_cash.yaml"
+    scenario = "tests/fixtures/scenarios/generic_t0_cash.yaml"
     assert main(["scenario", "validate", scenario, "--format", "json"]) == 0
     assert '"valid": true' in capsys.readouterr().out  # type: ignore[attr-defined]
 

@@ -1,7 +1,5 @@
 class OnlyFakeFrame:
-    def __init__(
-        self, rows: list[dict[str, object]], columns: tuple[str, ...] | None = None
-    ) -> None:
+    def __init__(self, rows: list[dict[str, object]], columns: tuple[str, ...] | None = None) -> None:
         self._rows = rows
         self.columns = (
             columns or tuple(rows[0])

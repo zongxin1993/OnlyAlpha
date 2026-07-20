@@ -20,6 +20,7 @@ from onlyalpha.broker.updates import (
     OnlyBrokerTradeUpdate,
 )
 from onlyalpha.domain.enums import (
+    OnlyOffset,
     OnlyOrderSide,
     OnlyOrderStatus,
     OnlyOrderType,
@@ -96,37 +97,32 @@ class OnlyMiniQmtTraderCallback:
         )
 
     def order_snapshot(self, value: object) -> OnlyBrokerOrderSnapshot:
-        order_id, client_order_id = self.gateway.resolve_order(
-            value.order_remark, int(value.order_id)
-        )
+        order_id, client_order_id = self.gateway.resolve_order(value.order_remark, int(value.order_id))
         submitted = self._xt_time(value.order_time)
         updated = self._stamp()
         venue_order_id = OnlyVenueOrderId(str(value.order_id))
-        self.gateway.remember_venue_order(
-            order_id, venue_order_id, str(getattr(value, "order_sysid", ""))
-        )
+        self.gateway.remember_venue_order(order_id, venue_order_id, str(getattr(value, "order_sysid", "")))
         return OnlyBrokerOrderSnapshot(
-            self.gateway._request.gateway_id,
-            self.gateway._request.account_id,
-            order_id,
-            client_order_id,
-            venue_order_id,
-            from_xt_symbol(value.stock_code),
-            self._side(value.order_type),
-            OnlyOrderType.LIMIT,
-            OnlyQuantity(Decimal(str(value.order_volume)), 0),
-            OnlyQuantity(Decimal(str(value.traded_volume)), 0),
-            OnlyPrice(quantized_decimal(value.price, 4), 4),
-            map_order_status(int(value.order_status)),
-            submitted,
-            updated if updated >= submitted else submitted,
-            self._sequence,
+            gateway_id=self.gateway._request.gateway_id,
+            account_id=self.gateway._request.account_id,
+            order_id=order_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            instrument_id=from_xt_symbol(value.stock_code),
+            side=self._side(value.order_type),
+            offset=self._offset(value.order_type),
+            order_type=OnlyOrderType.LIMIT,
+            quantity=OnlyQuantity(Decimal(str(value.order_volume)), 0),
+            filled_quantity=OnlyQuantity(Decimal(str(value.traded_volume)), 0),
+            price=OnlyPrice(quantized_decimal(value.price, 4), 4),
+            status=map_order_status(int(value.order_status)),
+            submitted_at=submitted,
+            updated_at=updated if updated >= submitted else submitted,
+            source_sequence=self._sequence,
         )
 
     def trade_snapshot(self, value: object) -> OnlyBrokerTradeSnapshot:
-        order_id, _ = self.gateway.resolve_order(
-            value.order_remark, int(value.order_id)
-        )
+        order_id, _ = self.gateway.resolve_order(value.order_remark, int(value.order_id))
         fill = self._fill(value, order_id)
         return OnlyBrokerTradeSnapshot(
             self.gateway._request.gateway_id,
@@ -138,9 +134,7 @@ class OnlyMiniQmtTraderCallback:
 
     def on_stock_asset(self, value: object) -> None:
         snapshot = self.account_snapshot(value)
-        self._enqueue(
-            "asset", str(value.account_id), OnlyBrokerAccountUpdate, snapshot=snapshot
-        )
+        self._enqueue("asset", str(value.account_id), OnlyBrokerAccountUpdate, snapshot=snapshot)
 
     def on_stock_position(self, value: object) -> None:
         snapshot = self.position_snapshot(value)
@@ -184,9 +178,7 @@ class OnlyMiniQmtTraderCallback:
         )
 
     def on_order_error(self, value: object) -> None:
-        order_id, _ = self.gateway.resolve_order(
-            value.order_remark, int(getattr(value, "order_id", 0))
-        )
+        order_id, _ = self.gateway.resolve_order(value.order_remark, int(getattr(value, "order_id", 0)))
         identity = f"{order_id}:{value.error_id}:{value.error_msg}"
         self._enqueue(
             "order_error",
@@ -197,9 +189,7 @@ class OnlyMiniQmtTraderCallback:
         )
 
     def on_cancel_error(self, value: object) -> None:
-        self.gateway._request.logger.error(
-            "MiniQMT cancel failed: %s %s", value.error_id, value.error_msg
-        )
+        self.gateway._request.logger.error("MiniQMT cancel failed: %s %s", value.error_id, value.error_msg)
 
     def _fill(self, value: object, order_id: OnlyOrderId) -> OnlyOrderFill:
         event = self._xt_time(value.traded_time)
@@ -219,9 +209,7 @@ class OnlyMiniQmtTraderCallback:
             external_event_id=str(value.traded_id),
         )
 
-    def _enqueue(
-        self, kind: str, identity: str, update_type: type, **payload: object
-    ) -> None:
+    def _enqueue(self, kind: str, identity: str, update_type: type, **payload: object) -> None:
         key = (kind, identity)
         if key in self._seen:
             return
@@ -244,9 +232,7 @@ class OnlyMiniQmtTraderCallback:
         self.gateway._request.broker_inbound_queue.put(update)
 
     def _stamp(self) -> OnlyTimestamp:
-        return OnlyTimestamp.from_datetime(
-            self.gateway._request.clock.now().astimezone(UTC)
-        )
+        return OnlyTimestamp.from_datetime(self.gateway._request.clock.now().astimezone(UTC))
 
     @staticmethod
     def _money(value: object, currency: OnlyCurrency) -> OnlyMoney:
@@ -261,6 +247,15 @@ class OnlyMiniQmtTraderCallback:
         raw = int(value)
         if raw > 10_000_000_000:
             raw //= 1000
-        return OnlyTimestamp.from_datetime(
-            datetime.fromtimestamp(raw, tz=_CHINA_STANDARD_TIME).astimezone(UTC)
-        )
+        return OnlyTimestamp.from_datetime(datetime.fromtimestamp(raw, tz=_CHINA_STANDARD_TIME).astimezone(UTC))
+
+    def _offset(self, order_type: int) -> OnlyOffset:
+        side = self._side(order_type)
+
+        if side is OnlyOrderSide.BUY:
+            return OnlyOffset.OPEN
+
+        if side is OnlyOrderSide.SELL:
+            return OnlyOffset.CLOSE
+
+        raise ValueError(f"unsupported MiniQMT order type: {order_type}")

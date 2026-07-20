@@ -75,9 +75,7 @@ class OnlyMiniQmtDataSource:
         )
 
     def authenticate(self) -> OnlyMarketDataConnectionResult:
-        return self._connection_result(
-            OnlyMarketDataRequestStatus.ACCEPTED, OnlyMarketDataConnectionState.READY
-        )
+        return self._connection_result(OnlyMarketDataRequestStatus.ACCEPTED, OnlyMarketDataConnectionState.READY)
 
     def disconnect(self) -> OnlyMarketDataConnectionResult:
         self.stop()
@@ -94,9 +92,7 @@ class OnlyMiniQmtDataSource:
             if self.state is OnlyPluginLifecycleState.CONNECTED
             else OnlyMarketDataConnectionState.DISCONNECTED
         )
-        return OnlyMarketDataConnectionSnapshot(
-            OnlyMarketDataGatewayId(str(self.source_id)), state
-        )
+        return OnlyMarketDataConnectionSnapshot(OnlyMarketDataGatewayId(str(self.source_id)), state)
 
     def start(self) -> None:
         self._life.start()
@@ -128,13 +124,9 @@ class OnlyMiniQmtDataSource:
                 cache_request = OnlyHistoricalDataRequest(
                     bar_type.instrument_id,
                     bar_type,
-                    OnlyTimeRange(
-                        request.data_range.start_time, request.data_range.end_time
-                    ),
+                    OnlyTimeRange(request.data_range.start_time, request.data_range.end_time),
                 )
-                result = self._request.historical_cache_service.load(
-                    cache_request, provider, self._config.cache_policy
-                )
+                result = self._request.historical_cache_service.load(cache_request, provider, self._config.cache_policy)
                 for bar in result.records:
                     sequence += 1
                     timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
@@ -160,9 +152,7 @@ class OnlyMiniQmtDataSource:
                     )
             return OnlyHistoricalDataStream(tuple(updates), request.batch_size)
 
-        return OnlyHistoricalDataStream(
-            load_bars(self._xtdata, self._request, request), request.batch_size
-        )
+        return OnlyHistoricalDataStream(load_bars(self._xtdata, self._request, request), request.batch_size)
 
     def load_quotes(self, request):
         return OnlyHistoricalDataStream((), request.batch_size)
@@ -170,9 +160,7 @@ class OnlyMiniQmtDataSource:
     def load_trades(self, request):
         return OnlyHistoricalDataStream((), request.batch_size)
 
-    def subscribe(
-        self, request: OnlyMarketDataSubscriptionRequest
-    ) -> OnlyMarketDataSubscriptionResult:
+    def subscribe(self, request: OnlyMarketDataSubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
         if self._request.market_data_sink is None:
             return OnlyMarketDataSubscriptionResult(
                 OnlyMarketDataRequestStatus.REJECTED,
@@ -190,40 +178,22 @@ class OnlyMiniQmtDataSource:
             if OnlyMarketDataType.QUOTE in request.data_types:
                 sequences.append(self._subscribe(instrument_id, "tick"))
             for bar_type in sorted(
-                (
-                    item
-                    for item in request.bar_types
-                    if item.instrument_id == instrument_id
-                ),
+                (item for item in request.bar_types if item.instrument_id == instrument_id),
                 key=str,
             ):
-                sequences.append(
-                    self._subscribe(instrument_id, self._normalizer.period(bar_type))
-                )
+                sequences.append(self._subscribe(instrument_id, self._normalizer.period(bar_type)))
         if not sequences:
-            return OnlyMarketDataSubscriptionResult(
-                OnlyMarketDataRequestStatus.REJECTED, None, "empty subscription"
-            )
+            return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.REJECTED, None, "empty subscription")
         subscription_id = f"miniqmt:{request.request_id}"
         self._subscriptions[subscription_id] = tuple(sequences)
-        return OnlyMarketDataSubscriptionResult(
-            OnlyMarketDataRequestStatus.ACCEPTED, subscription_id
-        )
+        return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, subscription_id)
 
-    def unsubscribe(
-        self, request: OnlyMarketDataUnsubscriptionRequest
-    ) -> OnlyMarketDataSubscriptionResult:
+    def unsubscribe(self, request: OnlyMarketDataUnsubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
         sequences = self._subscriptions.pop(request.subscription_id, ())
         for sequence in sequences:
             self._xtdata.unsubscribe_quote(sequence)
-        status = (
-            OnlyMarketDataRequestStatus.ACCEPTED
-            if sequences
-            else OnlyMarketDataRequestStatus.REJECTED
-        )
-        return OnlyMarketDataSubscriptionResult(
-            status, request.subscription_id if sequences else None
-        )
+        status = OnlyMarketDataRequestStatus.ACCEPTED if sequences else OnlyMarketDataRequestStatus.REJECTED
+        return OnlyMarketDataSubscriptionResult(status, request.subscription_id if sequences else None)
 
     def instrument(self, instrument_id):
         from .reference import instrument
@@ -251,7 +221,5 @@ class OnlyMiniQmtDataSource:
     def _connection_result(self, status, state):
         return OnlyMarketDataConnectionResult(
             status,
-            OnlyMarketDataConnectionSnapshot(
-                OnlyMarketDataGatewayId(str(self.source_id)), state
-            ),
+            OnlyMarketDataConnectionSnapshot(OnlyMarketDataGatewayId(str(self.source_id)), state),
         )

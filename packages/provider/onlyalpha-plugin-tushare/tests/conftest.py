@@ -31,12 +31,8 @@ def calendar() -> OnlyTradingCalendar:
         OnlyVenueId("XSHG"),
         OnlyTimeZone("Asia/Shanghai"),
         (
-            OnlyTradingSession(
-                "morning", time(9, 30), time(11, 30), OnlySessionType.CONTINUOUS
-            ),
-            OnlyTradingSession(
-                "afternoon", time(13), time(15), OnlySessionType.CONTINUOUS
-            ),
+            OnlyTradingSession("morning", time(9, 30), time(11, 30), OnlySessionType.CONTINUOUS),
+            OnlyTradingSession("afternoon", time(13), time(15), OnlySessionType.CONTINUOUS),
         ),
     )
 

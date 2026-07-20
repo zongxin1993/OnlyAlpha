@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
+
 from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import (
@@ -7,7 +9,6 @@ from onlyalpha.data.models import (
     OnlyMarketDataUnsubscriptionRequest,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
 
 
 class OnlyFakeXtData:
@@ -65,10 +66,6 @@ def test_standard_live_port_normalizes_into_runtime_sink() -> None:
     assert len(updates) == 1
     assert updates[0].data_type is OnlyMarketDataType.QUOTE
     assert str(updates[0].payload.quote.bid_price.value) == "8.8800"
-    result = source.unsubscribe(
-        OnlyMarketDataUnsubscriptionRequest(
-            "unsubscribe-1", subscription.subscription_id
-        )
-    )
+    result = source.unsubscribe(OnlyMarketDataUnsubscriptionRequest("unsubscribe-1", subscription.subscription_id))
     assert result.status is OnlyMarketDataRequestStatus.ACCEPTED
     assert xtdata.unsubscribed == [7]

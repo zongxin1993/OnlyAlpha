@@ -1,31 +1,15 @@
 # OnlyAlpha
 
-Market Scenario 现可通过正式 `OnlyEngine` 执行 exact bars/actions，并产出标准事实、断言、指纹和 Artifact。产品入口为
-`onlyalpha scenario validate/run` 与 `onlyalpha market profiles/profile`。自动执行当前仅支持 BACKTEST；内建 Profile 仍全部为
-Experimental。
-
 OnlyAlpha 是一个独立开发的模块化量化交易核心，强调确定性、可测试边界和可扩展的多市场领域模型。当前采用模块化单体架构，以 `OnlyEngine` 统一协调 Runtime 与相互隔离的 Cluster。
 
-Backtest、Paper、Live 和 Shadow 共用同一套版本化 Market Rules：必填 `market` → Profile Registry →
-Compiler → `OnlyMarketRuleEngine` → 受限 Runtime Ports。市场制度不属于 Broker 或仿真专用配置。
 
-确定性多市场 Scenario 位于交易内核外层。当前增量提供严格 Parser、运行模式无关 Command planning、只读 Assertion 和
-input fingerprint；正式 Engine Runner 与五个 Conformance 场景尚未交付，准确边界见 `docs/market_scenario_framework.md`。
+## 工程结构
+
+
 
 ## 当前能力
 
-- 唯一产品链：CLI → `OnlyEngine` → `OnlyClusterRunConfig[]` → `OnlyRuntimePlanner` → `OnlyRuntimeSession` → `OnlyRuntime.run()`；
-- Engine / Runtime / Cluster 生命周期、兼容性分组和多 Cluster 隔离；
-- Strategy / Factor / Indicator 分层与受限 Runtime Context；
-- Synthetic Historical Replay、Virtual Broker 和基础 Next-Bar 撮合；
-- Risk、Order、ExecutionProcessor、Position、Allocation、Strategy Ledger 与 Account；
-- DataSource / Broker Plugin SPI 和真实 Entry Point 发现；
-- 单 Cluster、多 Cluster及固定输入的确定性重放。
-- 标准回测事实、结构化诊断、FIFO Analytics、原子 JSON/Parquet Artifact、CLI/Console/Markdown Report 和三层内容指纹。
 
-## 当前限制
-
-已有 Tushare 日线与 CACHE_ONLY 示例，但尚未形成完整 A 股交易规则、复权与公司行为、完整费用税费和成交量约束。回测报告目前覆盖基础收益、FIFO 交易、回撤和交易统计，不包含高级风险、归因或图表。Paper、Live、Research 仍只有架构边界；测试不会连接真实券商或启动真实交易。
 
 ## 快速开始
 

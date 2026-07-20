@@ -42,9 +42,7 @@ class OnlyTushareHistoricalDataProvider:
         self._calendar = calendar
         self._client_factory = client_factory
 
-    def build_cache_key(
-        self, request: OnlyHistoricalDataRequest
-    ) -> OnlyHistoricalCacheKey:
+    def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
         return OnlyHistoricalCacheKey(
             self._source_id,
             "bars",
@@ -55,9 +53,7 @@ class OnlyTushareHistoricalDataProvider:
             time_semantics_version=2,
         )
 
-    def fetch(
-        self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange
-    ) -> OnlyHistoricalFetchResult:
+    def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:
         if (
             request.bar_type.specification.aggregation is not OnlyBarAggregation.TIME
             or request.bar_type.specification.step != 1440
@@ -86,9 +82,7 @@ class OnlyTushareHistoricalDataProvider:
         except OnlyTushareError:
             raise
         except Exception as exc:
-            raise OnlyTushareError(
-                "TUSHARE_REQUEST_FAILED", "Tushare daily Bar request failed"
-            ) from exc
+            raise OnlyTushareError("TUSHARE_REQUEST_FAILED", "Tushare daily Bar request failed") from exc
         rows, issues = only_validate_response(raw, symbol)
         if not rows and self._contains_trading_day(time_range):
             raise OnlyTushareError(
@@ -96,9 +90,7 @@ class OnlyTushareHistoricalDataProvider:
                 "empty response cannot be confirmed as a legal result",
             )
         bars = tuple(self._bar(request, row) for row in rows)
-        observed = only_merge_ranges(
-            tuple(OnlyTimeRange(item.bar_start, item.bar_end) for item in bars)
-        )
+        observed = only_merge_ranges(tuple(OnlyTimeRange(item.bar_start, item.bar_end) for item in bars))
         return OnlyHistoricalFetchResult(
             bars,
             (time_range,),
@@ -114,18 +106,12 @@ class OnlyTushareHistoricalDataProvider:
             },
         )
 
-    def _bar(
-        self, request: OnlyHistoricalDataRequest, values: Mapping[str, object]
-    ) -> OnlyBar:
-        day = OnlyTradingDay(
-            datetime.strptime(str(values["trade_date"]), "%Y%m%d").date()
-        )
+    def _bar(self, request: OnlyHistoricalDataRequest, values: Mapping[str, object]) -> OnlyBar:
+        day = OnlyTradingDay(datetime.strptime(str(values["trade_date"]), "%Y%m%d").date())
         start, end = only_daily_session(day, self._calendar)
 
         def price(name: str) -> OnlyPrice:
-            return OnlyPrice(
-                only_exact_decimal(values[name]), self._instrument.price_precision
-            )
+            return OnlyPrice(only_exact_decimal(values[name]), self._instrument.price_precision)
 
         volume = (only_exact_decimal(values["vol"]) * Decimal("100")).normalize()
         amount_value = values.get("amount")

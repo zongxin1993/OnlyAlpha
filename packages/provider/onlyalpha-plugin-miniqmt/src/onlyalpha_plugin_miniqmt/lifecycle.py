@@ -23,8 +23,4 @@ class OnlyMiniQmtLifecycle:
             OnlyPluginLifecycleState.CONNECTED,
             OnlyPluginLifecycleState.RUNNING,
         }
-        return OnlyPluginHealth(
-            OnlyPluginHealthStatus.HEALTHY
-            if healthy
-            else OnlyPluginHealthStatus.UNKNOWN
-        )
+        return OnlyPluginHealth(OnlyPluginHealthStatus.HEALTHY if healthy else OnlyPluginHealthStatus.UNKNOWN)

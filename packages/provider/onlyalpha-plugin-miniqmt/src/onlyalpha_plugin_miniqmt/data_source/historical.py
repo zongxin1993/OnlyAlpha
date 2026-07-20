@@ -24,12 +24,8 @@ def load_bars(xtdata, create_request, request):
         if period is None:
             raise ValueError(f"unsupported MiniQMT period: {minutes}m")
         symbol = to_xt_symbol(bar_type.instrument_id)
-        start_time = request.data_range.start_time.astimezone(_SHANGHAI).strftime(
-            "%Y%m%d%H%M%S"
-        )
-        end_time = request.data_range.end_time.astimezone(_SHANGHAI).strftime(
-            "%Y%m%d%H%M%S"
-        )
+        start_time = request.data_range.start_time.astimezone(_SHANGHAI).strftime("%Y%m%d%H%M%S")
+        end_time = request.data_range.end_time.astimezone(_SHANGHAI).strftime("%Y%m%d%H%M%S")
         xtdata.download_history_data(
             symbol,
             period,
@@ -49,9 +45,7 @@ def load_bars(xtdata, create_request, request):
         seen = set()
         for row in sorted(rows, key=lambda item: int(item["time"])):
             event = utc_from_xt(row["time"])
-            if event in seen or not (
-                request.data_range.start_time <= event < request.data_range.end_time
-            ):
+            if event in seen or not (request.data_range.start_time <= event < request.data_range.end_time):
                 continue
             seen.add(event)
             if not valid_ohlc(row):
@@ -91,12 +85,12 @@ def load_bars(xtdata, create_request, request):
                     payload=OnlyBarUpdate(bar),
                     ts_event=bar.ts_event_obj
                     if hasattr(bar, "ts_event_obj")
-                    else __import__(
-                        "onlyalpha.domain.time", fromlist=["OnlyTimestamp"]
-                    ).OnlyTimestamp.from_datetime(event),
-                    ts_init=__import__(
-                        "onlyalpha.domain.time", fromlist=["OnlyTimestamp"]
-                    ).OnlyTimestamp.from_datetime(event),
+                    else __import__("onlyalpha.domain.time", fromlist=["OnlyTimestamp"]).OnlyTimestamp.from_datetime(
+                        event
+                    ),
+                    ts_init=__import__("onlyalpha.domain.time", fromlist=["OnlyTimestamp"]).OnlyTimestamp.from_datetime(
+                        event
+                    ),
                 )
             )
     return tuple(records)
@@ -109,8 +103,5 @@ def _rows(value):
         return list(value.to_dict("records"))
     if isinstance(value, dict):
         keys = list(value)
-        return [
-            dict(zip(keys, values, strict=True))
-            for values in zip(*(value[key] for key in keys), strict=True)
-        ]
+        return [dict(zip(keys, values, strict=True)) for values in zip(*(value[key] for key in keys), strict=True)]
     return []

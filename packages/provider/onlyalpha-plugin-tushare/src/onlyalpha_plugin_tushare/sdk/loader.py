@@ -14,10 +14,6 @@ def load_tushare() -> OnlyTushareModules:
     try:
         return OnlyTushareModules(import_module("tushare"))
     except ModuleNotFoundError as exc:
-        raise OnlyTushareError(
-            "TUSHARE_SDK_NOT_INSTALLED", "Tushare SDK is not installed"
-        ) from exc
+        raise OnlyTushareError("TUSHARE_SDK_NOT_INSTALLED", "Tushare SDK is not installed") from exc
     except Exception as exc:
-        raise OnlyTushareError(
-            "TUSHARE_IMPORT_FAILED", "Tushare SDK import failed"
-        ) from exc
+        raise OnlyTushareError("TUSHARE_IMPORT_FAILED", "Tushare SDK import failed") from exc

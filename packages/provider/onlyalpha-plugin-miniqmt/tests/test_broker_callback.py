@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from onlyalpha_plugin_miniqmt.broker.callback import OnlyMiniQmtTraderCallback
+
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.updates import (
     OnlyBrokerAccountUpdate,
@@ -15,7 +17,6 @@ from onlyalpha.domain.identifiers import (
     OnlyOrderId,
     OnlyRuntimeId,
 )
-from onlyalpha_plugin_miniqmt.broker.callback import OnlyMiniQmtTraderCallback
 
 
 class OnlyFakeClock:
@@ -51,9 +52,7 @@ class OnlyFakeGateway:
 
     def resolve_order(self, remark: str, xt_order_id: int):
         client = OnlyClientOrderId(remark.removeprefix("onlyalpha:"))
-        order = next(
-            key for key, value in self._client_order_ids.items() if value == client
-        )
+        order = next(key for key, value in self._client_order_ids.items() if value == client)
         return order, client
 
     def remember_venue_order(self, order_id, venue_order_id, order_sysid: str) -> None:
@@ -93,9 +92,7 @@ def test_callbacks_normalize_deduplicate_and_enqueue() -> None:
         cash="90000.00",
         frozen_cash="10000.00",
     )
-    position = SimpleNamespace(
-        stock_code="600000.SH", volume=100, can_use_volume=80, open_price="10.1200"
-    )
+    position = SimpleNamespace(stock_code="600000.SH", volume=100, can_use_volume=80, open_price="10.1200")
     trade = SimpleNamespace(
         order_remark="onlyalpha:client-1",
         order_id=101,

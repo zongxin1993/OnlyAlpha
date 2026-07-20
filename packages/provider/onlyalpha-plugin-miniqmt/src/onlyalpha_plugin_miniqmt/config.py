@@ -22,9 +22,7 @@ class OnlyMiniQmtConfig:
     @classmethod
     def parse(cls, extensions: object) -> "OnlyMiniQmtConfig":
         if not isinstance(extensions, dict):
-            raise OnlyMiniQmtError(
-                "MINIQMT_CONFIG_INVALID", "extensions must be a mapping"
-            )
+            raise OnlyMiniQmtError("MINIQMT_CONFIG_INVALID", "extensions must be a mapping")
         allowed = {
             "userdata_mini_path",
             "account_id",
@@ -35,22 +33,14 @@ class OnlyMiniQmtConfig:
         }
         unknown = set(extensions) - allowed
         if unknown:
-            raise OnlyMiniQmtError(
-                "MINIQMT_CONFIG_INVALID", f"unknown fields: {sorted(unknown)}"
-            )
+            raise OnlyMiniQmtError("MINIQMT_CONFIG_INVALID", f"unknown fields: {sorted(unknown)}")
         return cls(
-            userdata_mini_path=Path(
-                str(extensions.get("userdata_mini_path", DEFAULT_USERDATA_MINI_PATH))
-            ),
+            userdata_mini_path=Path(str(extensions.get("userdata_mini_path", DEFAULT_USERDATA_MINI_PATH))),
             account_id=str(extensions.get("account_id", "")),
             reconnect_max_attempts=int(extensions.get("reconnect_max_attempts", 5)),
-            reconnect_initial_delay=float(
-                extensions.get("reconnect_initial_delay", 0.25)
-            ),
+            reconnect_initial_delay=float(extensions.get("reconnect_initial_delay", 0.25)),
             queue_capacity=int(extensions.get("queue_capacity", 4096)),
-            cache_policy=OnlyCachePolicy(
-                str(extensions.get("cache_policy", "prefer_cache"))
-            ),
+            cache_policy=OnlyCachePolicy(str(extensions.get("cache_policy", "prefer_cache"))),
         )
 
     def require_path(self) -> Path:

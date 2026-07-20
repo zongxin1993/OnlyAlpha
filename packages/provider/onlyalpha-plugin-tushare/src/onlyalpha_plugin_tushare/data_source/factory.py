@@ -14,22 +14,16 @@ class OnlyTushareDataSourceFactory:
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyTushareConfig:
         return OnlyTushareConfig.parse(dict(extensions))
 
-    def validate_request(
-        self, request: OnlyDataSourceCreateRequest
-    ) -> Sequence[OnlyPluginValidationIssue]:
+    def validate_request(self, request: OnlyDataSourceCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         issues = [
             OnlyPluginValidationIssue("PLUGIN_CAPABILITY_MISSING", item)
             for item in DATA_CAPABILITIES.missing(request.requested_capabilities)
         ]
         return tuple(issues)
 
-    def create(
-        self, request: OnlyDataSourceCreateRequest
-    ) -> OnlyTushareHistoricalDataSource:
+    def create(self, request: OnlyDataSourceCreateRequest) -> OnlyTushareHistoricalDataSource:
         config = (
-            request.plugin_config
-            if isinstance(request.plugin_config, OnlyTushareConfig)
-            else self.parse_config({})
+            request.plugin_config if isinstance(request.plugin_config, OnlyTushareConfig) else self.parse_config({})
         )
         return OnlyTushareHistoricalDataSource(request, config)
 

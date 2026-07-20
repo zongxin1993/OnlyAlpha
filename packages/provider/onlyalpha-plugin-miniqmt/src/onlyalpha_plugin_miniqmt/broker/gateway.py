@@ -94,9 +94,7 @@ class OnlyMiniQmtBrokerGateway:
         return self._connection_result(result == 0)
 
     def authenticate(self):
-        return self._connection_result(
-            self._connection_state is OnlyBrokerConnectionState.READY
-        )
+        return self._connection_result(self._connection_state is OnlyBrokerConnectionState.READY)
 
     def disconnect(self):
         self.stop()
@@ -124,12 +122,8 @@ class OnlyMiniQmtBrokerGateway:
 
         stamp = OnlyTimestamp.from_datetime(self._request.clock.now())
         return OnlyBrokerConnectionResult(
-            OnlyBrokerOperationStatus.RECEIVED
-            if ok
-            else OnlyBrokerOperationStatus.REJECTED,
-            OnlyBrokerConnectionSnapshot(
-                self._request.gateway_id, self._connection_state, stamp
-            ),
+            OnlyBrokerOperationStatus.RECEIVED if ok else OnlyBrokerOperationStatus.REJECTED,
+            OnlyBrokerConnectionSnapshot(self._request.gateway_id, self._connection_state, stamp),
         )
 
     def submit_order(self, request):
@@ -165,9 +159,7 @@ class OnlyMiniQmtBrokerGateway:
 
     def cancel_order(self, request):
         try:
-            sequence = self._trader.cancel_order_stock_async(
-                self._account, int(str(request.venue_order_id))
-            )
+            sequence = self._trader.cancel_order_stock_async(self._account, int(str(request.venue_order_id)))
             return OnlyBrokerCancelResult(
                 sequence >= 0,
                 OnlyBrokerOperationStatus.RECEIVED,
@@ -182,40 +174,27 @@ class OnlyMiniQmtBrokerGateway:
             )
 
     def query_account(self, account_id):
-        return self._callback.account_snapshot(
-            self._trader.query_stock_asset(self._account)
-        )
+        return self._callback.account_snapshot(self._trader.query_stock_asset(self._account))
 
     def query_balances(self, account_id):
-        return (
-            self._callback.balance_snapshot(
-                self._trader.query_stock_asset(self._account)
-            ),
-        )
+        return (self._callback.balance_snapshot(self._trader.query_stock_asset(self._account)),)
 
     def query_positions(self, account_id):
         return tuple(
-            self._callback.position_snapshot(item)
-            for item in (self._trader.query_stock_positions(self._account) or ())
+            self._callback.position_snapshot(item) for item in (self._trader.query_stock_positions(self._account) or ())
         )
 
     def query_open_orders(self, account_id):
-        return tuple(
-            item
-            for item in self.query_orders(account_id)
-            if item.remaining_quantity.value > 0
-        )
+        return tuple(item for item in self.query_orders(account_id) if item.remaining_quantity.value > 0)
 
     def query_orders(self, account_id, query=None):
         return tuple(
-            self._callback.order_snapshot(item)
-            for item in (self._trader.query_stock_orders(self._account) or ())
+            self._callback.order_snapshot(item) for item in (self._trader.query_stock_orders(self._account) or ())
         )
 
     def query_trades(self, account_id, query=None):
         return tuple(
-            self._callback.trade_snapshot(item)
-            for item in (self._trader.query_stock_trades(self._account) or ())
+            self._callback.trade_snapshot(item) for item in (self._trader.query_stock_trades(self._account) or ())
         )
 
     def resolve_order(self, remark, xt_order_id):
@@ -232,9 +211,7 @@ class OnlyMiniQmtBrokerGateway:
             None,
         )
         if order is None:
-            order = self._order_ids.get(
-                xt_order_id, OnlyOrderId(f"miniqmt-{xt_order_id}")
-            )
+            order = self._order_ids.get(xt_order_id, OnlyOrderId(f"miniqmt-{xt_order_id}"))
         self._client_order_ids[order] = client
         return order, client
 
@@ -252,13 +229,9 @@ class OnlyMiniQmtBrokerGateway:
     def on_disconnected(self):
         self._connection_state = OnlyBrokerConnectionState.DISCONNECTED
         with self._reconnect_lock:
-            if self._stopping.is_set() or (
-                self._reconnect_thread and self._reconnect_thread.is_alive()
-            ):
+            if self._stopping.is_set() or (self._reconnect_thread and self._reconnect_thread.is_alive()):
                 return
-            self._reconnect_thread = Thread(
-                target=self._reconnect, name="onlyalpha-miniqmt-reconnect", daemon=True
-            )
+            self._reconnect_thread = Thread(target=self._reconnect, name="onlyalpha-miniqmt-reconnect", daemon=True)
             self._reconnect_thread.start()
 
     def _reconnect(self):
@@ -266,10 +239,7 @@ class OnlyMiniQmtBrokerGateway:
         for attempt in range(self._config.reconnect_max_attempts):
             if self._stopping.wait(self._config.reconnect_initial_delay * (2**attempt)):
                 return
-            if (
-                self._trader.connect() == 0
-                and self._trader.subscribe(self._account) == 0
-            ):
+            if self._trader.connect() == 0 and self._trader.subscribe(self._account) == 0:
                 self._connection_state = OnlyBrokerConnectionState.READY
                 self._synchronize()
                 return

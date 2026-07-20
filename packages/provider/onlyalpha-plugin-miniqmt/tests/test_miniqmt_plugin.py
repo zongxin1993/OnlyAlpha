@@ -1,8 +1,6 @@
 from pathlib import Path
-import pytest
 
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
-from onlyalpha.domain.identifiers import OnlyInstrumentId
+import pytest
 from onlyalpha_plugin_miniqmt.config import (
     DEFAULT_USERDATA_MINI_PATH,
     OnlyMiniQmtConfig,
@@ -17,13 +15,13 @@ from onlyalpha_plugin_miniqmt.mapping.order import (
 )
 from onlyalpha_plugin_miniqmt.mapping.status import map_order_status
 
+from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+
 
 def test_strict_config_and_default_path(tmp_path: Path) -> None:
     assert OnlyMiniQmtConfig.parse({}).userdata_mini_path == DEFAULT_USERDATA_MINI_PATH
-    assert (
-        OnlyMiniQmtConfig.parse({"userdata_mini_path": str(tmp_path)}).require_path()
-        == tmp_path
-    )
+    assert OnlyMiniQmtConfig.parse({"userdata_mini_path": str(tmp_path)}).require_path() == tmp_path
     with pytest.raises(OnlyMiniQmtError, match="unknown fields") as error:
         OnlyMiniQmtConfig.parse({"qmt_path": "bad"})
     assert error.value.code == "MINIQMT_CONFIG_INVALID"
@@ -37,14 +35,8 @@ def test_missing_path_is_structured(tmp_path: Path) -> None:
 
 def test_exchange_order_and_status_mappings() -> None:
     instrument = OnlyInstrumentId.parse("600000.XSHG")
-    assert (
-        from_xt_symbol("600000.SH") == instrument
-        and to_xt_symbol(instrument) == "600000.SH"
-    )
-    assert (
-        map_side(OnlyOrderSide.BUY) == STOCK_BUY
-        and require_limit(OnlyOrderType.LIMIT) == FIX_PRICE
-    )
+    assert from_xt_symbol("600000.SH") == instrument and to_xt_symbol(instrument) == "600000.SH"
+    assert map_side(OnlyOrderSide.BUY) == STOCK_BUY and require_limit(OnlyOrderType.LIMIT) == FIX_PRICE
     assert map_order_status(52) is OnlyOrderStatus.PARTIALLY_FILLED
 
 

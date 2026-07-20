@@ -11,9 +11,7 @@ from onlyalpha.cache.historical.models import (
 
 from ..errors import OnlyTushareError
 
-REQUIRED_COLUMNS = frozenset(
-    {"ts_code", "trade_date", "open", "high", "low", "close", "vol"}
-)
+REQUIRED_COLUMNS = frozenset({"ts_code", "trade_date", "open", "high", "low", "close", "vol"})
 
 
 def _decimal(value: object, code: str) -> Decimal:
@@ -32,15 +30,11 @@ def only_validate_response(
     raw: object, expected_symbol: str
 ) -> tuple[tuple[Mapping[str, object], ...], tuple[OnlyDataQualityIssue, ...]]:
     if raw is None:
-        raise OnlyTushareError(
-            "TUSHARE_EMPTY_RESPONSE", "provider returned no response"
-        )
+        raise OnlyTushareError("TUSHARE_EMPTY_RESPONSE", "provider returned no response")
     columns = getattr(raw, "columns", None)
     to_dict = getattr(raw, "to_dict", None)
     if columns is None or not callable(to_dict):
-        raise OnlyTushareError(
-            "TUSHARE_RESPONSE_TYPE_INVALID", "provider response is not tabular"
-        )
+        raise OnlyTushareError("TUSHARE_RESPONSE_TYPE_INVALID", "provider response is not tabular")
     missing = REQUIRED_COLUMNS - set(str(item) for item in columns)
     if missing:
         raise OnlyTushareError(
@@ -49,55 +43,31 @@ def only_validate_response(
         )
     values = to_dict("records")
     if not isinstance(values, list):
-        raise OnlyTushareError(
-            "TUSHARE_RESPONSE_TYPE_INVALID", "provider rows are invalid"
-        )
+        raise OnlyTushareError("TUSHARE_RESPONSE_TYPE_INVALID", "provider rows are invalid")
     by_day: dict[str, Mapping[str, object]] = {}
     issues: list[OnlyDataQualityIssue] = []
     for value in values:
         if not isinstance(value, Mapping):
-            raise OnlyTushareError(
-                "TUSHARE_RESPONSE_TYPE_INVALID", "provider row is invalid"
-            )
+            raise OnlyTushareError("TUSHARE_RESPONSE_TYPE_INVALID", "provider row is invalid")
         if str(value.get("ts_code")) != expected_symbol:
-            raise OnlyTushareError(
-                "TUSHARE_SYMBOL_MISMATCH", "response symbol differs from request"
-            )
+            raise OnlyTushareError("TUSHARE_SYMBOL_MISMATCH", "response symbol differs from request")
         day = str(value.get("trade_date"))
         try:
             datetime.strptime(day, "%Y%m%d")
         except ValueError as exc:
-            raise OnlyTushareError(
-                "TUSHARE_TRADE_DATE_INVALID", "trade_date is invalid"
-            ) from exc
-        prices = tuple(
-            _decimal(value.get(name), "TUSHARE_PRICE_INVALID")
-            for name in ("open", "high", "low", "close")
-        )
+            raise OnlyTushareError("TUSHARE_TRADE_DATE_INVALID", "trade_date is invalid") from exc
+        prices = tuple(_decimal(value.get(name), "TUSHARE_PRICE_INVALID") for name in ("open", "high", "low", "close"))
         open_price, high, low, close = prices
-        if (
-            min(prices) <= 0
-            or high < max(open_price, close)
-            or low > min(open_price, close)
-        ):
+        if min(prices) <= 0 or high < max(open_price, close) or low > min(open_price, close):
             raise OnlyTushareError("TUSHARE_PRICE_INVALID", "OHLC invariants failed")
         if _decimal(value.get("vol"), "TUSHARE_VOLUME_INVALID") < 0:
-            raise OnlyTushareError(
-                "TUSHARE_VOLUME_INVALID", "volume cannot be negative"
-            )
-        if (
-            value.get("amount") is not None
-            and _decimal(value.get("amount"), "TUSHARE_AMOUNT_INVALID") < 0
-        ):
-            raise OnlyTushareError(
-                "TUSHARE_AMOUNT_INVALID", "amount cannot be negative"
-            )
+            raise OnlyTushareError("TUSHARE_VOLUME_INVALID", "volume cannot be negative")
+        if value.get("amount") is not None and _decimal(value.get("amount"), "TUSHARE_AMOUNT_INVALID") < 0:
+            raise OnlyTushareError("TUSHARE_AMOUNT_INVALID", "amount cannot be negative")
         previous = by_day.get(day)
         if previous is not None:
             if dict(previous) != dict(value):
-                raise OnlyTushareError(
-                    "TUSHARE_DUPLICATE_BAR", "conflicting duplicate trade_date"
-                )
+                raise OnlyTushareError("TUSHARE_DUPLICATE_BAR", "conflicting duplicate trade_date")
             issues.append(
                 OnlyDataQualityIssue(
                     "TUSHARE_DUPLICATE_IDENTICAL",
