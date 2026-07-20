@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = "onlyalpha-plugin-miniqmt"
+version = "0.1.0"
+description = "MiniQMT market data and broker adapters for OnlyAlpha"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "onlyalpha>=0.2.5,<0.3.0",
+    "xtquant>=250516.1.1; sys_platform == 'win32'",
+    "tzdata>=2025.2; sys_platform == 'win32'",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+
+
+[project.entry-points."onlyalpha.data_sources"]
+miniqmt = "onlyalpha_plugin_miniqmt.data_source.factory:factory"
+
+
+[project.entry-points."onlyalpha.brokers"]
+miniqmt = "onlyalpha_plugin_miniqmt.broker.factory:factory"
+
+
+[project.scripts]
+onlyalpha-miniqmt = "onlyalpha_plugin_miniqmt.doctor:main"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_plugin_miniqmt"]

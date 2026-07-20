@@ -1,0 +1,40 @@
+[project]
+name = "onlyalpha-plugin-tushare"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["onlyalpha>=0.2.5,<0.3.0", "tushare>=1.4.21,<2"]
+
+[project.entry-points."onlyalpha.data_sources"]
+tushare = "onlyalpha_plugin_tushare.data_source.factory:factory"
+
+[project.scripts]
+onlyalpha-tushare = "onlyalpha_plugin_tushare.doctor:main"
+
+[dependency-groups]
+dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.11"]
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_plugin_tushare"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: external integration test",
+    "requires_tushare: requires ONLYALPHA_TUSHARE_TOKEN and Tushare network access",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/onlyalpha_plugin_tushare"]
+
+[[tool.mypy.overrides]]
+module = ["tushare", "tushare.*"]
+ignore_missing_imports = true
