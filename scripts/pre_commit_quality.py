@@ -29,7 +29,7 @@ FULL_RUFF_TARGETS = (
     "tests",
     "examples",
     "packages",
-    "tools",
+    "scripts",
 )
 
 GLOBAL_CONFIGURATION_FILES = {
@@ -57,7 +57,7 @@ MYPY_SCOPES = (
             "src/onlyalpha",
             "tests",
             "examples",
-            "tools",
+            "scripts",
         ),
     ),
     MypyScope(
