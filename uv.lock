@@ -493,10 +493,8 @@ name = "onlyalpha"
 version = "0.2.6"
 source = { editable = "." }
 dependencies = [
-    { name = "mypy-extensions" },
     { name = "pyarrow" },
     { name = "pyyaml" },
-    { name = "tomlkit" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 
@@ -505,19 +503,19 @@ dev = [
     { name = "build" },
     { name = "mypy" },
     { name = "onlyalpha-test-plugin" },
+    { name = "packaging" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "tomlkit" },
     { name = "twine" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "mypy-extensions", specifier = ">=1.1.0" },
     { name = "pyarrow", specifier = ">=21.0.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "tomlkit", specifier = ">=0.15.1" },
     { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2025.2" },
 ]
 
@@ -526,10 +524,12 @@ dev = [
     { name = "build", specifier = ">=1.2" },
     { name = "mypy", specifier = ">=1.15" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
+    { name = "packaging", specifier = ">=25" },
     { name = "pre-commit", specifier = ">=4.6" },
     { name = "pytest", specifier = ">=8.4" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.11" },
+    { name = "tomlkit", specifier = ">=0.13" },
     { name = "twine", specifier = ">=6" },
 ]
 

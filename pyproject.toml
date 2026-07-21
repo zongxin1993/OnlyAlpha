@@ -5,27 +5,27 @@ description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
 dependencies = [
-    "mypy-extensions>=1.1.0",
     "pyarrow>=21.0.0",
     "pyyaml>=6.0.2",
-    "tomlkit>=0.15.1",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
-[project.scripts]
-onlyalpha = "onlyalpha.cli:main"
-
 [dependency-groups]
 dev = [
-    "onlyalpha-test-plugin",
     "build>=1.2",
     "mypy>=1.15",
+    "packaging>=25",
     "pre-commit>=4.6",
     "pytest>=8.4",
     "pytest-cov>=6",
     "ruff>=0.11",
+    "tomlkit>=0.13",
     "twine>=6",
+    "onlyalpha-test-plugin",
 ]
+
+[project.scripts]
+onlyalpha = "onlyalpha.cli:main"
 
 [tool.uv.workspace]
 members = [
@@ -34,7 +34,7 @@ members = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
