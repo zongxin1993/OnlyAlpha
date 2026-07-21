@@ -13,10 +13,10 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
         OnlyExecutionMutationStep.ORDER,
         OnlyExecutionMutationStep.POSITION,
         OnlyExecutionMutationStep.ALLOCATION,
-            OnlyExecutionMutationStep.SETTLEMENT,
-            OnlyExecutionMutationStep.FEE,
-            OnlyExecutionMutationStep.ACCOUNT,
-            OnlyExecutionMutationStep.STRATEGY_LEDGER,
+        OnlyExecutionMutationStep.SETTLEMENT,
+        OnlyExecutionMutationStep.FEE,
+        OnlyExecutionMutationStep.ACCOUNT,
+        OnlyExecutionMutationStep.STRATEGY_LEDGER,
     )
     assert trade.invariant_result.passed
     return env.report_builder.scenario(

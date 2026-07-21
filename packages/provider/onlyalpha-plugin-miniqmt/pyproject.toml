@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "onlyalpha-plugin-miniqmt"
-version = "0.1.0"
+version = "0.2.6"
 description = "MiniQMT market data and broker adapters for OnlyAlpha"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 
 dependencies = [
-    "onlyalpha>=0.2.5,<0.3.0",
+    "onlyalpha==0.2.6",
     "xtquant>=250516.1.1; sys_platform == 'win32'",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]
@@ -38,3 +38,14 @@ onlyalpha-miniqmt = "onlyalpha_plugin_miniqmt.doctor:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/onlyalpha_plugin_miniqmt"]
+
+[dependency-groups]
+dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.11"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+
+
+[[tool.mypy.overrides]]
+module = ["xtquant", "xtquant.*"]
+ignore_missing_imports = true

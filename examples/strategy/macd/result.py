@@ -20,7 +20,5 @@ class OnlyMacdSignal:
             "ts_event_ns": self.ts_event.unix_nanos,
             "dif": self.dif,
             "dea": self.dea,
-            "order_request_id": None
-            if self.order_request_id is None
-            else str(self.order_request_id),
+            "order_request_id": None if self.order_request_id is None else str(self.order_request_id),
         }

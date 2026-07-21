@@ -1,0 +1,568 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONUTF8: "1"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Workspace、锁文件、包元数据和依赖方向。
+  # ---------------------------------------------------------------------------
+  metadata:
+    name: Metadata and workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check synchronized package versions
+        run: uv run python scripts/version_sync.py check
+
+      - name: Validate lock file
+        run: uv lock --check
+
+      - name: Validate lock file
+        run: uv lock --check
+
+      - name: Synchronize complete workspace
+        run: uv sync --frozen --all-packages --all-groups
+
+      - name: Show workspace dependency tree
+        run: uv tree
+
+      - name: Validate installed distributions
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          from importlib.metadata import version
+
+          expected = {
+              "onlyalpha",
+              "onlyalpha-plugin-tushare",
+              "onlyalpha-plugin-miniqmt",
+          }
+
+          failures: list[str] = []
+
+          for distribution in sorted(expected):
+              try:
+                  installed_version = version(distribution)
+              except Exception as exc:
+                  failures.append(f"{distribution}: not installed: {exc}")
+              else:
+                  print(f"{distribution}=={installed_version}")
+
+          if failures:
+              raise SystemExit("\n".join(failures))
+          PY
+
+      - name: Reject Core imports of concrete plugins
+        shell: bash
+        run: |
+          if git grep -n -E \
+            '(^|[[:space:]])(from|import)[[:space:]]+onlyalpha_plugin_' \
+            -- src/onlyalpha
+          then
+            echo "Core must not import concrete onlyalpha_plugin_* implementations."
+            exit 1
+          fi
+
+      - name: Check patch whitespace
+        run: git diff --check
+
+  # ---------------------------------------------------------------------------
+  # Core 在 Linux、Windows、macOS 上的质量门禁。
+  # ---------------------------------------------------------------------------
+  core:
+    name: Core / ${{ matrix.os }}
+    needs:
+      - metadata
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Synchronize workspace
+        run: uv sync --frozen --all-packages --all-groups
+
+      - name: Ruff lint Core, tests and examples
+        run: uv run ruff check src tests examples
+
+      - name: Ruff format Core, tests and examples
+        run: uv run ruff format --check src tests examples
+
+      - name: Mypy Core
+        run: uv run mypy src/onlyalpha
+
+      - name: Run Core tests
+        run: >-
+          uv run pytest tests -q
+          -m "not external
+          and not requires_network
+          and not requires_tushare
+          and not requires_local_qmt"
+
+  # ---------------------------------------------------------------------------
+  # Tushare 是跨平台 DataSource 插件，三个平台都必须验证离线能力。
+  # 真实 Token 和网络测试不进入普通 PR 门禁。
+  # ---------------------------------------------------------------------------
+  tushare:
+    name: Tushare / ${{ matrix.os }}
+    needs:
+      - metadata
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Synchronize workspace
+        run: uv sync --frozen --all-packages --all-groups
+
+      - name: Ruff lint Tushare
+        run: >-
+          uv run ruff check
+          packages/provider/onlyalpha-plugin-tushare/src
+          packages/provider/onlyalpha-plugin-tushare/tests
+
+      - name: Ruff format Tushare
+        run: >-
+          uv run ruff format --check
+          packages/provider/onlyalpha-plugin-tushare/src
+          packages/provider/onlyalpha-plugin-tushare/tests
+
+      - name: Mypy Tushare
+        run: >-
+          uv run mypy
+          packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
+
+      - name: Run offline Tushare tests
+        run: >-
+          uv run pytest
+          packages/provider/onlyalpha-plugin-tushare/tests
+          -q
+          -m "not external
+          and not requires_network
+          and not requires_tushare"
+
+  # ---------------------------------------------------------------------------
+  # MiniQMT 是 Windows-only 运行插件。
+  # 默认 CI 只验证离线 Unit/Contract，不连接本地 QMT。
+  # ---------------------------------------------------------------------------
+  miniqmt:
+    name: MiniQMT / Windows
+    needs:
+      - metadata
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Synchronize workspace
+        run: uv sync --frozen --all-packages --all-groups
+
+      - name: Ruff lint MiniQMT
+        run: >-
+          uv run ruff check
+          packages/provider/onlyalpha-plugin-miniqmt/src
+          packages/provider/onlyalpha-plugin-miniqmt/tests
+
+      - name: Ruff format MiniQMT
+        run: >-
+          uv run ruff format --check
+          packages/provider/onlyalpha-plugin-miniqmt/src
+          packages/provider/onlyalpha-plugin-miniqmt/tests
+
+    #   - name: Mypy MiniQMT
+    #     run: >-
+    #       uv run mypy
+    #       packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+
+      - name: Run offline MiniQMT tests
+        env:
+          ONLYALPHA_MINIQMT_REAL_HISTORY: "0"
+        run: >-
+          uv run pytest
+          packages/provider/onlyalpha-plugin-miniqmt/tests
+          -q
+          -m "not external
+          and not requires_network
+          and not requires_local_qmt"
+
+  # ---------------------------------------------------------------------------
+  # 产品级纵切面。
+  #
+  # 这里重复运行 integration/scenario 类测试是有意的：
+  # Core job 负责完整测试；本 Job 提供稳定、独立的产品链门禁。
+  # ---------------------------------------------------------------------------
+  product-gates:
+    name: Product scenarios and integration
+    needs:
+      - metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Synchronize workspace
+        run: uv sync --frozen --all-packages --all-groups
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration -q
+
+      - name: Run named Scenario and Conformance tests
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          selected = sorted(
+              {
+                  str(path)
+                  for path in Path("tests").rglob("test_*.py")
+                  if (
+                      "scenario" in path.name.lower()
+                      or "conformance" in path.name.lower()
+                  )
+              }
+          )
+
+          if not selected:
+              raise SystemExit(
+                  "No Scenario or Conformance tests were discovered. "
+                  "Product coverage must not silently disappear."
+              )
+
+          print("Selected product tests:")
+          for path in selected:
+              print(f"  - {path}")
+
+          subprocess.run(
+              [
+                  sys.executable,
+                  "-m",
+                  "pytest",
+                  "-q",
+                  *selected,
+              ],
+              check=True,
+          )
+          PY
+
+      - name: Run integration demo suite
+        run: uv run python -m tests.integration_demo.run_all
+
+  # ---------------------------------------------------------------------------
+  # 每个正式 distribution 必须：
+  #
+  # 1. 独立构建 wheel 和 sdist；
+  # 2. 通过 twine check；
+  # 3. 在干净虚拟环境中从 wheel 安装；
+  # 4. 导入公开 Python 包；
+  # 5. 发现并加载正式 Entry Point。
+  # ---------------------------------------------------------------------------
+  build-smoke:
+    name: Build smoke / ${{ matrix.distribution }}
+    needs:
+      - metadata
+      - core
+      - tushare
+      - miniqmt
+      - product-gates
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: onlyalpha
+            os: ubuntu-latest
+            import-name: onlyalpha
+            entry-points: "console_scripts=onlyalpha"
+
+          - distribution: onlyalpha-plugin-tushare
+            os: ubuntu-latest
+            import-name: onlyalpha_plugin_tushare
+            entry-points: "onlyalpha.data_sources=tushare;console_scripts=onlyalpha-tushare"
+
+          - distribution: onlyalpha-plugin-miniqmt
+            os: windows-latest
+            import-name: onlyalpha_plugin_miniqmt
+            entry-points: "onlyalpha.data_sources=miniqmt;onlyalpha.brokers=miniqmt;console_scripts=onlyalpha-miniqmt"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Synchronize workspace
+        run: uv sync --frozen --all-packages --all-groups
+
+      - name: Build Core and target distribution
+        shell: bash
+        env:
+          TARGET_DISTRIBUTION: ${{ matrix.distribution }}
+        run: |
+          rm -rf dist-ci
+          mkdir -p dist-ci/core
+          mkdir -p dist-ci/target
+
+          uv build \
+            --package onlyalpha \
+            --out-dir dist-ci/core
+
+          if [ "$TARGET_DISTRIBUTION" != "onlyalpha" ]; then
+            uv build \
+              --package "$TARGET_DISTRIBUTION" \
+              --out-dir dist-ci/target
+          fi
+
+      - name: Validate built metadata
+        shell: bash
+        env:
+          TARGET_DISTRIBUTION: ${{ matrix.distribution }}
+        run: |
+          uv run twine check dist-ci/core/*
+
+          if [ "$TARGET_DISTRIBUTION" != "onlyalpha" ]; then
+            uv run twine check dist-ci/target/*
+          fi
+
+      - name: Install wheels into a clean environment
+        shell: bash
+        env:
+          TARGET_DISTRIBUTION: ${{ matrix.distribution }}
+          TARGET_IMPORT_NAME: ${{ matrix.import-name }}
+          TARGET_ENTRY_POINTS: ${{ matrix.entry-points }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import shutil
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          target_distribution = os.environ["TARGET_DISTRIBUTION"]
+          target_import_name = os.environ["TARGET_IMPORT_NAME"]
+          target_entry_points = os.environ["TARGET_ENTRY_POINTS"]
+
+          core_wheels = sorted(Path("dist-ci/core").glob("*.whl"))
+          if len(core_wheels) != 1:
+              raise SystemExit(
+                  f"Expected exactly one Core wheel, found: {core_wheels}"
+              )
+
+          install_wheels = [core_wheels[0]]
+
+          if target_distribution != "onlyalpha":
+              target_wheels = sorted(Path("dist-ci/target").glob("*.whl"))
+              if len(target_wheels) != 1:
+                  raise SystemExit(
+                      "Expected exactly one target wheel for "
+                      f"{target_distribution}, found: {target_wheels}"
+                  )
+              install_wheels.append(target_wheels[0])
+
+          smoke_dir = Path(".ci-smoke-env")
+          if smoke_dir.exists():
+              shutil.rmtree(smoke_dir)
+
+          subprocess.run(
+              [sys.executable, "-m", "venv", str(smoke_dir)],
+              check=True,
+          )
+
+          if os.name == "nt":
+              smoke_python = smoke_dir / "Scripts" / "python.exe"
+          else:
+              smoke_python = smoke_dir / "bin" / "python"
+
+          subprocess.run(
+              [
+                  str(smoke_python),
+                  "-m",
+                  "pip",
+                  "install",
+                  "--disable-pip-version-check",
+                  "--upgrade",
+                  "pip",
+              ],
+              check=True,
+          )
+
+          subprocess.run(
+              [
+                  str(smoke_python),
+                  "-m",
+                  "pip",
+                  "install",
+                  "--disable-pip-version-check",
+                  *(str(path.resolve()) for path in install_wheels),
+              ],
+              check=True,
+          )
+
+          smoke_code = """
+          import importlib
+          import importlib.metadata as metadata
+          import os
+
+          distribution = os.environ["TARGET_DISTRIBUTION"]
+          import_name = os.environ["TARGET_IMPORT_NAME"]
+          entry_point_specs = os.environ["TARGET_ENTRY_POINTS"]
+
+          module = importlib.import_module(import_name)
+          print(f"Imported {module.__name__}")
+
+          installed_version = metadata.version(distribution)
+          print(f"{distribution}=={installed_version}")
+
+          entry_points = metadata.entry_points()
+
+          for specification in entry_point_specs.split(";"):
+              group, name = specification.split("=", 1)
+              selected = tuple(
+                  entry_points.select(
+                      group=group,
+                      name=name,
+                  )
+              )
+
+              if len(selected) != 1:
+                  raise RuntimeError(
+                      "Expected exactly one Entry Point for "
+                      f"{group}:{name}, found {len(selected)}"
+                  )
+
+              loaded = selected[0].load()
+              print(
+                  "Loaded Entry Point "
+                  f"{group}:{name} -> {loaded!r}"
+              )
+          """
+
+          smoke_environment = dict(os.environ)
+          smoke_environment["TARGET_DISTRIBUTION"] = target_distribution
+          smoke_environment["TARGET_IMPORT_NAME"] = target_import_name
+          smoke_environment["TARGET_ENTRY_POINTS"] = target_entry_points
+
+          subprocess.run(
+              [
+                  str(smoke_python),
+                  "-c",
+                  smoke_code,
+              ],
+              check=True,
+              env=smoke_environment,
+          )
+          PY
+
+  # ---------------------------------------------------------------------------
+  # 为分支保护提供一个固定名称的最终检查。
+  #
+  # 后续可以将 "Required CI" 设置为 master 的必需状态检查，
+  # 不需要把每个 matrix 子任务逐个加入分支保护。
+  # ---------------------------------------------------------------------------
+  required:
+    name: Required CI
+    if: ${{ always() }}
+    needs:
+      - metadata
+      - core
+      - tushare
+      - miniqmt
+      - product-gates
+      - build-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify all required jobs
+        shell: bash
+        run: |
+          test "${{ needs.metadata.result }}" = "success"
+          test "${{ needs.core.result }}" = "success"
+          test "${{ needs.tushare.result }}" = "success"
+          test "${{ needs.miniqmt.result }}" = "success"
+          test "${{ needs.product-gates.result }}" = "success"
+          test "${{ needs.build-smoke.result }}" = "success"
+
+          echo "All required OnlyAlpha CI gates passed."

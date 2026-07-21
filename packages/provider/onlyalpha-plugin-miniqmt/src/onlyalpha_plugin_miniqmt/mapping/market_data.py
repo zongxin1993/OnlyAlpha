@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
+from typing import cast
 
 
 def decimal_value(value: object) -> Decimal:
@@ -12,7 +13,8 @@ def quantized_decimal(value: object, precision: int) -> Decimal:
 
 
 def utc_from_xt(value: object) -> datetime:
-    timestamp = int(value)
+    val = cast(str | int, value)
+    timestamp = int(val)
     if timestamp > 10_000_000_000:
         timestamp //= 1000
     return datetime.fromtimestamp(timestamp, tz=UTC)

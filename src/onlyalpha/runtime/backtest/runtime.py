@@ -855,6 +855,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
         else:
             version = self._valuation_versions.get(key, 0) + 1
         self._valuation_versions[key] = version
+        if trading_day is None:
+            raise RuntimeError("trading_day must not be None for settlement calculation")
         valuation = self._services.strategy_valuation_service.value(
             key,
             allocations,
