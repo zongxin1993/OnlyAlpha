@@ -1,30 +1,119 @@
-# .pre-commit-config.yaml
+minimum_pre_commit_version: "4.0.0"
+
 default_language_version:
   python: python3.12
+
+exclude: |
+  (?x)^(
+      \.venv/
+    | \.mypy_cache/
+    | \.pytest_cache/
+    | \.ruff_cache/
+    | build/
+    | dist/
+    | dist-ci/
+    | \.ci-smoke-env/
+    | user_data/
+    | artifacts/
+    | .*\.egg-info/
+  )
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
+        name: Remove trailing whitespace
+
       - id: end-of-file-fixer
+        name: Ensure files end with newline
+
       - id: check-yaml
-        args: [--unsafe]
+        name: Validate YAML files
+
       - id: check-toml
+        name: Validate TOML files
+
+      - id: check-json
+        name: Validate JSON files
+
+      - id: check-ast
+        name: Validate Python syntax
+
+      - id: check-merge-conflict
+        name: Detect merge-conflict markers
+
+      - id: check-case-conflict
+        name: Detect case-insensitive filename conflicts
+
+      - id: check-symlinks
+        name: Detect broken symbolic links
+
       - id: check-added-large-files
+        name: Reject unexpectedly large files
+        args:
+          - --maxkb=1024
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.14
-    hooks:
-      - id: ruff
-        args: [--fix, --target-version=py312]
-      - id: ruff-format
+      - id: debug-statements
+        name: Detect Python debug statements
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+      - id: detect-private-key
+        name: Detect private keys
+
+      - id: mixed-line-ending
+        name: Normalize line endings to LF
+        args:
+          - --fix=lf
+
+  - repo: local
     hooks:
-      - id: mypy
-        args: [--config-file=mypy.ini]
-        files: ^src/
-        additional_dependencies:
-          - pandas
+      - id: onlyalpha-ruff-mypy
+        name: OnlyAlpha Ruff format and Mypy
+        entry: uv run python scripts/pre_commit_quality.py
+        language: system
+        pass_filenames: true
+        require_serial: true
+        files: >-
+          (?x)^(
+              .*\.pyi?
+            | pyproject\.toml
+            | uv\.lock
+            | \.python-version
+            | \.pre-commit-config\.yaml
+            | packages/.*/pyproject\.toml
+          )$
+
+      - id: onlyalpha-version-sync-check
+        name: Check OnlyAlpha lockstep package versions
+        entry: uv run python scripts/version_sync.py check
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+
+      - id: onlyalpha-uv-lock-check
+        name: Check uv.lock consistency
+        entry: uv lock --check
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: >-
+          (?x)^(
+              pyproject\.toml
+            | uv\.lock
+            | packages/.*/pyproject\.toml
+            | tests/fixtures/external_plugins/.*/pyproject\.toml
+          )$
+
+      - id: onlyalpha-python-version-check
+        name: Check Python 3.12 development environment
+        entry: uv run python scripts/check_python_version.py
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: >-
+          (?x)^(
+              pyproject\.toml
+            | uv\.lock
+            | \.python-version
+          )$

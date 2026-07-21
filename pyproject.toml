@@ -1,13 +1,14 @@
 [project]
 name = "onlyalpha"
-version = "0.2.5"
+version = "0.2.6"
 description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
 dependencies = [
-    "pre-commit>=4.6.0",
+    "mypy-extensions>=1.1.0",
     "pyarrow>=21.0.0",
     "pyyaml>=6.0.2",
+    "tomlkit>=0.15.1",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
@@ -16,17 +17,21 @@ onlyalpha = "onlyalpha.cli:main"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.15",
     "onlyalpha-test-plugin",
-    "pre-commit>=4.6.0",
+    "build>=1.2",
+    "mypy>=1.15",
+    "pre-commit>=4.6",
     "pytest>=8.4",
+    "pytest-cov>=6",
     "ruff>=0.11",
+    "twine>=6",
 ]
-platform-plugins = ["onlyalpha-plugin-miniqmt; sys_platform == 'win32'"]
 
 [tool.uv.workspace]
-members = ["packages/provider/*", "packages/data/*", "packages/fake/*"]
-exclude = ["packages/provider/onlyalpha-plugin-miniqmt"]
+members = [
+    "packages/provider/onlyalpha-plugin-tushare",
+    "packages/provider/onlyalpha-plugin-miniqmt",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -46,9 +51,6 @@ extend-select = ["I", "UP", "B"]
 [tool.ruff.format]
 quote-style = "double"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -59,5 +61,24 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
-onlyalpha-plugin-miniqmt = { path = "packages/provider/onlyalpha-plugin-miniqmt", editable = true }
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+    "packages/provider/onlyalpha-plugin-tushare/tests",
+    "packages/provider/onlyalpha-plugin-miniqmt/tests",
+]
+markers = [
+    "unit: isolated unit test",
+    "contract: public API or plugin contract test",
+    "integration: local integration test",
+    "scenario: Engine scenario test",
+    "conformance: market conformance test",
+    "external: external service integration test",
+    "requires_network: requires network access",
+    "requires_tushare: requires Tushare token",
+    "requires_local_qmt: requires local MiniQMT client",
+    "windows: Windows-only test",
+    "slow: slow test",
+]
