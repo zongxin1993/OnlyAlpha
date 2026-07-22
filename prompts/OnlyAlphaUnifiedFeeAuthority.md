@@ -1,281 +1,196 @@
-你现在负责 OnlyAlpha 的下一项核心架构收敛任务：
+# OnlyAlpha 统一 Fee 权威来源、实盘费用确认与对账闭环
 
-# OnlyAlpha Unified Fee Authority
+你正在修改 OnlyAlpha 工程。请从第一性原则出发，完整解决当前费用来源不统一、Broker Fee 与 Market Fee 可能重复计算、账户扣费与结果事实可能不一致，以及实盘实际费用与本地模型费用发生偏差后无法可靠调账的问题。
 
-中文名称：
+本任务不是只增加几个枚举或数据类，也不是只修改 Virtual Broker 的固定佣金模型。必须完成正式的费用领域模型、费用计算链、Runtime 应用链、实盘确认链、对账链、调账链、结果事实、配置、场景、测试和文档，并迁移现有调用方。
 
-# OnlyAlpha 统一费用权威来源
-
-本任务必须从第一性原理出发，重新审计和收敛 OnlyAlpha 中所有与费用有关的配置、模型、计算、应用、累计、记录、对账和结果输出。
-
-任务的最终目标不是让现有两个费用结果“暂时相等”，而是：
-
-> 在 OnlyAlpha 中建立唯一、明确、可审计的费用权威链。每一笔成交的本地业务费用只能被计算一次、应用一次、累计一次，并以同一份标准 Fee Breakdown 驱动 Account、Strategy Ledger、Execution Result、Collector、Artifact 和 Performance。
-
-同时必须保留外部 Broker 实际报告费用的能力，用于 Live/Paper/Reconciliation，但外部报告值与本地规则计算值必须属于不同的语义，不得继续混为同一个 `fee` 字段。
+必须以当前仓库实际代码为准。先阅读代码和测试，不得依赖过时设计文档猜测实现。
 
 ---
 
-# 一、任务背景
+# 一、第一性原则
 
-当前工程中至少存在两条费用路径。
+## 1. 费用的经济来源与记账权威不是同一个概念
 
-## 路径一：Broker 费用路径
+费用可以来自多个来源：
 
-```text
-Virtual Broker Commission Model
-→ Broker Fill / Broker Trade Fee
-→ ExecutionProcessor
-→ Account
-→ Strategy Ledger
-```
+1. 市场、交易所、监管、清算机构；
+2. 券商、平台、账户合同；
+3. 借券、融资、Funding、换汇等其他正式来源；
+4. 券商后续结算、退费、补扣和调整。
 
-该路径实际影响账户和策略账本。
+这些来源可以分别定义规则，但不能分别修改 Runtime Account。
 
-## 路径二：Market Profile 费用路径
+系统必须形成：
 
 ```text
-Market Profile Fee Model
-→ Market Rule Engine
-→ Fee Instruction
-→ Fee Manager
-→ Fee Facts
-→ Collector / Artifact
+多个 Fee Source
+    ↓
+唯一 Fee Resolution
+    ↓
+唯一 Fee Instruction
+    ↓
+ExecutionProcessor 一次性应用
+    ↓
+Account + StrategyLedger + Result Fact
 ```
 
-该路径主要产生标准费用记录。
+禁止 MarketRuleEngine、Broker、AccountManager、StrategyLedgerManager、Collector 各自重新计算或各自扣费。
 
-如果两条路径的模型、舍入、最低费用、费用类型或累计方式不同，会出现：
+## 2. Backtest/Paper 与 Live 的权威来源不同
+
+### Backtest/Paper
+
+没有真实券商最终结算数据，因此：
 
 ```text
-Account fees
-≠ Strategy Ledger fees
-≠ Execution fee
-≠ Fee Manager records
-≠ Artifact fee facts
+Market Fee Schedule
++
+Broker Fee Schedule
+→ OnlyFeeEngine 计算结果
+→ 最终费用事实
 ```
 
-这不是普通计算错误，而是领域权威不明确。
+在 Backtest/Paper 中，模型计算结果是最终权威费用。
 
-本任务必须彻底解决。
+### Live
 
----
-
-# 二、第一性原理
-
-开始设计前，必须接受以下基本事实。
-
-## 2.1 成交事实和费用事实不同
-
-一笔成交事实至少描述：
+本地模型不可能保证永远等于券商最终收费，因此：
 
 ```text
-成交标的
-成交方向
-开平语义
-成交价格
-成交数量
-成交时间
-成交场所
-流动性角色
-Broker 身份
+本地模型
+    负责事前估算、风险预留和暂记
+
+Broker 回报、账户快照、结算单
+    负责外部确认
+
+Reconciliation
+    负责比较、解释和调账
 ```
 
-费用事实描述：
+Live 中不能把本地模型永久当成最终真相。
+
+## 3. 历史事实不可变
+
+已经产生的成交、暂记费用、确认费用不能被静默覆盖。
+
+费用差异必须通过新的 Adjustment Fact 追加：
 
 ```text
-因该成交产生了什么费用
-费用由谁收取
-费用属于什么类型
-计算基础是什么
-费率是多少
-最低费用如何累计
-最终应计和实收是多少
+原暂记费用：10.00
+Broker 确认费用：12.00
+Fee Adjustment：+2.00
+最终费用：12.00
 ```
 
-Broker Trade 不应该因为方便而成为所有费用语义的唯一容器。
+禁止：
 
----
+```python
+trade.fee = reported_fee
+```
 
-## 2.2 市场制度费用与 Broker 报告费用不是同一个概念
+禁止直接修改历史 Fee Fact。
+
+## 4. “费率为零”和“忽略费用”不是同一个状态
 
 必须区分：
 
-### Market/Venue/Regulatory Fees
-
-例如：
-
 ```text
-交易佣金规则
-最低佣金
-印花税
-过户费
-交易所费
-监管费
-Maker/Taker Fee
-期货开仓费
-期货平仓费
-平今费
-Funding
-Borrow Fee
+NONE
+    明确不建模该类费用
+
+MODEL
+    使用指定模型，模型费率可以合法为 0
+
+DEFAULT
+    使用 Market Profile 或 Broker Plugin 默认方案
+
+REPORTED
+    以 Broker 外部回报为最终来源
 ```
 
-这些由：
+配置遗漏不能自动等价为零费率。
 
-```text
-Market Profile
-Venue Rules
-Instrument Reference
-Account Fee Schedule
-```
+## 5. 所有金额必须可解释、可审计、可重放
 
-共同决定。
+每一笔最终费用都必须能够回答：
 
-### Broker-Reported Fees
-
-真实 Broker 回报的：
-
-```text
-reported commission
-reported tax
-reported exchange fee
-reported total fee
-```
-
-这是外部事实。
-
-它可能：
-
-```text
-与本地规则一致
-晚于成交回报到达
-只有总费用没有 Breakdown
-包含 Broker 特殊优惠
-包含本地规则未知的费用
-需要后续冲正
-```
-
-因此不能强制把两者合并为同一字段。
+* 来自市场还是券商；
+* 属于哪种费用；
+* 使用哪个 Schedule 和版本；
+* 是估算、暂记还是确认；
+* 对应哪笔成交、订单、账户或交易日；
+* 是否发生过调账；
+* Broker 原始回报是什么；
+* 最终 Account、Ledger 和 Result 为什么得到当前金额。
 
 ---
 
-## 2.3 权威来源随运行模式不同，但业务接口必须统一
+# 二、任务目标
 
-Backtest：
-
-```text
-本地 Fee Rule
-是最终记账权威
-```
-
-Paper：
+完成统一费用体系，使以下不变量始终成立：
 
 ```text
-本地 Fee Rule
-是最终记账权威
+Account 累计费用
+=
+StrategyLedger 累计费用之和或明确的归因关系
+=
+已应用 Fee Instruction 的净额
+=
+Fee Facts 与 Fee Adjustment Facts 的净额
+=
+Execution Result 中最终确认的费用
 ```
 
-Live：
-
-可以采用以下明确策略之一：
+对于 Backtest/Paper：
 
 ```text
-LOCAL_ESTIMATE_THEN_RECONCILE
-BROKER_REPORTED_AUTHORITY
-LOCAL_RULE_AUTHORITY
+模型费用总额
+=
+账户实际扣费
+=
+Ledger 实际扣费
+=
+结果费用事实
 ```
 
-但无论采用哪种策略，ExecutionProcessor、Account、Ledger、Collector 使用的接口和事实模型必须一致。
-
-禁止出现：
-
-```python
-if backtest:
-    use_fee_manager()
-elif live:
-    use_trade.fee
-```
-
-正确方向是：
+对于 Live：
 
 ```text
-Fee Resolution Policy
-→ Authoritative Fee Application
+本地暂记费用
++
+后续调整
+=
+Broker 最终确认费用
 ```
+
+任何不一致都必须产生正式 Reconciliation Result，不能静默修正。
 
 ---
 
-## 2.4 一笔费用只能被应用一次
+# 三、阶段 0：全面审计当前实现
 
-无论费用来自本地计算还是 Broker 报告，最终记账必须满足：
-
-```text
-一个 Fee Application ID
-→ 一次 Account Mutation
-→ 一次 Ledger Mutation
-→ 一组 Fee Facts
-```
-
-重复 Broker Update、重放、恢复和 reconciliation 不能导致重复扣费。
-
----
-
-## 2.5 Fee Breakdown 必须是一等领域事实
-
-不能继续只传递：
-
-```python
-fee: OnlyMoney
-```
-
-因为单个总额无法表达：
-
-```text
-Commission
-Minimum Commission
-Tax
-Transfer Fee
-Exchange Fee
-Regulatory Fee
-Maker/Taker
-Open/Close/CloseToday Fee
-Broker Adjustment
-Fee Reversal
-```
-
-必须建立稳定、可版本化、可序列化的 Fee Breakdown。
-
----
-
-# 三、开始前必须重新审计当前代码
-
-不得直接编码。
-
-首先重新阅读当前主分支所有费用相关实现。
-
-至少审计：
+先全局阅读并建立审计报告，至少检查：
 
 ```text
 src/onlyalpha/market/
+src/onlyalpha/fee/
 src/onlyalpha/broker/
 src/onlyalpha/execution/
 src/onlyalpha/account/
 src/onlyalpha/strategy_ledger/
 src/onlyalpha/order/
+src/onlyalpha/risk/
 src/onlyalpha/result/
-src/onlyalpha/artifact/
-src/onlyalpha/runtime/
-src/onlyalpha/config/
 src/onlyalpha/scenario/
-src/onlyalpha/application/
-
-packages/**/broker/
-packages/**/data_source/
-tests/
+src/onlyalpha/conformance/
+src/onlyalpha/runtime/
+packages/
 examples/
+tests/
 ```
 
-重点搜索：
+搜索所有：
 
 ```text
 fee
@@ -283,1433 +198,1161 @@ fees
 commission
 commission_model
 fixed_commission
-tax
 stamp_duty
 transfer_fee
 exchange_fee
-maker
-taker
-close_today
 trade.fee
-fill.fee
-account.fees
-ledger.fees
-FeeInstruction
-FeeManager
-FeeRecord
-FeeFact
+reported_fee
+apply_fee
+fee_instruction
+fee_manager
 ```
 
-必须输出：
+必须识别并记录：
+
+1. 当前 Virtual Broker 如何计算 Commission；
+2. Broker Fill/Trade 中 Fee 字段如何产生；
+3. ExecutionProcessor 如何使用 Fee；
+4. Account 和 StrategyLedger 实际扣的是哪个 Fee；
+5. MarketRuleEngine 和 FeeManager 计算了什么；
+6. Collector 输出的 Fee Fact 来自哪里；
+7. 是否存在同一笔成交重复扣费；
+8. 是否存在 Fee Fact 与账户费用不一致；
+9. 当前配置如何表达零费率；
+10. MiniQMT 或其他真实 Broker 是否返回 Fee；
+11. 当前 Account Reconciliation 是否比较费用；
+12. 当前结果指纹是否包括 Fee 和 Adjustment；
+13. 当前 Scenario/Conformance 对 Fee 验证到什么程度。
+
+生成：
 
 ```text
 docs/reports/unified_fee_authority_audit.md
 ```
 
-审计报告必须列出：
+报告必须包含：
 
-1. 每个费用相关类型；
-2. 每个费用计算入口；
-3. 每个费用应用入口；
-4. 每个费用累计入口；
-5. 每个费用结果输出入口；
-6. 每个 Broker reported fee 入口；
-7. 重复或冲突的费用模型；
-8. 当前真正影响 Account 的路径；
-9. 当前真正影响 Strategy Ledger 的路径；
-10. 当前 Artifact 使用的路径；
-11. Backtest、Paper、Live、Shadow 各自预期的费用权威；
-12. 应删除、保留、重命名和迁移的接口。
+* 当前调用链；
+* 当前权威来源；
+* 重复计算点；
+* 状态修改点；
+* 数据模型冲突；
+* 需要删除或迁移的旧接口；
+* 实施计划；
+* 风险和兼容性影响。
 
-审计必须基于实际源码，不得只复制旧文档。
+不得在未完成审计前直接堆叠新实现。
 
 ---
 
-# 四、建立明确的费用领域语言
+# 四、正式费用领域模型
 
-必须建立或完善以下概念。
+根据当前项目命名规范实现或整理以下正式模型。名称可根据现有代码适配，但语义不得缺失。
 
-具体名称服从当前工程命名风格，但不得省略语义。
+## 1. 费用来源
 
-## 4.1 OnlyFeeType
-
-至少考虑：
-
-```text
-COMMISSION
-MINIMUM_COMMISSION_ADJUSTMENT
-STAMP_DUTY
-TRANSFER_FEE
-EXCHANGE_FEE
-REGULATORY_FEE
-BROKER_FEE
-MAKER_FEE
-TAKER_FEE
-OPEN_FEE
-CLOSE_FEE
-CLOSE_TODAY_FEE
-BORROW_FEE
-FUNDING_FEE
-OTHER
-ADJUSTMENT
-REVERSAL
+```python
+class OnlyFeeAuthority(Enum):
+    MARKET = ...
+    VENUE = ...
+    REGULATOR = ...
+    CLEARING = ...
+    BROKER = ...
+    PLATFORM = ...
+    FINANCING = ...
+    BORROW = ...
+    FUNDING = ...
+    OTHER = ...
 ```
 
-未实现的能力可以暂时不启用，但模型必须避免股票佣金专用化。
+## 2. 费用类型
 
----
+至少支持：
 
-## 4.2 OnlyFeeComponent
+```python
+class OnlyFeeType(Enum):
+    STAMP_DUTY = ...
+    TRANSFER_FEE = ...
+    EXCHANGE_FEE = ...
+    CLEARING_FEE = ...
+    REGULATORY_FEE = ...
+    BROKER_COMMISSION = ...
+    PLATFORM_FEE = ...
+    CONTRACT_FEE = ...
+    OPEN_FEE = ...
+    CLOSE_FEE = ...
+    CLOSE_TODAY_FEE = ...
+    MAKER_FEE = ...
+    TAKER_FEE = ...
+    BORROW_FEE = ...
+    FINANCING_FEE = ...
+    FUNDING = ...
+    FX_CONVERSION_FEE = ...
+    OTHER = ...
+```
 
-建议字段：
+## 3. 费用状态
+
+```python
+class OnlyFeeStatus(Enum):
+    ESTIMATED = ...
+    PROVISIONAL = ...
+    CONFIRMED = ...
+    ADJUSTED = ...
+    REVERSED = ...
+```
+
+## 4. 配置模式
+
+```python
+class OnlyFeeConfigurationMode(Enum):
+    NONE = ...
+    MODEL = ...
+    DEFAULT = ...
+    REPORTED = ...
+```
+
+## 5. Broker 回报能力
+
+```python
+class OnlyBrokerFeeReportingMode(Enum):
+    NONE = ...
+    COMMISSION_ONLY = ...
+    DETAILED = ...
+    ALL_IN = ...
+    DEFERRED_STATEMENT = ...
+```
+
+语义必须明确：
+
+* `COMMISSION_ONLY`：Broker 只回报券商佣金，市场费用仍由 Market Schedule 计算；
+* `DETAILED`：Broker 回报拆分费用；
+* `ALL_IN`：Broker 回报已包含全部费用，不得再重复叠加 Market Fee；
+* `DEFERRED_STATEMENT`：成交时无最终费用，等待结算单；
+* `NONE`：Broker 不回报费用。
+
+## 6. Fee Component
 
 ```python
 @dataclass(frozen=True, slots=True)
 class OnlyFeeComponent:
     fee_type: OnlyFeeType
+    authority: OnlyFeeAuthority
     amount: OnlyMoney
-    calculation_basis: OnlyFeeCalculationBasis
-    rate: Decimal | None
-    quantity: OnlyQuantity | None
-    notional: OnlyMoney | None
-    source: OnlyFeeSource
-    recipient: str | None
-    metadata: OnlyJsonMapping
+    status: OnlyFeeStatus
+    source_id: str
+    schedule_id: str | None
+    schedule_version: str | None
+    effective_date: date | None
+    metadata: Mapping[str, object]
 ```
 
-要求：
+必须使用不可变、Decimal 基础的金额类型。
 
-```text
-amount 不得为 float
-币种必须显式
-金额方向必须有统一约定
-字段必须可序列化
-```
-
-建议费用金额使用非负值，应用方向由 `OnlyFeeApplication` 决定。
-
----
-
-## 4.3 OnlyFeeBreakdown
-
-建议字段：
+## 7. Fee Breakdown
 
 ```python
 @dataclass(frozen=True, slots=True)
 class OnlyFeeBreakdown:
+    currency: OnlyCurrency
     components: tuple[OnlyFeeComponent, ...]
     total: OnlyMoney
-    calculation_currency: OnlyCurrency
-    rule_identity: OnlyFeeRuleIdentity
-    fingerprint: str
+    status: OnlyFeeStatus
 ```
 
-必须保证：
+构造时必须验证：
 
 ```text
-sum(component.amount) == total
+total == sum(components.amount)
+所有 Component 币种一致
+金额精度合法
+不允许重复的唯一费用 Component
 ```
 
-该约束应由构造函数或专门 Factory 强制执行。
+## 8. Fee Calculation Request
 
----
-
-## 4.4 OnlyFeeSource
-
-必须区分：
+至少包含：
 
 ```text
-LOCAL_MARKET_RULE
-LOCAL_ACCOUNT_SCHEDULE
-BROKER_REPORTED
-VENUE_REPORTED
-RECONCILIATION_ADJUSTMENT
-MANUAL_ADJUSTMENT
+runtime_id
+cluster_id
+account_id
+order_id
+trade_id
+instrument
+market/profile identity
+trading day
+side
+offset
+liquidity role
+price
+quantity
+notional
+contract multiplier
+currency
+broker identity
+broker fee reporting mode
+broker reported fee
 ```
 
-禁止用一个含义不明的 `fee` 字段同时表示本地估算和 Broker 实收。
+Fee Engine 不能通过读取 Runtime Manager 私有状态拼装隐式输入。
 
----
+## 9. Fee Instruction
 
-## 4.5 OnlyFeeApplication
-
-建议建立：
+实现正式不可变指令：
 
 ```python
-@dataclass(frozen=True, slots=True)
-class OnlyFeeApplication:
-    application_id: OnlyFeeApplicationId
-    account_id: OnlyAccountId
-    cluster_id: OnlyClusterId | None
-    order_id: OnlyOrderId
-    trade_id: OnlyTradeId
-    breakdown: OnlyFeeBreakdown
-    authority: OnlyFeeAuthority
-    operation: OnlyFeeApplicationOperation
-    sequence: int
-    ts_event: OnlyTimestamp
+OnlyFeeInstruction
 ```
 
-操作至少考虑：
+必须包含：
 
 ```text
-ACCRUE
-CHARGE
-ADJUST
-REVERSE
-```
-
-首期可以只正式支持 `CHARGE`，但接口不得阻止后续冲正。
-
----
-
-# 五、定义唯一权威链
-
-任务完成后的正式路径必须为：
-
-```text
-Broker Trade Fact
-+ Market / Venue / Instrument / Account Context
-+ Fee Resolution Policy
-        ↓
-Authoritative OnlyFeeBreakdown
-        ↓
-OnlyFeeApplication
-        ↓
-ExecutionProcessor
-        ├── Account Manager
-        ├── Strategy Ledger Manager
-        ├── Fee Manager
-        ├── Execution Fact
-        └── Audit/Event
-        ↓
-Collector
-        ↓
-Result / Artifact / Analytics
-```
-
-核心原则：
-
-> Account、Strategy Ledger、Fee Manager、Execution Fact 和 Collector 必须消费同一个 `OnlyFeeApplication` 或同一份不可变 `OnlyFeeBreakdown`。
-
-禁止各组件自行重新计算费用。
-
----
-
-# 六、费用计算职责边界
-
-## 6.1 Market Profile / Fee Rule
-
-负责定义：
-
-```text
-适用费用类型
-费率
-最低费用规则
-买卖方向差异
-开平差异
-Maker/Taker
-场所和市场制度
-有效日期和版本
-```
-
-不负责：
-
-```text
-修改账户
-修改 Ledger
-保存运行状态
-处理重复 Broker Update
-写 Artifact
-```
-
----
-
-## 6.2 Instrument Reference
-
-负责提供：
-
-```text
-venue
-asset class
-currency
-contract multiplier
-board
-fee category
-instrument-specific fee metadata
-```
-
-不负责计算最终费用。
-
----
-
-## 6.3 Account Fee Schedule
-
-用于表达账户、券商或客户级差异：
-
-```text
-broker discount
-commission tier
-minimum commission
-account-specific schedule
-VIP rate
-```
-
-必须明确它与 Market Profile Fee Rule 的合并顺序。
-
-推荐：
-
-```text
-Market/Venue mandatory fees
-+
-Account/Broker commercial schedule
-=
-Resolved Local Fee Rule
-```
-
-监管税费不能被普通 Broker discount 覆盖。
-
----
-
-## 6.4 Broker Gateway
-
-Broker 负责：
-
-```text
-报告 Broker 原始成交
-报告 Broker 原始费用
-报告费用调整或冲正
-```
-
-Broker 不负责：
-
-```text
-直接修改 Runtime Account
-直接修改 Strategy Ledger
-决定 Backtest 最终费用权威
-生成本地 Market Fee Facts
-```
-
-Virtual Broker 可以模拟 Broker reported fee，但该费用必须明确标记：
-
-```text
-source = BROKER_REPORTED
-```
-
-不能再直接作为未区分来源的本地账户费用。
-
----
-
-## 6.5 ExecutionProcessor
-
-ExecutionProcessor 是费用应用的唯一正式入口。
-
-职责：
-
-```text
-接收 Broker Trade Update
-去重和排序
-解析权威 Fee Breakdown
-生成 Fee Application
-一次性更新 Account
-一次性更新 Strategy Ledger
-一次性登记 Fee Manager
-写入 Execution Audit
-发布标准事件
-```
-
-不负责：
-
-```text
-硬编码 A 股费用
-硬编码 Futures Fee
-自行读取 Profile ID 分支
-```
-
----
-
-## 6.6 Fee Manager
-
-Fee Manager 只维护：
-
-```text
-Fee Application
-Fee Component
-累计已计费用
-累计已收费用
-Adjustment
-Reversal
-查询和标准记录
-```
-
-Fee Manager 不应再次调用 Fee Rule 重新计算。
-
-如果当前 `FeeManager` 同时计算和记录，必须拆分：
-
-```text
-Fee Resolver / Calculator
-Fee Manager / Store
-```
-
----
-
-## 6.7 Account Manager
-
-Account Manager 只应用：
-
-```text
-authoritative fee cash delta
-```
-
-不得根据 Trade 自行重新计算费用。
-
----
-
-## 6.8 Strategy Ledger
-
-Strategy Ledger 使用与 Account 相同的 Fee Application。
-
-如果 Shared Account 中一个 Trade 属于某个 Cluster：
-
-```text
-Account 扣减完整权威费用
-该 Cluster Ledger 扣减相同归属费用
-```
-
-如果未来一个 Trade 跨多个 Cluster 分配，应由 Allocation 层生成明确 Fee Allocation，不能简单平均。
-
----
-
-## 6.9 Collector
-
-Collector 只投影正式 Fee Application 和 Fee Records。
-
-不得：
-
-```text
-根据成交额重新计算费率
-把 Broker reported total 当作权威费用
-从 Account fees 反推出 Fee Breakdown
-```
-
----
-
-# 七、运行模式费用策略
-
-实现明确配置：
-
-```text
-OnlyFeeAuthorityPolicy
-```
-
-至少支持以下语义。
-
-## 7.1 LOCAL_RULE_AUTHORITY
-
-适用于：
-
-```text
-Backtest
-Paper
-```
-
-流程：
-
-```text
-本地规则计算
-→ 本地费用权威
-→ Broker reported fee 仅作诊断
-```
-
----
-
-## 7.2 BROKER_REPORTED_AUTHORITY
-
-适用于特定 Live Broker。
-
-流程：
-
-```text
-Broker reported fee
-→ 最终权威
-```
-
-如果 Broker 成交回报暂时没有费用：
-
-```text
-不得静默记为零
-```
-
-必须明确：
-
-```text
-PENDING_BROKER_FEE
-```
-
-或使用其他正式待结算状态。
-
----
-
-## 7.3 LOCAL_ESTIMATE_THEN_RECONCILE
-
-推荐用于大多数 Live 模式。
-
-流程：
-
-```text
-成交到达
-→ 本地 Fee Estimate
-→ Account/Ledger 暂记
-
-Broker Fee 到达
-→ 比较实际与估算
-→ 生成 Adjustment 或 Reversal
-→ Account/Ledger/FeeManager 同步调整
-```
-
-必须防止：
-
-```text
-估算扣一次
-Broker reported 再扣一次
-```
-
-差额应为：
-
-```text
-broker_reported_total - already_applied_authoritative_total
-```
-
----
-
-# 八、最低费用与多 Fill 累计
-
-必须正式解决：
-
-```text
-一个订单多次成交
-最低佣金不能每次 Fill 重复收取
-```
-
-建议使用 Order-level Fee Accumulator。
-
-状态至少包含：
-
-```text
+instruction_id
+runtime_id
+cluster_id
+account_id
 order_id
-fee_rule_identity
-cumulative_notional
-cumulative_quantity
-cumulative_required_fee
-cumulative_applied_fee
-component-level cumulative totals
+trade_id
+fee_breakdown
+calculation_source
+created_at
+idempotency_key
 ```
 
-每次 Fill 的费用增量：
+只有该指令可以驱动 Account 和 Ledger 的费用修改。
+
+## 10. Fee Adjustment
+
+实现：
+
+```python
+OnlyFeeAdjustmentInstruction
+```
+
+至少包含：
 
 ```text
-current_fill_fee_delta
-=
-cumulative_required_fee_after_fill
--
-cumulative_applied_fee_before_fill
+adjustment_id
+related_trade_id 或 settlement scope
+account_id
+cluster_id 可选
+currency
+previous_amount
+reported_amount
+adjustment_amount
+reason
+external_reference
+created_at
+idempotency_key
 ```
 
-必须覆盖：
+Adjustment 可以是正数、负数或反向冲销，但必须使用明确语义，不能依赖符号猜测原因。
+
+---
+
+# 五、Market Fee Schedule
+
+市场、交易所、监管、清算费用必须放入版本化的 Market Fee Schedule。
+
+实现或整理：
 
 ```text
-单 Fill
-多 Fill
-最后一笔触发最低费用
-部分成交后撤单
-订单跨多个 Bar 成交
-重复 Trade Update
-乱序 Trade Update
+OnlyMarketFeeSchedule
+OnlyMarketFeeScheduleId
+OnlyMarketFeeScheduleVersion
+OnlyMarketFeeScheduleRegistry
+OnlyMarketFeeScheduleResolver
 ```
 
-同一订单不同费用组件需要分别累计。
+Schedule 必须支持：
+
+```text
+market
+venue
+instrument class
+effective_from
+effective_to
+buy/sell
+open/close/close_today
+maker/taker
+percentage fee
+per-unit fee
+minimum fee
+maximum fee
+rounding mode
+currency
+source
+version
+fingerprint
+```
+
+Market Profile 不应把所有费率散落在 Profile 顶层，而应引用 Schedule Identity。
 
 例如：
 
 ```text
-Commission 有 minimum
-Stamp Duty 无 minimum
-Transfer Fee 按成交额
+CN_A_SHARE_CASH
+    → CN_A_SHARE_STANDARD_FEES@版本
 ```
 
-不能先把所有费用合并后再套最低费用。
+需要提供基础内建模板，但不能把模板写死为不可替换常量。
+
+用户应能够：
+
+1. 使用内建默认 Schedule；
+2. 通过 Registry 注册自定义 Schedule；
+3. 在配置中指定 Schedule ID；
+4. 按交易日解析有效版本；
+5. 在 Artifact 中记录实际使用版本和 Fingerprint。
+
+禁止用户为了更改费率直接修改 Core 源码。
 
 ---
 
-# 九、舍入与精度规则
+# 六、Broker Fee Schedule
 
-费用计算必须明确以下顺序：
+券商合同收费必须与 Market Fee Schedule 分开。
 
-```text
-原始计算基础
-→ 费率计算
-→ 费用组件舍入
-→ 最低费用调整
-→ Breakdown 合计
-→ Account Currency 应用
-```
-
-必须定义：
+实现或整理：
 
 ```text
-每个组件舍入还是总额舍入
-币种 precision
-ROUND_HALF_UP / ROUND_HALF_EVEN 等模式
-最小货币单位
-负费用或返佣规则
+OnlyBrokerFeeSchedule
+OnlyBrokerFeeScheduleId
+OnlyBrokerFeeScheduleVersion
+OnlyBrokerFeeScheduleRegistry
+OnlyBrokerFeeScheduleResolver
 ```
 
-不得依赖 Python 默认 Decimal Context。
-
-不得使用 float。
-
-费用舍入规则应进入：
+至少支持：
 
 ```text
-Fee Rule Identity
-Fee Breakdown Fingerprint
-Result Fingerprint
+broker/provider identity
+account scope
+effective_from/effective_to
+commission rate
+minimum commission
+per-share/per-contract fee
+platform fee
+rounding mode
+currency
+source
+version
+fingerprint
 ```
+
+Broker 插件可以：
+
+* 提供默认 Schedule；
+* 声明 `DEFAULT`；
+* 接收用户指定 Schedule；
+* 声明 `REPORTED`；
+* 声明 Broker Fee Reporting Mode。
+
+不能让 Broker Plugin 直接修改 Runtime Account。
 
 ---
 
-# 十、货币与多币种
+# 七、OnlyFeeEngine：唯一费用解析器
 
-当前即使主要使用单币种，也必须避免把费用系统锁死为单币种。
-
-必须明确：
-
-```text
-trade currency
-fee currency
-account base currency
-settlement currency
-```
-
-如果费用币种与账户币种不同：
-
-```text
-没有显式 FX Rate 时不得自动转换
-```
-
-首期可显式返回：
-
-```text
-FEE_CURRENCY_CONVERSION_REQUIRED
-```
-
-不得偷偷使用 1:1。
-
----
-
-# 十一、Broker Reported Fee 模型
-
-审计当前：
-
-```text
-OnlyBrokerTradeSnapshot
-OnlyBrokerTradeUpdate
-OnlyBrokerOrderSnapshot
-MiniQMT Trade Callback
-Virtual Broker Trade
-```
-
-如果已有：
+实现正式：
 
 ```python
-fee: OnlyMoney
+class OnlyFeeEngine:
+    def estimate(...) -> OnlyFeeBreakdown: ...
+    def resolve_trade_fee(...) -> OnlyFeeBreakdown: ...
+    def reconcile_reported_fee(...) -> OnlyFeeReconciliationResult: ...
 ```
 
-必须决定：
+## 估算阶段
 
-### 推荐方案
-
-重命名为：
+下单前调用：
 
 ```text
-reported_fee_total
+Market Fee Schedule
++
+Broker Fee Schedule
++
+保守 Reservation Policy
+→ ESTIMATED Fee Breakdown
+```
+
+用于 Risk 和资金预留。
+
+必须支持：
+
+```text
+expected_fee
+maximum_fee
+reservation_fee
+```
+
+预留费用不得简单等于最可能费用。需要考虑：
+
+* 最低佣金；
+* 四舍五入；
+* 安全缓冲；
+* 部分成交；
+* 多次成交导致的最低佣金语义；
+* Broker 无法立即确认费用。
+
+## 成交阶段
+
+### Backtest/Paper
+
+Fee Engine 计算：
+
+```text
+Market Components
++
+Broker Components
+→ CONFIRMED Fee Breakdown
+```
+
+### Live 且 Broker 不立即返回完整费用
+
+生成：
+
+```text
+PROVISIONAL Fee Breakdown
+```
+
+### Live 且 Broker 回报详细费用
+
+根据 Reporting Mode 解析：
+
+* `COMMISSION_ONLY`：Broker Commission + 本地 Market Fee；
+* `DETAILED`：使用 Broker 明细并进行合理校验；
+* `ALL_IN`：使用 Broker All-in，总费用不得再次叠加；
+* `DEFERRED_STATEMENT`：暂记本地模型；
+* `NONE`：暂记本地模型。
+
+Fee Engine 必须防止重复计费。
+
+---
+
+# 八、ExecutionProcessor 成为唯一应用入口
+
+重构正式交易链：
+
+```text
+Broker Trade Update
+    ↓
+ExecutionProcessor
+    ↓
+MarketRule / Trade Instruction
+    ↓
+OnlyFeeEngine
+    ↓
+OnlyFeeInstruction
+    ↓
+AccountManager
+StrategyLedgerManager
+FeeManager / Fee Ledger
+Collector
+```
+
+只有 ExecutionProcessor 或其受控事务服务可以协调应用 Fee Instruction。
+
+必须保证：
+
+1. Account 费用更新一次；
+2. StrategyLedger 费用更新一次；
+3. Fee Fact 记录一次；
+4. 相同 idempotency key 重放不重复扣费；
+5. 中途失败时整体回滚或进入明确 reconciliation 状态；
+6. Collector 不重新计算；
+7. AccountManager 不读取 Market Profile；
+8. StrategyLedgerManager 不读取 Broker Config；
+9. Broker 不直接调用 AccountManager；
+10. MarketRuleEngine 不直接扣款。
+
+---
+
+# 九、迁移 Broker Trade Fee
+
+检查当前 `trade.fee`、Broker Fill Fee 和所有 Commission Model。
+
+目标语义：
+
+```text
+Broker Trade Update 中的 fee
+    = Broker 原始回报
+    ≠ 自动等于 Runtime 最终费用
+```
+
+建议迁移为明确字段：
+
+```text
+reported_fee
 reported_fee_breakdown
+fee_reporting_mode
+fee_external_reference
 ```
 
-并明确：
+如果为兼容必须暂时保留 `fee`，也必须降级为 Broker 原始字段，并在文档中声明弃用，随后迁移全部调用方并删除旧接口。
 
-```text
-该值是外部事实
-不是 Runtime 权威应用结果
-```
-
-如果 Broker 不提供费用：
-
-```text
-None
-```
-
-比错误地填零更准确。
-
-不要为了旧接口兼容保留两个含义相同的字段。
-
-迁移全部插件和测试后删除旧字段。
+不要保留两套长期接口。
 
 ---
 
-# 十二、Execution Fact 与 Fee Fact
+# 十、Virtual Broker 迁移
 
-## 12.1 Execution Fact
+当前 Virtual Broker 内部的固定佣金模型不能继续独立决定 Runtime Account 的最终费用。
 
-Execution Fact 应保留：
+重构后：
 
-```text
-trade identity
-price
-quantity
-notional
-reported broker fee
-authoritative applied fee
-fee application id
-fee authority
+1. Virtual Broker 继续负责撮合、订单、成交和 Broker 侧模拟；
+2. Virtual Broker 可以模拟 Broker Fee Schedule 或 Broker Reported Fee；
+3. Virtual Broker 生成标准 Broker Fee Report；
+4. Runtime Fee Engine 决定最终 Fee Instruction；
+5. Runtime Account 只由 ExecutionProcessor 更新。
+
+必须支持配置：
+
+```yaml
+broker:
+  plugin: virtual.broker
+  fees:
+    mode: DEFAULT
 ```
 
-不要只有单一 `fee`。
+```yaml
+broker:
+  plugin: virtual.broker
+  fees:
+    mode: NONE
+```
+
+```yaml
+broker:
+  plugin: virtual.broker
+  fees:
+    mode: MODEL
+    schedule: custom-broker-fees
+```
+
+`NONE` 表示明确不建模 Broker Fee，不等于遗漏配置。
 
 ---
 
-## 12.2 Fee Fact
+# 十一、Live Fee Reconciliation
 
-每个 Fee Fact 至少包含：
+实现：
 
 ```text
-fee_application_id
-fee_component_id
-account_id
-cluster_id
-order_id
-trade_id
-instrument_id
-fee_type
+OnlyFeeReconciliationService
+OnlyFeeReconciliationResult
+OnlyFeeReconciliationStatus
+OnlyFeeDifferenceReason
+```
+
+状态至少包括：
+
+```text
+MATCHED
+ADJUSTMENT_REQUIRED
+RECONCILED_WITH_ADJUSTMENT
+INCOMPLETE_EXTERNAL_DATA
+DUPLICATE_REPORT
+UNEXPLAINED_DIFFERENCE
+TRADING_BLOCKED
+```
+
+差异原因至少包括：
+
+```text
+MINIMUM_COMMISSION
+ROUNDING
+BROKER_RATE_MISMATCH
+MARKET_SCHEDULE_OUTDATED
+ALL_IN_REPORT
+DEFERRED_FEE
+REFUND
+SUPPLEMENTAL_CHARGE
+UNKNOWN
+```
+
+正式流程：
+
+```text
+Broker Fee Report / Settlement Statement
+    ↓
+归一化
+    ↓
+按 trade/account/trading_day 匹配
+    ↓
+与本地 Fee Ledger 比较
+    ↓
+生成 Reconciliation Result
+    ↓
+需要时生成 Fee Adjustment Instruction
+    ↓
+ExecutionProcessor 应用
+```
+
+## 处理策略
+
+### 微小且可解释
+
+自动 Adjustment，记录审计，继续交易。
+
+### 明显但来源明确
+
+自动 Adjustment，产生 Warning，并标记 Fee Model 可能过期。
+
+### 重大且无法解释
+
+不能使用 `OTHER` Fee 静默抹平。
+
+必须：
+
+```text
+阻止新增风险订单
+允许查询和撤单
+按风险策略决定是否允许降风险平仓
+拉取全量 Account/Position/Order/Trade/Fee Snapshot
+进入 RECONCILIATION_REQUIRED
+产生高等级诊断
+```
+
+---
+
+# 十二、Account Reconciliation
+
+Fee Reconciliation 必须接入 Account Reconciliation。
+
+比较：
+
+```text
+cash
+available cash
+frozen cash
+unsettled cash
+equity
+margin
+position
+cumulative fees
+daily fees
+```
+
+如果 Account 差异可由 Fee Adjustment 精确解释：
+
+```text
+生成 Fee Adjustment
+→ Account 差异归零
+```
+
+如果不能解释：
+
+```text
+不得直接覆盖本地 Account
+不得制造虚假 Fee
+进入 Account Reconciliation Required
+```
+
+Broker Account 是 Live 外部权威事实，本地 Account 是低延迟运行镜像；两者必须可以对账，但不能无审计地互相覆盖。
+
+---
+
+# 十三、费用版本化和指纹
+
+每一笔 Fee Component、Fee Instruction 和 Adjustment 必须记录：
+
+```text
+market_fee_schedule_id
+market_fee_schedule_version
+market_fee_schedule_fingerprint
+broker_fee_schedule_id
+broker_fee_schedule_version
+broker_fee_schedule_fingerprint
+profile_id
+profile_version
+effective_date
+calculation_timestamp
 source
-authority
-operation
-amount
-currency
-rate
-notional
-quantity
-rule_id
-rule_version
-sequence
-ts_event
-schema_version
 ```
 
-必须能从 Fee Facts 精确重建：
+旧 Schedule 不得原地修改。
 
-```text
-每笔成交总费用
-每个订单累计费用
-账户总费用
-Cluster 总费用
-每种费用类型总额
-```
+费率变化必须新建版本，并保留旧成交对旧版本的绑定。
+
+Result Fingerprint 和 Artifact 必须包含：
+
+* 使用的 Fee Schedule；
+* Fee Facts；
+* Fee Adjustments；
+* Reconciliation Results；
+* Broker Fee Reporting Mode。
 
 ---
 
-# 十三、必须成立的财务恒等式
+# 十四、Result、Collector 和 Artifact
 
-完成后必须通过以下恒等式。
+Collector 只能收集正式事实，不得自行推导费率。
 
-## 13.1 单笔成交
-
-```text
-authoritative_trade_fee
-=
-sum(authoritative_fee_components)
-```
-
-## 13.2 账户
+新增或完善：
 
 ```text
-account_total_fees
-=
-sum(applied account fee applications)
+Fee Component Fact
+Fee Breakdown Fact
+Fee Instruction Fact
+Fee Adjustment Fact
+Fee Reconciliation Fact
+Fee Schedule Timeline Fact
 ```
 
-## 13.3 Strategy Ledger
-
-对于单 Cluster Trade：
+Artifact 至少输出：
 
 ```text
-ledger_total_fees
-=
-sum(applied cluster fee applications)
+fees
+fee_adjustments
+fee_reconciliations
+fee_schedule_timeline
 ```
 
-## 13.4 Result
+结果汇总必须区分：
 
 ```text
-result_fee_total
-=
-sum(fee facts)
-=
-account_total_fees
+market fees
+broker fees
+other fees
+provisional fees
+confirmed fees
+adjustments
+net total fees
 ```
 
-## 13.5 Execution
+Backtest 最终结果不允许存在未确认 Provisional Fee。
 
-```text
-sum(execution.authoritative_fee)
-=
-sum(fee facts linked to executions)
-```
-
-## 13.6 Reconciliation
-
-Live 模式：
-
-```text
-local_estimate
-+ reconciliation_adjustments
-=
-broker_reported_authoritative_total
-```
-
-所有恒等式必须使用 Decimal 和显式 Currency。
+Live 结果可以存在 Provisional Fee，但必须显式显示。
 
 ---
 
-# 十四、修改范围
+# 十五、配置设计
 
-重点修改但不限于：
-
-```text
-src/onlyalpha/market/
-src/onlyalpha/execution/
-src/onlyalpha/broker/
-src/onlyalpha/account/
-src/onlyalpha/strategy_ledger/
-src/onlyalpha/result/
-src/onlyalpha/artifact/
-src/onlyalpha/runtime/
-src/onlyalpha/config/
-src/onlyalpha/scenario/
-src/onlyalpha/application/
-packages/provider/onlyalpha-plugin-miniqmt/
-packages/provider/onlyalpha-plugin-tushare/
-tests/
-examples/
-```
-
-Virtual Broker、MiniQMT Broker 以及未来 Broker Plugin 必须使用相同公共费用接口。
-
----
-
-# 十五、应删除的设计
-
-如果实际代码中存在以下设计，完成迁移后删除：
-
-```text
-Broker Commission Model 直接决定 Runtime Account fee
-Trade.fee 同时表示 reported 和 authoritative fee
-FeeManager 再次独立计算费用
-Account 从 Trade 自行读取 fee 并扣款
-Ledger 从 Trade 自行读取 fee 并扣款
-Collector 从成交重新推导 Fee
-Backtest 使用专用 fixed_commission 路径
-按 Runtime Mode 写死费用逻辑
-按 Profile ID 写死费用逻辑
-兼容旧 fee 字段的双路径
-```
-
-不保留旧接口兼容。
-
----
-
-# 十六、配置设计
-
-费用配置应归属于明确层级。
-
-建议：
+配置必须能表达：
 
 ```yaml
 market:
   profile: CN_A_SHARE_CASH
-
-account:
-  fee_schedule:
-    schedule_id: default-cn-equity
-    overrides:
-      commission_rate: "0.0003"
-      minimum_commission: "5.00"
-
-runtime:
-  fee_authority:
-    policy: LOCAL_RULE_AUTHORITY
+  fees:
+    mode: DEFAULT
 ```
 
-约束：
-
-```text
-Market Profile
-    定义市场和监管费用规则
-
-Account Fee Schedule
-    定义账户商业费率和优惠
-
-Runtime Fee Authority Policy
-    定义本地规则与 Broker 报告的权威关系
+```yaml
+market:
+  profile: CN_A_SHARE_CASH
+  fees:
+    mode: MODEL
+    schedule: custom-cn-fees
 ```
 
-不要把全部费用字段重新塞回 Virtual Broker Config。
-
-所有 Decimal 必须使用字符串。
-
----
-
-# 十七、首批必须支持的市场费用
-
-## 17.1 A 股
-
-至少支持：
-
-```text
-Commission
-Minimum Commission
-Sell-side Stamp Duty
-Transfer Fee
+```yaml
+market:
+  profile: CN_A_SHARE_CASH
+  fees:
+    mode: NONE
 ```
 
-必须验证：
+```yaml
+broker:
+  plugin: miniqmt.broker
+  fees:
+    mode: REPORTED
+    reporting_mode: COMMISSION_ONLY
+```
+
+```yaml
+broker:
+  plugin: virtual.broker
+  fees:
+    mode: MODEL
+    schedule: virtual-standard
+    reservation_policy: CONSERVATIVE
+```
+
+缺少配置时必须：
+
+* 使用明确的 DEFAULT；
+* 或配置校验失败。
+
+不得无声退化为零费率。
+
+完全忽略费用时产生诊断：
 
 ```text
-BUY
-SELL
-单 Fill
-多 Fill
-部分成交
-最低佣金
-ST 与非 ST 不影响费用错误串联
+MARKET_FEES_DISABLED
+BROKER_FEES_DISABLED
 ```
 
 ---
 
-## 17.2 Generic T0 Cash
+# 十六、必须删除或迁移的旧设计
 
-至少支持：
+完成后全局检查并清除：
 
-```text
-Commission
-无最低费用或 Profile 定义的最低费用
-```
+1. Broker Fill Fee 直接作为 Account 最终扣费；
+2. Virtual Broker 直接修改 Runtime Account；
+3. Market Fee 只写 Result、不影响 Account；
+4. Collector 重新计算费用；
+5. AccountManager 重新解释费率；
+6. StrategyLedgerManager 独立计算佣金；
+7. 多个组件各自持有不同 Fee Total；
+8. 使用 `0` 同时表示零费率和未配置；
+9. 修改历史 Trade Fee；
+10. 不带版本的全局固定费率；
+11. `OnlyFixedCommissionModel` 作为 Runtime 最终费用权威；
+12. 同一概念的新旧接口长期并存。
 
-用于证明 Core 不硬编码 A 股税费。
-
----
-
-## 17.3 Generic Futures
-
-至少支持：
-
-```text
-OPEN Fee
-CLOSE Fee
-CLOSE_TODAY Fee 扩展接口
-Contract-based Fee
-Notional-based Fee
-```
-
-如果 CLOSE_TODAY 尚未正式启用，必须保留模型和显式 Unsupported Capability，不得错误退化成 CLOSE。
+如果旧类型已无必要，迁移调用方后删除，不要保留双路径。
 
 ---
 
-## 17.4 Crypto Spot
+# 十七、测试要求
 
-至少支持：
-
-```text
-Maker Fee
-Taker Fee
-Fee Currency
-Minimum Fee 扩展
-```
-
-如果当前 Bar Broker 不能区分 Maker/Taker，应使用明确的 Liquidity Role Policy，不得任意猜测。
-
----
-
-# 十八、测试设计
-
-必须新增完整测试矩阵。
-
-## 18.1 Fee Rule Unit Tests
+## 1. 单元测试
 
 覆盖：
 
-```text
-单组件
-多组件
-最低费用
-方向差异
-Offset 差异
-Maker/Taker
-Contract Multiplier
-舍入
-不同币种
-Fingerprint
-```
+* Market Fee Schedule；
+* Broker Fee Schedule；
+* 买卖方向；
+* OPEN/CLOSE/CLOSE_TODAY；
+* 百分比费率；
+* 每股/每合约费用；
+* 最低费用；
+* 最高费用；
+* 四舍五入；
+* 零费率；
+* NONE/MODEL/DEFAULT/REPORTED；
+* Fee Breakdown 合计；
+* Schedule 版本解析；
+* Broker Reporting Mode；
+* Fee Adjustment 正负方向；
+* idempotency。
 
----
+## 2. Backtest 场景
 
-## 18.2 Fee Accumulator Tests
+至少新增：
 
-覆盖：
+### A 股
 
-```text
-单 Fill
-多 Fill
-部分成交后撤单
-重复 Fill
-乱序 Fill
-最低佣金增量
-多个费用组件独立累计
-```
+* 买入：无印花税，有 Broker Commission；
+* 卖出：印花税 + Broker Commission；
+* 最低佣金；
+* 自定义 Market Schedule；
+* Broker Fee 为 NONE；
+* 所有 Fee 为 NONE。
 
----
-
-## 18.3 Execution Integration Tests
-
-验证同一 Fee Application 被：
+验证：
 
 ```text
-Account
-Ledger
-Fee Manager
-Execution Fact
-Collector
-```
-
-一致消费。
-
----
-
-## 18.4 Broker Reported Fee Tests
-
-覆盖：
-
-```text
-无 reported fee
-reported fee 与 estimate 相同
-reported fee 大于 estimate
-reported fee 小于 estimate
-reported fee 延迟到达
-重复 reported fee
-fee reversal
-```
-
----
-
-## 18.5 Scenario Tests
-
-正式通过 OnlyEngine 增加：
-
-```text
-CN_A_SHARE_FEE_SINGLE_FILL
-CN_A_SHARE_FEE_MULTI_FILL_MINIMUM
-GENERIC_T0_FEE
-GENERIC_FUTURES_OPEN_CLOSE_FEE
-GENERIC_CRYPTO_MAKER_TAKER_FEE
-BROKER_FEE_RECONCILIATION
-```
-
-Scenario 不得重新计算费用，只断言标准事实。
-
----
-
-## 18.6 Invariant Tests
-
-必须断言：
-
-```text
-Account fees == Fee Facts total
-Ledger fees == allocated Fee Facts total
-Execution fee == linked Fee Facts total
-无重复 Fee Application
-无 orphan Fee Application
-无未知 Currency 自动换算
-```
-
----
-
-## 18.7 Determinism Tests
-
-相同输入重复运行，以下必须一致：
-
-```text
-Fee Breakdown
-Fee Application ID
-Fee Facts
 Account fees
+=
 Ledger fees
-Result fingerprint
-Artifact fingerprint
+=
+Fee Facts
+```
+
+### 期货
+
+* OPEN；
+* CLOSE；
+* CLOSE_TODAY；
+* 每合约费用；
+* Broker Commission；
+* Partial Fill；
+* Cancel 后释放预留费用。
+
+### Crypto
+
+* Maker；
+* Taker；
+* 零 Broker Fee；
+* 不得重复叠加 All-in Broker Fee。
+
+## 3. Live/Paper 对账模拟
+
+至少覆盖：
+
+1. 模型费用等于 Broker 回报；
+2. 最低佣金导致 Broker 更高；
+3. Broker 回报更低；
+4. Broker 退费；
+5. Broker 补扣；
+6. Broker Commission Only；
+7. Broker Detailed；
+8. Broker All-in；
+9. Deferred Statement；
+10. 重复 Fee Report；
+11. 乱序 Fee Report；
+12. 无法匹配 Trade；
+13. 重大未知 Account 差异；
+14. Adjustment 重放幂等；
+15. Runtime 重启后继续对账。
+
+## 4. 事务测试
+
+模拟以下失败：
+
+```text
+Account 已更新、Ledger 更新失败
+Ledger 已更新、Collector 失败
+Adjustment 应用中断
+重复 Broker 回报
+```
+
+系统必须保持一致或进入明确的 Reconciliation Required，不能部分静默成功。
+
+## 5. 确定性测试
+
+相同 Backtest 输入运行两次：
+
+```text
+Fee Components 相同
+Fee Instructions 相同
+Fee Facts 相同
+Account/Ledger 相同
+Result Fingerprint 相同
+Artifact Fingerprint 相同
 ```
 
 ---
 
-# 十九、跨模块依赖边界
+# 十八、正式不变量
 
-增加架构门禁，保证：
+实现自动检查：
 
 ```text
-broker 不 import account manager
-broker 不 import strategy ledger manager
-account 不 import market fee calculator
-ledger 不 import market fee calculator
-collector 不 import fee rule
-scenario assertion 不 import fee calculator
-plugin 不 import execution concrete implementation
+FEE_BREAKDOWN_TOTAL_MATCHES_COMPONENTS
+ACCOUNT_FEES_MATCH_APPLIED_INSTRUCTIONS
+LEDGER_FEES_MATCH_ATTRIBUTED_INSTRUCTIONS
+RESULT_FEES_MATCH_FEE_FACTS
+NO_DUPLICATE_FEE_APPLICATION
+NO_DOUBLE_COUNTED_ALL_IN_FEE
+NO_UNCONFIRMED_FEE_IN_FINAL_BACKTEST
+NO_ACTIVE_FEE_RESERVATION_AFTER_RUNTIME_CLOSE
+FEE_ADJUSTMENT_NET_MATCHES_REPORTED_TOTAL
 ```
 
-允许：
+多 Cluster 情况必须验证费用归因和 Shared Account 总额一致。
+
+---
+
+# 十九、架构边界测试
+
+增加 Import/Dependency Gate，确保：
 
 ```text
-ExecutionProcessor
-→ Fee Resolution Port
-→ Fee Application Port
+Broker Plugin
+    不依赖 AccountManager、StrategyLedgerManager、Collector
 
-Account / Ledger
-→ Fee Application DTO
+Market Profile
+    不修改账户
+
+AccountManager
+    不依赖 Broker Plugin、Market Profile 具体实现
+
+StrategyLedgerManager
+    不重新计算 Fee
 
 Collector
-→ Fee Query View
+    不依赖 Fee Schedule Resolver
+
+OnlyFeeEngine
+    不依赖 Runtime 私有 Manager
+
+Scenario
+    不直接写 Fee、Account 或 Ledger 状态
+
+CLI
+    不直接操作 FeeManager 内部状态
 ```
 
 ---
 
-# 二十、迁移策略
+# 二十、文档和 ADR
 
-严格按以下阶段执行。
-
-## Stage 1：费用全链审计
-
-生成审计报告和当前数据流图。
-
-## Stage 2：领域模型
-
-建立：
+新增 ADR：
 
 ```text
-Fee Type
-Fee Source
-Fee Authority
-Fee Component
-Fee Breakdown
-Fee Application
-Fee Adjustment
+docs/adr/xxxx-unified-fee-authority-and-reconciliation.md
 ```
 
-## Stage 3：Fee Resolver
+内容必须包括：
 
-收敛 Market、Venue、Instrument、Account Schedule。
-
-## Stage 4：ExecutionProcessor
-
-建立唯一 Fee Application 流程。
-
-## Stage 5：Account 和 Ledger
-
-删除从 `trade.fee` 自行扣款的旧路径。
-
-## Stage 6：Fee Manager
-
-改为只记录和累计 Fee Application。
-
-## Stage 7：Broker 模型
-
-区分 Broker Reported Fee 与 Runtime Authoritative Fee。
-
-## Stage 8：Virtual Broker
-
-删除其对 Runtime 最终费用的权威职责。
-
-## Stage 9：MiniQMT Broker
-
-映射 reported fee；供应商未提供时必须为 None 或 Pending。
-
-## Stage 10：Collector 和 Artifact
-
-统一输出 Fee Application 和 Breakdown。
-
-## Stage 11：Scenario 和 Conformance
-
-建立跨市场费用证据。
-
-## Stage 12：删除旧接口
-
-删除旧 `trade.fee` 双义路径、旧 Commission 权威路径和兼容分支。
-
-## Stage 13：文档和交接
-
-更新所有正式说明。
-
----
-
-# 二十一、文档要求
-
-新增：
-
-```text
-docs/unified_fee_authority.md
-docs/fee_domain_model.md
-docs/fee_runtime_flow.md
-docs/fee_reconciliation.md
-docs/adr/xxxx-unified-fee-authority.md
-docs/reports/unified_fee_authority_audit.md
-```
+* 为什么区分 Fee Source 与 Fee Authority；
+* 为什么 Market Fee 和 Broker Fee 分开定义；
+* 为什么只有 Fee Engine 统一解析；
+* 为什么只有 ExecutionProcessor 应用；
+* Backtest/Paper/Live 的权威差异；
+* 为什么历史事实不可修改；
+* 为什么使用 Adjustment；
+* Broker Reporting Mode；
+* Account Reconciliation；
+* Schedule 版本化；
+* 已拒绝的替代方案。
 
 更新：
 
 ```text
-README.md
-AGENTS.md
-HANDOFF.md
-docs/architecture.md
-docs/runtime.md
-docs/virtual_broker.md
-docs/execution_processor.md
-docs/account.md
-docs/strategy_ledger.md
-docs/results_framework.md
-docs/market_profiles.md
-docs/market_conformance_suite.md
+README
+HANDOFF
+architecture
+market profile 文档
+broker plugin 文档
+backtest 文档
+live runtime 设计文档
+scenario/conformance 文档
+examples README
 ```
 
-文档必须明确：
+文档必须反映实际完成的代码，不得描述尚未实现的能力为已完成。
+
+---
+
+# 二十一、执行顺序
+
+严格按以下顺序执行：
 
 ```text
-谁计算
-谁决定权威
-谁应用
-谁记录
-谁对账
-谁只提供外部事实
+1. 审计当前 Fee 全链
+2. 明确现有重复真相和迁移清单
+3. 建立统一领域模型
+4. 建立 Market Fee Schedule
+5. 建立 Broker Fee Schedule
+6. 建立 OnlyFeeEngine
+7. 接入下单前 Fee Reservation
+8. 接入 ExecutionProcessor 唯一应用链
+9. 迁移 Virtual Broker
+10. 迁移 Account、Ledger、Collector
+11. 实现 Fee Adjustment
+12. 实现 Fee Reconciliation
+13. 接入 Account Reconciliation
+14. 完成 Result/Artifact
+15. 完成 Scenario/Conformance
+16. 删除旧接口
+17. 全量测试和质量门禁
+18. 更新文档和 HANDOFF
 ```
+
+不得跳过旧代码迁移，也不得用兼容层长期保留两套费用链。
 
 ---
 
 # 二十二、质量门禁
 
-必须真实执行：
+必须执行仓库实际支持的全部质量命令，并至少包括：
 
 ```text
-uv sync --all-groups --all-packages
-
-uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
+pytest Core
+pytest 所有 packages
+ruff check .
+ruff format --check .
+mypy Core
+mypy 所有插件
 git diff --check
 ```
 
-同时显式运行所有 Package 测试：
+必须实际运行：
 
-```text
-Core tests
-Virtual Broker tests
-MiniQMT tests
-Tushare tests
-Scenario tests
-Conformance tests
-Examples tests
-```
+* A 股 Fee 场景；
+* 期货 Fee 场景；
+* Crypto Fee 场景；
+* Fee Reconciliation 场景；
+* 多 Cluster Fee 归因；
+* 同输入两次确定性验证。
 
-不得因为根 pytest 配置只包含 `tests/` 而漏掉 `packages/`。
+如果某个命令因环境限制无法运行，必须明确记录：
 
-如真实 MiniQMT 环境可用，执行其非破坏性集成测试。
+* 未运行的命令；
+* 原因；
+* 已采取的替代验证；
+* 剩余风险。
 
-不得虚构在线或实盘费用结果。
+不得虚构测试通过。
 
 ---
 
-# 二十三、完成标准
+# 二十三、硬性完成标准
 
-只有以下全部满足才算完成：
+只有同时满足以下条件，任务才算完成：
+
+1. Market Fee 与 Broker Fee 分别定义；
+2. OnlyFeeEngine 是唯一合并解析器；
+3. ExecutionProcessor 是唯一费用应用协调入口；
+4. Account、Ledger、Fee Facts 金额完全一致；
+5. Backtest/Paper 不再依赖 Broker Fill Fee 作为独立最终真相；
+6. Live 支持 Estimated、Provisional、Confirmed、Adjusted；
+7. Broker 实际费用差异可通过不可变 Adjustment 修正；
+8. 未知重大差异可触发 Reconciliation Required 和交易阻断；
+9. All-in Broker Fee 不会重复叠加 Market Fee；
+10. Schedule 全部版本化并进入 Artifact；
+11. `0` 与 `NONE` 语义分离；
+12. 重复和乱序 Fee Report 幂等；
+13. 旧费用链已删除；
+14. 全部测试和质量门禁通过；
+15. 文档与实际代码一致。
+
+如果任一硬条件未满足，最终报告必须明确写：
 
 ```text
-费用计算权威唯一
-费用应用入口唯一
-费用标准事实唯一
-
-Market Profile Fee Rule 已进入正式链
-Account Fee Schedule 已进入正式链
-Fee Authority Policy 已实现
-
-Broker reported fee 与 authoritative fee 已分离
-Virtual Broker 不再决定 Runtime 最终费用
-Account 不再从含义不明的 trade.fee 自行扣款
-Ledger 不再从含义不明的 trade.fee 自行扣款
-Fee Manager 不再独立重新计算费用
-
-Fee Breakdown 是不可变一等事实
-Fee Application 可幂等
-最低费用多 Fill 累计正确
-Adjustment / Reversal 模型存在
-Live Reconciliation Policy 明确
-
-Account fees
-=
-Ledger allocated fees
-=
-Execution authoritative fees
-=
-Fee Facts total
-
-A 股费用场景通过
-Generic T0 费用场景通过
-Generic Futures 费用场景通过
-Crypto Spot 费用场景通过
-Broker reconciliation 场景通过
-
-重复运行确定性通过
-Artifact 一致
-所有插件测试通过
-所有架构门禁通过
-
-旧费用双路径已删除
-旧兼容接口已删除
-文档已更新
-HANDOFF 已更新
+任务未完成
 ```
+
+不能写“基本完成”“主体完成”或把剩余关键问题推迟为后续工作。
 
 ---
 
 # 二十四、最终报告格式
 
-完成后输出中文报告。
+完成后输出：
 
-## 1. 修改前审计
+## 1. 审计结果
 
-列出所有费用入口、应用入口和冲突路径。
+当前旧费用链、双重真相和删除项。
 
-## 2. 第一性原理决策
+## 2. 第一性原则
 
-说明：
+最终 Fee Authority 和运行模式差异。
 
-```text
-费用是什么
-权威是什么
-Broker Reported 和 Runtime Applied 的区别
-```
+## 3. 新领域模型
 
-## 3. 删除内容
+新增类型、职责和不变量。
 
-列出删除的：
+## 4. Market Fee
 
-```text
-旧 Commission 权威路径
-旧 trade.fee 双义字段
-旧 Account/Ledger 扣费路径
-旧兼容分支
-```
+Schedule、版本、模板和自定义方式。
 
-## 4. 新费用链
+## 5. Broker Fee
 
-展示：
+Schedule、Reporting Mode 和插件接口。
 
-```text
-Trade
-→ Fee Resolution
-→ Fee Breakdown
-→ Fee Application
-→ Account/Ledger/FeeManager
-→ Collector/Artifact
-```
+## 6. Fee Engine
 
-## 5. 模块边界
+估算、解析、合并和防重复逻辑。
 
-分别说明：
+## 7. Runtime 交易链
 
-```text
-Market Profile
-Account Fee Schedule
-Broker
-ExecutionProcessor
-Fee Resolver
-Fee Manager
-Account
-Ledger
-Collector
-```
+ExecutionProcessor 如何统一应用。
 
-以及每个模块不负责什么。
+## 8. Live 对账
 
-## 6. 运行模式
+Broker 确认、Adjustment、Account Reconciliation 和阻断策略。
 
-说明：
+## 9. 迁移和删除
 
-```text
-Backtest
-Paper
-Live
-Shadow
-```
+删除的旧接口和所有调用方迁移情况。
 
-各自使用的 Fee Authority Policy。
+## 10. 场景和 Conformance
 
-## 7. 多市场验证
+实际运行的场景及结果。
 
-报告：
+## 11. 质量结果
 
-```text
-A 股
-T0 Cash
-Futures
-Crypto Spot
-```
+逐条列出测试、ruff、mypy、format、diff-check 的真实结果。
 
-## 8. 财务恒等式
+## 12. 剩余限制
 
-列出每项恒等式的真实测试结果。
-
-## 9. Broker Reconciliation
-
-说明估算、实收、调整和冲正流程。
-
-## 10. Artifact 和 Determinism
-
-列出 Fee Schema、指纹和重复运行结果。
-
-## 11. 质量门禁
-
-列出实际执行命令、退出码和结果。
-
-## 12. 明确未完成
-
-不得把 Funding、Borrow、完整多币种 FX、完整期货交易所费率等未实现能力写成完成。
-
----
-
-# 二十五、最终架构原则
-
-最终实现必须满足：
-
-> Broker 产生成交事实和 Broker 报告费用，不直接决定 Runtime 本地账本的最终费用。
-
-> Market/Venue/Instrument/Account Fee Rules 产生本地费用计算结果。
-
-> Fee Authority Policy 决定本地计算值和 Broker 报告值之间谁是当前权威。
-
-> ExecutionProcessor 是 Fee Application 的唯一正式应用入口。
-
-> Account、Strategy Ledger、Fee Manager、Execution Fact、Collector 和 Artifact 消费同一份 Fee Application。
-
-> 任何费用调整必须通过明确的 Adjustment 或 Reversal，不允许直接覆盖历史记录。
-
-> 多 Fill、重复回报、乱序回报和 Runtime 重放不能造成重复扣费。
-
-> Backtest、Paper、Live、Shadow 共享同一费用领域模型和应用接口，只允许权威策略不同。
-
-> 不为旧费用接口保留兼容路径；重复或双义模型必须删除。
+只能列非阻塞限制。任何硬性标准未完成都必须将任务标记为未完成。

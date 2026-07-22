@@ -289,14 +289,20 @@ class OnlyBacktestResultCollector:
             OnlyFeeResultRecord(
                 sequence=next_sequence(),
                 fee_record_id=item.fee_record_id,
+                instruction_id=item.instruction_id,
+                idempotency_key=item.idempotency_key,
                 account_id=item.account_id,
                 instrument_id=item.instrument_id,
                 order_id=item.order_id,
                 trade_id=item.trade_id,
                 fee_type=item.fee_type,
+                authority=item.authority,
+                status=item.status,
                 accrued=item.accrued,
                 charged=item.charged,
                 currency=item.currency,
+                schedule_id=item.schedule_id,
+                schedule_version=item.schedule_version,
             )
             for item in runtime.fee_manager.records
         )
@@ -465,7 +471,7 @@ class OnlyBacktestResultCollector:
         strategy_by_cluster: dict[str, str],
     ) -> OnlyExecutionResultRecord:
         fill = trade.fill
-        commission = Decimal(0) if fill.fee is None else fill.fee.amount
+        commission = Decimal(0)
         turnover = fill.price.value * fill.quantity.value
         return OnlyExecutionResultRecord(
             sequence=sequence,

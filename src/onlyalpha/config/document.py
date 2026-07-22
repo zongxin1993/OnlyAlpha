@@ -23,6 +23,7 @@ from onlyalpha.config.models import (
     OnlyDataSourceCoverageConfig,
     OnlyDataSourceRuntimeConfig,
     OnlyFactorImportConfig,
+    OnlyFeeConfig,
     OnlyIndicatorSpecConfig,
     OnlyInstrumentBarSubscriptionConfig,
     OnlyJsonMapping,
@@ -456,15 +457,40 @@ class _OnlyClusterDocumentParser:
         for i, value in enumerate(values):
             p = f"$.brokers[{i}]"
             raw = self._map(value, p)
+            fees = self._fee_config(self._map(raw.get("fees", {"mode": "DEFAULT"}), f"{p}.fees"), f"{p}.fees")
             result.append(
                 OnlyBrokerRuntimeConfig(
                     OnlyBrokerGatewayId(self._str(raw.get("gateway_id"), f"{p}.gateway_id")),
                     self._plugin_id(raw, p),
                     self._bool(raw.get("enabled", True), f"{p}.enabled"),
                     self._map(raw.get("extensions", {}), f"{p}.extensions"),
+                    fees,
                 )
             )
         return tuple(result)
+
+    def _fee_config(self, raw: OnlyJsonMapping, path: str) -> OnlyFeeConfig:
+        from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfigurationMode
+
+        try:
+            mode = OnlyFeeConfigurationMode(self._str(raw.get("mode"), f"{path}.mode").upper())
+            reporting = raw.get("reporting_mode")
+            reporting_mode = (
+                None
+                if reporting is None
+                else OnlyBrokerFeeReportingMode(self._str(reporting, f"{path}.reporting_mode").upper())
+            )
+        except ValueError as exc:
+            raise OnlyClusterConfigError(f"{path} has an invalid fee mode") from exc
+        schedule = raw.get("schedule")
+        return OnlyFeeConfig(
+            mode,
+            None if schedule is None else self._str(schedule, f"{path}.schedule"),
+            reporting_mode,
+            None
+            if raw.get("reservation_policy") is None
+            else self._str(raw["reservation_policy"], f"{path}.reservation_policy"),
+        )
 
     def _clusters(self, values: list[OnlyJsonValue]) -> tuple[OnlyClusterImportConfig, ...]:
         return tuple(

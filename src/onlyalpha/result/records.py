@@ -198,14 +198,20 @@ class OnlyMarginResultRecord(OnlySequencedResultRecord):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyFeeResultRecord(OnlySequencedResultRecord):
     fee_record_id: str
+    instruction_id: str
+    idempotency_key: str
     account_id: str
     instrument_id: str
     order_id: str
     trade_id: str
     fee_type: str
+    authority: str
+    status: str
     accrued: Decimal
     charged: Decimal
     currency: str
+    schedule_id: str | None
+    schedule_version: str | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

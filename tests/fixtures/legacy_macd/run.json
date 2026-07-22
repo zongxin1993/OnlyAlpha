@@ -39,7 +39,6 @@
     "gateway_id": "virtual-macd-demo", "plugin": "virtual",
     "extensions": {
       "matching": {"type": "NEXT_BAR"},
-      "commission": {"type": "FIXED", "fixed_amount": {"value": "1.00", "currency": "CNY"}},
       "slippage": {"type": "NONE"}
     }
   }],

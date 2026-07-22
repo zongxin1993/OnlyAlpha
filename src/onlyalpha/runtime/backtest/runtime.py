@@ -70,6 +70,9 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
+from onlyalpha.fee.engine import OnlyFeeEngine
+from onlyalpha.fee.resolver import OnlyFeeResolver
+from onlyalpha.fee.schedules import only_builtin_market_fee_schedule_registry
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
@@ -272,6 +275,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
         position_query = self._position_query
         position_reservations = self._position_reservation_manager
         order_position_reservations = OnlyOrderPositionReservationAdapter(position_reservations)
+        fee_resolver = OnlyFeeResolver(
+            OnlyFeeEngine(),
+            only_builtin_market_fee_schedule_registry(),
+            runtime_config.market_rule_engine,
+            self._instruments,
+            selected_calendar.trading_day_at,
+        )
         strategy_cash_reservations = OnlyOrderStrategyCashReservationAdapter(
             self._strategy_ledger_manager,
             runtime_config.strategy_base_currency,
@@ -281,6 +291,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if order.cluster_id in self._current_snapshots
                 else None
             ),
+            fee_resolver,
         )
         account_cash_reservations = OnlyRuntimeAccountCashReservationAdapter(
             self._account_manager,
@@ -291,6 +302,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if order.cluster_id in self._current_snapshots
                 else None
             ),
+            fee_resolver,
         )
         order_cash_reservations = OnlyRuntimeCompositeCashReservationAdapter(
             account_cash_reservations,
@@ -413,7 +425,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             risk_service,
             position_reservations,
             order_position_reservations,
-            account_cash_reservations.consume,
+            account_cash_reservations.consume_confirmed,
             account_cash_reservations.release,
             position_reconciliation,
             account_reconciliation,
@@ -431,6 +443,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._settlement_manager,
             self._margin_manager,
             self._fee_manager,
+            fee_resolver,
             order_margin_reservations.release,
             selected_calendar.trading_day_at,
         )
@@ -788,9 +801,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         if actual != expected:
             raise ValueError("Position Trade does not match standardized Order Fill")
-        expected_fee = OnlyMoney(Decimal(0), self.config.strategy_base_currency) if fill.fee is None else fill.fee
-        if trade.fee != expected_fee:
-            raise ValueError("Position Trade fee does not match Order Fill")
         instrument = self._instruments.get(trade.instrument_id)
         if instrument is None or trade.multiplier != instrument.contract_multiplier:
             raise ValueError("Position Trade requires the registered Instrument multiplier")

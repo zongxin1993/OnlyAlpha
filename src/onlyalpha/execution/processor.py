@@ -27,6 +27,8 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.manager import OnlyFeeManager
+from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.models import OnlyMarketPositionMode
 from onlyalpha.market.runtime_rules import (
@@ -105,7 +107,7 @@ from .state import (
 
 OnlyExecutionValuation = Callable[[OnlyStrategyLedgerKey, OnlyPositionTrade], None]
 OnlyAccountValuation = Callable[[OnlyPositionTrade], None]
-OnlyAccountReservationConsumer = Callable[[OnlyOrderFill, OnlyTimestamp], None]
+OnlyAccountReservationConsumer = Callable[[OnlyOrderFill, OnlyMoney, OnlyTimestamp], None]
 OnlyAccountReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyConnectionStateConsumer = Callable[[object], None]
 OnlyMarginReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
@@ -156,6 +158,7 @@ class OnlyExecutionProcessor:
         settlement_manager: OnlySettlementManager | None = None,
         margin_manager: OnlyMarginManager | None = None,
         fee_manager: OnlyFeeManager | None = None,
+        fee_resolver: OnlyFeeResolver | None = None,
         release_margin_reservation: OnlyMarginReservationReleaser | None = None,
         trading_day: Callable[[OnlyTimestamp], OnlyTradingDay] | None = None,
     ) -> None:
@@ -189,6 +192,7 @@ class OnlyExecutionProcessor:
         self._settlement_manager = settlement_manager
         self._margin_manager = margin_manager
         self._fee_manager = fee_manager
+        self._fee_resolver = fee_resolver
         self._release_margin_reservation = release_margin_reservation
         self._trading_day = trading_day
         self._trade_instructions: dict[str, OnlyTradeApplicationInstruction] = {}
@@ -542,7 +546,8 @@ class OnlyExecutionProcessor:
         order = self._orders.require(update.order_id)
         if position_scope is None:
             raise ValueError("POSITION_SIDE_RESOLUTION_FAILED: Trade has no Position Scope")
-        trade = self._position_trade(update, order, position_scope)
+        fee_instruction = self._resolve_fee_instruction(update, order, position_scope)
+        trade = self._position_trade(update, order, position_scope, fee_instruction)
         if trade.cluster_id is None:
             raise ValueError("strategy Trade requires Cluster attribution")
         allocation_key = position_scope.allocation_key
@@ -647,10 +652,9 @@ class OnlyExecutionProcessor:
                     f"{margin_record.action}:{margin_record.amount}",
                 )
             )
-        if instruction is not None and self._fee_manager is not None:
+        if self._fee_manager is not None:
             fee_records = self._fee_manager.apply(
-                instruction.fee_instruction,
-                account_id=str(trade.account_id),
+                fee_instruction,
                 instrument_id=str(trade.instrument_id),
             )
             steps.append(
@@ -730,7 +734,7 @@ class OnlyExecutionProcessor:
         )
         reservation_results: list[str] = []
         if trade.opens_position and trade.side is OnlyOrderSide.BUY:
-            self._consume_account_reservation(update.fill, trade.ts_init)
+            self._consume_account_reservation(update.fill, notional + trade.fee, trade.ts_init)
             self._ledgers.consume_cash_reservation(ledger_key, trade.order_id, notional + trade.fee, trade.ts_init)
             reservation_results.extend(("ACCOUNT_CASH_CONSUMED", "STRATEGY_CASH_CONSUMED"))
             if order_result.snapshot.status is OnlyOrderStatus.FILLED:
@@ -1040,9 +1044,10 @@ class OnlyExecutionProcessor:
         update: OnlyBrokerTradeUpdate,
         order: OnlyOrderSnapshot,
         scope: OnlyExecutionPositionScope,
+        fee_instruction: OnlyFeeInstruction,
     ) -> OnlyPositionTrade:
         instrument = self._instruments[order.instrument_id]
-        fee = update.fill.fee or OnlyMoney(Decimal(0), instrument.settlement_currency)
+        fee = fee_instruction.fee_breakdown.total
         settlement_bucket = (
             OnlySettlementBucket.UNSETTLED if order.side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
         )
@@ -1080,6 +1085,24 @@ class OnlyExecutionProcessor:
             settlement_bucket=settlement_bucket,
             multiplier=instrument.contract_multiplier,
             position_mode=position_mode,
+        )
+
+    def _resolve_fee_instruction(
+        self,
+        update: OnlyBrokerTradeUpdate,
+        order: OnlyOrderSnapshot,
+        scope: OnlyExecutionPositionScope,
+    ) -> OnlyFeeInstruction:
+        if self._fee_resolver is None:
+            raise ValueError("FEE_RESOLUTION_REQUIRES_RUNTIME_FEE_RESOLVER")
+        return self._fee_resolver.resolve_trade(
+            order,
+            trade_id=str(update.fill.trade_id),
+            price=update.fill.price,
+            quantity=update.fill.quantity.value,
+            timestamp=update.ts_event,
+            liquidity_role=update.fill.liquidity_side.value,
+            created_at=update.ts_init.to_datetime(),
         )
 
     def _notional(self, trade: OnlyPositionTrade) -> OnlyMoney:

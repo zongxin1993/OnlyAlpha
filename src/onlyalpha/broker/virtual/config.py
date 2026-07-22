@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
-from onlyalpha.broker.virtual.commission import OnlyCommissionModel
 from onlyalpha.broker.virtual.latency import OnlyLatencyModel
 from onlyalpha.broker.virtual.slippage import OnlySlippageModel
 from onlyalpha.domain.base import OnlyDomainModel
@@ -20,7 +19,6 @@ class OnlyVirtualBrokerConfig(OnlyDomainModel):
     maximum_fill_quantity: OnlyQuantity | None = None
     queue_capacity: int = 1024
     long_only: bool = True
-    commission_model: OnlyCommissionModel | None = None
     slippage_model: OnlySlippageModel | None = None
     latency_model: OnlyLatencyModel | None = None
 

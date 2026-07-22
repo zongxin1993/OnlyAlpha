@@ -27,6 +27,7 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.factor.identifiers import OnlyFactorId
+from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfigurationMode
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.registry import OnlyMarketProfileRequest
@@ -117,11 +118,30 @@ class OnlyAccountRuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyFeeConfig:
+    """Explicitly distinguishes disabled fees from a zero-rate model."""
+
+    mode: OnlyFeeConfigurationMode
+    schedule_id: str | None = None
+    reporting_mode: OnlyBrokerFeeReportingMode | None = None
+    reservation_policy: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.mode is OnlyFeeConfigurationMode.MODEL and not self.schedule_id:
+            raise OnlyConfigError("MODEL fee configuration requires schedule")
+        if self.mode is OnlyFeeConfigurationMode.REPORTED and self.reporting_mode is None:
+            raise OnlyConfigError("REPORTED fee configuration requires reporting_mode")
+        if self.mode is OnlyFeeConfigurationMode.NONE and (self.schedule_id or self.reporting_mode):
+            raise OnlyConfigError("NONE fee configuration cannot specify schedule or reporting mode")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyBrokerRuntimeConfig:
     gateway_id: OnlyBrokerGatewayId
     plugin_id: str
     enabled: bool
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
+    fees: OnlyFeeConfig = field(default_factory=lambda: OnlyFeeConfig(OnlyFeeConfigurationMode.DEFAULT))
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +151,7 @@ class OnlyMarketConfig:
     profile: OnlyMarketProfileId
     version: str | None = None
     overrides: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
+    fees: OnlyFeeConfig = field(default_factory=lambda: OnlyFeeConfig(OnlyFeeConfigurationMode.DEFAULT))
 
     def __post_init__(self) -> None:
         _require_decimal_strings(self.overrides, "$.market.overrides")

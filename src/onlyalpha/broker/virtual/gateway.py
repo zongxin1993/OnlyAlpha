@@ -25,7 +25,6 @@ from onlyalpha.broker.models import (
     OnlyBrokerTradeSnapshot,
 )
 from onlyalpha.broker.updates import (
-    OnlyBrokerAccountUpdate,
     OnlyBrokerConnectionUpdate,
     OnlyBrokerInboundUpdate,
     OnlyBrokerOrderAcceptedUpdate,
@@ -34,7 +33,6 @@ from onlyalpha.broker.updates import (
     OnlyBrokerPositionUpdate,
     OnlyBrokerTradeUpdate,
 )
-from onlyalpha.broker.virtual.commission import OnlyCommissionModel, OnlyFixedCommissionModel
 from onlyalpha.broker.virtual.config import OnlyVirtualBrokerConfig
 from onlyalpha.broker.virtual.latency import OnlyLatencyModel, OnlyZeroLatencyModel
 from onlyalpha.broker.virtual.matching import OnlyMatchingEngine, OnlyNextBarMatchingEngine
@@ -100,7 +98,6 @@ class OnlyVirtualBrokerGateway:
         inbound: Callable[[OnlyBrokerInboundUpdate], None],
         *,
         matching_engine: OnlyMatchingEngine | None = None,
-        commission_model: OnlyCommissionModel | None = None,
         slippage_model: OnlySlippageModel | None = None,
         latency_model: OnlyLatencyModel | None = None,
         scheduler: OnlyVirtualBrokerScheduler | None = None,
@@ -112,11 +109,6 @@ class OnlyVirtualBrokerGateway:
         self._settlements = OnlySettlementManager()
         self._inbound = inbound
         self._matching = matching_engine or OnlyNextBarMatchingEngine(config.maximum_fill_quantity)
-        self._commission = (
-            commission_model
-            or config.commission_model
-            or OnlyFixedCommissionModel(OnlyMoney(Decimal("0.00"), config.base_currency))
-        )
         self._slippage = slippage_model or config.slippage_model or OnlyNoSlippageModel()
         self._latency = latency_model or config.latency_model or OnlyZeroLatencyModel()
         self.scheduler = scheduler or OnlyVirtualBrokerScheduler()
@@ -470,7 +462,7 @@ class OnlyVirtualBrokerGateway:
                 else max(price.value, order.price.value),
                 max(price.precision, order.price.precision),
             )
-        fee = self._commission.calculate(order.side, price, quantity, self.config.base_currency)
+        fee = OnlyMoney(Decimal(0), self.config.base_currency)
         self._trade_sequence += 1
         trade_id = OnlyTradeId(f"virtual-trade-{self._trade_sequence:08d}")
         venue_trade_id = OnlyVenueTradeId(f"virtual-venue-trade-{self._trade_sequence:08d}")
@@ -499,18 +491,17 @@ class OnlyVirtualBrokerGateway:
             asset_available = instruction.settlement_instruction.asset_available_on == trading_day
         fill_sequence = self._next_sequence()
         fill = OnlyOrderFill(
-            trade_id,
-            order.order_id,
-            price,
-            quantity,
-            timestamp,
-            timestamp,
-            venue_trade_id,
-            order.venue_order_id,
-            fee,
-            OnlyLiquiditySide.TAKER,
-            fill_sequence,
-            f"virtual-fill-{self._trade_sequence:08d}",
+            trade_id=trade_id,
+            order_id=order.order_id,
+            price=price,
+            quantity=quantity,
+            ts_event=timestamp,
+            ts_init=timestamp,
+            venue_trade_id=venue_trade_id,
+            venue_order_id=order.venue_order_id,
+            liquidity_side=OnlyLiquiditySide.TAKER,
+            external_sequence=fill_sequence,
+            external_event_id=f"virtual-fill-{self._trade_sequence:08d}",
         )
         reserved = (order.price.value if order.price is not None else price.value) * quantity.value
         if order.side is OnlyOrderSide.BUY and order.offset in {
@@ -560,7 +551,6 @@ class OnlyVirtualBrokerGateway:
         self.trade_store.save(trade)
         positions = self.account_store.position_snapshots(timestamp)
         position_snapshot = next(item for item in positions if item.instrument_id == order.instrument_id)
-        account_snapshot = self.account_store.account_snapshot(timestamp)
 
         def publish() -> None:
             self._emit(
@@ -577,13 +567,6 @@ class OnlyVirtualBrokerGateway:
                 str(order.order_id),
                 str(trade_id),
                 snapshot=position_snapshot,
-            )
-            self._emit(
-                OnlyBrokerAccountUpdate,
-                timestamp,
-                str(order.order_id),
-                str(trade_id),
-                snapshot=account_snapshot,
             )
 
         self.scheduler.schedule(timestamp.unix_nanos + self._latency.fill_latency_ns, publish)
