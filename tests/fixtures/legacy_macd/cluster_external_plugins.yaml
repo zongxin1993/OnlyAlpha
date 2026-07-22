@@ -56,7 +56,6 @@ brokers:
     enabled: true
     extensions:
       matching: {type: NEXT_BAR}
-      commission: {type: FIXED, fixed_amount: {value: "1.00", currency: CNY}}
       slippage: {type: NONE}
 strategy:
   class_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategy

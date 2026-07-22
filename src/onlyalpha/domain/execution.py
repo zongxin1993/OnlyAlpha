@@ -31,6 +31,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.fee.models import OnlyBrokerFeeReportingMode
 
 
 def _freeze_metadata(metadata: Mapping[str, str]) -> Mapping[str, str]:
@@ -117,7 +118,9 @@ class OnlyOrderFill(OnlyDomainModel):
     ts_init: OnlyTimestamp
     venue_trade_id: OnlyVenueTradeId | None = None
     venue_order_id: OnlyVenueOrderId | None = None
-    fee: OnlyMoney | None = None
+    reported_fee: OnlyMoney | None = None
+    fee_reporting_mode: OnlyBrokerFeeReportingMode = OnlyBrokerFeeReportingMode.NONE
+    fee_external_reference: str | None = None
     liquidity_side: OnlyLiquiditySide = OnlyLiquiditySide.UNKNOWN
     external_sequence: int | None = None
     external_event_id: str | None = None

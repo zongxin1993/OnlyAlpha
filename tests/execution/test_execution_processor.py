@@ -19,7 +19,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueTradeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
     OnlyExecutionAuditRecord,
     OnlyExecutionMutationStep,
@@ -29,7 +29,6 @@ from onlyalpha.execution import (
 
 from ..integration_demo.environment import (
     ACCOUNT_ID,
-    CNY,
     DAY_ONE,
     OnlyIntegrationEnvironment,
 )
@@ -214,7 +213,6 @@ def test_out_of_order_trade_requires_reconciliation_before_mutation() -> None:
             ts_init=now,
             venue_trade_id=OnlyVenueTradeId("stale-new-venue-trade"),
             venue_order_id=order.venue_order_id,
-            fee=OnlyMoney(Decimal("0.00"), CNY),
             liquidity_side=OnlyLiquiditySide.TAKER,
         ),
     )

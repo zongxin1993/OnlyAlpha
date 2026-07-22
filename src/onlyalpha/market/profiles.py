@@ -3,11 +3,8 @@
 from datetime import date, time
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide
+from onlyalpha.domain.enums import OnlyAssetClass
 from onlyalpha.market.models import (
-    OnlyFeeBasis,
-    OnlyFeeModel,
-    OnlyFeeRule,
     OnlyLiquidityModel,
     OnlyLiquidityModelType,
     OnlyMarginModel,
@@ -67,9 +64,7 @@ def only_generic_t0_cash_profile() -> OnlyMarketProfile:
         None,
         OnlyPriceRule(Decimal("0.01")),
         OnlyQuantityRule(True),
-        OnlyFeeModel(
-            "GENERIC_NOTIONAL", "1", "USD", (OnlyFeeRule("commission", OnlyFeeBasis.NOTIONAL, Decimal("0.001")),)
-        ),
+        "GENERIC_T0_MARKET_FEES",
         OnlyLiquidityModel(OnlyLiquidityModelType.UNLIMITED),
         _NONE_SLIPPAGE,
         _NEXT_OPEN,
@@ -93,9 +88,7 @@ def only_generic_margin_futures_profile() -> OnlyMarketProfile:
         OnlyMarginModel("GENERIC_FUTURES_MARGIN", Decimal("0.10"), Decimal("0.08")),
         OnlyPriceRule(Decimal("0.01")),
         OnlyQuantityRule(False),
-        OnlyFeeModel(
-            "GENERIC_PER_CONTRACT", "1", "USD", (OnlyFeeRule("exchange_fee", OnlyFeeBasis.CONTRACT, Decimal("2")),)
-        ),
+        "GENERIC_FUTURES_MARKET_FEES",
         OnlyLiquidityModel(OnlyLiquidityModelType.UNLIMITED),
         _NONE_SLIPPAGE,
         _NEXT_OPEN,
@@ -119,12 +112,7 @@ def only_generic_crypto_spot_profile() -> OnlyMarketProfile:
         None,
         OnlyPriceRule(Decimal("0.01")),
         OnlyQuantityRule(True),
-        OnlyFeeModel(
-            "GENERIC_CRYPTO_TAKER",
-            "1",
-            "USDT",
-            (OnlyFeeRule("exchange_fee", OnlyFeeBasis.NOTIONAL, Decimal("0.0005")),),
-        ),
+        "GENERIC_CRYPTO_MARKET_FEES",
         OnlyLiquidityModel(OnlyLiquidityModelType.BAR_VOLUME_PARTICIPATION, Decimal("0.10")),
         _NONE_SLIPPAGE,
         _NEXT_OPEN,
@@ -148,16 +136,6 @@ def only_cn_a_share_cash_profile() -> OnlyMarketProfile:
         ),
     )
     settlement = OnlySettlementModel("CN_A_SHARE_T1", _T1, _T1, _T1, _IMMEDIATE)
-    fees = OnlyFeeModel(
-        "CN_A_SHARE_2025",
-        "2025.1",
-        "CNY",
-        (
-            OnlyFeeRule("commission", OnlyFeeBasis.NOTIONAL, Decimal("0.0003"), minimum=Decimal("5")),
-            OnlyFeeRule("tax", OnlyFeeBasis.NOTIONAL, Decimal("0.0005"), side=OnlyOrderSide.SELL),
-            OnlyFeeRule("transfer_fee", OnlyFeeBasis.NOTIONAL, Decimal("0.00001")),
-        ),
-    )
     return OnlyMarketProfile(
         OnlyMarketProfileId.CN_A_SHARE_CASH,
         "CN_A_SHARE",
@@ -170,7 +148,7 @@ def only_cn_a_share_cash_profile() -> OnlyMarketProfile:
         None,
         OnlyPriceRule(Decimal("0.01"), Decimal("0.10")),
         OnlyQuantityRule(False, True, True),
-        fees,
+        "CN_A_SHARE_STANDARD_FEES",
         OnlyLiquidityModel(OnlyLiquidityModelType.BAR_VOLUME_PARTICIPATION, Decimal("0.10")),
         _NONE_SLIPPAGE,
         _NEXT_OPEN,

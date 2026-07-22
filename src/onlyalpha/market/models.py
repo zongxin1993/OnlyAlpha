@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
-from types import MappingProxyType
 from typing import Protocol
 
 from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide
@@ -371,135 +369,6 @@ class OnlyQuantityRule:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeRule:
-    component: str
-    basis: OnlyFeeBasis
-    rate: Decimal
-    side: OnlyOrderSide | None = None
-    minimum: Decimal = Decimal(0)
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyFeeBreakdown:
-    currency: str
-    rule_version: str
-    commission: Decimal = Decimal(0)
-    exchange_fee: Decimal = Decimal(0)
-    clearing_fee: Decimal = Decimal(0)
-    regulatory_fee: Decimal = Decimal(0)
-    tax: Decimal = Decimal(0)
-    transfer_fee: Decimal = Decimal(0)
-    borrow_fee: Decimal = Decimal(0)
-    funding_fee: Decimal = Decimal(0)
-    other_fee: Decimal = Decimal(0)
-    components: Mapping[str, Decimal] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "components", MappingProxyType(dict(self.components)))
-
-    @property
-    def total_fee(self) -> Decimal:
-        return sum(
-            (
-                self.commission,
-                self.exchange_fee,
-                self.clearing_fee,
-                self.regulatory_fee,
-                self.tax,
-                self.transfer_fee,
-                self.borrow_fee,
-                self.funding_fee,
-                self.other_fee,
-            ),
-            Decimal(0),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyFeeModel:
-    model_id: str
-    version: str
-    currency: str
-    rules: tuple[OnlyFeeRule, ...]
-
-    def calculate(
-        self, *, side: OnlyOrderSide, quantity: Decimal, price: Decimal, multiplier: Decimal = Decimal(1)
-    ) -> OnlyFeeBreakdown:
-        values: dict[str, Decimal] = {}
-        notional = quantity * price * multiplier
-        for rule in self.rules:
-            if rule.side is not None and rule.side is not side:
-                continue
-            base = {
-                OnlyFeeBasis.NOTIONAL: notional,
-                OnlyFeeBasis.QUANTITY: quantity,
-                OnlyFeeBasis.CONTRACT: quantity,
-                OnlyFeeBasis.FIXED: Decimal(1),
-            }[rule.basis]
-            values[rule.component] = values.get(rule.component, Decimal(0)) + max(base * rule.rate, rule.minimum)
-        standard = {
-            name: values.pop(name, Decimal(0))
-            for name in (
-                "commission",
-                "exchange_fee",
-                "clearing_fee",
-                "regulatory_fee",
-                "tax",
-                "transfer_fee",
-                "borrow_fee",
-                "funding_fee",
-                "other_fee",
-            )
-        }
-        return OnlyFeeBreakdown(self.currency, self.version, components=values, **standard)
-
-
-@dataclass(slots=True)
-class OnlyOrderFeeAccumulator:
-    """Charge the delta of cumulative order fees across partial fills."""
-
-    fee_model: OnlyFeeModel
-    side: OnlyOrderSide
-    multiplier: Decimal = Decimal(1)
-    cumulative_quantity: Decimal = Decimal(0)
-    cumulative_notional: Decimal = Decimal(0)
-    cumulative_charged: OnlyFeeBreakdown | None = None
-
-    def charge(self, *, quantity: Decimal, price: Decimal) -> OnlyFeeBreakdown:
-        if quantity <= 0 or price <= 0:
-            raise ValueError("fee accumulator fill quantity and price must be positive")
-        self.cumulative_quantity += quantity
-        self.cumulative_notional += quantity * price * self.multiplier
-        average_price = self.cumulative_notional / self.cumulative_quantity / self.multiplier
-        required = self.fee_model.calculate(
-            side=self.side,
-            quantity=self.cumulative_quantity,
-            price=average_price,
-            multiplier=self.multiplier,
-        )
-        previous = self.cumulative_charged or OnlyFeeBreakdown(required.currency, required.rule_version)
-        delta = OnlyFeeBreakdown(
-            required.currency,
-            required.rule_version,
-            commission=required.commission - previous.commission,
-            exchange_fee=required.exchange_fee - previous.exchange_fee,
-            clearing_fee=required.clearing_fee - previous.clearing_fee,
-            regulatory_fee=required.regulatory_fee - previous.regulatory_fee,
-            tax=required.tax - previous.tax,
-            transfer_fee=required.transfer_fee - previous.transfer_fee,
-            borrow_fee=required.borrow_fee - previous.borrow_fee,
-            funding_fee=required.funding_fee - previous.funding_fee,
-            other_fee=required.other_fee - previous.other_fee,
-            components={
-                key: required.components.get(key, Decimal(0)) - previous.components.get(key, Decimal(0))
-                for key in sorted(set(required.components) | set(previous.components))
-            },
-        )
-        self.cumulative_charged = required
-        return delta
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyLiquidityModel:
     model_type: OnlyLiquidityModelType
     maximum_participation_rate: Decimal = Decimal(1)
@@ -546,7 +415,7 @@ class OnlyMarketProfile:
     margin_model: OnlyMarginModel | None
     price_rule: OnlyPriceRule
     quantity_rule: OnlyQuantityRule
-    fee_model: OnlyFeeModel
+    market_fee_schedule_id: str
     liquidity_model: OnlyLiquidityModel
     slippage_model: OnlySlippageModel
     matching_model: OnlyMatchingModel

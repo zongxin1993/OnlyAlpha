@@ -313,7 +313,7 @@ def _profile_rules(profile: OnlyMarketProfile) -> Mapping[str, object]:
         "margin": None if profile.margin_model is None else asdict(profile.margin_model),
         "price": asdict(profile.price_rule),
         "quantity": asdict(profile.quantity_rule),
-        "fee": asdict(profile.fee_model),
+        "market_fee_schedule_id": profile.market_fee_schedule_id,
         "liquidity": asdict(profile.liquidity_model),
         "slippage": asdict(profile.slippage_model),
         "matching": asdict(profile.matching_model),

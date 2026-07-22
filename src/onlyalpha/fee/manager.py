@@ -1,74 +1,73 @@
-"""Instruction-driven fee fact manager."""
+"""Runtime-owned immutable fee fact ledger.
+
+The manager records instructions; it never interprets a market profile or a
+broker report and therefore cannot become a second fee authority.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
 
-from onlyalpha.market.runtime_rules import OnlyFeeInstruction
+from onlyalpha.fee.models import OnlyFeeInstruction
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeRecord:
     fee_record_id: str
+    instruction_id: str
+    idempotency_key: str
     account_id: str
     instrument_id: str
     order_id: str
     trade_id: str
     fee_type: str
+    authority: str
+    status: str
     accrued: Decimal
     charged: Decimal
     currency: str
+    schedule_id: str | None
+    schedule_version: str | None
     sequence: int
 
 
 class OnlyFeeManager:
-    """Owns applied fee facts; fee calculation remains in Market Rules."""
+    """Append-only fee facts, idempotent by the resolved instruction key."""
 
     def __init__(self) -> None:
         self._records: list[OnlyFeeRecord] = []
-        self._trade_ids: set[str] = set()
+        self._instruction_keys: set[str] = set()
 
     @property
     def records(self) -> tuple[OnlyFeeRecord, ...]:
         return tuple(self._records)
 
-    def apply(
-        self, instruction: OnlyFeeInstruction, *, account_id: str, instrument_id: str
-    ) -> tuple[OnlyFeeRecord, ...]:
-        if instruction.source_trade_id in self._trade_ids:
+    def apply(self, instruction: OnlyFeeInstruction, *, instrument_id: str) -> tuple[OnlyFeeRecord, ...]:
+        if instruction.idempotency_key in self._instruction_keys:
             return ()
         emitted: list[OnlyFeeRecord] = []
-        breakdown = instruction.breakdown
-        components = {
-            "commission": breakdown.commission,
-            "exchange_fee": breakdown.exchange_fee,
-            "clearing_fee": breakdown.clearing_fee,
-            "regulatory_fee": breakdown.regulatory_fee,
-            "tax": breakdown.tax,
-            "transfer_fee": breakdown.transfer_fee,
-            "borrow_fee": breakdown.borrow_fee,
-            "funding_fee": breakdown.funding_fee,
-            "other_fee": breakdown.other_fee,
-            **dict(breakdown.components),
-        }
-        for fee_type, amount in sorted(components.items()):
-            if amount == 0:
-                continue
+        for component in instruction.fee_breakdown.components:
             sequence = len(self._records) + 1
             record = OnlyFeeRecord(
-                f"FEE-{instruction.source_trade_id}-{fee_type}-{sequence:08d}",
-                account_id,
+                f"FEE-{instruction.instruction_id}-{sequence:08d}",
+                instruction.instruction_id,
+                instruction.idempotency_key,
+                instruction.account_id,
                 instrument_id,
-                instruction.source_order_id,
-                instruction.source_trade_id,
-                fee_type,
-                amount,
-                amount,
-                breakdown.currency,
+                instruction.order_id,
+                instruction.trade_id,
+                component.fee_type.value,
+                component.authority.value,
+                component.status.value,
+                component.amount.amount,
+                component.amount.amount,
+                component.amount.currency.code,
+                component.schedule_id,
+                component.schedule_version,
                 sequence,
             )
             self._records.append(record)
             emitted.append(record)
-        self._trade_ids.add(instruction.source_trade_id)
+        self._instruction_keys.add(instruction.idempotency_key)
         return tuple(emitted)

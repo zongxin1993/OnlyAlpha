@@ -31,7 +31,7 @@ accounts:
 brokers:
   - gateway_id: virtual-main
     plugin: virtual
-    extensions: {matching: {type: NEXT_BAR}, commission: {type: FIXED, fixed_amount: {value: "1.00", currency: CNY}}, slippage: {type: NONE}}
+    extensions: {matching: {type: NEXT_BAR}, slippage: {type: NONE}}
 strategy:
   class_path: examples.strategy.macd.strategy:OnlyMacdStrategy
   config_path: examples.strategy.macd.config:OnlyMacdStrategyConfig

@@ -438,14 +438,20 @@ _FEE_SCHEMA = pa.schema(
     [
         ("sequence", pa.int64()),
         ("fee_record_id", pa.string()),
+        ("instruction_id", pa.string()),
+        ("idempotency_key", pa.string()),
         ("account_id", pa.string()),
         ("instrument_id", pa.string()),
         ("order_id", pa.string()),
         ("trade_id", pa.string()),
         ("fee_type", pa.string()),
+        ("authority", pa.string()),
+        ("status", pa.string()),
         ("accrued", _DECIMAL),
         ("charged", _DECIMAL),
         ("currency", pa.string()),
+        ("schedule_id", pa.string()),
+        ("schedule_version", pa.string()),
     ]
 )
 _MARKET_RULE_DECISION_SCHEMA = pa.schema(

@@ -9,7 +9,7 @@ from decimal import Decimal
 from onlyalpha.account.models import OnlyAccountSnapshot
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerOrderSnapshot
-from onlyalpha.broker.virtual import OnlyFixedCommissionModel, OnlyVirtualBrokerConfig
+from onlyalpha.broker.virtual import OnlyVirtualBrokerConfig
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.data.audit import OnlyMarketDataAuditStore
 from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
@@ -306,7 +306,6 @@ class OnlyIntegrationEnvironment:
                         CNY,
                         OnlyMoney(Decimal("1000000.00"), CNY),
                         maximum_fill_quantity=maximum_fill_quantity,
-                        commission_model=OnlyFixedCommissionModel(OnlyMoney(Decimal("1.00"), CNY)),
                     )
                     if virtual_broker
                     else None

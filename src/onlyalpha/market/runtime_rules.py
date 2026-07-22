@@ -17,8 +17,6 @@ from onlyalpha.domain.enums import OnlyOrderSide, OnlyRuntimeMode
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTradingDay, only_require_utc
 from onlyalpha.market.models import (
-    OnlyFeeBreakdown,
-    OnlyFeeModel,
     OnlyInstrumentReferenceSnapshot,
     OnlyLiquidityModel,
     OnlyMarginModel,
@@ -72,7 +70,7 @@ class OnlyCompiledMarketRules:
     short_policy: OnlyShortSellingRule
     settlement_policy: OnlySettlementModel
     margin_policy: OnlyMarginModel | None
-    fee_policy: OnlyFeeModel
+    market_fee_schedule_id: str
     liquidity_policy: OnlyLiquidityModel
     slippage_policy: OnlySlippageModel
     matching_policy: OnlyMatchingModel
@@ -115,7 +113,7 @@ class OnlyMarketRuleCompiler:
                     "short": asdict(profile.short_selling_rule),
                     "settlement": asdict(profile.settlement_model),
                     "margin": None if profile.margin_model is None else asdict(profile.margin_model),
-                    "fee": asdict(profile.fee_model),
+                    "market_fee_schedule_id": profile.market_fee_schedule_id,
                     "liquidity": asdict(profile.liquidity_model),
                     "slippage": asdict(profile.slippage_model),
                     "matching": asdict(profile.matching_model),
@@ -145,7 +143,7 @@ class OnlyMarketRuleCompiler:
             profile.short_selling_rule,
             profile.settlement_model,
             profile.margin_model,
-            profile.fee_model,
+            profile.market_fee_schedule_id,
             profile.liquidity_model,
             profile.slippage_model,
             profile.matching_model,
@@ -252,13 +250,6 @@ class OnlyMarginInstruction:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeInstruction:
-    source_order_id: str
-    source_trade_id: str
-    breakdown: OnlyFeeBreakdown
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyCashInstruction:
     currency: str
     amount: Decimal
@@ -285,7 +276,6 @@ class OnlyTradeApplicationInstruction:
     position_instruction: OnlyPositionInstruction
     settlement_instruction: OnlySettlementRuntimeInstruction
     margin_instruction: OnlyMarginInstruction | None
-    fee_instruction: OnlyFeeInstruction
     cash_instruction: OnlyCashInstruction
     compiled_identity: OnlyCompiledMarketRuleIdentity
 
@@ -460,12 +450,6 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             ),
             self._advance_trading_day,
         )
-        fees = rules.fee_policy.calculate(
-            side=request.side,
-            quantity=request.quantity,
-            price=request.price,
-            multiplier=reference.contract_multiplier,
-        )
         margin = None
         if rules.margin_policy is not None:
             requirement = rules.margin_policy.requirement(
@@ -516,10 +500,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             position,
             settlement_instruction,
             margin,
-            OnlyFeeInstruction(request.order_id, request.trade_id, fees),
             OnlyCashInstruction(
                 reference.currency,
-                (cash_sign * notional if settles_notional else Decimal(0)) - fees.total_fee,
+                cash_sign * notional if settles_notional else Decimal(0),
                 settlement.cash_available_day,
                 settles_notional,
             ),

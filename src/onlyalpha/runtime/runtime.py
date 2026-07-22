@@ -74,6 +74,7 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.fee.manager import OnlyFeeManager
+from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
@@ -346,11 +347,13 @@ class OnlyRuntimeAccountCashReservationAdapter:
         currency: OnlyCurrency,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
         reference_price: Callable[[OnlyOrderSnapshot], OnlyPrice | None],
+        fee_resolver: OnlyFeeResolver,
     ) -> None:
         self._manager = manager
         self._currency = currency
         self._instruments = instruments
         self._reference_price = reference_price
+        self._fee_resolver = fee_resolver
         self._reservations: dict[OnlyOrderId, OnlyAccountReservationId] = {}
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
@@ -372,7 +375,7 @@ class OnlyRuntimeAccountCashReservationAdapter:
             (price.value * order.quantity.value * instrument.contract_multiplier.value).quantize(quantum),
             self._currency,
         )
-        zero = OnlyMoney(Decimal(0), self._currency)
+        estimated_fee = self._fee_resolver.estimate_order(order, price, timestamp).reservation_fee
         reservation_id = OnlyAccountReservationId(f"ARESV-{order.runtime_id}-{order.order_id}")
         self._manager.reserve_cash(
             OnlyAccountReservation(
@@ -380,9 +383,9 @@ class OnlyRuntimeAccountCashReservationAdapter:
                 order.runtime_id,
                 order.account_id,
                 order.order_id,
-                amount,
-                zero,
-                amount,
+                amount + estimated_fee,
+                OnlyMoney(Decimal(0), self._currency),
+                amount + estimated_fee,
                 OnlyAccountReservationState.ACTIVE,
                 timestamp,
                 timestamp,
@@ -396,13 +399,15 @@ class OnlyRuntimeAccountCashReservationAdapter:
     def acknowledged(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> None:
         del order_id, timestamp
 
-    def consume(self, fill: OnlyOrderFill, timestamp: OnlyTimestamp) -> None:
+    def consume_confirmed(self, fill: OnlyOrderFill, amount: OnlyMoney, timestamp: OnlyTimestamp) -> None:
         reservation_id = self._reservations.get(fill.order_id)
         if reservation_id is None:
             return
-        quantum = Decimal(1).scaleb(-self._currency.precision)
-        amount = OnlyMoney((fill.price.value * fill.quantity.value).quantize(quantum), self._currency)
         self._manager.consume_cash_reservation(reservation_id, amount, timestamp)
+
+    def consume(self, fill: OnlyOrderFill, timestamp: OnlyTimestamp) -> None:
+        """Order-port compatibility; confirmed execution uses ``consume_confirmed``."""
+        del fill, timestamp
 
     def release(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> None:
         reservation_id = self._reservations.get(order_id)

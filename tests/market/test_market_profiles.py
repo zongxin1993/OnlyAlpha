@@ -1,10 +1,12 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
 
 from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide
 from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.fee.models import OnlyFeeStatus
+from onlyalpha.fee.schedules import only_builtin_market_fee_schedule_registry
 from onlyalpha.market.models import (
     OnlyInstrumentReferenceSnapshot,
     OnlyLiquidityModelType,
@@ -126,14 +128,18 @@ def test_a_share_reference_rules_cover_lot_odd_lot_suspension_and_bands() -> Non
         only_cn_a_share_price_limit_rate(board="BSE", st_status=False)
 
 
-def test_a_share_fee_breakdown_has_minimum_commission_sell_tax_and_transfer_fee() -> None:
-    fees = only_cn_a_share_cash_profile().fee_model.calculate(
-        side=OnlyOrderSide.SELL, quantity=Decimal(100), price=Decimal(10)
+def test_a_share_profile_references_versioned_market_fee_schedule() -> None:
+    profile = only_cn_a_share_cash_profile()
+    schedule = only_builtin_market_fee_schedule_registry().resolve(profile.market_fee_schedule_id, date(2026, 1, 5))
+    components = schedule.calculate(
+        notional=Decimal("1000"),
+        quantity=Decimal(100),
+        side=OnlyOrderSide.SELL.value,
+        offset="CLOSE",
+        liquidity_role=None,
+        status=OnlyFeeStatus.CONFIRMED,
     )
-    assert fees.commission == Decimal(5)
-    assert fees.tax == Decimal("0.5000")
-    assert fees.transfer_fee == Decimal("0.01000")
-    assert fees.total_fee == Decimal("5.51000")
+    assert sum((item.amount.amount for item in components), Decimal(0)) == Decimal("0.51")
 
 
 def test_shared_bar_liquidity_is_consumable_across_orders() -> None:
