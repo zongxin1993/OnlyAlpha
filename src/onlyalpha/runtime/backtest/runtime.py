@@ -72,7 +72,6 @@ from onlyalpha.execution.state import (
 )
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
-from onlyalpha.fee.schedules import only_builtin_market_fee_schedule_registry
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
@@ -277,10 +276,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
         order_position_reservations = OnlyOrderPositionReservationAdapter(position_reservations)
         fee_resolver = OnlyFeeResolver(
             OnlyFeeEngine(),
-            only_builtin_market_fee_schedule_registry(),
+            runtime_config.market_fee_schedules,
+            runtime_config.broker_fee_schedules,
             runtime_config.market_rule_engine,
             self._instruments,
             selected_calendar.trading_day_at,
+            runtime_config.fee_resolver_config,
         )
         strategy_cash_reservations = OnlyOrderStrategyCashReservationAdapter(
             self._strategy_ledger_manager,

@@ -2,6 +2,7 @@
 
 买单通过 Risk 并创建 Order/Position Reservation 后，在调用 Execution Port 前建立 Strategy Cash Reservation。成交消费实际
 金额与费用，拒绝、失败、过期和取消释放；Reservation 不代替 Allocation 更新后的 Strategy Trade Accounting。
+预占费用和成交费用必须来自同一个 Runtime `OnlyFeeResolver`；Order、Risk 和 Broker 均不得持有第二套佣金公式。
 
 ## 1. 边界与所有权
 

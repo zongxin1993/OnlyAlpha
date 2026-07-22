@@ -11,7 +11,11 @@ Runtime-owned ExecutionProcessor。
 在 high >= limit 时成交，第一版成交价固定为 LIMIT_PRICE；MARKET 使用下一 Bar open。接受时冻结 Broker 现金或已结算持仓，
 成交/撤单后只修改 Broker Store 并发送标准化 Update。
 
-Commission、Slippage、Latency 是独立、可注入、使用 Decimal/强类型值的模型。Scheduler 使用 Runtime Clock 和稳定堆顺序，
+Virtual Broker 不计算 OnlyAlpha 本地权威费用。没有外部费用回报时，Fill 明确使用 `reported_fee=None`、
+`fee_reporting_mode=NONE`；Broker Account Store 仅模拟外部快照，因此可以与已扣除 Runtime 费用的本地 Account 相差恰好
+该费用，Reconciliation 必须能解释此差异。
+
+Slippage、Latency 是独立、可注入、使用 Decimal/强类型值的模型。Scheduler 使用 Runtime Clock 和稳定堆顺序，
 不调用系统时间、随机数或 sleep。A 股 T+1 在 TradingDay 前进时结算 Broker settled quantity，并通过 Position/Account Update
 与本地状态对账。
 

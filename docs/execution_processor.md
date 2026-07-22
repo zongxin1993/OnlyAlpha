@@ -29,10 +29,12 @@ Mutation 前校验 Runtime、Gateway、Account、Order Scope、UTC/因果时间�
 ```text
 Validation / Mutation Plan
 → OrderManager.apply_fill
+→ FeeResolver.resolve_trade → immutable FeeInstruction
 → PositionManager.apply_trade
 → PositionAllocationManager.apply_trade
 → StrategyLedgerManager.apply_trade_accounting
 → AccountManager.apply_trade_cash_flow
+→ FeeManager.apply
 → Account/Strategy/Position/Risk Reservation consume
 → Risk post-trade refresh
 → cross-component invariant check
@@ -41,6 +43,8 @@ Validation / Mutation Plan
 
 Position/Allocation/Ledger/Account 只消费 Order 确认后的有效 Fill。Allocation 成本和 realized delta 是 Strategy Ledger 的
 权威输入；Account 使用账户级 Position realized delta 和现金流，绝不读取 Strategy Ledger 虚拟资金。
+`reported_fee` 只是 Resolver 输入，Manager 不得直接应用 Broker 字段或自行重算费用。同一 Fee Instruction 的总额同时进入
+Position Trade、Account Cash Flow、Strategy Ledger 和 append-only FeeManager，重复 Trade 不会重复收费。
 
 ## 4. Mutation Plan 与 Bundle
 

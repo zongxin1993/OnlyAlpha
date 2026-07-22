@@ -20,6 +20,8 @@ equity = cash_balance + position_market_value
 
 Order 创建后，Runtime 同时协调 Risk Reservation、Account Cash Reservation 与 Strategy Cash Reservation。它们各有独立
 状态和生命周期，不共享内部对象。成交后 Account 从标准化 Trade Cash Flow 更新，估值使用账户 Position 与已关闭行情。
+Trade Cash Flow 的 fee 必须来自 Runtime 唯一 `OnlyFeeResolver` 生成的 `OnlyFeeInstruction`；AccountManager 不读取
+Market Profile、Broker Schedule 或 Fill reported fee，也不计算佣金。Strategy Ledger 与 FeeManager 应用同一指令投影。
 
 第一版不支持多币种换汇、保证金、融资融券、负债、期货/期权账户和 corporate action 现金流。
 

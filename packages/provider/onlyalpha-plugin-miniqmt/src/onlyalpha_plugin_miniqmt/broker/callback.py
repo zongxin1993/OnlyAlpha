@@ -1,7 +1,10 @@
 """XtQuant callbacks normalized into OnlyAlpha's broker boundary."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.broker.models import (
@@ -34,6 +37,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.fee.models import OnlyBrokerFeeReportingMode
 from onlyalpha.position.enums import OnlyPositionSide
 
 from ..mapping.exchange import from_xt_symbol
@@ -41,13 +45,16 @@ from ..mapping.market_data import quantized_decimal
 from ..mapping.order import STOCK_BUY
 from ..mapping.status import map_order_status
 
+if TYPE_CHECKING:
+    from .gateway import OnlyMiniQmtBrokerGateway
+
 _CHINA_STANDARD_TIME = timezone(timedelta(hours=8), "Asia/Shanghai")
 
 
 class OnlyMiniQmtTraderCallback:
     """Callback threads only convert, deduplicate, and enqueue immutable updates."""
 
-    def __init__(self, gateway: object) -> None:
+    def __init__(self, gateway: OnlyMiniQmtBrokerGateway) -> None:
         self.gateway = gateway
         self._seen: set[tuple[str, str]] = set()
         self._sequence = 0
@@ -58,7 +65,7 @@ class OnlyMiniQmtTraderCallback:
     def on_disconnected(self) -> None:
         self.gateway.on_disconnected()
 
-    def account_snapshot(self, value: object) -> OnlyBrokerAccountSnapshot:
+    def account_snapshot(self, value: Any) -> OnlyBrokerAccountSnapshot:
         currency = OnlyCurrency("CNY", 2)
         stamp = self._stamp()
         return OnlyBrokerAccountSnapshot(
@@ -72,7 +79,7 @@ class OnlyMiniQmtTraderCallback:
             self._sequence,
         )
 
-    def balance_snapshot(self, value: object) -> OnlyBrokerBalanceSnapshot:
+    def balance_snapshot(self, value: Any) -> OnlyBrokerBalanceSnapshot:
         currency = OnlyCurrency("CNY", 2)
         return OnlyBrokerBalanceSnapshot(
             currency,
@@ -81,7 +88,7 @@ class OnlyMiniQmtTraderCallback:
             self._money(value.frozen_cash, currency),
         )
 
-    def position_snapshot(self, value: object) -> OnlyBrokerPositionSnapshot:
+    def position_snapshot(self, value: Any) -> OnlyBrokerPositionSnapshot:
         volume = Decimal(str(value.volume))
         available = Decimal(str(value.can_use_volume))
         average = Decimal(str(value.open_price))
@@ -98,7 +105,7 @@ class OnlyMiniQmtTraderCallback:
             self._sequence,
         )
 
-    def order_snapshot(self, value: object) -> OnlyBrokerOrderSnapshot:
+    def order_snapshot(self, value: Any) -> OnlyBrokerOrderSnapshot:
         order_id, client_order_id = self.gateway.resolve_order(value.order_remark, int(value.order_id))
         submitted = self._xt_time(value.order_time)
         updated = self._stamp()
@@ -123,7 +130,7 @@ class OnlyMiniQmtTraderCallback:
             source_sequence=self._sequence,
         )
 
-    def trade_snapshot(self, value: object) -> OnlyBrokerTradeSnapshot:
+    def trade_snapshot(self, value: Any) -> OnlyBrokerTradeSnapshot:
         order_id, _ = self.gateway.resolve_order(value.order_remark, int(value.order_id))
         fill = self._fill(value, order_id)
         return OnlyBrokerTradeSnapshot(
@@ -134,16 +141,16 @@ class OnlyMiniQmtTraderCallback:
             self._sequence,
         )
 
-    def on_stock_asset(self, value: object) -> None:
+    def on_stock_asset(self, value: Any) -> None:
         snapshot = self.account_snapshot(value)
         self._enqueue("asset", str(value.account_id), OnlyBrokerAccountUpdate, snapshot=snapshot)
 
-    def on_stock_position(self, value: object) -> None:
+    def on_stock_position(self, value: Any) -> None:
         snapshot = self.position_snapshot(value)
         identity = f"{value.stock_code}:{value.volume}:{value.can_use_volume}"
         self._enqueue("position", identity, OnlyBrokerPositionUpdate, snapshot=snapshot)
 
-    def on_stock_order(self, value: object) -> None:
+    def on_stock_order(self, value: Any) -> None:
         snapshot = self.order_snapshot(value)
         identity = f"{value.order_id}:{value.order_status}:{value.traded_volume}"
         common = {"order_id": snapshot.order_id}
@@ -169,7 +176,7 @@ class OnlyMiniQmtTraderCallback:
                 venue_order_id=snapshot.venue_order_id,
             )
 
-    def on_stock_trade(self, value: object) -> None:
+    def on_stock_trade(self, value: Any) -> None:
         snapshot = self.trade_snapshot(value)
         self._enqueue(
             "trade",
@@ -179,7 +186,7 @@ class OnlyMiniQmtTraderCallback:
             fill=snapshot.fill,
         )
 
-    def on_order_error(self, value: object) -> None:
+    def on_order_error(self, value: Any) -> None:
         order_id, _ = self.gateway.resolve_order(value.order_remark, int(getattr(value, "order_id", 0)))
         identity = f"{order_id}:{value.error_id}:{value.error_msg}"
         self._enqueue(
@@ -190,10 +197,10 @@ class OnlyMiniQmtTraderCallback:
             rejection=OnlyOrderRejection(str(value.error_id), str(value.error_msg)),
         )
 
-    def on_cancel_error(self, value: object) -> None:
+    def on_cancel_error(self, value: Any) -> None:
         self.gateway._request.logger.error("MiniQMT cancel failed: %s %s", value.error_id, value.error_msg)
 
-    def _fill(self, value: object, order_id: OnlyOrderId) -> OnlyOrderFill:
+    def _fill(self, value: Any, order_id: OnlyOrderId) -> OnlyOrderFill:
         event = self._xt_time(value.traded_time)
         initialized = self._stamp()
         if initialized < event:
@@ -207,6 +214,9 @@ class OnlyMiniQmtTraderCallback:
             ts_init=initialized,
             venue_trade_id=OnlyVenueTradeId(str(value.traded_id)),
             venue_order_id=OnlyVenueOrderId(str(value.order_id)),
+            reported_fee=None,
+            fee_reporting_mode=OnlyBrokerFeeReportingMode.NONE,
+            fee_external_reference=None,
             external_sequence=self._sequence + 1,
             external_event_id=str(value.traded_id),
         )
@@ -237,15 +247,15 @@ class OnlyMiniQmtTraderCallback:
         return OnlyTimestamp.from_datetime(self.gateway._request.clock.now().astimezone(UTC))
 
     @staticmethod
-    def _money(value: object, currency: OnlyCurrency) -> OnlyMoney:
+    def _money(value: Any, currency: OnlyCurrency) -> OnlyMoney:
         return OnlyMoney(Decimal(str(value)).quantize(Decimal("0.01")), currency)
 
     @staticmethod
-    def _side(value: object) -> OnlyOrderSide:
+    def _side(value: Any) -> OnlyOrderSide:
         return OnlyOrderSide.BUY if int(value) == STOCK_BUY else OnlyOrderSide.SELL
 
     @staticmethod
-    def _xt_time(value: object) -> OnlyTimestamp:
+    def _xt_time(value: Any) -> OnlyTimestamp:
         raw = int(value)
         if raw > 10_000_000_000:
             raw //= 1000

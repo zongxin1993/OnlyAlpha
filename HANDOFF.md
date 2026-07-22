@@ -1,6 +1,45 @@
 # OnlyAlpha 工程交接说明
 
-> 更新时间：2026-07-19（Asia/Shanghai）  
+> 更新时间：2026-07-22（Asia/Shanghai）
+> 当前任务：Unified Fee Migration Recovery
+> 修改前 commit：`f18eab37c7229acb544941cc410b96985813542b`
+> 修改后 commit：未提交工作树（不得伪造 SHA）
+
+## Unified Fee Migration Recovery（2026-07-22）
+
+### 已完成
+
+- `market.fees`、`brokers[].fees` 经 Backtest Factory 转为 `OnlyFeeResolverConfig`，与 Market/Broker Schedule Registry 一同
+  进入 `OnlyRuntimeAssemblyConfig`，由 Runtime 创建唯一 Resolver；
+- Market `DEFAULT/MODEL/NONE` 和 Broker `NONE/MODEL/REPORTED` 具有明确语义；Broker `DEFAULT`、未知 Schedule、重叠版本在
+  组装/注册阶段失败；共享 Broker 资源指纹包含费用配置；
+- Order Reservation 预估与 Trade 应用复用同一 Resolver；ExecutionProcessor 将同一 Fee Instruction 投影到 Position、
+  Account、Strategy Ledger 和 FeeManager；
+- Virtual Broker 不计算本地权威费用，Fill 使用无报告语义；MiniQMT SDK 未提供费用时规范化为
+  `reported_fee=None / fee_reporting_mode=NONE`；
+- 修复 fractional notional 的货币量化，迁移旧固定佣金期望与 Golden fingerprint；新增产品装配纵切面，验证 `NONE` 真正到达
+  Runtime 以及未知 Broker Schedule 启动失败；
+- MiniQMT 的 SPI/SDK 类型边界已收紧：公共创建请求使用强类型，`Any` 只留在 xtquant 原始回调边界。
+
+### 基线与回归
+
+- 初始 Core：366 passed、37 failed；失败按共享根因记录于
+  `docs/reports/unified_fee_migration_failure_baseline.md` 与 `unified_fee_migration_regression_matrix.md`；
+- 最终 Core：408 passed；Tushare：16 passed、1 external skip；MiniQMT：10 passed、1 local-QMT skip；
+- Ruff check/format：通过；Core/Tushare/MiniQMT Mypy：361/15/25 source files 通过；
+- 三个 distribution 的 wheel/sdist 构建与 Twine metadata check 通过；干净 Python 3.12 环境安装三个 wheel，3 个模块导入和
+  6 个 Entry Point 加载通过。插件缺少 long description 的 Twine warning 不阻断构建。
+
+### 明确未完成
+
+- 本地未复现 Linux/macOS CI，也未执行需要 Token/本地 QMT 的 external 测试；
+- `OnlyFeeReconciliationService` 与 Adjustment DTO 已存在，但 Live/Paper 的迟到 Broker statement 入口、Adjustment 对
+  Account/Ledger/Fee facts 的事务应用以及 Risk trading block 尚未产品化；
+- Adjustment/Reconciliation timeline 尚未进入完整 Result/Artifact schema。不得据此宣称 Live fee reconciliation 已完成。
+
+以下内容为历史交接记录。
+
+> 更新时间：2026-07-19（Asia/Shanghai）
 > 当前任务：`prompts/Multi-Market_Conformance_Packs_and_Product_Integration.md`
 > Multi-Market Conformance Packs and Product Integration
 

@@ -117,7 +117,16 @@ class _OnlyFeeScheduleRegistry:
         values = self._schedules.setdefault(schedule.schedule_id, [])
         if any(item.version == schedule.version for item in values):
             raise ValueError("fee schedules are immutable; id/version already registered")
+        if any(_ranges_overlap(item, schedule) for item in values):
+            raise ValueError("fee schedule effective ranges cannot overlap")
         values.append(schedule)
+        values.sort(key=lambda item: (item.effective_from, item.version))
+
+    def resolve_version(self, schedule_id: str, version: str) -> _OnlyBaseFeeSchedule:
+        matches = [item for item in self._schedules.get(schedule_id, ()) if item.version == version]
+        if len(matches) != 1:
+            raise ValueError(f"expected exactly one fee schedule version for {schedule_id!r}@{version!r}")
+        return matches[0]
 
     def resolve(self, schedule_id: str, trading_day: date) -> _OnlyBaseFeeSchedule:
         matches = [item for item in self._schedules.get(schedule_id, ()) if item.applies_on(trading_day)]
@@ -133,10 +142,22 @@ class OnlyMarketFeeScheduleRegistry(_OnlyFeeScheduleRegistry):
             raise TypeError("market fee schedule registry contains invalid type")
         return value
 
+    def resolve_version(self, schedule_id: str, version: str) -> OnlyMarketFeeSchedule:
+        value = super().resolve_version(schedule_id, version)
+        if not isinstance(value, OnlyMarketFeeSchedule):
+            raise TypeError("market fee schedule registry contains invalid type")
+        return value
+
 
 class OnlyBrokerFeeScheduleRegistry(_OnlyFeeScheduleRegistry):
     def resolve(self, schedule_id: str, trading_day: date) -> OnlyBrokerFeeSchedule:
         value = super().resolve(schedule_id, trading_day)
+        if not isinstance(value, OnlyBrokerFeeSchedule):
+            raise TypeError("broker fee schedule registry contains invalid type")
+        return value
+
+    def resolve_version(self, schedule_id: str, version: str) -> OnlyBrokerFeeSchedule:
+        value = super().resolve_version(schedule_id, version)
         if not isinstance(value, OnlyBrokerFeeSchedule):
             raise TypeError("broker fee schedule registry contains invalid type")
         return value
@@ -216,6 +237,18 @@ def only_builtin_market_fee_schedule_registry() -> OnlyMarketFeeScheduleRegistry
         )
     )
     return registry
+
+
+def only_builtin_broker_fee_schedule_registry() -> OnlyBrokerFeeScheduleRegistry:
+    """Broker schedules are contract-specific; Core intentionally registers none."""
+
+    return OnlyBrokerFeeScheduleRegistry()
+
+
+def _ranges_overlap(left: _OnlyBaseFeeSchedule, right: _OnlyBaseFeeSchedule) -> bool:
+    left_end = left.effective_to or date.max
+    right_end = right.effective_to or date.max
+    return left.effective_from < right_end and right.effective_from < left_end
 
 
 def _normalize(value: object) -> object:

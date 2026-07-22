@@ -54,6 +54,7 @@ brokers:
   - gateway_id: external-test-broker
     plugin: test-external-broker
     enabled: true
+    fees: {mode: NONE}
     extensions:
       matching: {type: NEXT_BAR}
       slippage: {type: NONE}

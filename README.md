@@ -747,6 +747,7 @@ onlyalpha==X.Y.Z
 
 * 所有公开 OnlyAlpha 类型使用 `Only` 前缀；
 * 金额、价格、数量、费用和 PnL 使用 Decimal 语义；
+* `market.fees` 与 `brokers[].fees` 经 Runtime Factory 显式注入唯一 `OnlyFeeResolver`；Broker 不作为本地费用真值；
 * 业务绝对时间统一使用 UTC；
 * 交易日和 Session 由 TradingCalendar 解释；
 * Domain 不依赖 Runtime、Plugin、CLI 或外部 SDK；

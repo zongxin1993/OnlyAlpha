@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
@@ -74,7 +74,13 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.fee.manager import OnlyFeeManager
-from onlyalpha.fee.resolver import OnlyFeeResolver
+from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
+from onlyalpha.fee.schedules import (
+    OnlyBrokerFeeScheduleRegistry,
+    OnlyMarketFeeScheduleRegistry,
+    only_builtin_broker_fee_schedule_registry,
+    only_builtin_market_fee_schedule_registry,
+)
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
@@ -150,6 +156,13 @@ class OnlyRuntimeAssemblyConfig:
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
     market_rule_engine: OnlyMarketRuleEngine | None = None
+    fee_resolver_config: OnlyFeeResolverConfig = OnlyFeeResolverConfig()
+    market_fee_schedules: OnlyMarketFeeScheduleRegistry = field(
+        default_factory=only_builtin_market_fee_schedule_registry
+    )
+    broker_fee_schedules: OnlyBrokerFeeScheduleRegistry = field(
+        default_factory=only_builtin_broker_fee_schedule_registry
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(

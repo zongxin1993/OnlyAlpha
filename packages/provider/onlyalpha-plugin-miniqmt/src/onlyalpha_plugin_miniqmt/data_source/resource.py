@@ -1,3 +1,5 @@
+from typing import Any
+
 from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import (
@@ -22,15 +24,17 @@ from onlyalpha.data.models import (
     OnlyMarketDataUnsubscriptionRequest,
 )
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 
+from ..config import OnlyMiniQmtConfig
 from ..descriptor import DATA_DESCRIPTOR
 from ..lifecycle import OnlyMiniQmtLifecycle
 from .live import OnlyMiniQmtLiveNormalizer
 
 
 class OnlyMiniQmtDataSource:
-    def __init__(self, request: object, config: object, xtdata: object) -> None:
+    def __init__(self, request: OnlyDataSourceCreateRequest, config: OnlyMiniQmtConfig, xtdata: Any) -> None:
         self._request, self._config, self._xtdata = request, config, xtdata
         self._life = OnlyMiniQmtLifecycle()
         self._subscriptions: dict[str, tuple[int, ...]] = {}

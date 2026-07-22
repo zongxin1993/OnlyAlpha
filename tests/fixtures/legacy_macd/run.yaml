@@ -71,6 +71,7 @@ accounts:
 brokers:
     - gateway_id: virtual-macd-demo
       plugin: virtual
+      fees: {mode: NONE}
       extensions:
           matching:
               type: NEXT_BAR

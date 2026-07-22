@@ -105,6 +105,12 @@ def _broker_projection(value: OnlyBrokerRuntimeConfig) -> object:
         "plugin": value.plugin_id,
         "enabled": value.enabled,
         "extensions": dict(value.extensions),
+        "fees": {
+            "mode": value.fees.mode.value,
+            "schedule_id": value.fees.schedule_id,
+            "reporting_mode": None if value.fees.reporting_mode is None else value.fees.reporting_mode.value,
+            "reservation_policy": value.fees.reservation_policy,
+        },
     }
 
 
