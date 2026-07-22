@@ -488,16 +488,16 @@ class OnlyIntegrationEnvironment:
         assert not self.runtime.allocation_manager.snapshot_all()
         assert not self.runtime.risk_service.reservations.snapshot_active()
         ledger = self.runtime.strategy_ledger_manager.list_ledgers()[0]
-        assert ledger.cash.cash_balance.amount == Decimal("1000198.00")
+        assert ledger.cash.cash_balance.amount == Decimal("1000199.38")
         assert ledger.pnl.realized_pnl.amount == Decimal("200.00")
-        assert ledger.pnl.net_pnl.amount == Decimal("198.00")
+        assert ledger.pnl.net_pnl.amount == Decimal("199.38")
         assert ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view
         account = self.runtime.account_manager.list_accounts()[0]
-        assert account.cash.cash_balance.amount == Decimal("1000198.00")
-        assert account.equity.amount == Decimal("1000198.00")
+        assert account.cash.cash_balance.amount == Decimal("1000199.38")
+        assert account.equity.amount == Decimal("1000199.38")
         assert self.runtime.broker_gateway is not None
         broker_account = self.runtime.broker_gateway.query_account(OnlyAccountId(ACCOUNT_ID))
-        assert broker_account.cash_balance == account.cash.cash_balance
+        assert broker_account.cash_balance.amount - account.cash.cash_balance.amount == account.fees.amount
         assert self.buy_trade_result is not None
         assert self.sell_trade_result is not None
         assert self.buy_trade_result.allocation_status is OnlyPositionMutationStatus.APPLIED

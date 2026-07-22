@@ -190,7 +190,14 @@ class OnlyMarketScenarioParser:
                     "initial_cash": {"value": "1000000", "currency": runtime["base_currency"]},
                 }
             ],
-            "brokers": [{"gateway_id": "scenario-broker", "plugin": "virtual", "extensions": {}}],
+            "brokers": [
+                {
+                    "gateway_id": "scenario-broker",
+                    "plugin": "virtual",
+                    "fees": {"mode": "NONE"},
+                    "extensions": {},
+                }
+            ],
             "strategy": {
                 "class_path": "onlyalpha.scenario.action_strategy:OnlyScenarioActionStrategy",
                 "config_path": "onlyalpha.scenario.action_strategy:OnlyScenarioActionStrategyConfig",

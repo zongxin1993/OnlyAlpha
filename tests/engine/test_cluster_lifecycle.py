@@ -45,7 +45,7 @@ def test_resource_configuration_conflict_rolls_back(tmp_path: Path) -> None:
     engine.add_cluster_from_file(CONFIG)
     baseline = OnlyClusterRunConfig.load(FAST_CONFIG)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
-    payload["brokers"][0]["extensions"]["commission"]["fixed_amount"]["value"] = "2.00"
+    payload["brokers"][0]["fees"] = {"mode": "MODEL", "schedule": "TEST_BROKER_FEE_V2"}
     conflicting = OnlyClusterRunConfig.from_mapping(payload, source_path=FAST_CONFIG)
     before = engine.snapshot()
     with pytest.raises(OnlyResourceConfigurationConflict, match="RESOURCE_CONFIGURATION_CONFLICT"):

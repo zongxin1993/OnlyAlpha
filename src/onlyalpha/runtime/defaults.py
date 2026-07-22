@@ -8,6 +8,10 @@ from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 from onlyalpha.factor.factory import OnlyFactorFactory
+from onlyalpha.fee.schedules import (
+    only_builtin_broker_fee_schedule_registry,
+    only_builtin_market_fee_schedule_registry,
+)
 from onlyalpha.indicator import only_default_indicator_factories
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
 from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler
@@ -59,6 +63,8 @@ def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineService
             clusters,
             only_builtin_market_profile_registry(),
             OnlyMarketRuleCompiler(),
+            only_builtin_market_fee_schedule_registry(),
+            only_builtin_broker_fee_schedule_registry(),
         ),
     )
     return OnlyEngineServices(assembler, data_sources, brokers, discovery)

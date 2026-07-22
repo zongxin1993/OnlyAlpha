@@ -34,12 +34,32 @@ Every component records source and schedule identity/version/fingerprint; the
 result/artifact projection must retain instructions, adjustments,
 reconciliations and schedule timelines.
 
+### Product assembly
+
+The product path is explicit and contains no fee singleton or implicit broker default:
+
+```text
+OnlyClusterRunConfig.market.fees / brokers[].fees
+→ OnlyBacktestRuntimeFactory
+→ OnlyFeeResolverConfig + market/broker schedule registries
+→ OnlyRuntimeAssemblyConfig
+→ OnlyBacktestRuntime
+→ one Runtime-owned OnlyFeeResolver
+```
+
+`market.fees.mode=DEFAULT` resolves the compiled Market Profile schedule for the instrument and trading day. `MODEL`
+resolves the configured immutable schedule ID; `NONE` disables that authority. Broker fees must select `NONE`, `MODEL`,
+or `REPORTED` explicitly: Core does not invent a default broker contract. Missing and overlapping schedule versions fail
+during assembly, before Runtime execution.
+
 ## Consequences
 
 * `NONE` is an intentional disabled source. It is distinct from a MODEL whose
   rate happens to be zero; absent configuration resolves explicitly to DEFAULT.
 * Broker plugins provide normalized external evidence only and do not import or
   mutate Runtime account/ledger/collector state.
+* Virtual Broker fills report `reported_fee=None` with reporting mode `NONE`; its account store is an external snapshot
+  projection and intentionally does not include Runtime-resolved fees.
 * Account reconciliation can explain an exact cash difference through an
   immutable fee adjustment, but cannot overwrite local account history.
 * The old `fill.fee`/fixed-commission runtime truth path must be removed in the

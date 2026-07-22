@@ -6,10 +6,10 @@ from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyTradeId, OnlyVenueTradeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.execution import OnlyExecutionProcessingResult, OnlyExecutionProcessingStatus
 
-from ..environment import ACCOUNT_ID, CNY, OnlyIntegrationEnvironment, OnlyScenarioReport
+from ..environment import ACCOUNT_ID, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
@@ -35,7 +35,6 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
             ts_init=now,
             venue_trade_id=OnlyVenueTradeId("scenario-stale-venue-trade"),
             venue_order_id=order.venue_order_id,
-            fee=OnlyMoney(Decimal("0.00"), CNY),
             liquidity_side=OnlyLiquiditySide.TAKER,
         ),
     )

@@ -1,5 +1,7 @@
 """MiniQMT vendor adapter for OnlyAlpha's provider-neutral cache service."""
 
+from typing import Any
+
 from onlyalpha.cache.historical.models import (
     OnlyDataQualityReport,
     OnlyHistoricalCacheKey,
@@ -7,7 +9,9 @@ from onlyalpha.cache.historical.models import (
     OnlyHistoricalFetchResult,
 )
 from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from .historical import load_bars
 
@@ -15,9 +19,9 @@ from .historical import load_bars
 class OnlyMiniQmtHistoricalDataProvider:
     def __init__(
         self,
-        xtdata: object,
-        create_request: object,
-        data_version: object,
+        xtdata: Any,
+        create_request: OnlyDataSourceCreateRequest,
+        data_version: OnlyDataVersion,
         batch_size: int,
     ) -> None:
         self._xtdata = xtdata

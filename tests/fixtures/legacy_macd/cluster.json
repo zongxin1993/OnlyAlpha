@@ -35,7 +35,7 @@
     "initial_cash": {"value": "1000000.00", "currency": "CNY"}
   }],
   "brokers": [{
-    "gateway_id": "virtual-main", "plugin": "virtual", "extensions": {
+    "gateway_id": "virtual-main", "plugin": "virtual", "fees": {"mode": "NONE"}, "extensions": {
       "matching": {"type": "NEXT_BAR"},
       "slippage": {"type": "NONE"}
     }

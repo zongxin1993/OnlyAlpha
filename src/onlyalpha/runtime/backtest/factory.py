@@ -15,9 +15,11 @@ from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRa
 from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
-from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfigurationMode
+from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
@@ -200,6 +202,21 @@ class OnlyBacktestRuntimeFactory:
             references=references,
             advance_trading_day=advance_trading_day,
         )
+        fee_resolver_config = OnlyFeeResolverConfig(
+            market_mode=config.market.fees.mode,
+            market_schedule_id=config.market.fees.schedule_id,
+            broker_mode=broker_common.fees.mode,
+            broker_schedule_id=broker_common.fees.schedule_id,
+            broker_id=str(broker_common.gateway_id),
+            broker_reporting_mode=broker_common.fees.reporting_mode or OnlyBrokerFeeReportingMode.NONE,
+        )
+        self._validate_fee_schedules(
+            config,
+            components,
+            market_rule_engine,
+            fee_resolver_config,
+            calendar.trading_day_at(OnlyTimestamp.from_datetime(config.start_time)),
+        )
         runtime_config = OnlyRuntimeAssemblyConfig(
             config.engine_id,
             config.runtime_id,
@@ -210,6 +227,9 @@ class OnlyBacktestRuntimeFactory:
             broker_gateway_id=broker_common.gateway_id,
             account_initial_cash=account.initial_cash,
             market_rule_engine=market_rule_engine,
+            fee_resolver_config=fee_resolver_config,
+            market_fee_schedules=components.market_fee_schedules,
+            broker_fee_schedules=components.broker_fee_schedules,
         )
         clock = OnlyBacktestClock(config.start_time)
         event_bus = OnlyEventBus(
@@ -281,6 +301,31 @@ class OnlyBacktestRuntimeFactory:
             broker_factory,
             broker_request,
         )
+
+    @staticmethod
+    def _validate_fee_schedules(
+        config: OnlyRuntimeAssemblyPlan,
+        components: OnlyComponentFactoryRegistries,
+        market_rules: OnlyMarketRuleEngine,
+        fee_config: OnlyFeeResolverConfig,
+        trading_day: OnlyTradingDay,
+    ) -> None:
+        if fee_config.market_mode is not OnlyFeeConfigurationMode.NONE:
+            for instrument in config.reference_data.instruments:
+                schedule_id = fee_config.market_schedule_id
+                if fee_config.market_mode is OnlyFeeConfigurationMode.DEFAULT:
+                    schedule_id = market_rules.compiled_rules(
+                        str(instrument.instrument_id), trading_day
+                    ).market_fee_schedule_id
+                if schedule_id is None:
+                    raise ValueError("market fee configuration requires a schedule")
+                components.market_fee_schedules.resolve(schedule_id, trading_day.value)
+        if fee_config.broker_mode is OnlyFeeConfigurationMode.DEFAULT:
+            raise ValueError("broker fees must explicitly select NONE, MODEL, or REPORTED")
+        if fee_config.broker_mode is OnlyFeeConfigurationMode.MODEL:
+            if fee_config.broker_schedule_id is None:
+                raise ValueError("broker MODEL fee configuration requires a schedule")
+            components.broker_fee_schedules.resolve(fee_config.broker_schedule_id, trading_day.value)
 
     @staticmethod
     def _configured_bar_types(config: OnlyRuntimeAssemblyPlan) -> dict[OnlyInstrumentId, OnlyBarType]:

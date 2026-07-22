@@ -117,6 +117,9 @@ def test_callbacks_normalize_deduplicate_and_enqueue() -> None:
     fill = gateway.queue.items[-1].fill
     assert fill.order_id == OnlyOrderId("order-1")
     assert str(fill.venue_trade_id) == "T-1"
+    assert fill.reported_fee is None
+    assert fill.fee_reporting_mode.value == "NONE"
+    assert fill.fee_external_reference is None
 
 
 def test_order_error_becomes_structured_rejection() -> None:

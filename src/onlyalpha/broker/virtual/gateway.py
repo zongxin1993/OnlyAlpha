@@ -55,7 +55,6 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, OnlyTradeApplicationRequest
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities
@@ -462,7 +461,9 @@ class OnlyVirtualBrokerGateway:
                 else max(price.value, order.price.value),
                 max(price.precision, order.price.precision),
             )
-        fee = OnlyMoney(Decimal(0), self.config.base_currency)
+        # This is an external-account projection, not a second fee authority.
+        # Runtime resolves and applies the authoritative local fee.
+        external_reported_fee = Decimal(0)
         self._trade_sequence += 1
         trade_id = OnlyTradeId(f"virtual-trade-{self._trade_sequence:08d}")
         venue_trade_id = OnlyVenueTradeId(f"virtual-venue-trade-{self._trade_sequence:08d}")
@@ -513,7 +514,7 @@ class OnlyVirtualBrokerGateway:
                 order.instrument_id,
                 quantity.value,
                 price,
-                fee.amount,
+                external_reported_fee,
             )
         elif order.side is OnlyOrderSide.BUY:
             self.account_store.apply_buy(
@@ -521,7 +522,7 @@ class OnlyVirtualBrokerGateway:
                 quantity.value,
                 price,
                 reserved,
-                fee.amount,
+                external_reported_fee,
                 quantity.precision,
                 asset_available=asset_available,
             )
@@ -530,11 +531,11 @@ class OnlyVirtualBrokerGateway:
                 order.instrument_id,
                 quantity.value,
                 price,
-                fee.amount,
+                external_reported_fee,
                 quantity.precision,
             )
         else:
-            self.account_store.apply_sell(order.instrument_id, quantity.value, price, fee.amount)
+            self.account_store.apply_sell(order.instrument_id, quantity.value, price, external_reported_fee)
         filled = type(order.filled_quantity)(
             order.filled_quantity.value + quantity.value, order.filled_quantity.precision
         )

@@ -19,7 +19,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
 
     assert snapshot.status is OnlyOrderStatus.PARTIALLY_FILLED
     assert snapshot.filled_quantity.value == Decimal("40")
-    assert account.cash.frozen_cash.amount == Decimal("600.00")
+    assert account.cash.frozen_cash.amount == Decimal("600.01")
     risk_reservation = partial.runtime.risk_service.reservations.get_for_order(snapshot.order_id)
     assert risk_reservation is not None
     assert risk_reservation.consumed_quantity.value == Decimal("40")

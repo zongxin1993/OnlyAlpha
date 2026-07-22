@@ -1,3 +1,17 @@
+# 当前后续任务（2026-07-22）
+
+Unified Fee 的本地 Backtest 权威链和配置装配已完成，下面历史记录中的“Fee 双重真相”描述已被 ADR 0031 和当前源码取代。
+下一项 Fee 工作不是再建 Resolver，而是把现有 `OnlyFeeReconciliationService` 接到未来 Live/Paper 的迟到报告入口：以
+Adjustment Instruction 幂等更新 Account、Strategy Ledger、FeeManager、Audit/Result，并让重大未知差异进入 Risk trading
+block。随后补齐 adjustment/reconciliation Artifact timeline 和真实 Broker contract schedule 注册机制。
+
+当前验证：Core 408 passed；Tushare 16 passed/1 external skip；MiniQMT 10 passed/1 local-QMT skip；全仓 Ruff、三个包 Mypy、
+三个 wheel/sdist build、干净环境安装/import/Entry Point smoke 均通过。未执行外部网络/QMT 与 Linux/macOS CI。
+
+---
+
+以下为历史压缩上下文，其中 Fee 状态已被上述说明取代。
+
 已将会话压缩为以下上下文，后续 OnlyAlpha 讨论以此为基准。
 
 ## OnlyAlpha 当前定位

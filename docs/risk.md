@@ -76,6 +76,9 @@ Reservation 由 Runtime 单写管理，ID 和遍历顺序确定；创建按 Orde
 幂等。订单 Cancelled、Rejected、Failed、Expired、Execution 拒收或 Cluster 停止时释放。首版不实现部分成交
 消耗和 Position 转换。
 
+买单现金 Reservation 的 estimated fee 来自与成交共用的 Runtime `OnlyFeeResolver`；Risk 不读取 Schedule、不实现费用公式。
+无法解释且超过阈值的外部费用差异必须进入 Reconciliation/Trading Block 状态，不能用零费用或 `OTHER` 项目强行抹平。
+
 ## 6. Kill Switch、Event 与审计
 
 Kill Switch 是 Runtime 管理能力，可作用于 Runtime、Cluster 或 Account；Cluster 只看到 Snapshot 中的布尔值。

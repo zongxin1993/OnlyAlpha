@@ -1103,6 +1103,8 @@ class OnlyExecutionProcessor:
             timestamp=update.ts_event,
             liquidity_role=update.fill.liquidity_side.value,
             created_at=update.ts_init.to_datetime(),
+            reported_fee=update.fill.reported_fee,
+            reporting_mode=update.fill.fee_reporting_mode,
         )
 
     def _notional(self, trade: OnlyPositionTrade) -> OnlyMoney:

@@ -40,7 +40,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     shared.process_bar(DAY_ONE, 3, "10.00")
 
     account = shared.runtime.account_manager.list_accounts()[0]
-    assert account.cash.frozen_cash.amount == Decimal("2000.00")
+    assert account.cash.frozen_cash.amount == Decimal("2000.02")
     assert {item.key.cluster_id for item in shared.runtime.strategy_ledger_manager.list_ledgers()} == {
         CLUSTER_ID,
         second_id,

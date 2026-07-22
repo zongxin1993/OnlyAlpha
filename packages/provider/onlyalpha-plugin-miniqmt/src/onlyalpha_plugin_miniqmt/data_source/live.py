@@ -1,6 +1,7 @@
 """Normalize XtQuant live callbacks before entering the Runtime queue."""
 
 from datetime import timedelta
+from typing import Any
 
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
@@ -10,20 +11,22 @@ from onlyalpha.data.models import (
     OnlyQuoteTickUpdate,
 )
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
-from onlyalpha.domain.market import OnlyBar, OnlyQuoteTick
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyQuoteTick
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from ..mapping.market_data import quantized_decimal, utc_from_xt, valid_ohlc
 
 
 class OnlyMiniQmtLiveNormalizer:
-    def __init__(self, request: object) -> None:
+    def __init__(self, request: OnlyDataSourceCreateRequest) -> None:
         self._request = request
         self._sequence = 0
 
     @staticmethod
-    def period(bar_type: object) -> str:
+    def period(bar_type: OnlyBarType) -> str:
         from .historical import PERIODS
 
         period = PERIODS.get(bar_type.specification.step)
@@ -31,12 +34,15 @@ class OnlyMiniQmtLiveNormalizer:
             raise ValueError(f"unsupported MiniQMT period: {bar_type.specification.step}m")
         return period
 
-    def publish(self, raw: object, instrument_id: object, period: str) -> None:
+    def publish(self, raw: Any, instrument_id: OnlyInstrumentId, period: str) -> None:
+        sink = self._request.market_data_sink
+        if sink is None:
+            raise RuntimeError("Runtime market_data_sink is required")
         for row in self._rows(raw):
             update = self._quote(row, instrument_id) if period == "tick" else self._bar(row, instrument_id, period)
-            self._request.market_data_sink(update)
+            sink(update)
 
-    def _quote(self, row: dict[str, object], instrument_id: object) -> OnlyMarketDataInboundUpdate:
+    def _quote(self, row: dict[str, Any], instrument_id: OnlyInstrumentId) -> OnlyMarketDataInboundUpdate:
         event = utc_from_xt(row["time"])
         bids, asks = row.get("bidPrice", ()), row.get("askPrice", ())
         bid_volumes, ask_volumes = row.get("bidVol", ()), row.get("askVol", ())
@@ -53,7 +59,7 @@ class OnlyMiniQmtLiveNormalizer:
         )
         return self._envelope(instrument_id, event, OnlyMarketDataType.QUOTE, OnlyQuoteTickUpdate(quote))
 
-    def _bar(self, row: dict[str, object], instrument_id: object, period: str) -> OnlyMarketDataInboundUpdate:
+    def _bar(self, row: dict[str, Any], instrument_id: OnlyInstrumentId, period: str) -> OnlyMarketDataInboundUpdate:
         if not valid_ohlc(row):
             raise ValueError("invalid live MiniQMT OHLC")
         event = utc_from_xt(row["time"])
@@ -99,10 +105,10 @@ class OnlyMiniQmtLiveNormalizer:
         )
 
     @staticmethod
-    def _rows(raw: object) -> tuple[dict[str, object], ...]:
+    def _rows(raw: Any) -> tuple[dict[str, Any], ...]:
         if not isinstance(raw, dict):
             return ()
-        rows: list[dict[str, object]] = []
+        rows: list[dict[str, Any]] = []
         for value in raw.values():
             if isinstance(value, dict):
                 rows.append(value)

@@ -679,6 +679,7 @@ Order
 * Virtual Broker 与真实 Broker 使用相同 Broker Update API；
 * Matching Engine 不得读取未来数据；
 * Commission、Slippage、Latency 分离建模；
+* `market.fees` 和 `brokers[].fees` 必须经 Runtime Assembly 显式进入唯一 Fee Resolver，未知 Schedule 在启动前失败；
 * submit 返回只表示请求是否被 SDK 接收；
 * Venue Accepted、Fill、Cancelled 必须来自标准异步回报。
 

@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import pytest
+
 from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.fee import (
@@ -9,11 +11,15 @@ from onlyalpha.fee import (
     OnlyFeeAuthority,
     OnlyFeeCalculationRequest,
     OnlyFeeConfigurationMode,
+    OnlyFeeDifferenceReason,
     OnlyFeeEngine,
     OnlyFeeRateRule,
+    OnlyFeeReconciliationService,
+    OnlyFeeReconciliationStatus,
     OnlyFeeStatus,
     OnlyFeeType,
     OnlyMarketFeeSchedule,
+    OnlyMarketFeeScheduleRegistry,
 )
 
 USD = OnlyCurrency("USD")
@@ -113,3 +119,82 @@ def test_instruction_is_deterministic_and_utc() -> None:
     )
     instruction = engine.instruction(request, breakdown, datetime(2026, 1, 2, tzinfo=UTC), "model")
     assert instruction.idempotency_key == "fee:runtime:trade:CONFIRMED"
+
+
+def test_schedule_registry_rejects_overlap_and_unknown_version() -> None:
+    registry = OnlyMarketFeeScheduleRegistry()
+    registry.register(_market())
+    with pytest.raises(ValueError, match="overlap"):
+        registry.register(
+            OnlyMarketFeeSchedule(
+                "market",
+                "2",
+                date(2026, 1, 2),
+                None,
+                USD,
+                "market-v2",
+                (),
+                "CRYPTO",
+                "EX",
+                "CRYPTO",
+            )
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        registry.resolve_version("market", "missing")
+
+
+def test_reconciliation_is_idempotent_and_preserves_signed_adjustment() -> None:
+    engine = OnlyFeeEngine()
+    request = _request()
+    breakdown = engine.resolve_trade_fee(
+        request,
+        runtime_mode=OnlyRuntimeMode.BACKTEST,
+        market_schedule=_market(),
+        broker_schedule=None,
+        market_mode=OnlyFeeConfigurationMode.MODEL,
+        broker_mode=OnlyFeeConfigurationMode.NONE,
+    )
+    instruction = engine.instruction(request, breakdown, datetime(2026, 1, 2, tzinfo=UTC), "model")
+    service = OnlyFeeReconciliationService()
+    result = service.reconcile(
+        instruction,
+        reported_amount=OnlyMoney(Decimal("1.50"), USD),
+        external_reference="statement-1",
+        reason=OnlyFeeDifferenceReason.REFUND,
+        created_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    assert result.status is OnlyFeeReconciliationStatus.ADJUSTMENT_REQUIRED
+    assert result.adjustment is not None
+    assert result.adjustment.adjustment_amount == OnlyMoney(Decimal("-0.50"), USD)
+    duplicate = service.reconcile(
+        instruction,
+        reported_amount=OnlyMoney(Decimal("1.50"), USD),
+        external_reference="statement-1",
+        reason=OnlyFeeDifferenceReason.REFUND,
+        created_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    assert duplicate.status is OnlyFeeReconciliationStatus.DUPLICATE_REPORT
+
+
+def test_unknown_material_fee_difference_blocks_reconciliation() -> None:
+    engine = OnlyFeeEngine()
+    request = _request()
+    breakdown = engine.resolve_trade_fee(
+        request,
+        runtime_mode=OnlyRuntimeMode.BACKTEST,
+        market_schedule=_market(),
+        broker_schedule=None,
+        market_mode=OnlyFeeConfigurationMode.MODEL,
+        broker_mode=OnlyFeeConfigurationMode.NONE,
+    )
+    instruction = engine.instruction(request, breakdown, datetime(2026, 1, 2, tzinfo=UTC), "model")
+    result = OnlyFeeReconciliationService().reconcile(
+        instruction,
+        reported_amount=OnlyMoney(Decimal("5.00"), USD),
+        external_reference="statement-2",
+        reason=OnlyFeeDifferenceReason.UNKNOWN,
+        created_at=datetime(2026, 1, 3, tzinfo=UTC),
+        materiality_threshold=OnlyMoney(Decimal("0.01"), USD),
+    )
+    assert result.status is OnlyFeeReconciliationStatus.TRADING_BLOCKED
+    assert result.adjustment is None

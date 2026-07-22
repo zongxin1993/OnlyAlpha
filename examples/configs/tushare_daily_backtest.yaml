@@ -31,6 +31,7 @@ accounts:
 brokers:
   - gateway_id: virtual-main
     plugin: virtual
+    fees: {mode: NONE}
     extensions: {matching: {type: NEXT_BAR}, slippage: {type: NONE}}
 strategy:
   class_path: examples.strategy.macd.strategy:OnlyMacdStrategy

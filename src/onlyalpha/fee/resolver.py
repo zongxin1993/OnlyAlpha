@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId
@@ -20,8 +21,33 @@ from onlyalpha.fee.models import (
     OnlyFeeInstruction,
     OnlyFeeStatus,
 )
-from onlyalpha.fee.schedules import OnlyMarketFeeSchedule, OnlyMarketFeeScheduleRegistry
+from onlyalpha.fee.schedules import (
+    OnlyBrokerFeeSchedule,
+    OnlyBrokerFeeScheduleRegistry,
+    OnlyMarketFeeSchedule,
+    OnlyMarketFeeScheduleRegistry,
+)
 from onlyalpha.market.runtime_rules import OnlyTradeInstructionPort
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeResolverConfig:
+    market_mode: OnlyFeeConfigurationMode = OnlyFeeConfigurationMode.DEFAULT
+    market_schedule_id: str | None = None
+    broker_mode: OnlyFeeConfigurationMode = OnlyFeeConfigurationMode.NONE
+    broker_schedule_id: str | None = None
+    broker_id: str = "runtime"
+    broker_reporting_mode: OnlyBrokerFeeReportingMode = OnlyBrokerFeeReportingMode.NONE
+
+    def __post_init__(self) -> None:
+        if self.market_mode is OnlyFeeConfigurationMode.MODEL and self.market_schedule_id is None:
+            raise ValueError("market MODEL fee configuration requires a schedule")
+        if self.broker_mode is OnlyFeeConfigurationMode.MODEL and self.broker_schedule_id is None:
+            raise ValueError("broker MODEL fee configuration requires a schedule")
+        if self.market_mode is OnlyFeeConfigurationMode.REPORTED:
+            raise ValueError("market fee configuration cannot use REPORTED mode")
+        if not self.broker_id:
+            raise ValueError("fee resolver broker_id cannot be empty")
 
 
 class OnlyFeeResolver:
@@ -31,18 +57,22 @@ class OnlyFeeResolver:
         self,
         engine: OnlyFeeEngine,
         market_schedules: OnlyMarketFeeScheduleRegistry,
+        broker_schedules: OnlyBrokerFeeScheduleRegistry,
         market_rules: OnlyTradeInstructionPort | None,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
         trading_day: Callable[[OnlyTimestamp], OnlyTradingDay],
+        config: OnlyFeeResolverConfig | None = None,
     ) -> None:
         self._engine = engine
         self._market_schedules = market_schedules
+        self._broker_schedules = broker_schedules
         self._market_rules = market_rules
         self._instruments = instruments
         self._trading_day = trading_day
+        self._config = config or OnlyFeeResolverConfig()
 
     def estimate_order(self, order: OnlyOrderSnapshot, price: OnlyPrice, timestamp: OnlyTimestamp) -> OnlyFeeEstimate:
-        request, schedule = self._request(
+        request, market_schedule, broker_schedule = self._request(
             order,
             trade_id=f"estimate:{order.order_id}",
             price=price,
@@ -52,10 +82,10 @@ class OnlyFeeResolver:
         )
         return self._engine.estimate(
             request,
-            market_schedule=schedule,
-            broker_schedule=None,
-            market_mode=(OnlyFeeConfigurationMode.DEFAULT if schedule is not None else OnlyFeeConfigurationMode.NONE),
-            broker_mode=OnlyFeeConfigurationMode.NONE,
+            market_schedule=market_schedule,
+            broker_schedule=broker_schedule,
+            market_mode=self._market_mode(market_schedule),
+            broker_mode=self._broker_mode(broker_schedule),
         )
 
     def resolve_trade(
@@ -68,8 +98,19 @@ class OnlyFeeResolver:
         timestamp: OnlyTimestamp,
         liquidity_role: str | None,
         created_at: datetime,
+        reported_fee: OnlyMoney | None = None,
+        reporting_mode: OnlyBrokerFeeReportingMode | None = None,
     ) -> OnlyFeeInstruction:
-        request, schedule = self._request(order, trade_id, price, quantity, timestamp, liquidity_role)
+        request, market_schedule, broker_schedule = self._request(
+            order,
+            trade_id,
+            price,
+            quantity,
+            timestamp,
+            liquidity_role,
+            reported_fee,
+            reporting_mode,
+        )
         if self._market_rules is None:
             return self._engine.instruction(
                 request,
@@ -81,12 +122,12 @@ class OnlyFeeResolver:
         breakdown = self._engine.resolve_trade_fee(
             request,
             runtime_mode=compiled.identity.runtime_mode,
-            market_schedule=schedule,
-            broker_schedule=None,
-            market_mode=OnlyFeeConfigurationMode.DEFAULT,
-            broker_mode=OnlyFeeConfigurationMode.NONE,
+            market_schedule=market_schedule,
+            broker_schedule=broker_schedule,
+            market_mode=self._market_mode(market_schedule),
+            broker_mode=self._broker_mode(broker_schedule),
         )
-        return self._engine.instruction(request, breakdown, created_at, "market_fee_schedule")
+        return self._engine.instruction(request, breakdown, created_at, "runtime_fee_resolver")
 
     def _request(
         self,
@@ -96,7 +137,9 @@ class OnlyFeeResolver:
         quantity: Decimal,
         timestamp: OnlyTimestamp,
         liquidity_role: str | None,
-    ) -> tuple[OnlyFeeCalculationRequest, OnlyMarketFeeSchedule | None]:
+        reported_fee: OnlyMoney | None = None,
+        reporting_mode: OnlyBrokerFeeReportingMode | None = None,
+    ) -> tuple[OnlyFeeCalculationRequest, OnlyMarketFeeSchedule | None, OnlyBrokerFeeSchedule | None]:
         instrument = self._instruments[order.instrument_id]
         trading_day = self._trading_day(timestamp)
         compiled = (
@@ -105,6 +148,11 @@ class OnlyFeeResolver:
             else self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
         )
         currency = instrument.settlement_currency
+        quantum = Decimal(1).scaleb(-currency.precision)
+        notional = OnlyMoney(
+            (price.value * quantity * instrument.contract_multiplier.value).quantize(quantum, ROUND_HALF_EVEN),
+            currency,
+        )
         request = OnlyFeeCalculationRequest(
             str(order.runtime_id),
             str(order.cluster_id),
@@ -120,15 +168,49 @@ class OnlyFeeResolver:
             liquidity_role,
             price.value,
             quantity,
-            OnlyMoney(price.value * quantity * instrument.contract_multiplier.value, currency),
+            notional,
             instrument.contract_multiplier.value,
             currency,
-            "runtime",
-            OnlyBrokerFeeReportingMode.NONE,
+            self._config.broker_id,
+            reporting_mode or self._config.broker_reporting_mode,
+            reported_fee,
         )
-        schedule = (
+        market_schedule_id = self._config.market_schedule_id
+        if self._config.market_mode is OnlyFeeConfigurationMode.DEFAULT and compiled is not None:
+            market_schedule_id = compiled.market_fee_schedule_id
+        market_schedule = (
             None
-            if compiled is None
-            else self._market_schedules.resolve(compiled.market_fee_schedule_id, trading_day.value)
+            if self._config.market_mode is OnlyFeeConfigurationMode.NONE
+            or (self._config.market_mode is OnlyFeeConfigurationMode.DEFAULT and compiled is None)
+            else self._market_schedules.resolve(self._require_schedule(market_schedule_id, "market"), trading_day.value)
         )
-        return request, schedule
+        broker_schedule = (
+            self._broker_schedules.resolve(
+                self._require_schedule(self._config.broker_schedule_id, "broker"), trading_day.value
+            )
+            if self._config.broker_mode is OnlyFeeConfigurationMode.MODEL
+            else None
+        )
+        return request, market_schedule, broker_schedule
+
+    def _market_mode(self, schedule: OnlyMarketFeeSchedule | None) -> OnlyFeeConfigurationMode:
+        if self._config.market_mode is OnlyFeeConfigurationMode.NONE:
+            return OnlyFeeConfigurationMode.NONE
+        if self._config.market_mode is OnlyFeeConfigurationMode.DEFAULT and self._market_rules is None:
+            return OnlyFeeConfigurationMode.NONE
+        if schedule is None:
+            raise ValueError("market fee configuration requires a resolved schedule")
+        return OnlyFeeConfigurationMode.MODEL
+
+    def _broker_mode(self, schedule: OnlyBrokerFeeSchedule | None) -> OnlyFeeConfigurationMode:
+        if self._config.broker_mode is OnlyFeeConfigurationMode.DEFAULT:
+            raise ValueError("broker DEFAULT fee configuration requires an explicit Runtime default")
+        if self._config.broker_mode is OnlyFeeConfigurationMode.MODEL and schedule is None:
+            raise ValueError("broker fee configuration requires a resolved schedule")
+        return self._config.broker_mode
+
+    @staticmethod
+    def _require_schedule(schedule_id: str | None, authority: str) -> str:
+        if schedule_id is None:
+            raise ValueError(f"{authority} fee configuration requires a schedule")
+        return schedule_id
