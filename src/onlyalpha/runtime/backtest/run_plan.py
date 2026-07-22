@@ -7,6 +7,7 @@ import json
 from dataclasses import replace
 from datetime import datetime
 
+from onlyalpha.account.performance import OnlyAccountValuationSource
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
@@ -22,13 +23,18 @@ from onlyalpha.result.fingerprint import only_result_fingerprint
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,
-    OnlyBacktestPerformanceSummary,
     OnlyBacktestResult,
     OnlyBacktestRunSummary,
     OnlyBacktestStatus,
+    OnlyClusterPerformanceSummary,
     OnlyClusterResult,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.reconciliation import (
+    OnlyCommittedTradeFeeAttribution,
+    OnlyRuntimeLedgerReconciliationService,
+    OnlyRuntimeLedgerReconciliationStatus,
+)
 
 
 class OnlyBacktestRunPlan:
@@ -82,14 +88,20 @@ class OnlyBacktestRunPlan:
     ) -> OnlyBacktestResult:
         runtime = self._require_runtime()
         orders = runtime.order_manager.snapshot_all()
-        account_config = self._config.accounts[0]
+        (account_config,) = self._config.accounts
         positions = runtime.position_manager.snapshot_all()
         allocations = runtime.allocation_manager.snapshot_all()
         ledgers = runtime.strategy_ledger_manager.list_ledgers()
-        accounts = runtime.account_manager.list_accounts()
-        if len(ledgers) != len(self._clusters) or len(accounts) != 1:
+        if len(ledgers) != len(self._clusters):
             raise RuntimeError("product Backtest requires one Ledger per Cluster and one shared Account")
-        account = accounts[0]
+        account = runtime.account_manager.require_snapshot(account_config.account_id)
+        runtime.account_performance_projector.record(
+            account,
+            OnlyAccountValuationSource.FINAL_SEAL,
+            previous=account,
+        )
+        account_timeline = runtime.account_performance_projector.timeline(account.account_id)
+        runtime_performance = runtime.account_performance_projector.summarize(account.account_id)
         blocking_execution = tuple(
             item
             for item in runtime.broker_results
@@ -105,29 +117,80 @@ class OnlyBacktestRunPlan:
         invariant_results = (
             self._invariants(account, ledgers, blocking_execution) if status is OnlyBacktestStatus.COMPLETED else ()
         )
-        cluster_results = tuple(
-            OnlyClusterResult(
-                OnlyClusterId(cluster.config.cluster_id),
-                dict(cluster.strategy.build_result_extension()),
-                tuple(dict(item.to_dict()) for item in self._factor_snapshots(cluster)),
-                tuple(dict(item.to_dict()) for item in cluster.indicator_snapshots),
+        sorted_clusters = tuple(sorted(self._clusters, key=lambda item: item.config.cluster_id))
+        cluster_config_by_id = {item.cluster_id: item for item in self._config.clusters}
+        cluster_results_list: list[OnlyClusterResult] = []
+        cluster_timelines = []
+        for cluster in sorted_clusters:
+            cluster_id = OnlyClusterId(cluster.config.cluster_id)
+            cluster_config = cluster_config_by_id[cluster_id]
+            ledger = runtime.strategy_ledger_locator.require_snapshot(
+                runtime_id=self._config.runtime_id,
+                account_id=cluster_config.account_id,
+                cluster_id=cluster_id,
+                currency=account.base_currency,
             )
-            for cluster in self._clusters
+            timeline = runtime.strategy_ledger_manager.equity_timeline(ledger.key)
+            cluster_timelines.append(timeline)
+            performance = ledger.performance
+            cluster_results_list.append(
+                OnlyClusterResult(
+                    cluster_id,
+                    OnlyClusterPerformanceSummary(
+                        self._config.runtime_id,
+                        cluster_config.account_id,
+                        cluster_id,
+                        ledger.ledger_id,
+                        ledger.key.base_currency,
+                        ledger.capital.initial_capital,
+                        ledger.equity.equity,
+                        ledger.pnl.realized_pnl,
+                        ledger.pnl.unrealized_pnl,
+                        ledger.pnl.net_pnl,
+                        ledger.pnl.fees,
+                        ledger.equity.return_since_start,
+                        ledger.equity.drawdown,
+                        ledger.equity.maximum_drawdown,
+                        performance.trade_count,
+                        performance.winning_trade_count,
+                        performance.losing_trade_count,
+                        performance.win_rate,
+                        performance.profit_factor,
+                        runtime.strategy_ledger_manager.valuation_count(ledger.key),
+                        ledger.quality_flags,
+                    ),
+                    dict(cluster.strategy.build_result_extension()),
+                    tuple(dict(item.to_dict()) for item in self._factor_snapshots(cluster)),
+                    tuple(dict(item.to_dict()) for item in cluster.indicator_snapshots),
+                )
+            )
+        cluster_results = tuple(cluster_results_list)
+        trades = runtime.committed_execution_journal.records()
+        reconciliation = OnlyRuntimeLedgerReconciliationService().reconcile(
+            account=account,
+            account_initial_equity=account_config.initial_cash,
+            ledgers=ledgers,
+            committed_trade_fees=tuple(
+                OnlyCommittedTradeFeeAttribution(item.trade_id, item.cluster_id, item.authoritative_fee_total)
+                for item in trades
+            ),
+            ts_event=OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
         )
+        if reconciliation.status is OnlyRuntimeLedgerReconciliationStatus.MISMATCHED:
+            status = OnlyBacktestStatus.FAILED
         quality = tuple(
             sorted(
                 {flag.value for record in runtime.market_data_audit_store.records() for flag in record.quality_flags}
             )
         )
         collected = self._collector.seal(runtime, self._clusters)
-        trades = runtime.committed_execution_journal.records()
         result = OnlyBacktestResult(
             OnlyBacktestRunSummary(
                 self._config.runtime_id,
                 status,
                 OnlyTimestamp.from_datetime(self._require_start_time()),
                 OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
-                tuple(OnlyClusterId(cluster.config.cluster_id) for cluster in self._clusters),
+                tuple(OnlyClusterId(cluster.config.cluster_id) for cluster in sorted_clusters),
             ),
             OnlyBacktestDataSummary(
                 str(self._source.source_id),
@@ -143,22 +206,17 @@ class OnlyBacktestRunPlan:
                 sum(item.status is OnlyOrderStatus.REJECTED for item in orders),
                 len(trades),
             ),
-            OnlyBacktestPerformanceSummary(
-                account_config.initial_cash,
-                account.equity,
-                account.realized_pnl,
-                account.unrealized_pnl,
-                account.fees,
-                ledgers[0].performance.return_since_start,
-                ledgers[0].performance.maximum_drawdown,
-            ),
+            runtime_performance,
             positions,
             allocations,
             ledgers,
-            accounts,
+            account,
             orders,
             trades,
             cluster_results,
+            account_timeline,
+            tuple(cluster_timelines),
+            reconciliation,
             invariant_results,
             "",
             collected.facts,
@@ -221,7 +279,10 @@ class OnlyBacktestRunPlan:
                 "final_positions": result.final_positions,
                 "final_allocations": result.final_allocations,
                 "final_ledgers": result.final_ledgers,
-                "final_accounts": result.final_accounts,
+                "final_account": result.final_account,
+                "account_equity_timeline": result.account_equity_timeline,
+                "cluster_equity_timelines": result.cluster_equity_timelines,
+                "reconciliation": result.reconciliation,
                 "diagnostics": result.diagnostics,
             }
         )

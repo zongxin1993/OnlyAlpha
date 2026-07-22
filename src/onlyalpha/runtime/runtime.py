@@ -7,13 +7,16 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
+from types import MappingProxyType
 
 from onlyalpha.account.enums import OnlyAccountReservationState
 from onlyalpha.account.events import OnlyAccountEvent, OnlyAccountEventPublisher
 from onlyalpha.account.identifiers import OnlyAccountReservationId
 from onlyalpha.account.manager import OnlyAccountManager
-from onlyalpha.account.models import (
-    OnlyAccountReservation,
+from onlyalpha.account.models import OnlyAccountReservation, OnlyAccountSnapshot
+from onlyalpha.account.performance import (
+    OnlyAccountPerformanceProjector,
+    OnlyAccountValuationSource,
 )
 from onlyalpha.account.reservations import OnlyAccountReservationManager
 from onlyalpha.account.views import OnlyAccountQueryService
@@ -114,6 +117,7 @@ from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.settlement.manager import OnlySettlementManager
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
+from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.query import OnlyStrategyLedgerQueryService
 from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
@@ -151,8 +155,8 @@ class OnlyRuntimeAssemblyConfig:
     event_queue_policy: OnlyEventQueuePolicy = OnlyEventQueuePolicy.REJECT
     cluster_error_policy: OnlyRuntimeErrorPolicy = OnlyRuntimeErrorPolicy.ISOLATE_CLUSTER
     default_account_id: OnlyAccountId | str | None = None
-    strategy_initial_capital: Decimal | str = Decimal("1000000.00")
     strategy_base_currency: OnlyCurrency = OnlyCurrency("CNY", 2)
+    strategy_capitals: Mapping[OnlyClusterId, OnlyMoney] = field(default_factory=dict)
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
     market_rule_engine: OnlyMarketRuleEngine | None = None
@@ -170,10 +174,12 @@ class OnlyRuntimeAssemblyConfig:
             "engine_id",
             self.engine_id if isinstance(self.engine_id, OnlyEngineId) else OnlyEngineId(self.engine_id),
         )
-        strategy_initial_capital = Decimal(str(self.strategy_initial_capital))
-        object.__setattr__(self, "strategy_initial_capital", strategy_initial_capital)
-        if strategy_initial_capital < 0:
-            raise ValueError("strategy_initial_capital cannot be negative")
+        capitals = MappingProxyType(dict(self.strategy_capitals))
+        if any(value.amount < 0 for value in capitals.values()):
+            raise ValueError("Strategy capital cannot be negative")
+        if any(value.currency != self.strategy_base_currency for value in capitals.values()):
+            raise ValueError("Strategy capital currency must equal Runtime base currency")
+        object.__setattr__(self, "strategy_capitals", capitals)
         object.__setattr__(
             self,
             "runtime_id",
@@ -245,6 +251,7 @@ class OnlyRuntimeServices:
     fee_manager: OnlyFeeManager
     strategy_valuation_service: OnlyStrategyValuationService
     account_manager: OnlyAccountManager
+    account_performance_projector: OnlyAccountPerformanceProjector
     account_query: OnlyAccountQueryService
     broker_inbound: OnlyBrokerInboundQueue
     broker_gateway: OnlyBrokerGateway | None
@@ -482,11 +489,14 @@ class OnlyRuntime:
             config.runtime_id  # type: ignore[arg-type]
         )
         self._strategy_ledger_query = OnlyStrategyLedgerQueryService(self._strategy_ledger_manager)
+        self._strategy_ledger_locator = OnlyStrategyLedgerLocator(self._strategy_ledger_manager)
         self._account_reservation_manager = OnlyAccountReservationManager(config.runtime_id)  # type: ignore[arg-type]
         self._account_manager = OnlyAccountManager(
             config.runtime_id,  # type: ignore[arg-type]
             reservation_manager=self._account_reservation_manager,
         )
+        self._account_performance_projector = OnlyAccountPerformanceProjector(config.runtime_id)  # type: ignore[arg-type]
+        self._account_manager.bind_performance_observer(self._project_account_performance)
         self._account_query = OnlyAccountQueryService(self._account_manager)
         self._settlement_manager = OnlySettlementManager()
         self._margin_manager = OnlyMarginManager()
@@ -531,10 +541,26 @@ class OnlyRuntime:
         return self._strategy_ledger_manager
 
     @property
+    def strategy_ledger_locator(self) -> OnlyStrategyLedgerLocator:
+        return self._strategy_ledger_locator
+
+    @property
     def account_manager(self) -> OnlyAccountManager:
         """Runtime-owned local Account truth; never injected into a Cluster."""
 
         return self._account_manager
+
+    @property
+    def account_performance_projector(self) -> OnlyAccountPerformanceProjector:
+        return self._account_performance_projector
+
+    def _project_account_performance(
+        self,
+        snapshot: OnlyAccountSnapshot,
+        source: OnlyAccountValuationSource,
+        previous: OnlyAccountSnapshot | None,
+    ) -> None:
+        self._account_performance_projector.record(snapshot, source, previous=previous)
 
     @property
     def account_reservation_manager(self) -> OnlyAccountReservationManager:
@@ -670,11 +696,14 @@ class OnlyRuntime:
             cluster_id,
             self.config.strategy_base_currency,
         )
-        configured_capital = cluster.config.values.get("strategy_initial_capital", self.config.strategy_initial_capital)
+        try:
+            configured_capital = self.config.strategy_capitals[cluster_id]
+        except KeyError as exc:
+            raise ValueError(f"No validated FIXED_CAPITAL allocation for Cluster {cluster_id}") from exc
         timestamp = OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns())
         self._strategy_ledger_manager.create_ledger(
             ledger_key,
-            OnlyMoney(Decimal(str(configured_capital)), self.config.strategy_base_currency),
+            configured_capital,
             timestamp,
         )
         self._strategy_ledger_manager.activate_ledger(ledger_key, timestamp)

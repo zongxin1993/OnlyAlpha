@@ -9,10 +9,13 @@ from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 def test_each_runtime_owns_manager_and_context_is_cluster_scoped(
     make_runtime: Callable[[str], OnlyBacktestRuntime],
 ) -> None:
-    first = make_runtime("ledger-one")
+    first = make_runtime(
+        "ledger-one",
+        {"ledger-cluster-a": "12345.67", "ledger-cluster-b": "87654.33"},
+    )
     second = make_runtime("ledger-two")
     assert first.strategy_ledger_manager is not second.strategy_ledger_manager
-    cluster_a = OnlyCluster(OnlyClusterConfig("ledger-cluster-a", values={"strategy_initial_capital": "12345.67"}))
+    cluster_a = OnlyCluster(OnlyClusterConfig("ledger-cluster-a"))
     cluster_b = OnlyCluster(OnlyClusterConfig("ledger-cluster-b"))
     first.add_cluster("engine", cluster_a)
     first.add_cluster("engine", cluster_b)

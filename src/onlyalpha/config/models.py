@@ -54,6 +54,20 @@ class OnlySubscriptionRole(StrEnum):
     AUXILIARY = "AUXILIARY"
 
 
+class OnlyClusterCapitalMode(StrEnum):
+    FIXED_CAPITAL = "FIXED_CAPITAL"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyClusterCapitalConfig:
+    mode: OnlyClusterCapitalMode
+    amount: OnlyMoney
+
+    def __post_init__(self) -> None:
+        if self.amount.amount < 0:
+            raise OnlyConfigError("Cluster capital cannot be negative")
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyReferenceDataConfig:
     calendars: tuple[OnlyTradingCalendar, ...]
@@ -255,6 +269,7 @@ class OnlyClusterImportConfig:
     enabled: bool
     strategy: OnlyStrategyImportConfig
     factors: tuple[OnlyFactorImportConfig, ...]
+    capital: OnlyClusterCapitalConfig | None = None
     risk_profile_id: str | None = None
     metadata: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 

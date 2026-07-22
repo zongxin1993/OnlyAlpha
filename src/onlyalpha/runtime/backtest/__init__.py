@@ -5,10 +5,11 @@
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,
-    OnlyBacktestPerformanceSummary,
     OnlyBacktestResult,
     OnlyBacktestRunSummary,
     OnlyBacktestStatus,
+    OnlyClusterPerformanceSummary,
+    OnlyClusterResult,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 

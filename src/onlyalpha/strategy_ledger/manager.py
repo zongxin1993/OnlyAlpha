@@ -3,9 +3,9 @@
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from onlyalpha.domain.enums import OnlyOrderSide
-from onlyalpha.domain.identifiers import OnlyClusterId, OnlyOrderId, OnlyRuntimeId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.strategy_ledger.entities import OnlyStrategyLedger
 from onlyalpha.strategy_ledger.enums import (
     OnlyStrategyCashEntryType,
@@ -25,6 +25,7 @@ from onlyalpha.strategy_ledger.identifiers import (
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyFeeEntry,
+    OnlyStrategyLedgerEquityPoint,
     OnlyStrategyLedgerEvent,
     OnlyStrategyLedgerMutationResult,
     OnlyStrategyLedgerSnapshot,
@@ -55,12 +56,18 @@ class OnlyStrategyLedgerManager:
         self._repository = repository or OnlyInMemoryStrategyLedgerRepository()
         self._publisher = publisher or OnlyNoOpStrategyLedgerEventPublisher()
         self._ledgers: dict[OnlyStrategyLedgerKey, OnlyStrategyLedger] = {}
+        self._scope_index: dict[
+            tuple[OnlyRuntimeId, OnlyAccountId, OnlyClusterId, OnlyCurrency],
+            OnlyStrategyLedgerKey,
+        ] = {}
         self._reservations: dict[OnlyStrategyLedgerKey, OnlyStrategyCashReservationManager] = {}
         self._trade_fingerprints: set[str] = set()
         self._fee_ids: set[OnlyStrategyFeeEntryId] = set()
         self._cash_flow_ids: set[OnlyStrategyCashFlowId] = set()
         self._valuation_versions: dict[OnlyStrategyLedgerKey, int] = {}
         self._event_sequence = 0
+        self._equity_sequence = 0
+        self._equity_timelines: dict[OnlyStrategyLedgerKey, list[OnlyStrategyLedgerEquityPoint]] = {}
 
     def create_ledger(
         self,
@@ -69,17 +76,15 @@ class OnlyStrategyLedgerManager:
         timestamp: OnlyTimestamp,
     ) -> OnlyStrategyLedgerSnapshot:
         self._require_scope(key)
-        existing = self._ledgers.get(key)
-        if existing is not None:
-            snapshot = self._snapshot(existing)
-            if snapshot.capital.initial_capital != initial_capital:
-                raise ValueError("Ledger key reused with different initial capital")
-            return snapshot
+        scope = (key.runtime_id, key.account_id, key.cluster_id, key.base_currency)
+        if scope in self._scope_index:
+            raise ValueError(f"Strategy Ledger scope already registered: {key}")
         ledger_id = OnlyStrategyLedgerId(
             f"SLEDGER-{key.runtime_id}-{key.account_id}-{key.cluster_id}-{key.base_currency.code}"
         )
         ledger = OnlyStrategyLedger(ledger_id, key, initial_capital, timestamp)
         self._ledgers[key] = ledger
+        self._scope_index[scope] = key
         self._reservations[key] = OnlyStrategyCashReservationManager(key)
         snapshot = self._save(ledger)
         self._publish("STRATEGY_LEDGER_CREATED", snapshot, timestamp)
@@ -298,11 +303,37 @@ class OnlyStrategyLedgerManager:
     def require_snapshot(self, key: OnlyStrategyLedgerKey) -> OnlyStrategyLedgerSnapshot:
         return self._snapshot(self._require_entity(key))
 
-    def get_by_cluster(self, cluster_id: OnlyClusterId) -> OnlyStrategyLedgerSnapshot | None:
-        matches = [item for item in self.list_ledgers() if item.key.cluster_id == cluster_id]
-        if len(matches) > 1:
-            raise ValueError("Cluster has multiple account/currency Ledgers; use full key")
-        return None if not matches else matches[0]
+    def require_key(
+        self,
+        *,
+        runtime_id: OnlyRuntimeId,
+        account_id: OnlyAccountId,
+        cluster_id: OnlyClusterId,
+        currency: OnlyCurrency,
+    ) -> OnlyStrategyLedgerKey:
+        self._require_scope(OnlyStrategyLedgerKey(runtime_id, account_id, cluster_id, currency))
+        scope = (runtime_id, account_id, cluster_id, currency)
+        try:
+            return self._scope_index[scope]
+        except KeyError as exc:
+            raise KeyError("Strategy Ledger not found for complete Runtime/Account/Cluster/Currency scope") from exc
+
+    def require_snapshot_by_scope(
+        self,
+        *,
+        runtime_id: OnlyRuntimeId,
+        account_id: OnlyAccountId,
+        cluster_id: OnlyClusterId,
+        currency: OnlyCurrency,
+    ) -> OnlyStrategyLedgerSnapshot:
+        return self.require_snapshot(
+            self.require_key(
+                runtime_id=runtime_id,
+                account_id=account_id,
+                cluster_id=cluster_id,
+                currency=currency,
+            )
+        )
 
     def list_ledgers(self) -> tuple[OnlyStrategyLedgerSnapshot, ...]:
         return tuple(
@@ -311,6 +342,14 @@ class OnlyStrategyLedgerManager:
 
     def list_active_ledgers(self) -> tuple[OnlyStrategyLedgerSnapshot, ...]:
         return tuple(item for item in self.list_ledgers() if item.status.value == "ACTIVE")
+
+    def equity_timeline(self, key: OnlyStrategyLedgerKey) -> tuple[OnlyStrategyLedgerEquityPoint, ...]:
+        self._require_entity(key)
+        return tuple(self._equity_timelines.get(key, ()))
+
+    def valuation_count(self, key: OnlyStrategyLedgerKey) -> int:
+        self._require_entity(key)
+        return self._valuation_versions.get(key, 0)
 
     def _snapshot(self, ledger: OnlyStrategyLedger) -> OnlyStrategyLedgerSnapshot:
         reservations = self._reservations[ledger.key]
@@ -322,6 +361,28 @@ class OnlyStrategyLedgerManager:
         self._repository.save_cash_entries(snapshot.cash_entries)
         self._repository.save_fee_entries(snapshot.fee_entries)
         self._repository.save_reservations(snapshot.reservations)
+        self._equity_sequence += 1
+        self._equity_timelines.setdefault(snapshot.key, []).append(
+            OnlyStrategyLedgerEquityPoint(
+                self._equity_sequence,
+                snapshot.ledger_id,
+                snapshot.key,
+                snapshot.updated_at,
+                snapshot.key.base_currency,
+                snapshot.capital.initial_capital,
+                snapshot.cash.cash_balance,
+                snapshot.equity.position_market_value,
+                snapshot.pnl.realized_pnl,
+                snapshot.pnl.unrealized_pnl,
+                snapshot.pnl.fees,
+                snapshot.equity.equity,
+                snapshot.equity.return_since_start,
+                snapshot.equity.drawdown,
+                snapshot.equity.maximum_drawdown,
+                snapshot.version,
+                snapshot.quality_flags,
+            )
+        )
         return snapshot
 
     def _publish(

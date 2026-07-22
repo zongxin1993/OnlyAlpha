@@ -11,8 +11,8 @@ from ..runtime_support.common import (
 
 
 def test_runtime_risk_state_and_reservations_are_isolated(order_request) -> None:
-    runtime_a = only_demo_runtime("risk-isolation-a")
-    runtime_b = only_demo_runtime("risk-isolation-b")
+    runtime_a = only_demo_runtime("risk-isolation-a", ("same-cluster",))
+    runtime_b = only_demo_runtime("risk-isolation-b", ("same-cluster",))
     cluster_a = OnlyDemoCluster(OnlyClusterConfig("same-cluster"))
     cluster_b = OnlyDemoCluster(OnlyClusterConfig("same-cluster"))
     runtime_a.add_cluster("engine", cluster_a)
@@ -33,7 +33,7 @@ def test_runtime_risk_state_and_reservations_are_isolated(order_request) -> None
 
 
 def test_risk_snapshot_is_refreshed_before_bar_callback() -> None:
-    runtime = only_demo_runtime("risk-pre-bar")
+    runtime = only_demo_runtime("risk-pre-bar", ("risk-cluster",))
     bar_1m, _ = only_demo_bar_types()
     cluster = OnlyDemoCluster(OnlyClusterConfig("risk-cluster"), OnlyBarSubscription((bar_1m,)))
     runtime.add_cluster("engine", cluster)

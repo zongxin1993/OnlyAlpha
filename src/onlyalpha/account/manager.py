@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -24,6 +25,7 @@ from onlyalpha.account.models import (
     OnlyAccountTradeCashFlow,
     OnlyAccountValuation,
 )
+from onlyalpha.account.performance import OnlyAccountValuationSource
 from onlyalpha.account.repositories import OnlyAccountRepository, OnlyInMemoryAccountRepository
 from onlyalpha.account.reservations import OnlyAccountReservationManager
 from onlyalpha.domain.enums import OnlyOrderSide
@@ -77,6 +79,17 @@ class OnlyAccountManager:
         self._trade_ids: set[object] = set()
         self._valuation_versions: dict[OnlyAccountId, int] = {}
         self._event_sequence = 0
+        self._performance_observer: (
+            Callable[[OnlyAccountSnapshot, OnlyAccountValuationSource, OnlyAccountSnapshot | None], None] | None
+        ) = None
+
+    def bind_performance_observer(
+        self,
+        observer: Callable[[OnlyAccountSnapshot, OnlyAccountValuationSource, OnlyAccountSnapshot | None], None],
+    ) -> None:
+        if self._accounts:
+            raise ValueError("Account performance observer must bind before Account creation")
+        self._performance_observer = observer
 
     def bind_publisher(self, publisher: OnlyAccountEventPublisher) -> None:
         if self._accounts:
@@ -104,6 +117,7 @@ class OnlyAccountManager:
         )
         self._accounts[config.account_id] = state
         snapshot = self._save(state)
+        self._observe(snapshot, OnlyAccountValuationSource.ACCOUNT_CREATED, None)
         self._publish("ACCOUNT_CREATED", snapshot, timestamp)
         return snapshot
 
@@ -121,7 +135,12 @@ class OnlyAccountManager:
             raise ValueError("Account cash cannot become negative")
         state.cash_balance = OnlyMoney(updated, state.config.base_currency)
         self._cash_change_ids.add(change.change_id)
-        return self._commit(state, before, change.timestamp, "ACCOUNT_CASH_CHANGED")
+        source = (
+            OnlyAccountValuationSource.FEE_ADJUSTMENT
+            if change.change_type is OnlyAccountCashChangeType.FEE
+            else OnlyAccountValuationSource.EXTERNAL_CASH_FLOW
+        )
+        return self._commit(state, before, change.timestamp, "ACCOUNT_CASH_CHANGED", source)
 
     def reserve_cash(self, reservation: OnlyAccountReservation) -> OnlyAccountMutationResult:
         state = self._require(reservation.account_id)
@@ -210,7 +229,13 @@ class OnlyAccountManager:
         state.cash_balance = state.cash_balance - fee.amount
         state.fees = state.fees + fee.amount
         self._fee_ids.add(fee.fee_id)
-        return self._commit(state, before, fee.timestamp, "ACCOUNT_FEE_APPLIED")
+        return self._commit(
+            state,
+            before,
+            fee.timestamp,
+            "ACCOUNT_FEE_APPLIED",
+            OnlyAccountValuationSource.FEE_ADJUSTMENT,
+        )
 
     def apply_trade_cash_flow(self, cash_flow: OnlyAccountTradeCashFlow) -> OnlyAccountMutationResult:
         state = self._require(cash_flow.account_id)
@@ -238,7 +263,13 @@ class OnlyAccountManager:
         state.realized_pnl = state.realized_pnl + cash_flow.realized_pnl_delta
         state.last_external_sequence = cash_flow.external_sequence
         self._trade_ids.add(cash_flow.trade_id)
-        return self._commit(state, before, cash_flow.timestamp, "ACCOUNT_TRADE_APPLIED")
+        return self._commit(
+            state,
+            before,
+            cash_flow.timestamp,
+            "ACCOUNT_TRADE_APPLIED",
+            OnlyAccountValuationSource.COMMITTED_EXECUTION,
+        )
 
     def apply_margin_change(
         self,
@@ -259,7 +290,13 @@ class OnlyAccountManager:
             raise ValueError("Account margin cannot become negative")
         if state.reserved_margin + state.occupied_margin > state.cash_balance.amount:
             raise ValueError("Account margin exceeds cash collateral")
-        return self._commit(state, before, timestamp, "ACCOUNT_MARGIN_CHANGED")
+        return self._commit(
+            state,
+            before,
+            timestamp,
+            "ACCOUNT_MARGIN_CHANGED",
+            OnlyAccountValuationSource.MARGIN,
+        )
 
     def apply_valuation(self, valuation: OnlyAccountValuation) -> OnlyAccountMutationResult:
         state = self._require(valuation.account_id)
@@ -272,7 +309,13 @@ class OnlyAccountManager:
         state.unrealized_pnl = valuation.unrealized_pnl
         state.valuation_time = valuation.timestamp
         self._valuation_versions[valuation.account_id] = valuation.valuation_version
-        return self._commit(state, before, valuation.timestamp, "ACCOUNT_VALUED")
+        return self._commit(
+            state,
+            before,
+            valuation.timestamp,
+            "ACCOUNT_VALUED",
+            OnlyAccountValuationSource.MARKET_VALUATION,
+        )
 
     def start_reconciliation(
         self,
@@ -352,12 +395,23 @@ class OnlyAccountManager:
         before: OnlyAccountSnapshot,
         timestamp: OnlyTimestamp,
         event_type: str,
+        source: OnlyAccountValuationSource = OnlyAccountValuationSource.STATE_CHANGE,
     ) -> OnlyAccountMutationResult:
         state.updated_at = timestamp
         state.version += 1
         after = self._save(state)
+        self._observe(after, source, before)
         self._publish(event_type, after, timestamp)
         return OnlyAccountMutationResult(OnlyAccountMutationStatus.APPLIED, before, after, True)
+
+    def _observe(
+        self,
+        snapshot: OnlyAccountSnapshot,
+        source: OnlyAccountValuationSource,
+        previous: OnlyAccountSnapshot | None,
+    ) -> None:
+        if self._performance_observer is not None:
+            self._performance_observer(snapshot, source, previous)
 
     def _save(self, state: OnlyAccount) -> OnlyAccountSnapshot:
         snapshot = self._snapshot(state)

@@ -27,14 +27,15 @@ def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> No
     assert first["analysis_fingerprint"] == second["analysis_fingerprint"]
     assert first["artifact_content_fingerprint"] == second["artifact_content_fingerprint"]
     assert first["artifacts"] == second["artifacts"]
-    assert first["schema_version"] == 2
+    assert first["schema_version"] == 3
     expected_rows = {
         "orders.parquet": 2,
         "executions.parquet": 2,
         "trades.parquet": 1,
         "positions.parquet": 0,
         "accounts.parquet": 1,
-        "equity.parquet": 1,
+        "equity.parquet": 729,
+        "cluster_equity.parquet": 730,
         "signals.parquet": 0,
     }
     for relative_path, row_count in expected_rows.items():

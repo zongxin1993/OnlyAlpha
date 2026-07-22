@@ -74,7 +74,21 @@ class OnlyEngineResultExporter:
             projections_by_cluster = {
                 config.cluster_id: projection for config, projection in zip(configs, projections, strict=True)
             }
+            projections_by_runtime = {
+                _planned_runtime_id(execution_plan, config): projection
+                for config, projection in zip(configs, projections, strict=True)
+            }
             for runtime_plan in execution_plan.runtime_plans:
+                runtime_projection = projections_by_runtime.get(
+                    str(runtime_plan.runtime_id),
+                    {
+                        "run": {
+                            "runtime_id": str(runtime_plan.runtime_id),
+                            "status": "FAILED",
+                            "failure": "RUNTIME_RESULT_UNAVAILABLE",
+                        }
+                    },
+                )
                 runtime_root = root / "runtimes" / str(runtime_plan.runtime_id)
                 runtime_root.mkdir(parents=True, exist_ok=True)
                 files.append(
@@ -95,11 +109,13 @@ class OnlyEngineResultExporter:
                         runtime_root / "result.json",
                         {
                             "runtime_id": str(runtime_plan.runtime_id),
+                            "runtime_performance": runtime_projection.get("runtime_performance"),
                             "cluster_results": [
                                 projections_by_cluster[cluster_id]
                                 for cluster_id in runtime_plan.cluster_ids
                                 if cluster_id in projections_by_cluster
                             ],
+                            "reconciliation": runtime_projection.get("reconciliation"),
                         },
                     )
                 )
@@ -122,7 +138,7 @@ class OnlyEngineResultExporter:
                     cluster_root / "portfolio/snapshot.json",
                     {
                         key: projection.get(key, [])
-                        for key in ("final_positions", "final_allocations", "final_ledgers", "final_accounts")
+                        for key in ("final_positions", "final_allocations", "final_ledgers", "final_account")
                     },
                 )
             )

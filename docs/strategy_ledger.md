@@ -6,13 +6,14 @@
 `RuntimeId / AccountId / ClusterId / BaseCurrency` 拥有独立 Ledger。券商账户是真实现金和合并持仓的外部事实；Strategy
 Ledger 是策略虚拟账，不修改券商现金，也不把账户合并均价或账户总收益按比例分摊给策略。
 
-第一版只实现 Fixed Capital、单币种、Long-only 股票/ETF、Average Cost Allocation 和 Linear PnL。它不实现完整
-AccountManager、真实券商现金同步、多币种换汇、保证金、融资、分红或策略间资金转移。
+第一版只实现 Fixed Capital、单 Account、单币种、Long-only 股票/ETF、Average Cost Allocation 和 Linear PnL。它不实现
+Shared Pool、动态资本再分配、多币种换汇、融资、分红、System Ledger 或策略间资金转移。
 
 ## 2. Capital、Cash 与 Fee Ledger
 
-Runtime 创建 Cluster 时分配固定初始资金；Runtime 默认值由 `OnlyRuntimeConfig.strategy_initial_capital` 配置，Cluster 可用
-同名配置覆盖。初始资金、外部现金流和交易现金流分开保存。Cash Entry 覆盖初始分配、预占/释放、买卖结算、费用和人工调整；
+资本属于 Cluster 配置。单 Cluster 可省略 capital 并严格取 Account initial cash；多 Cluster 必须分别显式声明
+`FIXED_CAPITAL`，币种与 Account Base Currency 相同、金额非负且总和严格等于 Account initial cash。不存在 Runtime 默认
+Strategy capital、自动平均、剩余资金回退或旧字段双读。初始资金、外部现金流和交易现金流分开保存。Cash Entry 覆盖初始分配、预占/释放、买卖结算、费用和人工调整；
 Fee Entry 按稳定 ID、类型、Trade/Order 和 UTC 时间独立记录，费用不混入持仓均价。
 
 买单在送往 Execution Port 前建立 Strategy Cash Reservation。`cash_available = cash_balance - active_reserved`，连续订单同步
@@ -49,6 +50,11 @@ Trading Day 由 Runtime Calendar 提供；切换时锁定 day-start equity，用
 return 和 drawdown 属性，没有 reserve/apply/deposit/reset 等修改入口。Risk Context 接入 `OnlyStrategyLedgerRiskView`，可读
 资金、净值、日收益、回撤和状态；非 ACTIVE 状态 Fail Closed。
 
+所有生产调用方通过 `OnlyStrategyLedgerLocator` 使用完整的
+`RuntimeId / AccountId / ClusterId / BaseCurrency` scope 定位。Manager 创建时维护唯一 scope index；仅凭 Cluster ID 的
+`get_by_cluster` / `by_cluster` 接口已删除。每次保存 Ledger Snapshot 同时追加不可变 Equity Point，显式 sequence 使同时间戳
+变化仍可审计，并为 Cluster Return、Drawdown 和 valuation count 提供唯一证据。
+
 ## 6. 幂等、事件、Repository 与 Replay
 
 Trade 按 trade/execution/venue trade ID 去重，Fee、Cash Flow、Reservation 和 Valuation 各自按稳定 ID/version 去重。稳定顺序
@@ -71,3 +77,7 @@ authoritative accounting，Account 更新后再由 Processor 按实际 notional+
 Strategy Ledger 继续按 Cluster 记录固定初始资金、Allocation 成本、费用和 PnL；AccountManager 记录同一 Runtime 账户的合并
 现金与权益。多个 Ledger 可以共享一个 Account，但不能读取或复用 Account/Virtual Broker 内部对象。Runtime 对同一 Fill
 分别投递强类型 accounting input，账户合并成本不得反向污染 Cluster 归因。
+
+回测结束时 `OnlyRuntimeLedgerReconciliationService` 验证初始资本、现金、持仓市值、已实现/未实现 PnL、费用和权益的
+Account 值等于所有 Cluster Ledger 加总，并用 Committed Execution 核对逐 Trade fee 的 Cluster 归属。差异形成结构化结果，
+Backtest 标记失败，服务不会修改 Account 或任一 Ledger。当前只正式执行最终 barrier 对账；逐估值 barrier 对账尚未实现。

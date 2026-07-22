@@ -20,7 +20,7 @@ def test_synthetic_macd_full_product_vertical_slice() -> None:
     assert all(item.status is OnlyOrderStatus.FILLED for item in result.orders)
     assert not result.final_positions
     assert not result.final_allocations
-    assert result.performance.final_equity.amount == result.final_accounts[0].equity.amount
+    assert result.runtime_performance.final_equity.amount == result.final_account.equity.amount
     assert all(item.endswith(":PASS") for item in result.invariant_results)
 
 

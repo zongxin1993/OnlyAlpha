@@ -2,8 +2,15 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from onlyalpha.account.performance import (
+    OnlyAccountEquityPoint,
+    OnlyAccountValuationSource,
+    OnlyRuntimePortfolioPerformanceSummary,
+)
 from onlyalpha.analytics import OnlyBacktestAnalyticsService
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyRate
 from onlyalpha.result.records import (
     OnlyBacktestFacts,
     OnlyEquityResultRecord,
@@ -13,16 +20,13 @@ from onlyalpha.result.records import (
 
 
 @dataclass(frozen=True)
-class OnlyPerformanceFixture:
-    initial_equity: OnlyMoney
-    final_equity: OnlyMoney
-
-
-@dataclass(frozen=True)
 class OnlyResultFixture:
     facts: OnlyBacktestFacts
-    performance: OnlyPerformanceFixture
+    runtime_performance: OnlyRuntimePortfolioPerformanceSummary
+    account_equity_timeline: tuple[OnlyAccountEquityPoint, ...]
     result_fingerprint: str
+    cluster_results: tuple[object, ...] = ()
+    cluster_equity_timelines: tuple[tuple[object, ...], ...] = ()
 
 
 def _equity(sequence: int, value: str) -> OnlyEquityResultRecord:
@@ -48,11 +52,66 @@ def _equity(sequence: int, value: str) -> OnlyEquityResultRecord:
     )
 
 
-def test_analysis_calculates_return_and_recovered_drawdown() -> None:
+def _point(sequence: int, value: str) -> OnlyAccountEquityPoint:
     currency = OnlyCurrency("CNY", 2)
+    money = OnlyMoney(Decimal(value), currency)
+    zero = OnlyMoney(Decimal(0), currency)
+    return OnlyAccountEquityPoint(
+        sequence,
+        OnlyRuntimeId("runtime-1"),
+        OnlyAccountId("account-1"),
+        OnlyTimestamp.from_datetime(datetime(2026, 1, sequence, tzinfo=UTC)),
+        None,
+        currency,
+        money,
+        zero,
+        zero,
+        zero,
+        zero,
+        money,
+        zero,
+        OnlyAccountValuationSource.MARKET_VALUATION,
+        sequence,
+        (),
+    )
+
+
+def _performance(initial: str, final: str) -> OnlyRuntimePortfolioPerformanceSummary:
+    currency = OnlyCurrency("CNY", 2)
+    initial_money = OnlyMoney(Decimal(initial), currency)
+    final_money = OnlyMoney(Decimal(final), currency)
+    zero = OnlyMoney(Decimal(0), currency)
+    rate = (
+        None
+        if Decimal(initial) == 0
+        else OnlyRate((Decimal(final) / Decimal(initial) - 1).quantize(Decimal("1e-8")), 8)
+    )
+    return OnlyRuntimePortfolioPerformanceSummary(
+        OnlyRuntimeId("runtime-1"),
+        OnlyAccountId("account-1"),
+        "ACCOUNT",
+        currency,
+        initial_money,
+        final_money,
+        zero,
+        zero,
+        OnlyMoney(Decimal(final) - Decimal(initial), currency),
+        zero,
+        zero,
+        rate,
+        OnlyRate(Decimal(0), 8),
+        OnlyRate(Decimal(0), 8),
+        final_money,
+        1,
+        ("ZERO_INITIAL_EQUITY",) if Decimal(initial) == 0 else (),
+    )
+
+
+def test_analysis_calculates_return_and_recovered_drawdown() -> None:
     result = OnlyResultFixture(
         OnlyBacktestFacts(equity=(_equity(1, "100"), _equity(2, "80"), _equity(3, "110"))),
-        OnlyPerformanceFixture(OnlyMoney(Decimal("100"), currency), OnlyMoney(Decimal("110"), currency)),
+        _performance("100", "110"),
+        (_point(1, "100"), _point(2, "80"), _point(3, "110")),
         "result-fingerprint",
     )
 
@@ -69,10 +128,10 @@ def test_analysis_calculates_return_and_recovered_drawdown() -> None:
 
 
 def test_analysis_zero_initial_equity_and_single_snapshot_are_explicit() -> None:
-    currency = OnlyCurrency("CNY", 2)
     result = OnlyResultFixture(
         OnlyBacktestFacts(equity=(_equity(1, "0"),)),
-        OnlyPerformanceFixture(OnlyMoney(Decimal("0"), currency), OnlyMoney(Decimal("0"), currency)),
+        _performance("0", "0"),
+        (_point(1, "0"),),
         "result-fingerprint",
     )
 
@@ -129,10 +188,10 @@ def test_order_and_execution_statistics_use_formal_facts() -> None:
         position_side="LONG",
         position_effect="OPEN",
     )
-    currency = OnlyCurrency("CNY", 2)
     result = OnlyResultFixture(
         OnlyBacktestFacts(orders=(order,), executions=(execution,), equity=(_equity(3, "100"),)),
-        OnlyPerformanceFixture(OnlyMoney(Decimal("100"), currency), OnlyMoney(Decimal("100"), currency)),
+        _performance("100", "100"),
+        (_point(1, "100"),),
         "result-fingerprint",
     )
 

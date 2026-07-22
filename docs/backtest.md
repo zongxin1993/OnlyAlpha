@@ -34,9 +34,15 @@ available Allocation.
 
 ## Result
 
-`OnlyBacktestResult` implements the common `OnlyRuntimeResult` view and contains run/data/execution/performance summaries,
-immutable final Position/Allocation/Ledger/Account snapshots, standard facts, structured diagnostics, generic extensions and stable fingerprints. Engine 在 Runtime 完成后依次调用纯 Analytics、原子 Artifact Writer 与 Report；Runtime 和 Result 不写文件。完整边界见 `results_framework.md`。
+`OnlyBacktestResult` implements the common `OnlyRuntimeResult` view. Schema v3 separates Account-authoritative
+`runtime_performance` from every Ledger-authoritative `cluster_performance`. It also contains the full Account and Cluster
+equity timelines, one `final_account`, final Position/Allocation/Ledger snapshots, committed facts, structured diagnostics,
+final Runtime/Ledger reconciliation and stable fingerprints. The ambiguous `performance` and `final_accounts` fields were
+deleted without aliases. Engine 在 Runtime 完成后依次调用纯 Analytics、原子 Artifact Writer 与 Report；Runtime 和 Result 不写文件。
 
 ## Current limits
 
-First-phase Backtest 支持 Synthetic 或插件历史 Bar、Virtual Broker、Long-only 持仓、固定费用和 Next-Bar 撮合；兼容 Cluster 可共享 Runtime，不兼容组保持隔离。高级组合分析、跨币种换算、公司行为、订单簿撮合和持久恢复仍属后续工作。
+First-phase Backtest 支持一个共享 Account、一个 Base Currency 和多个显式 `FIXED_CAPITAL` Cluster。单 Cluster 可省略
+capital，此时等于 Account initial cash；多 Cluster 必须逐个声明，且精确加总为 Account initial cash。当前不支持
+SHARED_POOL、动态再分配、多 Account、FX、System Ledger 或 TWR/MWR。中途逐点对账仍是后续工作；当前正式结果执行最终
+Account/Ledger 对账并在不一致时失败。

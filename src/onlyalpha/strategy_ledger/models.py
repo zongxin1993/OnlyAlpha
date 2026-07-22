@@ -306,6 +306,27 @@ class OnlyStrategyLedgerSnapshot(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyStrategyLedgerEquityPoint(OnlyDomainModel):
+    sequence: int
+    ledger_id: OnlyStrategyLedgerId
+    key: OnlyStrategyLedgerKey
+    ts_event: OnlyTimestamp
+    currency: OnlyCurrency
+    initial_equity: OnlyMoney
+    cash_balance: OnlyMoney
+    position_market_value: OnlyMoney
+    realized_pnl: OnlyMoney
+    unrealized_pnl: OnlyMoney
+    fees: OnlyMoney
+    equity: OnlyMoney
+    return_since_start: OnlyRate | None
+    current_drawdown: OnlyRate
+    maximum_drawdown: OnlyRate
+    ledger_version: int
+    quality_flags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyStrategyLedgerEvent(OnlyDomainModel):
     event_type: str
     key: OnlyStrategyLedgerKey

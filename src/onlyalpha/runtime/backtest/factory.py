@@ -124,6 +124,8 @@ class OnlyBacktestRuntimeFactory:
                 batch_size=source_common.batch_size,
             )
             run_plan = OnlyBacktestRunPlan(config, source, request_model, clusters)
+            if config.start_time is None:
+                raise ValueError("BACKTEST requires runtime.start_time")
             runtime = OnlyBacktestRuntime(
                 plan.runtime_config,
                 config.reference_data.calendars[0],
@@ -226,8 +228,11 @@ class OnlyBacktestRuntimeFactory:
             config.runtime_id,
             OnlyRuntimeMode.BACKTEST,
             default_account_id=account.account_id,
-            strategy_initial_capital=account.initial_cash.amount,
             strategy_base_currency=config.runtime.base_currency,
+            strategy_capitals={
+                cluster.cluster_id: account.initial_cash if cluster.capital is None else cluster.capital.amount
+                for cluster in config.clusters
+            },
             broker_gateway_id=broker_common.gateway_id,
             account_initial_cash=account.initial_cash,
             market_rule_engine=market_rule_engine,

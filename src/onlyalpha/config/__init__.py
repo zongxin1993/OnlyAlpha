@@ -12,6 +12,8 @@ from onlyalpha.config.document import (
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBrokerRuntimeConfig,
+    OnlyClusterCapitalConfig,
+    OnlyClusterCapitalMode,
     OnlyClusterImportConfig,
     OnlyDataSourceRuntimeConfig,
     OnlyFactorImportConfig,
@@ -28,6 +30,8 @@ __all__ = [
     "OnlyAccountRuntimeConfig",
     "OnlyBrokerRuntimeConfig",
     "OnlyClusterImportConfig",
+    "OnlyClusterCapitalConfig",
+    "OnlyClusterCapitalMode",
     "OnlyClusterRunConfig",
     "OnlyDataSourceRuntimeConfig",
     "OnlyFactorImportConfig",

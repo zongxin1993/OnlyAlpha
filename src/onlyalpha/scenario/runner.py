@@ -120,13 +120,13 @@ class OnlyMarketScenarioRunner:
             for item in cast(Sequence[object], projection.get("trades", [])):
                 if isinstance(item, Mapping):
                     result[OnlyScenarioFactType.EXECUTION].append(dict(item))
-            for key, fact_type in (
-                ("final_positions", OnlyScenarioFactType.POSITION),
-                ("final_accounts", OnlyScenarioFactType.ACCOUNT),
-            ):
+            for key, fact_type in (("final_positions", OnlyScenarioFactType.POSITION),):
                 for item in cast(Sequence[object], projection.get(key, [])):
                     if isinstance(item, Mapping):
                         result[fact_type].append(dict(item))
+            final_account = projection.get("final_account")
+            if isinstance(final_account, Mapping):
+                result[OnlyScenarioFactType.ACCOUNT].append(dict(final_account))
             for cluster in cast(Sequence[object], projection.get("cluster_results", [])):
                 if not isinstance(cluster, Mapping):
                     continue

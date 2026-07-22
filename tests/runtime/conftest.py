@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
@@ -13,10 +13,10 @@ from onlyalpha.domain.enums import (
     OnlyRuntimeMode,
     OnlySessionType,
 )
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlySymbol, OnlyVenueId
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyClusterId, OnlyInstrumentId, OnlySymbol, OnlyVenueId
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
-from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
@@ -52,10 +52,25 @@ def runtime_calendar() -> OnlyTradingCalendar:
 
 
 @pytest.fixture
-def make_runtime(runtime_calendar: OnlyTradingCalendar) -> Callable[[str], OnlyBacktestRuntime]:
-    def build(runtime_id: str) -> OnlyBacktestRuntime:
+def make_runtime(
+    runtime_calendar: OnlyTradingCalendar,
+) -> Callable[[str, Mapping[str, str] | None], OnlyBacktestRuntime]:
+    def build(runtime_id: str, capitals: Mapping[str, str] | None = None) -> OnlyBacktestRuntime:
+        configured = capitals or {"demo": "1000000.00"}
+        currency = OnlyCurrency("CNY", 2)
+        capital = {
+            OnlyClusterId(cluster_id): OnlyMoney(Decimal(amount), currency) for cluster_id, amount in configured.items()
+        }
+        account_cash = OnlyMoney(sum((item.amount for item in capital.values()), Decimal(0)), currency)
         return OnlyBacktestRuntime(
-            OnlyRuntimeAssemblyConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
+            OnlyRuntimeAssemblyConfig(
+                "engine",
+                runtime_id,
+                OnlyRuntimeMode.BACKTEST,
+                strategy_base_currency=currency,
+                strategy_capitals=capital,
+                account_initial_cash=account_cash,
+            ),
             runtime_calendar,
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
         )

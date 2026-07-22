@@ -27,4 +27,4 @@ def test_macd_backtest_product_api_and_result_export(tmp_path: Path) -> None:
     assert projection["data"]["processed_bar_count"] == expected["processed_bar_count"]
     assert len(projection["orders"]) == expected["order_count"]
     assert len(projection["trades"]) == expected["trade_count"]
-    assert Decimal(projection["performance"]["final_equity"]["amount"]) == Decimal(expected["final_equity"])
+    assert Decimal(projection["runtime_performance"]["final_equity"]["amount"]) == Decimal(expected["final_equity"])

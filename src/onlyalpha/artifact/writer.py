@@ -13,43 +13,74 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
+from typing import Protocol
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
+from onlyalpha.account.performance import OnlyAccountEquityPoint, OnlyRuntimePortfolioPerformanceSummary
 from onlyalpha.analytics.models import OnlyBacktestAnalysis
 from onlyalpha.artifact.models import (
     OnlyArtifactDescriptor,
     OnlyBacktestArtifactManifest,
     OnlyRunArtifactTarget,
 )
+from onlyalpha.result.diagnostics import OnlyBacktestDiagnostics
 from onlyalpha.result.fingerprint import only_result_fingerprint
 from onlyalpha.result.records import OnlyBacktestFacts
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint
 
 
 class OnlyArtifactWriteError(RuntimeError):
     pass
 
 
+class OnlyBacktestArtifactResultView(Protocol):
+    @property
+    def facts(self) -> OnlyBacktestFacts: ...
+
+    @property
+    def result_fingerprint(self) -> str: ...
+
+    @property
+    def diagnostics(self) -> OnlyBacktestDiagnostics: ...
+
+    @property
+    def data(self) -> object: ...
+
+    @property
+    def runtime_performance(self) -> OnlyRuntimePortfolioPerformanceSummary: ...
+
+    @property
+    def cluster_results(self) -> tuple[object, ...]: ...
+
+    @property
+    def reconciliation(self) -> object: ...
+
+    @property
+    def account_equity_timeline(self) -> tuple[OnlyAccountEquityPoint, ...]: ...
+
+    @property
+    def cluster_equity_timelines(self) -> tuple[tuple[OnlyStrategyLedgerEquityPoint, ...], ...]: ...
+
+
 class OnlyBacktestArtifactWriter:
     def write(
         self,
-        result: object,
+        result: OnlyBacktestArtifactResultView,
         analysis: OnlyBacktestAnalysis,
         target: OnlyRunArtifactTarget,
     ) -> OnlyBacktestArtifactManifest:
-        facts = getattr(result, "facts", None)
-        result_fingerprint = getattr(result, "result_fingerprint", None)
-        diagnostics = getattr(result, "diagnostics", None)
-        data = getattr(result, "data", None)
-        if not isinstance(facts, OnlyBacktestFacts) or not isinstance(result_fingerprint, str):
-            raise TypeError("Artifact Writer requires an immutable Backtest Result")
+        facts = result.facts
+        result_fingerprint = result.result_fingerprint
+        diagnostics = result.diagnostics
+        data = result.data
         target.run_root.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".artifact-staging-", dir=target.run_root))
         descriptors: list[OnlyArtifactDescriptor] = []
         try:
             summary = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "result_fingerprint": result_fingerprint,
                 "analysis_fingerprint": analysis.analysis_fingerprint,
                 "fact_counts": {
@@ -70,12 +101,15 @@ class OnlyBacktestArtifactWriter:
                         "compiled_market_rules",
                     )
                 },
-                "performance": _json_value(analysis.performance),
+                "runtime_performance": _json_value(result.runtime_performance),
+                "cluster_performance": _json_value(result.cluster_results),
+                "reconciliation": _json_value(result.reconciliation),
                 "trades": _json_value(analysis.trades),
                 "orders": _json_value(analysis.orders),
                 "executions": _json_value(analysis.executions),
                 "drawdown": _json_value(analysis.drawdown),
                 "exposure": _json_value(analysis.exposure),
+                "cluster_analytics": _json_value(analysis.cluster_analyses),
                 "warnings": list(analysis.warnings),
             }
             self._write_json(staging, "summary.json", "SUMMARY", summary, descriptors)
@@ -84,7 +118,7 @@ class OnlyBacktestArtifactWriter:
                 "diagnostics.json",
                 "DIAGNOSTICS",
                 {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "failure_count": 0 if diagnostics is None else diagnostics.total_failure_count,
                     "warning_count": len(analysis.warnings),
                     "truncated": False if diagnostics is None else diagnostics.truncated,
@@ -98,7 +132,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "data_manifest.json",
                 "DATA_MANIFEST",
-                {"schema_version": 2, "data": _json_value(data)},
+                {"schema_version": 3, "data": _json_value(data)},
                 descriptors,
             )
             tables = {
@@ -107,7 +141,17 @@ class OnlyBacktestArtifactWriter:
                 "trades.parquet": ("TRADES", self._trades_table(analysis)),
                 "positions.parquet": ("POSITIONS", self._positions_table(facts)),
                 "accounts.parquet": ("ACCOUNTS", self._accounts_table(facts)),
-                "equity.parquet": ("EQUITY", self._equity_table(facts, analysis)),
+                "equity.parquet": (
+                    "EQUITY",
+                    self._equity_table(
+                        result.account_equity_timeline,
+                        cluster_id=None,
+                    ),
+                ),
+                "cluster_equity.parquet": (
+                    "CLUSTER_EQUITY",
+                    self._cluster_equity_table(result.cluster_equity_timelines),
+                ),
                 "signals.parquet": ("SIGNALS", self._signals_table(facts)),
                 "settlements.parquet": (
                     "SETTLEMENTS",
@@ -143,7 +187,7 @@ class OnlyBacktestArtifactWriter:
                 )
             )
             manifest = OnlyBacktestArtifactManifest(
-                2,
+                3,
                 result_fingerprint,
                 analysis.analysis_fingerprint,
                 artifact_content_fingerprint,
@@ -242,24 +286,78 @@ class OnlyBacktestArtifactWriter:
         return _table(_ACCOUNT_SCHEMA, [_record(item) for item in facts.accounts])
 
     @staticmethod
-    def _equity_table(facts: OnlyBacktestFacts, analysis: OnlyBacktestAnalysis) -> pa.Table:
-        drawdowns = {item.ts_event: item for item in analysis.drawdown.points}
-        return _table(
-            _EQUITY_SCHEMA,
-            [
+    def _equity_table(points: tuple[OnlyAccountEquityPoint, ...], cluster_id: str | None) -> pa.Table:
+        rows = []
+        peak: Decimal | None = None
+        for item in points:
+            peak = item.equity.amount if peak is None else max(peak, item.equity.amount)
+            drawdown = item.equity.amount - peak
+            rows.append(
                 {
-                    **_record(item),
-                    "running_peak": None if item.ts_event not in drawdowns else drawdowns[item.ts_event].running_peak,
-                    "drawdown_amount": None
-                    if item.ts_event not in drawdowns
-                    else drawdowns[item.ts_event].drawdown_amount,
-                    "drawdown_ratio": None
-                    if item.ts_event not in drawdowns
-                    else drawdowns[item.ts_event].drawdown_ratio,
+                    "sequence": item.sequence,
+                    "ts_event": item.ts_event.to_datetime(),
+                    "trading_day": None if item.trading_day is None else item.trading_day.value,
+                    "runtime_id": str(item.runtime_id),
+                    "account_id": str(item.account_id),
+                    "cluster_id": cluster_id,
+                    "currency": item.currency.code,
+                    "cash": item.cash.amount,
+                    "market_value": item.position_market_value.amount,
+                    "equity": item.equity.amount,
+                    "realized_pnl": item.realized_pnl.amount,
+                    "unrealized_pnl": item.unrealized_pnl.amount,
+                    "commission": Decimal(0),
+                    "fees": item.fees.amount,
+                    "gross_exposure": item.position_market_value.amount,
+                    "net_exposure": item.position_market_value.amount,
+                    "position_count": None,
+                    "complete": True,
+                    "snapshot_phase": item.source.value,
+                    "running_peak": peak,
+                    "drawdown_amount": drawdown,
+                    "drawdown_ratio": (
+                        None if peak == 0 else (item.equity.amount / peak - Decimal(1)).quantize(Decimal("1e-18"))
+                    ),
                 }
-                for item in facts.equity
-            ],
-        )
+            )
+        return _table(_EQUITY_SCHEMA, rows)
+
+    @staticmethod
+    def _cluster_equity_table(
+        timelines: tuple[tuple[OnlyStrategyLedgerEquityPoint, ...], ...],
+    ) -> pa.Table:
+        rows = []
+        for timeline in timelines:
+            peak: Decimal | None = None
+            for item in timeline:
+                peak = item.equity.amount if peak is None else max(peak, item.equity.amount)
+                rows.append(
+                    {
+                        "sequence": item.sequence,
+                        "ts_event": item.ts_event.to_datetime(),
+                        "trading_day": None,
+                        "runtime_id": str(item.key.runtime_id),
+                        "account_id": str(item.key.account_id),
+                        "cluster_id": str(item.key.cluster_id),
+                        "currency": item.currency.code,
+                        "cash": item.cash_balance.amount,
+                        "market_value": item.position_market_value.amount,
+                        "equity": item.equity.amount,
+                        "realized_pnl": item.realized_pnl.amount,
+                        "unrealized_pnl": item.unrealized_pnl.amount,
+                        "commission": Decimal(0),
+                        "fees": item.fees.amount,
+                        "gross_exposure": item.position_market_value.amount,
+                        "net_exposure": item.position_market_value.amount,
+                        "position_count": None,
+                        "complete": True,
+                        "snapshot_phase": "STRATEGY_LEDGER",
+                        "running_peak": peak,
+                        "drawdown_amount": item.equity.amount - peak,
+                        "drawdown_ratio": item.current_drawdown.value,
+                    }
+                )
+        return _table(_EQUITY_SCHEMA, rows)
 
     @staticmethod
     def _signals_table(facts: OnlyBacktestFacts) -> pa.Table:
