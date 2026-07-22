@@ -1,6 +1,6 @@
 # Backtest Results Framework
 
-成交结果的权威来源是 Runtime-owned `OnlyAppliedTradeJournal`，不是 Broker 的 `query_trades()` Projection。
+成交结果的唯一权威来源是 Runtime-owned `OnlyCommittedExecutionJournal`，不是 Broker 的 `query_trades()` Projection。
 因此结果框架不依赖 Virtual Broker 类型，也不要求 Broker 实现查询接口才能表达已成功应用的本地成交。
 
 OnlyAlpha 的正式结果链是：
@@ -15,11 +15,14 @@ Runtime facts → Result Collector → immutable Result → Analytics → Artifa
 
 `onlyalpha.result` 定义 provider-neutral、不可变且以 `Decimal` 表示数值的 Signal、Order Request、Order、Execution、Position、Account 和 Equity 记录。`OnlyBacktestResult` 保留旧摘要和 Strategy 扩展，同时新增 `facts`、`diagnostics` 与 `result_fingerprint`。
 
-Collector 在 Runtime 正式生命周期中只读取 Manager Snapshot、Audit 和受限 Strategy Result Recorder。记录按稳定 sequence 封存；失败保留 stage、异常类型、消息、时间、标的和首个根因。Collector 不能提交订单、修改账户或控制回放。
+Collector 只从 Committed Journal 投影逐笔 Execution；不得查询 Order/Position/Account/Ledger Manager 补成交字段，也不得
+重新执行 Fee Resolver 或 Market Rule。最终状态表仍读取各 Manager 的 immutable Snapshot。Execution Schema v2 保存明确的
+position scope、multiplier/notional、权威费用与报告费用、slippage、规则指纹、settlement/margin identity 和结果增量。
 
 ## Analytics
 
-`OnlyBacktestAnalyticsService` 是纯函数式服务。它基于 Execution Facts 使用 long-only FIFO 重建 Trade，正确处理分批成交和费用分摊，并生成：
+`OnlyBacktestAnalyticsService` 是纯函数式服务。它基于标准 Execution Result 的显式 LONG/SHORT 与 OPEN/CLOSE 语义重建
+Trade，正确处理 multiplier、分批成交和费用一次扣除，并生成：
 
 - 收益、净利润和基础回报；
 - 净值回撤及恢复状态；

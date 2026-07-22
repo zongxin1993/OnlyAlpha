@@ -1,9 +1,12 @@
 # ADR 0032: Extract Virtual Broker as an Independent Plugin
 
-- Status: Accepted
+- Status: Accepted; trade-journal wording superseded by ADR 0033
 - Date: 2026-07-22
 
 ## Context
+
+> Historical note: references below to the Applied Trade Journal describe the boundary at this ADR's acceptance time.
+> ADR 0033 replaces that model without changing this ADR's plugin-extraction decision.
 
 Core previously contained a concrete Virtual Broker and Backtest Runtime directly imported its queue, gateway, config,
 `on_bar()`/`run_due()` methods, dynamic `bind_market_rules`, and Broker trade query. This reversed the plugin dependency,

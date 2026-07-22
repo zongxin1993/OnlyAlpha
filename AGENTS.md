@@ -209,7 +209,7 @@ Core 承载：
 * 配置模型；
 * 内建 Synthetic DataSource；
 * 内建 Scenario Exact DataSource；
-* 通用 Broker SPI、Inbound Queue、Runtime Applied Trade Journal；
+* 通用 Broker SPI、Inbound Queue、Runtime Committed Execution Journal；
 * 通用 Indicator；
 * 结果、分析、制品和报告；
 * Plugin SPI；

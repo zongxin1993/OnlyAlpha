@@ -61,7 +61,7 @@ from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
-from onlyalpha.execution.journal import OnlyAppliedTradeJournal
+from onlyalpha.execution.journal import OnlyCommittedExecutionJournal
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.processor import OnlyExecutionProcessor
 from onlyalpha.execution.publisher import OnlyExecutionEventPublisher
@@ -75,6 +75,7 @@ from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
+from onlyalpha.market.models import OnlyMarketPositionMode
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
 from onlyalpha.market_data.dispatcher import (
@@ -98,6 +99,7 @@ from onlyalpha.order.views import OnlyOrderServiceView
 from onlyalpha.plugin.broker import OnlyDeterministicBrokerDriver
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
+from onlyalpha.position.enums import OnlyPositionMode
 from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionTrade, OnlySettlementResult
 from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
@@ -271,7 +273,18 @@ class OnlyBacktestRuntime(OnlyRuntime):
         allocation_manager = self._allocation_manager
         position_query = self._position_query
         position_reservations = self._position_reservation_manager
-        order_position_reservations = OnlyOrderPositionReservationAdapter(position_reservations)
+        order_position_reservations = OnlyOrderPositionReservationAdapter(
+            position_reservations,
+            lambda order, timestamp: (
+                OnlyPositionMode.HEDGING
+                if runtime_config.market_rule_engine is not None
+                and runtime_config.market_rule_engine.position_mode(
+                    str(order.instrument_id), selected_calendar.trading_day_at(timestamp)
+                )
+                is OnlyMarketPositionMode.HEDGING
+                else OnlyPositionMode.NETTING
+            ),
+        )
         fee_resolver = OnlyFeeResolver(
             OnlyFeeEngine(),
             runtime_config.market_fee_schedules,
@@ -375,7 +388,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        applied_trade_journal = OnlyAppliedTradeJournal()
+        committed_execution_journal = OnlyCommittedExecutionJournal(
+            runtime_config.runtime_id,  # type: ignore[arg-type]
+            (runtime_config.broker_gateway_id or OnlyBrokerGatewayId("placeholder"),),
+        )
         execution_reconciliation_queue = OnlyInMemoryExecutionReconciliationQueue()
         execution_update_deduplicator = OnlyExecutionUpdateDeduplicator()
         execution_sequence_tracker = OnlyExecutionSequenceTracker()
@@ -412,7 +428,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_invariant_checker,
             execution_event_publisher,
             execution_audit_store,
-            applied_trade_journal,
+            committed_execution_journal,
             execution_reconciliation_queue,
             execution_update_deduplicator,
             execution_sequence_tracker,
@@ -427,6 +443,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             fee_resolver,
             order_margin_reservations.release,
             selected_calendar.trading_day_at,
+            lambda cluster_id: next(
+                cluster.strategy.strategy_id
+                for cluster in manager.clusters
+                if cluster.config.cluster_id == str(cluster_id)
+            ),
         )
         self._broker_results: list[object] = []
         historical_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history")
@@ -530,7 +551,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             broker_inbound,
             selected_broker_gateway,
             execution_processor,
-            applied_trade_journal,
+            committed_execution_journal,
             execution_event_publisher,
             execution_audit_store,
             execution_reconciliation_queue,

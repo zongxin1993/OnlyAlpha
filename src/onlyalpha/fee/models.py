@@ -13,6 +13,7 @@ from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
 
+from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 
@@ -75,7 +76,7 @@ class OnlyBrokerFeeReportingMode(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeComponent:
+class OnlyFeeComponent(OnlyDomainModel):
     fee_type: OnlyFeeType
     authority: OnlyFeeAuthority
     amount: OnlyMoney
@@ -101,7 +102,7 @@ class OnlyFeeComponent:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeBreakdown:
+class OnlyFeeBreakdown(OnlyDomainModel):
     currency: OnlyCurrency
     components: tuple[OnlyFeeComponent, ...]
     total: OnlyMoney

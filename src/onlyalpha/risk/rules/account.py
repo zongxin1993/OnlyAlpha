@@ -1,7 +1,8 @@
 """Account/Position dependent Rules which fail closed when their Ports are unavailable."""
 
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
+from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest
+from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskErrorInfo
 from onlyalpha.risk.enums import OnlyRiskRejectionCode, OnlyRiskRuleScope
@@ -92,9 +93,16 @@ class OnlyAvailablePositionRiskRule(OnlyRiskRule):
         )
 
     def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        if request.side is OnlyOrderSide.BUY or request.offset is OnlyOffset.OPEN:
+        if context.position_effect is OnlyPositionEffect.OPEN or (
+            context.position_effect is OnlyPositionEffect.AUTO and request.side is OnlyOrderSide.BUY
+        ):
             return self._accept()
-        snapshot = context.position_risk.snapshot(context.account_id, request.instrument_id)
+        snapshot = context.position_risk.snapshot(
+            context.account_id,
+            request.instrument_id,
+            context.position_side,
+            context.position_mode,
+        )
         if not context.position_risk.available or snapshot is None:
             return OnlyRiskDecision.failed(
                 OnlyRiskErrorInfo(
@@ -114,6 +122,8 @@ class OnlyAvailablePositionRiskRule(OnlyRiskRule):
             context.account_id,
             context.cluster_id,
             request.instrument_id,
+            context.position_side,
+            context.position_mode,
         )
         if cluster_snapshot is None:
             return OnlyRiskDecision.failed(

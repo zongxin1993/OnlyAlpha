@@ -508,6 +508,11 @@ engine.add_cluster(config)
 result = engine.run()
 ```
 
+成交结果来自 Runtime-owned `OnlyCommittedExecutionJournal`。每条记录只在 ExecutionProcessor 完成本地 Order、Position、
+Allocation、Settlement、Margin、Fee、Account、Ledger、Risk、不变量和 Event commit 后形成；Broker `query_trades()` 仅表示
+外部查询/对账 Projection。可使用 `python examples/committed_execution_report.py <config>` 查看公开 Result 中的 position
+scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 market profile。
+
 ---
 
 ## 8. 插件系统

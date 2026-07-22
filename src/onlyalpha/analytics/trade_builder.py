@@ -36,7 +36,7 @@ class OnlyTradeBuilder:
     ) -> OnlyTradeBuildResult:
         if policy is not OnlyTradeMatchingPolicy.FIFO:
             raise ValueError(f"unsupported trade matching policy: {policy}")
-        lots: dict[tuple[str, str, str, str], list[_OnlyOpenLot]] = {}
+        lots: dict[tuple[str, str, str, str, str], list[_OnlyOpenLot]] = {}
         trades: list[OnlyTradeRecord] = []
         warnings: list[str] = []
         for execution in sorted(executions, key=lambda item: item.sequence):
@@ -45,8 +45,9 @@ class OnlyTradeBuilder:
                 execution.strategy_id,
                 execution.account_id,
                 execution.instrument_id,
+                execution.position_side or "UNKNOWN",
             )
-            if execution.side == "BUY" and execution.offset in {"OPEN", "NONE"}:
+            if execution.position_effect == "OPEN":
                 lots.setdefault(key, []).append(
                     _OnlyOpenLot(
                         execution,
@@ -56,7 +57,7 @@ class OnlyTradeBuilder:
                     )
                 )
                 continue
-            if execution.side != "SELL" or execution.offset not in {"CLOSE", "NONE"}:
+            if execution.position_effect not in {"CLOSE", "CLOSE_TODAY", "CLOSE_YESTERDAY"}:
                 warnings.append(f"UNSUPPORTED_EXECUTION:{execution.execution_id}")
                 continue
             remaining_exit = execution.quantity
@@ -70,7 +71,12 @@ class OnlyTradeBuilder:
                 entry_fees = self._allocate(lot.remaining_fees, matched, lot.remaining_quantity)
                 exit_commission = self._allocate(remaining_exit_commission, matched, remaining_exit)
                 exit_fees = self._allocate(remaining_exit_fees, matched, remaining_exit)
-                gross_pnl = (execution.price - lot.execution.price) * matched
+                price_delta = (
+                    execution.price - lot.execution.price
+                    if execution.position_side == "LONG"
+                    else lot.execution.price - execution.price
+                )
+                gross_pnl = price_delta * matched * execution.contract_multiplier
                 commission = entry_commission + exit_commission
                 fees = entry_fees + exit_fees
                 trades.append(
@@ -80,7 +86,7 @@ class OnlyTradeBuilder:
                         strategy_id=execution.strategy_id,
                         account_id=execution.account_id,
                         instrument_id=execution.instrument_id,
-                        direction="LONG",
+                        direction=execution.position_side or "UNKNOWN",
                         quantity=matched,
                         entry_time=lot.execution.ts_event,
                         exit_time=execution.ts_event,
@@ -89,7 +95,7 @@ class OnlyTradeBuilder:
                         gross_pnl=gross_pnl,
                         commission=commission,
                         fees=fees,
-                        net_pnl=gross_pnl - commission - fees,
+                        net_pnl=gross_pnl - fees,
                         holding_duration=execution.ts_event - lot.execution.ts_event,
                         entry_execution_id=lot.execution.execution_id,
                         exit_execution_id=execution.execution_id,

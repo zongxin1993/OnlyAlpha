@@ -31,11 +31,13 @@ def _execution(
         price=Decimal(price),
         turnover=Decimal(quantity) * Decimal(price),
         commission=Decimal(commission),
-        fees=Decimal("0"),
+        fees=Decimal(commission),
         slippage=Decimal("0"),
         ts_event=ts_event,
         trading_day=date(2026, 1, sequence),
         venue="virtual",
+        position_side="LONG",
+        position_effect="OPEN" if offset == "OPEN" else "CLOSE",
     )
 
 

@@ -73,7 +73,7 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
-from onlyalpha.execution.journal import OnlyAppliedTradeJournal
+from onlyalpha.execution.journal import OnlyCommittedExecutionJournal
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
 from onlyalpha.fee.schedules import (
@@ -249,7 +249,7 @@ class OnlyRuntimeServices:
     broker_inbound: OnlyBrokerInboundQueue
     broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
-    applied_trade_journal: OnlyAppliedTradeJournal
+    committed_execution_journal: OnlyCommittedExecutionJournal
     execution_event_publisher: OnlyExecutionEventPublisher
     execution_audit_store: OnlyInMemoryExecutionAuditStore
     execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
@@ -607,8 +607,8 @@ class OnlyRuntime:
         return self._services.broker_gateway
 
     @property
-    def applied_trade_journal(self) -> OnlyAppliedTradeJournal:
-        return self._services.applied_trade_journal
+    def committed_execution_journal(self) -> OnlyCommittedExecutionJournal:
+        return self._services.committed_execution_journal
 
     @property
     def broker_inbound_queue(self) -> OnlyBrokerInboundQueue:

@@ -281,6 +281,8 @@ class OnlyTradeApplicationInstruction:
 
 
 class OnlyPreTradeMarketRulePort(Protocol):
+    def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyMarketPositionMode: ...
+
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision: ...
 
 
@@ -406,6 +408,11 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         )
         self._decisions.append(decision)
         return decision
+
+    def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyMarketPositionMode:
+        """Expose the compiled position identity without leaking the compiled rule container."""
+
+        return self.compiled_rules(instrument_id, trading_day).position_policy.mode
 
     def evaluate_match_time(self, context: OnlyMatchTimeMarketContext) -> OnlyMarketMatchDecision:
         rules = self.compiled_rules(context.instrument_id, context.trading_day)
@@ -579,15 +586,15 @@ def only_instrument_reference(
         asset_class=instrument.asset_class,
         venue=str(instrument.venue),
         market_profile_id=OnlyMarketProfileId(str(profile_id)),
-        currency=str(instrument.settlement_currency),
+        currency=instrument.settlement_currency.code,
         effective_from=effective_from,
         effective_to=instrument.effective_to,
         source=source,
         source_version=str(instrument.version),
         content_fingerprint=fingerprint,
-        base_currency=None if instrument.base_currency is None else str(instrument.base_currency),
-        quote_currency=str(instrument.quote_currency),
-        settlement_currency=str(instrument.settlement_currency),
+        base_currency=None if instrument.base_currency is None else instrument.base_currency.code,
+        quote_currency=instrument.quote_currency.code,
+        settlement_currency=instrument.settlement_currency.code,
         status=instrument.status.value,
         price_precision=instrument.price_precision,
         quantity_precision=instrument.quantity_precision,

@@ -49,7 +49,7 @@ class OnlyBacktestArtifactWriter:
         descriptors: list[OnlyArtifactDescriptor] = []
         try:
             summary = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "result_fingerprint": result_fingerprint,
                 "analysis_fingerprint": analysis.analysis_fingerprint,
                 "fact_counts": {
@@ -84,7 +84,7 @@ class OnlyBacktestArtifactWriter:
                 "diagnostics.json",
                 "DIAGNOSTICS",
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "failure_count": 0 if diagnostics is None else diagnostics.total_failure_count,
                     "warning_count": len(analysis.warnings),
                     "truncated": False if diagnostics is None else diagnostics.truncated,
@@ -98,7 +98,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "data_manifest.json",
                 "DATA_MANIFEST",
-                {"schema_version": 1, "data": _json_value(data)},
+                {"schema_version": 2, "data": _json_value(data)},
                 descriptors,
             )
             tables = {
@@ -143,7 +143,7 @@ class OnlyBacktestArtifactWriter:
                 )
             )
             manifest = OnlyBacktestArtifactManifest(
-                1,
+                2,
                 result_fingerprint,
                 analysis.analysis_fingerprint,
                 artifact_content_fingerprint,
@@ -298,6 +298,31 @@ _EXECUTION_SCHEMA = pa.schema(
         ("ts_event", _TIMESTAMP),
         ("trading_day", pa.date32()),
         ("venue", pa.string()),
+        ("position_side", pa.string()),
+        ("position_effect", pa.string()),
+        ("position_mode", pa.string()),
+        ("realized_pnl_delta", _DECIMAL),
+        ("reference_price", _DECIMAL),
+        ("contract_multiplier", _DECIMAL),
+        ("market_profile_id", pa.string()),
+        ("market_profile_version", pa.string()),
+        ("compiled_rule_fingerprint", pa.string()),
+        ("reference_fingerprint", pa.string()),
+        ("trade_instruction_id", pa.string()),
+        ("fee_instruction_id", pa.string()),
+        ("market_fee_schedule_ids", pa.list_(pa.string())),
+        ("market_fee_schedule_versions", pa.list_(pa.string())),
+        ("broker_fee_schedule_ids", pa.list_(pa.string())),
+        ("broker_fee_schedule_versions", pa.list_(pa.string())),
+        ("settlement_instruction_id", pa.string()),
+        ("settlement_status", pa.string()),
+        ("margin_instruction_id", pa.string()),
+        ("margin_action", pa.string()),
+        ("margin_amount", _DECIMAL),
+        ("reported_broker_fee", _DECIMAL),
+        ("fee_reporting_mode", pa.string()),
+        ("liquidity_side", pa.string()),
+        ("fee_breakdown", pa.map_(pa.string(), _DECIMAL)),
     ]
 )
 _TRADE_SCHEMA = pa.schema(
@@ -503,7 +528,10 @@ def _record(value: object) -> dict[str, object]:
         return dict(value)
     if not is_dataclass(value) or isinstance(value, type):
         raise TypeError(f"cannot create artifact record from {type(value).__name__}")
-    return {item.name: getattr(value, item.name) for item in fields(value)}
+    return {
+        item.name: dict(field_value) if isinstance(field_value := getattr(value, item.name), Mapping) else field_value
+        for item in fields(value)
+    }
 
 
 def _table(schema: pa.Schema, rows: list[dict[str, object]]) -> pa.Table:

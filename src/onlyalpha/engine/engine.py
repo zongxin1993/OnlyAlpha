@@ -512,19 +512,12 @@ class OnlyEngine:
         if isinstance(orders, list):
             result["orders"] = [item for item in orders if _nested_identifier(item, "cluster_id") == cluster_value]
         filtered_orders = result.get("orders", [])
-        order_ids = (
-            {_nested_identifier(item, "order_id") for item in filtered_orders}
-            if isinstance(filtered_orders, list)
-            else set()
-        )
         trades = result.get("trades")
         if isinstance(trades, list):
             result["trades"] = [
                 item
                 for item in trades
-                if isinstance(item, dict)
-                and isinstance(item.get("fill"), dict)
-                and _nested_identifier(item["fill"], "order_id") in order_ids
+                if isinstance(item, dict) and _nested_identifier(item, "cluster_id") == cluster_value
             ]
         filtered_trades = result.get("trades", [])
         if isinstance(filtered_orders, list) and isinstance(filtered_trades, list):

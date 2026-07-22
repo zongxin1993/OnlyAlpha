@@ -443,6 +443,7 @@ class OnlyVirtualBrokerGateway:
             liquidity_side=OnlyLiquiditySide.TAKER,
             external_sequence=fill_sequence,
             external_event_id=f"virtual-fill-{self._trade_sequence:08d}",
+            reference_price=raw_price,
         )
         reserved = (order.price.value if order.price is not None else price.value) * quantity.value
         if order.side is OnlyOrderSide.BUY and order.offset in {

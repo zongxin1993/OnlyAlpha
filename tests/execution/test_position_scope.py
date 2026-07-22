@@ -27,10 +27,20 @@ INSTRUMENT = OnlyInstrumentId(OnlySymbol("SCOPE"), OnlyVenueId("TEST"))
         (OnlyOrderSide.SELL, OnlyOffset.OPEN, OnlyPositionSide.SHORT, OnlyPositionEffect.OPEN),
         (OnlyOrderSide.SELL, OnlyOffset.CLOSE, OnlyPositionSide.LONG, OnlyPositionEffect.CLOSE),
         (OnlyOrderSide.BUY, OnlyOffset.CLOSE, OnlyPositionSide.SHORT, OnlyPositionEffect.CLOSE),
-        (OnlyOrderSide.SELL, OnlyOffset.CLOSE_TODAY, OnlyPositionSide.LONG, OnlyPositionEffect.CLOSE),
-        (OnlyOrderSide.BUY, OnlyOffset.CLOSE_TODAY, OnlyPositionSide.SHORT, OnlyPositionEffect.CLOSE),
-        (OnlyOrderSide.SELL, OnlyOffset.CLOSE_YESTERDAY, OnlyPositionSide.LONG, OnlyPositionEffect.CLOSE),
-        (OnlyOrderSide.BUY, OnlyOffset.CLOSE_YESTERDAY, OnlyPositionSide.SHORT, OnlyPositionEffect.CLOSE),
+        (OnlyOrderSide.SELL, OnlyOffset.CLOSE_TODAY, OnlyPositionSide.LONG, OnlyPositionEffect.CLOSE_TODAY),
+        (OnlyOrderSide.BUY, OnlyOffset.CLOSE_TODAY, OnlyPositionSide.SHORT, OnlyPositionEffect.CLOSE_TODAY),
+        (
+            OnlyOrderSide.SELL,
+            OnlyOffset.CLOSE_YESTERDAY,
+            OnlyPositionSide.LONG,
+            OnlyPositionEffect.CLOSE_YESTERDAY,
+        ),
+        (
+            OnlyOrderSide.BUY,
+            OnlyOffset.CLOSE_YESTERDAY,
+            OnlyPositionSide.SHORT,
+            OnlyPositionEffect.CLOSE_YESTERDAY,
+        ),
     ),
 )
 def test_explicit_offset_resolves_one_side_aware_scope(

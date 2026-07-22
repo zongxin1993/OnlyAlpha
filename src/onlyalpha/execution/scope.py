@@ -54,7 +54,7 @@ class OnlyExecutionPositionScopeResolver:
             effect = OnlyPositionEffect.OPEN if order.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
             source = OnlyPositionScopeResolutionSource.NORMALIZED_CASH_ORDER
         else:
-            effect = OnlyPositionEffect.OPEN if order.offset is OnlyOffset.OPEN else OnlyPositionEffect.CLOSE
+            effect = OnlyPositionEffect(order.offset.value)
             source = OnlyPositionScopeResolutionSource.EXPLICIT_ORDER_OFFSET
         side = self._side(order.side, effect)
         return self._build(order, side, effect, OnlyPositionMode.NETTING, source)
@@ -124,6 +124,10 @@ class OnlyExecutionPositionScopeResolver:
     def _side(side: OnlyOrderSide, effect: OnlyPositionEffect) -> OnlyPositionSide:
         if effect is OnlyPositionEffect.OPEN:
             return OnlyPositionSide.LONG if side is OnlyOrderSide.BUY else OnlyPositionSide.SHORT
-        if effect is OnlyPositionEffect.CLOSE:
+        if effect in {
+            OnlyPositionEffect.CLOSE,
+            OnlyPositionEffect.CLOSE_TODAY,
+            OnlyPositionEffect.CLOSE_YESTERDAY,
+        }:
             return OnlyPositionSide.SHORT if side is OnlyOrderSide.BUY else OnlyPositionSide.LONG
         raise ValueError("POSITION_SIDE_RESOLUTION_FAILED: position effect is ambiguous")

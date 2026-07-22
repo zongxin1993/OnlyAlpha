@@ -2,7 +2,7 @@
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
-from onlyalpha.position.enums import OnlyPositionSide
+from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 from onlyalpha.position.manager import OnlyPositionManager
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
@@ -22,9 +22,10 @@ class OnlyPositionQueryService:
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
         side: OnlyPositionSide = OnlyPositionSide.LONG,
+        mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionSnapshot | None:
         return self._positions.get_snapshot(
-            OnlyPositionKey(self._positions.runtime_id, account_id, instrument_id, side)
+            OnlyPositionKey(self._positions.runtime_id, account_id, instrument_id, side, mode)
         )
 
     def cluster(
