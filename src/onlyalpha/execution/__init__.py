@@ -22,6 +22,7 @@ from .models import (
 )
 from .processor import OnlyExecutionProcessor
 from .publisher import OnlyExecutionEventPublisher
+from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver, OnlyPositionScopeResolutionSource
 from .state import (
     OnlyExecutionAuditStore,
     OnlyExecutionReconciliationPort,
@@ -53,6 +54,9 @@ __all__ = [
     "OnlyExecutionReconciliationRequest",
     "OnlyExecutionSequenceTracker",
     "OnlyExecutionSnapshotBundle",
+    "OnlyExecutionPositionScope",
+    "OnlyExecutionPositionScopeResolver",
+    "OnlyPositionScopeResolutionSource",
     "OnlyExecutionUpdateDeduplicator",
     "OnlyInMemoryExecutionAuditStore",
     "OnlyInMemoryExecutionReconciliationQueue",

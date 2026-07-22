@@ -25,6 +25,7 @@ from onlyalpha.execution.enums import (
     OnlyExecutionMutationStep,
     OnlyExecutionProcessingStatus,
 )
+from onlyalpha.execution.scope import OnlyExecutionPositionScope
 from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.position.enums import OnlyPositionMutationStatus
 from onlyalpha.position.models import (
@@ -118,6 +119,7 @@ class OnlyExecutionReconciliationRequest(OnlyDomainModel):
     trade_id: OnlyTradeId | None = None
     cluster_id: OnlyClusterId | None = None
     instrument_id: OnlyInstrumentId | None = None
+    position_scope: OnlyExecutionPositionScope | None = None
     required_recovery: str = "QUERY_BROKER_AND_REPLAY_MISSING_FACTS"
 
 
@@ -131,6 +133,7 @@ class OnlyExecutionSnapshotBundle(OnlyDomainModel):
     ledger: OnlyStrategyLedgerSnapshot | None = None
     account: OnlyAccountSnapshot | None = None
     risk: OnlyRiskSnapshot | None = None
+    position_scope: OnlyExecutionPositionScope | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +158,7 @@ class OnlyExecutionAuditRecord(OnlyDomainModel):
     trade_id: OnlyTradeId | None = None
     cluster_id: OnlyClusterId | None = None
     instrument_id: OnlyInstrumentId | None = None
+    position_scope: OnlyExecutionPositionScope | None = None
 
 
 @dataclass(frozen=True, slots=True)

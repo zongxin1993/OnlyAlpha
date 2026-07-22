@@ -21,6 +21,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.position.enums import OnlyPositionSide
 
 
 def only_broker_metadata(value: Mapping[str, str]) -> Mapping[str, str]:
@@ -112,6 +113,7 @@ class OnlyBrokerPositionSnapshot(OnlyDomainModel):
     gateway_id: OnlyBrokerGatewayId
     account_id: OnlyAccountId
     instrument_id: OnlyInstrumentId
+    position_side: OnlyPositionSide
     quantity: OnlyQuantity
     available_quantity: OnlyQuantity
     frozen_quantity: OnlyQuantity
