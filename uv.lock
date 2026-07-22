@@ -491,7 +491,7 @@ wheels = [
 
 [[package]]
 name = "onlyalpha"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "." }
 dependencies = [
     { name = "pyarrow" },
@@ -536,7 +536,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-broker-virtual"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "packages/provider/onlyalpha-plugin-broker-virtual" }
 dependencies = [
     { name = "onlyalpha" },
@@ -563,7 +563,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-miniqmt"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "packages/provider/onlyalpha-plugin-miniqmt" }
 dependencies = [
     { name = "onlyalpha" },
@@ -596,7 +596,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-tushare"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "packages/provider/onlyalpha-plugin-tushare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -634,7 +634,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "onlyalpha", specifier = "==0.2.7" }]
+requires-dist = [{ name = "onlyalpha", specifier = "==0.2.8" }]
 
 [[package]]
 name = "packaging"

@@ -1,8 +1,8 @@
 [project]
 name = "onlyalpha-plugin-tushare"
-version = "0.2.7"
+version = "0.2.8"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.2.7", "tushare>=1.4.21,<2"]
+dependencies = ["onlyalpha==0.2.8", "tushare>=1.4.21,<2"]
 description = "Tushare market data adapter for OnlyAlpha"
 readme = "README.md"
 classifiers = [
