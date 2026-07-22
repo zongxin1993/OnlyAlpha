@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onlyalpha.account.models import OnlyAccountSnapshot
-from onlyalpha.broker.models import OnlyBrokerTradeSnapshot
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
+from onlyalpha.execution.journal import OnlyAppliedTradeFact
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.result.diagnostics import OnlyBacktestDiagnostics
 from onlyalpha.result.records import OnlyBacktestFacts
@@ -80,7 +80,7 @@ class OnlyBacktestResult:
     final_ledgers: tuple[OnlyStrategyLedgerSnapshot, ...]
     final_accounts: tuple[OnlyAccountSnapshot, ...]
     orders: tuple[OnlyOrderSnapshot, ...]
-    trades: tuple[OnlyBrokerTradeSnapshot, ...]
+    trades: tuple[OnlyAppliedTradeFact, ...]
     cluster_results: tuple[OnlyClusterResult, ...]
     invariant_results: tuple[str, ...]
     determinism_fingerprint: str

@@ -4,7 +4,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 
 
-def test_builtin_virtual_is_created_through_plugin_registry(tmp_path: Path) -> None:
+def test_installed_virtual_plugin_is_created_through_entry_point_registry(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("builtin-broker"), tmp_path))
     engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
     result = engine.run()

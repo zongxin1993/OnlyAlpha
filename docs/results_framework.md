@@ -1,5 +1,8 @@
 # Backtest Results Framework
 
+成交结果的权威来源是 Runtime-owned `OnlyAppliedTradeJournal`，不是 Broker 的 `query_trades()` Projection。
+因此结果框架不依赖 Virtual Broker 类型，也不要求 Broker 实现查询接口才能表达已成功应用的本地成交。
+
 OnlyAlpha 的正式结果链是：
 
 ```text

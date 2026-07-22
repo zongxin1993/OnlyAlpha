@@ -1,4 +1,4 @@
-"""Independent exact-price slippage models."""
+"""Plugin-owned exact-price slippage models."""
 
 from dataclasses import dataclass
 from typing import Protocol

@@ -32,7 +32,7 @@ class OnlyBrokerFactoryRegistry:
             return self._records[plugin_id.lower()].factory  # type: ignore[return-value]
         except KeyError as exc:
             raise OnlyPluginRegistryError(
-                "PLUGIN_NOT_FOUND",
+                "BROKER_PLUGIN_NOT_FOUND",
                 "Broker plugin is not registered",
                 plugin_id=plugin_id,
             ) from exc

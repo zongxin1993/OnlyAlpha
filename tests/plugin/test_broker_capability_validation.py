@@ -4,7 +4,7 @@ from decimal import Decimal
 from onlyalpha_test_plugin.broker import OnlyExternalTestBrokerFactory
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
-from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerUpdateQueue
+from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
@@ -30,7 +30,7 @@ def test_broker_factory_validates_requested_capabilities_before_create() -> None
         OnlyBrokerPluginCapabilities(live_execution=True),
         OnlyBacktestClock(OnlyTimestamp(0).to_datetime()),
         OnlyEventBus(),
-        OnlyVirtualBrokerUpdateQueue(),
+        OnlyBoundedBrokerInboundQueue(),
         OnlyRuntimeId("runtime"),
         OnlyAccountId("account"),
         OnlyMoney(Decimal("100.00"), currency),

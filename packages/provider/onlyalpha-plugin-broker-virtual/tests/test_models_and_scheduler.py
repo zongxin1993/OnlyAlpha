@@ -1,13 +1,13 @@
 from decimal import Decimal
 
 import pytest
-
-from onlyalpha.broker.virtual import (
+from onlyalpha_plugin_broker_virtual import (
     OnlyFixedLatencyModel,
     OnlyFixedSlippageModel,
     OnlyVirtualBrokerScheduler,
-    OnlyVirtualBrokerUpdateQueue,
 )
+
+from onlyalpha.broker import OnlyBoundedBrokerInboundQueue
 from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.value import OnlyPrice
 
@@ -33,4 +33,4 @@ def test_scheduler_is_stable_and_queue_is_bounded() -> None:
     assert observed == [1, 2, 3]
 
     with pytest.raises(ValueError):
-        OnlyVirtualBrokerUpdateQueue(0)
+        OnlyBoundedBrokerInboundQueue(0)

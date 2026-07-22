@@ -1,5 +1,9 @@
 # OnlyAlpha
 
+> Backtest installation: `pip install onlyalpha onlyalpha-plugin-broker-virtual`.
+> Core no longer contains a concrete Virtual Broker. `plugin: virtual` is resolved exclusively through the
+> `onlyalpha.brokers` entry point provided by `onlyalpha-plugin-broker-virtual`.
+
 OnlyAlpha 是一个面向量化交易系统的模块化、确定性 Python 框架。项目以 `OnlyEngine` 作为唯一产品级运行入口，通过相互隔离的 Runtime 和 Cluster 组织行情、策略、风控、订单、成交、持仓、账户、结果分析与运行制品。
 
 OnlyAlpha 当前采用 **Monorepo + 模块化单体** 架构，优先保证：
@@ -161,6 +165,7 @@ MarketData Snapshot
 | Distribution               | Python 包                   | 作用                                  | 平台                      |
 | -------------------------- | -------------------------- | ----------------------------------- | ----------------------- |
 | `onlyalpha`                | `onlyalpha`                | 核心领域模型、Engine、Runtime 和基础设施         | Windows / Linux / macOS |
+| `onlyalpha-plugin-broker-virtual` | `onlyalpha_plugin_broker_virtual` | 确定性模拟 Broker | 跨平台 |
 | `onlyalpha-plugin-tushare` | `onlyalpha_plugin_tushare` | Tushare 历史行情 DataSource             | 跨平台                     |
 | `onlyalpha-plugin-miniqmt` | `onlyalpha_plugin_miniqmt` | MiniQMT DataSource 和 Broker Adapter | Windows                 |
 
@@ -731,6 +736,7 @@ uv run python scripts/version_sync.py set 0.2.7
 
 ```text
 onlyalpha == X.Y.Z
+onlyalpha-plugin-broker-virtual == X.Y.Z
 onlyalpha-plugin-tushare == X.Y.Z
 onlyalpha-plugin-miniqmt == X.Y.Z
 ```

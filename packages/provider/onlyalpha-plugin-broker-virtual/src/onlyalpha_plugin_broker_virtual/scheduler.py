@@ -1,34 +1,10 @@
-"""Bounded inbound queue and deterministic due-time scheduler."""
+"""Deterministic due-time scheduler for the virtual Broker."""
 
 from __future__ import annotations
 
 import heapq
-from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-
-from onlyalpha.broker.updates import OnlyBrokerInboundUpdate
-
-
-class OnlyVirtualBrokerUpdateQueue:
-    def __init__(self, capacity: int = 1024) -> None:
-        if capacity < 1:
-            raise ValueError("Broker update queue capacity must be positive")
-        self._capacity = capacity
-        self._items: deque[OnlyBrokerInboundUpdate] = deque()
-
-    def put(self, update: OnlyBrokerInboundUpdate) -> None:
-        if len(self._items) >= self._capacity:
-            raise OverflowError("Runtime Broker inbound queue is full")
-        self._items.append(update)
-
-    def drain(self) -> tuple[OnlyBrokerInboundUpdate, ...]:
-        result = tuple(self._items)
-        self._items.clear()
-        return result
-
-    def __len__(self) -> int:
-        return len(self._items)
 
 
 @dataclass(order=True, slots=True)

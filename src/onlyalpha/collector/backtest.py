@@ -8,10 +8,10 @@ from datetime import UTC, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
-from onlyalpha.broker.models import OnlyBrokerTradeSnapshot
 from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
+from onlyalpha.execution.journal import OnlyAppliedTradeFact
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult
 from onlyalpha.result.diagnostics import (
     OnlyBacktestDiagnostics,
@@ -94,16 +94,12 @@ class OnlyBacktestResultCollector:
         orders = tuple(sorted(runtime.order_manager.snapshot_all(), key=lambda item: str(item.order_id)))
         request_records = tuple(self._request_record(next_sequence(), item, cluster_strategy) for item in orders)
         order_records = tuple(self._order_record(next_sequence(), item, cluster_strategy) for item in orders)
-        gateway = runtime.broker_gateway
-        trades: tuple[OnlyBrokerTradeSnapshot, ...] = ()
-        if gateway is not None:
-            account_ids = tuple(sorted({item.account_id for item in orders}, key=str))
-            trades = tuple(
-                sorted(
-                    (trade for account_id in account_ids for trade in gateway.query_trades(account_id)),
-                    key=lambda item: (item.source_sequence, str(item.trade_id)),
-                )
+        trades = tuple(
+            sorted(
+                runtime.applied_trade_journal.records(),
+                key=lambda item: (item.source_sequence, str(item.trade_id)),
             )
+        )
         order_by_id = {item.order_id: item for item in orders}
         executions = tuple(
             self._execution_record(next_sequence(), item, order_by_id[item.fill.order_id], cluster_strategy)
@@ -466,7 +462,7 @@ class OnlyBacktestResultCollector:
     @staticmethod
     def _execution_record(
         sequence: int,
-        trade: OnlyBrokerTradeSnapshot,
+        trade: OnlyAppliedTradeFact,
         order: OnlyOrderSnapshot,
         strategy_by_cluster: dict[str, str],
     ) -> OnlyExecutionResultRecord:

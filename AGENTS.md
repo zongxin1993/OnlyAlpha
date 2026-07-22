@@ -23,6 +23,7 @@ OnlyAlpha 当前是一个 Monorepo：
 ```text
 OnlyAlpha/
 ├── src/onlyalpha/
+├── packages/provider/onlyalpha-plugin-broker-virtual/
 ├── packages/provider/onlyalpha-plugin-tushare/
 ├── packages/provider/onlyalpha-plugin-miniqmt/
 ├── examples/
@@ -208,7 +209,7 @@ Core 承载：
 * 配置模型；
 * 内建 Synthetic DataSource；
 * 内建 Scenario Exact DataSource；
-* 内建 Virtual Broker；
+* 通用 Broker SPI、Inbound Queue、Runtime Applied Trade Journal；
 * 通用 Indicator；
 * 结果、分析、制品和报告；
 * Plugin SPI；
@@ -217,13 +218,26 @@ Core 承载：
 Core 不得依赖：
 
 ```text
+onlyalpha_plugin_broker_virtual
 onlyalpha_plugin_tushare
 onlyalpha_plugin_miniqmt
 ```
 
 Core 不得导入任何具体官方插件包。
 
-### 4.2 Tushare 插件
+### 4.2 Virtual Broker 插件
+
+路径：
+
+```text
+packages/provider/onlyalpha-plugin-broker-virtual/
+```
+
+职责：模拟外部 Broker 的接收、拒绝、撤单、Next-Bar 撮合、延迟、滑点、确定性调度和查询投影。
+插件只通过公共 Broker SPI 输出标准 Update；不得持有 Runtime Manager、完整 MarketRuleEngine、FeeResolver，
+也不得把 Broker Projection 当作 Runtime accounting truth。
+
+### 4.3 Tushare 插件
 
 路径：
 
@@ -250,7 +264,7 @@ packages/provider/onlyalpha-plugin-tushare/
 * 返回非标准 OnlyAlpha Domain 数据；
 * 导入 Engine 或 Runtime 私有实现。
 
-### 4.3 MiniQMT 插件
+### 4.4 MiniQMT 插件
 
 路径：
 

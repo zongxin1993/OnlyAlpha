@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 
-from onlyalpha.plugin.broker import OnlyBrokerCreateRequest
+from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 
 from ..config import OnlyMiniQmtConfig
@@ -21,7 +21,7 @@ class OnlyMiniQmtBrokerFactory:
             for item in BROKER_CAPABILITIES.missing(request.requested_capabilities)
         )
 
-    def create(self, request: OnlyBrokerCreateRequest) -> OnlyMiniQmtBrokerGateway:
+    def create(self, request: OnlyBrokerCreateRequest) -> OnlyBrokerComponent:
         config = (
             request.plugin_config if isinstance(request.plugin_config, OnlyMiniQmtConfig) else self.parse_config({})
         )
@@ -32,7 +32,8 @@ class OnlyMiniQmtBrokerFactory:
             abs(hash((str(request.gateway_id), str(request.runtime_id)))) % 2_147_483_647,
         )
         account = sdk.xttype.StockAccount(config.account_id or str(request.account_id), account_type="STOCK")
-        return OnlyMiniQmtBrokerGateway(request, config, trader, account)
+        gateway = OnlyMiniQmtBrokerGateway(request, config, trader, account)
+        return OnlyBrokerComponent(gateway, gateway)
 
 
 factory = OnlyMiniQmtBrokerFactory()

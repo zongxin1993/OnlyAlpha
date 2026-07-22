@@ -47,7 +47,11 @@ def only_discover_plugins(data_sources: object, brokers: object, *, fail_fast: b
         origin = OnlyPluginOrigin(OnlyPluginOriginType.ENTRY_POINT, f"{entry.group}:{entry.name}")
         try:
             loaded = entry.load()
-            factory = loaded() if callable(loaded) and not hasattr(loaded, "descriptor") else loaded
+            factory = (
+                loaded()
+                if isinstance(loaded, type) or (callable(loaded) and not hasattr(loaded, "descriptor"))
+                else loaded
+            )
             registry = data_sources if entry.group == ONLYALPHA_DATA_SOURCE_ENTRY_POINT else brokers
             register = getattr(registry, "register", None)
             if not callable(register):

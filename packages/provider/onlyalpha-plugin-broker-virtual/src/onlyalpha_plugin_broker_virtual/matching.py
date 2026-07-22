@@ -1,4 +1,4 @@
-"""Minimal deterministic matching engines separate from the Gateway."""
+"""Plugin-owned deterministic matching engines separate from the Gateway."""
 
 from dataclasses import dataclass
 from typing import Protocol

@@ -1,5 +1,8 @@
 # OnlyAlpha 工程交接说明
 
+> 当前架构更新：Virtual Broker 已提取为独立 `onlyalpha-plugin-broker-virtual`；Core 只保留通用 Broker SPI、
+> Inbound Queue、确定性驱动端口与 Runtime Applied Trade Journal。下文旧路径描述仅作历史记录。
+
 > 更新时间：2026-07-22（Asia/Shanghai）
 > 当前任务：Unified Fee Migration Recovery
 > 修改前 commit：`f18eab37c7229acb544941cc410b96985813542b`

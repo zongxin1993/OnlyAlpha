@@ -1,4 +1,4 @@
-"""Virtual external truth stores, physically separate from Runtime Managers."""
+"""External simulated Broker projections, separate from Runtime truth."""
 
 from dataclasses import dataclass
 from decimal import Decimal
@@ -19,6 +19,7 @@ from onlyalpha.position.enums import OnlyPositionSide
 
 @dataclass(slots=True)
 class _OnlyVirtualPositionState:
+    position_side: OnlyPositionSide
     quantity: Decimal
     settled_quantity: Decimal
     frozen_quantity: Decimal
@@ -75,7 +76,10 @@ class OnlyVirtualBrokerAccountStore:
         self.frozen_cash -= reserved
         self.cash -= cost + fee
         state = self.positions.setdefault(
-            instrument_id, _OnlyVirtualPositionState(Decimal(0), Decimal(0), Decimal(0), None, quantity_precision)
+            instrument_id,
+            _OnlyVirtualPositionState(
+                OnlyPositionSide.LONG, Decimal(0), Decimal(0), Decimal(0), None, quantity_precision
+            ),
         )
         total_cost = (state.average_price.value * state.quantity if state.average_price else Decimal(0)) + cost
         state.quantity += quantity
@@ -111,7 +115,10 @@ class OnlyVirtualBrokerAccountStore:
         quantity_precision: int,
     ) -> None:
         state = self.positions.setdefault(
-            instrument_id, _OnlyVirtualPositionState(Decimal(0), Decimal(0), Decimal(0), None, quantity_precision)
+            instrument_id,
+            _OnlyVirtualPositionState(
+                OnlyPositionSide.SHORT, Decimal(0), Decimal(0), Decimal(0), None, quantity_precision
+            ),
         )
         total_cost = state.average_price.value * state.quantity if state.average_price else Decimal(0)
         total_cost += price.value * quantity
@@ -194,7 +201,7 @@ class OnlyVirtualBrokerAccountStore:
                 self.gateway_id,
                 self.account_id,
                 instrument_id,
-                OnlyPositionSide.LONG,
+                state.position_side,
                 OnlyQuantity(state.quantity, state.quantity_precision),
                 OnlyQuantity(state.settled_quantity - state.frozen_quantity, state.quantity_precision),
                 OnlyQuantity(state.frozen_quantity, state.quantity_precision),

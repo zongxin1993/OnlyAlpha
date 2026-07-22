@@ -7,6 +7,7 @@ from .enums import (
     OnlyExecutionProcessingStatus,
 )
 from .invariants import OnlyExecutionInvariantChecker
+from .journal import OnlyAppliedTradeFact, OnlyAppliedTradeJournal
 from .models import (
     OnlyExecutionAuditRecord,
     OnlyExecutionFailure,
@@ -35,6 +36,8 @@ from .state import (
 __all__ = [
     "OnlyExecutionAuditRecord",
     "OnlyExecutionAuditStore",
+    "OnlyAppliedTradeFact",
+    "OnlyAppliedTradeJournal",
     "OnlyExecutionEventPublisher",
     "OnlyExecutionFailure",
     "OnlyExecutionFailureCode",

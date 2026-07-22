@@ -29,6 +29,7 @@ onlyalpha = "onlyalpha.cli:main"
 
 [tool.uv.workspace]
 members = [
+    "packages/provider/onlyalpha-plugin-broker-virtual",
     "packages/provider/onlyalpha-plugin-tushare",
     "packages/provider/onlyalpha-plugin-miniqmt",
 ]

@@ -2,9 +2,9 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
+from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 
 from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerOrderRequest, OnlyBrokerRequestId
-from onlyalpha.broker.virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
