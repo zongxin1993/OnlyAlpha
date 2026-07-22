@@ -23,7 +23,7 @@ OnlyAlpha 当前是一个 Monorepo：
 ```text
 OnlyAlpha/
 ├── src/onlyalpha/
-├── packages/provider/onlyalpha-plugin-broker-virtual/
+├── packages/fake/onlyalpha-plugin-broker-virtual/
 ├── packages/provider/onlyalpha-plugin-tushare/
 ├── packages/provider/onlyalpha-plugin-miniqmt/
 ├── examples/
@@ -230,7 +230,7 @@ Core 不得导入任何具体官方插件包。
 路径：
 
 ```text
-packages/provider/onlyalpha-plugin-broker-virtual/
+packages/fake/onlyalpha-plugin-broker-virtual/
 ```
 
 职责：模拟外部 Broker 的接收、拒绝、撤单、Next-Bar 撮合、延迟、滑点、确定性调度和查询投影。
