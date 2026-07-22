@@ -14,6 +14,7 @@ from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.position.enums import OnlyPositionSide
 
 
 @dataclass(slots=True)
@@ -193,6 +194,7 @@ class OnlyVirtualBrokerAccountStore:
                 self.gateway_id,
                 self.account_id,
                 instrument_id,
+                OnlyPositionSide.LONG,
                 OnlyQuantity(state.quantity, state.quantity_precision),
                 OnlyQuantity(state.settled_quantity - state.frozen_quantity, state.quantity_precision),
                 OnlyQuantity(state.frozen_quantity, state.quantity_precision),

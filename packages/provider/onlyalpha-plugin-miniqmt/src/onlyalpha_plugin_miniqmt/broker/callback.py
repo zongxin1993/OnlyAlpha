@@ -34,6 +34,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.position.enums import OnlyPositionSide
 
 from ..mapping.exchange import from_xt_symbol
 from ..mapping.market_data import quantized_decimal
@@ -88,6 +89,7 @@ class OnlyMiniQmtTraderCallback:
             self.gateway._request.gateway_id,
             self.gateway._request.account_id,
             from_xt_symbol(value.stock_code),
+            OnlyPositionSide.LONG,
             OnlyQuantity(volume, 0),
             OnlyQuantity(available, 0),
             OnlyQuantity(volume - available, 0),

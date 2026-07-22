@@ -28,7 +28,7 @@ from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.margin.manager import OnlyMarginManager
-from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
+from onlyalpha.market.models import OnlyMarketPositionMode
 from onlyalpha.market.runtime_rules import (
     OnlyTradeApplicationInstruction,
     OnlyTradeApplicationRequest,
@@ -49,11 +49,10 @@ from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import (
     OnlyPositionMode,
     OnlyPositionMutationStatus,
-    OnlyPositionSide,
     OnlySettlementBucket,
 )
 from onlyalpha.position.identifiers import OnlyGatewayId
-from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
+from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.manager import OnlyPositionManager
 from onlyalpha.position.models import OnlyBrokerPositionSnapshot as OnlyLocalBrokerPositionSnapshot
 from onlyalpha.position.models import (
@@ -96,6 +95,7 @@ from .models import (
     OnlyExecutionSnapshotBundle,
 )
 from .publisher import OnlyExecutionEventPublisher
+from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver
 from .state import (
     OnlyExecutionAuditStore,
     OnlyExecutionReconciliationPort,
@@ -192,6 +192,7 @@ class OnlyExecutionProcessor:
         self._release_margin_reservation = release_margin_reservation
         self._trading_day = trading_day
         self._trade_instructions: dict[str, OnlyTradeApplicationInstruction] = {}
+        self._position_scope_resolver = OnlyExecutionPositionScopeResolver(config.runtime_id)
         self._processing_sequence = 0
 
     def process(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionProcessingResult:
@@ -209,21 +210,28 @@ class OnlyExecutionProcessor:
         validation = self._validate(update, context)
         if validation is not None:
             return self._terminal(update, context, OnlyExecutionProcessingStatus.REJECTED, failure=validation)
+        position_scope = self._resolve_position_scope(update)
         if self._deduplicator.contains_update(update.update_id):
-            return self._terminal(update, context, OnlyExecutionProcessingStatus.DUPLICATE)
+            return self._terminal(
+                update, context, OnlyExecutionProcessingStatus.DUPLICATE, position_scope=position_scope
+            )
         trade_fingerprints = self._trade_fingerprints(update)
         if trade_fingerprints and self._deduplicator.contains_trade(trade_fingerprints):
             self._deduplicator.remember(update.update_id)
-            return self._terminal(update, context, OnlyExecutionProcessingStatus.DUPLICATE)
-        scope = self._sequence_scope(update)
-        stale = self._sequences.is_stale(scope, update.source_sequence)
+            return self._terminal(
+                update, context, OnlyExecutionProcessingStatus.DUPLICATE, position_scope=position_scope
+            )
+        sequence_scope = self._sequence_scope(update)
+        stale = self._sequences.is_stale(sequence_scope, update.source_sequence)
         if stale and isinstance(update, OnlyBrokerTradeUpdate):
             failure = OnlyExecutionFailure(
                 OnlyExecutionFailureCode.OUT_OF_ORDER_TRADE,
                 "out-of-order Trade cannot be safely applied",
                 OnlyExecutionMutationStep.VALIDATION,
             )
-            request = self._make_reconciliation(update, (), OnlyExecutionMutationStep.VALIDATION, failure.message)
+            request = self._make_reconciliation(
+                update, (), OnlyExecutionMutationStep.VALIDATION, failure.message, position_scope
+            )
             self._deduplicator.remember(update.update_id, trade_fingerprints)
             self._reconciliation.request_reconciliation(request)
             return self._terminal(
@@ -233,6 +241,7 @@ class OnlyExecutionProcessor:
                 failure=failure,
                 reconciliation=request,
                 quality_flags=("OUT_OF_ORDER",),
+                position_scope=position_scope,
             )
         self._events.begin()
         steps: list[OnlyExecutionMutationRecord] = [
@@ -241,7 +250,7 @@ class OnlyExecutionProcessor:
             )
         ]
         try:
-            payload = self._dispatch(update, stale, steps)
+            payload = self._dispatch(update, stale, steps, position_scope)
             invariant = payload[5]
             if not invariant.passed:
                 raise _OnlyExecutionInvariantError(invariant)
@@ -260,10 +269,11 @@ class OnlyExecutionProcessor:
                     tuple(item.step for item in steps if item.status is OnlyExecutionMutationStatus.APPLIED),
                     OnlyExecutionMutationStep.INVARIANT_CHECK,
                     "Broker and local state require reconciliation",
+                    position_scope,
                 )
                 self._reconciliation.request_reconciliation(reconciliation)
             self._deduplicator.remember(update.update_id, trade_fingerprints)
-            self._sequences.observe(scope, update.source_sequence)
+            self._sequences.observe(sequence_scope, update.source_sequence)
             event_type = (
                 "EXECUTION_RECONCILIATION_REQUIRED" if reconciliation is not None else "EXECUTION_UPDATE_APPLIED"
             )
@@ -284,6 +294,7 @@ class OnlyExecutionProcessor:
                 generated,
                 invariant,
                 reconciliation,
+                position_scope,
             )
         except Exception as exc:
             self._events.rollback()
@@ -302,10 +313,11 @@ class OnlyExecutionProcessor:
                 tuple(item.step for item in steps if item.status is OnlyExecutionMutationStatus.APPLIED),
                 failed_step,
                 failure.message,
+                position_scope,
             )
-            self._block_scope(update)
+            self._block_scope(update, position_scope)
             self._deduplicator.remember(update.update_id, trade_fingerprints)
-            self._sequences.observe(scope, update.source_sequence)
+            self._sequences.observe(sequence_scope, update.source_sequence)
             self._reconciliation.request_reconciliation(request)
             failure_events = (
                 self._processing_event(update, context, "EXECUTION_PROCESSING_FAILED"),
@@ -322,6 +334,7 @@ class OnlyExecutionProcessor:
                 generated_events=failure_events,
                 invariant=exc.result if isinstance(exc, _OnlyExecutionInvariantError) else None,
                 quality_flags=("PARTIAL_MUTATION",),
+                position_scope=position_scope,
             )
 
     def process_many(self, updates: tuple[OnlyBrokerInboundUpdate, ...]) -> tuple[OnlyExecutionProcessingResult, ...]:
@@ -332,6 +345,7 @@ class OnlyExecutionProcessor:
         update: OnlyBrokerInboundUpdate,
         stale: bool,
         steps: list[OnlyExecutionMutationRecord],
+        position_scope: OnlyExecutionPositionScope | None,
     ) -> OnlyExecutionDispatchPayload:
         if isinstance(update, OnlyBrokerOrderAcceptedUpdate):
             return self._accepted(update, stale, steps)
@@ -340,7 +354,7 @@ class OnlyExecutionProcessor:
         if isinstance(update, OnlyBrokerOrderCancelledUpdate):
             return self._terminal_order(update, steps, rejected=False)
         if isinstance(update, OnlyBrokerTradeUpdate):
-            return self._trade(update, steps)
+            return self._trade(update, steps, position_scope)
         if isinstance(update, OnlyBrokerPositionUpdate):
             result = self._position_reconciliation.reconcile(self._local_broker_position(update))
             steps.append(
@@ -523,18 +537,17 @@ class OnlyExecutionProcessor:
         self,
         update: OnlyBrokerTradeUpdate,
         steps: list[OnlyExecutionMutationRecord],
+        position_scope: OnlyExecutionPositionScope | None,
     ) -> OnlyExecutionDispatchPayload:
         order = self._orders.require(update.order_id)
-        trade = self._position_trade(update, order)
+        if position_scope is None:
+            raise ValueError("POSITION_SIDE_RESOLUTION_FAILED: Trade has no Position Scope")
+        trade = self._position_trade(update, order, position_scope)
         if trade.cluster_id is None:
             raise ValueError("strategy Trade requires Cluster attribution")
-        allocation_key = OnlyPositionAllocationKey(
-            trade.runtime_id,
-            trade.account_id,
-            trade.cluster_id,
-            trade.instrument_id,
-            trade.position_side,
-        )
+        allocation_key = position_scope.allocation_key
+        if allocation_key is None:
+            raise ValueError("strategy Trade requires Allocation Scope")
         allocation_before = self._allocation_snapshot(allocation_key)
         fill_update = OnlyGatewayOrderFillUpdate(
             runtime_id=self.config.runtime_id,
@@ -823,11 +836,12 @@ class OnlyExecutionProcessor:
         generated: tuple[OnlyEvent, ...],
         invariant: OnlyExecutionInvariantResult,
         reconciliation: OnlyExecutionReconciliationRequest | None = None,
+        position_scope: OnlyExecutionPositionScope | None = None,
     ) -> OnlyExecutionProcessingResult:
         bundle = OnlyExecutionMutationBundle(
             tuple(steps), payload[1], payload[2], payload[3], payload[4], payload[6], payload[7], "UPDATED"
         )
-        snapshot = self._snapshot(update, context.processing_sequence)
+        snapshot = self._snapshot(update, context.processing_sequence, position_scope)
         completed = OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns())
         audit = self._audit_record(
             update,
@@ -838,6 +852,7 @@ class OnlyExecutionProcessor:
             generated,
             completed,
             reconciliation=reconciliation,
+            position_scope=position_scope,
         )
         self._audit.append(audit)
         return OnlyExecutionProcessingResult(
@@ -868,11 +883,12 @@ class OnlyExecutionProcessor:
         generated_events: tuple[OnlyEvent, ...] = (),
         invariant: OnlyExecutionInvariantResult | None = None,
         quality_flags: tuple[str, ...] = (),
+        position_scope: OnlyExecutionPositionScope | None = None,
     ) -> OnlyExecutionProcessingResult:
         completed = OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns())
         invariant_result = invariant or OnlyExecutionInvariantResult(True)
         bundle = OnlyExecutionMutationBundle(tuple(steps))
-        snapshot = self._snapshot(update, context.processing_sequence)
+        snapshot = self._snapshot(update, context.processing_sequence, position_scope)
         audit = self._audit_record(
             update,
             context,
@@ -883,6 +899,7 @@ class OnlyExecutionProcessor:
             completed,
             failure,
             reconciliation,
+            position_scope,
         )
         self._audit.append(audit)
         return OnlyExecutionProcessingResult(
@@ -913,6 +930,7 @@ class OnlyExecutionProcessor:
         completed: OnlyTimestamp,
         failure: OnlyExecutionFailure | None = None,
         reconciliation: OnlyExecutionReconciliationRequest | None = None,
+        position_scope: OnlyExecutionPositionScope | None = None,
     ) -> OnlyExecutionAuditRecord:
         order_id = getattr(update, "order_id", None)
         order = self._orders.get(order_id) if isinstance(order_id, OnlyOrderId) else None
@@ -938,25 +956,27 @@ class OnlyExecutionProcessor:
             trade_id,
             None if order is None else order.cluster_id,
             None if order is None else order.instrument_id,
+            position_scope,
         )
 
     def _snapshot(
         self,
         update: OnlyBrokerInboundUpdate,
         sequence: int,
+        position_scope: OnlyExecutionPositionScope | None,
     ) -> OnlyExecutionSnapshotBundle:
         order_id = getattr(update, "order_id", None)
         order = self._orders.get(order_id) if isinstance(order_id, OnlyOrderId) else None
         account = self._accounts.get_snapshot(update.account_id)
         position = allocation = ledger = risk = None
         if order is not None:
-            position = self._positions.get_snapshot(
-                OnlyPositionKey(self.config.runtime_id, order.account_id, order.instrument_id, OnlyPositionSide.LONG)
-            )
-            key = OnlyPositionAllocationKey(
-                self.config.runtime_id, order.account_id, order.cluster_id, order.instrument_id, OnlyPositionSide.LONG
-            )
-            allocation = self._allocation_snapshot(key)
+            if position_scope is not None:
+                position = self._positions.get_snapshot(position_scope.position_key)
+                allocation = (
+                    None
+                    if position_scope.allocation_key is None
+                    else self._allocation_snapshot(position_scope.allocation_key)
+                )
             ledger = next(
                 (
                     item
@@ -978,6 +998,7 @@ class OnlyExecutionProcessor:
             ledger,
             account,
             risk,
+            position_scope,
         )
 
     def _make_reconciliation(
@@ -986,6 +1007,7 @@ class OnlyExecutionProcessor:
         completed_steps: tuple[OnlyExecutionMutationStep, ...],
         failed_step: OnlyExecutionMutationStep,
         reason: str,
+        position_scope: OnlyExecutionPositionScope | None,
     ) -> OnlyExecutionReconciliationRequest:
         order_id = getattr(update, "order_id", None)
         order = self._orders.get(order_id) if isinstance(order_id, OnlyOrderId) else None
@@ -1002,15 +1024,12 @@ class OnlyExecutionProcessor:
             update.fill.trade_id if isinstance(update, OnlyBrokerTradeUpdate) else None,
             None if order is None else order.cluster_id,
             None if order is None else order.instrument_id,
+            position_scope,
         )
 
-    def _block_scope(self, update: OnlyBrokerInboundUpdate) -> None:
-        order_id = getattr(update, "order_id", None)
-        order = self._orders.get(order_id) if isinstance(order_id, OnlyOrderId) else None
-        if order is not None:
-            key = OnlyPositionKey(self.config.runtime_id, order.account_id, order.instrument_id, OnlyPositionSide.LONG)
-            if self._positions.get_snapshot(key) is not None:
-                self._positions.set_reconciling(key)
+    def _block_scope(self, update: OnlyBrokerInboundUpdate, scope: OnlyExecutionPositionScope | None) -> None:
+        if scope is not None and self._positions.get_snapshot(scope.position_key) is not None:
+            self._positions.set_reconciling(scope.position_key)
         if self._accounts.get_snapshot(update.account_id) is not None:
             self._events.begin()
             self._accounts.start_reconciliation(update.account_id, update.ts_init, "EXECUTION_PARTIAL_MUTATION")
@@ -1020,49 +1039,20 @@ class OnlyExecutionProcessor:
         self,
         update: OnlyBrokerTradeUpdate,
         order: OnlyOrderSnapshot,
+        scope: OnlyExecutionPositionScope,
     ) -> OnlyPositionTrade:
         instrument = self._instruments[order.instrument_id]
         fee = update.fill.fee or OnlyMoney(Decimal(0), instrument.settlement_currency)
         settlement_bucket = (
             OnlySettlementBucket.UNSETTLED if order.side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
         )
-        trade_offset = (
-            (OnlyOffset.OPEN if order.side is OnlyOrderSide.BUY else OnlyOffset.CLOSE)
-            if order.offset is OnlyOffset.NONE
-            else order.offset
-        )
-        position_side = (
-            OnlyPositionSide.SHORT
-            if (order.side is OnlyOrderSide.SELL and trade_offset is OnlyOffset.OPEN)
-            or (order.side is OnlyOrderSide.BUY and trade_offset is not OnlyOffset.OPEN)
-            else OnlyPositionSide.LONG
-        )
-        position_mode = OnlyPositionMode.NETTING
+        trade_offset = order.offset if order.offset is not OnlyOffset.NONE else OnlyOffset(scope.position_effect.value)
+        position_side = scope.position_side
+        position_mode = scope.position_mode
         if self._market_rules is not None:
-            trading_day = (
-                self._trading_day(update.ts_event)
-                if self._trading_day is not None
-                else OnlyTradingDay(update.ts_event.to_datetime().date())
-            )
-            instruction = self._market_rules.build_trade_instruction(
-                OnlyTradeApplicationRequest(
-                    str(order.instrument_id),
-                    str(order.order_id),
-                    str(update.fill.trade_id),
-                    str(order.account_id),
-                    order.side,
-                    update.fill.quantity.value,
-                    update.fill.price.value,
-                    update.ts_event.to_datetime(),
-                    trading_day,
-                    OnlyPositionEffect(trade_offset.value),
-                )
-            )
-            self._trade_instructions[str(update.fill.trade_id)] = instruction
-            position_side = OnlyPositionSide(instruction.position_instruction.position_side)
-            compiled = self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
-            if compiled.position_policy.mode is OnlyMarketPositionMode.HEDGING:
-                position_mode = OnlyPositionMode.HEDGING
+            instruction = self._trade_instructions.get(str(update.fill.trade_id))
+            if instruction is None:
+                raise ValueError("POSITION_SCOPE_CONFLICT: missing resolved Trade instruction")
             settlement_bucket = (
                 OnlySettlementBucket.SETTLED
                 if instruction.settlement_instruction.asset_available_on.value <= update.ts_event.to_datetime().date()
@@ -1148,6 +1138,48 @@ class OnlyExecutionProcessor:
             values.append(f"venue_trade:{update.fill.venue_trade_id}")
         return tuple(values)
 
+    def _resolve_position_scope(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionPositionScope | None:
+        if isinstance(update, OnlyBrokerPositionUpdate):
+            return self._position_scope_resolver.resolve_broker_position(
+                update.account_id, update.snapshot.instrument_id, update.snapshot.position_side
+            )
+        order_id = getattr(update, "order_id", None)
+        if not isinstance(order_id, OnlyOrderId):
+            return None
+        order = self._orders.get(order_id)
+        if order is None:
+            return None
+        if not isinstance(update, OnlyBrokerTradeUpdate) or self._market_rules is None:
+            return self._position_scope_resolver.resolve_order(order)
+        trading_day = (
+            self._trading_day(update.ts_event)
+            if self._trading_day is not None
+            else OnlyTradingDay(update.ts_event.to_datetime().date())
+        )
+        fallback = self._position_scope_resolver.resolve_order(order)
+        instruction = self._market_rules.build_trade_instruction(
+            OnlyTradeApplicationRequest(
+                str(order.instrument_id),
+                str(order.order_id),
+                str(update.fill.trade_id),
+                str(order.account_id),
+                order.side,
+                update.fill.quantity.value,
+                update.fill.price.value,
+                update.ts_event.to_datetime(),
+                trading_day,
+                fallback.position_effect,
+            )
+        )
+        self._trade_instructions[str(update.fill.trade_id)] = instruction
+        compiled = self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
+        mode = (
+            OnlyPositionMode.HEDGING
+            if compiled.position_policy.mode is OnlyMarketPositionMode.HEDGING
+            else OnlyPositionMode.NETTING
+        )
+        return self._position_scope_resolver.resolve_trade(order, instruction, mode)
+
     @staticmethod
     def _sequence_scope(update: OnlyBrokerInboundUpdate) -> tuple[str, ...]:
         order_id = getattr(update, "order_id", None)
@@ -1166,7 +1198,7 @@ class OnlyExecutionProcessor:
             OnlyGatewayId(str(broker.gateway_id)),
             broker.account_id,
             broker.instrument_id,
-            OnlyPositionSide.LONG,
+            broker.position_side,
             broker.quantity,
             broker.available_quantity,
             broker.frozen_quantity,
