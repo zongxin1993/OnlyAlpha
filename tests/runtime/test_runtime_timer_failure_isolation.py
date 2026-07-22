@@ -49,7 +49,7 @@ def test_same_timestamp_timer_fires_before_bar(
     make_runtime_bar: Callable[[int, str], OnlyBar],
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
-    runtime = make_runtime("runtime")
+    runtime = make_runtime("runtime", {"ordered": "1000000.00"})
     cluster = OnlyOrderedCluster(OnlyClusterConfig("ordered"), OnlyBarSubscription(runtime_types))
     runtime.add_cluster("engine", cluster)
     runtime.start()
@@ -64,7 +64,7 @@ def test_cluster_stop_cancels_timer_and_releases_subscription(
     make_runtime: Callable[[str], OnlyBacktestRuntime],
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
-    runtime = make_runtime("runtime")
+    runtime = make_runtime("runtime", {"ordered": "1000000.00"})
     cluster = OnlyOrderedCluster(OnlyClusterConfig("ordered"), OnlyBarSubscription(runtime_types))
     runtime.add_cluster("engine", cluster)
     runtime.start()
@@ -83,7 +83,7 @@ def test_failed_cluster_stops_receiving_while_healthy_cluster_continues(
     make_runtime_bar: Callable[[int, str], OnlyBar],
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
-    runtime = make_runtime("runtime")
+    runtime = make_runtime("runtime", {"a-failing": "500000.00", "b-healthy": "500000.00"})
     subscription = OnlyBarSubscription(runtime_types)
     failing = OnlyOrderedCluster(OnlyClusterConfig("a-failing"), subscription, fail=True)
     healthy = OnlyOrderedCluster(OnlyClusterConfig("b-healthy"), subscription)

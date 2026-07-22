@@ -152,27 +152,31 @@ class OnlyBacktestResultCollector:
                     else account.available_margin.amount,
                 )
             )
-            equity_records.append(
+            equity_records.extend(
                 OnlyEquityResultRecord(
                     sequence=next_sequence(),
-                    ts_event=now,
-                    trading_day=trading_day,
-                    runtime_id=str(account.runtime_id),
-                    account_id=str(account.account_id),
+                    ts_event=point.ts_event.to_datetime(),
+                    trading_day=(
+                        point.ts_event.to_datetime().date() if point.trading_day is None else point.trading_day.value
+                    ),
+                    runtime_id=str(point.runtime_id),
+                    account_id=str(point.account_id),
                     cluster_id=None,
-                    currency=str(account.base_currency),
-                    cash=account.cash.cash_balance.amount,
-                    market_value=account.position_market_value.amount,
-                    equity=account.equity.amount,
-                    realized_pnl=account.realized_pnl.amount,
-                    unrealized_pnl=account.unrealized_pnl.amount,
+                    currency=point.currency.code,
+                    cash=point.cash.amount,
+                    market_value=point.position_market_value.amount,
+                    equity=point.equity.amount,
+                    realized_pnl=point.realized_pnl.amount,
+                    unrealized_pnl=point.unrealized_pnl.amount,
                     commission=Decimal(0),
-                    fees=account.fees.amount,
-                    gross_exposure=account.position_market_value.amount,
-                    net_exposure=account.position_market_value.amount,
+                    fees=point.fees.amount,
+                    gross_exposure=point.position_market_value.amount,
+                    net_exposure=point.position_market_value.amount,
                     position_count=len(runtime.position_manager.list_by_account(account.account_id)),
                     complete=True,
+                    snapshot_phase=point.source.value,
                 )
+                for point in runtime.account_performance_projector.timeline(account.account_id)
             )
         rule_engine = runtime.config.market_rule_engine
         compiled_records: list[OnlyCompiledMarketRuleResultRecord] = []

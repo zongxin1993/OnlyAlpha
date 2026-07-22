@@ -33,6 +33,7 @@ from onlyalpha.strategy_ledger.enums import (
 from onlyalpha.strategy_ledger.exceptions import OnlyStrategyLedgerInsufficientCashError
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
+from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyCashReservationCommand,
@@ -218,7 +219,7 @@ def test_cash_reservation_cluster_scope_and_risk_fail_closed() -> None:
     context = OnlyStrategyLedgerContextView(key_a, query)
     assert context.cash_available.amount == Decimal("100000.00")
     assert not hasattr(context, "reserve_cash")
-    risk = OnlyStrategyLedgerRiskView(query, CNY)
+    risk = OnlyStrategyLedgerRiskView(query, OnlyStrategyLedgerLocator(manager), CNY)
     assert risk.allows_new_orders(ACCOUNT, A)
     manager._ledgers[key_a].status = OnlyStrategyLedgerStatus.RECONCILING  # noqa: SLF001
     assert not risk.allows_new_orders(ACCOUNT, A)

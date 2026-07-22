@@ -18,6 +18,8 @@ from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBarSpecificationConfig,
     OnlyBrokerRuntimeConfig,
+    OnlyClusterCapitalConfig,
+    OnlyClusterCapitalMode,
     OnlyClusterImportConfig,
     OnlyConfigError,
     OnlyDataSourceCoverageConfig,
@@ -158,6 +160,9 @@ class OnlyRuntimeAssemblyPlan:
         brokers = {str(x.gateway_id) for x in self.brokers}
         accounts = {str(x.account_id) for x in self.accounts}
 
+        if len(self.accounts) != 1:
+            raise OnlyClusterConfigError("OnlyAlpha currently requires exactly one shared Account per Runtime")
+
         if len(instruments) != len(self.reference_data.instruments):
             raise OnlyClusterConfigError("duplicate instrument_id")
         if len(calendars) != len(self.reference_data.calendars):
@@ -214,6 +219,27 @@ class OnlyRuntimeAssemblyPlan:
                         raise OnlyClusterConfigError(
                             f"{cluster_id} references unknown universe {universe_subscription.universe_id}"
                         )
+
+    def validate_capital_allocation(self) -> None:
+        """Validate the supported single-Account, single-currency fixed-capital model."""
+
+        account = self.accounts[0]
+        if len(self.clusters) == 1:
+            capital = self.clusters[0].capital
+            if capital is not None and capital.amount != account.initial_cash:
+                raise OnlyClusterConfigError("single-Cluster capital must equal Account initial cash")
+            return
+        missing = tuple(str(cluster.cluster_id) for cluster in self.clusters if cluster.capital is None)
+        if missing:
+            raise OnlyClusterConfigError(f"multi-Cluster Runtime requires explicit FIXED_CAPITAL: {missing}")
+        capitals = tuple(cluster.capital for cluster in self.clusters if cluster.capital is not None)
+        if any(capital.mode is not OnlyClusterCapitalMode.FIXED_CAPITAL for capital in capitals):
+            raise OnlyClusterConfigError("only FIXED_CAPITAL is supported")
+        if any(capital.amount.currency != account.initial_cash.currency for capital in capitals):
+            raise OnlyClusterConfigError("Cluster capital currency must equal Account base currency")
+        total = sum((capital.amount.amount for capital in capitals), Decimal(0))
+        if total != account.initial_cash.amount:
+            raise OnlyClusterConfigError("Cluster capital total must equal Account initial cash")
 
 
 class _OnlyClusterDocumentParser:
@@ -498,8 +524,53 @@ class _OnlyClusterDocumentParser:
         )
 
     def _cluster(self, raw: OnlyJsonMapping, path: str) -> OnlyClusterImportConfig:
+        unknown_cluster = set(raw) - {
+            "cluster_id",
+            "account_id",
+            "enabled",
+            "strategy",
+            "factors",
+            "capital",
+            "risk_profile_id",
+            "metadata",
+        }
+        if unknown_cluster:
+            raise OnlyClusterConfigError(f"{path} UNKNOWN_FIELD: {sorted(unknown_cluster)[0]}")
         strategy = self._map(raw.get("strategy"), f"{path}.strategy")
         metadata_raw = self._map(raw.get("metadata", {}), f"{path}.metadata")
+        capital_raw = raw.get("capital")
+        capital = None
+        if capital_raw is not None:
+            capital_map = self._map(capital_raw, f"{path}.capital")
+            unknown = set(capital_map) - {"mode", "amount", "currency"}
+            if unknown:
+                raise OnlyClusterConfigError(f"{path}.capital UNKNOWN_FIELD: {sorted(unknown)[0]}")
+            try:
+                mode = OnlyClusterCapitalMode(self._str(capital_map.get("mode"), f"{path}.capital.mode").upper())
+            except ValueError as exc:
+                raise OnlyClusterConfigError("only FIXED_CAPITAL is supported") from exc
+            account_by_id = {
+                str(item.account_id): item
+                for item in self._accounts(
+                    self._list(self.root.get("accounts"), "$.accounts"), self._runtime_currency()
+                )
+            }
+            account = account_by_id.get(self._str(raw.get("account_id"), f"{path}.account_id"))
+            if account is None:
+                raise OnlyClusterConfigError(f"{path} references unknown account")
+            currency_code = self._str(capital_map.get("currency"), f"{path}.capital.currency")
+            currency = OnlyCurrency(
+                currency_code,
+                account.initial_cash.currency.precision,
+                account.initial_cash.currency.currency_type,
+            )
+            capital = OnlyClusterCapitalConfig(
+                mode,
+                OnlyMoney(
+                    self._decimal(capital_map.get("amount"), f"{path}.capital.amount", non_negative=True),
+                    currency,
+                ),
+            )
         return OnlyClusterImportConfig(
             OnlyClusterId(self._str(raw.get("cluster_id"), f"{path}.cluster_id")),
             OnlyAccountId(self._str(raw.get("account_id"), f"{path}.account_id")),
@@ -513,11 +584,17 @@ class _OnlyClusterDocumentParser:
                 self._factor(self._map(item, f"{path}.factors[{i}]"), f"{path}.factors[{i}]")
                 for i, item in enumerate(self._list(raw.get("factors", []), f"{path}.factors"))
             ),
+            capital,
             None
             if raw.get("risk_profile_id") is None
             else self._str(raw.get("risk_profile_id"), f"{path}.risk_profile_id"),
             MappingProxyType({k: self._str(v, f"{path}.metadata.{k}") for k, v in metadata_raw.items()}),
         )
+
+    def _runtime_currency(self) -> OnlyCurrency:
+        runtime = self._map(self.root.get("runtime"), "$.runtime")
+        code = self._str(runtime.get("base_currency", "CNY"), "$.runtime.base_currency")
+        return OnlyCurrency(code, 2)
 
     def _factor(self, raw: OnlyJsonMapping, path: str) -> OnlyFactorImportConfig:
         subscriptions = self._map(raw.get("subscriptions"), f"{path}.subscriptions")

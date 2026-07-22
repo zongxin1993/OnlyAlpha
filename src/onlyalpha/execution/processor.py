@@ -24,7 +24,7 @@ from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.models import OnlyFeeInstruction
@@ -71,6 +71,7 @@ from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.strategy_ledger.enums import OnlyStrategyFeeType
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
+from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyFeeEntry,
@@ -141,6 +142,7 @@ class OnlyExecutionProcessor:
         positions: OnlyPositionManager,
         allocations: OnlyPositionAllocationManager,
         ledgers: OnlyStrategyLedgerManager,
+        ledger_locator: OnlyStrategyLedgerLocator,
         accounts: OnlyAccountManager,
         risk: OnlyRiskService,
         position_reservations: OnlyPositionReservationManager,
@@ -159,7 +161,7 @@ class OnlyExecutionProcessor:
         strategy_valuation: OnlyExecutionValuation,
         account_valuation: OnlyAccountValuation,
         connection_state: OnlyConnectionStateConsumer,
-        base_currency: object,
+        base_currency: OnlyCurrency,
         market_rules: OnlyTradeInstructionPort | None = None,
         settlement_manager: OnlySettlementManager | None = None,
         margin_manager: OnlyMarginManager | None = None,
@@ -177,6 +179,7 @@ class OnlyExecutionProcessor:
         self._positions = positions
         self._allocations = allocations
         self._ledgers = ledgers
+        self._ledger_locator = ledger_locator
         self._accounts = accounts
         self._risk = risk
         self._position_reservations = position_reservations
@@ -529,11 +532,11 @@ class OnlyExecutionProcessor:
             self._release_account_reservation(result.order_id, update.ts_init)
             if self._release_margin_reservation is not None:
                 self._release_margin_reservation(result.order_id, update.ts_init)
-            ledger_key = OnlyStrategyLedgerKey(
-                self.config.runtime_id,
-                update.account_id,
-                result.snapshot.cluster_id,
-                self._ledgers.list_ledgers()[0].key.base_currency,
+            ledger_key = self._ledger_locator.require_key(
+                runtime_id=self.config.runtime_id,
+                account_id=update.account_id,
+                cluster_id=result.snapshot.cluster_id,
+                currency=self._base_currency,
             )
             ledger = self._ledgers.require_snapshot(ledger_key)
             if any(item.order_id == result.order_id for item in ledger.reservations):
@@ -704,11 +707,13 @@ class OnlyExecutionProcessor:
             )
         )
         allocation_after = self._allocation_snapshot(allocation_key, include_closed=True)
-        ledger_key = OnlyStrategyLedgerKey(
-            trade.runtime_id,
-            trade.account_id,
-            trade.cluster_id,
-            self._ledgers.list_ledgers()[0].key.base_currency,
+        if trade.fee.currency != self._base_currency:
+            raise ValueError("Trade, fee, Account and Strategy Ledger currencies must match; FX is unsupported")
+        ledger_key = self._ledger_locator.require_key(
+            runtime_id=trade.runtime_id,
+            account_id=trade.account_id,
+            cluster_id=trade.cluster_id,
+            currency=trade.fee.currency,
         )
         ledger_snapshot = self._ledgers.require_snapshot(ledger_key)
         reservation = next((item for item in ledger_snapshot.reservations if item.order_id == trade.order_id), None)
@@ -753,7 +758,8 @@ class OnlyExecutionProcessor:
                 order_result.snapshot,
                 allocation_before,
                 allocation_after,
-                self._allocation_money(allocation_after, True) - self._allocation_money(allocation_before, True),
+                self._allocation_money(allocation_after, True, ledger_key.base_currency)
+                - self._allocation_money(allocation_before, True, ledger_key.base_currency),
                 self._allocation_cost(allocation_after, trade) - self._allocation_cost(allocation_before, trade),
                 (fee_entry,),
                 reservation,
@@ -1040,13 +1046,11 @@ class OnlyExecutionProcessor:
                     if position_scope.allocation_key is None
                     else self._allocation_snapshot(position_scope.allocation_key)
                 )
-            ledger = next(
-                (
-                    item
-                    for item in self._ledgers.list_ledgers()
-                    if item.key.account_id == order.account_id and item.key.cluster_id == order.cluster_id
-                ),
-                None,
+            ledger = self._ledger_locator.require_snapshot(
+                runtime_id=order.runtime_id,
+                account_id=order.account_id,
+                cluster_id=order.cluster_id,
+                currency=self._base_currency,
             )
             try:
                 risk = self._risk.get_snapshot(order.cluster_id)
@@ -1191,8 +1195,8 @@ class OnlyExecutionProcessor:
         self,
         snapshot: OnlyPositionAllocationSnapshot | None,
         realized: bool,
+        currency: OnlyCurrency,
     ) -> OnlyMoney:
-        currency = self._ledgers.list_ledgers()[0].key.base_currency
         if snapshot is None:
             return OnlyMoney(Decimal(0), currency)
         return snapshot.realized_pnl if realized else snapshot.fees

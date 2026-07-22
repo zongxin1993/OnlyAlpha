@@ -3,14 +3,20 @@ from __future__ import annotations
 import inspect
 import json
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config import (
+    OnlyClusterCapitalConfig,
+    OnlyClusterCapitalMode,
+    OnlyClusterRunConfig,
+)
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.runtime.defaults import OnlyEngineServices
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
@@ -19,8 +25,25 @@ CONFIG = "tests/fixtures/legacy_macd/cluster.json"
 FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
 
 
-def test_runtime_planner_groups_compatible_clusters() -> None:
+def _multi_configs() -> tuple[OnlyClusterRunConfig, OnlyClusterRunConfig]:
     configs = (OnlyClusterRunConfig.load(CONFIG), OnlyClusterRunConfig.load(FAST_CONFIG))
+    return tuple(
+        replace(
+            config,
+            cluster=replace(
+                config.cluster,
+                capital=OnlyClusterCapitalConfig(
+                    OnlyClusterCapitalMode.FIXED_CAPITAL,
+                    OnlyMoney(Decimal("500000.00"), config.accounts[0].initial_cash.currency),
+                ),
+            ),
+        )
+        for config in configs
+    )  # type: ignore[return-value]
+
+
+def test_runtime_planner_groups_compatible_clusters() -> None:
+    configs = _multi_configs()
     plan = OnlyRuntimePlanner().plan(OnlyEngineId("planner"), configs)
     assert plan.cluster_count == 2
     assert len(plan.runtime_plans) == 1
@@ -48,8 +71,8 @@ def test_engine_add_cluster_does_not_build_or_close_runtime(tmp_path: Path) -> N
 
 def test_engine_initialize_creates_runtime_and_cluster_sessions(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("sessions"), tmp_path))
-    engine.add_cluster_from_file(CONFIG)
-    engine.add_cluster_from_file(FAST_CONFIG)
+    for config in _multi_configs():
+        engine.add_cluster(config)
     engine.initialize()
     assert len(engine.runtime_sessions) == 1
     assert len(engine.cluster_sessions) == 2

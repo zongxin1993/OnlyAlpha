@@ -488,9 +488,12 @@ class OnlyEngine:
         configs: tuple[OnlyClusterRunConfig, ...], projections: tuple[dict[str, object], ...]
     ) -> str:
         payload = {
-            "cluster_order": [str(item.cluster_id) for item in configs],
-            "runtime_groups": [OnlyRuntimeCompatibilityKey.from_config(item) for item in configs],
-            "results": [item.get("determinism_fingerprint", "") for item in projections],
+            "clusters": [str(item.cluster_id) for item in sorted(configs, key=lambda item: str(item.cluster_id))],
+            "runtime_groups": [
+                OnlyRuntimeCompatibilityKey.from_config(item)
+                for item in sorted(configs, key=lambda item: str(item.cluster_id))
+            ],
+            "results": sorted(str(item.get("determinism_fingerprint", "")) for item in projections),
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()

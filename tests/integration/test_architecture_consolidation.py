@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.risk.enums import OnlyRiskReservationState
 
-from ..integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
+from ..integration_demo.environment import ACCOUNT_ID, CLUSTER_ID, CNY, DAY_ONE, OnlyIntegrationEnvironment
 from ..integration_demo.run_all import SCENARIOS
 
 
@@ -73,7 +74,12 @@ def test_all_reservation_lifecycles_close_after_full_fills() -> None:
     env = complete_environment()
     risk = env.runtime.risk_service.reservations.snapshot_all()
     assert risk and all(item.state is OnlyRiskReservationState.CONSUMED for item in risk)
-    ledger = env.runtime.strategy_ledger_manager.list_ledgers()[0]
+    ledger = env.runtime.strategy_ledger_locator.require_snapshot(
+        runtime_id=env.runtime.config.runtime_id,
+        account_id=OnlyAccountId(ACCOUNT_ID),
+        cluster_id=CLUSTER_ID,
+        currency=CNY,
+    )
     assert ledger.reservations and all(item.remaining_amount.amount == 0 for item in ledger.reservations)
     assert env.sell_order is not None and env.sell_order.order_id is not None
     position = env.runtime.position_reservation_manager.get(env.sell_order.order_id)

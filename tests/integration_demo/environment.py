@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -247,6 +248,7 @@ class OnlyIntegrationEnvironment:
         *,
         maximum_fill_quantity: OnlyQuantity | None = None,
         virtual_broker: bool = True,
+        cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
@@ -315,8 +317,10 @@ class OnlyIntegrationEnvironment:
                 ENGINE_ID,
                 RUNTIME_ID,
                 OnlyRuntimeMode.BACKTEST,
-                strategy_initial_capital="1000000.00",
                 strategy_base_currency=CNY,
+                strategy_capitals=(
+                    {CLUSTER_ID: broker_config.initial_cash} if cluster_capitals is None else cluster_capitals
+                ),
                 market_rule_engine=market_rules,
                 broker_gateway_id=broker_config.gateway_id if virtual_broker else None,
                 account_initial_cash=broker_config.initial_cash,
@@ -502,7 +506,12 @@ class OnlyIntegrationEnvironment:
         assert not self.runtime.position_manager.snapshot_all()
         assert not self.runtime.allocation_manager.snapshot_all()
         assert not self.runtime.risk_service.reservations.snapshot_active()
-        ledger = self.runtime.strategy_ledger_manager.list_ledgers()[0]
+        ledger = self.runtime.strategy_ledger_locator.require_snapshot(
+            runtime_id=self.runtime.config.runtime_id,
+            account_id=OnlyAccountId(ACCOUNT_ID),
+            cluster_id=CLUSTER_ID,
+            currency=CNY,
+        )
         assert ledger.cash.cash_balance.amount == Decimal("1000199.38")
         assert ledger.pnl.realized_pnl.amount == Decimal("200.00")
         assert ledger.pnl.net_pnl.amount == Decimal("199.38")

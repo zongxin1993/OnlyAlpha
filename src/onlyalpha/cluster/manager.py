@@ -209,6 +209,9 @@ class OnlyClusterManager:
     def state_of(self, cluster_id: OnlyClusterId) -> OnlyClusterState:
         return self._require(cluster_id).state
 
+    def require_cluster(self, cluster_id: OnlyClusterId) -> OnlyCluster:
+        return self._require(cluster_id).cluster
+
     def status(self) -> tuple[OnlyClusterStatus, ...]:
         return tuple(
             OnlyClusterStatus(cluster_id, self._clusters[cluster_id].state, self._clusters[cluster_id].last_failure)

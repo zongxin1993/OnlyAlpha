@@ -25,7 +25,7 @@ def test_market_fee_none_reaches_runtime_resolver(tmp_path) -> None:
     result = engine.run()
 
     assert result.status == "COMPLETED"
-    performance = result.cluster_results[0]["performance"]
+    performance = result.cluster_results[0]["runtime_performance"]
     assert Decimal(performance["fees"]["amount"]) == Decimal("0.00")
     assert Decimal(performance["final_equity"]["amount"]) == Decimal("1001910.00")
 

@@ -96,7 +96,10 @@ class OnlyRuntimePlanner:
         groups: dict[OnlyRuntimeCompatibilityKey, list[OnlyClusterRunConfig]] = {}
         for config in configs:
             groups.setdefault(OnlyRuntimeCompatibilityKey.from_config(config), []).append(config)
-        runtime_plans = tuple(self._runtime_plan(engine_id, key, tuple(group)) for key, group in groups.items())
+        runtime_plans = tuple(
+            self._runtime_plan(engine_id, key, tuple(sorted(group, key=lambda item: str(item.cluster_id))))
+            for key, group in sorted(groups.items(), key=lambda item: _fingerprint(item[0]))
+        )
         return OnlyEngineExecutionPlan(engine_id, runtime_plans)
 
     @staticmethod
@@ -121,6 +124,7 @@ class OnlyRuntimePlanner:
             first.source_path,
             first.normalized_payload,
         )
+        assembly.validate_capital_allocation()
         return OnlyRuntimePlan(
             runtime_id,
             key,

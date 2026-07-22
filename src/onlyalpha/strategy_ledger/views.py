@@ -4,6 +4,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyRate
 from onlyalpha.strategy_ledger.enums import OnlyStrategyLedgerStatus
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
+from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyLedgerRiskSnapshot,
     OnlyStrategyLedgerSnapshot,
@@ -71,8 +72,14 @@ class OnlyStrategyLedgerContextView:
 class OnlyStrategyLedgerRiskView:
     """Risk-facing view with explicit fail-closed status semantics."""
 
-    def __init__(self, query: OnlyStrategyLedgerQueryService, base_currency: OnlyCurrency) -> None:
+    def __init__(
+        self,
+        query: OnlyStrategyLedgerQueryService,
+        locator: OnlyStrategyLedgerLocator,
+        base_currency: OnlyCurrency,
+    ) -> None:
         self.__query = query
+        self.__locator = locator
         self.__base_currency = base_currency
 
     @property
@@ -80,7 +87,12 @@ class OnlyStrategyLedgerRiskView:
         return True
 
     def snapshot(self, account_id: OnlyAccountId, cluster_id: OnlyClusterId) -> OnlyStrategyLedgerRiskSnapshot:
-        key = OnlyStrategyLedgerKey(self.__query.runtime_id, account_id, cluster_id, self.__base_currency)
+        key = self.__locator.require_key(
+            runtime_id=self.__query.runtime_id,
+            account_id=account_id,
+            cluster_id=cluster_id,
+            currency=self.__base_currency,
+        )
         item = self.__query.require(key)
         return OnlyStrategyLedgerRiskSnapshot(
             key,

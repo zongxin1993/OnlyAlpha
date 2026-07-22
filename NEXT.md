@@ -81,8 +81,8 @@ tests/                                 Core 和集成测试
 * Settlement：已有规则指令、Runtime Settlement 和 Position Settlement，但权威边界需统一。
 * Margin：已有 Reserve/Occupy/Release，缺每日盯市、维持保证金、Margin Call 和强平。
 * Fee：有 Market Profile Fee Facts，但账户实际扣费仍依赖 Broker Fill Fee，存在双重真相。
-* Multi-Cluster：运行链支持多个 Cluster，但总体 Performance 错误使用 `ledgers[0]`。
-* Result：最终事实较完整，但缺逐 Bar Equity、Position 和 Account 时间序列。
+* Multi-Cluster：单 Account、单币种、显式固定资本、两级 Performance 与最终对账已完成；逐估值 barrier 对账仍待实现。
+* Result：Account 与 Cluster Equity Timeline 已完成；逐 Bar Position 时间序列仍待完善。
 * Conformance：基础设施完整，但并非所有内置 Profile 都有完整正式 Pack。
 
 ### 尚未实现
@@ -126,9 +126,10 @@ BUY + CLOSE → SHORT 平仓
 
 但审计快照、失败 Scope 阻断和部分 reconciliation 仍使用固定 `OnlyPositionSide.LONG`。
 
-### P0：多 Cluster 结果错误
+### 已解决：多 Cluster 绩效权威
 
-Backtest 总体 Performance 使用 `ledgers[0]`，不能代表多个 Cluster 或共享 Account。
+Runtime Performance 已切换为共享 Account Equity Timeline，Cluster Performance 来自对应 Strategy Ledger Timeline；
+完整 scope Locator、显式固定资本和最终 Account/Ledger 对账已由 ADR 0034 固化。
 
 ### P0：单仓 CI 覆盖不完整
 
@@ -138,9 +139,9 @@ Backtest 总体 Performance 使用 `ledgers[0]`，不能代表多个 Cluster 或
 
 两边都生成 Settlement、Fee 或其他规则相关状态，需明确 Broker 外部事实与 Runtime 本地真相的边界。
 
-### P1：结果只有最终权益快照
+### P1：中途会计对账
 
-缺逐 Bar/逐估值事件的 Equity Curve，因此回撤、Exposure 和 Cluster Attribution 不够完整。
+结果已有 Account 与 Cluster Equity Timeline；当前只在最终 seal 执行正式 Account/Ledger 对账，尚未逐估值 barrier 对账。
 
 ### P1：Python 与发布配置不一致
 
@@ -152,7 +153,7 @@ Core 声明支持 Python 3.12，但部分插件测试和发布流程使用 Pytho
 1. 修复单仓 CI、Python 版本、发布和文档
 2. 统一 Fee 权威来源
 3. 修复 SHORT 审计、Snapshot、阻断和 reconciliation
-4. 修复多 Cluster Performance 和 ledgers[0]
+4. 增加逐估值 barrier Multi-Cluster reconciliation
 5. 完成 Futures LONG/SHORT 正式 Scenario
 6. 建立 GENERIC_MARGIN_FUTURES Conformance Pack
 7. 增加逐时点 Equity、Account、Position Facts

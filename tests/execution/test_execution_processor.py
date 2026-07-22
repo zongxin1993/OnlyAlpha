@@ -29,6 +29,8 @@ from onlyalpha.execution import (
 
 from ..integration_demo.environment import (
     ACCOUNT_ID,
+    CLUSTER_ID,
+    CNY,
     DAY_ONE,
     OnlyIntegrationEnvironment,
 )
@@ -109,7 +111,12 @@ def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
     assert order.order_id is not None
     account = env.runtime.account_manager.list_accounts()[0]
     account_reservation = next(item for item in account.reservations if item.order_id == order.order_id)
-    ledger = env.runtime.strategy_ledger_manager.list_ledgers()[0]
+    ledger = env.runtime.strategy_ledger_locator.require_snapshot(
+        runtime_id=env.runtime.config.runtime_id,
+        account_id=OnlyAccountId(ACCOUNT_ID),
+        cluster_id=CLUSTER_ID,
+        currency=CNY,
+    )
     ledger_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
     assert account.cash.frozen_cash.amount == 0
     assert account_reservation.remaining_amount.amount == 0

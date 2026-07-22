@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Protocol, cast
 
@@ -15,7 +15,6 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue, OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
-from onlyalpha.cache.base import OnlyCache
 from onlyalpha.cluster.base import OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
 from onlyalpha.core.clock import OnlyBacktestClock, OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
@@ -51,12 +50,12 @@ from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
-from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode, OnlySessionType
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyCalendarId, OnlyClusterId, OnlyInstrumentId, OnlyVenueId
+from onlyalpha.domain.calendar import OnlyTradingCalendar
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyCalendarId, OnlyClusterId, OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
@@ -161,13 +160,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
     def __init__(
         self,
-        config: OnlyRuntimeAssemblyConfig | str,
-        calendar_or_clock: OnlyTradingCalendar | OnlyBacktestClock,
-        initial_time_or_event_bus: datetime | int | OnlyEventBus | None = None,
-        legacy_cache: OnlyCache | None = None,
+        config: OnlyRuntimeAssemblyConfig,
+        calendar_or_clock: OnlyTradingCalendar,
+        initial_time_or_event_bus: datetime | int,
         *,
-        calendar: OnlyTradingCalendar | None = None,
-        engine_id: str = "engine",
         run_plan: OnlyBacktestRunPlanPort | None = None,
         owned_clock: OnlyBacktestClock | None = None,
         owned_event_bus: OnlyEventBus | None = None,
@@ -176,27 +172,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
-        if isinstance(config, str):
-            if not isinstance(calendar_or_clock, OnlyBacktestClock):
-                raise TypeError("legacy Runtime construction requires OnlyBacktestClock")
-            runtime_config = OnlyRuntimeAssemblyConfig(engine_id, config, OnlyRuntimeMode.BACKTEST)
-            clock = calendar_or_clock
-            event_bus = initial_time_or_event_bus if isinstance(initial_time_or_event_bus, OnlyEventBus) else None
-            selected_calendar = calendar or self._compatibility_calendar()
-            del legacy_cache
-        else:
-            if config.mode is not OnlyRuntimeMode.BACKTEST:
-                raise ValueError("OnlyBacktestRuntime requires BACKTEST mode")
-            if not isinstance(calendar_or_clock, OnlyTradingCalendar):
-                raise TypeError("Backtest Runtime requires a TradingCalendar")
-            if not isinstance(initial_time_or_event_bus, (datetime, int)) or isinstance(
-                initial_time_or_event_bus, bool
-            ):
-                raise TypeError("Backtest Runtime requires an initial UTC time")
-            runtime_config = config
-            selected_calendar = calendar_or_clock
-            clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
-            event_bus = owned_event_bus
+        if config.mode is not OnlyRuntimeMode.BACKTEST:
+            raise ValueError("OnlyBacktestRuntime requires BACKTEST mode")
+        if isinstance(initial_time_or_event_bus, bool):
+            raise TypeError("Backtest Runtime requires an initial UTC time")
+        runtime_config = config
+        selected_calendar = calendar_or_clock
+        clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
+        event_bus = owned_event_bus
         super().__init__(runtime_config)
         self._selected_calendar = selected_calendar
         scope = OnlyEventScope(runtime_config.engine_id, runtime_config.runtime_id)  # type: ignore[arg-type]
@@ -225,9 +208,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 event_sink,
             )
         )
-        account_initial_cash = runtime_config.account_initial_cash or OnlyMoney(
-            Decimal(str(runtime_config.strategy_initial_capital)), runtime_config.strategy_base_currency
-        )
+        if runtime_config.account_initial_cash is None:
+            raise ValueError("Backtest Runtime requires explicit Account initial cash")
+        account_initial_cash = runtime_config.account_initial_cash
         configured_gateway_id = runtime_config.broker_gateway_id
         self._account_manager.create_account(
             OnlyAccountConfig(
@@ -296,7 +279,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         strategy_cash_reservations = OnlyOrderStrategyCashReservationAdapter(
             self._strategy_ledger_manager,
-            runtime_config.strategy_base_currency,
+            self._strategy_ledger_locator,
             self._instruments,
             lambda order: (
                 self._current_snapshots[order.cluster_id].primary_bar.close
@@ -346,7 +329,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_risk=OnlyPositionRiskView(position_query, clock.timestamp_ns),
             market_rules=runtime_config.market_rule_engine,
             strategy_ledger_risk=OnlyStrategyLedgerRiskView(
-                self._strategy_ledger_query, runtime_config.strategy_base_currency
+                self._strategy_ledger_query,
+                self._strategy_ledger_locator,
+                runtime_config.strategy_base_currency,
             ),
         )
         broker_inbound = (
@@ -417,6 +402,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_manager,
             allocation_manager,
             self._strategy_ledger_manager,
+            self._strategy_ledger_locator,
             self._account_manager,
             risk_service,
             position_reservations,
@@ -443,11 +429,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             fee_resolver,
             order_margin_reservations.release,
             selected_calendar.trading_day_at,
-            lambda cluster_id: next(
-                cluster.strategy.strategy_id
-                for cluster in manager.clusters
-                if cluster.config.cluster_id == str(cluster_id)
-            ),
+            lambda cluster_id: manager.require_cluster(cluster_id).strategy.strategy_id,
         )
         self._broker_results: list[object] = []
         historical_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history")
@@ -547,6 +529,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._fee_manager,
             OnlyStrategyValuationService(),
             self._account_manager,
+            self._account_performance_projector,
             self._account_query,
             broker_inbound,
             selected_broker_gateway,
@@ -1068,11 +1051,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._services.account_query,
             ),
             OnlyStrategyLedgerContextView(
-                OnlyStrategyLedgerKey(
-                    self.config.runtime_id,  # type: ignore[arg-type]
-                    self.config.default_account_id,  # type: ignore[arg-type]
-                    cluster_id,
-                    self.config.strategy_base_currency,
+                self._strategy_ledger_locator.require_key(
+                    runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
+                    account_id=self.config.default_account_id,  # type: ignore[arg-type]
+                    cluster_id=cluster_id,
+                    currency=self.config.strategy_base_currency,
                 ),
                 self._services.strategy_ledger_query,
             ),
@@ -1264,14 +1247,4 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._services.clock.has_timer(handle.timer_id)
             for handles in self._timer_handles.values()
             for handle in handles.values()
-        )
-
-    @staticmethod
-    def _compatibility_calendar() -> OnlyTradingCalendar:
-        return OnlyTradingCalendar(
-            OnlyCalendarId("LEGACY"),
-            OnlyVenueId("LEGACY"),
-            OnlyTimeZone("UTC"),
-            (OnlyTradingSession("full_day", time(0), time(0), OnlySessionType.CONTINUOUS),),
-            weekend_days=(),
         )

@@ -13,11 +13,18 @@ from onlyalpha.domain.enums import (
     OnlyRuntimeMode,
     OnlySessionType,
 )
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRawSymbol, OnlySymbol, OnlyVenueId
+from onlyalpha.domain.identifiers import (
+    OnlyCalendarId,
+    OnlyClusterId,
+    OnlyInstrumentId,
+    OnlyRawSymbol,
+    OnlySymbol,
+    OnlyVenueId,
+)
 from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
-from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
@@ -38,7 +45,7 @@ def only_demo_bar_types() -> tuple[OnlyBarType, OnlyBarType]:
     )
 
 
-def only_demo_runtime(runtime_id: str) -> OnlyBacktestRuntime:
+def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster",)) -> OnlyBacktestRuntime:
     calendar = OnlyTradingCalendar(
         OnlyCalendarId("XSHG"),
         OnlyVenueId("XSHG"),
@@ -48,13 +55,22 @@ def only_demo_runtime(runtime_id: str) -> OnlyBacktestRuntime:
             OnlyTradingSession("afternoon", time(13), time(15), OnlySessionType.CONTINUOUS),
         ),
     )
+    cny = OnlyCurrency("CNY", 2)
+    capital_amount = Decimal("1000000.00") / Decimal(len(cluster_ids))
+    capitals = {OnlyClusterId(cluster_id): OnlyMoney(capital_amount, cny) for cluster_id in cluster_ids}
     runtime = OnlyBacktestRuntime(
-        OnlyRuntimeAssemblyConfig("engine", runtime_id, OnlyRuntimeMode.BACKTEST),
+        OnlyRuntimeAssemblyConfig(
+            "engine",
+            runtime_id,
+            OnlyRuntimeMode.BACKTEST,
+            strategy_base_currency=cny,
+            strategy_capitals=capitals,
+            account_initial_cash=OnlyMoney(Decimal("1000000.00"), cny),
+        ),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
     )
     instrument_id = only_demo_bar_types()[0].instrument_id
-    cny = OnlyCurrency("CNY", 2)
     runtime.register_instrument(
         OnlyEquity(
             instrument_id=instrument_id,

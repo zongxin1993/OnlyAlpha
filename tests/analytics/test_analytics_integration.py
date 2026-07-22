@@ -23,5 +23,13 @@ def test_analytics_consumes_formal_result_without_changing_it() -> None:
     assert first.executions.execution_count == 2
     assert first.trades.trade_count == 1
     assert first.trades.trades[0].entry_execution_id != first.trades.trades[0].exit_execution_id
-    assert first.performance.ending_equity == result.performance.final_equity.amount
-    assert "INSUFFICIENT_EQUITY_CURVE" in first.warnings
+    assert first.performance.ending_equity == result.runtime_performance.final_equity.amount
+    assert len(first.cluster_analyses) == 1
+    assert first.cluster_analyses[0].cluster_id == str(result.cluster_results[0].cluster_id)
+    assert first.cluster_analyses[0].ledger_id == str(result.cluster_results[0].performance.ledger_id)
+    assert first.cluster_analyses[0].executions.execution_count == len(result.facts.executions)
+    assert (
+        first.cluster_analyses[0].performance.ending_equity == result.cluster_results[0].performance.final_equity.amount
+    )
+    assert len(result.account_equity_timeline) > 2
+    assert "INSUFFICIENT_EQUITY_CURVE" not in first.warnings

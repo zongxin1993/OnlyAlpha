@@ -7,7 +7,7 @@ from onlyalpha.order.exceptions import OnlyOrderScopeError
 
 
 def test_two_clusters_share_runtime_manager_but_queries_are_scoped(make_runtime, order_request) -> None:
-    runtime = make_runtime("runtime-orders")
+    runtime = make_runtime("runtime-orders", {"first": "400000.00", "second": "600000.00"})
     first = OnlyCluster(OnlyClusterConfig("first"))
     second = OnlyCluster(OnlyClusterConfig("second"))
     runtime.add_cluster("engine", first)

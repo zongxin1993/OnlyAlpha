@@ -6,10 +6,17 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
+from onlyalpha.account.performance import (
+    OnlyAccountEquityPoint,
+    OnlyAccountValuationSource,
+    OnlyRuntimePortfolioPerformanceSummary,
+)
 from onlyalpha.analytics import OnlyBacktestAnalyticsService
 from onlyalpha.artifact import OnlyBacktestArtifactWriter, OnlyRunArtifactTarget
 from onlyalpha.artifact.writer import OnlyArtifactWriteError
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyRate
 from onlyalpha.result import only_result_fingerprint
 from onlyalpha.result.diagnostics import OnlyBacktestDiagnostics
 from onlyalpha.result.records import (
@@ -18,18 +25,21 @@ from onlyalpha.result.records import (
     OnlyEquityResultRecord,
     OnlySignalResultRecord,
 )
-
-
-@dataclass(frozen=True)
-class OnlyPerformanceFixture:
-    initial_equity: OnlyMoney
-    final_equity: OnlyMoney
+from onlyalpha.runtime.reconciliation import (
+    OnlyRuntimeLedgerReconciliationResult,
+    OnlyRuntimeLedgerReconciliationStatus,
+)
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint
 
 
 @dataclass(frozen=True)
 class OnlyArtifactResultFixture:
     facts: OnlyBacktestFacts
-    performance: OnlyPerformanceFixture
+    runtime_performance: OnlyRuntimePortfolioPerformanceSummary
+    account_equity_timeline: tuple[OnlyAccountEquityPoint, ...]
+    cluster_results: tuple[object, ...]
+    cluster_equity_timelines: tuple[tuple[OnlyStrategyLedgerEquityPoint, ...], ...]
+    reconciliation: OnlyRuntimeLedgerReconciliationResult
     diagnostics: OnlyBacktestDiagnostics
     result_fingerprint: str
     data: object = None
@@ -76,9 +86,62 @@ def _result(value: str = "1000000.01") -> OnlyArtifactResultFixture:
     )
     facts = OnlyBacktestFacts(accounts=(account,), equity=(equity,))
     currency = OnlyCurrency("CNY", 2)
+    money = OnlyMoney(amount, currency)
+    zero = OnlyMoney(Decimal(0), currency)
+    runtime_id = OnlyRuntimeId("runtime-1")
+    account_id = OnlyAccountId("account-1")
+    timestamp = OnlyTimestamp.from_datetime(now)
+    performance = OnlyRuntimePortfolioPerformanceSummary(
+        runtime_id,
+        account_id,
+        "ACCOUNT",
+        currency,
+        money,
+        money,
+        zero,
+        zero,
+        zero,
+        zero,
+        zero,
+        OnlyRate(Decimal(0), 8),
+        OnlyRate(Decimal(0), 8),
+        OnlyRate(Decimal(0), 8),
+        money,
+        1,
+        (),
+    )
+    point = OnlyAccountEquityPoint(
+        1,
+        runtime_id,
+        account_id,
+        timestamp,
+        None,
+        currency,
+        money,
+        zero,
+        zero,
+        zero,
+        zero,
+        money,
+        zero,
+        OnlyAccountValuationSource.FINAL_SEAL,
+        1,
+        (),
+    )
+    reconciliation = OnlyRuntimeLedgerReconciliationResult(
+        runtime_id,
+        account_id,
+        OnlyRuntimeLedgerReconciliationStatus.MATCHED,
+        (),
+        timestamp,
+    )
     return OnlyArtifactResultFixture(
         facts,
-        OnlyPerformanceFixture(OnlyMoney(amount, currency), OnlyMoney(amount, currency)),
+        performance,
+        (point,),
+        (),
+        (),
+        reconciliation,
         OnlyBacktestDiagnostics(),
         only_result_fingerprint(facts),
     )
@@ -101,6 +164,7 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
         "positions.parquet",
         "accounts.parquet",
         "equity.parquet",
+        "cluster_equity.parquet",
         "signals.parquet",
         "settlements.parquet",
         "margin.parquet",
@@ -156,7 +220,11 @@ def test_writer_preserves_high_precision_factor_scores(tmp_path: Path) -> None:
     facts = OnlyBacktestFacts(signals=(signal,), accounts=result.facts.accounts, equity=result.facts.equity)
     precise = OnlyArtifactResultFixture(
         facts,
-        result.performance,
+        result.runtime_performance,
+        result.account_equity_timeline,
+        result.cluster_results,
+        result.cluster_equity_timelines,
+        result.reconciliation,
         result.diagnostics,
         only_result_fingerprint(facts),
     )

@@ -124,6 +124,19 @@ class OnlyExposureAnalysis:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyClusterAnalysis:
+    cluster_id: str
+    ledger_id: str
+    performance: OnlyPerformanceAnalysis
+    trades: OnlyTradeAnalysis
+    drawdown: OnlyDrawdownAnalysis
+    executions: OnlyExecutionAnalysis
+    exposure: OnlyExposureAnalysis
+    attribution_net_pnl: Decimal
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyBacktestAnalysis:
     performance: OnlyPerformanceAnalysis
     trades: OnlyTradeAnalysis
@@ -131,5 +144,6 @@ class OnlyBacktestAnalysis:
     orders: OnlyOrderAnalysis
     executions: OnlyExecutionAnalysis
     exposure: OnlyExposureAnalysis
+    cluster_analyses: tuple[OnlyClusterAnalysis, ...]
     warnings: tuple[str, ...]
     analysis_fingerprint: str

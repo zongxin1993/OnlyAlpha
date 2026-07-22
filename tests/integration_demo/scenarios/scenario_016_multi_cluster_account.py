@@ -2,11 +2,13 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest
-from onlyalpha.domain.identifiers import OnlyClusterId, OnlyOrderRequestId
-from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderRequestId
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 from ..environment import (
+    ACCOUNT_ID,
     CLUSTER_ID,
+    CNY,
     DAY_ONE,
     INSTRUMENT_ID,
     OnlyIntegrationCluster,
@@ -16,8 +18,13 @@ from ..environment import (
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
-    shared = OnlyIntegrationEnvironment()
     second_id = OnlyClusterId("integration-cluster-2")
+    shared = OnlyIntegrationEnvironment(
+        cluster_capitals={
+            CLUSTER_ID: OnlyMoney(Decimal("400000.00"), CNY),
+            second_id: OnlyMoney(Decimal("600000.00"), CNY),
+        }
+    )
     second = OnlyIntegrationCluster((shared.bar_1m, shared.bar_3m), second_id)
     shared.runtime.add_cluster(shared.runtime.config.engine_id, second)
     shared.start()
@@ -39,7 +46,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     second.pending_order = request("cluster-two-buy")
     shared.process_bar(DAY_ONE, 3, "10.00")
 
-    account = shared.runtime.account_manager.list_accounts()[0]
+    account = shared.runtime.account_manager.require_snapshot(OnlyAccountId(ACCOUNT_ID))
     assert account.cash.frozen_cash.amount == Decimal("2000.02")
     assert {item.key.cluster_id for item in shared.runtime.strategy_ledger_manager.list_ledgers()} == {
         CLUSTER_ID,

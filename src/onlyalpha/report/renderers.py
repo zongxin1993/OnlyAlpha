@@ -23,7 +23,6 @@ class OnlyJsonBacktestReport:
     ) -> dict[str, object]:
         diagnostics = result.diagnostics
         first_failure = diagnostics.first_failure
-        currency = analysis.performance.currency
         return {
             "status": result.status.value,
             "runtime_id": str(result.runtime_id),
@@ -33,11 +32,9 @@ class OnlyJsonBacktestReport:
             "order_count": analysis.orders.submitted_count,
             "execution_count": analysis.executions.execution_count,
             "trade_count": analysis.trades.trade_count,
-            "initial_equity": _money(analysis.performance.initial_equity, currency),
-            "ending_equity": _money(analysis.performance.ending_equity, currency),
-            "net_profit": str(analysis.performance.net_profit),
-            "total_return": _optional_decimal(analysis.performance.total_return),
-            "max_drawdown": _optional_decimal(analysis.drawdown.max_drawdown_ratio),
+            "runtime_performance": _json_value(result.runtime_performance),
+            "cluster_performance": [_json_value(item.performance) for item in result.cluster_results],
+            "reconciliation": _json_value(result.reconciliation),
             "failure_count": diagnostics.total_failure_count,
             "first_failure": None if first_failure is None else _json_value(first_failure),
             "result_fingerprint": result.result_fingerprint,
@@ -58,7 +55,8 @@ class OnlyConsoleBacktestReport:
         analysis: OnlyBacktestAnalysis,
         manifest: OnlyBacktestArtifactManifest,
     ) -> str:
-        currency = analysis.performance.currency or ""
+        runtime_performance = result.runtime_performance
+        currency = runtime_performance.currency.code
         artifacts = {item.artifact_type: item.relative_path for item in manifest.artifacts}
         lines = [
             "Run",
@@ -73,12 +71,31 @@ class OnlyConsoleBacktestReport:
             f"  Executions: {analysis.executions.execution_count}",
             f"  Trades: {analysis.trades.trade_count}",
             "",
-            "Performance",
-            f"  Initial Equity: {_number(analysis.performance.initial_equity)} {currency}".rstrip(),
-            f"  Ending Equity: {_number(analysis.performance.ending_equity)} {currency}".rstrip(),
-            f"  Net Profit: {_number(analysis.performance.net_profit)} {currency}".rstrip(),
-            f"  Total Return: {_percent(analysis.performance.total_return)}",
-            f"  Max Drawdown: {_percent(analysis.drawdown.max_drawdown_ratio)}",
+            "Runtime Portfolio Performance (Account authority)",
+            f"  Account: {runtime_performance.account_id}",
+            f"  Initial Equity: {_number(runtime_performance.initial_equity.amount)} {currency}".rstrip(),
+            f"  Ending Equity: {_number(runtime_performance.final_equity.amount)} {currency}".rstrip(),
+            f"  Net PnL: {_number(runtime_performance.net_pnl.amount)} {currency}".rstrip(),
+            f"  Fees: {_number(runtime_performance.fees.amount)} {currency}".rstrip(),
+            f"  Return: {_percent(None if runtime_performance.return_since_start is None else runtime_performance.return_since_start.value)}",
+            f"  Max Drawdown: {_percent(runtime_performance.maximum_drawdown.value)}",
+            f"  High Water Mark: {_number(runtime_performance.high_water_mark.amount)} {currency}".rstrip(),
+            f"  Valuation Count: {runtime_performance.valuation_count}",
+            "",
+            "Cluster Performance (Strategy Ledger authority)",
+            *(
+                f"  {item.cluster_id}: ledger={item.performance.ledger_id}, allocated={item.performance.initial_equity.amount}, "
+                f"final={item.performance.final_equity.amount}, pnl={item.performance.net_pnl.amount}, "
+                f"fees={item.performance.fees.amount}, return={_percent(None if item.performance.return_since_start is None else item.performance.return_since_start.value)}, "
+                f"max_drawdown={_percent(item.performance.maximum_drawdown.value)}, trades={item.performance.trade_count}"
+                for item in result.cluster_results
+            ),
+            "",
+            "Reconciliation",
+            f"  Status: {result.reconciliation.status.value}",
+            f"  Account Equity: {runtime_performance.final_equity.amount}",
+            f"  Sum Cluster Ledger Equity: {sum((item.performance.final_equity.amount for item in result.cluster_results), Decimal(0))}",
+            f"  Difference: {runtime_performance.final_equity.amount - sum((item.performance.final_equity.amount for item in result.cluster_results), Decimal(0))}",
             "",
             "Artifacts",
             f"  Summary: {artifacts.get('SUMMARY', 'unavailable')}",
@@ -97,7 +114,7 @@ class OnlyMarkdownBacktestReport:
         analysis: OnlyBacktestAnalysis,
         manifest: OnlyBacktestArtifactManifest,
     ) -> str:
-        currency = analysis.performance.currency or ""
+        currency = result.runtime_performance.currency.code
         positions = result.facts.positions or tuple()
         accounts = result.facts.accounts or tuple()
         diagnostics = result.diagnostics
@@ -149,18 +166,49 @@ class OnlyMarkdownBacktestReport:
                     ("Win rate", _percent(analysis.trades.win_rate)),
                 )
             ),
-            "## Performance Summary",
+            "## Runtime Portfolio Performance (Account authority)",
             _table(
                 (
-                    ("Initial equity", f"{analysis.performance.initial_equity} {currency}".rstrip()),
-                    ("Ending equity", f"{analysis.performance.ending_equity} {currency}".rstrip()),
-                    ("Net profit", f"{analysis.performance.net_profit} {currency}".rstrip()),
-                    ("Total return", _percent(analysis.performance.total_return)),
-                    ("Max drawdown", _percent(analysis.drawdown.max_drawdown_ratio)),
+                    ("Account", result.runtime_performance.account_id),
+                    ("Initial equity", f"{result.runtime_performance.initial_equity.amount} {currency}".rstrip()),
+                    ("Ending equity", f"{result.runtime_performance.final_equity.amount} {currency}".rstrip()),
+                    ("Net PnL", f"{result.runtime_performance.net_pnl.amount} {currency}".rstrip()),
+                    ("Fees", result.runtime_performance.fees.amount),
+                    (
+                        "Return",
+                        _percent(
+                            None
+                            if result.runtime_performance.return_since_start is None
+                            else result.runtime_performance.return_since_start.value
+                        ),
+                    ),
+                    ("Max drawdown", _percent(result.runtime_performance.maximum_drawdown.value)),
+                    ("High water mark", result.runtime_performance.high_water_mark.amount),
+                    ("Valuation count", result.runtime_performance.valuation_count),
+                )
+            ),
+            "## Cluster Performance (Strategy Ledger authority)",
+            "\n".join(
+                f"- `{item.cluster_id}` / `{item.performance.ledger_id}`: allocated={item.performance.initial_equity.amount}, "
+                f"final={item.performance.final_equity.amount}, pnl={item.performance.net_pnl.amount}, fees={item.performance.fees.amount}, "
+                f"return={_percent(None if item.performance.return_since_start is None else item.performance.return_since_start.value)}, "
+                f"max_drawdown={_percent(item.performance.maximum_drawdown.value)}, trades={item.performance.trade_count}"
+                for item in result.cluster_results
+            ),
+            "## Runtime/Cluster Reconciliation",
+            _table(
+                (
+                    ("Status", result.reconciliation.status.value),
+                    ("Account equity", result.runtime_performance.final_equity.amount),
+                    (
+                        "Sum Cluster equity",
+                        sum((item.performance.final_equity.amount for item in result.cluster_results), Decimal(0)),
+                    ),
+                    ("Difference count", len(result.reconciliation.differences)),
                 )
             ),
             "## Final Account",
-            _table((("Account records", len(accounts)), ("Final accounts", len(result.final_accounts)))),
+            _table((("Account records", len(accounts)), ("Final account", result.final_account.account_id))),
             "## Final Positions",
             _table((("Position records", len(positions)), ("Open positions", len(result.final_positions)))),
             "## Diagnostics",

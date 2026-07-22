@@ -2,6 +2,7 @@
 
 from onlyalpha.analytics.models import (
     OnlyBacktestAnalysis,
+    OnlyClusterAnalysis,
     OnlyDrawdownAnalysis,
     OnlyExecutionAnalysis,
     OnlyOrderAnalysis,
@@ -15,6 +16,7 @@ from onlyalpha.analytics.trade_builder import OnlyTradeBuilder, OnlyTradeMatchin
 __all__ = [
     "OnlyBacktestAnalysis",
     "OnlyBacktestAnalyticsService",
+    "OnlyClusterAnalysis",
     "OnlyDrawdownAnalysis",
     "OnlyExecutionAnalysis",
     "OnlyOrderAnalysis",

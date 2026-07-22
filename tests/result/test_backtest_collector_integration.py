@@ -28,12 +28,12 @@ def test_collector_reads_runtime_facts_without_changing_business_result(tmp_path
         "executions": 2,
         "positions": 0,
         "accounts": 1,
-        "equity": 1,
+        "equity": 729,
     }
     assert first_projection["result_fingerprint"] == second_projection["result_fingerprint"]
     assert first_projection["execution"] == second_projection["execution"]
     assert first_projection["final_positions"] == second_projection["final_positions"]
-    assert first_projection["final_accounts"] == second_projection["final_accounts"]
+    assert first_projection["final_account"] == second_projection["final_account"]
 
 
 def test_collector_lifecycle_rejects_invalid_access() -> None:
