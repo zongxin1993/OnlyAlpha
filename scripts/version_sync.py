@@ -113,7 +113,7 @@ def set_versions(version: str) -> None:
         write_document(path, document)
 
     subprocess.run(
-        ["uv", "lock", "--python", "3.12", "--all-packages", "--all-groups"],
+        ["uv", "lock", "--python", "3.12"],
         cwd=ROOT,
         check=True,
     )

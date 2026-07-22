@@ -2,7 +2,7 @@
 name = "onlyalpha-test-plugin"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.2.7"]
+dependencies = ["onlyalpha==0.2.8"]
 
 [project.entry-points."onlyalpha.data_sources"]
 test-external-data = "onlyalpha_test_plugin.data_source:factory"
