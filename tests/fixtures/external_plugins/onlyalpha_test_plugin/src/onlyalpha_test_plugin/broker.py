@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerFactory, OnlyVirtualBrokerGateway
+from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerPluginConfig
+
 from onlyalpha.plugin.api import (
     ONLYALPHA_PLUGIN_API_VERSION,
+    OnlyBrokerComponent,
     OnlyBrokerCreateRequest,
     OnlyBrokerPluginCapabilities,
     OnlyPluginDescriptor,
     OnlyPluginType,
     OnlyPluginValidationIssue,
 )
-from onlyalpha.plugin.testing import OnlyVirtualBrokerFactory, OnlyVirtualBrokerGateway, OnlyVirtualBrokerPluginConfig
 
 _DESCRIPTOR = OnlyPluginDescriptor(
     "test-external-broker",
@@ -53,14 +56,18 @@ class OnlyExternalTestBrokerFactory:
     def validate_request(self, request: OnlyBrokerCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
         return self._delegate.validate_request(request)
 
-    def create(self, request: OnlyBrokerCreateRequest) -> OnlyExternalTestBrokerGateway:
-        gateway = self._delegate.create(request)
-        return OnlyExternalTestBrokerGateway(
+    def create(self, request: OnlyBrokerCreateRequest) -> OnlyBrokerComponent:
+        component = self._delegate.create(request)
+        gateway = component.gateway
+        if not isinstance(gateway, OnlyVirtualBrokerGateway):
+            raise TypeError("test Broker delegate returned an unexpected gateway")
+        external_gateway = OnlyExternalTestBrokerGateway(
             gateway.config,
             request.runtime_id,
             request.clock,
             request.broker_inbound_queue.put,
         )
+        return OnlyBrokerComponent(external_gateway, external_gateway, external_gateway)
 
 
 def factory() -> OnlyExternalTestBrokerFactory:

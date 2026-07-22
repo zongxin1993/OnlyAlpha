@@ -6,11 +6,14 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
+from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
+
 from onlyalpha.account.models import OnlyAccountSnapshot
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerOrderSnapshot
-from onlyalpha.broker.virtual import OnlyVirtualBrokerConfig
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
+from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.audit import OnlyMarketDataAuditStore
 from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
 from onlyalpha.data.processor import (
@@ -46,6 +49,7 @@ from onlyalpha.domain.identifiers import (
     OnlyInstrumentId,
     OnlyOrderRequestId,
     OnlyRawSymbol,
+    OnlyRuntimeId,
     OnlySymbol,
     OnlyVenueId,
 )
@@ -291,6 +295,21 @@ class OnlyIntegrationEnvironment:
             },
             advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
         )
+        initial_time = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
+        broker_clock = OnlyBacktestClock(initial_time)
+        broker_queue = OnlyBoundedBrokerInboundQueue()
+        broker_config = OnlyVirtualBrokerConfig(
+            OnlyBrokerGatewayId("virtual-integration"),
+            OnlyAccountId(ACCOUNT_ID),
+            CNY,
+            OnlyMoney(Decimal("1000000.00"), CNY),
+            maximum_fill_quantity=maximum_fill_quantity,
+        )
+        broker_gateway = (
+            OnlyVirtualBrokerGateway(broker_config, OnlyRuntimeId(RUNTIME_ID), broker_clock, broker_queue.put)
+            if virtual_broker
+            else None
+        )
         self.runtime = OnlyBacktestRuntime(
             OnlyRuntimeAssemblyConfig(
                 ENGINE_ID,
@@ -299,20 +318,16 @@ class OnlyIntegrationEnvironment:
                 strategy_initial_capital="1000000.00",
                 strategy_base_currency=CNY,
                 market_rule_engine=market_rules,
-                virtual_broker_config=(
-                    OnlyVirtualBrokerConfig(
-                        OnlyBrokerGatewayId("virtual-integration"),
-                        OnlyAccountId(ACCOUNT_ID),
-                        CNY,
-                        OnlyMoney(Decimal("1000000.00"), CNY),
-                        maximum_fill_quantity=maximum_fill_quantity,
-                    )
-                    if virtual_broker
-                    else None
-                ),
+                broker_gateway_id=broker_config.gateway_id if virtual_broker else None,
+                account_initial_cash=broker_config.initial_cash,
             ),
             self.calendar,
-            datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
+            initial_time,
+            owned_clock=broker_clock,
+            broker_gateway=broker_gateway,
+            deterministic_broker_driver=broker_gateway,
+            broker_inbound_queue=broker_queue,
+            plugin_resources=() if broker_gateway is None else (broker_gateway,),
         )
         self.runtime.register_instrument(self.instrument)
         self.market_data_source_registry: OnlyMarketDataSourceRegistry = self.runtime.market_data_source_registry

@@ -3,11 +3,11 @@
 from dataclasses import dataclass
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
-from onlyalpha.broker.virtual.latency import OnlyLatencyModel
-from onlyalpha.broker.virtual.slippage import OnlySlippageModel
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
+from onlyalpha_plugin_broker_virtual.latency import OnlyLatencyModel
+from onlyalpha_plugin_broker_virtual.slippage import OnlySlippageModel
 
 
 @dataclass(frozen=True, slots=True)

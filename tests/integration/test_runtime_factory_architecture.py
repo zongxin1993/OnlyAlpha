@@ -33,10 +33,17 @@ def test_concrete_implementations_live_below_parent_component_packages() -> None
         "src/onlyalpha/runtime/shadow/runtime.py",
         "src/onlyalpha/runtime/research/runtime.py",
         "src/onlyalpha/data/synthetic/source.py",
-        "src/onlyalpha/broker/virtual/gateway.py",
+        "packages/provider/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual/gateway.py",
         "src/onlyalpha/indicator/macd/indicator.py",
     )
     assert all(Path(path).is_file() for path in required)
+
+
+def test_core_does_not_import_virtual_broker_plugin() -> None:
+    for path in Path("src/onlyalpha").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "onlyalpha_plugin_broker_virtual" not in source, path
+        assert "onlyalpha.broker.virtual" not in source, path
 
 
 def test_product_entry_uses_only_engine_public_api() -> None:

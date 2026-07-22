@@ -82,11 +82,8 @@ class OnlyBacktestRunPlan:
     ) -> OnlyBacktestResult:
         runtime = self._require_runtime()
         orders = runtime.order_manager.snapshot_all()
-        gateway = runtime.broker_gateway
-        if gateway is None:
-            raise RuntimeError("product backtest requires Virtual Broker")
         account_config = self._config.accounts[0]
-        trades = gateway.query_trades(account_config.account_id)
+        trades = runtime.applied_trade_journal.records()
         positions = runtime.position_manager.snapshot_all()
         allocations = runtime.allocation_manager.snapshot_all()
         ledgers = runtime.strategy_ledger_manager.list_ledgers()

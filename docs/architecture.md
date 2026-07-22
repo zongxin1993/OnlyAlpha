@@ -1,5 +1,9 @@
 # OnlyAlpha 总体架构
 
+Virtual Broker 已从 Core 提取为独立 `onlyalpha-plugin-broker-virtual` distribution。依赖方向固定为插件到
+`onlyalpha.plugin.api`/公共 Domain 与 Broker Port；`src/onlyalpha` 不导入、注册或回退到任何 Virtual Broker 实现。
+Backtest Runtime 通过 `OnlyBrokerComponent` 获取 Gateway 与显式 `OnlyDeterministicBrokerDriver`。
+
 产品验证依赖固定为 `CLI/Application → Conformance Runner → Scenario Runner → OnlyEngine`。Conformance 不依赖交易 Manager，
 Scenario Runner 不直接操作交易组件，Collector 只读正式 query/audit，Query 不执行 Command。
 

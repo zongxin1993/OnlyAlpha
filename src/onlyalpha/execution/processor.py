@@ -84,6 +84,7 @@ from .enums import (
     OnlyExecutionProcessingStatus,
 )
 from .invariants import OnlyExecutionInvariantChecker
+from .journal import OnlyAppliedTradeFact, OnlyAppliedTradeJournal
 from .models import (
     OnlyExecutionAuditRecord,
     OnlyExecutionFailure,
@@ -147,6 +148,7 @@ class OnlyExecutionProcessor:
         invariant_checker: OnlyExecutionInvariantChecker,
         event_publisher: OnlyExecutionEventPublisher,
         audit_store: OnlyExecutionAuditStore,
+        applied_trade_journal: OnlyAppliedTradeJournal,
         reconciliation: OnlyExecutionReconciliationPort,
         deduplicator: OnlyExecutionUpdateDeduplicator,
         sequence_tracker: OnlyExecutionSequenceTracker,
@@ -181,6 +183,7 @@ class OnlyExecutionProcessor:
         self._invariants = invariant_checker
         self._events = event_publisher
         self._audit = audit_store
+        self._applied_trades = applied_trade_journal
         self._reconciliation = reconciliation
         self._deduplicator = deduplicator
         self._sequences = sequence_tracker
@@ -289,7 +292,7 @@ class OnlyExecutionProcessor:
                 )
             )
             generated = self._events.commit()
-            return self._complete(
+            result = self._complete(
                 update,
                 context,
                 status,
@@ -300,6 +303,9 @@ class OnlyExecutionProcessor:
                 reconciliation,
                 position_scope,
             )
+            if isinstance(update, OnlyBrokerTradeUpdate) and status is OnlyExecutionProcessingStatus.APPLIED:
+                self._applied_trades.append(OnlyAppliedTradeFact.from_update(update))
+            return result
         except Exception as exc:
             self._events.rollback()
             failed_step = self._failed_step(steps)

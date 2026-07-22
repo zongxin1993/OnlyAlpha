@@ -1,4 +1,4 @@
-"""Clock-duration-only latency models; no sleep or wall-clock reads."""
+"""Plugin-owned latency models; no sleep or wall-clock reads."""
 
 from dataclasses import dataclass
 from typing import Protocol

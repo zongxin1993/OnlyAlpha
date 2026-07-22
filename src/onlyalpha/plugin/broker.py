@@ -8,8 +8,8 @@ from logging import Logger
 from typing import Protocol
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
-from onlyalpha.broker.updates import OnlyBrokerInboundUpdate
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar
@@ -18,12 +18,6 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyPluginValidationIssue
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
-
-
-class OnlyBrokerInboundQueue(Protocol):
-    def put(self, update: OnlyBrokerInboundUpdate) -> None: ...
-
-    def drain(self) -> tuple[OnlyBrokerInboundUpdate, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +35,17 @@ class OnlyBrokerCreateRequest:
     logger: Logger
 
 
-class OnlyBacktestBrokerGateway(OnlyBrokerGateway, OnlyPluginResource, Protocol):
+class OnlyDeterministicBrokerDriver(Protocol):
     def on_bar(self, bar: OnlyBar) -> None: ...
 
     def run_due(self) -> int: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBrokerComponent:
+    gateway: OnlyBrokerGateway
+    resource: OnlyPluginResource
+    deterministic_driver: OnlyDeterministicBrokerDriver | None = None
 
 
 class OnlyBrokerGatewayFactory(Protocol):
@@ -55,4 +56,13 @@ class OnlyBrokerGatewayFactory(Protocol):
 
     def validate_request(self, request: OnlyBrokerCreateRequest) -> Sequence[OnlyPluginValidationIssue]: ...
 
-    def create(self, request: OnlyBrokerCreateRequest) -> OnlyBrokerGateway: ...
+    def create(self, request: OnlyBrokerCreateRequest) -> OnlyBrokerComponent: ...
+
+
+__all__ = [
+    "OnlyBrokerComponent",
+    "OnlyBrokerCreateRequest",
+    "OnlyBrokerGatewayFactory",
+    "OnlyBrokerInboundQueue",
+    "OnlyDeterministicBrokerDriver",
+]

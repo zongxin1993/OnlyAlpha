@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOT_PYPROJECT = ROOT / "pyproject.toml"
 
 FORMAL_PACKAGES = (
+    ROOT / "packages/provider/onlyalpha-plugin-broker-virtual/pyproject.toml",
     ROOT / "packages/provider/onlyalpha-plugin-tushare/pyproject.toml",
     ROOT / "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
 )
@@ -132,7 +133,7 @@ def check_dependency(
 ) -> list[str]:
     errors: list[str] = []
     dependencies = document["project"].get("dependencies", [])
-    matches = [str(item) for item in dependencies if str(item).strip().startswith("onlyalpha")]
+    matches = [str(item) for item in dependencies if str(item).strip().startswith("onlyalpha==")]
 
     expected = expected_dependency(version)
 

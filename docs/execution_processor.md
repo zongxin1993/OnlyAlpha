@@ -1,5 +1,8 @@
 # OnlyExecutionProcessor
 
+ExecutionProcessor 在完整应用 Trade、通过不变量并提交事实后，才向 `OnlyAppliedTradeJournal` 追加不可变成交事实。
+重复、拒绝、乱序对账和部分变更失败不会形成成功成交记录；Result 不从 Broker Query 重建本地交易历史。
+
 ## 1. 职责与统一入口
 
 每个可交易 Runtime 独占一个 `OnlyExecutionProcessor`。它是所有 immutable `OnlyBrokerInboundUpdate` 在 Runtime

@@ -264,6 +264,7 @@ def test_mid_pipeline_failure_discards_success_facts_and_requests_reconciliation
     assert "STRATEGY_TRADE_APPLIED" not in emitted
     assert "EXECUTION_PROCESSING_FAILED" in emitted
     assert "EXECUTION_RECONCILIATION_REQUIRED" in emitted
+    assert env.runtime.applied_trade_journal.records() == ()
 
 
 def test_scope_mismatch_is_rejected_without_state_change() -> None:

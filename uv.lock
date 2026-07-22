@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "onlyalpha",
+    "onlyalpha-plugin-broker-virtual",
     "onlyalpha-plugin-miniqmt",
     "onlyalpha-plugin-tushare",
 ]
@@ -534,6 +535,33 @@ dev = [
 ]
 
 [[package]]
+name = "onlyalpha-plugin-broker-virtual"
+version = "0.2.6"
+source = { editable = "packages/provider/onlyalpha-plugin-broker-virtual" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.15" },
+    { name = "pytest", specifier = ">=8.4" },
+    { name = "pytest-cov", specifier = ">=6" },
+    { name = "ruff", specifier = ">=0.11" },
+]
+
+[[package]]
 name = "onlyalpha-plugin-miniqmt"
 version = "0.2.6"
 source = { editable = "packages/provider/onlyalpha-plugin-miniqmt" }
@@ -603,10 +631,14 @@ version = "0.1.0"
 source = { editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" }
 dependencies = [
     { name = "onlyalpha" },
+    { name = "onlyalpha-plugin-broker-virtual" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "onlyalpha", specifier = "==0.2.6" }]
+requires-dist = [
+    { name = "onlyalpha", specifier = "==0.2.6" },
+    { name = "onlyalpha-plugin-broker-virtual", specifier = "==0.2.6" },
+]
 
 [[package]]
 name = "packaging"

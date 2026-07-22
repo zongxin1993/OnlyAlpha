@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
-from onlyalpha.broker.virtual.factory import OnlyVirtualBrokerFactory
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
@@ -42,7 +41,6 @@ def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineService
     data_sources.register(OnlySyntheticDataSourceFactory(), origin=builtin)
     data_sources.register(OnlyScenarioDataSourceFactory(), origin=builtin)
     brokers = OnlyBrokerFactoryRegistry()
-    brokers.register(OnlyVirtualBrokerFactory(), origin=builtin)
     discovery = only_discover_plugins(data_sources, brokers, fail_fast=fail_fast)
     clusters = OnlyClusterFactory(
         OnlyStrategyFactory(),

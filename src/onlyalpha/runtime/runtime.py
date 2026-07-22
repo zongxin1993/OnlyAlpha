@@ -18,7 +18,7 @@ from onlyalpha.account.models import (
 from onlyalpha.account.reservations import OnlyAccountReservationManager
 from onlyalpha.account.views import OnlyAccountQueryService
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
-from onlyalpha.broker.virtual.config import OnlyVirtualBrokerConfig
+from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import (
     OnlyClusterExecutionResult,
@@ -73,6 +73,7 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
+from onlyalpha.execution.journal import OnlyAppliedTradeJournal
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
 from onlyalpha.fee.schedules import (
@@ -99,7 +100,7 @@ from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.service import OnlyOrderService
-from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerInboundQueue
+from onlyalpha.plugin.broker import OnlyBrokerInboundQueue
 from onlyalpha.plugin.errors import OnlyPluginLifecycleError
 from onlyalpha.plugin.lifecycle import OnlyPluginResource, OnlyPluginResourceSnapshot
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
@@ -152,7 +153,6 @@ class OnlyRuntimeAssemblyConfig:
     default_account_id: OnlyAccountId | str | None = None
     strategy_initial_capital: Decimal | str = Decimal("1000000.00")
     strategy_base_currency: OnlyCurrency = OnlyCurrency("CNY", 2)
-    virtual_broker_config: OnlyVirtualBrokerConfig | None = None
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
     market_rule_engine: OnlyMarketRuleEngine | None = None
@@ -190,11 +190,6 @@ class OnlyRuntimeAssemblyConfig:
         )
         if self.event_capacity <= 0 or self.history_limit <= 0:
             raise ValueError("Runtime capacities must be positive")
-        if self.virtual_broker_config is not None:
-            if self.virtual_broker_config.account_id != self.default_account_id:
-                raise ValueError("Virtual Broker account must match Runtime default_account_id")
-            if self.virtual_broker_config.base_currency != self.strategy_base_currency:
-                raise ValueError("Virtual Broker and Runtime base currencies must match")
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,8 +247,9 @@ class OnlyRuntimeServices:
     account_manager: OnlyAccountManager
     account_query: OnlyAccountQueryService
     broker_inbound: OnlyBrokerInboundQueue
-    broker_gateway: OnlyBacktestBrokerGateway | None
+    broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
+    applied_trade_journal: OnlyAppliedTradeJournal
     execution_event_publisher: OnlyExecutionEventPublisher
     execution_audit_store: OnlyInMemoryExecutionAuditStore
     execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
@@ -607,8 +603,12 @@ class OnlyRuntime:
         return self._services.execution_sequence_tracker
 
     @property
-    def broker_gateway(self) -> OnlyBacktestBrokerGateway | None:
+    def broker_gateway(self) -> OnlyBrokerGateway | None:
         return self._services.broker_gateway
+
+    @property
+    def applied_trade_journal(self) -> OnlyAppliedTradeJournal:
+        return self._services.applied_trade_journal
 
     @property
     def broker_inbound_queue(self) -> OnlyBrokerInboundQueue:

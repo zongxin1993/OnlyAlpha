@@ -14,5 +14,5 @@ def test_broker_registry_enforces_plugin_type_and_unknown_id() -> None:
     assert registry.resolve("unit-broker") is factory
     with pytest.raises(OnlyPluginDescriptorError, match="PLUGIN_TYPE_MISMATCH"):
         registry.register(OnlyTestFactory(only_test_descriptor()))  # type: ignore[arg-type]
-    with pytest.raises(OnlyPluginRegistryError, match="PLUGIN_NOT_FOUND"):
+    with pytest.raises(OnlyPluginRegistryError, match="BROKER_PLUGIN_NOT_FOUND"):
         registry.resolve("missing")

@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
 
-from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerUpdateQueue
+from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
+from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.core.clock import OnlyBacktestClock
@@ -22,7 +22,7 @@ from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfiguratio
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
 from onlyalpha.output import OnlyUserDataLayout
-from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
+from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
     OnlyDataSourceCapabilities,
@@ -30,6 +30,7 @@ from onlyalpha.plugin.capabilities import (
 )
 from onlyalpha.plugin.data_source import OnlyDataSource, OnlyDataSourceCreateRequest, OnlyDataSourceFactory
 from onlyalpha.plugin.errors import OnlyPluginError
+from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.backtest.config import OnlyBacktestRuntimeExtensionConfig
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
@@ -45,7 +46,7 @@ class _OnlyBacktestPluginPlan:
     runtime_config: OnlyRuntimeAssemblyConfig
     clock: OnlyBacktestClock
     event_bus: OnlyEventBus
-    broker_queue: OnlyVirtualBrokerUpdateQueue
+    broker_queue: OnlyBoundedBrokerInboundQueue
     data_factory: OnlyDataSourceFactory
     data_request: OnlyDataSourceCreateRequest
     broker_factory: OnlyBrokerGatewayFactory
@@ -78,7 +79,8 @@ class OnlyBacktestRuntimeFactory:
                 failure_message="Backtest factory requires OnlyComponentFactoryRegistries",
             )
         source: OnlyDataSource | None = None
-        gateway: OnlyBacktestBrokerGateway | None = None
+        gateway: OnlyBrokerGateway | None = None
+        broker_resource: OnlyPluginResource | None = None
         try:
             try:
                 source = plan.data_factory.create(plan.data_request)
@@ -90,10 +92,11 @@ class OnlyBacktestRuntimeFactory:
                     resource_id=str(plan.data_request.source_id),
                 ) from exc
             try:
-                gateway = cast(OnlyBacktestBrokerGateway, plan.broker_factory.create(plan.broker_request))
-                bind_market_rules = getattr(gateway, "bind_market_rules", None)
-                if callable(bind_market_rules):
-                    bind_market_rules(plan.runtime_config.market_rule_engine)
+                broker_component: OnlyBrokerComponent = plan.broker_factory.create(plan.broker_request)
+                gateway = broker_component.gateway
+                broker_resource = broker_component.resource
+                if broker_component.deterministic_driver is None:
+                    raise ValueError("simulated_execution Broker must provide a deterministic driver")
             except Exception as exc:
                 raise OnlyPluginError(
                     "PLUGIN_CREATE_FAILED",
@@ -129,8 +132,9 @@ class OnlyBacktestRuntimeFactory:
                 owned_clock=plan.clock,
                 owned_event_bus=plan.event_bus,
                 broker_gateway=gateway,
+                deterministic_broker_driver=broker_component.deterministic_driver,
                 broker_inbound_queue=plan.broker_queue,
-                plugin_resources=(source, gateway),
+                plugin_resources=(source, broker_resource),
             )
             for instrument in config.reference_data.instruments:
                 runtime.register_instrument(instrument)
@@ -138,9 +142,9 @@ class OnlyBacktestRuntimeFactory:
                 runtime.add_cluster(config.engine_id, cluster)
             return OnlyRuntimeBuildResult(runtime=runtime)
         except Exception as exc:
-            if gateway is not None:
-                gateway.stop()
-                gateway.close()
+            if broker_resource is not None:
+                broker_resource.stop()
+                broker_resource.close()
             if source is not None:
                 source.stop()
                 source.close()
@@ -237,7 +241,7 @@ class OnlyBacktestRuntimeFactory:
             scope=OnlyEventScope(config.engine_id, config.runtime_id),
             queue_policy=runtime_config.event_queue_policy,
         )
-        queue = OnlyVirtualBrokerUpdateQueue(runtime_config.event_capacity)
+        queue = OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
         bar_types = self._configured_bar_types(config)
         data_factory = components.data_sources.resolve(source_common.plugin_id)
         data_plugin_config = data_factory.parse_config(source_common.extensions)

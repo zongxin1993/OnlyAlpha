@@ -1,22 +1,50 @@
-# Virtual Broker 与 Matching Engine
+# Virtual Broker 插件
 
-`OnlyVirtualBrokerGateway` 是标准 Broker Ports 的确定性实现，不是共享 Manager 的 Fake。它独占 Account/Order/Trade Store，
-与 Runtime 的 AccountManager、OrderManager、PositionManager 和 StrategyLedgerManager 物理分离。主动查询返回 Broker
-Snapshot，异步事实只通过 Runtime inbound callback/queue 进入本地系统。
+Virtual Broker 是独立发行包 `onlyalpha-plugin-broker-virtual`，Python 包名为
+`onlyalpha_plugin_broker_virtual`，插件 ID 为 `virtual`。Core 不包含其实现、兼容模块、默认注册或回退逻辑。
 
-Gateway 构造时绑定强类型 Runtime ID，并把它放入每条 Update；它仍只调用 Queue Port。Queue 之后唯一允许的业务消费者是
-Runtime-owned ExecutionProcessor。
+安装：
 
-默认 `OnlyNextBarMatchingEngine` 固定规则：Bar N 提交、Bar N+1 检查；BUY LIMIT 在 low <= limit 时成交，SELL LIMIT
-在 high >= limit 时成交，第一版成交价固定为 LIMIT_PRICE；MARKET 使用下一 Bar open。接受时冻结 Broker 现金或已结算持仓，
-成交/撤单后只修改 Broker Store 并发送标准化 Update。
+```bash
+pip install onlyalpha onlyalpha-plugin-broker-virtual
+```
 
-Virtual Broker 不计算 OnlyAlpha 本地权威费用。没有外部费用回报时，Fill 明确使用 `reported_fee=None`、
-`fee_reporting_mode=NONE`；Broker Account Store 仅模拟外部快照，因此可以与已扣除 Runtime 费用的本地 Account 相差恰好
-该费用，Reconciliation 必须能解释此差异。
+产品配置继续使用：
 
-Slippage、Latency 是独立、可注入、使用 Decimal/强类型值的模型。Scheduler 使用 Runtime Clock 和稳定堆顺序，
-不调用系统时间、随机数或 sleep。A 股 T+1 在 TradingDay 前进时结算 Broker settled quantity，并通过 Position/Account Update
-与本地状态对账。
+```yaml
+brokers:
+  - gateway_id: virtual-main
+    plugin: virtual
+    fees:
+      mode: NONE
+    extensions:
+      matching:
+        type: NEXT_BAR
+      latency:
+        submit_ns: 0
+        acceptance_ns: 0
+        fill_ns: 0
+      slippage:
+        type: NONE
+      maximum_fill_quantity: null
+```
 
-第一版不模拟盘口队列、涨跌停撮合细节、保证金、Short、融资融券、期货/期权和网络断线恢复。
+Core Parser 只保留 `extensions`；具体 Matching、Latency、Slippage 和最大成交量由插件 Factory 解析和拒绝未知字段。
+Backtest 装配要求 Broker 声明 `simulated_execution` 且 `OnlyBrokerComponent.deterministic_driver` 非空，否则 Runtime
+启动前失败。
+
+插件职责限于模拟外部 Broker：连接与生命周期、请求接收、拒绝与撤单、Next-Bar 撮合、部分成交、滑点、延迟、
+稳定调度、标准 Broker Update，以及 Order/Trade/Account/Position 查询投影。插件 Store 是
+`external simulated broker projection`，不是 Runtime accounting truth。
+
+Runtime 独占 Order、Applied Trade、Position、Allocation、Account、Strategy Ledger、Fee、Settlement、Margin、Risk、
+Audit、Reconciliation 和 Result。Broker Update 只能进入 Runtime-owned `OnlyBrokerInboundQueue`，再由
+`OnlyExecutionProcessor` 应用。成功成交在完整事务提交后写入 `OnlyAppliedTradeJournal`；Collector、Analytics、Artifact
+和 Backtest Result 都从 Journal 读取，`query_trades()` 仅用于 Broker 查询和对账。
+
+Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、
+T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 未收到外部费用时使用
+`reported_fee=None` 与 `fee_reporting_mode=NONE`；插件不持有第二套 Runtime Commission/Fee 公式。
+
+确定性约束：Matching 只读取当前及已经到达的历史 Bar；Scheduler 按 `(due_ns, sequence)` 稳定排序；不读取系统时间、
+不 sleep、不使用随机隐式状态。同一输入应产生相同 Order/Trade/Update 顺序与结果指纹。

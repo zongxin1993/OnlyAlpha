@@ -12,9 +12,9 @@ from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.account.views import OnlyAccountQueryView
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue, OnlyBrokerInboundQueue
+from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
-from onlyalpha.broker.virtual.gateway import OnlyVirtualBrokerGateway
-from onlyalpha.broker.virtual.scheduler import OnlyVirtualBrokerUpdateQueue
 from onlyalpha.cache.base import OnlyCache
 from onlyalpha.cluster.base import OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
@@ -61,6 +61,7 @@ from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
+from onlyalpha.execution.journal import OnlyAppliedTradeJournal
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.processor import OnlyExecutionProcessor
 from onlyalpha.execution.publisher import OnlyExecutionEventPublisher
@@ -94,7 +95,7 @@ from onlyalpha.order.publisher import OnlyRuntimeOrderEventPublisherAdapter
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
-from onlyalpha.plugin.broker import OnlyBacktestBrokerGateway, OnlyBrokerInboundQueue
+from onlyalpha.plugin.broker import OnlyDeterministicBrokerDriver
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
 from onlyalpha.position.keys import OnlyPositionAllocationKey
@@ -168,7 +169,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
         run_plan: OnlyBacktestRunPlanPort | None = None,
         owned_clock: OnlyBacktestClock | None = None,
         owned_event_bus: OnlyEventBus | None = None,
-        broker_gateway: OnlyBacktestBrokerGateway | None = None,
+        broker_gateway: OnlyBrokerGateway | None = None,
+        deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
@@ -221,14 +223,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 event_sink,
             )
         )
-        account_initial_cash = runtime_config.account_initial_cash or (
-            runtime_config.virtual_broker_config.initial_cash
-            if runtime_config.virtual_broker_config is not None
-            else OnlyMoney(Decimal(str(runtime_config.strategy_initial_capital)), runtime_config.strategy_base_currency)
+        account_initial_cash = runtime_config.account_initial_cash or OnlyMoney(
+            Decimal(str(runtime_config.strategy_initial_capital)), runtime_config.strategy_base_currency
         )
         configured_gateway_id = runtime_config.broker_gateway_id
-        if configured_gateway_id is None and runtime_config.virtual_broker_config is not None:
-            configured_gateway_id = runtime_config.virtual_broker_config.gateway_id
         self._account_manager.create_account(
             OnlyAccountConfig(
                 runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -341,22 +339,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_inbound = (
             broker_inbound_queue
             if broker_inbound_queue is not None
-            else OnlyVirtualBrokerUpdateQueue(runtime_config.event_capacity)
+            else OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
         )
-        selected_broker_gateway = broker_gateway or (
-            OnlyVirtualBrokerGateway(
-                runtime_config.virtual_broker_config,
-                runtime_config.runtime_id,  # type: ignore[arg-type]
-                clock,
-                broker_inbound.put,
-            )
-            if runtime_config.virtual_broker_config is not None
-            else None
-        )
-        if selected_broker_gateway is not None and runtime_config.market_rule_engine is not None:
-            bind_market_rules = getattr(selected_broker_gateway, "bind_market_rules", None)
-            if callable(bind_market_rules):
-                bind_market_rules(runtime_config.market_rule_engine)
+        selected_broker_gateway = broker_gateway
         execution_service: OnlyExecutionService = (
             OnlyBrokerExecutionService(selected_broker_gateway, clock)
             if selected_broker_gateway is not None
@@ -390,6 +375,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
+        applied_trade_journal = OnlyAppliedTradeJournal()
         execution_reconciliation_queue = OnlyInMemoryExecutionReconciliationQueue()
         execution_update_deduplicator = OnlyExecutionUpdateDeduplicator()
         execution_sequence_tracker = OnlyExecutionSequenceTracker()
@@ -405,14 +391,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlyExecutionProcessorConfig(
                 runtime_config.engine_id,  # type: ignore[arg-type]
                 runtime_config.runtime_id,  # type: ignore[arg-type]
-                (
-                    runtime_config.broker_gateway_id
-                    or (
-                        runtime_config.virtual_broker_config.gateway_id
-                        if runtime_config.virtual_broker_config is not None
-                        else OnlyBrokerGatewayId("placeholder")
-                    ),
-                ),
+                (runtime_config.broker_gateway_id or OnlyBrokerGatewayId("placeholder"),),
                 (runtime_config.default_account_id,),  # type: ignore[arg-type]
             ),
             clock,
@@ -433,6 +412,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_invariant_checker,
             execution_event_publisher,
             execution_audit_store,
+            applied_trade_journal,
             execution_reconciliation_queue,
             execution_update_deduplicator,
             execution_sequence_tracker,
@@ -493,13 +473,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 )
                 self._last_market_trading_day = trading_day
             self._apply_market_valuations(result.base_bar, trading_day)
-            if selected_broker_gateway is not None:
-                selected_broker_gateway.on_bar(result.base_bar)
+            if deterministic_broker_driver is not None:
+                deterministic_broker_driver.on_bar(result.base_bar)
                 drain_execution_updates()
 
         def after_market_dispatch() -> None:
-            if selected_broker_gateway is not None:
-                selected_broker_gateway.run_due()
+            if deterministic_broker_driver is not None:
+                deterministic_broker_driver.run_due()
                 drain_execution_updates()
             owned_bus.drain()
 
@@ -550,6 +530,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             broker_inbound,
             selected_broker_gateway,
             execution_processor,
+            applied_trade_journal,
             execution_event_publisher,
             execution_audit_store,
             execution_reconciliation_queue,
@@ -573,8 +554,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._legacy_market_data_sequence = 0
         self._run_plan = run_plan
         resources = plugin_resources
-        if not resources and selected_broker_gateway is not None:
-            resources = (selected_broker_gateway,)
         if resources:
             self._bind_plugin_resources(resources)
 

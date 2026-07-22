@@ -1,5 +1,8 @@
 # 当前后续任务（2026-07-22）
 
+> 当前架构更新：Virtual Broker 插件化和 Runtime Applied Trade Journal 已落地；下文涉及 Core 内置 Virtual
+> Broker、后置 Market Rule 绑定或 Result 查询 Broker 的条目均视为 Historical/Superseded。
+
 Unified Fee 的本地 Backtest 权威链和配置装配已完成，下面历史记录中的“Fee 双重真相”描述已被 ADR 0031 和当前源码取代。
 下一项 Fee 工作不是再建 Resolver，而是把现有 `OnlyFeeReconciliationService` 接到未来 Live/Paper 的迟到报告入口：以
 Adjustment Instruction 幂等更新 Account、Strategy Ledger、FeeManager、Audit/Result，并让重大未知差异进入 Risk trading

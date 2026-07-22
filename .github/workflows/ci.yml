@@ -62,6 +62,7 @@ jobs:
 
           expected = {
               "onlyalpha",
+              "onlyalpha-plugin-broker-virtual",
               "onlyalpha-plugin-tushare",
               "onlyalpha-plugin-miniqmt",
           }
@@ -145,6 +146,33 @@ jobs:
   # Tushare 是跨平台 DataSource 插件，三个平台都必须验证离线能力。
   # 真实 Token 和网络测试不进入普通 PR 门禁。
   # ---------------------------------------------------------------------------
+  virtual-broker:
+    name: Virtual Broker Plugin / ${{ matrix.os }}
+    needs: [metadata]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Synchronize workspace
+        run: uv sync --frozen --all-packages --all-groups
+      - name: Ruff lint Virtual Broker
+        run: uv run ruff check packages/provider/onlyalpha-plugin-broker-virtual
+      - name: Ruff format Virtual Broker
+        run: uv run ruff format --check packages/provider/onlyalpha-plugin-broker-virtual
+      - name: Mypy Virtual Broker
+        run: uv run mypy --config-file packages/provider/onlyalpha-plugin-broker-virtual/pyproject.toml packages/provider/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
+      - name: Test Virtual Broker
+        run: uv run pytest packages/provider/onlyalpha-plugin-broker-virtual/tests -q
+
   tushare:
     name: Tushare / ${{ matrix.os }}
     needs:
@@ -337,6 +365,7 @@ jobs:
     needs:
       - metadata
       - core
+      - virtual-broker
       - tushare
       - miniqmt
       - product-gates
@@ -356,6 +385,11 @@ jobs:
             os: ubuntu-latest
             import-name: onlyalpha_plugin_tushare
             entry-points: "onlyalpha.data_sources=tushare;console_scripts=onlyalpha-tushare"
+
+          - distribution: onlyalpha-plugin-broker-virtual
+            os: ubuntu-latest
+            import-name: onlyalpha_plugin_broker_virtual
+            entry-points: "onlyalpha.brokers=virtual"
 
           - distribution: onlyalpha-plugin-miniqmt
             os: windows-latest
@@ -497,6 +531,16 @@ jobs:
 
           entry_points = metadata.entry_points()
 
+          if distribution == "onlyalpha":
+              if entry_points.select(group="onlyalpha.brokers", name="virtual"):
+                  raise RuntimeError("Core-only install must not provide the virtual Broker")
+              try:
+                  importlib.import_module("onlyalpha.broker.virtual")
+              except ModuleNotFoundError:
+                  pass
+              else:
+                  raise RuntimeError("Core-only install contains onlyalpha.broker.virtual")
+
           for specification in entry_point_specs.split(";"):
               group, name = specification.split("=", 1)
               selected = tuple(
@@ -547,6 +591,7 @@ jobs:
     needs:
       - metadata
       - core
+      - virtual-broker
       - tushare
       - miniqmt
       - product-gates
@@ -560,6 +605,7 @@ jobs:
         run: |
           test "${{ needs.metadata.result }}" = "success"
           test "${{ needs.core.result }}" = "success"
+          test "${{ needs.virtual-broker.result }}" = "success"
           test "${{ needs.tushare.result }}" = "success"
           test "${{ needs.miniqmt.result }}" = "success"
           test "${{ needs.product-gates.result }}" = "success"
