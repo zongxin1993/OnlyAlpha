@@ -11,7 +11,7 @@ from enum import StrEnum
 from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
-from onlyalpha.execution.journal import OnlyAppliedTradeFact
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult
 from onlyalpha.result.diagnostics import (
     OnlyBacktestDiagnostics,
@@ -96,15 +96,11 @@ class OnlyBacktestResultCollector:
         order_records = tuple(self._order_record(next_sequence(), item, cluster_strategy) for item in orders)
         trades = tuple(
             sorted(
-                runtime.applied_trade_journal.records(),
-                key=lambda item: (item.source_sequence, str(item.trade_id)),
+                runtime.committed_execution_journal.records(),
+                key=lambda item: item.stable_order,
             )
         )
-        order_by_id = {item.order_id: item for item in orders}
-        executions = tuple(
-            self._execution_record(next_sequence(), item, order_by_id[item.fill.order_id], cluster_strategy)
-            for item in trades
-        )
+        executions = tuple(self._execution_record(next_sequence(), item) for item in trades)
         now = runtime.clock.now_utc()
         trading_day = now.date()
         positions = tuple(
@@ -462,32 +458,63 @@ class OnlyBacktestResultCollector:
     @staticmethod
     def _execution_record(
         sequence: int,
-        trade: OnlyAppliedTradeFact,
-        order: OnlyOrderSnapshot,
-        strategy_by_cluster: dict[str, str],
+        trade: OnlyCommittedExecutionFact,
     ) -> OnlyExecutionResultRecord:
-        fill = trade.fill
-        commission = Decimal(0)
-        turnover = fill.price.value * fill.quantity.value
+        fee_breakdown: dict[str, Decimal] = {}
+        for component in trade.fee_breakdown.components:
+            key = component.fee_type.value
+            fee_breakdown[key] = fee_breakdown.get(key, Decimal(0)) + component.amount.amount
         return OnlyExecutionResultRecord(
             sequence=sequence,
-            execution_id=str(trade.trade_id),
-            order_id=str(order.order_id),
-            request_id=str(order.request_id),
-            runtime_id=str(order.runtime_id),
-            cluster_id=str(order.cluster_id),
-            strategy_id=strategy_by_cluster[str(order.cluster_id)],
-            account_id=str(order.account_id),
-            instrument_id=str(order.instrument_id),
-            side=order.side.value,
-            offset=order.offset.value,
-            quantity=fill.quantity.value,
-            price=fill.price.value,
-            turnover=turnover,
-            commission=commission,
-            fees=Decimal(0),
-            slippage=Decimal(0),
-            ts_event=fill.ts_event.to_datetime(),
-            trading_day=fill.ts_event.to_datetime().date(),
-            venue=str(trade.gateway_id),
+            execution_id=trade.execution_id,
+            order_id=str(trade.order_id),
+            request_id=trade.request_id,
+            runtime_id=str(trade.runtime_id),
+            cluster_id=str(trade.cluster_id),
+            strategy_id=str(trade.strategy_id),
+            account_id=str(trade.account_id),
+            instrument_id=str(trade.instrument_id),
+            side=trade.order_side.value,
+            offset=trade.offset.value,
+            quantity=trade.fill_quantity.value,
+            price=trade.fill_price.value,
+            turnover=trade.gross_notional.amount,
+            commission=trade.commission.amount,
+            fees=trade.authoritative_fee_total.amount,
+            slippage=None if trade.slippage is None else trade.slippage.amount,
+            ts_event=trade.ts_event.to_datetime(),
+            trading_day=trade.trading_day.value,
+            venue=trade.venue_id,
+            position_side=trade.position_side.value,
+            position_effect=trade.position_effect.value,
+            position_mode=trade.position_mode.value,
+            realized_pnl_delta=trade.realized_pnl_delta.amount,
+            reference_price=None if trade.reference_price is None else trade.reference_price.value,
+            contract_multiplier=trade.contract_multiplier.value,
+            market_profile_id=trade.market_profile_id,
+            market_profile_version=trade.market_profile_version,
+            compiled_rule_fingerprint=trade.compiled_rule_fingerprint,
+            reference_fingerprint=trade.reference_fingerprint,
+            trade_instruction_id=trade.trade_instruction_id,
+            fee_instruction_id=trade.fee_instruction_id,
+            market_fee_schedule_ids=trade.market_fee_schedule_ids,
+            market_fee_schedule_versions=trade.market_fee_schedule_versions,
+            broker_fee_schedule_ids=trade.broker_fee_schedule_ids,
+            broker_fee_schedule_versions=trade.broker_fee_schedule_versions,
+            settlement_instruction_id=trade.settlement_instruction_id,
+            settlement_status=trade.settlement_status,
+            margin_instruction_id=trade.margin_instruction_id,
+            margin_action=trade.margin_action,
+            margin_amount=None if trade.margin_amount is None else trade.margin_amount.amount,
+            reported_broker_fee=None if trade.reported_broker_fee is None else trade.reported_broker_fee.amount,
+            fee_reporting_mode=trade.fee_reporting_mode.value,
+            liquidity_side=trade.liquidity_side.value,
+            fee_breakdown=fee_breakdown,
+            liquidity={
+                "side": trade.liquidity_side.value,
+                "fee_reporting_mode": trade.fee_reporting_mode.value,
+                "reported_broker_fee": (
+                    None if trade.reported_broker_fee is None else trade.reported_broker_fee.amount
+                ),
+            },
         )

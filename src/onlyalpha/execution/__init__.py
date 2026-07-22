@@ -1,5 +1,6 @@
 """Ordered Runtime Execution Processor public API."""
 
+from .committed import OnlyCommittedExecutionFact
 from .enums import (
     OnlyExecutionFailureCode,
     OnlyExecutionMutationStatus,
@@ -7,7 +8,7 @@ from .enums import (
     OnlyExecutionProcessingStatus,
 )
 from .invariants import OnlyExecutionInvariantChecker
-from .journal import OnlyAppliedTradeFact, OnlyAppliedTradeJournal
+from .journal import OnlyCommittedExecutionJournal
 from .models import (
     OnlyExecutionAuditRecord,
     OnlyExecutionFailure,
@@ -36,8 +37,8 @@ from .state import (
 __all__ = [
     "OnlyExecutionAuditRecord",
     "OnlyExecutionAuditStore",
-    "OnlyAppliedTradeFact",
-    "OnlyAppliedTradeJournal",
+    "OnlyCommittedExecutionFact",
+    "OnlyCommittedExecutionJournal",
     "OnlyExecutionEventPublisher",
     "OnlyExecutionFailure",
     "OnlyExecutionFailureCode",

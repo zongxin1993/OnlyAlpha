@@ -83,7 +83,6 @@ class OnlyBacktestRunPlan:
         runtime = self._require_runtime()
         orders = runtime.order_manager.snapshot_all()
         account_config = self._config.accounts[0]
-        trades = runtime.applied_trade_journal.records()
         positions = runtime.position_manager.snapshot_all()
         allocations = runtime.allocation_manager.snapshot_all()
         ledgers = runtime.strategy_ledger_manager.list_ledgers()
@@ -121,6 +120,7 @@ class OnlyBacktestRunPlan:
             )
         )
         collected = self._collector.seal(runtime, self._clusters)
+        trades = runtime.committed_execution_journal.records()
         result = OnlyBacktestResult(
             OnlyBacktestRunSummary(
                 self._config.runtime_id,
@@ -245,6 +245,7 @@ class OnlyBacktestRunPlan:
             isinstance(ledger, OnlyStrategyLedgerSnapshot) for ledger in ledgers
         ):
             raise TypeError("backtest result requires immutable Account and Ledger snapshots")
+        active_risk_reservations = self._require_runtime().risk_service.reservations.snapshot_active()
         checks = {
             "ACCOUNT_EQUITY": account.equity.amount
             == account.cash.cash_balance.amount + account.position_market_value.amount,
@@ -254,7 +255,7 @@ class OnlyBacktestRunPlan:
                 if isinstance(ledger, OnlyStrategyLedgerSnapshot)
             ),
             "NO_EXECUTION_FAILURE": not blocking_execution,
-            "NO_ACTIVE_RISK_RESERVATION": not self._require_runtime().risk_service.reservations.snapshot_active(),
+            "NO_ACTIVE_RISK_RESERVATION": not active_risk_reservations,
             "NO_BLOCKING_RECONCILIATION": not blocking_execution,
         }
         failures = tuple(name for name, passed in checks.items() if not passed)
@@ -275,10 +276,32 @@ class OnlyBacktestRunPlan:
                 }
                 for item in blocking_execution[:10]
             )
+            active_reservation_samples = tuple(
+                {
+                    "order_id": str(item.order_id),
+                    "instrument_id": str(item.instrument_id),
+                    "order_status": self._require_runtime().order_manager.require_snapshot(item.order_id).status.value,
+                    "reserved_quantity": str(item.reserved_quantity.value),
+                    "consumed_quantity": None if item.consumed_quantity is None else str(item.consumed_quantity.value),
+                }
+                for item in active_risk_reservations[:10]
+            )
+            execution_status_samples = tuple(
+                {
+                    "status": item.status.value,
+                    "order_id": None if item.audit_record.order_id is None else str(item.audit_record.order_id),
+                    "update_type": item.update_type,
+                    "mutation_summary": item.audit_record.mutation_summary,
+                }
+                for item in self._require_runtime().broker_results
+                if isinstance(item, OnlyExecutionProcessingResult)
+            )[-20:]
             raise RuntimeError(
                 f"backtest invariant failure: {failures}; "
                 f"execution_failure_count={len(blocking_execution)}; "
-                f"execution_failure_samples={execution_failures}"
+                f"execution_failure_samples={execution_failures}; "
+                f"active_risk_reservation_samples={active_reservation_samples}; "
+                f"execution_status_samples={execution_status_samples}"
             )
         return tuple(f"{name}:PASS" for name in checks)
 

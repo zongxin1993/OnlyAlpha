@@ -126,6 +126,8 @@ def test_order_and_execution_statistics_use_formal_facts() -> None:
         ts_event=now,
         trading_day=date(2026, 1, 1),
         venue="virtual",
+        position_side="LONG",
+        position_effect="OPEN",
     )
     currency = OnlyCurrency("CNY", 2)
     result = OnlyResultFixture(

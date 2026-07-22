@@ -1,12 +1,26 @@
 # OnlyAlpha 工程交接说明
 
 > 当前架构更新：Virtual Broker 已提取为独立 `onlyalpha-plugin-broker-virtual`；Core 只保留通用 Broker SPI、
-> Inbound Queue、确定性驱动端口与 Runtime Applied Trade Journal。下文旧路径描述仅作历史记录。
+> Inbound Queue、确定性驱动端口与 Runtime Committed Execution Journal。下文旧路径及 Broker-query Result 描述均为
+> Historical/Superseded，以 ADR 0033 和当前源码为准。
 
 > 更新时间：2026-07-22（Asia/Shanghai）
-> 当前任务：Unified Fee Migration Recovery
+> 当前任务：Committed Execution Journal 重建
 > 修改前 commit：`f18eab37c7229acb544941cc410b96985813542b`
 > 修改后 commit：未提交工作树（不得伪造 SHA）
+
+## Committed Execution Journal 重建（2026-07-22）
+
+- 已删除旧 `OnlyAppliedTradeFact` / `OnlyAppliedTradeJournal` 及其测试和公共导出；没有 Alias、Wrapper、双写或
+  兼容 schema。Runtime 现在独占 `OnlyCommittedExecutionJournal`，`OnlyExecutionProcessor` 是唯一写入者。
+- 已提交事实由本次事务局部结果构造，固化 LONG/SHORT、OPEN/CLOSE、合约乘数、权威费用、滑点来源、已实现
+  PnL、结算/保证金结果以及 Position/Allocation/Account/Ledger 增量。Collector 不再查询 Manager 或 Broker
+  来补成交语义；Result、Analytics、Artifact 均消费 Journal 或其标准投影。
+- 当前提交顺序为 local mutation → invariant → event commit → fact build → journal append → APPLIED；event、builder
+  或 append 失败均不能报告成功，并进入显式 reconciliation/audit。
+- 详细设计、验证证据与剩余边界见 ADR 0033 和
+  `docs/reports/committed_execution_journal_implementation_report.md`。跨部分成交累计最低佣金、Equity Timeline、
+  Multi-Cluster Aggregate、Futures Daily MTM、Live Fee Reconciliation 与 Paper/Live Runtime 仍未产品化，不得宣称完成。
 
 ## Unified Fee Migration Recovery（2026-07-22）
 

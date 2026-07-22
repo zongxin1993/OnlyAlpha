@@ -125,6 +125,7 @@ class OnlyOrderFill(OnlyDomainModel):
     external_sequence: int | None = None
     external_event_id: str | None = None
     metadata: Mapping[str, str] = field(default_factory=dict)
+    reference_price: OnlyPrice | None = None
 
     def __post_init__(self) -> None:
         if self.quantity.value <= 0:

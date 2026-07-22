@@ -37,9 +37,9 @@ Backtest 装配要求 Broker 声明 `simulated_execution` 且 `OnlyBrokerCompone
 稳定调度、标准 Broker Update，以及 Order/Trade/Account/Position 查询投影。插件 Store 是
 `external simulated broker projection`，不是 Runtime accounting truth。
 
-Runtime 独占 Order、Applied Trade、Position、Allocation、Account、Strategy Ledger、Fee、Settlement、Margin、Risk、
+Runtime 独占 Order、Committed Execution、Position、Allocation、Account、Strategy Ledger、Fee、Settlement、Margin、Risk、
 Audit、Reconciliation 和 Result。Broker Update 只能进入 Runtime-owned `OnlyBrokerInboundQueue`，再由
-`OnlyExecutionProcessor` 应用。成功成交在完整事务提交后写入 `OnlyAppliedTradeJournal`；Collector、Analytics、Artifact
+`OnlyExecutionProcessor` 应用。成功成交在完整事务提交后写入 `OnlyCommittedExecutionJournal`；Collector、Analytics、Artifact
 和 Backtest Result 都从 Journal 读取，`query_trades()` 仅用于 Broker 查询和对账。
 
 Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、

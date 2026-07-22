@@ -10,7 +10,7 @@ from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
-from onlyalpha.execution.journal import OnlyAppliedTradeFact
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.result.diagnostics import OnlyBacktestDiagnostics
 from onlyalpha.result.records import OnlyBacktestFacts
@@ -80,7 +80,7 @@ class OnlyBacktestResult:
     final_ledgers: tuple[OnlyStrategyLedgerSnapshot, ...]
     final_accounts: tuple[OnlyAccountSnapshot, ...]
     orders: tuple[OnlyOrderSnapshot, ...]
-    trades: tuple[OnlyAppliedTradeFact, ...]
+    trades: tuple[OnlyCommittedExecutionFact, ...]
     cluster_results: tuple[OnlyClusterResult, ...]
     invariant_results: tuple[str, ...]
     determinism_fingerprint: str
@@ -102,7 +102,7 @@ class OnlyBacktestResult:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "run": {
                 "runtime_id": str(self.run.runtime_id),
                 "status": self.run.status.value,

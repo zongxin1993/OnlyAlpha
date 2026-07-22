@@ -34,6 +34,10 @@ Runtime 还独占 `OnlyExecutionProcessor`。它是 Queue 后所有 Broker Updat
 Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量通过后提交缓冲事实。详见
 `docs/execution_processor.md` 与 ADR 0016。
 
+成功 Trade 在 Event commit 后被固化为自包含的 `OnlyCommittedExecutionFact`，并由 Runtime-owned Journal 保存。本地历史链为
+`Broker Update → Local Transaction → Committed Execution → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
+Manager 最终状态来重建逐笔成交。详见 ADR 0033。
+
 Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
 复用 Domain Bar/Tick，来源元数据保存在 Update Envelope；历史数据只有 ReplayService 能推进 Backtest Clock。详见
 `docs/market_data_source.md`、`docs/historical_replay.md` 与 ADR 0017。

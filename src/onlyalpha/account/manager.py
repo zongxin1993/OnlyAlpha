@@ -251,9 +251,10 @@ class OnlyAccountManager:
     ) -> OnlyAccountMutationResult:
         state = self._require(account_id)
         before = self._snapshot(state)
-        state.reserved_margin += reserved_delta
-        state.occupied_margin += occupied_delta
-        state.released_margin += released_delta
+        quantum = Decimal(1).scaleb(-state.config.base_currency.precision)
+        state.reserved_margin = (state.reserved_margin + reserved_delta).quantize(quantum)
+        state.occupied_margin = (state.occupied_margin + occupied_delta).quantize(quantum)
+        state.released_margin = (state.released_margin + released_delta).quantize(quantum)
         if min(state.reserved_margin, state.occupied_margin, state.released_margin) < 0:
             raise ValueError("Account margin cannot become negative")
         if state.reserved_margin + state.occupied_margin > state.cash_balance.amount:

@@ -9,7 +9,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstr
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
-from onlyalpha.position.enums import OnlyPositionSide
+from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 
 
 class OnlyInstrumentRiskView(Protocol):
@@ -91,6 +91,7 @@ class OnlyPositionRiskView(Protocol):
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
         position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None: ...
 
     def cluster_snapshot(
@@ -98,6 +99,8 @@ class OnlyPositionRiskView(Protocol):
         account_id: OnlyAccountId,
         cluster_id: OnlyClusterId,
         instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None: ...
 
 
@@ -127,8 +130,9 @@ class OnlyUnavailablePositionRiskView:
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
         position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
-        del account_id, instrument_id, position_side
+        del account_id, instrument_id, position_side, position_mode
         return None
 
     def cluster_snapshot(
@@ -136,6 +140,8 @@ class OnlyUnavailablePositionRiskView:
         account_id: OnlyAccountId,
         cluster_id: OnlyClusterId,
         instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
-        del account_id, cluster_id, instrument_id
+        del account_id, cluster_id, instrument_id, position_side, position_mode
         return None

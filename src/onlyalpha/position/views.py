@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.position.enums import OnlyPositionSide
+from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.position.queries import OnlyPositionQueryService
 from onlyalpha.risk.ports import OnlyPositionRiskSnapshot
@@ -73,8 +73,9 @@ class OnlyAccountPositionRiskView:
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
         position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
-        snapshot = self._query.account(account_id, instrument_id, position_side)
+        snapshot = self._query.account(account_id, instrument_id, position_side, position_mode)
         if snapshot is None:
             return None
         return OnlyPositionRiskSnapshot(
@@ -100,9 +101,11 @@ class OnlyClusterPositionRiskView:
         account_id: OnlyAccountId,
         cluster_id: OnlyClusterId,
         instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
-        account = self._query.account(account_id, instrument_id)
-        allocation = self._query.cluster(account_id, cluster_id, instrument_id)
+        account = self._query.account(account_id, instrument_id, position_side, position_mode)
+        allocation = self._query.cluster(account_id, cluster_id, instrument_id, position_side)
         if account is None or allocation is None:
             return None
         effective = allocation.available_quantity
@@ -137,16 +140,19 @@ class OnlyPositionRiskView:
         account_id: OnlyAccountId,
         instrument_id: OnlyInstrumentId,
         position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
-        return self.account.snapshot(account_id, instrument_id, position_side)
+        return self.account.snapshot(account_id, instrument_id, position_side, position_mode)
 
     def cluster_snapshot(
         self,
         account_id: OnlyAccountId,
         cluster_id: OnlyClusterId,
         instrument_id: OnlyInstrumentId,
+        position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionRiskSnapshot | None:
-        return self.cluster.snapshot(account_id, cluster_id, instrument_id)
+        return self.cluster.snapshot(account_id, cluster_id, instrument_id, position_side, position_mode)
 
 
 OnlyPositionReservationView = object

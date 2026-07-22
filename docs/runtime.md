@@ -2,7 +2,8 @@
 
 Runtime 只持有通用 `OnlyBrokerGateway`、`OnlyBrokerInboundQueue` 和可选的
 `OnlyDeterministicBrokerDriver`。模拟 Broker 能力在装配阶段验证，禁止具体类型判断、动态属性探测和后置
-`bind_market_rules`。本地成功成交由 Runtime-owned `OnlyAppliedTradeJournal` 记录。
+`bind_market_rules`。本地成功成交由 Runtime 独占的 `OnlyCommittedExecutionJournal` 记录；Broker 插件与 Cluster 不持有该
+Journal，`OnlyExecutionProcessor` 是唯一写入者。
 
 Scenario Action/Command 在 BACKTEST/PAPER/LIVE/SHADOW 间一致；当前仅 BACKTEST 支持确定性自动推进，其他模式不降级。
 

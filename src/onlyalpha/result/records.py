@@ -129,17 +129,34 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
     turnover: Decimal
     commission: Decimal
     fees: Decimal
-    slippage: Decimal
+    slippage: Decimal | None
     ts_event: datetime
     trading_day: date
     venue: str
     position_side: str | None = None
     position_effect: str | None = None
+    position_mode: str | None = None
+    realized_pnl_delta: Decimal = Decimal(0)
     reference_price: Decimal | None = None
     contract_multiplier: Decimal = Decimal(1)
     market_profile_id: str | None = None
-    rule_set_id: str | None = None
+    market_profile_version: str | None = None
+    compiled_rule_fingerprint: str | None = None
+    reference_fingerprint: str | None = None
+    trade_instruction_id: str | None = None
+    fee_instruction_id: str | None = None
+    market_fee_schedule_ids: tuple[str, ...] = ()
+    market_fee_schedule_versions: tuple[str, ...] = ()
+    broker_fee_schedule_ids: tuple[str, ...] = ()
+    broker_fee_schedule_versions: tuple[str, ...] = ()
     settlement_instruction_id: str | None = None
+    settlement_status: str | None = None
+    margin_instruction_id: str | None = None
+    margin_action: str | None = None
+    margin_amount: Decimal | None = None
+    reported_broker_fee: Decimal | None = None
+    fee_reporting_mode: str = "NONE"
+    liquidity_side: str = "UNKNOWN"
     fee_breakdown: Mapping[str, Decimal] = field(default_factory=dict)
     liquidity: Mapping[str, object] = field(default_factory=dict)
 
@@ -150,6 +167,8 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
             raise ValueError("execution price and quantity must be positive")
         if min(self.turnover, self.commission, self.fees) < 0:
             raise ValueError("execution turnover and fees cannot be negative")
+        if self.contract_multiplier <= 0:
+            raise ValueError("execution contract multiplier must be positive")
         object.__setattr__(self, "fee_breakdown", MappingProxyType(dict(self.fee_breakdown)))
         object.__setattr__(self, "liquidity", _freeze(self.liquidity))
 

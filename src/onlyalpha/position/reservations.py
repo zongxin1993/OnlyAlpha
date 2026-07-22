@@ -1,5 +1,6 @@
 """Position sell Reservation lifecycle and broker-freeze de-duplication."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
@@ -17,6 +18,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import (
+    OnlyPositionMode,
     OnlyPositionReservationStage,
     OnlyPositionReservationState,
     OnlyPositionSide,
@@ -35,6 +37,7 @@ class OnlyPositionReservation(OnlyDomainModel):
     cluster_id: OnlyClusterId
     instrument_id: OnlyInstrumentId
     position_side: OnlyPositionSide
+    position_mode: OnlyPositionMode
     order_id: OnlyOrderId
     quantity: OnlyQuantity
     remaining_quantity: OnlyQuantity
@@ -76,21 +79,23 @@ class OnlyPositionReservationManager:
         timestamp: OnlyTimestamp,
         *,
         position_side: OnlyPositionSide = OnlyPositionSide.LONG,
+        position_mode: OnlyPositionMode = OnlyPositionMode.NETTING,
     ) -> OnlyPositionReservationResult:
         previous = self._by_order.get(order_id)
         if previous is not None:
-            expected = (account_id, cluster_id, instrument_id, quantity, position_side)
+            expected = (account_id, cluster_id, instrument_id, quantity, position_side, position_mode)
             actual = (
                 previous.account_id,
                 previous.cluster_id,
                 previous.instrument_id,
                 previous.quantity,
                 previous.position_side,
+                previous.position_mode,
             )
             if expected != actual:
                 raise ValueError("Order ID reused for a different Position Reservation")
             return OnlyPositionReservationResult(previous, False)
-        account_key = OnlyPositionKey(self.runtime_id, account_id, instrument_id, position_side)
+        account_key = OnlyPositionKey(self.runtime_id, account_id, instrument_id, position_side, position_mode)
         allocation_key = OnlyPositionAllocationKey(
             self.runtime_id, account_id, cluster_id, instrument_id, position_side
         )
@@ -111,6 +116,7 @@ class OnlyPositionReservationManager:
             cluster_id,
             instrument_id,
             position_side,
+            position_mode,
             order_id,
             quantity,
             quantity,
@@ -285,6 +291,7 @@ class OnlyPositionReservationManager:
             reservation.account_id,
             reservation.instrument_id,
             reservation.position_side,
+            reservation.position_mode,
         )
 
     def _allocation_key(self, reservation: OnlyPositionReservation) -> OnlyPositionAllocationKey:
@@ -300,8 +307,13 @@ class OnlyPositionReservationManager:
 class OnlyOrderPositionReservationAdapter:
     """Narrow adapter used by Order without exposing Position Managers."""
 
-    def __init__(self, manager: OnlyPositionReservationManager) -> None:
+    def __init__(
+        self,
+        manager: OnlyPositionReservationManager,
+        position_mode: Callable[[OnlyOrderSnapshot, OnlyTimestamp], OnlyPositionMode] | None = None,
+    ) -> None:
         self._manager = manager
+        self._position_mode = position_mode or (lambda _order, _timestamp: OnlyPositionMode.NETTING)
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
         if order.offset is OnlyOffset.OPEN or (order.offset is OnlyOffset.NONE and order.side is OnlyOrderSide.BUY):
@@ -315,6 +327,7 @@ class OnlyOrderPositionReservationAdapter:
             order.quantity,
             timestamp,
             position_side=position_side,
+            position_mode=self._position_mode(order, timestamp),
         )
 
     def sent(self, order_id: OnlyOrderId, timestamp: OnlyTimestamp) -> None:

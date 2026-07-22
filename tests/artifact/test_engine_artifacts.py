@@ -27,6 +27,7 @@ def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> No
     assert first["analysis_fingerprint"] == second["analysis_fingerprint"]
     assert first["artifact_content_fingerprint"] == second["artifact_content_fingerprint"]
     assert first["artifacts"] == second["artifacts"]
+    assert first["schema_version"] == 2
     expected_rows = {
         "orders.parquet": 2,
         "executions.parquet": 2,
@@ -40,3 +41,12 @@ def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> No
         table = pq.read_table(first_root / relative_path)
         assert table.num_rows == row_count
         assert table.num_columns > 0
+    executions = pq.read_table(first_root / "executions.parquet").to_pylist()
+    assert all(item["fees"] > 0 for item in executions)
+    assert all(
+        item["turnover"] == item["price"] * item["quantity"] * item["contract_multiplier"] for item in executions
+    )
+    assert all(item["slippage"] is not None for item in executions)
+    assert all(item["position_side"] == "LONG" for item in executions)
+    assert [item["position_effect"] for item in executions] == ["OPEN", "CLOSE"]
+    assert all(item["market_profile_id"] and item["market_profile_version"] for item in executions)

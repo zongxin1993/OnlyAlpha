@@ -25,6 +25,12 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert risk_reservation.consumed_quantity.value == Decimal("40")
     assert risk_reservation.remaining_quantity.value == Decimal("60")
     assert risk_reservation.remaining_notional.amount == Decimal("600.00")
+    committed = partial.runtime.committed_execution_journal.records()
+    assert len(committed) == 1
+    assert committed[0].fill_quantity.value == Decimal("40")
+    assert committed[0].cumulative_filled_quantity.value == Decimal("40")
+    assert committed[0].remaining_quantity.value == Decimal("60")
+    assert committed[0].order_status_after is OnlyOrderStatus.PARTIALLY_FILLED
     assert partial.runtime.broker_gateway is not None
     assert partial.runtime.broker_gateway.query_account(snapshot.account_id).frozen_cash.amount == Decimal("600.00")
     return env.report_builder.scenario(

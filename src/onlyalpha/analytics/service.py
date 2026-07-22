@@ -30,11 +30,11 @@ class OnlyBacktestAnalyticsService:
         performance = self._performance(result, warnings)
         drawdown = self._drawdown(result, warnings)
         orders = self._orders(result)
-        executions = self._executions(result)
+        executions = self._executions(result, warnings)
         exposure = self._exposure(result, warnings)
         projection = {
             "result_fingerprint": result.result_fingerprint,
-            "analytics_schema_version": 1,
+            "analytics_schema_version": 2,
             "trade_matching_policy": OnlyTradeMatchingPolicy.FIFO.value,
             "performance": performance,
             "trades": trades,
@@ -159,12 +159,14 @@ class OnlyBacktestAnalyticsService:
         )
 
     @staticmethod
-    def _executions(result: OnlyBacktestResultView) -> OnlyExecutionAnalysis:
+    def _executions(result: OnlyBacktestResultView, warnings: list[str]) -> OnlyExecutionAnalysis:
         executions = result.facts.executions
         buys = tuple(item for item in executions if item.side == "BUY")
         sells = tuple(item for item in executions if item.side == "SELL")
         buy_turnover = sum((item.turnover for item in buys), Decimal(0))
         sell_turnover = sum((item.turnover for item in sells), Decimal(0))
+        if any(item.slippage is None for item in executions):
+            warnings.append("UNKNOWN_EXECUTION_SLIPPAGE")
         return OnlyExecutionAnalysis(
             len(executions),
             len(buys),
@@ -176,7 +178,7 @@ class OnlyBacktestAnalyticsService:
             buy_turnover + sell_turnover,
             sum((item.commission for item in executions), Decimal(0)),
             sum((item.fees for item in executions), Decimal(0)),
-            sum((item.slippage for item in executions), Decimal(0)),
+            sum((item.slippage for item in executions if item.slippage is not None), Decimal(0)),
         )
 
     @staticmethod

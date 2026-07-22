@@ -7,7 +7,9 @@ from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyOrderType
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
+from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.risk.ports import (
     OnlyAccountRiskView,
     OnlyClusterPermissionView,
@@ -39,6 +41,9 @@ class OnlyRiskEvaluationContext:
     kill_switch_active: bool
     market_data: OnlyMarketDataSnapshot | None = None
     strategy_ledger: OnlyStrategyLedgerRiskViewPort | None = None
+    position_side: OnlyPositionSide = OnlyPositionSide.LONG
+    position_effect: OnlyPositionEffect = OnlyPositionEffect.AUTO
+    position_mode: OnlyPositionMode = OnlyPositionMode.NETTING
 
 
 @dataclass(frozen=True, slots=True)

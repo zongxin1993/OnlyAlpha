@@ -217,7 +217,7 @@ class OnlyStrategyLedgerManager:
                 (),
                 "stale Trade requires deterministic replay",
             )
-        if accounting.trade.side is OnlyOrderSide.BUY:
+        if accounting.trade.opens_position and accounting.trade.side is OnlyOrderSide.BUY:
             reservation = self._reservations[key].require(accounting.trade.order_id)
             if (
                 accounting.cash_reservation is None

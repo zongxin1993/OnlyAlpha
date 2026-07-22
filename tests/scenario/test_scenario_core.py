@@ -153,6 +153,124 @@ def test_scenario_runner_traverses_engine_and_is_deterministic(tmp_path: Path) -
     assert (first.artifact_path / "manifest.json").is_file()  # type: ignore[operator]
 
 
+@pytest.mark.parametrize(
+    ("open_side", "close_side", "position_side"),
+    (("BUY", "SELL", "LONG"), ("SELL", "BUY", "SHORT")),
+)
+def test_generic_futures_committed_execution_vertical_slice(
+    tmp_path: Path,
+    open_side: str,
+    close_side: str,
+    position_side: str,
+) -> None:
+    payload = scenario_payload()
+    payload["scenario"] = {
+        "id": f"GENERIC_FUTURES_{position_side}",
+        "version": "1.0",
+        "description": f"Generic futures {position_side}",
+    }
+    payload["market"] = {"profile": "GENERIC_MARGIN_FUTURES"}
+    instrument = payload["reference"]["instruments"][0]  # type: ignore[index]
+    instrument.update(  # type: ignore[union-attr]
+        {
+            "asset_class": "FUTURES",
+            "underlying": "BASE.XSHG",
+            "expiration_time": "2026-12-31T08:00:00Z",
+            "last_trade_time": "2026-12-30T08:00:00Z",
+            "quantity_precision": 2,
+            "quantity_increment": "1",
+            "lot_size": "1",
+            "contract_multiplier": "300",
+        }
+    )
+    bars = payload["data"]["bars"]  # type: ignore[index]
+    for sequence in range(2, 18):
+        bar = deepcopy(bars[0])  # type: ignore[index]
+        bar.update(
+            {
+                "ts_event": f"2026-01-05T01:{30 + sequence:02d}:00Z",
+                "ts_init": f"2026-01-05T01:{30 + sequence:02d}:00Z",
+                "sequence": sequence,
+            }
+        )
+        bars.append(bar)  # type: ignore[union-attr]
+    actions = [
+        {
+            "action_id": "OPEN",
+            "trigger": {"type": "ON_BAR_SEQUENCE", "sequence": 1},
+            "command": {
+                "type": "SUBMIT_ORDER",
+                "instrument_id": "TEST.XSHG",
+                "side": open_side,
+                "order_type": "MARKET",
+                "quantity": "1",
+                "position_effect": "OPEN",
+            },
+        },
+    ]
+    actions.append(
+        {
+            "action_id": "CLOSE",
+            "trigger": {"type": "ON_BAR_SEQUENCE", "sequence": 5},
+            "command": {
+                "type": "SUBMIT_ORDER",
+                "instrument_id": "TEST.XSHG",
+                "side": close_side,
+                "order_type": "MARKET",
+                "quantity": "1",
+                "position_effect": "CLOSE_TODAY",
+            },
+        }
+    )
+    payload["actions"] = actions
+    payload["expectations"] = []
+    scenario = OnlyMarketScenarioParser().parse(payload)
+
+    result = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / position_side))
+
+    assert result.status == "PASSED", (
+        result.diagnostics,
+        result.facts[OnlyScenarioFactType.ACTION],
+        result.facts[OnlyScenarioFactType.ORDER],
+        result.facts[OnlyScenarioFactType.EXECUTION],
+    )
+    expected_count = 2
+    assert len(result.facts[OnlyScenarioFactType.ACTION]) == expected_count
+    assert all(item["status"] == "EXECUTED" for item in result.facts[OnlyScenarioFactType.ACTION])
+    executions = result.facts[OnlyScenarioFactType.EXECUTION]
+    assert len(executions) == expected_count, [
+        result.facts[OnlyScenarioFactType.ACTION],
+        [
+            {
+                key: item.get(key)
+                for key in (
+                    "position_side",
+                    "total_quantity",
+                    "settled_quantity",
+                    "unsettled_quantity",
+                    "available_quantity",
+                    "position_mode",
+                )
+            }
+            for item in result.facts[OnlyScenarioFactType.POSITION]
+        ],
+        result.facts[OnlyScenarioFactType.DIAGNOSTIC],
+        [
+            (item.get("status"), item.get("rejection_code"), item.get("rejection_message"))
+            for item in result.facts[OnlyScenarioFactType.ORDER]
+        ],
+    ]
+    assert {item["position_side"] for item in executions} == {position_side}
+    expected_effects = ["OPEN", "CLOSE_TODAY"]
+    assert [item["position_effect"] for item in executions] == expected_effects
+    assert all(item["contract_multiplier"] == Decimal("300") for item in executions)
+    assert all(
+        item["turnover"] == item["price"] * item["quantity"] * item["contract_multiplier"] for item in executions
+    )
+    expected_margin = ["OCCUPY", "RELEASE"]
+    assert [item["margin_action"] for item in executions] == expected_margin
+
+
 @pytest.mark.parametrize("mode", ["PAPER", "LIVE", "SHADOW"])
 def test_runtime_modes_share_commands_and_fail_capability_explicitly(mode: str) -> None:
     backtest = OnlyMarketScenarioParser().parse(scenario_payload())

@@ -1,59 +1,48 @@
-"""Runtime-owned journal of successfully applied Broker trades."""
+"""Runtime-owned journal of successfully committed local executions."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
-from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
-from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.execution import OnlyOrderFill
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
+
+from .committed import OnlyCommittedExecutionFact
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyAppliedTradeFact(OnlyDomainModel):
-    runtime_id: OnlyRuntimeId
-    gateway_id: OnlyBrokerGatewayId
-    account_id: OnlyAccountId
-    order_id: OnlyOrderId
-    trade_id: OnlyTradeId
-    update_id: OnlyBrokerUpdateId
-    source_sequence: int
-    fill: OnlyOrderFill
+class OnlyCommittedExecutionJournal:
+    """Runtime-scoped append-only authority with update and trade idempotency."""
 
-    @classmethod
-    def from_update(cls, update: OnlyBrokerTradeUpdate) -> OnlyAppliedTradeFact:
-        return cls(
-            update.runtime_id,
-            update.gateway_id,
-            update.account_id,
-            update.order_id,
-            update.fill.trade_id,
-            update.update_id,
-            update.source_sequence,
-            update.fill,
-        )
+    def __init__(self, runtime_id: OnlyRuntimeId, gateway_ids: tuple[OnlyBrokerGatewayId, ...]) -> None:
+        if not gateway_ids:
+            raise ValueError("committed execution journal requires at least one Gateway scope")
+        self._runtime_id = runtime_id
+        self._gateway_ids = frozenset(gateway_ids)
+        self._records: list[OnlyCommittedExecutionFact] = []
+        self._trade_keys: set[tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyTradeId]] = set()
+        self._update_keys: set[tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyBrokerUpdateId]] = set()
 
+    @property
+    def next_execution_sequence(self) -> int:
+        return len(self._records) + 1
 
-class OnlyAppliedTradeJournal:
-    """Append-only authority for trades committed by ExecutionProcessor."""
+    def append(self, fact: OnlyCommittedExecutionFact) -> bool:
+        if fact.runtime_id != self._runtime_id or fact.gateway_id not in self._gateway_ids:
+            raise ValueError("committed execution belongs to another Runtime or Gateway scope")
+        trade_key = fact.runtime_id, fact.gateway_id, fact.trade_id
+        update_key = fact.runtime_id, fact.gateway_id, fact.broker_update_id
+        if trade_key in self._trade_keys or update_key in self._update_keys:
+            return False
+        if fact.execution_sequence != self.next_execution_sequence:
+            raise ValueError("committed execution sequence must be contiguous")
+        self._trade_keys.add(trade_key)
+        self._update_keys.add(update_key)
+        self._records.append(fact)
+        return True
 
-    def __init__(self) -> None:
-        self._records: list[OnlyAppliedTradeFact] = []
-        self._trade_ids: set[OnlyTradeId] = set()
-
-    def append(self, trade: OnlyAppliedTradeFact) -> None:
-        if trade.trade_id in self._trade_ids:
-            return
-        self._trade_ids.add(trade.trade_id)
-        self._records.append(trade)
-
-    def records(self) -> tuple[OnlyAppliedTradeFact, ...]:
+    def records(self) -> tuple[OnlyCommittedExecutionFact, ...]:
         return tuple(self._records)
 
     def __len__(self) -> int:
         return len(self._records)
 
 
-__all__ = ["OnlyAppliedTradeFact", "OnlyAppliedTradeJournal"]
+__all__ = ["OnlyCommittedExecutionJournal"]

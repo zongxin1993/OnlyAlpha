@@ -5,7 +5,8 @@
 OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
 
 Scenario Framework 已完成 exact DataSource、Action Strategy、正式 Engine Runner、标准事实 Assertion、Artifact 和重复运行
-fingerprint。Generic T0 Engine Scenario 已通过；Futures 双向 Position/Margin、完整五 Pack 与 Cross-Version 仍是门禁。
+fingerprint。Runtime Committed Execution 已成为 Result/Analytics/Artifact 的逐笔成交权威；Generic T0、期货 LONG/SHORT
+开平仓已有产品纵切面。Futures Daily MTM、完整五 Pack 与 Cross-Version 仍是后续门禁。
 
 ## Phase 0：分析与架构基线（已完成）
 
@@ -59,7 +60,8 @@ fingerprint。Generic T0 Engine Scenario 已通过；Futures 双向 Position/Mar
 - Risk 已使用 Pre-Trade Port，旧 Market Rule Mapping 已删除；Virtual Broker 不再写死 T+1 日切；
 - 已新增 Instruction-driven Settlement/Margin Manager；
 - 已扩展 Settlement、Margin、Market Rule Decision 的 Result 与零行稳定 Parquet Schema；
-- 尚未完成 Futures 双向 Position 生产写入、Collector 的全部 Market timeline 事实以及 Tushare 对照验收。
+- 已完成 HEDGING LONG/SHORT 生产写入、显式 Risk/Reservation scope 与 Committed Execution 投影；
+- 尚未完成 Futures Daily MTM、Collector 的全部 Market timeline 事实以及 Tushare 对照验收。
 
 ## Phase 2D：回测分析与报告（基础阶段已完成）
 

@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 
+from onlyalpha.domain.base import OnlyDomainModel
+
 
 @dataclass(frozen=True, order=True, slots=True)
-class OnlyStrategyId:
+class OnlyStrategyId(OnlyDomainModel):
     value: str
 
     def __post_init__(self) -> None:

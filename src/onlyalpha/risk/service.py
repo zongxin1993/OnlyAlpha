@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import ROUND_DOWN, Decimal
 
 from onlyalpha.core.clock import OnlyClockView
@@ -19,11 +20,11 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.market.models import OnlyPositionEffect
+from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyPreTradeMarketContext, OnlyPreTradeMarketRulePort
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
-from onlyalpha.position.enums import OnlyPositionSide
+from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.risk.audit import OnlyOrderIntentAudit, OnlyRiskDecisionAudit
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext, OnlyRiskStateUpdateContext
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskRejection
@@ -223,6 +224,7 @@ class OnlyRiskService:
     ) -> OnlyRiskDecision:
         if context.runtime_id != self.runtime_id:
             raise ValueError("Risk Evaluation Context belongs to another Runtime")
+        resolved_context = context
         if self._market_rules is not None:
             instrument = context.instruments.get(request.instrument_id)
             price = request.price
@@ -240,7 +242,25 @@ class OnlyRiskService:
                 if request.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.OPEN
                 else OnlyPositionSide.LONG
             )
-            position = context.position_risk.snapshot(context.account_id, request.instrument_id, position_side)
+            trading_day = context.trading_calendar.trading_day_at(context.ts_event)
+            market_position_mode = self._market_rules.position_mode(str(request.instrument_id), trading_day)
+            position_mode = (
+                OnlyPositionMode.HEDGING
+                if market_position_mode is OnlyMarketPositionMode.HEDGING
+                else OnlyPositionMode.NETTING
+            )
+            position = context.position_risk.snapshot(
+                context.account_id,
+                request.instrument_id,
+                position_side,
+                position_mode,
+            )
+            resolved_context = replace(
+                context,
+                position_side=position_side,
+                position_effect=effect,
+                position_mode=position_mode,
+            )
             if instrument is None or price is None or account is None:
                 return OnlyRiskDecision.rejected(
                     OnlyRiskRejection(
@@ -261,7 +281,7 @@ class OnlyRiskService:
                     request.quantity.value,
                     price.value,
                     context.ts_event.to_datetime(),
-                    context.trading_calendar.trading_day_at(context.ts_event),
+                    trading_day,
                     Decimal(0) if position is None else position.available_quantity.value,
                     available_cash,
                     available_cash if account.available_margin is None else account.available_margin.amount,
@@ -285,6 +305,7 @@ class OnlyRiskService:
                         details={"market_reason_code": market_decision.reason_code or "UNKNOWN"},
                     )
                 )
+            resolved_context = replace(resolved_context, position_effect=market_decision.position_effect)
         if context.strategy_ledger is not None and not context.strategy_ledger.allows_new_orders(
             context.account_id, context.cluster_id
         ):
@@ -317,7 +338,7 @@ class OnlyRiskService:
                 context.cluster_id,
                 OnlyRiskProfile(OnlyRiskProfileId("UNBOUND")),
             )
-            decision = self._pipeline(profile).evaluate(request, context).decision
+            decision = self._pipeline(profile).evaluate(request, resolved_context).decision
         self._requests.setdefault(key, request)
         self._state.save_decision(context.cluster_id, context.account_id, request.request_id, decision)
         if decision.outcome is OnlyRiskOutcome.REJECT:

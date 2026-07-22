@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -91,6 +92,69 @@ def test_backtest_combines_market_and_broker_once() -> None:
     )
     assert fee.status is OnlyFeeStatus.CONFIRMED
     assert fee.total == OnlyMoney(Decimal("3.00"), USD)
+
+
+@pytest.mark.parametrize(
+    ("market_mode", "broker_mode", "market_schedule", "broker_schedule", "expected"),
+    (
+        (OnlyFeeConfigurationMode.MODEL, OnlyFeeConfigurationMode.NONE, _market(), None, "2.00"),
+        (OnlyFeeConfigurationMode.NONE, OnlyFeeConfigurationMode.MODEL, None, _broker(), "1.00"),
+        (OnlyFeeConfigurationMode.NONE, OnlyFeeConfigurationMode.NONE, None, None, "0.00"),
+    ),
+)
+def test_backtest_fee_authorities_are_explicit_and_never_default_unknown_to_a_charge(
+    market_mode: OnlyFeeConfigurationMode,
+    broker_mode: OnlyFeeConfigurationMode,
+    market_schedule: OnlyMarketFeeSchedule | None,
+    broker_schedule: OnlyBrokerFeeSchedule | None,
+    expected: str,
+) -> None:
+    fee = OnlyFeeEngine().resolve_trade_fee(
+        _request(),
+        runtime_mode=OnlyRuntimeMode.BACKTEST,
+        market_schedule=market_schedule,
+        broker_schedule=broker_schedule,
+        market_mode=market_mode,
+        broker_mode=broker_mode,
+    )
+    assert fee.total == OnlyMoney(Decimal(expected), USD)
+
+
+def test_fractional_fill_fee_uses_currency_precision_and_single_fill_minimum() -> None:
+    request = replace(
+        _request(),
+        price=Decimal("12.3456"),
+        quantity=Decimal("0.125"),
+        notional=OnlyMoney(Decimal("1.54"), USD),
+    )
+    minimum_schedule = OnlyBrokerFeeSchedule(
+        "minimum",
+        "7",
+        date(2026, 1, 1),
+        None,
+        USD,
+        "broker",
+        (
+            OnlyFeeRateRule(
+                OnlyFeeType.BROKER_COMMISSION,
+                OnlyFeeAuthority.BROKER,
+                percent_rate=Decimal("0.001"),
+                minimum=Decimal("0.05"),
+            ),
+        ),
+        "broker",
+    )
+    fee = OnlyFeeEngine().resolve_trade_fee(
+        request,
+        runtime_mode=OnlyRuntimeMode.BACKTEST,
+        market_schedule=None,
+        broker_schedule=minimum_schedule,
+        market_mode=OnlyFeeConfigurationMode.NONE,
+        broker_mode=OnlyFeeConfigurationMode.MODEL,
+    )
+    assert fee.total == OnlyMoney(Decimal("0.05"), USD)
+    assert fee.components[0].schedule_id == "minimum"
+    assert fee.components[0].schedule_version == "7"
 
 
 def test_live_all_in_report_never_stacks_market_fee() -> None:
