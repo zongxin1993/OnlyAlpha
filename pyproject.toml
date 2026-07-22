@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha"
-version = "0.2.6"
+version = "0.2.7"
 description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"

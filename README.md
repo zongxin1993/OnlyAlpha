@@ -200,7 +200,7 @@ OnlyAlpha/
 │   ├── collector/                         标准事实收集
 │   ├── config/                            Cluster 配置模型与解析
 │   ├── data/                              DataSource、Replay 数据模型
-│   ├──Replay domain/                            金融领域模型和值对象
+│   ├── domain/                            金融领域模型和值对象
 │   ├── engine/                            产品级 Engine
 │   ├── event/                             Event 与 EventBus
 │   ├── execution/                         标准成交处理

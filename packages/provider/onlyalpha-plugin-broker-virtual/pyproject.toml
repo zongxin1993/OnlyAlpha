@@ -1,10 +1,10 @@
 [project]
 name = "onlyalpha-plugin-broker-virtual"
-version = "0.2.6"
+version = "0.2.7"
 description = "Deterministic simulated Broker plugin for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.2.6"]
+dependencies = ["onlyalpha==0.2.7"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Operating System :: OS Independent",
