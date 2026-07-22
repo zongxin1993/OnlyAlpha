@@ -280,7 +280,7 @@ virtual = "onlyalpha_plugin_broker_virtual.factory:OnlyVirtualBrokerFactory"
 ```toml
 [tool.uv.workspace]
 members = [
-    "packages/provider/onlyalpha-plugin-broker-virtual",
+    "packages/fake/onlyalpha-plugin-broker-virtual",
     "packages/provider/onlyalpha-plugin-tushare",
     "packages/provider/onlyalpha-plugin-miniqmt",
 ]
@@ -757,7 +757,7 @@ tests/fixtures/
 移动或重写到：
 
 ```text
-packages/provider/onlyalpha-plugin-broker-virtual/tests/
+packages/fake/onlyalpha-plugin-broker-virtual/tests/
 ```
 
 至少覆盖：
@@ -1044,7 +1044,7 @@ ADR 至少说明：
 创建：
 
 ```text
-packages/provider/onlyalpha-plugin-broker-virtual
+packages/fake/onlyalpha-plugin-broker-virtual
 ```
 
 迁移并重构 Virtual Broker 实现。

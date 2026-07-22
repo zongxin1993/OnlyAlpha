@@ -33,7 +33,7 @@ def test_concrete_implementations_live_below_parent_component_packages() -> None
         "src/onlyalpha/runtime/shadow/runtime.py",
         "src/onlyalpha/runtime/research/runtime.py",
         "src/onlyalpha/data/synthetic/source.py",
-        "packages/provider/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual/gateway.py",
+        "packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual/gateway.py",
         "src/onlyalpha/indicator/macd/indicator.py",
     )
     assert all(Path(path).is_file() for path in required)

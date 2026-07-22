@@ -165,13 +165,13 @@ jobs:
       - name: Synchronize workspace
         run: uv sync --frozen --all-packages --all-groups
       - name: Ruff lint Virtual Broker
-        run: uv run ruff check packages/provider/onlyalpha-plugin-broker-virtual
+        run: uv run ruff check packages/fake/onlyalpha-plugin-broker-virtual
       - name: Ruff format Virtual Broker
-        run: uv run ruff format --check packages/provider/onlyalpha-plugin-broker-virtual
+        run: uv run ruff format --check packages/fake/onlyalpha-plugin-broker-virtual
       - name: Mypy Virtual Broker
-        run: uv run mypy --config-file packages/provider/onlyalpha-plugin-broker-virtual/pyproject.toml packages/provider/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
+        run: uv run mypy --config-file packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
       - name: Test Virtual Broker
-        run: uv run pytest packages/provider/onlyalpha-plugin-broker-virtual/tests -q
+        run: uv run pytest packages/fake/onlyalpha-plugin-broker-virtual/tests -q
 
   tushare:
     name: Tushare / ${{ matrix.os }}

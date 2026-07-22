@@ -537,7 +537,7 @@ dev = [
 [[package]]
 name = "onlyalpha-plugin-broker-virtual"
 version = "0.2.8"
-source = { editable = "packages/provider/onlyalpha-plugin-broker-virtual" }
+source = { editable = "packages/fake/onlyalpha-plugin-broker-virtual" }
 dependencies = [
     { name = "onlyalpha" },
 ]

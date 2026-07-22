@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOT_PYPROJECT = ROOT / "pyproject.toml"
 
 FORMAL_PACKAGES = (
-    ROOT / "packages/provider/onlyalpha-plugin-broker-virtual/pyproject.toml",
+    ROOT / "packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml",
     ROOT / "packages/provider/onlyalpha-plugin-tushare/pyproject.toml",
     ROOT / "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
 )
