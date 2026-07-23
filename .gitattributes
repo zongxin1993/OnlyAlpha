@@ -1,0 +1,24 @@
+# 全局：自动处理文本换行
+* text=auto
+
+# Python源码、配置文件：标准文本
+*.py        text
+*.pyi       text
+*.toml      text
+*.yaml      text
+*.yml       text
+*.json      text
+*.md        text diff=markdown
+
+# 二进制文件，禁止换行转换
+*.png       binary
+*.jpg       binary
+*.zip       binary
+*.parquet   binary
+*.hdf5      binary
+
+# 打包发布时忽略git内部文件
+.gitignore      export-ignore
+.gitattributes  export-ignore
+
+# venv、缓存、测试临时目录不需要纳入git，交给.gitignore处理即可
