@@ -60,7 +60,7 @@ from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
-from onlyalpha.execution.journal import OnlyCommittedExecutionJournal
+from onlyalpha.execution.journal import OnlyInMemoryCommittedExecutionJournal
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.processor import OnlyExecutionProcessor
 from onlyalpha.execution.publisher import OnlyExecutionEventPublisher
@@ -373,7 +373,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        committed_execution_journal = OnlyCommittedExecutionJournal(
+        committed_execution_journal = OnlyInMemoryCommittedExecutionJournal(
             runtime_config.runtime_id,  # type: ignore[arg-type]
             (runtime_config.broker_gateway_id or OnlyBrokerGatewayId("placeholder"),),
         )
