@@ -87,7 +87,7 @@ from .enums import (
     OnlyExecutionProcessingStatus,
 )
 from .invariants import OnlyExecutionInvariantChecker
-from .journal import OnlyCommittedExecutionJournal
+from .journal import OnlyCommittedExecutionJournalPort, OnlyDurableExecutionCommit
 from .models import (
     OnlyExecutionAuditRecord,
     OnlyExecutionFailure,
@@ -154,7 +154,7 @@ class OnlyExecutionProcessor:
         invariant_checker: OnlyExecutionInvariantChecker,
         event_publisher: OnlyExecutionEventPublisher,
         audit_store: OnlyExecutionAuditStore,
-        committed_execution_journal: OnlyCommittedExecutionJournal,
+        committed_execution_journal: OnlyCommittedExecutionJournalPort,
         reconciliation: OnlyExecutionReconciliationPort,
         deduplicator: OnlyExecutionUpdateDeduplicator,
         sequence_tracker: OnlyExecutionSequenceTracker,
@@ -301,7 +301,9 @@ class OnlyExecutionProcessor:
                     OnlyExecutionMutationStep.EVENT, OnlyExecutionMutationStatus.APPLIED, "facts committed"
                 )
             )
-            generated = self._events.commit()
+            # A Broker trade becomes observable only after its immutable fact and
+            # buffered events have entered the committed journal.  EventBus is
+            # deliberately downstream of this durable boundary.
             if isinstance(update, OnlyBrokerTradeUpdate) and status is OnlyExecutionProcessingStatus.APPLIED:
                 commit_context = payload[8]
                 if commit_context is None or self._strategy_identity is None:
@@ -311,12 +313,20 @@ class OnlyExecutionProcessor:
                     raise ValueError("applied Trade is missing Cluster attribution")
                 fact = self._committed_builder.build(
                     commit_context,
-                    execution_sequence=self._committed_executions.next_execution_sequence,
+                    execution_sequence=self._committed_executions.next_sequence(self.config.runtime_id),
                     strategy_id=self._strategy_identity(cluster_id),
                     ts_committed=OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
                 )
-                if not self._committed_executions.append(fact):
+                appended = self._committed_executions.append_transaction(
+                    OnlyDurableExecutionCommit(
+                        transaction_id=fact.execution_id,
+                        fact=fact,
+                        outbox_events=self._events.pending(),
+                    )
+                )
+                if not appended.inserted:
                     raise ValueError("committed execution journal rejected an unexpected duplicate")
+            generated = self._events.commit()
             result = self._complete(
                 update,
                 context,

@@ -1,6 +1,7 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -25,7 +26,12 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
-from onlyalpha.execution import OnlyCommittedExecutionFact, OnlyCommittedExecutionJournal
+from onlyalpha.execution import (
+    OnlyCommittedExecutionFact,
+    OnlyDurableExecutionCommit,
+    OnlyInMemoryCommittedExecutionJournal,
+    OnlySqliteCommittedExecutionJournal,
+)
 from onlyalpha.fee import OnlyBrokerFeeReportingMode, OnlyFeeBreakdown, OnlyFeeStatus
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
@@ -130,9 +136,9 @@ def _fact(*, runtime: str = "runtime", gateway: str = "gateway") -> OnlyCommitte
 
 def test_committed_execution_journal_is_ordered_serializable_immutable_and_stably_hashed() -> None:
     fact = _fact()
-    journal = OnlyCommittedExecutionJournal(fact.runtime_id, (fact.gateway_id,))
+    journal = OnlyInMemoryCommittedExecutionJournal(fact.runtime_id, (fact.gateway_id,))
 
-    assert journal.append(fact)
+    assert journal.append_transaction(OnlyDurableExecutionCommit("tx-1", fact)).inserted
     assert journal.records() == (fact,)
     assert OnlyCommittedExecutionFact.from_json(fact.to_json()) == fact
     assert OnlyCommittedExecutionFact.from_json(fact.to_json()).stable_hash == fact.stable_hash
@@ -142,21 +148,41 @@ def test_committed_execution_journal_is_ordered_serializable_immutable_and_stabl
 
 def test_journal_rejects_duplicate_trade_and_duplicate_update_without_advancing_sequence() -> None:
     fact = _fact()
-    journal = OnlyCommittedExecutionJournal(fact.runtime_id, (fact.gateway_id,))
-    assert journal.append(fact)
-    assert not journal.append(replace(fact, broker_update_id=OnlyBrokerUpdateId("update-2")))
-    assert not journal.append(replace(fact, trade_id=OnlyTradeId("trade-2")))
-    assert journal.next_execution_sequence == 2
+    journal = OnlyInMemoryCommittedExecutionJournal(fact.runtime_id, (fact.gateway_id,))
+    assert journal.append_transaction(OnlyDurableExecutionCommit("tx-1", fact)).inserted
+    with pytest.raises(ValueError, match="idempotency key conflicts"):
+        journal.append_transaction(
+            OnlyDurableExecutionCommit("tx-2", replace(fact, broker_update_id=OnlyBrokerUpdateId("update-2")))
+        )
+    with pytest.raises(ValueError, match="idempotency key conflicts"):
+        journal.append_transaction(OnlyDurableExecutionCommit("tx-3", replace(fact, trade_id=OnlyTradeId("trade-2"))))
+    assert journal.next_sequence(fact.runtime_id) == 2
 
 
 def test_runtime_and_gateway_scopes_are_isolated() -> None:
     fact = _fact()
-    left = OnlyCommittedExecutionJournal(OnlyRuntimeId("runtime"), (OnlyBrokerGatewayId("gateway"),))
-    right = OnlyCommittedExecutionJournal(OnlyRuntimeId("other-runtime"), (OnlyBrokerGatewayId("other-gateway"),))
-    assert left.append(fact)
-    with pytest.raises(ValueError, match="another Runtime or Gateway"):
-        right.append(fact)
+    left = OnlyInMemoryCommittedExecutionJournal(OnlyRuntimeId("runtime"), (OnlyBrokerGatewayId("gateway"),))
+    right = OnlyInMemoryCommittedExecutionJournal(
+        OnlyRuntimeId("other-runtime"), (OnlyBrokerGatewayId("other-gateway"),)
+    )
+    assert left.append_transaction(OnlyDurableExecutionCommit("tx-1", fact)).inserted
+    with pytest.raises(ValueError, match="another Runtime"):
+        right.append_transaction(OnlyDurableExecutionCommit("tx-2", fact))
     other = _fact(runtime="other-runtime", gateway="other-gateway")
-    assert right.append(other)
+    assert right.append_transaction(OnlyDurableExecutionCommit("tx-3", other)).inserted
     assert left.records() == (fact,)
     assert right.records() == (other,)
+
+
+def test_sqlite_journal_recovers_sequence_idempotency_and_payload_hash(tmp_path: Path) -> None:
+    fact = _fact()
+    path = tmp_path / "execution.sqlite3"
+    journal = OnlySqliteCommittedExecutionJournal(path)
+    assert journal.append_transaction(OnlyDurableExecutionCommit("tx-1", fact)).inserted
+    journal.close()
+
+    recovered = OnlySqliteCommittedExecutionJournal(path)
+    assert recovered.next_sequence(fact.runtime_id) == 2
+    assert recovered.records(fact.runtime_id) == (fact,)
+    assert not recovered.append_transaction(OnlyDurableExecutionCommit("tx-2", fact)).inserted
+    recovered.close()

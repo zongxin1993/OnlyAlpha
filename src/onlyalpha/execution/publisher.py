@@ -39,6 +39,12 @@ class OnlyExecutionEventPublisher:
         self._event_bus.publish_many(events)
         return events
 
+    def pending(self) -> tuple[OnlyEvent, ...]:
+        """Return the buffered facts without making them externally visible."""
+        if not self._active:
+            raise RuntimeError("Execution event transaction is not active")
+        return tuple(self._buffer)
+
     def rollback(self) -> tuple[OnlyEvent, ...]:
         discarded = tuple(self._buffer)
         self._active = False

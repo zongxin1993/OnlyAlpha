@@ -8,7 +8,14 @@ from .enums import (
     OnlyExecutionProcessingStatus,
 )
 from .invariants import OnlyExecutionInvariantChecker
-from .journal import OnlyCommittedExecutionJournal
+from .journal import (
+    OnlyCommittedExecutionJournalPort,
+    OnlyDurableExecutionCommit,
+    OnlyExecutionOutboxRecord,
+    OnlyInMemoryCommittedExecutionJournal,
+    OnlyJournalAppendResult,
+    OnlySqliteCommittedExecutionJournal,
+)
 from .models import (
     OnlyExecutionAuditRecord,
     OnlyExecutionFailure,
@@ -22,6 +29,7 @@ from .models import (
     OnlyExecutionReconciliationRequest,
     OnlyExecutionSnapshotBundle,
 )
+from .outbox import OnlyExecutionOutboxPublisher, OnlyOutboxPublishResult
 from .processor import OnlyExecutionProcessor
 from .publisher import OnlyExecutionEventPublisher
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver, OnlyPositionScopeResolutionSource
@@ -38,7 +46,12 @@ __all__ = [
     "OnlyExecutionAuditRecord",
     "OnlyExecutionAuditStore",
     "OnlyCommittedExecutionFact",
-    "OnlyCommittedExecutionJournal",
+    "OnlyCommittedExecutionJournalPort",
+    "OnlyDurableExecutionCommit",
+    "OnlyExecutionOutboxRecord",
+    "OnlyInMemoryCommittedExecutionJournal",
+    "OnlyJournalAppendResult",
+    "OnlySqliteCommittedExecutionJournal",
     "OnlyExecutionEventPublisher",
     "OnlyExecutionFailure",
     "OnlyExecutionFailureCode",
@@ -53,6 +66,8 @@ __all__ = [
     "OnlyExecutionProcessingResult",
     "OnlyExecutionProcessingStatus",
     "OnlyExecutionProcessor",
+    "OnlyExecutionOutboxPublisher",
+    "OnlyOutboxPublishResult",
     "OnlyExecutionProcessorConfig",
     "OnlyExecutionReconciliationPort",
     "OnlyExecutionReconciliationRequest",
