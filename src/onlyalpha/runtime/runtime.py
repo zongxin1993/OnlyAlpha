@@ -69,7 +69,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import (
-    OnlyExecutionEventPublisher,
+    OnlyExecutionEventBuffer,
     OnlyExecutionProcessor,
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
@@ -257,7 +257,7 @@ class OnlyRuntimeServices:
     broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
     committed_execution_journal: OnlyCommittedExecutionJournalPort
-    execution_event_publisher: OnlyExecutionEventPublisher
+    execution_event_buffer: OnlyExecutionEventBuffer
     execution_audit_store: OnlyInMemoryExecutionAuditStore
     execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
     execution_update_deduplicator: OnlyExecutionUpdateDeduplicator

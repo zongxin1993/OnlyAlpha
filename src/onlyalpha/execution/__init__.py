@@ -31,7 +31,7 @@ from .models import (
 )
 from .outbox import OnlyExecutionOutboxPublisher, OnlyOutboxPublishResult
 from .processor import OnlyExecutionProcessor
-from .publisher import OnlyExecutionEventPublisher
+from .publisher import OnlyDirectExecutionEventPublisher, OnlyExecutionEventBuffer
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver, OnlyPositionScopeResolutionSource
 from .state import (
     OnlyExecutionAuditStore,
@@ -52,7 +52,8 @@ __all__ = [
     "OnlyInMemoryCommittedExecutionJournal",
     "OnlyJournalAppendResult",
     "OnlySqliteCommittedExecutionJournal",
-    "OnlyExecutionEventPublisher",
+    "OnlyDirectExecutionEventPublisher",
+    "OnlyExecutionEventBuffer",
     "OnlyExecutionFailure",
     "OnlyExecutionFailureCode",
     "OnlyExecutionInvariantChecker",

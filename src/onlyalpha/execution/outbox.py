@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
 
 from .journal import OnlyCommittedExecutionJournalPort
@@ -19,9 +21,10 @@ class OnlyOutboxPublishResult:
 class OnlyExecutionOutboxPublisher:
     """Publishes pending durable events; failure never rolls back a committed fact."""
 
-    def __init__(self, journal: OnlyCommittedExecutionJournalPort, event_bus: OnlyEventBus) -> None:
+    def __init__(self, journal: OnlyCommittedExecutionJournalPort, event_bus: OnlyEventBus, now: Callable[[], OnlyTimestamp]) -> None:
         self._journal = journal
         self._event_bus = event_bus
+        self._now = now
 
     def publish_pending(self, runtime_id: OnlyRuntimeId) -> OnlyOutboxPublishResult:
         published = failed = 0
@@ -30,8 +33,7 @@ class OnlyExecutionOutboxPublisher:
                 self._event_bus.publish(record.event)
                 self._journal.mark_outbox_published(runtime_id, record.execution_sequence, record.event_sequence)
                 published += 1
-            except Exception:
-                # The row remains pending and is retried by the next lifecycle tick.
+            except Exception as exc:
                 failed += 1
                 break
         return OnlyOutboxPublishResult(published, failed)

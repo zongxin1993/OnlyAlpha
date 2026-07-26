@@ -61,9 +61,10 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
 from onlyalpha.execution.journal import OnlyInMemoryCommittedExecutionJournal
+from onlyalpha.execution.outbox import OnlyExecutionOutboxPublisher
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.processor import OnlyExecutionProcessor
-from onlyalpha.execution.publisher import OnlyExecutionEventPublisher
+from onlyalpha.execution.publisher import OnlyDirectExecutionEventPublisher, OnlyExecutionEventBuffer
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
@@ -188,8 +189,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             scope=scope,
             queue_policy=runtime_config.event_queue_policy,
         )
-        execution_event_publisher = OnlyExecutionEventPublisher(owned_bus)
-        event_sink = cast(OnlyEventBus, execution_event_publisher)
+        execution_event_buffer = OnlyExecutionEventBuffer(owned_bus)
+        direct_execution_event_publisher = OnlyDirectExecutionEventPublisher(owned_bus)
+        event_sink = cast(OnlyEventBus, execution_event_buffer)
         self._strategy_ledger_manager.bind_publisher(
             OnlyRuntimeStrategyLedgerEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
@@ -377,6 +379,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             runtime_config.runtime_id,  # type: ignore[arg-type]
             (runtime_config.broker_gateway_id or OnlyBrokerGatewayId("placeholder"),),
         )
+        execution_outbox_publisher = OnlyExecutionOutboxPublisher(
+            committed_execution_journal,
+            owned_bus,
+            lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+        )
         execution_reconciliation_queue = OnlyInMemoryExecutionReconciliationQueue()
         execution_update_deduplicator = OnlyExecutionUpdateDeduplicator()
         execution_sequence_tracker = OnlyExecutionSequenceTracker()
@@ -412,7 +419,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reconciliation,
             account_reconciliation,
             execution_invariant_checker,
-            execution_event_publisher,
+            execution_event_buffer,
+            direct_execution_event_publisher,
+            execution_outbox_publisher,
             execution_audit_store,
             committed_execution_journal,
             execution_reconciliation_queue,
@@ -535,7 +544,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             selected_broker_gateway,
             execution_processor,
             committed_execution_journal,
-            execution_event_publisher,
+            execution_event_buffer,
             execution_audit_store,
             execution_reconciliation_queue,
             execution_update_deduplicator,

@@ -1,20 +1,22 @@
-"""Transactional fact buffer used by one Runtime Execution Processor."""
+"""Execution-local event buffering and explicit direct delivery."""
+
+from __future__ import annotations
 
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 
 
-class OnlyExecutionEventPublisher:
-    """Buffers Manager facts until a complete cross-component update commits."""
+class OnlyExecutionEventBuffer:
+    """Buffers Manager facts; it never publishes to an EventBus."""
 
-    def __init__(self, event_bus: OnlyEventBus) -> None:
-        self._event_bus = event_bus
+    def __init__(self, lifecycle_event_bus: OnlyEventBus) -> None:
+        self._lifecycle_event_bus = lifecycle_event_bus
         self._active = False
         self._buffer: list[OnlyEvent] = []
 
     def begin(self) -> None:
         if self._active:
-            raise RuntimeError("nested Execution event transaction is not supported")
+            raise RuntimeError("nested Execution event buffer is not supported")
         self._active = True
         self._buffer = []
 
@@ -22,35 +24,40 @@ class OnlyExecutionEventPublisher:
         if self._active:
             self._buffer.append(event)
         else:
-            self._event_bus.publish(event)
+            self._lifecycle_event_bus.publish(event)
 
     def publish_many(self, events: tuple[OnlyEvent, ...]) -> None:
         if self._active:
             self._buffer.extend(events)
         else:
-            self._event_bus.publish_many(events)
+            self._lifecycle_event_bus.publish_many(events)
 
-    def commit(self) -> tuple[OnlyEvent, ...]:
+    def snapshot(self) -> tuple[OnlyEvent, ...]:
         if not self._active:
-            raise RuntimeError("Execution event transaction is not active")
-        events = tuple(self._buffer)
-        self._active = False
-        self._buffer = []
-        self._event_bus.publish_many(events)
-        return events
-
-    def pending(self) -> tuple[OnlyEvent, ...]:
-        """Return the buffered facts without making them externally visible."""
-        if not self._active:
-            raise RuntimeError("Execution event transaction is not active")
+            raise RuntimeError("Execution event buffer is not active")
         return tuple(self._buffer)
 
-    def rollback(self) -> tuple[OnlyEvent, ...]:
+    def drain(self) -> tuple[OnlyEvent, ...]:
+        events = self.snapshot()
+        self._active = False
+        self._buffer = []
+        return events
+
+    def discard(self) -> tuple[OnlyEvent, ...]:
         discarded = tuple(self._buffer)
         self._active = False
         self._buffer = []
         return discarded
 
-    @property
-    def active(self) -> bool:
-        return self._active
+
+class OnlyDirectExecutionEventPublisher:
+    """The direct EventBus boundary for successful non-Trade updates only."""
+
+    def __init__(self, event_bus: OnlyEventBus) -> None:
+        self._event_bus = event_bus
+
+    def publish_many(self, events: tuple[OnlyEvent, ...]) -> None:
+        self._event_bus.publish_many(events)
+
+
+__all__ = ["OnlyDirectExecutionEventPublisher", "OnlyExecutionEventBuffer"]

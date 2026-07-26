@@ -100,7 +100,8 @@ from .models import (
     OnlyExecutionReconciliationRequest,
     OnlyExecutionSnapshotBundle,
 )
-from .publisher import OnlyExecutionEventPublisher
+from .publisher import OnlyDirectExecutionEventPublisher, OnlyExecutionEventBuffer
+from .outbox import OnlyExecutionOutboxPublisher
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver
 from .state import (
     OnlyExecutionAuditStore,
@@ -152,7 +153,9 @@ class OnlyExecutionProcessor:
         position_reconciliation: OnlyPositionReconciliationService,
         account_reconciliation: OnlyAccountReconciliationService,
         invariant_checker: OnlyExecutionInvariantChecker,
-        event_publisher: OnlyExecutionEventPublisher,
+        event_buffer: OnlyExecutionEventBuffer,
+        direct_event_publisher: OnlyDirectExecutionEventPublisher,
+        outbox_publisher: OnlyExecutionOutboxPublisher,
         audit_store: OnlyExecutionAuditStore,
         committed_execution_journal: OnlyCommittedExecutionJournalPort,
         reconciliation: OnlyExecutionReconciliationPort,
@@ -189,7 +192,9 @@ class OnlyExecutionProcessor:
         self._position_reconciliation = position_reconciliation
         self._account_reconciliation = account_reconciliation
         self._invariants = invariant_checker
-        self._events = event_publisher
+        self._events = event_buffer
+        self._direct_events = direct_event_publisher
+        self._outbox_publisher = outbox_publisher
         self._audit = audit_store
         self._committed_executions = committed_execution_journal
         self._committed_builder = OnlyCommittedExecutionBuilder()
@@ -321,12 +326,16 @@ class OnlyExecutionProcessor:
                     OnlyDurableExecutionCommit(
                         transaction_id=fact.execution_id,
                         fact=fact,
-                        outbox_events=self._events.pending(),
+                        outbox_events=self._events.snapshot(),
                     )
                 )
                 if not appended.inserted:
                     raise ValueError("committed execution journal rejected an unexpected duplicate")
-            generated = self._events.commit()
+                generated = self._events.drain()
+                self._outbox_publisher.publish_pending(self.config.runtime_id)
+            else:
+                generated = self._events.drain()
+                self._direct_events.publish_many(generated)
             result = self._complete(
                 update,
                 context,
@@ -340,7 +349,7 @@ class OnlyExecutionProcessor:
             )
             return result
         except Exception as exc:
-            self._events.rollback()
+            self._events.discard()
             failed_step = self._failed_step(steps)
             steps.append(OnlyExecutionMutationRecord(failed_step, OnlyExecutionMutationStatus.FAILED, str(exc)))
             failure = OnlyExecutionFailure(
@@ -1110,7 +1119,7 @@ class OnlyExecutionProcessor:
         if self._accounts.get_snapshot(update.account_id) is not None:
             self._events.begin()
             self._accounts.start_reconciliation(update.account_id, update.ts_init, "EXECUTION_PARTIAL_MUTATION")
-            self._events.rollback()
+            self._events.discard()
 
     def _position_trade(
         self,
