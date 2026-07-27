@@ -15,9 +15,9 @@ from onlyalpha.event.model import OnlyEvent
 
 from .committed import OnlyCommittedExecutionFact
 from .projection import (
+    OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
-    OnlyCashReservationExecutionProjection,
     OnlyExecutionProjection,
     OnlyFeeExecutionProjection,
     OnlyMarginExecutionProjection,
@@ -28,6 +28,7 @@ from .projection import (
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
     OnlySettlementExecutionProjection,
+    OnlyStrategyCashReservationExecutionProjection,
     OnlyStrategyLedgerExecutionProjection,
     OnlyValuationExecutionProjection,
 )
@@ -49,7 +50,8 @@ _PROJECTION_TYPES = {
         OnlyFeeExecutionProjection,
         OnlyAccountExecutionProjection,
         OnlyStrategyLedgerExecutionProjection,
-        OnlyCashReservationExecutionProjection,
+        OnlyAccountCashReservationExecutionProjection,
+        OnlyStrategyCashReservationExecutionProjection,
         OnlyPositionReservationExecutionProjection,
         OnlyMarginReservationExecutionProjection,
         OnlyRiskReservationExecutionProjection,
@@ -278,7 +280,7 @@ def _load_object(payload: str) -> Mapping[str, object]:
 
 
 def _require_schema(value: Mapping[str, object]) -> None:
-    if value.get("schema_version") != 2:
+    if value.get("schema_version") != 3:
         raise ValueError("unsupported execution transaction schema version")
 
 

@@ -155,21 +155,20 @@ class OnlyExecutionPrecondition(OnlyDomainModel):
     component: OnlyExecutionProjectionComponent
     entity_key: str
     expected_version: int
-    expected_state_hash: str | None = None
+    expected_state_hash: str
 
     def __post_init__(self) -> None:
         if not self.entity_key.strip() or self.expected_version < 0:
             raise ValueError("execution precondition requires entity and non-negative version")
-        if self.expected_state_hash is not None and (
-            len(self.expected_state_hash) != 64
-            or any(character not in "0123456789abcdef" for character in self.expected_state_hash)
+        if len(self.expected_state_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in self.expected_state_hash
         ):
             raise ValueError("expected_state_hash must be a lowercase SHA-256 digest")
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyPreparedExecutionTransaction:
-    schema_version = 2
+    schema_version = 3
 
     transaction_id: str
     runtime_id: OnlyRuntimeId
@@ -207,6 +206,9 @@ class OnlyPreparedExecutionTransaction:
         ):
             raise ValueError("prepared transaction and fact draft scopes disagree")
         self._validate_projections()
+        from .economic_invariants import OnlyPreparedExecutionEconomicInvariantValidator
+
+        OnlyPreparedExecutionEconomicInvariantValidator().validate(self)
         self._validate_events()
         if self.prepared_at < self.fact_draft.ts_event:
             raise ValueError("prepared_at cannot precede broker event time")
@@ -246,9 +248,10 @@ class OnlyPreparedExecutionTransaction:
             raise ValueError("preconditions must correspond one-to-one in projection order")
         if any(
             precondition.expected_version != projection.expected_version
+            or precondition.expected_state_hash != projection.expected_state_hash
             for precondition, projection in zip(self.preconditions, identities, strict=True)
         ):
-            raise ValueError("precondition and projection expected versions disagree")
+            raise ValueError("precondition and projection expected authority disagree")
 
     def _validate_events(self) -> None:
         from .event_identity import only_execution_transaction_event_id
@@ -272,7 +275,7 @@ class OnlyPreparedExecutionTransaction:
 
 @dataclass(frozen=True, slots=True)
 class OnlyCommittedExecutionTransaction:
-    schema_version = 2
+    schema_version = 3
 
     runtime_id: OnlyRuntimeId
     execution_sequence: int

@@ -6,7 +6,9 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus, OnlyAccountType
 from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerUpdateId
+from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
     OnlyCurrencyType,
     OnlyLiquiditySide,
@@ -14,14 +16,18 @@ from onlyalpha.domain.enums import (
     OnlyOrderSide,
     OnlyOrderStatus,
     OnlyOrderType,
+    OnlyTimeInForce,
 )
 from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
+    OnlyClientOrderId,
     OnlyClusterId,
     OnlyEngineId,
     OnlyInstrumentId,
     OnlyOrderId,
+    OnlyOrderRequestId,
+    OnlyPositionId,
     OnlyRuntimeId,
     OnlySymbol,
     OnlyTradeId,
@@ -31,9 +37,12 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent, OnlyEventSource, OnlyEventType
 from onlyalpha.execution import (
+    OnlyAccountCashReservationExecutionProjection,
+    OnlyAccountCashReservationExecutionState,
     OnlyAccountExecutionProjection,
+    OnlyAccountExecutionState,
     OnlyAllocationExecutionProjection,
-    OnlyCashReservationExecutionProjection,
+    OnlyAllocationExecutionState,
     OnlyCommittedExecutionFactDraft,
     OnlyExecutionPrecondition,
     OnlyExecutionProjection,
@@ -41,37 +50,65 @@ from onlyalpha.execution import (
     OnlyExecutionProjectionIdentity,
     OnlyExecutionTransactionEventFactory,
     OnlyFeeExecutionProjection,
+    OnlyFeeExecutionState,
     OnlyFeeInstructionReplay,
-    OnlyFeeRecordReplay,
     OnlyMarginExecutionProjection,
+    OnlyMarginExecutionState,
     OnlyMarginReservationExecutionProjection,
+    OnlyMarginReservationExecutionStage,
+    OnlyMarginReservationExecutionState,
+    OnlyMarginReservationExecutionStatus,
     OnlyOrderExecutionProjection,
+    OnlyOrderExecutionState,
     OnlyPositionExecutionProjection,
+    OnlyPositionExecutionState,
     OnlyPositionReservationExecutionProjection,
+    OnlyPositionReservationExecutionState,
     OnlyPreparedExecutionTransaction,
-    OnlyReservationStatus,
     OnlyRiskExecutionProjection,
+    OnlyRiskExecutionState,
     OnlyRiskReservationExecutionProjection,
+    OnlyRiskReservationExecutionState,
     OnlySettlementExecutionProjection,
-    OnlySettlementProjectionState,
-    OnlySettlementRecordReplay,
+    OnlySettlementExecutionState,
+    OnlyStrategyCashReservationExecutionProjection,
+    OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionProjection,
+    OnlyStrategyLedgerExecutionState,
     OnlyValuationExecutionProjection,
+    OnlyValuationExecutionState,
+    only_execution_state_hash,
     only_execution_transaction_id,
     only_with_execution_projection_hash,
 )
-from onlyalpha.fee import (
-    OnlyBrokerFeeReportingMode,
-    OnlyFeeAuthority,
-    OnlyFeeBreakdown,
-    OnlyFeeComponent,
-    OnlyFeeStatus,
-    OnlyFeeType,
-)
+from onlyalpha.fee import OnlyBrokerFeeReportingMode, OnlyFeeBreakdown, OnlyFeeStatus
 from onlyalpha.market.models import OnlyPositionEffect
-from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
-from onlyalpha.risk.enums import OnlyRiskLevel, OnlyRiskReservationState
+from onlyalpha.position.enums import (
+    OnlyPositionMode,
+    OnlyPositionReservationStage,
+    OnlyPositionReservationState,
+    OnlyPositionSide,
+    OnlyPositionStatus,
+    OnlySettlementBucket,
+)
+from onlyalpha.position.identifiers import OnlyPositionAllocationId, OnlyPositionReservationId
+from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
+from onlyalpha.risk.enums import OnlyRiskLevel, OnlyRiskReservationState, OnlyRiskReservationType
+from onlyalpha.risk.identifiers import OnlyRiskReservationId
 from onlyalpha.strategy.identifiers import OnlyStrategyId
+from onlyalpha.strategy_ledger.enums import (
+    OnlyStrategyCashEntryType,
+    OnlyStrategyCashReservationStage,
+    OnlyStrategyCashReservationState,
+    OnlyStrategyLedgerStatus,
+)
+from onlyalpha.strategy_ledger.identifiers import (
+    OnlyStrategyCashEntryId,
+    OnlyStrategyCashReservationId,
+    OnlyStrategyLedgerId,
+)
+from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
+from onlyalpha.strategy_ledger.models import OnlyStrategyCashEntry
 
 _TEST_RUNTIME_ID = OnlyRuntimeId("runtime")
 _TEST_TRADE_ID = OnlyTradeId("trade")
@@ -85,8 +122,8 @@ def only_test_execution_fact_draft(
     update_id: OnlyBrokerUpdateId = _TEST_UPDATE_ID,
 ) -> OnlyCommittedExecutionFactDraft:
     timestamp = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC))
-    currency = OnlyCurrency("CNY", 2, OnlyCurrencyType.FIAT)
-    zero = OnlyMoney(Decimal("0.00"), currency)
+    currency = _currency()
+    zero = _money("0.00")
     return OnlyCommittedExecutionFactDraft(
         execution_id=f"EXEC-{runtime_id}-{trade_id}",
         trade_id=trade_id,
@@ -100,7 +137,7 @@ def only_test_execution_fact_draft(
         account_id=OnlyAccountId("account"),
         cluster_id=OnlyClusterId("cluster"),
         strategy_id=OnlyStrategyId("strategy"),
-        instrument_id=OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG")),
+        instrument_id=_instrument(),
         venue_id="XSHG",
         source_sequence=7,
         processing_sequence=3,
@@ -109,7 +146,7 @@ def only_test_execution_fact_draft(
         external_event_id="external",
         ts_event=timestamp,
         ts_init=timestamp,
-        trading_day=OnlyTradingDay(date(2026, 1, 1)),
+        trading_day=_day(),
         order_side=OnlyOrderSide.BUY,
         order_type=OnlyOrderType.LIMIT,
         offset=OnlyOffset.OPEN,
@@ -117,15 +154,15 @@ def only_test_execution_fact_draft(
         position_effect=OnlyPositionEffect.OPEN,
         position_mode=OnlyPositionMode.NETTING,
         liquidity_side=OnlyLiquiditySide.TAKER,
-        fill_quantity=OnlyQuantity(Decimal("2"), 0),
-        fill_price=OnlyPrice(Decimal("10.00"), 2),
-        cumulative_filled_quantity=OnlyQuantity(Decimal("2"), 0),
-        remaining_quantity=OnlyQuantity(Decimal("0"), 0),
+        fill_quantity=_quantity("2"),
+        fill_price=_price("10.00"),
+        cumulative_filled_quantity=_quantity("2"),
+        remaining_quantity=_quantity("0"),
         order_status_after=OnlyOrderStatus.FILLED,
         currency=currency,
         contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
-        gross_notional=OnlyMoney(Decimal("20.00"), currency),
-        settled_notional=OnlyMoney(Decimal("20.00"), currency),
+        gross_notional=_money("20.00"),
+        settled_notional=_money("20.00"),
         authoritative_fee_total=zero,
         market_fee=zero,
         broker_fee=zero,
@@ -134,10 +171,10 @@ def only_test_execution_fact_draft(
         other_fee=zero,
         reported_broker_fee=None,
         fee_reporting_mode=OnlyBrokerFeeReportingMode.NONE,
-        reference_price=OnlyPrice(Decimal("10.00"), 2),
+        reference_price=_price("10.00"),
         slippage=zero,
         realized_pnl_delta=zero,
-        cash_delta=OnlyMoney(Decimal("-20.00"), currency),
+        cash_delta=_money("-20.00"),
         fee_instruction_id="fee-instruction",
         fee_authority="NONE",
         fee_status=OnlyFeeStatus.CONFIRMED.value,
@@ -153,9 +190,9 @@ def only_test_execution_fact_draft(
         trade_instruction_id="trade-instruction",
         settlement_instruction_id="settlement",
         settlement_status="SETTLED",
-        asset_available_on=OnlyTradingDay(date(2026, 1, 1)),
-        cash_available_on=OnlyTradingDay(date(2026, 1, 1)),
-        legal_settlement_date=OnlyTradingDay(date(2026, 1, 1)),
+        asset_available_on=_day(),
+        cash_available_on=_day(),
+        legal_settlement_date=_day(),
         margin_instruction_id=None,
         margin_action=None,
         margin_currency=None,
@@ -167,276 +204,501 @@ def only_test_execution_fact_draft(
         position_quantity_delta=Decimal("2"),
         position_realized_pnl_delta=zero,
         allocation_quantity_delta=Decimal("2"),
-        account_cash_delta=OnlyMoney(Decimal("-20.00"), currency),
+        account_cash_delta=_money("-20.00"),
         account_fee_delta=zero,
         account_realized_pnl_delta=zero,
-        ledger_cash_delta=OnlyMoney(Decimal("-20.00"), currency),
+        ledger_cash_delta=_money("-20.00"),
         ledger_fee_delta=zero,
         ledger_realized_pnl_delta=zero,
     )
 
 
-def only_test_execution_projections() -> tuple[OnlyExecutionProjection, ...]:
-    day = OnlyTradingDay(date(2026, 1, 1))
-    timestamp = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC))
-    currency = OnlyCurrency("CNY", 2, OnlyCurrencyType.FIAT)
-    zero = OnlyMoney(Decimal("0.00"), currency)
-    one = OnlyMoney(Decimal("1.00"), currency)
-    two = OnlyMoney(Decimal("2.00"), currency)
-    quantity_zero = OnlyQuantity(Decimal("0"), 0)
-    quantity_one = OnlyQuantity(Decimal("1"), 0)
-    quantity_two = OnlyQuantity(Decimal("2"), 0)
-    instrument_id = OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG"))
+def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProjection, ...]:
+    """Return the economically coherent Generic T0 Cash projection set."""
+
+    timestamp = _timestamp()
     order_id = OnlyOrderId("order")
-
-    def identity(
-        component: OnlyExecutionProjectionComponent, sequence: int, key: str
-    ) -> OnlyExecutionProjectionIdentity:
-        return OnlyExecutionProjectionIdentity(component, key, 0, 1, sequence, "0" * 64)
-
-    state = OnlySettlementProjectionState(
-        "settlement",
-        "account",
-        "600000.XSHG",
-        "order",
-        "trade",
-        Decimal("2"),
-        Decimal("20"),
-        True,
-        True,
-        True,
-        True,
-        day,
-        day,
-        day,
-        day,
+    before_order = OnlyOrderExecutionState(
+        order_id,
+        OnlyOrderRequestId("request"),
+        OnlyClientOrderId("client-order"),
+        None,
+        _TEST_RUNTIME_ID,
+        OnlyClusterId("cluster"),
+        OnlyAccountId("account"),
+        _instrument(),
+        OnlyOrderSide.BUY,
+        OnlyOffset.OPEN,
+        OnlyOrderType.LIMIT,
+        OnlyTimeInForce.DAY,
+        _quantity("2"),
+        _price("10.00"),
+        None,
+        None,
+        OnlyOrderStatus.ACCEPTED,
+        _quantity("0"),
+        _quantity("2"),
+        None,
+        timestamp,
+        timestamp,
+        timestamp,
+        timestamp,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        1,
+        6,
+        None,
+        None,
     )
-    record = OnlySettlementRecordReplay(
+    after_order = replace(
+        before_order,
+        status=OnlyOrderStatus.FILLED,
+        filled_quantity=_quantity("2"),
+        remaining_quantity=_quantity("0"),
+        average_fill_price=_price("10.00"),
+        filled_at=timestamp,
+        version=2,
+        last_external_sequence=7,
+    )
+    fill = OnlyOrderFill(
+        _TEST_TRADE_ID,
+        order_id,
+        _price("10.00"),
+        _quantity("2"),
+        timestamp,
+        timestamp,
+        external_sequence=7,
+        external_event_id="external",
+        reference_price=_price("10.00"),
+    )
+    position = OnlyPositionExecutionState(
+        OnlyPositionId("position"),
+        OnlyPositionKey(_TEST_RUNTIME_ID, OnlyAccountId("account"), _instrument()),
+        OnlyPositionStatus.OPEN,
+        _quantity("2"),
+        _quantity("2"),
+        _quantity("0"),
+        _quantity("0"),
+        _quantity("0"),
+        _quantity("0"),
+        _price("10.00"),
+        _money("0.00"),
+        _money("0.00"),
+        timestamp,
+        timestamp,
+        None,
+        1,
+        7,
+        (7, timestamp.unix_nanos, str(_TEST_TRADE_ID)),
+    )
+    allocation = OnlyAllocationExecutionState(
+        OnlyPositionAllocationId("allocation"),
+        OnlyPositionAllocationKey(
+            _TEST_RUNTIME_ID,
+            OnlyAccountId("account"),
+            OnlyClusterId("cluster"),
+            _instrument(),
+        ),
+        _quantity("2"),
+        _quantity("2"),
+        _quantity("0"),
+        _quantity("0"),
+        _quantity("0"),
+        _quantity("0"),
+        _price("10.00"),
+        _money("0.00"),
+        _money("0.00"),
+        timestamp,
+        timestamp,
+        None,
+        1,
+        7,
+        (7, timestamp.unix_nanos, str(_TEST_TRADE_ID)),
+    )
+    settlement = OnlySettlementExecutionState(
         "settlement",
-        "account",
-        "600000.XSHG",
-        "order",
-        "trade",
-        day,
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        str(_TEST_TRADE_ID),
         Decimal("2"),
-        Decimal("20"),
-        Decimal("20"),
+        _money("20.00"),
         True,
+        True,
+        True,
+        True,
+        _day(),
+        _day(),
+        _day(),
+        _day(),
         1,
     )
-    fee_component = OnlyFeeComponent(
-        OnlyFeeType.BROKER_COMMISSION, OnlyFeeAuthority.BROKER, one, OnlyFeeStatus.CONFIRMED, "fee-source"
+    fee = OnlyFeeExecutionState(
+        OnlyFeeInstructionReplay(
+            "fee-instruction",
+            str(_TEST_RUNTIME_ID),
+            "cluster",
+            "account",
+            str(order_id),
+            str(_TEST_TRADE_ID),
+            "MARKET_RULE",
+            "fee-idempotency",
+            timestamp,
+        ),
+        (),
+        _money("0.00"),
+        OnlyFeeBreakdown.empty(_currency(), OnlyFeeStatus.CONFIRMED),
+        1,
     )
-    fee_breakdown = OnlyFeeBreakdown(currency, (fee_component,), one, OnlyFeeStatus.CONFIRMED)
+    account_before = _account_state(cash="100.00", market_value="0.00", version=1, sequence=6)
+    account_after = _account_state(cash="80.00", market_value="20.00", version=2, sequence=7)
+    ledger_before = _ledger_state(cash="100.00", position_cost="0.00", market_value="0.00", version=1)
+    ledger_after = _ledger_state(
+        cash="80.00",
+        position_cost="20.00",
+        market_value="20.00",
+        version=2,
+        with_trade_entry=True,
+    )
+    account_reservation_before = OnlyAccountCashReservationExecutionState(
+        "account-reservation",
+        _TEST_RUNTIME_ID,
+        OnlyAccountId("account"),
+        order_id,
+        _money("20.00"),
+        _money("0.00"),
+        _money("20.00"),
+        OnlyAccountReservationState.ACTIVE,
+        timestamp,
+        timestamp,
+        1,
+    )
+    account_reservation_after = replace(
+        account_reservation_before,
+        consumed_amount=_money("20.00"),
+        remaining_amount=_money("0.00"),
+        state=OnlyAccountReservationState.CONSUMED,
+        version=2,
+    )
+    ledger_key = _ledger_key()
+    strategy_reservation_before = OnlyStrategyCashReservationExecutionState(
+        OnlyStrategyCashReservationId("strategy-reservation"),
+        ledger_key,
+        order_id,
+        _money("20.00"),
+        _money("0.00"),
+        _money("20.00"),
+        _money("0.00"),
+        _money("20.00"),
+        OnlyStrategyCashReservationState.ACTIVE,
+        OnlyStrategyCashReservationStage.BROKER_ACKNOWLEDGED,
+        timestamp,
+        timestamp,
+        1,
+    )
+    strategy_reservation_after = replace(
+        strategy_reservation_before,
+        consumed_amount=_money("20.00"),
+        remaining_amount=_money("0.00"),
+        state=OnlyStrategyCashReservationState.CONSUMED,
+        version=2,
+    )
+
     projections: tuple[OnlyExecutionProjection, ...] = (
         OnlyOrderExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.ORDER, 1, "order"),
-            order_id,
-            OnlyOrderStatus.PARTIALLY_FILLED,
-            OnlyOrderStatus.FILLED,
-            quantity_one,
-            quantity_two,
-            OnlyPrice(Decimal("10.00"), 2),
-            OnlyPrice(Decimal("10.00"), 2),
-            OnlyOrderFill(
-                OnlyTradeId("trade"), order_id, OnlyPrice(Decimal("10.00"), 2), quantity_one, timestamp, timestamp
-            ),
-            "update",
+            _identity(OnlyExecutionProjectionComponent.ORDER, 1, str(order_id), before_order, after_order),
+            before_order,
+            after_order,
+            fill,
+            _TEST_UPDATE_ID,
         ),
         OnlyPositionExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.POSITION, 2, "position"),
-            "position",
-            quantity_zero,
-            quantity_two,
-            quantity_zero,
-            quantity_two,
+            _identity(OnlyExecutionProjectionComponent.POSITION, 2, "position", None, position),
             None,
-            OnlyPrice(Decimal("10.00"), 2),
-            zero,
-            zero,
+            position,
+            _money("0.00"),
         ),
         OnlyAllocationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.ALLOCATION, 3, "allocation"),
-            "allocation",
-            quantity_zero,
-            quantity_two,
-            zero,
-            OnlyMoney(Decimal("20.00"), currency),
-            zero,
+            _identity(OnlyExecutionProjectionComponent.ALLOCATION, 3, "allocation", None, allocation),
+            None,
+            allocation,
+            _money("0.00"),
         ),
         OnlySettlementExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.SETTLEMENT, 4, "settlement"), None, state, (record,)
-        ),
-        OnlyMarginExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.MARGIN, 5, "margin"), "margin", two, one, zero, one, zero, one
+            _identity(OnlyExecutionProjectionComponent.SETTLEMENT, 4, "settlement", None, settlement),
+            None,
+            settlement,
+            (),
         ),
         OnlyFeeExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.FEE, 6, "fee"),
-            OnlyFeeInstructionReplay(
-                "fee-instruction", "runtime", "cluster", "account", "order", "trade", "resolver", "fee-key", timestamp
-            ),
-            (
-                OnlyFeeRecordReplay(
-                    "fee-record", "fee-instruction", "account", "order", "trade", one, "BROKER_COMMISSION"
-                ),
-            ),
-            one,
-            fee_breakdown,
+            _identity(OnlyExecutionProjectionComponent.FEE, 5, "fee-instruction", None, fee),
+            None,
+            fee,
         ),
         OnlyAccountExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.ACCOUNT, 7, "account"),
-            OnlyAccountId("account"),
-            OnlyMoney(Decimal("100"), currency),
-            OnlyMoney(Decimal("79"), currency),
-            zero,
-            zero,
-            zero,
-            zero,
-            zero,
-            zero,
-            zero,
-            one,
-            zero,
-            OnlyMoney(Decimal("20"), currency),
-            OnlyMoney(Decimal("100"), currency),
-            OnlyMoney(Decimal("99"), currency),
+            _identity(OnlyExecutionProjectionComponent.ACCOUNT, 6, "account", account_before, account_after),
+            account_before,
+            account_after,
         ),
         OnlyStrategyLedgerExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, 8, "ledger"),
-            "ledger",
-            OnlyMoney(Decimal("100"), currency),
-            OnlyMoney(Decimal("79"), currency),
-            zero,
-            zero,
-            zero,
-            zero,
-            zero,
-            one,
-            OnlyMoney(Decimal("100"), currency),
-            OnlyMoney(Decimal("99"), currency),
-            0,
-            1,
+            _identity(
+                OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
+                7,
+                "ledger",
+                ledger_before,
+                ledger_after,
+            ),
+            ledger_before,
+            ledger_after,
         ),
-        OnlyCashReservationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION, 9, "account-cash"),
-            "account-cash",
-            "account",
-            currency,
-            two,
-            one,
-            one,
-            zero,
-            OnlyReservationStatus.ACTIVE,
-            OnlyReservationStatus.CONSUMED,
+        OnlyAccountCashReservationExecutionProjection(
+            _identity(
+                OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                8,
+                "account-reservation",
+                account_reservation_before,
+                account_reservation_after,
+            ),
+            account_reservation_before,
+            account_reservation_after,
         ),
-        OnlyCashReservationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION, 10, "strategy-cash"),
-            "strategy-cash",
-            "cluster",
-            currency,
-            two,
-            one,
-            zero,
-            one,
-            OnlyReservationStatus.ACTIVE,
-            OnlyReservationStatus.PARTIALLY_CONSUMED,
-        ),
-        OnlyPositionReservationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.POSITION_RESERVATION, 11, "position-reservation"),
-            "position-reservation",
-            order_id,
-            instrument_id,
-            quantity_two,
-            quantity_one,
-            quantity_zero,
-            quantity_one,
-            OnlyReservationStatus.ACTIVE,
-            OnlyReservationStatus.PARTIALLY_CONSUMED,
-        ),
-        OnlyMarginReservationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.MARGIN_RESERVATION, 12, "margin-reservation"),
-            "margin-reservation",
-            OnlyAccountId("account"),
-            instrument_id,
-            currency,
-            two,
-            one,
-            zero,
-            zero,
-            one,
-            zero,
-            zero,
-        ),
-        OnlyRiskReservationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.RISK_RESERVATION, 13, "risk-reservation"),
-            "risk-reservation",
-            OnlyClusterId("cluster"),
-            OnlyAccountId("account"),
-            instrument_id,
-            order_id,
-            quantity_two,
-            quantity_one,
-            two,
-            one,
-            quantity_one,
-            one,
-            OnlyRiskReservationState.ACTIVE,
-            OnlyRiskReservationState.ACTIVE,
-        ),
-        OnlyRiskExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.RISK, 14, "risk"),
-            OnlyClusterId("cluster"),
-            OnlyAccountId("account"),
-            instrument_id,
-            order_id,
-            quantity_two,
-            quantity_one,
-            two,
-            one,
-            OnlyRiskLevel.NORMAL,
-            OnlyRiskLevel.NORMAL,
-        ),
-        OnlyValuationExecutionProjection(
-            identity(OnlyExecutionProjectionComponent.VALUATION, 15, "valuation"),
-            OnlyAccountId("account"),
-            timestamp,
-            zero,
-            OnlyMoney(Decimal("20"), currency),
-            zero,
-            zero,
+        OnlyStrategyCashReservationExecutionProjection(
+            _identity(
+                OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+                9,
+                "strategy-reservation",
+                strategy_reservation_before,
+                strategy_reservation_after,
+            ),
+            strategy_reservation_before,
+            strategy_reservation_after,
         ),
     )
-    return tuple(only_with_execution_projection_hash(projection) for projection in projections)
+    return tuple(only_with_execution_projection_hash(item) for item in projections)
 
 
-def only_test_execution_preconditions(
-    projections: tuple[OnlyExecutionProjection, ...],
-) -> tuple[OnlyExecutionPrecondition, ...]:
-    return tuple(
-        OnlyExecutionPrecondition(item.identity.component, item.identity.entity_key, item.identity.expected_version)
-        for item in projections
+def only_test_all_projection_types_transaction() -> OnlyPreparedExecutionTransaction:
+    """Return a structurally complete transaction containing every projection union member."""
+
+    timestamp = _timestamp()
+    order_id = OnlyOrderId("order")
+    base = only_test_generic_t0_cash_buy_open_projections()
+    position_reservation_before = OnlyPositionReservationExecutionState(
+        OnlyPositionReservationId("position-reservation"),
+        _TEST_RUNTIME_ID,
+        OnlyAccountId("account"),
+        OnlyClusterId("cluster"),
+        _instrument(),
+        OnlyPositionSide.LONG,
+        OnlyPositionMode.NETTING,
+        order_id,
+        _quantity("2"),
+        _quantity("2"),
+        OnlySettlementBucket.SETTLED,
+        OnlyPositionReservationStage.BROKER_ACKNOWLEDGED,
+        OnlyPositionReservationState.ACTIVE,
+        timestamp,
+        timestamp,
+        1,
+    )
+    position_reservation_after = replace(
+        position_reservation_before,
+        remaining_quantity=_quantity("0"),
+        state=OnlyPositionReservationState.CONSUMED,
+        version=2,
+    )
+    margin_before = OnlyMarginExecutionState(
+        "margin-instruction",
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        str(_TEST_TRADE_ID),
+        "CNY",
+        "RESERVE",
+        Decimal("10"),
+        Decimal("10"),
+        Decimal("0"),
+        Decimal("0"),
+        timestamp,
+        1,
+    )
+    margin_after = replace(margin_before, action="OCCUPY", reserved=Decimal("0"), occupied=Decimal("10"), version=2)
+    margin_reservation_before = OnlyMarginReservationExecutionState(
+        "margin-reservation",
+        _TEST_RUNTIME_ID,
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        _currency(),
+        _money("10.00"),
+        _money("10.00"),
+        _money("0.00"),
+        _money("0.00"),
+        _money("0.00"),
+        OnlyMarginReservationExecutionStatus.ACTIVE,
+        OnlyMarginReservationExecutionStage.RESERVED,
+        timestamp,
+        timestamp,
+        1,
+    )
+    margin_reservation_after = replace(
+        margin_reservation_before,
+        remaining_reserved_amount=_money("0.00"),
+        occupied_amount=_money("10.00"),
+        state=OnlyMarginReservationExecutionStatus.OCCUPIED,
+        stage=OnlyMarginReservationExecutionStage.OCCUPIED,
+        version=2,
+    )
+    risk_reservation_before = OnlyRiskReservationExecutionState(
+        OnlyRiskReservationId("risk-reservation"),
+        OnlyRiskReservationType.ORDER,
+        _TEST_RUNTIME_ID,
+        OnlyClusterId("cluster"),
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        _quantity("2"),
+        _money("20.00"),
+        _quantity("0"),
+        _money("0.00"),
+        _quantity("2"),
+        _money("20.00"),
+        OnlyRiskReservationState.ACTIVE,
+        None,
+        timestamp,
+        timestamp,
+        1,
+    )
+    risk_reservation_after = replace(
+        risk_reservation_before,
+        consumed_quantity=_quantity("2"),
+        consumed_notional=_money("20.00"),
+        remaining_quantity=_quantity("0"),
+        remaining_notional=_money("0.00"),
+        state=OnlyRiskReservationState.CONSUMED,
+        version=2,
+    )
+    risk_before = OnlyRiskExecutionState(
+        OnlyClusterId("cluster"),
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        _quantity("2"),
+        _money("20.00"),
+        OnlyRiskLevel.NORMAL,
+        timestamp,
+        1,
+    )
+    risk_after = replace(risk_before, quantity_exposure=_quantity("0"), notional_exposure=_money("0.00"), version=2)
+    valuation_before = OnlyValuationExecutionState(
+        OnlyAccountId("account"),
+        timestamp,
+        _money("100.00"),
+        _money("0.00"),
+        _money("0.00"),
+        _money("100.00"),
+        1,
+    )
+    valuation_after = replace(
+        valuation_before,
+        cash=_money("80.00"),
+        position_market_value=_money("20.00"),
+        version=2,
+    )
+    extras: dict[OnlyExecutionProjectionComponent, OnlyExecutionProjection] = {
+        OnlyExecutionProjectionComponent.MARGIN: OnlyMarginExecutionProjection(
+            _identity(OnlyExecutionProjectionComponent.MARGIN, 1, "margin-instruction", margin_before, margin_after),
+            margin_before,
+            margin_after,
+        ),
+        OnlyExecutionProjectionComponent.POSITION_RESERVATION: OnlyPositionReservationExecutionProjection(
+            _identity(
+                OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                1,
+                "position-reservation",
+                position_reservation_before,
+                position_reservation_after,
+            ),
+            position_reservation_before,
+            position_reservation_after,
+        ),
+        OnlyExecutionProjectionComponent.MARGIN_RESERVATION: OnlyMarginReservationExecutionProjection(
+            _identity(
+                OnlyExecutionProjectionComponent.MARGIN_RESERVATION,
+                1,
+                "margin-reservation",
+                margin_reservation_before,
+                margin_reservation_after,
+            ),
+            margin_reservation_before,
+            margin_reservation_after,
+        ),
+        OnlyExecutionProjectionComponent.RISK_RESERVATION: OnlyRiskReservationExecutionProjection(
+            _identity(
+                OnlyExecutionProjectionComponent.RISK_RESERVATION,
+                1,
+                "risk-reservation",
+                risk_reservation_before,
+                risk_reservation_after,
+            ),
+            risk_reservation_before,
+            risk_reservation_after,
+        ),
+        OnlyExecutionProjectionComponent.RISK: OnlyRiskExecutionProjection(
+            _identity(OnlyExecutionProjectionComponent.RISK, 1, "risk", risk_before, risk_after),
+            risk_before,
+            risk_after,
+        ),
+        OnlyExecutionProjectionComponent.VALUATION: OnlyValuationExecutionProjection(
+            _identity(OnlyExecutionProjectionComponent.VALUATION, 1, "valuation", valuation_before, valuation_after),
+            valuation_before,
+            valuation_after,
+        ),
+    }
+    by_component = {item.identity.component: item for item in base} | extras
+    projections = tuple(
+        _resequence_projection(by_component[component], sequence)
+        for sequence, component in enumerate(OnlyExecutionProjectionComponent, start=1)
+    )
+    fact = replace(
+        only_test_execution_fact_draft(),
+        margin_instruction_id="margin-instruction",
+        margin_action="OCCUPY",
+        margin_currency=_currency(),
+        margin_amount=_money("10.00"),
+        reserved_margin_delta=_money("-10.00"),
+        occupied_margin_delta=_money("10.00"),
+        released_margin_delta=_money("0.00"),
+        maintenance_margin_after=_money("0.00"),
+    )
+    transaction_id = only_execution_transaction_id(
+        runtime_id=fact.runtime_id,
+        gateway_id=fact.gateway_id,
+        account_id=fact.account_id,
+        broker_update_id=fact.broker_update_id,
+        trade_id=fact.trade_id,
+    )
+    return OnlyPreparedExecutionTransaction(
+        transaction_id,
+        fact.runtime_id,
+        fact.gateway_id,
+        fact.account_id,
+        fact.broker_update_id,
+        fact.trade_id,
+        fact.source_sequence,
+        timestamp,
+        fact,
+        projections,
+        only_test_execution_events(transaction_id=transaction_id, runtime_id=fact.runtime_id),
+        only_test_execution_preconditions(projections),
     )
 
 
-def only_test_execution_events(*, transaction_id: str, runtime_id: OnlyRuntimeId) -> tuple[OnlyEvent, ...]:
-    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
-    factory = OnlyExecutionTransactionEventFactory()
-    return tuple(
-        factory.create(
-            transaction_id=transaction_id,
-            event_sequence=index,
-            event_type=OnlyEventType(f"TRADE_EVENT_{index}"),
-            timestamp=timestamp,
-            engine_id=OnlyEngineId("engine"),
-            runtime_id=runtime_id,
-            source=OnlyEventSource("execution"),
-            payload={"sequence": index},
-        )
-        for index in (1, 2)
-    )
-
-
-def only_test_prepared_execution_transaction(
+def only_test_generic_t0_cash_buy_open_transaction(
     *,
     prepared_at: OnlyTimestamp | None = None,
     runtime_id: OnlyRuntimeId = _TEST_RUNTIME_ID,
@@ -444,6 +706,9 @@ def only_test_prepared_execution_transaction(
     update_id: OnlyBrokerUpdateId = _TEST_UPDATE_ID,
 ) -> OnlyPreparedExecutionTransaction:
     fact = only_test_execution_fact_draft(runtime_id=runtime_id, trade_id=trade_id, update_id=update_id)
+    projections = only_test_generic_t0_cash_buy_open_projections()
+    if runtime_id != _TEST_RUNTIME_ID or trade_id != _TEST_TRADE_ID or update_id != _TEST_UPDATE_ID:
+        projections = _rescope_projections(projections, runtime_id, trade_id, update_id)
     transaction_id = only_execution_transaction_id(
         runtime_id=runtime_id,
         gateway_id=fact.gateway_id,
@@ -451,7 +716,6 @@ def only_test_prepared_execution_transaction(
         broker_update_id=update_id,
         trade_id=trade_id,
     )
-    projections = only_test_execution_projections()
     return OnlyPreparedExecutionTransaction(
         transaction_id,
         runtime_id,
@@ -468,5 +732,238 @@ def only_test_prepared_execution_transaction(
     )
 
 
+def only_test_execution_preconditions(
+    projections: tuple[OnlyExecutionProjection, ...],
+) -> tuple[OnlyExecutionPrecondition, ...]:
+    return tuple(
+        OnlyExecutionPrecondition(
+            item.identity.component,
+            item.identity.entity_key,
+            item.identity.expected_version,
+            item.identity.expected_state_hash,
+        )
+        for item in projections
+    )
+
+
+def only_test_execution_events(*, transaction_id: str, runtime_id: OnlyRuntimeId) -> tuple[OnlyEvent, ...]:
+    factory = OnlyExecutionTransactionEventFactory()
+    return tuple(
+        factory.create(
+            transaction_id=transaction_id,
+            event_sequence=index,
+            event_type=OnlyEventType(f"TRADE_EVENT_{index}"),
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            engine_id=OnlyEngineId("engine"),
+            runtime_id=runtime_id,
+            source=OnlyEventSource("execution"),
+            payload={"sequence": index},
+        )
+        for index in (1, 2)
+    )
+
+
 def only_test_rehash(prepared: OnlyPreparedExecutionTransaction, **changes: object) -> OnlyPreparedExecutionTransaction:
     return replace(prepared, **changes, authority_hash="", payload_hash="")
+
+
+def _identity(
+    component: OnlyExecutionProjectionComponent,
+    sequence: int,
+    entity_key: str,
+    before: OnlyDomainModel | None,
+    after: OnlyDomainModel,
+) -> OnlyExecutionProjectionIdentity:
+    expected_version = 0 if before is None else int(str(before.to_dict()["version"]))
+    result_version = int(str(after.to_dict()["version"]))
+    return OnlyExecutionProjectionIdentity(
+        component,
+        entity_key,
+        expected_version,
+        result_version,
+        only_execution_state_hash(before),
+        only_execution_state_hash(after),
+        sequence,
+        "0" * 64,
+    )
+
+
+def _projection[ProjectionT: OnlyExecutionProjection](
+    projections: tuple[OnlyExecutionProjection, ...], projection_type: type[ProjectionT]
+) -> ProjectionT:
+    return next(item for item in projections if isinstance(item, projection_type))
+
+
+def _resequence_projection(projection: OnlyExecutionProjection, sequence: int) -> OnlyExecutionProjection:
+    updated = replace(
+        projection,
+        identity=replace(projection.identity, projection_sequence=sequence, payload_hash="0" * 64),
+    )
+    return only_with_execution_projection_hash(updated)
+
+
+def _account_state(*, cash: str, market_value: str, version: int, sequence: int) -> OnlyAccountExecutionState:
+    cash_money = _money(cash)
+    market_money = _money(market_value)
+    zero = _money("0.00")
+    return OnlyAccountExecutionState(
+        _TEST_RUNTIME_ID,
+        OnlyAccountId("account"),
+        "gateway",
+        OnlyAccountType.CASH,
+        _currency(),
+        OnlyAccountStatus.ACTIVE,
+        cash_money,
+        cash_money,
+        zero,
+        zero,
+        market_money,
+        zero,
+        zero,
+        zero,
+        _money(str(cash_money.amount + market_money.amount)),
+        _timestamp(),
+        _timestamp(),
+        _timestamp(),
+        version,
+        sequence,
+        (),
+        zero,
+        zero,
+        zero,
+        zero,
+    )
+
+
+def _ledger_state(
+    *, cash: str, position_cost: str, market_value: str, version: int, with_trade_entry: bool = False
+) -> OnlyStrategyLedgerExecutionState:
+    zero = _money("0.00")
+    entries: tuple[OnlyStrategyCashEntry, ...] = ()
+    if with_trade_entry:
+        entries = (
+            OnlyStrategyCashEntry(
+                OnlyStrategyCashEntryId("cash-entry"),
+                _TEST_RUNTIME_ID,
+                OnlyAccountId("account"),
+                OnlyClusterId("cluster"),
+                _currency(),
+                _money("-20.00"),
+                OnlyStrategyCashEntryType.BUY_SETTLEMENT,
+                OnlyOrderId("order"),
+                _TEST_TRADE_ID,
+                OnlyStrategyCashReservationId("strategy-reservation"),
+                None,
+                _timestamp(),
+                _timestamp(),
+                7,
+            ),
+        )
+    return OnlyStrategyLedgerExecutionState(
+        OnlyStrategyLedgerId("ledger"),
+        _ledger_key(),
+        OnlyStrategyLedgerStatus.ACTIVE,
+        _money("100.00"),
+        zero,
+        _money(cash),
+        zero,
+        _money(cash),
+        _money(position_cost),
+        _money(market_value),
+        zero,
+        zero,
+        zero,
+        _money(str(Decimal(cash) + Decimal(market_value))),
+        entries,
+        (),
+        _timestamp(),
+        _timestamp(),
+        _timestamp(),
+        version,
+        7 if with_trade_entry else 6,
+        (7, _timestamp().unix_nanos, str(_TEST_TRADE_ID)) if with_trade_entry else None,
+    )
+
+
+def _rescope_projections(
+    projections: tuple[OnlyExecutionProjection, ...],
+    runtime_id: OnlyRuntimeId,
+    trade_id: OnlyTradeId,
+    update_id: OnlyBrokerUpdateId,
+) -> tuple[OnlyExecutionProjection, ...]:
+    if runtime_id != _TEST_RUNTIME_ID:
+        raise ValueError("custom Runtime fixture scope is not supported")
+    result: list[OnlyExecutionProjection] = []
+    for projection in projections:
+        updated: OnlyExecutionProjection = projection
+        if isinstance(projection, OnlyOrderExecutionProjection):
+            updated = replace(projection, fill=replace(projection.fill, trade_id=trade_id), broker_update_id=update_id)
+        elif isinstance(projection, OnlySettlementExecutionProjection):
+            after = replace(projection.after, source_trade_id=str(trade_id))
+            updated = _replace_projection_after(projection, after)
+        elif isinstance(projection, OnlyFeeExecutionProjection):
+            after = replace(
+                projection.after,
+                instruction=replace(projection.after.instruction, trade_id=str(trade_id)),
+            )
+            updated = _replace_projection_after(projection, after)
+        elif isinstance(projection, OnlyStrategyLedgerExecutionProjection):
+            entries = tuple(replace(entry, trade_id=trade_id) for entry in projection.after.cash_entries)
+            after = replace(
+                projection.after,
+                cash_entries=entries,
+                last_trade_order=(7, _timestamp().unix_nanos, str(trade_id)),
+            )
+            updated = _replace_projection_after(projection, after)
+        result.append(only_with_execution_projection_hash(updated))
+    return tuple(result)
+
+
+def _replace_projection_after[ProjectionT: OnlyExecutionProjection](
+    projection: ProjectionT, after: object
+) -> ProjectionT:
+    if not hasattr(after, "version"):
+        raise TypeError("fixture after state must be versioned")
+    identity = replace(
+        projection.identity,
+        result_state_hash=only_execution_state_hash(after),  # type: ignore[arg-type]
+        payload_hash="0" * 64,
+    )
+    return replace(projection, identity=identity, after=after)  # type: ignore[arg-type,return-value]
+
+
+def _currency() -> OnlyCurrency:
+    return OnlyCurrency("CNY", 2, OnlyCurrencyType.FIAT)
+
+
+def _money(value: str) -> OnlyMoney:
+    return OnlyMoney(Decimal(value), _currency())
+
+
+def _quantity(value: str) -> OnlyQuantity:
+    return OnlyQuantity(Decimal(value), 0)
+
+
+def _price(value: str) -> OnlyPrice:
+    return OnlyPrice(Decimal(value), 2)
+
+
+def _timestamp() -> OnlyTimestamp:
+    return OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def _day() -> OnlyTradingDay:
+    return OnlyTradingDay(date(2026, 1, 1))
+
+
+def _instrument() -> OnlyInstrumentId:
+    return OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG"))
+
+
+def _ledger_key() -> OnlyStrategyLedgerKey:
+    return OnlyStrategyLedgerKey(
+        _TEST_RUNTIME_ID,
+        OnlyAccountId("account"),
+        OnlyClusterId("cluster"),
+        _currency(),
+    )

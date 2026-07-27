@@ -32,6 +32,10 @@ class OnlyExecutionTransactionConflict(ValueError):
     """An idempotency key was reused for a different prepared authority."""
 
 
+class OnlyExecutionTransactionStoreError(RuntimeError):
+    """The transaction store failed independently of a business idempotency conflict."""
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyExecutionTransactionOutboxKey:
     runtime_id: OnlyRuntimeId
@@ -181,46 +185,71 @@ class OnlyInMemoryExecutionTransactionStore:
     def commit(
         self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
     ) -> OnlyExecutionTransactionCommitResult:
-        prepared_payload = only_encode_prepared_execution_transaction(prepared)
-        if only_decode_prepared_execution_transaction(prepared_payload) != prepared:
-            raise ValueError("prepared transaction is not round-trippable")
         with self._lock:
-            existing = self._find_idempotent(prepared)
-            if existing is not None:
-                return OnlyExecutionTransactionCommitResult(existing, False)
-            sequence = 1 + max(
-                (item.execution_sequence for item in self._records.values() if item.runtime_id == prepared.runtime_id),
-                default=0,
+            snapshots = (
+                dict(self._records),
+                dict(self._by_transaction),
+                dict(self._by_trade),
+                dict(self._by_update),
+                dict(self._outbox),
             )
-            transaction = _finalize(prepared, sequence, committed_at)
-            if (
-                only_decode_committed_execution_transaction(only_encode_committed_execution_transaction(transaction))
-                != transaction
-            ):
-                raise ValueError("committed transaction is not round-trippable")
-            key = prepared.runtime_id, sequence
-            outbox_records = tuple(
-                (
-                    (prepared.runtime_id, sequence, event_sequence),
-                    OnlyExecutionTransactionOutboxRecord(
-                        OnlyExecutionTransactionOutboxKey(prepared.runtime_id, sequence, event_sequence),
-                        event,
-                        False,
-                        False,
-                        0,
-                        None,
-                        None,
-                        None,
+            try:
+                prepared_payload = only_encode_prepared_execution_transaction(prepared)
+                if only_decode_prepared_execution_transaction(prepared_payload) != prepared:
+                    raise ValueError("prepared transaction is not round-trippable")
+                existing = self._find_idempotent(prepared)
+                if existing is not None:
+                    return OnlyExecutionTransactionCommitResult(existing, False)
+                sequence = 1 + max(
+                    (
+                        item.execution_sequence
+                        for item in self._records.values()
+                        if item.runtime_id == prepared.runtime_id
                     ),
+                    default=0,
                 )
-                for event_sequence, event in enumerate(prepared.outbox_events, start=1)
-            )
-            self._records[key] = transaction
-            self._by_transaction[prepared.transaction_id] = key
-            self._by_trade[self._trade_key(prepared)] = key
-            self._by_update[self._update_key(prepared)] = key
-            self._outbox.update(outbox_records)
-            return OnlyExecutionTransactionCommitResult(transaction, True)
+                transaction = _finalize(prepared, sequence, committed_at)
+                if (
+                    only_decode_committed_execution_transaction(
+                        only_encode_committed_execution_transaction(transaction)
+                    )
+                    != transaction
+                ):
+                    raise ValueError("committed transaction is not round-trippable")
+                key = prepared.runtime_id, sequence
+                outbox_records = tuple(
+                    (
+                        (prepared.runtime_id, sequence, event_sequence),
+                        OnlyExecutionTransactionOutboxRecord(
+                            OnlyExecutionTransactionOutboxKey(prepared.runtime_id, sequence, event_sequence),
+                            event,
+                            False,
+                            False,
+                            0,
+                            None,
+                            None,
+                            None,
+                        ),
+                    )
+                    for event_sequence, event in enumerate(prepared.outbox_events, start=1)
+                )
+                self._records[key] = transaction
+                self._by_transaction[prepared.transaction_id] = key
+                self._by_trade[self._trade_key(prepared)] = key
+                self._by_update[self._update_key(prepared)] = key
+                self._outbox.update(outbox_records)
+                return OnlyExecutionTransactionCommitResult(transaction, True)
+            except OnlyExecutionTransactionConflict:
+                raise
+            except Exception as exc:
+                (
+                    self._records,
+                    self._by_transaction,
+                    self._by_trade,
+                    self._by_update,
+                    self._outbox,
+                ) = snapshots
+                raise OnlyExecutionTransactionStoreError("in-memory execution transaction commit failed") from exc
 
     def get_by_sequence(
         self, runtime_id: OnlyRuntimeId, execution_sequence: int
@@ -410,12 +439,13 @@ class OnlySqliteExecutionTransactionStore:
     """SQLite contract implementation with sequence allocation inside BEGIN IMMEDIATE."""
 
     def __init__(self, path: Path | str) -> None:
-        self._connection = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._connection.row_factory = sqlite3.Row
         self._lock = RLock()
-        with self._connection:
-            self._connection.executescript(
-                """
+        try:
+            self._connection = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
+            self._connection.row_factory = sqlite3.Row
+            with self._connection:
+                self._connection.executescript(
+                    """
                 CREATE TABLE IF NOT EXISTS execution_transactions (
                     runtime_id TEXT NOT NULL,
                     execution_sequence INTEGER NOT NULL,
@@ -455,7 +485,11 @@ class OnlySqliteExecutionTransactionStore:
                     UNIQUE(event_id)
                 );
                 """
-            )
+                )
+        except sqlite3.Error as exc:
+            raise OnlyExecutionTransactionStoreError(
+                "SQLite execution transaction schema initialization failed"
+            ) from exc
 
     def commit(
         self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
@@ -503,12 +537,20 @@ class OnlySqliteExecutionTransactionStore:
                     )
                 self._connection.execute("COMMIT")
                 return OnlyExecutionTransactionCommitResult(transaction, True)
-            except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError as exc:
                 self._connection.execute("ROLLBACK")
-                existing = self._find_idempotent(prepared)
+                try:
+                    existing = self._find_idempotent(prepared)
+                except OnlyExecutionTransactionConflict:
+                    raise
                 if existing is None:
-                    raise OnlyExecutionTransactionConflict("execution transaction unique-key conflict") from None
+                    raise OnlyExecutionTransactionStoreError(
+                        "SQLite execution transaction integrity failure is not a business conflict"
+                    ) from exc
                 return OnlyExecutionTransactionCommitResult(existing, False)
+            except sqlite3.Error as exc:
+                self._connection.execute("ROLLBACK")
+                raise OnlyExecutionTransactionStoreError("SQLite execution transaction commit failed") from exc
             except BaseException:
                 self._connection.execute("ROLLBACK")
                 raise
@@ -719,47 +761,60 @@ class OnlySqliteExecutionTransactionStore:
                 raise
 
     def _decode_row(self, row: sqlite3.Row) -> OnlyCommittedExecutionTransaction:
-        prepared_payload = str(row["prepared_payload"])
-        prepared = only_decode_prepared_execution_transaction(prepared_payload)
-        if prepared.authority_hash != str(row["prepared_authority_hash"]):
-            raise ValueError("prepared execution transaction stored authority hash mismatch")
-        if prepared.payload_hash != str(row["prepared_payload_hash"]):
-            raise ValueError("prepared execution transaction stored payload hash mismatch")
-        transaction = only_decode_committed_execution_transaction(str(row["committed_payload"]))
-        if transaction.committed_payload_hash != str(row["committed_payload_hash"]):
-            raise ValueError("committed execution transaction stored payload hash mismatch")
-        if transaction.prepared_authority_hash != prepared.authority_hash:
-            raise ValueError("prepared and committed authority hashes disagree")
-        if transaction.prepared_payload_hash != prepared.payload_hash:
-            raise ValueError("prepared and committed payload hashes disagree")
-        return transaction
+        try:
+            prepared_payload = str(row["prepared_payload"])
+            prepared = only_decode_prepared_execution_transaction(prepared_payload)
+            if prepared.authority_hash != str(row["prepared_authority_hash"]):
+                raise ValueError("prepared execution transaction stored authority hash mismatch")
+            if prepared.payload_hash != str(row["prepared_payload_hash"]):
+                raise ValueError("prepared execution transaction stored payload hash mismatch")
+            transaction = only_decode_committed_execution_transaction(str(row["committed_payload"]))
+            if transaction.committed_payload_hash != str(row["committed_payload_hash"]):
+                raise ValueError("committed execution transaction stored payload hash mismatch")
+            if transaction.prepared_authority_hash != prepared.authority_hash:
+                raise ValueError("prepared and committed authority hashes disagree")
+            if transaction.prepared_payload_hash != prepared.payload_hash:
+                raise ValueError("prepared and committed payload hashes disagree")
+            return transaction
+        except OnlyExecutionTransactionStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyExecutionTransactionStoreError("stored execution transaction is malformed") from exc
 
     def _decode_outbox(self, row: sqlite3.Row) -> OnlyExecutionTransactionOutboxRecord:
-        event = OnlyEvent.from_dict(json.loads(str(row["event_payload"])))
-        if str(event.event_id) != str(row["event_id"]):
-            raise ValueError("execution outbox event identity mismatch")
-        transaction_row = self._connection.execute(
-            "SELECT committed_payload FROM execution_transactions WHERE runtime_id=? AND execution_sequence=?",
-            (str(row["runtime_id"]), int(row["execution_sequence"])),
-        ).fetchone()
-        if transaction_row is None:
-            raise ValueError("execution outbox transaction is missing")
-        transaction = only_decode_committed_execution_transaction(str(transaction_row["committed_payload"]))
-        event_sequence = int(row["event_sequence"])
-        if event_sequence > len(transaction.outbox_events) or transaction.outbox_events[event_sequence - 1] != event:
-            raise ValueError("execution outbox event payload mismatch")
-        return OnlyExecutionTransactionOutboxRecord(
-            OnlyExecutionTransactionOutboxKey(
-                OnlyRuntimeId(str(row["runtime_id"])), int(row["execution_sequence"]), event_sequence
-            ),
-            event,
-            bool(row["projection_ready"]),
-            bool(row["published"]),
-            int(row["attempt_count"]),
-            self._timestamp(row["last_attempted_at"]),
-            self._timestamp(row["published_at"]),
-            None if row["last_error"] is None else str(row["last_error"]),
-        )
+        try:
+            event = OnlyEvent.from_dict(json.loads(str(row["event_payload"])))
+            if str(event.event_id) != str(row["event_id"]):
+                raise ValueError("execution outbox event identity mismatch")
+            transaction_row = self._connection.execute(
+                "SELECT committed_payload FROM execution_transactions WHERE runtime_id=? AND execution_sequence=?",
+                (str(row["runtime_id"]), int(row["execution_sequence"])),
+            ).fetchone()
+            if transaction_row is None:
+                raise ValueError("execution outbox transaction is missing")
+            transaction = only_decode_committed_execution_transaction(str(transaction_row["committed_payload"]))
+            event_sequence = int(row["event_sequence"])
+            if (
+                event_sequence > len(transaction.outbox_events)
+                or transaction.outbox_events[event_sequence - 1] != event
+            ):
+                raise ValueError("execution outbox event payload mismatch")
+            return OnlyExecutionTransactionOutboxRecord(
+                OnlyExecutionTransactionOutboxKey(
+                    OnlyRuntimeId(str(row["runtime_id"])), int(row["execution_sequence"]), event_sequence
+                ),
+                event,
+                bool(row["projection_ready"]),
+                bool(row["published"]),
+                int(row["attempt_count"]),
+                self._timestamp(row["last_attempted_at"]),
+                self._timestamp(row["published_at"]),
+                None if row["last_error"] is None else str(row["last_error"]),
+            )
+        except OnlyExecutionTransactionStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyExecutionTransactionStoreError("stored execution outbox record is malformed") from exc
 
     def _require_outbox(self, key: OnlyExecutionTransactionOutboxKey) -> OnlyExecutionTransactionOutboxRecord:
         with self._lock:

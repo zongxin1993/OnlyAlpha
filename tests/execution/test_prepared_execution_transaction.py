@@ -2,17 +2,16 @@ import sqlite3
 from collections.abc import Iterator
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 import onlyalpha.execution.transaction_store as transaction_store_module
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEventId
 from onlyalpha.execution import (
     OnlyExecutionTransactionConflict,
+    OnlyExecutionTransactionStoreError,
     OnlyInMemoryExecutionTransactionStore,
     OnlySqliteExecutionTransactionStore,
     only_decode_committed_execution_transaction,
@@ -20,10 +19,10 @@ from onlyalpha.execution import (
     only_encode_committed_execution_transaction,
     only_encode_prepared_execution_transaction,
 )
-from tests.execution.factories.transaction_factory import only_test_prepared_execution_transaction
+from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
 type TransactionStore = OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTransactionStore
-_prepared = only_test_prepared_execution_transaction
+_prepared = only_test_generic_t0_cash_buy_open_transaction
 
 
 def test_prepared_transaction_is_immutable_canonical_and_round_trippable() -> None:
@@ -106,7 +105,7 @@ def test_memory_and_sqlite_conflict_and_contiguous_sequence_contract(transaction
     first = _prepared()
     timestamp = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
     transaction_store.commit(first, committed_at=timestamp)
-    changed_fact = replace(first.fact_draft, cash_delta=OnlyMoney(Decimal("-21.00"), first.fact_draft.currency))
+    changed_fact = replace(first.fact_draft, market_profile_version="conflicting-version")
     conflict = replace(first, fact_draft=changed_fact, authority_hash="", payload_hash="")
     with pytest.raises(OnlyExecutionTransactionConflict):
         transaction_store.commit(conflict, committed_at=timestamp)
@@ -129,8 +128,9 @@ def test_sqlite_restart_and_payload_corruption_detection(tmp_path: Path) -> None
         connection.execute("UPDATE execution_transactions SET prepared_payload_hash=?", ("0" * 64,))
     connection.close()
     corrupted = OnlySqliteExecutionTransactionStore(path)
-    with pytest.raises(ValueError, match="stored payload hash"):
+    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
         corrupted.get_by_sequence(prepared.runtime_id, 1)
+    assert isinstance(captured.value.__cause__, ValueError)
     corrupted.close()
 
 
@@ -159,8 +159,9 @@ def test_sqlite_detects_outbox_payload_corruption(tmp_path: Path) -> None:
         )
     connection.close()
     corrupted = OnlySqliteExecutionTransactionStore(path)
-    with pytest.raises(ValueError, match="event payload mismatch"):
+    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
         corrupted.pending(prepared.runtime_id, limit=10)
+    assert isinstance(captured.value.__cause__, ValueError)
     corrupted.close()
 
 
@@ -172,11 +173,12 @@ def test_memory_commit_failure_does_not_publish_partial_state(monkeypatch: pytes
         raise RuntimeError("injected outbox failure")
 
     monkeypatch.setattr(transaction_store_module, "OnlyExecutionTransactionOutboxRecord", fail_outbox)
-    with pytest.raises(RuntimeError, match="injected"):
+    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
         store.commit(
             prepared,
             committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
         )
+    assert isinstance(captured.value.__cause__, RuntimeError)
     assert store.records() == ()
     assert store.get_by_transaction_id(prepared.transaction_id) is None
     assert store.outbox_records(prepared.runtime_id) == ()
@@ -195,11 +197,12 @@ def test_sqlite_commit_failure_rolls_back_transaction_and_sequence(tmp_path: Pat
     connection.close()
     prepared = _prepared()
     store = OnlySqliteExecutionTransactionStore(path)
-    with pytest.raises(OnlyExecutionTransactionConflict):
+    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
         store.commit(
             prepared,
             committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
         )
+    assert isinstance(captured.value.__cause__, sqlite3.IntegrityError)
     assert store.records() == ()
     store.close()
     connection = sqlite3.connect(path)

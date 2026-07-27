@@ -60,11 +60,6 @@ repos:
       - id: detect-private-key
         name: Detect private keys
 
-      - id: mixed-line-ending
-        name: Normalize line endings to LF
-        args:
-          - --fix=lf
-
   - repo: local
     hooks:
       - id: onlyalpha-ruff-mypy

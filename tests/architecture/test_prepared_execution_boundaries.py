@@ -14,6 +14,9 @@ def test_prepared_transaction_projection_and_store_do_not_import_runtime_manager
         "src/onlyalpha/execution/identity.py",
         "src/onlyalpha/execution/event_identity.py",
         "src/onlyalpha/execution/transaction.py",
+        "src/onlyalpha/execution/execution_state.py",
+        "src/onlyalpha/execution/state_hash.py",
+        "src/onlyalpha/execution/economic_invariants.py",
         "src/onlyalpha/execution/projection.py",
         "src/onlyalpha/execution/codec.py",
         "src/onlyalpha/execution/transaction_store.py",
@@ -59,6 +62,13 @@ def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_abse
     for replaced in (
         "OnlyReservationExecutionProjection",
         "OnlyExecutionReservationKind",
+        "OnlyCashReservationExecutionProjection",
+        "owner_scope",
+        "before_status",
+        "after_status",
+        "before_filled_quantity",
+        "after_filled_quantity",
+        "external_update_id",
         "only_prepared_execution_transaction_hash",
         "prepared_hash",
     ):
@@ -67,3 +77,18 @@ def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_abse
     assert "instruction: str\n    before_state: str" not in projection
     assert "fee_records: tuple[str" not in projection
     assert "reservation_state_before: str" not in projection
+
+
+def test_execution_authority_states_are_strongly_typed_and_store_errors_are_distinct() -> None:
+    state = Path("src/onlyalpha/execution/execution_state.py").read_text(encoding="utf-8")
+    projection = Path("src/onlyalpha/execution/projection.py").read_text(encoding="utf-8")
+    assert "Any" not in state + projection
+    assert "dict[str, object]" not in state + projection
+    assert "expected_state_hash: str | None" not in Path("src/onlyalpha/execution/transaction.py").read_text(
+        encoding="utf-8"
+    )
+
+    from onlyalpha.execution import OnlyExecutionTransactionConflict, OnlyExecutionTransactionStoreError
+
+    assert not issubclass(OnlyExecutionTransactionStoreError, OnlyExecutionTransactionConflict)
+    assert not issubclass(OnlyExecutionTransactionConflict, OnlyExecutionTransactionStoreError)
