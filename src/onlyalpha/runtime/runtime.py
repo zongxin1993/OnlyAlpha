@@ -69,14 +69,20 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import (
+    OnlyCommittedExecutionQueryPort,
+    OnlyExecutionDeliveryDiagnostic,
     OnlyExecutionEventBuffer,
+    OnlyExecutionEventDeliveryCoordinator,
+    OnlyExecutionEventDeliveryIntent,
+    OnlyExecutionEventDeliveryMode,
+    OnlyExecutionEventDeliveryResult,
+    OnlyExecutionOutboxPublisher,
     OnlyExecutionProcessor,
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
-from onlyalpha.execution.journal import OnlyCommittedExecutionJournalPort
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
 from onlyalpha.fee.schedules import (
@@ -256,8 +262,10 @@ class OnlyRuntimeServices:
     broker_inbound: OnlyBrokerInboundQueue
     broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
-    committed_execution_journal: OnlyCommittedExecutionJournalPort
+    committed_execution_query: OnlyCommittedExecutionQueryPort
     execution_event_buffer: OnlyExecutionEventBuffer
+    execution_delivery_coordinator: OnlyExecutionEventDeliveryCoordinator
+    execution_outbox_publisher: OnlyExecutionOutboxPublisher
     execution_audit_store: OnlyInMemoryExecutionAuditStore
     execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
     execution_update_deduplicator: OnlyExecutionUpdateDeduplicator
@@ -283,10 +291,14 @@ class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
         manager: OnlyClusterManager,
         set_snapshot: Callable[[OnlyClusterId, OnlyMarketDataSnapshot | None], None],
         prepare_risk: Callable[[OnlyClusterId, OnlyMarketDataSnapshot], None],
+        begin_events: Callable[[], None] | None = None,
+        complete_events: Callable[[bool], None] | None = None,
     ) -> None:
         self._manager = manager
         self._set_snapshot = set_snapshot
         self._prepare_risk = prepare_risk
+        self._begin_events = begin_events
+        self._complete_events = complete_events
 
     def execute_bar(
         self,
@@ -300,8 +312,18 @@ class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
             raise TypeError("Dispatcher must provide OnlyMarketDataSnapshot")
         self._prepare_risk(cluster_id, snapshot)
         self._set_snapshot(cluster_id, snapshot)
+        if self._begin_events is not None:
+            self._begin_events()
         try:
-            return self._manager.execute_bar(cluster_id, bar, snapshot)
+            result = self._manager.execute_bar(cluster_id, bar, snapshot)
+        except Exception:
+            if self._complete_events is not None:
+                self._complete_events(False)
+            raise
+        else:
+            if self._complete_events is not None:
+                self._complete_events(True)
+            return result
         finally:
             self._set_snapshot(cluster_id, None)
 
@@ -309,12 +331,12 @@ class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
 class OnlyRuntimePositionEventPublisherAdapter(OnlyPositionEventPublisher):
     """Publishes completed Position facts to the owning Runtime EventBus."""
 
-    def __init__(self, engine_id: OnlyEngineId, event_bus: OnlyEventBus) -> None:
+    def __init__(self, engine_id: OnlyEngineId, publish_event: Callable[[OnlyEvent], None]) -> None:
         self._engine_id = engine_id
-        self._event_bus = event_bus
+        self._publish_event = publish_event
 
     def publish(self, event: OnlyPositionEvent) -> None:
-        self._event_bus.publish(
+        self._publish_event(
             OnlyEvent(
                 event.event_type,
                 event.timestamp.to_datetime(),
@@ -333,13 +355,13 @@ class OnlyRuntimePositionEventPublisherAdapter(OnlyPositionEventPublisher):
 class OnlyRuntimeAccountEventPublisherAdapter(OnlyAccountEventPublisher):
     """Publishes local Account facts without exposing EventBus to AccountManager."""
 
-    def __init__(self, engine_id: OnlyEngineId, event_bus: OnlyEventBus) -> None:
+    def __init__(self, engine_id: OnlyEngineId, publish_event: Callable[[OnlyEvent], None]) -> None:
         self._engine_id = engine_id
-        self._event_bus = event_bus
+        self._publish_event = publish_event
 
     def publish(self, event: OnlyAccountEvent) -> None:
         snapshot = event.snapshot
-        self._event_bus.publish(
+        self._publish_event(
             OnlyEvent(
                 event.event_type,
                 event.timestamp.to_datetime(),
@@ -471,6 +493,7 @@ class OnlyRuntime:
         self._state = OnlyRuntimeState.CREATED
         self._services: OnlyRuntimeServices
         self._last_error: str | None = None
+        self._execution_delivery_diagnostics: list[OnlyExecutionDeliveryDiagnostic] = []
         self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
@@ -633,8 +656,46 @@ class OnlyRuntime:
         return self._services.broker_gateway
 
     @property
-    def committed_execution_journal(self) -> OnlyCommittedExecutionJournalPort:
-        return self._services.committed_execution_journal
+    def committed_execution_query(self) -> OnlyCommittedExecutionQueryPort:
+        return self._services.committed_execution_query
+
+    @property
+    def execution_delivery_diagnostics(self) -> tuple[OnlyExecutionDeliveryDiagnostic, ...]:
+        return tuple(self._execution_delivery_diagnostics)
+
+    def _record_execution_delivery(
+        self, processing_sequence: int | None, result: OnlyExecutionEventDeliveryResult
+    ) -> None:
+        self._execution_delivery_diagnostics.append(
+            OnlyExecutionDeliveryDiagnostic(
+                self.config.runtime_id,  # type: ignore[arg-type]
+                processing_sequence,
+                result.mode,
+                result.attempted,
+                result.published,
+                result.failed,
+                result.remaining,
+                result.last_error,
+                OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+            )
+        )
+
+    def _drain_execution_outbox(self) -> None:
+        result = self._services.execution_outbox_publisher.publish_pending(
+            self.config.runtime_id  # type: ignore[arg-type]
+        )
+        self._record_execution_delivery(
+            None,
+            OnlyExecutionEventDeliveryResult(
+                OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX,
+                result.attempted,
+                result.published,
+                result.failed,
+                result.remaining,
+                result.stopped_on_error,
+                result.last_error,
+            ),
+        )
 
     @property
     def broker_inbound_queue(self) -> OnlyBrokerInboundQueue:
@@ -701,28 +762,41 @@ class OnlyRuntime:
         except KeyError as exc:
             raise ValueError(f"No validated FIXED_CAPITAL allocation for Cluster {cluster_id}") from exc
         timestamp = OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns())
-        self._strategy_ledger_manager.create_ledger(
-            ledger_key,
-            configured_capital,
-            timestamp,
-        )
-        self._strategy_ledger_manager.activate_ledger(ledger_key, timestamp)
-        profile = self._resolve_risk_profile(cluster.config.values.get("risk_profile"), cluster_id)
-        allowed_accounts = self._parse_account_permissions(cluster.config.values.get("allowed_account_ids"))
-        allowed_instruments = self._parse_instrument_permissions(cluster.config.values.get("allowed_instrument_ids"))
-        self._services.risk_service.bind_cluster_profile(
-            cluster_id,
-            self.config.default_account_id,  # type: ignore[arg-type]
-            profile,
-            allowed_accounts=allowed_accounts,
-            allowed_instruments=allowed_instruments,
-        )
+        self._services.execution_event_buffer.begin()
         try:
-            self._services.cluster_manager.register(cluster)
+            self._strategy_ledger_manager.create_ledger(
+                ledger_key,
+                configured_capital,
+                timestamp,
+            )
+            self._strategy_ledger_manager.activate_ledger(ledger_key, timestamp)
+            profile = self._resolve_risk_profile(cluster.config.values.get("risk_profile"), cluster_id)
+            allowed_accounts = self._parse_account_permissions(cluster.config.values.get("allowed_account_ids"))
+            allowed_instruments = self._parse_instrument_permissions(
+                cluster.config.values.get("allowed_instrument_ids")
+            )
+            self._services.risk_service.bind_cluster_profile(
+                cluster_id,
+                self.config.default_account_id,  # type: ignore[arg-type]
+                profile,
+                allowed_accounts=allowed_accounts,
+                allowed_instruments=allowed_instruments,
+            )
+            try:
+                self._services.cluster_manager.register(cluster)
+            except Exception:
+                self._services.risk_service.unbind_cluster_profile(cluster_id)
+                self._strategy_ledger_manager.close_ledger(ledger_key, timestamp)
+                raise
         except Exception:
-            self._services.risk_service.unbind_cluster_profile(cluster_id)
-            self._strategy_ledger_manager.close_ledger(ledger_key, timestamp)
+            self._services.execution_event_buffer.abort()
             raise
+        batch = self._services.execution_event_buffer.seal()
+        delivery = self._services.execution_delivery_coordinator.deliver(
+            self.config.runtime_id,  # type: ignore[arg-type]
+            OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch),
+        )
+        self._record_execution_delivery(None, delivery)
 
     def initialize(self) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
@@ -769,6 +843,7 @@ class OnlyRuntime:
                 plugin_id=failing[0],
                 resource_id=failing[1],
             ) from exc
+        self._drain_execution_outbox()
         self._state = OnlyRuntimeState.RUNNING
         self._publish_runtime_fact("RUNTIME_STARTED")
         self._services.event_bus.drain()
@@ -790,6 +865,7 @@ class OnlyRuntime:
             return
         self._state = OnlyRuntimeState.STOPPING
         self._services.cluster_manager.stop_all()
+        self._drain_execution_outbox()
         self._services.event_bus.drain()
         failure = self._run_plugin_cleanup("stop")
         if failure is not None:

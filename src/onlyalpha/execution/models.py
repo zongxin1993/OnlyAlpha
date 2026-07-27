@@ -19,6 +19,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.execution.delivery import OnlyExecutionEventDeliveryIntent
 from onlyalpha.execution.enums import (
     OnlyExecutionFailureCode,
     OnlyExecutionMutationStatus,
@@ -173,6 +174,7 @@ class OnlyExecutionProcessingResult(OnlyDomainModel):
     mutation_bundle: OnlyExecutionMutationBundle
     snapshot_bundle: OnlyExecutionSnapshotBundle
     generated_events: tuple[OnlyEvent, ...]
+    delivery_intent: OnlyExecutionEventDeliveryIntent
     audit_record: OnlyExecutionAuditRecord
     failure: OnlyExecutionFailure | None = None
     reconciliation_request: OnlyExecutionReconciliationRequest | None = None

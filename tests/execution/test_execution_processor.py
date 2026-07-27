@@ -22,6 +22,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
     OnlyExecutionAuditRecord,
+    OnlyExecutionEventDeliveryMode,
     OnlyExecutionMutationStep,
     OnlyExecutionProcessingResult,
     OnlyExecutionProcessingStatus,
@@ -60,6 +61,8 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     result = _complete_buy(env)
 
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
+    assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX
+    assert result.delivery_intent.committed_execution_sequence == 1
     assert tuple(item.step for item in result.mutation_bundle.steps) == (
         OnlyExecutionMutationStep.VALIDATION,
         OnlyExecutionMutationStep.ORDER,
@@ -81,7 +84,7 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     )
     assert result.audit_record.invariant_result.passed
     assert result.audit_record.to_json() == OnlyExecutionAuditRecord.from_json(result.audit_record.to_json()).to_json()
-    facts = env.runtime.committed_execution_journal.records()
+    facts = env.runtime.committed_execution_query.records()
     assert len(facts) == 1
     fact = facts[0]
     assert fact.processing_sequence == result.sequence
@@ -97,6 +100,16 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
         == fact.authoritative_fee_total.amount
     )
     assert type(fact).from_json(fact.to_json()) == fact
+    non_trade = tuple(
+        item
+        for item in env.runtime.broker_results
+        if isinstance(item, OnlyExecutionProcessingResult) and item.update_type != "OnlyBrokerTradeUpdate"
+    )
+    assert non_trade
+    assert all(
+        item.delivery_intent.mode in {OnlyExecutionEventDeliveryMode.DIRECT, OnlyExecutionEventDeliveryMode.NONE}
+        for item in non_trade
+    )
 
 
 def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
@@ -181,28 +194,7 @@ def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
     assert trade_result.status is OnlyExecutionProcessingStatus.DUPLICATE
     assert env.runtime.order_manager.require_snapshot(order_before.order_id).version == order_before.version
     assert env.runtime.account_manager.list_accounts()[0].version == account_before.version
-    assert len(env.runtime.committed_execution_journal.records()) == 1
-
-
-def test_event_commit_failure_produces_no_committed_fact(monkeypatch: pytest.MonkeyPatch) -> None:
-    env = OnlyIntegrationEnvironment()
-    env.start()
-    for minute in range(3):
-        env.process_bar(DAY_ONE, minute, "10.00")
-    env.submit_buy()
-
-    def fail_commit() -> tuple[object, ...]:
-        raise RuntimeError("injected event commit failure")
-
-    monkeypatch.setattr(env.runtime.execution_processor._events, "commit", fail_commit)
-    env.process_bar(DAY_ONE, 4, "10.00")
-    result = next(
-        item
-        for item in reversed(env.runtime.broker_results)
-        if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
-    )
-    assert result.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
-    assert env.runtime.committed_execution_journal.records() == ()
+    assert len(env.runtime.committed_execution_query.records()) == 1
 
 
 def test_journal_append_failure_is_not_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -216,7 +208,7 @@ def test_journal_append_failure_is_not_reported_as_applied(monkeypatch: pytest.M
         del fact
         raise RuntimeError("injected journal append failure")
 
-    monkeypatch.setattr(env.runtime.committed_execution_journal, "append", fail_append)
+    monkeypatch.setattr(env.runtime._services.committed_execution_query, "append_transaction", fail_append)
     env.process_bar(DAY_ONE, 4, "10.00")
     result = next(
         item
@@ -224,7 +216,7 @@ def test_journal_append_failure_is_not_reported_as_applied(monkeypatch: pytest.M
         if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
     )
     assert result.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
-    assert env.runtime.committed_execution_journal.records() == ()
+    assert env.runtime.committed_execution_query.records() == ()
 
 
 def test_late_accepted_does_not_regress_filled_order() -> None:
@@ -331,7 +323,7 @@ def test_mid_pipeline_failure_discards_success_facts_and_requests_reconciliation
     assert "STRATEGY_TRADE_APPLIED" not in emitted
     assert "EXECUTION_PROCESSING_FAILED" in emitted
     assert "EXECUTION_RECONCILIATION_REQUIRED" in emitted
-    assert env.runtime.committed_execution_journal.records() == ()
+    assert env.runtime.committed_execution_query.records() == ()
 
 
 def test_scope_mismatch_is_rejected_without_state_change() -> None:

@@ -3,7 +3,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import get_type_hints
 
-from onlyalpha.execution import OnlyCommittedExecutionFact, OnlyCommittedExecutionJournalPort, OnlyExecutionProcessor
+from onlyalpha.execution import OnlyCommittedExecutionFact, OnlyCommittedExecutionQueryPort, OnlyExecutionProcessor
 from onlyalpha.runtime.runtime import OnlyRuntimeServices
 
 
@@ -15,7 +15,7 @@ def test_committed_fact_and_runtime_service_have_provider_neutral_runtime_owners
     fact_modules = {getattr(field.type, "__module__", "") for field in fields(OnlyCommittedExecutionFact)}
     assert not any(module.startswith("onlyalpha_plugin_") for module in fact_modules)
     service_hints = get_type_hints(OnlyRuntimeServices)
-    assert service_hints["committed_execution_journal"] is OnlyCommittedExecutionJournalPort
+    assert service_hints["committed_execution_query"] is OnlyCommittedExecutionQueryPort
 
 
 def test_result_collector_has_no_broker_query_or_virtual_broker_dependency() -> None:
@@ -41,7 +41,7 @@ def test_processor_is_the_only_production_committed_journal_writer() -> None:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "append_transaction"
             and isinstance(node.func.value, ast.Attribute)
-            and node.func.value.attr == "_committed_executions"
+            and node.func.value.attr == "_execution_commits"
             for node in ast.walk(tree)
         ):
             writers.append(path)

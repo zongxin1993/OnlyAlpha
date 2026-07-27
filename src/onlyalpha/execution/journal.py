@@ -17,6 +17,7 @@ from typing import Protocol
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
 
 from .committed import OnlyCommittedExecutionFact
@@ -44,20 +45,29 @@ class OnlyJournalAppendResult:
 
 @dataclass(frozen=True, slots=True)
 class OnlyExecutionOutboxRecord:
+    key: OnlyExecutionOutboxKey
+    event: OnlyEvent
+    published: bool
+    attempt_count: int
+    last_attempted_at: OnlyTimestamp | None
+    published_at: OnlyTimestamp | None
+    last_error: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExecutionOutboxKey:
     runtime_id: OnlyRuntimeId
     execution_sequence: int
     event_sequence: int
-    event: OnlyEvent
-    attempt_count: int
 
 
-class OnlyCommittedExecutionJournalPort(Protocol):
-    """Append-only committed-execution authority, scoped by Runtime."""
-
+class OnlyExecutionCommitPort(Protocol):
     def next_sequence(self, runtime_id: OnlyRuntimeId) -> int: ...
 
     def append_transaction(self, transaction: OnlyDurableExecutionCommit) -> OnlyJournalAppendResult: ...
 
+
+class OnlyCommittedExecutionQueryPort(Protocol):
     def get_by_trade(
         self,
         runtime_id: OnlyRuntimeId,
@@ -78,11 +88,17 @@ class OnlyCommittedExecutionJournalPort(Protocol):
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
     ) -> tuple[OnlyCommittedExecutionFact, ...]: ...
 
-    def pending_outbox(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionOutboxRecord, ...]: ...
 
-    def mark_outbox_published(
-        self, runtime_id: OnlyRuntimeId, execution_sequence: int, event_sequence: int
-    ) -> None: ...
+class OnlyExecutionOutboxPort(Protocol):
+    def pending(self, runtime_id: OnlyRuntimeId, *, limit: int) -> tuple[OnlyExecutionOutboxRecord, ...]: ...
+
+    def begin_attempt(self, key: OnlyExecutionOutboxKey, attempted_at: OnlyTimestamp) -> OnlyExecutionOutboxRecord: ...
+
+    def mark_published(self, key: OnlyExecutionOutboxKey, published_at: OnlyTimestamp) -> None: ...
+
+    def mark_failed(self, key: OnlyExecutionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None: ...
+
+    def pending_count(self, runtime_id: OnlyRuntimeId) -> int: ...
 
 
 def _fact_payload(fact: OnlyCommittedExecutionFact) -> str:
@@ -131,8 +147,9 @@ class OnlyInMemoryCommittedExecutionJournal:
         self._by_trade[trade_key] = fact
         self._by_update[update_key] = fact
         for index, event in enumerate(transaction.outbox_events, start=1):
+            key = OnlyExecutionOutboxKey(fact.runtime_id, fact.execution_sequence, index)
             self._outbox[fact.execution_sequence, index] = OnlyExecutionOutboxRecord(
-                fact.runtime_id, fact.execution_sequence, index, event, 0
+                key, event, False, 0, None, None, None
             )
         return OnlyJournalAppendResult(fact, True)
 
@@ -163,13 +180,39 @@ class OnlyInMemoryCommittedExecutionJournal:
             self._require_runtime(runtime_id)
         return tuple(item for item in self._records if item.execution_sequence > after_sequence)
 
-    def pending_outbox(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionOutboxRecord, ...]:
+    def pending(self, runtime_id: OnlyRuntimeId, *, limit: int) -> tuple[OnlyExecutionOutboxRecord, ...]:
+        self._require_runtime(runtime_id)
+        if limit <= 0:
+            raise ValueError("outbox pending limit must be positive")
+        return tuple(record for key in sorted(self._outbox) if not (record := self._outbox[key]).published)[:limit]
+
+    def begin_attempt(self, key: OnlyExecutionOutboxKey, attempted_at: OnlyTimestamp) -> OnlyExecutionOutboxRecord:
+        record = self._require_outbox(key)
+        updated = OnlyExecutionOutboxRecord(
+            key, record.event, record.published, record.attempt_count + 1, attempted_at, record.published_at, None
+        )
+        self._outbox[key.execution_sequence, key.event_sequence] = updated
+        return updated
+
+    def mark_published(self, key: OnlyExecutionOutboxKey, published_at: OnlyTimestamp) -> None:
+        record = self._require_outbox(key)
+        self._outbox[key.execution_sequence, key.event_sequence] = OnlyExecutionOutboxRecord(
+            key, record.event, True, record.attempt_count, record.last_attempted_at, published_at, None
+        )
+
+    def mark_failed(self, key: OnlyExecutionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None:
+        record = self._require_outbox(key)
+        self._outbox[key.execution_sequence, key.event_sequence] = OnlyExecutionOutboxRecord(
+            key, record.event, False, record.attempt_count, failed_at, None, error
+        )
+
+    def pending_count(self, runtime_id: OnlyRuntimeId) -> int:
+        self._require_runtime(runtime_id)
+        return sum(not record.published for record in self._outbox.values())
+
+    def outbox_records(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionOutboxRecord, ...]:
         self._require_runtime(runtime_id)
         return tuple(self._outbox[key] for key in sorted(self._outbox))
-
-    def mark_outbox_published(self, runtime_id: OnlyRuntimeId, execution_sequence: int, event_sequence: int) -> None:
-        self._require_runtime(runtime_id)
-        self._outbox.pop((execution_sequence, event_sequence), None)
 
     def __len__(self) -> int:
         return len(self._records)
@@ -182,6 +225,13 @@ class OnlyInMemoryCommittedExecutionJournal:
         self._require_runtime(fact.runtime_id)
         if fact.gateway_id not in self._gateway_ids:
             raise ValueError("committed execution belongs to an unknown Gateway")
+
+    def _require_outbox(self, key: OnlyExecutionOutboxKey) -> OnlyExecutionOutboxRecord:
+        self._require_runtime(key.runtime_id)
+        try:
+            return self._outbox[key.execution_sequence, key.event_sequence]
+        except KeyError as exc:
+            raise KeyError(f"unknown execution outbox record: {key}") from exc
 
 
 class OnlySqliteCommittedExecutionJournal:
@@ -205,7 +255,8 @@ class OnlySqliteCommittedExecutionJournal:
                 CREATE TABLE IF NOT EXISTS execution_outbox (
                     runtime_id TEXT NOT NULL, execution_sequence INTEGER NOT NULL, event_sequence INTEGER NOT NULL,
                     event_type TEXT NOT NULL, event_payload TEXT NOT NULL, published INTEGER NOT NULL DEFAULT 0,
-                    published_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT,
+                    published_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_attempted_at INTEGER,
+                    last_error TEXT,
                     PRIMARY KEY(runtime_id, execution_sequence, event_sequence)
                 );
                 CREATE TABLE IF NOT EXISTS runtime_execution_checkpoint (
@@ -214,6 +265,11 @@ class OnlySqliteCommittedExecutionJournal:
                 );
                 """
             )
+            columns = {
+                str(row["name"]) for row in self._connection.execute("PRAGMA table_info(execution_outbox)").fetchall()
+            }
+            if "last_attempted_at" not in columns:
+                self._connection.execute("ALTER TABLE execution_outbox ADD COLUMN last_attempted_at INTEGER")
 
     def next_sequence(self, runtime_id: OnlyRuntimeId) -> int:
         with self._lock:
@@ -327,29 +383,79 @@ class OnlySqliteCommittedExecutionJournal:
             ).fetchall()
         return tuple(self._decode(row["fact_payload"], row["fact_hash"]) for row in rows)
 
-    def pending_outbox(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionOutboxRecord, ...]:
+    def pending(self, runtime_id: OnlyRuntimeId, *, limit: int) -> tuple[OnlyExecutionOutboxRecord, ...]:
+        if limit <= 0:
+            raise ValueError("outbox pending limit must be positive")
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM execution_outbox WHERE runtime_id=? AND published=0 ORDER BY execution_sequence, event_sequence",
-                (str(runtime_id),),
+                "SELECT * FROM execution_outbox WHERE runtime_id=? AND published=0 "
+                "ORDER BY execution_sequence, event_sequence LIMIT ?",
+                (str(runtime_id), limit),
             ).fetchall()
         return tuple(
             OnlyExecutionOutboxRecord(
-                runtime_id,
-                int(row["execution_sequence"]),
-                int(row["event_sequence"]),
+                OnlyExecutionOutboxKey(runtime_id, int(row["execution_sequence"]), int(row["event_sequence"])),
                 OnlyEvent.from_dict(json.loads(row["event_payload"])),
+                bool(row["published"]),
                 int(row["attempt_count"]),
+                self._timestamp(row["last_attempted_at"]),
+                self._timestamp(row["published_at"]),
+                None if row["last_error"] is None else str(row["last_error"]),
             )
             for row in rows
         )
 
-    def mark_outbox_published(self, runtime_id: OnlyRuntimeId, execution_sequence: int, event_sequence: int) -> None:
+    def begin_attempt(self, key: OnlyExecutionOutboxKey, attempted_at: OnlyTimestamp) -> OnlyExecutionOutboxRecord:
         with self._lock, self._connection:
-            self._connection.execute(
-                "UPDATE execution_outbox SET published=1 WHERE runtime_id=? AND execution_sequence=? AND event_sequence=?",
-                (str(runtime_id), execution_sequence, event_sequence),
+            cursor = self._connection.execute(
+                "UPDATE execution_outbox SET attempt_count=attempt_count+1, last_attempted_at=?, last_error=NULL "
+                "WHERE runtime_id=? AND execution_sequence=? AND event_sequence=?",
+                (attempted_at.unix_nanos, str(key.runtime_id), key.execution_sequence, key.event_sequence),
             )
+            if cursor.rowcount != 1:
+                raise KeyError(f"unknown execution outbox record: {key}")
+        return self._get_outbox(key)
+
+    def mark_published(self, key: OnlyExecutionOutboxKey, published_at: OnlyTimestamp) -> None:
+        self._update_outbox(
+            key,
+            "published=1, published_at=?, last_error=NULL",
+            (published_at.unix_nanos,),
+        )
+
+    def mark_failed(self, key: OnlyExecutionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None:
+        self._update_outbox(
+            key,
+            "published=0, published_at=NULL, last_attempted_at=?, last_error=?",
+            (failed_at.unix_nanos, error),
+        )
+
+    def pending_count(self, runtime_id: OnlyRuntimeId) -> int:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT COUNT(*) AS value FROM execution_outbox WHERE runtime_id=? AND published=0",
+                (str(runtime_id),),
+            ).fetchone()
+        return int(row["value"])
+
+    def outbox_records(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionOutboxRecord, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM execution_outbox WHERE runtime_id=? ORDER BY execution_sequence, event_sequence",
+                (str(runtime_id),),
+            ).fetchall()
+        return tuple(
+            OnlyExecutionOutboxRecord(
+                OnlyExecutionOutboxKey(runtime_id, int(row["execution_sequence"]), int(row["event_sequence"])),
+                OnlyEvent.from_dict(json.loads(row["event_payload"])),
+                bool(row["published"]),
+                int(row["attempt_count"]),
+                self._timestamp(row["last_attempted_at"]),
+                self._timestamp(row["published_at"]),
+                None if row["last_error"] is None else str(row["last_error"]),
+            )
+            for row in rows
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -368,10 +474,45 @@ class OnlySqliteCommittedExecutionJournal:
             raise ValueError("committed execution journal payload hash mismatch")
         return OnlyCommittedExecutionFact.from_json(payload)
 
+    def _get_outbox(self, key: OnlyExecutionOutboxKey) -> OnlyExecutionOutboxRecord:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM execution_outbox WHERE runtime_id=? AND execution_sequence=? AND event_sequence=?",
+                (str(key.runtime_id), key.execution_sequence, key.event_sequence),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown execution outbox record: {key}")
+        return OnlyExecutionOutboxRecord(
+            key,
+            OnlyEvent.from_dict(json.loads(row["event_payload"])),
+            bool(row["published"]),
+            int(row["attempt_count"]),
+            self._timestamp(row["last_attempted_at"]),
+            self._timestamp(row["published_at"]),
+            None if row["last_error"] is None else str(row["last_error"]),
+        )
+
+    def _update_outbox(self, key: OnlyExecutionOutboxKey, assignments: str, values: tuple[object, ...]) -> None:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                f"UPDATE execution_outbox SET {assignments} "
+                "WHERE runtime_id=? AND execution_sequence=? AND event_sequence=?",
+                values + (str(key.runtime_id), key.execution_sequence, key.event_sequence),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"unknown execution outbox record: {key}")
+
+    @staticmethod
+    def _timestamp(value: object) -> OnlyTimestamp | None:
+        return None if value is None else OnlyTimestamp.from_unix_nanos(int(str(value)))
+
 
 __all__ = [
-    "OnlyCommittedExecutionJournalPort",
+    "OnlyCommittedExecutionQueryPort",
     "OnlyDurableExecutionCommit",
+    "OnlyExecutionCommitPort",
+    "OnlyExecutionOutboxKey",
+    "OnlyExecutionOutboxPort",
     "OnlyExecutionOutboxRecord",
     "OnlyInMemoryCommittedExecutionJournal",
     "OnlyJournalAppendResult",

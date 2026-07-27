@@ -1,7 +1,8 @@
 """Strategy Ledger publisher implementations."""
 
+from collections.abc import Callable
+
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEvent
 
@@ -22,12 +23,12 @@ class OnlyInMemoryStrategyLedgerEventPublisher:
 class OnlyRuntimeStrategyLedgerEventPublisherAdapter:
     """Converts component facts to the shared immutable Runtime envelope."""
 
-    def __init__(self, engine_id: OnlyEngineId, event_bus: OnlyEventBus) -> None:
+    def __init__(self, engine_id: OnlyEngineId, publish_event: Callable[[OnlyEvent], None]) -> None:
         self.__engine_id = engine_id
-        self.__event_bus = event_bus
+        self.__publish_event = publish_event
 
     def publish(self, event: OnlyStrategyLedgerEvent) -> None:
-        self.__event_bus.publish(
+        self.__publish_event(
             OnlyEvent(
                 event.event_type,
                 event.timestamp.to_datetime(),

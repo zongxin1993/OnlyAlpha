@@ -13,7 +13,15 @@ from onlyalpha.order.service import OnlyOrderService
 class OnlyOrderServiceView:
     """Allows submit/cancel and Cluster-local Snapshot queries only."""
 
-    __slots__ = ("__account_id", "__cluster_id", "__enabled", "__query", "__service")
+    __slots__ = (
+        "__account_id",
+        "__begin_events",
+        "__cluster_id",
+        "__complete_events",
+        "__enabled",
+        "__query",
+        "__service",
+    )
 
     def __init__(
         self,
@@ -22,16 +30,27 @@ class OnlyOrderServiceView:
         service: OnlyOrderService,
         query: OnlyOrderQueryService,
         enabled: Callable[[], bool],
+        begin_events: Callable[[], None],
+        complete_events: Callable[[bool], None],
     ) -> None:
         self.__cluster_id = cluster_id
         self.__account_id = default_account_id
         self.__service = service
         self.__query = query
         self.__enabled = enabled
+        self.__begin_events = begin_events
+        self.__complete_events = complete_events
 
     def submit(self, request: OnlyOrderRequest) -> OnlyOrderSubmitResult:
         self.__require_enabled()
-        return self.__service.submit(request, self.__cluster_id, self.__account_id)
+        self.__begin_events()
+        try:
+            result = self.__service.submit(request, self.__cluster_id, self.__account_id)
+        except Exception:
+            self.__complete_events(False)
+            raise
+        self.__complete_events(True)
+        return result
 
     def cancel(
         self,
@@ -51,7 +70,14 @@ class OnlyOrderServiceView:
             )
         )
         self.__require_owned(normalized.order_id)
-        return self.__service.cancel(normalized, self.__cluster_id)
+        self.__begin_events()
+        try:
+            result = self.__service.cancel(normalized, self.__cluster_id)
+        except Exception:
+            self.__complete_events(False)
+            raise
+        self.__complete_events(True)
+        return result
 
     def get(self, order_id: OnlyOrderId) -> OnlyOrderSnapshot | None:
         snapshot = self.__query.get(order_id)

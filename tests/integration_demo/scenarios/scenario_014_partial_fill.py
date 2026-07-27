@@ -25,7 +25,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert risk_reservation.consumed_quantity.value == Decimal("40")
     assert risk_reservation.remaining_quantity.value == Decimal("60")
     assert risk_reservation.remaining_notional.amount == Decimal("600.00")
-    committed = partial.runtime.committed_execution_journal.records()
+    committed = partial.runtime.committed_execution_query.records()
     assert len(committed) == 1
     assert committed[0].fill_quantity.value == Decimal("40")
     assert committed[0].cumulative_filled_quantity.value == Decimal("40")

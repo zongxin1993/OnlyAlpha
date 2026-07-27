@@ -59,12 +59,18 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.execution.delivery import (
+    OnlyEventBusDirectExecutionPublisher,
+    OnlyExecutionEventDeliveryCoordinator,
+    OnlyExecutionEventDeliveryIntent,
+    OnlyExecutionEventDeliveryMode,
+    OnlyExecutionOutboxPublisher,
+)
+from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
 from onlyalpha.execution.journal import OnlyInMemoryCommittedExecutionJournal
-from onlyalpha.execution.outbox import OnlyExecutionOutboxPublisher
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.processor import OnlyExecutionProcessor
-from onlyalpha.execution.publisher import OnlyDirectExecutionEventPublisher, OnlyExecutionEventBuffer
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
@@ -189,31 +195,32 @@ class OnlyBacktestRuntime(OnlyRuntime):
             scope=scope,
             queue_policy=runtime_config.event_queue_policy,
         )
-        execution_event_buffer = OnlyExecutionEventBuffer(owned_bus)
-        direct_execution_event_publisher = OnlyDirectExecutionEventPublisher(owned_bus)
-        event_sink = cast(OnlyEventBus, execution_event_buffer)
+        execution_event_buffer = OnlyExecutionEventBuffer()
+        direct_execution_event_publisher = OnlyEventBusDirectExecutionPublisher(owned_bus)
+        event_sink = owned_bus
         self._strategy_ledger_manager.bind_publisher(
             OnlyRuntimeStrategyLedgerEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
-                event_sink,
+                execution_event_buffer.add,
             )
         )
         self._position_manager.bind_publisher(
             OnlyRuntimePositionEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
-                event_sink,
+                execution_event_buffer.add,
             )
         )
         self._account_manager.bind_publisher(
             OnlyRuntimeAccountEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
-                event_sink,
+                execution_event_buffer.add,
             )
         )
         if runtime_config.account_initial_cash is None:
             raise ValueError("Backtest Runtime requires explicit Account initial cash")
         account_initial_cash = runtime_config.account_initial_cash
         configured_gateway_id = runtime_config.broker_gateway_id
+        execution_event_buffer.begin()
         self._account_manager.create_account(
             OnlyAccountConfig(
                 runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -225,6 +232,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             ),
             OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
+        direct_execution_event_publisher.publish(execution_event_buffer.seal())
         market_cache = OnlyMarketDataCache(runtime_config.history_limit)
         aggregation = OnlyBarAggregationManager(selected_calendar, clock)
         indicators = OnlyIndicatorPipeline()
@@ -244,7 +252,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._known_market_data_instruments: set[OnlyInstrumentId] = set()
         self._risk_profile_factory = OnlyRiskProfileFactory()
         manager = OnlyClusterManager(runtime_config.runtime_id, self._make_context, self._cleanup_cluster)  # type: ignore[arg-type]
-        executor = OnlyManagedBarDispatchExecutor(manager, self._set_current_snapshot, self._prepare_risk_snapshot)
+        executor = OnlyManagedBarDispatchExecutor(
+            manager,
+            self._set_current_snapshot,
+            self._prepare_risk_snapshot,
+        )
         dispatcher = OnlyStrategyBarDispatcher(pipeline, OnlyClockView(clock), executor)
         order_manager = OnlyOrderManager(
             runtime_config.engine_id,  # type: ignore[arg-type]
@@ -375,14 +387,18 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        committed_execution_journal = OnlyInMemoryCommittedExecutionJournal(
+        committed_execution_store = OnlyInMemoryCommittedExecutionJournal(
             runtime_config.runtime_id,  # type: ignore[arg-type]
             (runtime_config.broker_gateway_id or OnlyBrokerGatewayId("placeholder"),),
         )
         execution_outbox_publisher = OnlyExecutionOutboxPublisher(
-            committed_execution_journal,
+            committed_execution_store,
             owned_bus,
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+        )
+        execution_delivery_coordinator = OnlyExecutionEventDeliveryCoordinator(
+            direct_execution_event_publisher,
+            execution_outbox_publisher,
         )
         execution_reconciliation_queue = OnlyInMemoryExecutionReconciliationQueue()
         execution_update_deduplicator = OnlyExecutionUpdateDeduplicator()
@@ -420,10 +436,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             account_reconciliation,
             execution_invariant_checker,
             execution_event_buffer,
-            direct_execution_event_publisher,
-            execution_outbox_publisher,
             execution_audit_store,
-            committed_execution_journal,
+            committed_execution_store,
             execution_reconciliation_queue,
             execution_update_deduplicator,
             execution_sequence_tracker,
@@ -469,22 +483,39 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._last_market_trading_day: OnlyTradingDay | None = None
 
         def drain_execution_updates() -> None:
-            results = execution_processor.process_many(broker_inbound.drain())
-            self._broker_results.extend(results)
+            for update in broker_inbound.drain():
+                processing = execution_processor.process(update)
+                delivery = execution_delivery_coordinator.deliver(
+                    runtime_config.runtime_id,  # type: ignore[arg-type]
+                    processing.delivery_intent,
+                )
+                self._record_execution_delivery(processing.sequence, delivery)
+                self._broker_results.append(processing)
 
         def before_market_dispatch(result: OnlyMarketDataUpdateResult) -> None:
             owned_bus.publish_many(result.facts)
             trading_day = OnlyTradingDay(result.base_bar.trading_day)
-            if self._last_market_trading_day is None:
-                self._last_market_trading_day = trading_day
-            elif trading_day != self._last_market_trading_day:
-                self._services.settlement_service.settle_account(
-                    runtime_config.default_account_id,  # type: ignore[arg-type]
-                    self._last_market_trading_day,
-                    trading_day,
-                )
-                self._last_market_trading_day = trading_day
-            self._apply_market_valuations(result.base_bar, trading_day)
+            execution_event_buffer.begin()
+            try:
+                if self._last_market_trading_day is None:
+                    self._last_market_trading_day = trading_day
+                elif trading_day != self._last_market_trading_day:
+                    self._services.settlement_service.settle_account(
+                        runtime_config.default_account_id,  # type: ignore[arg-type]
+                        self._last_market_trading_day,
+                        trading_day,
+                    )
+                    self._last_market_trading_day = trading_day
+                self._apply_market_valuations(result.base_bar, trading_day)
+            except Exception:
+                execution_event_buffer.abort()
+                raise
+            batch = execution_event_buffer.seal()
+            delivery = execution_delivery_coordinator.deliver(
+                runtime_config.runtime_id,  # type: ignore[arg-type]
+                OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch),
+            )
+            self._record_execution_delivery(None, delivery)
             if deterministic_broker_driver is not None:
                 deterministic_broker_driver.on_bar(result.base_bar)
                 drain_execution_updates()
@@ -543,8 +574,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             broker_inbound,
             selected_broker_gateway,
             execution_processor,
-            committed_execution_journal,
+            committed_execution_store,
             execution_event_buffer,
+            execution_delivery_coordinator,
+            execution_outbox_publisher,
             execution_audit_store,
             execution_reconciliation_queue,
             execution_update_deduplicator,
@@ -701,7 +734,15 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         if self._state is not OnlyRuntimeState.RUNNING:
             raise OnlyLifecycleError("Runtime accepts Broker updates only while RUNNING")
-        results = list(self._services.execution_processor.process_many(self._services.broker_inbound.drain()))
+        results: list[OnlyExecutionProcessingResult] = []
+        for update in self._services.broker_inbound.drain():
+            processing = self._services.execution_processor.process(update)
+            delivery = self._services.execution_delivery_coordinator.deliver(
+                self.config.runtime_id,  # type: ignore[arg-type]
+                processing.delivery_intent,
+            )
+            self._record_execution_delivery(processing.sequence, delivery)
+            results.append(processing)
         self._broker_results.extend(results)
         self._services.event_bus.drain()
         return tuple(results)
@@ -738,11 +779,23 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         if self._state is not OnlyRuntimeState.RUNNING:
             raise OnlyLifecycleError("Runtime settles Positions only while RUNNING")
-        return self._services.settlement_service.settle_account(
-            self.config.default_account_id,  # type: ignore[arg-type]
-            previous_trading_day,
-            trading_day,
+        self._services.execution_event_buffer.begin()
+        try:
+            result = self._services.settlement_service.settle_account(
+                self.config.default_account_id,  # type: ignore[arg-type]
+                previous_trading_day,
+                trading_day,
+            )
+        except Exception:
+            self._services.execution_event_buffer.abort()
+            raise
+        batch = self._services.execution_event_buffer.seal()
+        delivery = self._services.execution_delivery_coordinator.deliver(
+            self.config.runtime_id,  # type: ignore[arg-type]
+            OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch),
         )
+        self._record_execution_delivery(None, delivery)
+        return result
 
     def _validate_trade(
         self,
@@ -1049,6 +1102,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._services.order_service,
                 self._services.order_query,
                 lambda: self._order_commands_enabled(cluster_id),
+                self._begin_direct_execution_events,
+                self._complete_direct_execution_events,
             ),
             OnlyPositionContextView(
                 self.config.default_account_id,  # type: ignore[arg-type]
@@ -1076,6 +1131,25 @@ class OnlyBacktestRuntime(OnlyRuntime):
         return self._state in {OnlyRuntimeState.READY, OnlyRuntimeState.RUNNING} and (
             self._services.cluster_manager.state_of(cluster_id) in {OnlyClusterState.STARTING, OnlyClusterState.RUNNING}
         )
+
+    def _begin_direct_execution_events(self) -> None:
+        self._services.execution_event_buffer.begin()
+
+    def _complete_direct_execution_events(self, succeeded: bool) -> None:
+        if not succeeded:
+            self._services.execution_event_buffer.abort()
+            return
+        batch = self._services.execution_event_buffer.seal()
+        intent = (
+            OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE)
+            if batch.empty
+            else OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch)
+        )
+        delivery = self._services.execution_delivery_coordinator.deliver(
+            self.config.runtime_id,  # type: ignore[arg-type]
+            intent,
+        )
+        self._record_execution_delivery(None, delivery)
 
     def _subscribe(
         self,

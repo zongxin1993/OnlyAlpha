@@ -80,14 +80,19 @@ from onlyalpha.strategy_ledger.models import (
 )
 
 from .committed import OnlyCommittedExecutionBuilder, OnlyExecutionCommitContext
+from .delivery import (
+    OnlyExecutionEventDeliveryIntent,
+    OnlyExecutionEventDeliveryMode,
+)
 from .enums import (
     OnlyExecutionFailureCode,
     OnlyExecutionMutationStatus,
     OnlyExecutionMutationStep,
     OnlyExecutionProcessingStatus,
 )
+from .event_buffer import OnlyExecutionEventBatch, OnlyExecutionEventBuffer
 from .invariants import OnlyExecutionInvariantChecker
-from .journal import OnlyCommittedExecutionJournalPort, OnlyDurableExecutionCommit
+from .journal import OnlyDurableExecutionCommit, OnlyExecutionCommitPort
 from .models import (
     OnlyExecutionAuditRecord,
     OnlyExecutionFailure,
@@ -100,8 +105,6 @@ from .models import (
     OnlyExecutionReconciliationRequest,
     OnlyExecutionSnapshotBundle,
 )
-from .publisher import OnlyDirectExecutionEventPublisher, OnlyExecutionEventBuffer
-from .outbox import OnlyExecutionOutboxPublisher
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver
 from .state import (
     OnlyExecutionAuditStore,
@@ -154,10 +157,8 @@ class OnlyExecutionProcessor:
         account_reconciliation: OnlyAccountReconciliationService,
         invariant_checker: OnlyExecutionInvariantChecker,
         event_buffer: OnlyExecutionEventBuffer,
-        direct_event_publisher: OnlyDirectExecutionEventPublisher,
-        outbox_publisher: OnlyExecutionOutboxPublisher,
         audit_store: OnlyExecutionAuditStore,
-        committed_execution_journal: OnlyCommittedExecutionJournalPort,
+        execution_commit_port: OnlyExecutionCommitPort,
         reconciliation: OnlyExecutionReconciliationPort,
         deduplicator: OnlyExecutionUpdateDeduplicator,
         sequence_tracker: OnlyExecutionSequenceTracker,
@@ -193,10 +194,8 @@ class OnlyExecutionProcessor:
         self._account_reconciliation = account_reconciliation
         self._invariants = invariant_checker
         self._events = event_buffer
-        self._direct_events = direct_event_publisher
-        self._outbox_publisher = outbox_publisher
         self._audit = audit_store
-        self._committed_executions = committed_execution_journal
+        self._execution_commits = execution_commit_port
         self._committed_builder = OnlyCommittedExecutionBuilder()
         self._reconciliation = reconciliation
         self._deduplicator = deduplicator
@@ -271,6 +270,7 @@ class OnlyExecutionProcessor:
                 OnlyExecutionMutationStep.VALIDATION, OnlyExecutionMutationStatus.APPLIED, "scope and plan valid"
             )
         ]
+        batch: OnlyExecutionEventBatch | None = None
         try:
             payload = self._dispatch(update, stale, steps, position_scope)
             invariant = payload[5]
@@ -300,7 +300,7 @@ class OnlyExecutionProcessor:
                 "EXECUTION_RECONCILIATION_REQUIRED" if reconciliation is not None else "EXECUTION_UPDATE_APPLIED"
             )
             applied_event = self._processing_event(update, context, event_type)
-            self._events.publish(applied_event)
+            self._events.add(applied_event)
             steps.append(
                 OnlyExecutionMutationRecord(
                     OnlyExecutionMutationStep.EVENT, OnlyExecutionMutationStatus.APPLIED, "facts committed"
@@ -316,26 +316,31 @@ class OnlyExecutionProcessor:
                 cluster_id = commit_context.position_scope.cluster_id
                 if cluster_id is None:
                     raise ValueError("applied Trade is missing Cluster attribution")
+                batch = self._events.seal()
                 fact = self._committed_builder.build(
                     commit_context,
-                    execution_sequence=self._committed_executions.next_sequence(self.config.runtime_id),
+                    execution_sequence=self._execution_commits.next_sequence(self.config.runtime_id),
                     strategy_id=self._strategy_identity(cluster_id),
                     ts_committed=OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
                 )
-                appended = self._committed_executions.append_transaction(
+                appended = self._execution_commits.append_transaction(
                     OnlyDurableExecutionCommit(
                         transaction_id=fact.execution_id,
                         fact=fact,
-                        outbox_events=self._events.snapshot(),
+                        outbox_events=batch.events,
                     )
                 )
                 if not appended.inserted:
                     raise ValueError("committed execution journal rejected an unexpected duplicate")
-                generated = self._events.drain()
-                self._outbox_publisher.publish_pending(self.config.runtime_id)
+                generated = batch.events
+                intent = OnlyExecutionEventDeliveryIntent(
+                    OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX,
+                    committed_execution_sequence=appended.fact.execution_sequence,
+                )
             else:
-                generated = self._events.drain()
-                self._direct_events.publish_many(generated)
+                batch = self._events.seal()
+                generated = batch.events
+                intent = self._direct_intent(batch)
             result = self._complete(
                 update,
                 context,
@@ -343,13 +348,15 @@ class OnlyExecutionProcessor:
                 steps,
                 payload,
                 generated,
+                intent,
                 invariant,
                 reconciliation,
                 position_scope,
             )
             return result
         except Exception as exc:
-            self._events.discard()
+            if batch is None:
+                self._events.abort()
             failed_step = self._failed_step(steps)
             steps.append(OnlyExecutionMutationRecord(failed_step, OnlyExecutionMutationStatus.FAILED, str(exc)))
             failure = OnlyExecutionFailure(
@@ -375,7 +382,6 @@ class OnlyExecutionProcessor:
                 self._processing_event(update, context, "EXECUTION_PROCESSING_FAILED"),
                 self._processing_event(update, context, "EXECUTION_RECONCILIATION_REQUIRED"),
             )
-            self._events.publish_many(failure_events)
             return self._terminal(
                 update,
                 context,
@@ -384,6 +390,10 @@ class OnlyExecutionProcessor:
                 failure=failure,
                 reconciliation=request,
                 generated_events=failure_events,
+                delivery_intent=OnlyExecutionEventDeliveryIntent(
+                    OnlyExecutionEventDeliveryMode.DIRECT,
+                    direct_batch=OnlyExecutionEventBatch(failure_events),
+                ),
                 invariant=exc.result if isinstance(exc, _OnlyExecutionInvariantError) else None,
                 quality_flags=("PARTIAL_MUTATION",),
                 position_scope=position_scope,
@@ -493,7 +503,7 @@ class OnlyExecutionProcessor:
             )
             mutation_status = OnlyExecutionMutationStatus.SKIPPED
         else:
-            self._events.publish_many(result.events)
+            self._events.extend(result.events)
             self._position_reservation_port.acknowledged(result.order_id, update.ts_init)
             mutation_status = OnlyExecutionMutationStatus.APPLIED
         steps.append(
@@ -546,7 +556,7 @@ class OnlyExecutionProcessor:
         )
         reservations: list[str] = []
         if result.changed:
-            self._events.publish_many(result.events)
+            self._events.extend(result.events)
             self._position_reservation_port.release(result.order_id, update.ts_init, broker_confirmed=True)
             self._release_account_reservation(result.order_id, update.ts_init)
             if self._release_margin_reservation is not None:
@@ -624,7 +634,7 @@ class OnlyExecutionProcessor:
             )
             invariant = self._invariants.check(update.account_id, order.instrument_id)
             return OnlyExecutionProcessingStatus.DUPLICATE, order_result, None, None, None, invariant, None, (), None
-        self._events.publish_many(order_result.events)
+        self._events.extend(order_result.events)
         steps.append(
             OnlyExecutionMutationRecord(
                 OnlyExecutionMutationStep.ORDER, OnlyExecutionMutationStatus.APPLIED, order_result.current_status.value
@@ -922,6 +932,7 @@ class OnlyExecutionProcessor:
         steps: list[OnlyExecutionMutationRecord],
         payload: OnlyExecutionDispatchPayload,
         generated: tuple[OnlyEvent, ...],
+        delivery_intent: OnlyExecutionEventDeliveryIntent,
         invariant: OnlyExecutionInvariantResult,
         reconciliation: OnlyExecutionReconciliationRequest | None = None,
         position_scope: OnlyExecutionPositionScope | None = None,
@@ -954,6 +965,7 @@ class OnlyExecutionProcessor:
             bundle,
             snapshot,
             generated,
+            delivery_intent,
             audit,
             reconciliation_request=reconciliation,
             quality_flags=update.quality_flags,
@@ -969,6 +981,7 @@ class OnlyExecutionProcessor:
         failure: OnlyExecutionFailure | None = None,
         reconciliation: OnlyExecutionReconciliationRequest | None = None,
         generated_events: tuple[OnlyEvent, ...] = (),
+        delivery_intent: OnlyExecutionEventDeliveryIntent | None = None,
         invariant: OnlyExecutionInvariantResult | None = None,
         quality_flags: tuple[str, ...] = (),
         position_scope: OnlyExecutionPositionScope | None = None,
@@ -1001,11 +1014,18 @@ class OnlyExecutionProcessor:
             bundle,
             snapshot,
             tuple(generated_events),
+            delivery_intent or OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE),
             audit,
             failure,
             reconciliation,
             tuple(sorted(set(update.quality_flags + tuple(quality_flags)))),
         )
+
+    @staticmethod
+    def _direct_intent(batch: OnlyExecutionEventBatch) -> OnlyExecutionEventDeliveryIntent:
+        if batch.empty:
+            return OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE)
+        return OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch)
 
     def _audit_record(
         self,
@@ -1119,7 +1139,7 @@ class OnlyExecutionProcessor:
         if self._accounts.get_snapshot(update.account_id) is not None:
             self._events.begin()
             self._accounts.start_reconciliation(update.account_id, update.ts_init, "EXECUTION_PARTIAL_MUTATION")
-            self._events.discard()
+            self._events.abort()
 
     def _position_trade(
         self,
