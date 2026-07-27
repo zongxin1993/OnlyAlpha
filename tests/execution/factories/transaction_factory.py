@@ -407,6 +407,47 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         state=OnlyStrategyCashReservationState.CONSUMED,
         version=2,
     )
+    risk_reservation_before = OnlyRiskReservationExecutionState(
+        OnlyRiskReservationId("risk-reservation"),
+        OnlyRiskReservationType.ORDER,
+        _TEST_RUNTIME_ID,
+        OnlyClusterId("cluster"),
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        _quantity("2"),
+        _money("20.00"),
+        _quantity("0"),
+        _money("0.00"),
+        _quantity("2"),
+        _money("20.00"),
+        OnlyRiskReservationState.ACTIVE,
+        None,
+        timestamp,
+        timestamp,
+        1,
+    )
+    risk_reservation_after = replace(
+        risk_reservation_before,
+        consumed_quantity=_quantity("2"),
+        consumed_notional=_money("20.00"),
+        remaining_quantity=_quantity("0"),
+        remaining_notional=_money("0.00"),
+        state=OnlyRiskReservationState.CONSUMED,
+        version=2,
+    )
+    risk_before = OnlyRiskExecutionState(
+        OnlyClusterId("cluster"),
+        OnlyAccountId("account"),
+        _instrument(),
+        order_id,
+        _quantity("2"),
+        _money("20.00"),
+        OnlyRiskLevel.NORMAL,
+        timestamp,
+        1,
+    )
+    risk_after = replace(risk_before, quantity_exposure=_quantity("0"), notional_exposure=_money("0.00"), version=2)
 
     projections: tuple[OnlyExecutionProjection, ...] = (
         OnlyOrderExecutionProjection(
@@ -477,12 +518,28 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
             strategy_reservation_before,
             strategy_reservation_after,
         ),
+        OnlyRiskReservationExecutionProjection(
+            _identity(
+                OnlyExecutionProjectionComponent.RISK_RESERVATION,
+                10,
+                "risk-reservation",
+                risk_reservation_before,
+                risk_reservation_after,
+            ),
+            risk_reservation_before,
+            risk_reservation_after,
+        ),
+        OnlyRiskExecutionProjection(
+            _identity(OnlyExecutionProjectionComponent.RISK, 11, "risk", risk_before, risk_after),
+            risk_before,
+            risk_after,
+        ),
     )
     return tuple(only_with_execution_projection_hash(item) for item in projections)
 
 
-def only_test_all_projection_types_transaction() -> OnlyPreparedExecutionTransaction:
-    """Return a structurally complete transaction containing every projection union member."""
+def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
+    """Return independent projection cases for union/codec coverage."""
 
     timestamp = _timestamp()
     order_id = OnlyOrderId("order")
@@ -664,38 +721,7 @@ def only_test_all_projection_types_transaction() -> OnlyPreparedExecutionTransac
         _resequence_projection(by_component[component], sequence)
         for sequence, component in enumerate(OnlyExecutionProjectionComponent, start=1)
     )
-    fact = replace(
-        only_test_execution_fact_draft(),
-        margin_instruction_id="margin-instruction",
-        margin_action="OCCUPY",
-        margin_currency=_currency(),
-        margin_amount=_money("10.00"),
-        reserved_margin_delta=_money("-10.00"),
-        occupied_margin_delta=_money("10.00"),
-        released_margin_delta=_money("0.00"),
-        maintenance_margin_after=_money("0.00"),
-    )
-    transaction_id = only_execution_transaction_id(
-        runtime_id=fact.runtime_id,
-        gateway_id=fact.gateway_id,
-        account_id=fact.account_id,
-        broker_update_id=fact.broker_update_id,
-        trade_id=fact.trade_id,
-    )
-    return OnlyPreparedExecutionTransaction(
-        transaction_id,
-        fact.runtime_id,
-        fact.gateway_id,
-        fact.account_id,
-        fact.broker_update_id,
-        fact.trade_id,
-        fact.source_sequence,
-        timestamp,
-        fact,
-        projections,
-        only_test_execution_events(transaction_id=transaction_id, runtime_id=fact.runtime_id),
-        only_test_execution_preconditions(projections),
-    )
+    return projections
 
 
 def only_test_generic_t0_cash_buy_open_transaction(
@@ -831,7 +857,7 @@ def _account_state(*, cash: str, market_value: str, version: int, sequence: int)
         zero,
         zero,
         zero,
-        zero,
+        cash_money,
     )
 
 

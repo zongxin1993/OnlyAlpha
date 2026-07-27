@@ -104,6 +104,18 @@ def _decode_projection(payload: object) -> OnlyExecutionProjection:
     return projection_type.from_dict(cast(Mapping[str, object], payload["value"]))
 
 
+def only_encode_execution_projection(projection: OnlyExecutionProjection) -> str:
+    """Encode one projection union member without constructing a business transaction."""
+
+    return _canonical(_encode_projection(projection))
+
+
+def only_decode_execution_projection(payload: str) -> OnlyExecutionProjection:
+    """Decode one projection union member from its typed envelope."""
+
+    return _decode_projection(_load_object(payload))
+
+
 def _event_authority(event_sequence: int, event: OnlyEvent) -> dict[str, object]:
     return {
         "event_sequence": event_sequence,

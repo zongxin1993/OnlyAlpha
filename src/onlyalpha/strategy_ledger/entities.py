@@ -422,11 +422,11 @@ class OnlyStrategyLedger:
     def _reconcile_equity(self) -> None:
         cash_view = self.cash_balance + self.position_market_value
         pnl_view = self.initial_capital + self.external_cash_flow + self.realized_pnl + self.unrealized_pnl - self.fees
+        self._equity = cash_view
         if cash_view != pnl_view:
             self.status = OnlyStrategyLedgerStatus.RECONCILING
             self.quality_flags = tuple(sorted(set(self.quality_flags + ("EQUITY_VIEW_MISMATCH",))))
             return
-        self._equity = cash_view
         if self.status is OnlyStrategyLedgerStatus.RECONCILING:
             self.status = OnlyStrategyLedgerStatus.ACTIVE
         self.quality_flags = tuple(item for item in self.quality_flags if item != "EQUITY_VIEW_MISMATCH")

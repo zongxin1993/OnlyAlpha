@@ -86,17 +86,15 @@ class OnlyStrategyCashReservationManager:
         order_id: OnlyOrderId,
         actual_amount: OnlyMoney,
         timestamp: OnlyTimestamp,
-        *,
-        allow_extra: bool,
     ) -> tuple[OnlyStrategyCashReservation, bool]:
         self._require_currency(actual_amount)
         item = self.require(order_id)
         if item.state in {OnlyStrategyCashReservationState.CONSUMED, OnlyStrategyCashReservationState.RELEASED}:
             return item, False
         excess = max(actual_amount.amount - item.remaining_amount.amount, Decimal(0))
-        if excess and not allow_extra:
-            raise ValueError("actual cash consumption exceeds Reservation")
-        reserved = OnlyMoney(item.reserved_amount.amount + excess, self.key.base_currency)
+        if excess:
+            raise ValueError("actual cash consumption exceeds original Reservation authority")
+        reserved = item.reserved_amount
         consumed = OnlyMoney(item.consumed_amount.amount + actual_amount.amount, self.key.base_currency)
         remaining = OnlyMoney(reserved.amount - consumed.amount, self.key.base_currency)
         state = (
@@ -126,7 +124,6 @@ class OnlyStrategyCashReservationManager:
             return item, False
         updated = replace(
             item,
-            reserved_amount=item.consumed_amount,
             remaining_amount=only_zero_money(self.key.base_currency),
             state=OnlyStrategyCashReservationState.RELEASED,
             stage=OnlyStrategyCashReservationStage.RELEASED,

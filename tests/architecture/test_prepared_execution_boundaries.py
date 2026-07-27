@@ -48,6 +48,20 @@ def test_prepared_transaction_fixture_is_independent_and_deterministic() -> None
     assert "test_execution_outbox" not in source
     assert "uuid4" not in source
     assert "OnlyEventId.new" not in source
+    assert "only_test_all_projection_types_transaction" not in source
+    assert "skip_economic_validation" not in source
+    assert "unsafe_create" not in source
+
+
+def test_replay_correctness_rules_have_no_manager_dependency_or_legacy_formula() -> None:
+    presence = Path("src/onlyalpha/execution/reservation_presence.py").read_text(encoding="utf-8")
+    invariants = Path("src/onlyalpha/execution/economic_invariants.py").read_text(encoding="utf-8")
+    state = Path("src/onlyalpha/execution/execution_state.py").read_text(encoding="utf-8")
+    assert not any(name.endswith(".manager") for name in _imports("src/onlyalpha/execution/reservation_presence.py"))
+    assert not any(name.endswith(".manager") for name in _imports("src/onlyalpha/execution/economic_invariants.py"))
+    assert "reserved_margin.amount - self.occupied_margin.amount" not in state
+    assert "skip_economic_validation" not in presence + invariants + state
+    assert "OnlyExecutionProcessor" not in presence + invariants + state
 
 
 def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_absent() -> None:

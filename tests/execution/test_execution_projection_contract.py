@@ -10,14 +10,16 @@ from onlyalpha.execution import (
     OnlyInMemoryExecutionProjectionState,
     OnlyInMemoryExecutionTransactionStore,
     OnlyProjectionApplyStatus,
+    only_decode_execution_projection,
     only_decode_prepared_execution_transaction,
+    only_encode_execution_projection,
     only_encode_prepared_execution_transaction,
     only_execution_state_hash,
 )
 from tests.execution.factories.transaction_factory import (
-    only_test_all_projection_types_transaction,
     only_test_generic_t0_cash_buy_open_projections,
     only_test_generic_t0_cash_buy_open_transaction,
+    only_test_projection_codec_cases,
 )
 
 
@@ -34,9 +36,13 @@ def test_canonical_state_hash_covers_authority_and_normalizes_mapping_order() ->
     assert only_execution_state_hash(replace(order, tags=("authority-change",))) != only_execution_state_hash(order)
 
 
-def test_all_projection_types_schema_v3_round_trip_and_v2_rejection() -> None:
-    prepared = only_test_all_projection_types_transaction()
-    assert len(prepared.projections) == len(OnlyExecutionProjectionComponent) == 15
+def test_projection_union_cases_round_trip_independently_and_schema_v2_is_rejected() -> None:
+    projections = only_test_projection_codec_cases()
+    assert len(projections) == len(OnlyExecutionProjectionComponent) == 15
+    for projection in projections:
+        payload = only_encode_execution_projection(projection)
+        assert only_decode_execution_projection(payload) == projection
+    prepared = only_test_generic_t0_cash_buy_open_transaction()
     payload = only_encode_prepared_execution_transaction(prepared)
     assert only_decode_prepared_execution_transaction(payload) == prepared
     old = json.loads(payload)
@@ -91,6 +97,6 @@ def test_projection_applier_replay_is_idempotent_and_does_not_mark_store_ready()
     applier = OnlyExecutionProjectionApplier(targets)
     first = applier.apply(transaction)
     replay = applier.apply(transaction)
-    assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(first.applied) == 9
-    assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(replay.idempotent) == 9
+    assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(first.applied) == 11
+    assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(replay.idempotent) == 11
     assert store.unprojected(prepared.runtime_id) == (transaction,)

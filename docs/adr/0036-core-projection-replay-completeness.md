@@ -20,10 +20,16 @@ Version 表达有序演进，State Hash 表达具体内容；两者必须同时�
 
 Prepared 构造调用纯 `OnlyPreparedExecutionEconomicInvariantValidator`，交叉验证 Fact、Order、Position、Allocation、Fee、Account、Ledger、Settlement、Margin、Reservation 和 scope。该验证器不依赖 Manager、Runtime、Store 或 EventBus。
 
+PR1.1.1 补充决定：Execution State 的公式和生命周期以真实 Manager/Entity Snapshot 为唯一权威。Account Available Margin 固定为 `cash - frozen - unsettled - reserved margin - occupied margin`；Account/Ledger Equity 均为 `cash + position market value`。Margin authority 可以整体缺失，但不得部分缺失或被 converter 伪造为零值。
+
+Reservation presence 由纯 `only_expected_execution_reservations()` 决定。无 Margin 的 BUY OPEN 必须各有一个 Account Cash、Strategy Cash 和 Risk Reservation，禁止 Position/Margin Reservation；SELL CLOSE 禁止 Cash Reservation，必须各有一个 Position 与 Risk Reservation。Margin 指令与 Margin Projection/Reservation 必须同时存在或同时缺失。所有 Reservation 的原始 authority、scope、时间和 version 只能单调推进，终态不可恢复。
+
+Projection union/codec 覆盖与业务事务覆盖分离。`only_test_projection_codec_cases()` 独立覆盖 15 个 union member；Prepared fixture 只能构造经济合法事务，不再存在 all-projections Prepared Transaction。
+
 业务幂等键与不同 authority 的复用使用 `OnlyExecutionTransactionConflict`；I/O、SQLite trigger/lock/malformed/schema、非业务 integrity、Outbox 和 serialization 故障使用 `OnlyExecutionTransactionStoreError` 并保留 cause。
 
 ## Consequences
 
-PR2 可以直接依赖 `Only*ExecutionState`、`Only*ExecutionProjection`、强制 State Hash Precondition、`only_execution_state_hash`、经济不变量验证器与 Generic T0 Fixture，构建 Planning Context、Pure Reducers 和 Transaction Planner，而不修改这些核心数据模型。
+真实 Manager/Entity parity 测试已覆盖 Order、Position、Allocation、Account、Strategy Ledger 以及 Account/Strategy/Position/Margin/Risk Reservation。PR2 可以直接依赖 `Only*ExecutionState`、`Only*ExecutionProjection`、强制 State Hash Precondition、`only_execution_state_hash`、Reservation Presence Matrix、经济不变量验证器与 Generic T0 Fixture，构建 Planning Context、Pure Reducers 和 Transaction Planner，而不修改这些核心数据模型。
 
 本 ADR 不实现 Pure Reducers、Transaction Planner、真实 Manager Projection Targets、Commit Coordinator、Processor Switch、Runtime Store 装配或 Full Replay Runtime，也不宣称已经解决 Manager-before-Journal。

@@ -48,6 +48,27 @@ class OnlyPositionReservation(OnlyDomainModel):
     updated_at: OnlyTimestamp
     version: int = 1
 
+    def __post_init__(self) -> None:
+        if (
+            self.quantity.precision != self.remaining_quantity.precision
+            or not 0 <= self.remaining_quantity.value <= self.quantity.value
+            or self.version < 1
+            or self.updated_at < self.created_at
+        ):
+            raise ValueError("Position Reservation quantity/lifecycle is invalid")
+        if self.state is OnlyPositionReservationState.CONSUMED and self.remaining_quantity.value != 0:
+            raise ValueError("consumed Position Reservation cannot retain remaining quantity")
+        if self.state is OnlyPositionReservationState.ACTIVE and self.remaining_quantity != self.quantity:
+            raise ValueError("active Position Reservation cannot be consumed")
+        if self.state is OnlyPositionReservationState.PARTIALLY_CONSUMED and not (
+            0 < self.remaining_quantity.value < self.quantity.value
+        ):
+            raise ValueError("partially consumed Position Reservation requires a partial remainder")
+        if self.state is OnlyPositionReservationState.RELEASED and (
+            self.remaining_quantity.value != 0 or self.stage is not OnlyPositionReservationStage.RELEASED
+        ):
+            raise ValueError("released Position Reservation must use released state and stage")
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyPositionReservationResult(OnlyDomainModel):

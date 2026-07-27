@@ -4,8 +4,10 @@ from .codec import (
     OnlyExecutionTransactionCodec,
     only_committed_execution_transaction_payload_hash,
     only_decode_committed_execution_transaction,
+    only_decode_execution_projection,
     only_decode_prepared_execution_transaction,
     only_encode_committed_execution_transaction,
+    only_encode_execution_projection,
     only_encode_prepared_execution_transaction,
     only_execution_payload_hash,
     only_execution_projection_payload_hash,
@@ -52,6 +54,7 @@ from .execution_state import (
     only_account_cash_reservation_execution_state,
     only_account_execution_state,
     only_allocation_execution_state,
+    only_margin_reservation_execution_state,
     only_order_execution_state,
     only_position_execution_state,
     only_position_reservation_execution_state,
@@ -125,6 +128,7 @@ from .projection_applier import (
     OnlyExecutionProjectionBatchResult,
     OnlyExecutionProjectionBatchStatus,
 )
+from .reservation_presence import OnlyExecutionReservationPresence, only_expected_execution_reservations
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver, OnlyPositionScopeResolutionSource
 from .state import (
     OnlyExecutionAuditStore,
@@ -166,6 +170,7 @@ __all__ = [
     "OnlyPositionExecutionState",
     "OnlyPositionReservationExecutionState",
     "OnlyPreparedExecutionEconomicInvariantValidator",
+    "OnlyExecutionReservationPresence",
     "OnlyRiskReservationExecutionState",
     "OnlyStrategyCashReservationExecutionState",
     "OnlyStrategyLedgerExecutionState",
@@ -284,12 +289,16 @@ __all__ = [
     "only_with_execution_projection_hash",
     "only_execution_state_hash",
     "only_account_cash_reservation_execution_state",
+    "only_decode_execution_projection",
+    "only_encode_execution_projection",
     "only_account_execution_state",
     "only_allocation_execution_state",
+    "only_margin_reservation_execution_state",
     "only_order_execution_state",
     "only_position_execution_state",
     "only_position_reservation_execution_state",
     "only_risk_reservation_execution_state",
     "only_strategy_cash_reservation_execution_state",
     "only_strategy_ledger_execution_state",
+    "only_expected_execution_reservations",
 ]

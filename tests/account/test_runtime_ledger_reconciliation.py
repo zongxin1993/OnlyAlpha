@@ -215,6 +215,7 @@ def test_fixed_capital_profit_and_loss_sum_to_account_portfolio_result() -> None
         ),
         realized_pnl=OnlyMoney(Decimal("30.00"), CNY),
         equity=OnlyMoney(Decimal("1030.00"), CNY),
+        available_margin=OnlyMoney(Decimal("1030.00"), CNY),
     )
     finals = []
     for ledger in ledgers.list_ledgers():

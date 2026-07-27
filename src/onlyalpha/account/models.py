@@ -105,6 +105,20 @@ class OnlyAccountReservation(OnlyDomainModel):
             raise ValueError("Account Reservation consumed plus remaining must equal reserved")
         if min(item.amount for item in values) < 0 or self.version < 1:
             raise ValueError("Account Reservation amounts must be non-negative and version positive")
+        if self.updated_at < self.created_at:
+            raise ValueError("Account Reservation update time cannot precede creation")
+        if self.state is OnlyAccountReservationState.CONSUMED and self.remaining_amount.amount != 0:
+            raise ValueError("consumed Account Reservation cannot retain remaining amount")
+        if self.state is OnlyAccountReservationState.ACTIVE and (
+            self.consumed_amount.amount != 0 or self.remaining_amount != self.reserved_amount
+        ):
+            raise ValueError("active Account Reservation cannot be consumed")
+        if self.state is OnlyAccountReservationState.PARTIALLY_CONSUMED and (
+            self.consumed_amount.amount == 0 or self.remaining_amount.amount == 0
+        ):
+            raise ValueError("partially consumed Account Reservation requires consumed and remaining amounts")
+        if self.state is OnlyAccountReservationState.RELEASED and self.remaining_amount.amount != 0:
+            raise ValueError("released Account Reservation cannot retain remaining amount")
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,8 +239,23 @@ class OnlyAccountSnapshot(OnlyDomainModel):
         )
         if any(item.currency != self.base_currency or item.amount < 0 for item in margin_values):
             raise ValueError("Account margin values require base currency and non-negative amounts")
+        if len(margin_values) not in {0, 4}:
+            raise ValueError("Account margin values must be complete or absent")
+        if self.available_margin is not None:
+            assert self.reserved_margin is not None and self.occupied_margin is not None
+            expected_margin = (
+                self.cash.cash_balance.amount
+                - self.cash.frozen_cash.amount
+                - self.cash.unsettled_cash.amount
+                - self.reserved_margin.amount
+                - self.occupied_margin.amount
+            )
+            if self.available_margin.amount != expected_margin:
+                raise ValueError("Account available margin formula is invalid")
         if self.equity.amount != self.cash.cash_balance.amount + self.position_market_value.amount:
             raise ValueError("cash plus position market value must equal Account equity")
+        if self.version < 1 or self.updated_at < self.created_at:
+            raise ValueError("Account Snapshot lifecycle is invalid")
         object.__setattr__(self, "quality_flags", tuple(self.quality_flags))
         object.__setattr__(self, "metadata", only_account_metadata(self.metadata))
 

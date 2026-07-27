@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from onlyalpha.account.manager import OnlyAccountManager
 from onlyalpha.domain.enums import OnlyOffset
 from onlyalpha.domain.execution import OnlyOrderSnapshot
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId
+from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyPrice
@@ -73,17 +73,18 @@ class OnlyOrderMarginReservationAdapter:
             return
         instruction = OnlyMarginInstruction(
             "RELEASE",
-            reservation.account_id,
-            reservation.instrument_id,
-            reservation.currency,
+            str(reservation.account_id),
+            str(reservation.instrument_id),
+            reservation.currency.code,
             reservation.reserved,
             reservation.maintenance_required,
-            reservation.source_order_id,
+            str(reservation.source_order_id),
             "",
+            timestamp,
         )
         self._manager.apply(instruction)
         self._accounts.apply_margin_change(
-            OnlyAccountId(reservation.account_id),
+            reservation.account_id,
             reserved_delta=-reservation.reserved,
             released_delta=reservation.reserved,
             timestamp=timestamp,

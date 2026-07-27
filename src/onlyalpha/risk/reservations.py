@@ -41,6 +41,28 @@ class OnlyRiskReservation(OnlyDomainModel):
     consumed_notional: OnlyMoney | None = None
     consumed_quantity: OnlyQuantity | None = None
 
+    def __post_init__(self) -> None:
+        consumed_quantity = Decimal(0) if self.consumed_quantity is None else self.consumed_quantity.value
+        if (
+            self.version < 1
+            or self.updated_at < self.created_at
+            or self.reserved_quantity.value < 0
+            or not 0 <= consumed_quantity <= self.reserved_quantity.value
+        ):
+            raise ValueError("Risk Reservation quantity/lifecycle is invalid")
+        if self.reserved_notional is None:
+            if self.consumed_notional is not None:
+                raise ValueError("Risk Reservation optional notionals disagree")
+        elif self.consumed_notional is not None and (
+            self.consumed_notional.currency != self.reserved_notional.currency
+            or not 0 <= self.consumed_notional.amount <= self.reserved_notional.amount
+        ):
+            raise ValueError("Risk Reservation consumed notional is invalid")
+        if (self.state is OnlyRiskReservationState.RELEASED) != (self.release_reason is not None):
+            raise ValueError("Risk Reservation release reason disagrees with state")
+        if self.state is OnlyRiskReservationState.CONSUMED and consumed_quantity != self.reserved_quantity.value:
+            raise ValueError("consumed Risk Reservation must consume its quantity authority")
+
     @property
     def remaining_notional(self) -> OnlyMoney | None:
         if self.reserved_notional is None:
@@ -196,6 +218,8 @@ class OnlyRiskReservationManager:
         updated = replace(
             reservation,
             state=OnlyRiskReservationState.CONSUMED,
+            consumed_notional=reservation.reserved_notional,
+            consumed_quantity=reservation.reserved_quantity,
             updated_at=timestamp,
             version=reservation.version + 1,
         )

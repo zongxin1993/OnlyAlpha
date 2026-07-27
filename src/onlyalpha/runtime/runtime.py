@@ -522,7 +522,7 @@ class OnlyRuntime:
         self._account_manager.bind_performance_observer(self._project_account_performance)
         self._account_query = OnlyAccountQueryService(self._account_manager)
         self._settlement_manager = OnlySettlementManager()
-        self._margin_manager = OnlyMarginManager()
+        self._margin_manager = OnlyMarginManager(OnlyRuntimeId(str(config.runtime_id)))
         self._fee_manager = OnlyFeeManager()
 
     @property

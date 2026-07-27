@@ -185,7 +185,7 @@ class OnlyStrategyLedgerManager:
         extra = max(actual_amount.amount - reservation.remaining_amount.amount, Decimal(0))
         if extra > before.cash.cash_available.amount:
             raise OnlyStrategyLedgerInsufficientCashError("fill exceeds Reservation and available cash")
-        _, changed = self._reservations[key].consume(order_id, actual_amount, timestamp, allow_extra=True)
+        _, changed = self._reservations[key].consume(order_id, actual_amount, timestamp)
         if changed:
             ledger.reservation_changed(timestamp)
             snapshot = self._save(ledger)

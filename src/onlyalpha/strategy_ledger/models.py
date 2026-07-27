@@ -148,8 +148,29 @@ class OnlyStrategyCashReservation(OnlyDomainModel):
         )
         if any(item.currency != self.key.base_currency for item in values):
             raise ValueError("Cash Reservation values require Ledger base currency")
-        if self.consumed_amount.amount + self.remaining_amount.amount != self.reserved_amount.amount:
+        accounted = self.consumed_amount.amount + self.remaining_amount.amount
+        if self.state is OnlyStrategyCashReservationState.RELEASED:
+            valid_amounts = accounted <= self.reserved_amount.amount
+        else:
+            valid_amounts = accounted == self.reserved_amount.amount
+        if not valid_amounts:
             raise ValueError("Cash Reservation consumed plus remaining must equal reserved")
+        if self.version < 1 or self.updated_at < self.created_at:
+            raise ValueError("Cash Reservation lifecycle is invalid")
+        if self.state is OnlyStrategyCashReservationState.CONSUMED and self.remaining_amount.amount != 0:
+            raise ValueError("consumed Cash Reservation cannot retain remaining amount")
+        if self.state is OnlyStrategyCashReservationState.ACTIVE and (
+            self.consumed_amount.amount != 0 or self.remaining_amount != self.reserved_amount
+        ):
+            raise ValueError("active Cash Reservation cannot be consumed")
+        if self.state is OnlyStrategyCashReservationState.PARTIALLY_CONSUMED and (
+            self.consumed_amount.amount == 0 or self.remaining_amount.amount == 0
+        ):
+            raise ValueError("partially consumed Cash Reservation requires consumed and remaining amounts")
+        if self.state is OnlyStrategyCashReservationState.RELEASED and (
+            self.remaining_amount.amount != 0 or self.stage is not OnlyStrategyCashReservationStage.RELEASED
+        ):
+            raise ValueError("released Cash Reservation must use released state and stage")
         object.__setattr__(self, "metadata", only_frozen_metadata(self.metadata))
 
 

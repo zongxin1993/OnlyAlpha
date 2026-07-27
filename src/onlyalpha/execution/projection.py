@@ -400,6 +400,8 @@ class OnlyAccountCashReservationExecutionProjection(OnlyDomainModel):
         _require_component(self.identity, OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
+        if self.before is not None:
+            _require_account_cash_reservation_transition(self.before, self.after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +414,8 @@ class OnlyStrategyCashReservationExecutionProjection(OnlyDomainModel):
         _require_component(self.identity, OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
+        if self.before is not None:
+            _require_strategy_cash_reservation_transition(self.before, self.after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,6 +428,8 @@ class OnlyPositionReservationExecutionProjection(OnlyDomainModel):
         _require_component(self.identity, OnlyExecutionProjectionComponent.POSITION_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
+        if self.before is not None:
+            _require_position_reservation_transition(self.before, self.after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,6 +442,8 @@ class OnlyMarginReservationExecutionProjection(OnlyDomainModel):
         _require_component(self.identity, OnlyExecutionProjectionComponent.MARGIN_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
+        if self.before is not None:
+            _require_margin_reservation_transition(self.before, self.after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,6 +456,8 @@ class OnlyRiskReservationExecutionProjection(OnlyDomainModel):
         _require_component(self.identity, OnlyExecutionProjectionComponent.RISK_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
+        if self.before is not None:
+            _require_risk_reservation_transition(self.before, self.after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -590,6 +600,143 @@ def _require_reservation_scope(
         raise ValueError("Reservation projection entity key mismatch")
     if before is not None and cast(_OnlyReservationState, before).reservation_id != after_reservation.reservation_id:
         raise ValueError("Reservation projection before/after scope mismatch")
+
+
+def _require_account_cash_reservation_transition(
+    before: OnlyAccountCashReservationExecutionState,
+    after: OnlyAccountCashReservationExecutionState,
+) -> None:
+    if (
+        (before.runtime_id, before.account_id, before.order_id, before.reserved_amount)
+        != (after.runtime_id, after.account_id, after.order_id, after.reserved_amount)
+        or after.consumed_amount.amount < before.consumed_amount.amount
+        or after.remaining_amount.amount > before.remaining_amount.amount
+        or after.version != before.version + 1
+    ):
+        raise ValueError("Account cash Reservation authority changed")
+    _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
+
+
+def _require_strategy_cash_reservation_transition(
+    before: OnlyStrategyCashReservationExecutionState,
+    after: OnlyStrategyCashReservationExecutionState,
+) -> None:
+    if (
+        (before.key, before.order_id, before.estimated_notional, before.estimated_fee, before.reserved_amount)
+        != (after.key, after.order_id, after.estimated_notional, after.estimated_fee, after.reserved_amount)
+        or after.consumed_amount.amount < before.consumed_amount.amount
+        or after.remaining_amount.amount > before.remaining_amount.amount
+        or after.version != before.version + 1
+    ):
+        raise ValueError("Strategy cash Reservation authority changed")
+    _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
+
+
+def _require_position_reservation_transition(
+    before: OnlyPositionReservationExecutionState,
+    after: OnlyPositionReservationExecutionState,
+) -> None:
+    if (
+        (
+            before.runtime_id,
+            before.account_id,
+            before.cluster_id,
+            before.instrument_id,
+            before.position_side,
+            before.position_mode,
+            before.order_id,
+            before.quantity,
+            before.settlement_bucket,
+        )
+        != (
+            after.runtime_id,
+            after.account_id,
+            after.cluster_id,
+            after.instrument_id,
+            after.position_side,
+            after.position_mode,
+            after.order_id,
+            after.quantity,
+            after.settlement_bucket,
+        )
+        or after.remaining_quantity.value > before.remaining_quantity.value
+        or after.version != before.version + 1
+    ):
+        raise ValueError("Position Reservation authority changed")
+    _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
+
+
+def _require_margin_reservation_transition(
+    before: OnlyMarginReservationExecutionState,
+    after: OnlyMarginReservationExecutionState,
+) -> None:
+    if (
+        (
+            before.runtime_id,
+            before.account_id,
+            before.instrument_id,
+            before.order_id,
+            before.currency,
+            before.original_reserved_amount,
+        )
+        != (
+            after.runtime_id,
+            after.account_id,
+            after.instrument_id,
+            after.order_id,
+            after.currency,
+            after.original_reserved_amount,
+        )
+        or after.remaining_reserved_amount.amount > before.remaining_reserved_amount.amount
+        or after.released_amount.amount < before.released_amount.amount
+        or after.version != before.version + 1
+    ):
+        raise ValueError("Margin Reservation authority changed")
+    _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
+
+
+def _require_risk_reservation_transition(
+    before: OnlyRiskReservationExecutionState,
+    after: OnlyRiskReservationExecutionState,
+) -> None:
+    if (
+        (
+            before.reservation_type,
+            before.runtime_id,
+            before.cluster_id,
+            before.account_id,
+            before.instrument_id,
+            before.order_id,
+            before.reserved_quantity,
+            before.reserved_notional,
+        )
+        != (
+            after.reservation_type,
+            after.runtime_id,
+            after.cluster_id,
+            after.account_id,
+            after.instrument_id,
+            after.order_id,
+            after.reserved_quantity,
+            after.reserved_notional,
+        )
+        or after.consumed_quantity.value < before.consumed_quantity.value
+        or after.remaining_quantity.value > before.remaining_quantity.value
+        or after.version != before.version + 1
+    ):
+        raise ValueError("Risk Reservation authority changed")
+    _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
+
+
+def _require_reservation_lifecycle(
+    before_state: str,
+    after_state: str,
+    before_updated_at: OnlyTimestamp,
+    after_updated_at: OnlyTimestamp,
+) -> None:
+    terminal = {"CONSUMED", "RELEASED", "FAILED"}
+    if after_updated_at < before_updated_at or (before_state in terminal and after_state != before_state):
+        raise ValueError("Reservation lifecycle regressed")
 
 
 class _OnlyVersionedState(Protocol):

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyRuntimeMode
 from onlyalpha.domain.instrument import OnlyInstrument
-from onlyalpha.domain.time import OnlyTradingDay, only_require_utc
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay, only_require_utc
 from onlyalpha.market.models import (
     OnlyInstrumentReferenceSnapshot,
     OnlyLiquidityModel,
@@ -247,6 +247,7 @@ class OnlyMarginInstruction:
     maintenance_required: Decimal
     source_order_id: str
     source_trade_id: str
+    timestamp: OnlyTimestamp
 
 
 @dataclass(frozen=True, slots=True)
@@ -471,6 +472,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                 requirement.maintenance_margin,
                 request.order_id,
                 request.trade_id,
+                OnlyTimestamp.from_datetime(request.timestamp),
             )
         position_side = (
             "SHORT"
@@ -556,6 +558,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             requirement.maintenance_margin,
             request.order_id,
             request.trade_id,
+            OnlyTimestamp.from_datetime(request.timestamp),
         )
 
 

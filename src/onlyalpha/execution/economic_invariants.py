@@ -18,11 +18,13 @@ from .projection import (
     OnlyOrderExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
+    OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
     OnlySettlementExecutionProjection,
     OnlyStrategyCashReservationExecutionProjection,
     OnlyStrategyLedgerExecutionProjection,
 )
+from .reservation_presence import OnlyExecutionReservationPresence, only_expected_execution_reservations
 
 if TYPE_CHECKING:
     from .transaction import OnlyPreparedExecutionTransaction
@@ -40,6 +42,14 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         fee = _one(prepared.projections, OnlyFeeExecutionProjection)
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
         ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
+        presence = only_expected_execution_reservations(
+            market_profile_id=fact.market_profile_id,
+            side=fact.order_side,
+            offset=fact.offset,
+            position_effect=fact.position_effect,
+            margin_instruction_present=fact.margin_instruction_id is not None,
+        )
+        self._validate_reservation_presence(prepared, presence)
 
         if (
             order.after.order_id != fact.order_id
@@ -80,6 +90,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or fee.after.fee_breakdown != fact.fee_breakdown
             or fee.after.instruction.instruction_id != fact.fee_instruction_id
             or fee.after.instruction.trade_id != str(fact.trade_id)
+            or fee.after.fee_breakdown.status.value != fact.fee_status
         ):
             raise ValueError("Fee projection contradicts execution fact")
 
@@ -101,6 +112,13 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             != fact.ledger_realized_pnl_delta.amount
         ):
             raise ValueError("Strategy Ledger projection realized PnL contradicts execution fact")
+        expected_cash_delta = (
+            -(fact.settled_notional.amount + fact.authoritative_fee_total.amount)
+            if fact.order_side is OnlyOrderSide.BUY
+            else fact.settled_notional.amount - fact.authoritative_fee_total.amount
+        )
+        if fact.cash_delta.amount != expected_cash_delta:
+            raise ValueError("execution Fact cash delta contradicts authoritative trade cost")
 
         state = settlement.after
         if (
@@ -122,40 +140,74 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             for item in prepared.projections
             if isinstance(item, OnlyMarginExecutionProjection | OnlyMarginReservationExecutionProjection)
         )
-        if fact.margin_instruction_id is None and margins:
+        margin_fields = (
+            fact.margin_action,
+            fact.margin_currency,
+            fact.margin_amount,
+            fact.reserved_margin_delta,
+            fact.occupied_margin_delta,
+            fact.released_margin_delta,
+            fact.maintenance_margin_after,
+        )
+        if fact.margin_instruction_id is None and (margins or any(value is not None for value in margin_fields)):
             raise ValueError("execution without Margin instruction cannot contain Margin projections")
-        if fact.margin_instruction_id is not None and not margins:
-            raise ValueError("execution with Margin instruction requires Margin projections")
         if fact.margin_instruction_id is not None:
+            if any(value is None for value in margin_fields):
+                raise ValueError("execution with Margin instruction requires complete Margin facts")
             margin = _one(prepared.projections, OnlyMarginExecutionProjection).after
             margin_reservation = _one(prepared.projections, OnlyMarginReservationExecutionProjection).after
             if (
                 margin.instruction_id != fact.margin_instruction_id
                 or margin.action != fact.margin_action
                 or margin.currency != fact.currency.code
+                or fact.margin_currency != fact.currency
                 or margin.amount != (fact.margin_amount.amount if fact.margin_amount is not None else None)
                 or margin_reservation.order_id != fact.order_id
                 or margin_reservation.currency != fact.currency
+                or margin.account_id != fact.account_id
+                or margin.instrument_id != fact.instrument_id
+                or margin.order_id != fact.order_id
+                or margin.trade_id != str(fact.trade_id)
             ):
                 raise ValueError("Margin projections contradict execution fact")
+            self._validate_margin_account(prepared)
+        elif (
+            account.after.reserved_margin != account.before.reserved_margin
+            or account.after.occupied_margin != account.before.occupied_margin
+            or account.after.released_margin != account.before.released_margin
+        ):
+            raise ValueError("execution without Margin cannot change Account Margin state")
 
+        self._validate_scope(prepared)
         self._validate_cash_reservations(prepared)
         self._validate_risk_reservations(prepared)
-        self._validate_scope(prepared)
 
     @staticmethod
     def _validate_cash_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
         fact = prepared.fact_draft
-        account = _one(prepared.projections, OnlyAccountCashReservationExecutionProjection)
-        strategy = _one(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
+        accounts = _all(prepared.projections, OnlyAccountCashReservationExecutionProjection)
+        strategies = _all(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
+        if not accounts and not strategies:
+            return
+        account = accounts[0]
+        strategy = strategies[0]
+        actual_consumption = fact.settled_notional.amount + fact.authoritative_fee_total.amount
         for label, projection in (("Account", account), ("Strategy", strategy)):
             before_consumed = Decimal(0) if projection.before is None else projection.before.consumed_amount.amount
             consumed_delta = projection.after.consumed_amount.amount - before_consumed
-            if projection.after.order_id != fact.order_id or consumed_delta != -fact.cash_delta.amount:
+            if projection.after.order_id != fact.order_id or consumed_delta != actual_consumption:
                 raise ValueError(f"{label} cash Reservation consumption contradicts execution fact")
-        position_reservations = tuple(
-            item for item in prepared.projections if isinstance(item, OnlyPositionReservationExecutionProjection)
-        )
+        if (
+            account.after.runtime_id != fact.runtime_id
+            or account.after.account_id != fact.account_id
+            or account.after.reserved_amount.currency != fact.currency
+            or strategy.after.key.runtime_id != fact.runtime_id
+            or strategy.after.key.account_id != fact.account_id
+            or strategy.after.key.cluster_id != fact.cluster_id
+            or strategy.after.key.base_currency != fact.currency
+        ):
+            raise ValueError("cash Reservation scope contradicts execution fact")
+        position_reservations = _all(prepared.projections, OnlyPositionReservationExecutionProjection)
         for position_projection in position_reservations:
             before_remaining = (
                 Decimal(0)
@@ -163,12 +215,22 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 else position_projection.before.remaining_quantity.value
             )
             consumed = before_remaining - position_projection.after.remaining_quantity.value
-            if position_projection.after.order_id != fact.order_id or consumed != fact.fill_quantity.value:
+            if (
+                position_projection.after.order_id != fact.order_id
+                or position_projection.after.runtime_id != fact.runtime_id
+                or position_projection.after.account_id != fact.account_id
+                or position_projection.after.cluster_id != fact.cluster_id
+                or position_projection.after.instrument_id != fact.instrument_id
+                or position_projection.after.position_side != fact.position_side
+                or position_projection.after.position_mode != fact.position_mode
+                or consumed != fact.fill_quantity.value
+            ):
                 raise ValueError("Position Reservation consumption contradicts execution fact")
 
     @staticmethod
     def _validate_risk_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
         fact = prepared.fact_draft
+        risk = _one(prepared.projections, OnlyRiskExecutionProjection).after
         reservations = tuple(
             item for item in prepared.projections if isinstance(item, OnlyRiskReservationExecutionProjection)
         )
@@ -187,8 +249,17 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             )
             if (
                 projection.after.order_id != fact.order_id
+                or projection.after.runtime_id != fact.runtime_id
+                or projection.after.cluster_id != fact.cluster_id
+                or projection.after.account_id != fact.account_id
+                or projection.after.instrument_id != fact.instrument_id
+                or projection.after.reserved_quantity.value < fact.cumulative_filled_quantity.value
+                or projection.after.reserved_notional is None
+                or projection.after.reserved_notional.currency != fact.currency
                 or consumed_quantity != fact.fill_quantity.value
                 or consumed_notional != fact.gross_notional.amount
+                or risk.quantity_exposure != projection.after.remaining_quantity
+                or risk.notional_exposure != projection.after.remaining_notional
             ):
                 raise ValueError("Risk Reservation consumption contradicts execution fact")
 
@@ -200,6 +271,9 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         allocation = _one(prepared.projections, OnlyAllocationExecutionProjection).after
         account = _one(prepared.projections, OnlyAccountExecutionProjection).after
         ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection).after
+        fee = _one(prepared.projections, OnlyFeeExecutionProjection).after
+        settlement = _one(prepared.projections, OnlySettlementExecutionProjection).after
+        risk = _one(prepared.projections, OnlyRiskExecutionProjection).after
         if (
             order.runtime_id != fact.runtime_id
             or order.cluster_id != fact.cluster_id
@@ -218,8 +292,80 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or ledger.key.account_id != fact.account_id
             or ledger.key.cluster_id != fact.cluster_id
             or ledger.key.base_currency != fact.currency
+            or fee.instruction.runtime_id != str(fact.runtime_id)
+            or fee.instruction.cluster_id != str(fact.cluster_id)
+            or fee.instruction.account_id != str(fact.account_id)
+            or fee.instruction.order_id != str(fact.order_id)
+            or fee.instruction.trade_id != str(fact.trade_id)
+            or any(
+                record.account_id != str(fact.account_id)
+                or record.order_id != str(fact.order_id)
+                or record.trade_id != str(fact.trade_id)
+                or record.amount.currency != fact.currency
+                for record in fee.records
+            )
+            or settlement.account_id != fact.account_id
+            or settlement.instrument_id != fact.instrument_id
+            or settlement.source_order_id != fact.order_id
+            or settlement.source_trade_id != str(fact.trade_id)
+            or settlement.cash_amount.currency != fact.currency
+            or risk.cluster_id != fact.cluster_id
+            or risk.account_id != fact.account_id
+            or risk.instrument_id != fact.instrument_id
+            or risk.order_id != fact.order_id
+            or risk.notional_exposure.currency != fact.currency
         ):
             raise ValueError("execution Projection scope contradicts execution fact")
+
+    @staticmethod
+    def _validate_reservation_presence(
+        prepared: OnlyPreparedExecutionTransaction, presence: OnlyExecutionReservationPresence
+    ) -> None:
+        requirements = (
+            (OnlyAccountCashReservationExecutionProjection, presence.require_account_cash),
+            (OnlyStrategyCashReservationExecutionProjection, presence.require_strategy_cash),
+            (OnlyPositionReservationExecutionProjection, presence.require_position),
+            (OnlyMarginReservationExecutionProjection, presence.require_margin),
+            (OnlyRiskReservationExecutionProjection, presence.require_risk),
+        )
+        for projection_type, required in requirements:
+            count = len(_all(prepared.projections, projection_type))
+            expected = 1 if required else 0
+            if count != expected:
+                raise ValueError(f"execution requires exactly {expected} {projection_type.__name__}; received {count}")
+
+    @staticmethod
+    def _validate_margin_account(prepared: OnlyPreparedExecutionTransaction) -> None:
+        fact = prepared.fact_draft
+        account = _one(prepared.projections, OnlyAccountExecutionProjection)
+        margin = _one(prepared.projections, OnlyMarginExecutionProjection).after
+        reservation = _one(prepared.projections, OnlyMarginReservationExecutionProjection).after
+        assert fact.reserved_margin_delta is not None
+        assert fact.occupied_margin_delta is not None
+        assert fact.released_margin_delta is not None
+        assert fact.maintenance_margin_after is not None
+        if (
+            account.before.reserved_margin is None
+            or account.before.occupied_margin is None
+            or account.before.released_margin is None
+            or account.after.reserved_margin is None
+            or account.after.occupied_margin is None
+            or account.after.released_margin is None
+        ):
+            raise ValueError("Margin execution requires complete Account Margin states")
+        if (
+            account.after.reserved_margin.amount - account.before.reserved_margin.amount
+            != fact.reserved_margin_delta.amount
+            or account.after.occupied_margin.amount - account.before.occupied_margin.amount
+            != fact.occupied_margin_delta.amount
+            or account.after.released_margin.amount - account.before.released_margin.amount
+            != fact.released_margin_delta.amount
+            or margin.reserved != reservation.remaining_reserved_amount.amount
+            or margin.occupied != reservation.occupied_amount.amount
+            or margin.maintenance != reservation.maintenance_amount.amount
+            or margin.maintenance != fact.maintenance_margin_after.amount
+        ):
+            raise ValueError("Margin Fact, Account and Reservation states do not reconcile")
 
 
 def _one[ProjectionT: OnlyExecutionProjection](
@@ -229,6 +375,12 @@ def _one[ProjectionT: OnlyExecutionProjection](
     if len(matches) != 1:
         raise ValueError(f"prepared execution requires exactly one {projection_type.__name__}")
     return matches[0]
+
+
+def _all[ProjectionT: OnlyExecutionProjection](
+    projections: tuple[OnlyExecutionProjection, ...], projection_type: type[ProjectionT]
+) -> tuple[ProjectionT, ...]:
+    return tuple(item for item in projections if isinstance(item, projection_type))
 
 
 def _increases_position(side: OnlyOrderSide, offset: OnlyOffset) -> bool:

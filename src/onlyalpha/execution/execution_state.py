@@ -26,6 +26,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.position.enums import (
     OnlyPositionMode,
     OnlyPositionReservationStage,
@@ -209,10 +210,10 @@ class OnlyAccountExecutionState(OnlyDomainModel):
     version: int
     last_external_sequence: int | None
     quality_flags: tuple[str, ...]
-    reserved_margin: OnlyMoney
-    occupied_margin: OnlyMoney
-    released_margin: OnlyMoney
-    available_margin: OnlyMoney
+    reserved_margin: OnlyMoney | None
+    occupied_margin: OnlyMoney | None
+    released_margin: OnlyMoney | None
+    available_margin: OnlyMoney | None
     metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -226,14 +227,32 @@ class OnlyAccountExecutionState(OnlyDomainModel):
             self.unrealized_pnl,
             self.fees,
             self.equity,
+        )
+        if any(item.currency != self.base_currency for item in values):
+            raise ValueError("Account execution state requires one base currency")
+        margin_values = (
             self.reserved_margin,
             self.occupied_margin,
             self.released_margin,
             self.available_margin,
         )
-        if any(item.currency != self.base_currency for item in values):
-            raise ValueError("Account execution state requires one base currency")
-        if self.cash_balance.amount < 0 or self.version < 1:
+        if any(item is None for item in margin_values) and any(item is not None for item in margin_values):
+            raise ValueError("Account execution Margin state must be complete or absent")
+        present_margins = tuple(item for item in margin_values if item is not None)
+        if any(item.currency != self.base_currency for item in present_margins):
+            raise ValueError("Account execution Margin state requires base currency")
+        if (
+            min(
+                self.cash_balance.amount,
+                self.available_cash.amount,
+                self.frozen_cash.amount,
+                self.unsettled_cash.amount,
+                *(item.amount for item in present_margins),
+            )
+            < 0
+            or self.version < 1
+            or self.updated_at < self.created_at
+        ):
             raise ValueError("Account execution cash/version is invalid")
         if (
             self.available_cash.amount
@@ -242,8 +261,16 @@ class OnlyAccountExecutionState(OnlyDomainModel):
             raise ValueError("Account available cash formula is invalid")
         if self.equity.amount != self.cash_balance.amount + self.position_market_value.amount:
             raise ValueError("Account equity formula is invalid")
-        if self.available_margin.amount != self.reserved_margin.amount - self.occupied_margin.amount:
-            raise ValueError("Account available margin formula is invalid")
+        if self.available_margin is not None:
+            assert self.reserved_margin is not None and self.occupied_margin is not None
+            if self.available_margin.amount != (
+                self.cash_balance.amount
+                - self.frozen_cash.amount
+                - self.unsettled_cash.amount
+                - self.reserved_margin.amount
+                - self.occupied_margin.amount
+            ):
+                raise ValueError("Account available margin formula is invalid")
         object.__setattr__(self, "quality_flags", tuple(self.quality_flags))
         object.__setattr__(self, "metadata", _metadata(self.metadata))
 
@@ -290,7 +317,12 @@ class OnlyStrategyLedgerExecutionState(OnlyDomainModel):
         )
         if any(item.currency != self.key.base_currency for item in values):
             raise ValueError("Ledger execution state requires one base currency")
-        if self.cash_available.amount != self.cash_balance.amount - self.cash_reserved.amount or self.version < 1:
+        if (
+            self.cash_available.amount != self.cash_balance.amount - self.cash_reserved.amount
+            or self.equity.amount != self.cash_balance.amount + self.position_market_value.amount
+            or self.version < 1
+            or self.updated_at < self.created_at
+        ):
             raise ValueError("Ledger execution cash/version is invalid")
         object.__setattr__(self, "quality_flags", tuple(self.quality_flags))
 
@@ -313,7 +345,23 @@ class OnlyAccountCashReservationExecutionState(OnlyDomainModel):
         values = (self.reserved_amount, self.consumed_amount, self.remaining_amount)
         if len({item.currency for item in values}) != 1 or min(item.amount for item in values) < 0:
             raise ValueError("Account cash reservation currency/amount is invalid")
-        if self.consumed_amount.amount + self.remaining_amount.amount > self.reserved_amount.amount or self.version < 1:
+        accounted = self.consumed_amount.amount + self.remaining_amount.amount
+        if (
+            (self.state is OnlyAccountReservationState.RELEASED and accounted > self.reserved_amount.amount)
+            or (self.state is not OnlyAccountReservationState.RELEASED and accounted != self.reserved_amount.amount)
+            or (self.state is OnlyAccountReservationState.CONSUMED and self.remaining_amount.amount != 0)
+            or (
+                self.state is OnlyAccountReservationState.ACTIVE
+                and (self.consumed_amount.amount != 0 or self.remaining_amount != self.reserved_amount)
+            )
+            or (
+                self.state is OnlyAccountReservationState.PARTIALLY_CONSUMED
+                and (self.consumed_amount.amount == 0 or self.remaining_amount.amount == 0)
+            )
+            or (self.state is OnlyAccountReservationState.RELEASED and self.remaining_amount.amount != 0)
+            or self.version < 1
+            or self.updated_at < self.created_at
+        ):
             raise ValueError("Account cash reservation authority is invalid")
 
 
@@ -344,9 +392,26 @@ class OnlyStrategyCashReservationExecutionState(OnlyDomainModel):
         )
         if any(item.currency != self.key.base_currency for item in values):
             raise ValueError("Strategy cash reservation currency is invalid")
+        accounted = self.consumed_amount.amount + self.remaining_amount.amount
+        released = self.state is OnlyStrategyCashReservationState.RELEASED
         if (
-            self.consumed_amount.amount + self.remaining_amount.amount != self.reserved_amount.amount
+            (released and accounted > self.reserved_amount.amount)
+            or (not released and accounted != self.reserved_amount.amount)
+            or (self.state is OnlyStrategyCashReservationState.CONSUMED and self.remaining_amount.amount != 0)
+            or (
+                self.state is OnlyStrategyCashReservationState.ACTIVE
+                and (self.consumed_amount.amount != 0 or self.remaining_amount != self.reserved_amount)
+            )
+            or (
+                self.state is OnlyStrategyCashReservationState.PARTIALLY_CONSUMED
+                and (self.consumed_amount.amount == 0 or self.remaining_amount.amount == 0)
+            )
+            or (
+                self.state is OnlyStrategyCashReservationState.RELEASED
+                and (self.remaining_amount.amount != 0 or self.stage is not OnlyStrategyCashReservationStage.RELEASED)
+            )
             or self.version < 1
+            or self.updated_at < self.created_at
         ):
             raise ValueError("Strategy cash reservation authority is invalid")
         object.__setattr__(self, "metadata", _metadata(self.metadata))
@@ -374,7 +439,21 @@ class OnlyPositionReservationExecutionState(OnlyDomainModel):
     def __post_init__(self) -> None:
         if self.quantity.precision != self.remaining_quantity.precision:
             raise ValueError("Position reservation quantity precision mismatch")
-        if not 0 <= self.remaining_quantity.value <= self.quantity.value or self.version < 1:
+        if (
+            not 0 <= self.remaining_quantity.value <= self.quantity.value
+            or (self.state is OnlyPositionReservationState.CONSUMED and self.remaining_quantity.value != 0)
+            or (self.state is OnlyPositionReservationState.ACTIVE and self.remaining_quantity != self.quantity)
+            or (
+                self.state is OnlyPositionReservationState.PARTIALLY_CONSUMED
+                and not 0 < self.remaining_quantity.value < self.quantity.value
+            )
+            or (
+                self.state is OnlyPositionReservationState.RELEASED
+                and (self.remaining_quantity.value != 0 or self.stage is not OnlyPositionReservationStage.RELEASED)
+            )
+            or self.version < 1
+            or self.updated_at < self.created_at
+        ):
             raise ValueError("Position reservation authority is invalid")
 
 
@@ -409,11 +488,24 @@ class OnlyMarginReservationExecutionState(OnlyDomainModel):
             raise ValueError("Margin reservation currency/amount is invalid")
         if (
             self.remaining_reserved_amount.amount + self.occupied_amount.amount + self.released_amount.amount
-            > self.original_reserved_amount.amount
+            != self.original_reserved_amount.amount
         ):
             raise ValueError("Margin reservation creates authority")
-        if self.version < 1:
+        if self.version < 1 or self.updated_at < self.created_at:
             raise ValueError("Margin reservation lifecycle is invalid")
+        if (
+            (self.state is OnlyMarginReservationExecutionStatus.ACTIVE and self.remaining_reserved_amount.amount <= 0)
+            or (self.state is OnlyMarginReservationExecutionStatus.OCCUPIED and self.occupied_amount.amount <= 0)
+            or (
+                self.state is OnlyMarginReservationExecutionStatus.RELEASED
+                and (
+                    self.remaining_reserved_amount.amount != 0
+                    or self.occupied_amount.amount != 0
+                    or self.stage is not OnlyMarginReservationExecutionStage.RELEASED
+                )
+            )
+        ):
+            raise ValueError("Margin reservation state/stage is invalid")
 
 
 class OnlyMarginReservationExecutionStatus(StrEnum):
@@ -472,7 +564,13 @@ class OnlyRiskReservationExecutionState(OnlyDomainModel):
             or (self.consumed_notional.amount + self.remaining_notional.amount != self.reserved_notional.amount)
         ):
             raise ValueError("Risk reservation notional authority is invalid")
-        if self.version < 1:
+        if (
+            self.version < 1
+            or self.updated_at < self.created_at
+            or (self.state is OnlyRiskReservationState.CONSUMED and self.remaining_quantity.value != 0)
+            or (self.state is OnlyRiskReservationState.RELEASED and self.release_reason is None)
+            or (self.state is not OnlyRiskReservationState.RELEASED and self.release_reason is not None)
+        ):
             raise ValueError("Risk reservation version must be positive")
 
 
@@ -495,7 +593,6 @@ def only_allocation_execution_state(snapshot: OnlyPositionAllocationSnapshot) ->
 
 
 def only_account_execution_state(snapshot: OnlyAccountSnapshot) -> OnlyAccountExecutionState:
-    zero = OnlyMoney(type(snapshot.cash.cash_balance.amount)(0), snapshot.base_currency)
     return OnlyAccountExecutionState(
         snapshot.runtime_id,
         snapshot.account_id,
@@ -518,10 +615,10 @@ def only_account_execution_state(snapshot: OnlyAccountSnapshot) -> OnlyAccountEx
         snapshot.version,
         snapshot.last_external_sequence,
         snapshot.quality_flags,
-        snapshot.reserved_margin or zero,
-        snapshot.occupied_margin or zero,
-        snapshot.released_margin or zero,
-        snapshot.available_margin or zero,
+        snapshot.reserved_margin,
+        snapshot.occupied_margin,
+        snapshot.released_margin,
+        snapshot.available_margin,
         snapshot.metadata,
     )
 
@@ -585,6 +682,38 @@ def only_position_reservation_execution_state(
 ) -> OnlyPositionReservationExecutionState:
     return OnlyPositionReservationExecutionState(
         **{name: getattr(reservation, name) for name in OnlyPositionReservationExecutionState.__dataclass_fields__}
+    )
+
+
+def only_margin_reservation_execution_state(
+    reservation: OnlyMarginReservation,
+) -> OnlyMarginReservationExecutionState:
+    if reservation.reserved > 0:
+        status = OnlyMarginReservationExecutionStatus.ACTIVE
+        stage = OnlyMarginReservationExecutionStage.RESERVED
+    elif reservation.occupied > 0:
+        status = OnlyMarginReservationExecutionStatus.OCCUPIED
+        stage = OnlyMarginReservationExecutionStage.OCCUPIED
+    else:
+        status = OnlyMarginReservationExecutionStatus.RELEASED
+        stage = OnlyMarginReservationExecutionStage.RELEASED
+    return OnlyMarginReservationExecutionState(
+        reservation.reservation_id,
+        reservation.runtime_id,
+        reservation.account_id,
+        reservation.instrument_id,
+        reservation.source_order_id,
+        reservation.currency,
+        OnlyMoney(reservation.original_reserved, reservation.currency),
+        OnlyMoney(reservation.reserved, reservation.currency),
+        OnlyMoney(reservation.occupied, reservation.currency),
+        OnlyMoney(reservation.released, reservation.currency),
+        OnlyMoney(reservation.maintenance_required, reservation.currency),
+        status,
+        stage,
+        reservation.created_at,
+        reservation.updated_at,
+        reservation.version,
     )
 
 
