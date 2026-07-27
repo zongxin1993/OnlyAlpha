@@ -15,12 +15,11 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
 
 from .codec import (
-    only_committed_execution_transaction_hash,
+    only_committed_execution_transaction_payload_hash,
     only_decode_committed_execution_transaction,
     only_decode_prepared_execution_transaction,
     only_encode_committed_execution_transaction,
     only_encode_prepared_execution_transaction,
-    only_execution_payload_hash,
 )
 from .transaction import (
     OnlyCommittedExecutionTransaction,
@@ -136,10 +135,14 @@ def _finalize(
         projections=prepared.projections,
         outbox_events=prepared.outbox_events,
         committed_at=committed_at,
-        prepared_hash=prepared.stable_hash,
-        committed_hash="",
+        prepared_authority_hash=prepared.authority_hash,
+        prepared_payload_hash=prepared.payload_hash,
+        committed_payload_hash="",
     )
-    return replace(transaction, committed_hash=only_committed_execution_transaction_hash(transaction))
+    return replace(
+        transaction,
+        committed_payload_hash=only_committed_execution_transaction_payload_hash(transaction),
+    )
 
 
 def _with_projection_state(
@@ -155,9 +158,9 @@ def _with_projection_state(
         projected_at=at if ready else None,
         projection_error=error,
         projection_failed_at=None if ready else at,
-        committed_hash="",
+        committed_payload_hash="",
     )
-    return replace(updated, committed_hash=only_committed_execution_transaction_hash(updated))
+    return replace(updated, committed_payload_hash=only_committed_execution_transaction_payload_hash(updated))
 
 
 class OnlyInMemoryExecutionTransactionStore:
@@ -196,15 +199,27 @@ class OnlyInMemoryExecutionTransactionStore:
             ):
                 raise ValueError("committed transaction is not round-trippable")
             key = prepared.runtime_id, sequence
+            outbox_records = tuple(
+                (
+                    (prepared.runtime_id, sequence, event_sequence),
+                    OnlyExecutionTransactionOutboxRecord(
+                        OnlyExecutionTransactionOutboxKey(prepared.runtime_id, sequence, event_sequence),
+                        event,
+                        False,
+                        False,
+                        0,
+                        None,
+                        None,
+                        None,
+                    ),
+                )
+                for event_sequence, event in enumerate(prepared.outbox_events, start=1)
+            )
             self._records[key] = transaction
             self._by_transaction[prepared.transaction_id] = key
             self._by_trade[self._trade_key(prepared)] = key
             self._by_update[self._update_key(prepared)] = key
-            for event_sequence, event in enumerate(prepared.outbox_events, start=1):
-                outbox_key = OnlyExecutionTransactionOutboxKey(prepared.runtime_id, sequence, event_sequence)
-                self._outbox[prepared.runtime_id, sequence, event_sequence] = OnlyExecutionTransactionOutboxRecord(
-                    outbox_key, event, False, False, 0, None, None, None
-                )
+            self._outbox.update(outbox_records)
             return OnlyExecutionTransactionCommitResult(transaction, True)
 
     def get_by_sequence(
@@ -362,8 +377,8 @@ class OnlyInMemoryExecutionTransactionStore:
         if len(existing_keys) != 1:
             raise OnlyExecutionTransactionConflict("execution idempotency indexes refer to different transactions")
         existing = self._records[existing_keys.pop()]
-        if existing.prepared_hash != prepared.stable_hash:
-            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared hash")
+        if existing.prepared_authority_hash != prepared.authority_hash:
+            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another authority hash")
         return existing
 
     @staticmethod
@@ -411,9 +426,10 @@ class OnlySqliteExecutionTransactionStore:
                     broker_update_id TEXT NOT NULL,
                     source_sequence INTEGER NOT NULL,
                     prepared_payload TEXT NOT NULL,
-                    prepared_hash TEXT NOT NULL,
+                    prepared_authority_hash TEXT NOT NULL,
+                    prepared_payload_hash TEXT NOT NULL,
                     committed_payload TEXT NOT NULL,
-                    committed_hash TEXT NOT NULL,
+                    committed_payload_hash TEXT NOT NULL,
                     committed_at INTEGER NOT NULL,
                     projection_ready INTEGER NOT NULL DEFAULT 0,
                     projected_at INTEGER,
@@ -435,7 +451,8 @@ class OnlySqliteExecutionTransactionStore:
                     last_attempted_at INTEGER,
                     published_at INTEGER,
                     last_error TEXT,
-                    PRIMARY KEY(runtime_id, execution_sequence, event_sequence)
+                    PRIMARY KEY(runtime_id, execution_sequence, event_sequence),
+                    UNIQUE(event_id)
                 );
                 """
             )
@@ -455,7 +472,7 @@ class OnlySqliteExecutionTransactionStore:
                 transaction = _finalize(prepared, sequence, committed_at)
                 committed_payload = only_encode_committed_execution_transaction(transaction)
                 self._connection.execute(
-                    "INSERT INTO execution_transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
+                    "INSERT INTO execution_transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
                     (
                         str(prepared.runtime_id),
                         sequence,
@@ -466,9 +483,10 @@ class OnlySqliteExecutionTransactionStore:
                         str(prepared.broker_update_id),
                         prepared.source_sequence,
                         prepared_payload,
-                        prepared.stable_hash,
+                        prepared.authority_hash,
+                        prepared.payload_hash,
                         committed_payload,
-                        transaction.committed_hash,
+                        transaction.committed_payload_hash,
                         committed_at.unix_nanos,
                     ),
                 )
@@ -645,10 +663,10 @@ class OnlySqliteExecutionTransactionStore:
             return None
         transactions = tuple(self._decode_row(row) for row in rows)
         if (
-            len({item.committed_hash for item in transactions}) != 1
-            or transactions[0].prepared_hash != prepared.stable_hash
+            len({item.prepared_authority_hash for item in transactions}) != 1
+            or transactions[0].prepared_authority_hash != prepared.authority_hash
         ):
-            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared hash")
+            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another authority hash")
         return transactions[0]
 
     def _mark_projection(
@@ -678,10 +696,10 @@ class OnlySqliteExecutionTransactionStore:
                 updated = _with_projection_state(current, ready=ready, at=at, error=error)
                 payload = only_encode_committed_execution_transaction(updated)
                 self._connection.execute(
-                    "UPDATE execution_transactions SET committed_payload=?, committed_hash=?, projection_ready=?, projected_at=?, projection_error=?, projection_failed_at=? WHERE runtime_id=? AND execution_sequence=?",
+                    "UPDATE execution_transactions SET committed_payload=?, committed_payload_hash=?, projection_ready=?, projected_at=?, projection_error=?, projection_failed_at=? WHERE runtime_id=? AND execution_sequence=?",
                     (
                         payload,
-                        updated.committed_hash,
+                        updated.committed_payload_hash,
                         int(ready),
                         at.unix_nanos if ready else None,
                         error,
@@ -702,34 +720,37 @@ class OnlySqliteExecutionTransactionStore:
 
     def _decode_row(self, row: sqlite3.Row) -> OnlyCommittedExecutionTransaction:
         prepared_payload = str(row["prepared_payload"])
-        prepared_hash = str(row["prepared_hash"])
-        if (
-            only_execution_payload_hash(
-                json.dumps(
-                    {key: value for key, value in json.loads(prepared_payload).items() if key != "stable_hash"},
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
-            )
-            != prepared_hash
-        ):
-            raise ValueError("prepared execution transaction payload hash mismatch")
         prepared = only_decode_prepared_execution_transaction(prepared_payload)
-        if prepared.stable_hash != prepared_hash:
-            raise ValueError("prepared execution transaction stored hash mismatch")
+        if prepared.authority_hash != str(row["prepared_authority_hash"]):
+            raise ValueError("prepared execution transaction stored authority hash mismatch")
+        if prepared.payload_hash != str(row["prepared_payload_hash"]):
+            raise ValueError("prepared execution transaction stored payload hash mismatch")
         transaction = only_decode_committed_execution_transaction(str(row["committed_payload"]))
-        if transaction.committed_hash != str(row["committed_hash"]):
-            raise ValueError("committed execution transaction stored hash mismatch")
+        if transaction.committed_payload_hash != str(row["committed_payload_hash"]):
+            raise ValueError("committed execution transaction stored payload hash mismatch")
+        if transaction.prepared_authority_hash != prepared.authority_hash:
+            raise ValueError("prepared and committed authority hashes disagree")
+        if transaction.prepared_payload_hash != prepared.payload_hash:
+            raise ValueError("prepared and committed payload hashes disagree")
         return transaction
 
     def _decode_outbox(self, row: sqlite3.Row) -> OnlyExecutionTransactionOutboxRecord:
         event = OnlyEvent.from_dict(json.loads(str(row["event_payload"])))
         if str(event.event_id) != str(row["event_id"]):
             raise ValueError("execution outbox event identity mismatch")
+        transaction_row = self._connection.execute(
+            "SELECT committed_payload FROM execution_transactions WHERE runtime_id=? AND execution_sequence=?",
+            (str(row["runtime_id"]), int(row["execution_sequence"])),
+        ).fetchone()
+        if transaction_row is None:
+            raise ValueError("execution outbox transaction is missing")
+        transaction = only_decode_committed_execution_transaction(str(transaction_row["committed_payload"]))
+        event_sequence = int(row["event_sequence"])
+        if event_sequence > len(transaction.outbox_events) or transaction.outbox_events[event_sequence - 1] != event:
+            raise ValueError("execution outbox event payload mismatch")
         return OnlyExecutionTransactionOutboxRecord(
             OnlyExecutionTransactionOutboxKey(
-                OnlyRuntimeId(str(row["runtime_id"])), int(row["execution_sequence"]), int(row["event_sequence"])
+                OnlyRuntimeId(str(row["runtime_id"])), int(row["execution_sequence"]), event_sequence
             ),
             event,
             bool(row["projection_ready"]),

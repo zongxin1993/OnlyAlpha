@@ -1,4 +1,4 @@
-"""Canonical JSON codec and SHA-256 authority for execution transactions."""
+"""Canonical JSON codec and distinct authority/payload hashes for execution transactions."""
 
 from __future__ import annotations
 
@@ -17,13 +17,16 @@ from .committed import OnlyCommittedExecutionFact
 from .projection import (
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
+    OnlyCashReservationExecutionProjection,
     OnlyExecutionProjection,
     OnlyFeeExecutionProjection,
     OnlyMarginExecutionProjection,
+    OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyPositionExecutionProjection,
-    OnlyReservationExecutionProjection,
+    OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
+    OnlyRiskReservationExecutionProjection,
     OnlySettlementExecutionProjection,
     OnlyStrategyLedgerExecutionProjection,
     OnlyValuationExecutionProjection,
@@ -46,7 +49,10 @@ _PROJECTION_TYPES = {
         OnlyFeeExecutionProjection,
         OnlyAccountExecutionProjection,
         OnlyStrategyLedgerExecutionProjection,
-        OnlyReservationExecutionProjection,
+        OnlyCashReservationExecutionProjection,
+        OnlyPositionReservationExecutionProjection,
+        OnlyMarginReservationExecutionProjection,
+        OnlyRiskReservationExecutionProjection,
         OnlyRiskExecutionProjection,
         OnlyValuationExecutionProjection,
     )
@@ -77,7 +83,6 @@ def only_execution_projection_payload_hash(projection: OnlyExecutionProjection) 
 
 
 def only_with_execution_projection_hash(projection: OnlyExecutionProjection) -> OnlyExecutionProjection:
-    """Return the immutable projection with its canonical payload digest installed."""
     return replace(
         projection,
         identity=replace(projection.identity, payload_hash=only_execution_projection_payload_hash(projection)),
@@ -97,7 +102,51 @@ def _decode_projection(payload: object) -> OnlyExecutionProjection:
     return projection_type.from_dict(cast(Mapping[str, object], payload["value"]))
 
 
-def _prepared_dict(prepared: OnlyPreparedExecutionTransaction) -> dict[str, object]:
+def _event_authority(event_sequence: int, event: OnlyEvent) -> dict[str, object]:
+    return {
+        "event_sequence": event_sequence,
+        "event_id": str(event.event_id),
+        "event_type": str(event.event_type),
+        "source": str(event.source),
+        "runtime_id": str(event.runtime_id),
+        "cluster_id": None if event.cluster_id is None else str(event.cluster_id),
+        "payload": OnlyEvent._encode_payload(event.payload),
+        "correlation_id": None if event.correlation_id is None else str(event.correlation_id),
+        "causation_id": None if event.causation_id is None else str(event.causation_id),
+        "priority": event.priority.value,
+    }
+
+
+def only_execution_transaction_authority_payload(prepared: OnlyPreparedExecutionTransaction) -> Mapping[str, object]:
+    fact = prepared.fact_draft.to_dict()
+    fact.pop("processing_sequence", None)
+    fact.pop("ts_init", None)
+    return {
+        "schema_version": prepared.schema_version,
+        "transaction_id": prepared.transaction_id,
+        "runtime_id": str(prepared.runtime_id),
+        "gateway_id": str(prepared.gateway_id),
+        "account_id": str(prepared.account_id),
+        "broker_update_id": str(prepared.broker_update_id),
+        "trade_id": str(prepared.trade_id),
+        "source_sequence": prepared.source_sequence,
+        "fact_draft": fact,
+        "projections": [_encode_projection(item) for item in prepared.projections],
+        "outbox_events": [_event_authority(index, item) for index, item in enumerate(prepared.outbox_events, start=1)],
+        "preconditions": [item.to_dict() for item in prepared.preconditions],
+    }
+
+
+def only_prepared_execution_transaction_authority_hash(
+    prepared: OnlyPreparedExecutionTransaction, *, verify: bool = True
+) -> str:
+    digest = only_execution_payload_hash(_canonical(only_execution_transaction_authority_payload(prepared)))
+    if verify and prepared.authority_hash != digest:
+        raise ValueError("prepared execution transaction authority hash mismatch")
+    return digest
+
+
+def _prepared_payload(prepared: OnlyPreparedExecutionTransaction) -> dict[str, object]:
     return {
         "schema_version": prepared.schema_version,
         "transaction_id": prepared.transaction_id,
@@ -112,28 +161,31 @@ def _prepared_dict(prepared: OnlyPreparedExecutionTransaction) -> dict[str, obje
         "projections": [_encode_projection(item) for item in prepared.projections],
         "outbox_events": [item.to_dict() for item in prepared.outbox_events],
         "preconditions": [item.to_dict() for item in prepared.preconditions],
+        "authority_hash": prepared.authority_hash,
     }
 
 
-def only_prepared_execution_transaction_hash(prepared: OnlyPreparedExecutionTransaction, *, verify: bool = True) -> str:
-    digest = only_execution_payload_hash(_canonical(_prepared_dict(prepared)))
-    if verify and prepared.stable_hash != digest:
-        raise ValueError("prepared execution transaction hash mismatch")
+def only_prepared_execution_transaction_payload_hash(
+    prepared: OnlyPreparedExecutionTransaction, *, verify: bool = True
+) -> str:
+    digest = only_execution_payload_hash(_canonical(_prepared_payload(prepared)))
+    if verify and prepared.payload_hash != digest:
+        raise ValueError("prepared execution transaction payload hash mismatch")
     return digest
 
 
 def only_encode_prepared_execution_transaction(prepared: OnlyPreparedExecutionTransaction) -> str:
-    only_prepared_execution_transaction_hash(prepared)
-    payload = _prepared_dict(prepared)
-    payload["stable_hash"] = prepared.stable_hash
+    only_prepared_execution_transaction_authority_hash(prepared)
+    only_prepared_execution_transaction_payload_hash(prepared)
+    payload = _prepared_payload(prepared)
+    payload["payload_hash"] = prepared.payload_hash
     return _canonical(payload)
 
 
 def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExecutionTransaction:
     value = _load_object(payload)
     _require_schema(value)
-    fact = _mapping(value, "fact_draft")
-    return OnlyPreparedExecutionTransaction(
+    prepared = OnlyPreparedExecutionTransaction(
         transaction_id=str(value["transaction_id"]),
         runtime_id=OnlyRuntimeId(str(value["runtime_id"])),
         gateway_id=OnlyBrokerGatewayId(str(value["gateway_id"])),
@@ -142,18 +194,20 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExec
         trade_id=OnlyTradeId(str(value["trade_id"])),
         source_sequence=int(str(value["source_sequence"])),
         prepared_at=OnlyTimestamp.from_unix_nanos(int(str(value["prepared_at_ns"]))),
-        fact_draft=OnlyCommittedExecutionFactDraft.from_dict(fact),
+        fact_draft=OnlyCommittedExecutionFactDraft.from_dict(_mapping(value, "fact_draft")),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
         outbox_events=tuple(OnlyEvent.from_dict(_as_mapping(item)) for item in _list(value, "outbox_events")),
         preconditions=tuple(
             OnlyExecutionPrecondition.from_dict(_as_mapping(item)) for item in _list(value, "preconditions")
         ),
-        stable_hash=str(value["stable_hash"]),
+        authority_hash=str(value["authority_hash"]),
+        payload_hash=str(value["payload_hash"]),
     )
+    return prepared
 
 
-def _committed_dict(transaction: OnlyCommittedExecutionTransaction, *, include_hash: bool) -> dict[str, object]:
-    payload: dict[str, object] = {
+def _committed_payload(transaction: OnlyCommittedExecutionTransaction) -> dict[str, object]:
+    return {
         "schema_version": transaction.schema_version,
         "runtime_id": str(transaction.runtime_id),
         "execution_sequence": transaction.execution_sequence,
@@ -162,27 +216,27 @@ def _committed_dict(transaction: OnlyCommittedExecutionTransaction, *, include_h
         "projections": [_encode_projection(item) for item in transaction.projections],
         "outbox_events": [item.to_dict() for item in transaction.outbox_events],
         "committed_at_ns": transaction.committed_at.unix_nanos,
-        "prepared_hash": transaction.prepared_hash,
+        "prepared_authority_hash": transaction.prepared_authority_hash,
+        "prepared_payload_hash": transaction.prepared_payload_hash,
         "projection_ready": transaction.projection_ready,
         "projected_at_ns": None if transaction.projected_at is None else transaction.projected_at.unix_nanos,
         "projection_error": transaction.projection_error,
-        "projection_failed_at_ns": (
-            None if transaction.projection_failed_at is None else transaction.projection_failed_at.unix_nanos
-        ),
+        "projection_failed_at_ns": None
+        if transaction.projection_failed_at is None
+        else transaction.projection_failed_at.unix_nanos,
     }
-    if include_hash:
-        payload["committed_hash"] = transaction.committed_hash
-    return payload
 
 
-def only_committed_execution_transaction_hash(transaction: OnlyCommittedExecutionTransaction) -> str:
-    return only_execution_payload_hash(_canonical(_committed_dict(transaction, include_hash=False)))
+def only_committed_execution_transaction_payload_hash(transaction: OnlyCommittedExecutionTransaction) -> str:
+    return only_execution_payload_hash(_canonical(_committed_payload(transaction)))
 
 
 def only_encode_committed_execution_transaction(transaction: OnlyCommittedExecutionTransaction) -> str:
-    if transaction.committed_hash != only_committed_execution_transaction_hash(transaction):
-        raise ValueError("committed execution transaction hash mismatch")
-    return _canonical(_committed_dict(transaction, include_hash=True))
+    if transaction.committed_payload_hash != only_committed_execution_transaction_payload_hash(transaction):
+        raise ValueError("committed execution transaction payload hash mismatch")
+    payload = _committed_payload(transaction)
+    payload["committed_payload_hash"] = transaction.committed_payload_hash
+    return _canonical(payload)
 
 
 def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedExecutionTransaction:
@@ -196,15 +250,16 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedEx
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
         outbox_events=tuple(OnlyEvent.from_dict(_as_mapping(item)) for item in _list(value, "outbox_events")),
         committed_at=OnlyTimestamp.from_unix_nanos(int(str(value["committed_at_ns"]))),
-        prepared_hash=str(value["prepared_hash"]),
-        committed_hash=str(value["committed_hash"]),
+        prepared_authority_hash=str(value["prepared_authority_hash"]),
+        prepared_payload_hash=str(value["prepared_payload_hash"]),
+        committed_payload_hash=str(value["committed_payload_hash"]),
         projection_ready=bool(value["projection_ready"]),
         projected_at=_optional_timestamp(value.get("projected_at_ns")),
         projection_error=None if value.get("projection_error") is None else str(value["projection_error"]),
         projection_failed_at=_optional_timestamp(value.get("projection_failed_at_ns")),
     )
-    if transaction.committed_hash != only_committed_execution_transaction_hash(transaction):
-        raise ValueError("committed execution transaction hash mismatch")
+    if transaction.committed_payload_hash != only_committed_execution_transaction_payload_hash(transaction):
+        raise ValueError("committed execution transaction payload hash mismatch")
     return transaction
 
 
@@ -223,7 +278,7 @@ def _load_object(payload: str) -> Mapping[str, object]:
 
 
 def _require_schema(value: Mapping[str, object]) -> None:
-    if value.get("schema_version") != 1:
+    if value.get("schema_version") != 2:
         raise ValueError("unsupported execution transaction schema version")
 
 

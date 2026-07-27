@@ -1,17 +1,9 @@
 # Execution Transaction Store
 
-新 Store 的唯一写入口是：
+Memory 与 SQLite Store 使用相同事务契约。相同 Transaction/Trade/Update 幂等键且 `authority_hash` 相同时返回原 committed transaction；即使重试的 `prepared_at` 和 `payload_hash` 不同也不产生冲突。相同任一业务键但 authority 不同会抛出 `OnlyExecutionTransactionConflict`。
 
-```text
-commit(prepared, committed_at)
-```
+Store 保存 Prepared canonical payload、prepared authority hash、prepared payload hash、Committed canonical payload 与 committed payload hash。SQLite 读取时重新解码并验证 Prepared 双 Hash、Committed payload hash、Prepared/Committed authority 关联及 Outbox Event ID；schema version 1 明确拒绝，不做隐式迁移。
 
-Memory 与 SQLite 在 commit 锁/数据库事务内分配 Runtime-local 连续 sequence，finalize Fact Draft，并原子保存 Prepared payload、Committed Transaction、ordered Projection 和 Outbox。调用方不能预取 sequence。
+Sequence 在 commit 临界区或 SQLite `BEGIN IMMEDIATE` 内分配。Memory 在所有 codec、transaction 与 outbox 记录构造成功后才更新正式集合；SQLite 的 transaction 与 outbox insert 在同一事务中提交或回滚。
 
-Transaction ID、Runtime/Gateway/Account/Trade 和 Runtime/Gateway/Account/Update 是幂等键。同键同 prepared hash 返回原事务且 `inserted=False`；同键不同 hash 抛出 hard conflict。
-
-Outbox 可交付查询只返回 `projection_ready=true` 且 `published=false` 的记录。正确生命周期为 durable commit、apply projections、mark ready、outbox delivery。失败或进程停止时 committed transaction 保留，未 Ready Event 不可见；已发布记录继续保留审计字段。
-
-`OnlyInMemoryExecutionTransactionStore` 与 `OnlySqliteExecutionTransactionStore` 实现同一 Commit、Query、Projection State 和 Transaction Outbox 契约。SQLite 校验 prepared/committed hash、canonical round-trip、Event ID，并支持显式 `close()` 和重启恢复。
-
-当前 Runtime 主链仍使用明确命名的 legacy committed execution journal。它与新接口不互相继承，新代码不调用 legacy `next_sequence()`；主链切换属于下一阶段。
+Outbox 在 Projection Ready 前不可见。Ready 后保留确定性 Event ID，并独立记录发布尝试、失败与发布审计状态；这些投递状态不改变原始业务 authority。

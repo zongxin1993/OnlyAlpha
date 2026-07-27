@@ -9,7 +9,13 @@
 
 ## Decision
 
-引入 immutable `OnlyPreparedExecutionTransaction`、完整 Fact Draft、11 类 ordered typed Projection、Precondition、Committed Transaction 和 canonical codec。Transaction Store 在单一锁或 SQLite transaction 中分配 sequence、finalize Fact，并原子保存 Transaction 与 Outbox。
+引入 schema version 2 的 immutable `OnlyPreparedExecutionTransaction`、完整 Fact Draft、15 项 ordered typed Projection、Precondition、Committed Transaction 和 canonical codec。Transaction Store 在单一锁或 SQLite transaction 中分配 sequence、finalize Fact，并原子保存 Transaction 与 Outbox。
+
+Transaction ID 唯一由 identity schema version、Runtime、Gateway、Account、Broker Update 和 Trade ID 推导。`source_sequence` 不进入 ID：Broker Update ID 的公共契约已要求它在 Gateway scope 内稳定唯一。Durable Event ID 由 Transaction ID、Event Sequence 和 Event Type 通过固定 UUID5 namespace 推导。
+
+业务幂等使用不含 `prepared_at` 和 Store/Outbox 状态的 `authority_hash`；完整载荷与 SQLite 损坏检测使用包含 Prepared audit envelope 和完整 Event envelope 的 `payload_hash`。Committed 记录分别保留 prepared authority hash、prepared payload hash 与 committed payload hash。
+
+Settlement、Fee 与 Risk payload 改为可重放 DTO；统一 Reservation 被现金、持仓、保证金、Risk 四个有单位类型替代。Projection 与 Precondition 按 `(component, entity_key, expected_version)` 严格一一对应。
 
 各 Projection Target 自身以 execution sequence、payload hash 和 entity version 保证幂等。Projection Applier 不发布 Event、不修改 Store。Outbox 只有在 Store 标记 Projection Ready 后可见。
 
