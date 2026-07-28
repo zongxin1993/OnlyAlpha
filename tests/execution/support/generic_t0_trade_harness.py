@@ -1,0 +1,421 @@
+"""Real-Manager Generic T0 Cash parity harness."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+
+from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerTradeUpdate, OnlyBrokerUpdateId
+from onlyalpha.domain.enums import OnlyLiquiditySide
+from onlyalpha.domain.execution import OnlyOrderFill
+from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId, OnlyTradeId, OnlyVenueTradeId
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice
+from onlyalpha.execution import (
+    OnlyAllocationCreationAuthority,
+    OnlyExecutionProjection,
+    OnlyExecutionProjectionComponent,
+    OnlyFeeExecutionState,
+    OnlyFeeInstructionReplay,
+    OnlyFeeRecordReplay,
+    OnlyPositionCreationAuthority,
+    OnlyPreparedExecutionTransaction,
+    OnlySettlementExecutionProjection,
+    OnlySettlementExecutionState,
+    OnlySettlementRecordReplay,
+    OnlyTradeExecutionPlanningContext,
+    OnlyTradeExecutionTransactionPlanner,
+    OnlyValuationExecutionState,
+    only_account_cash_reservation_execution_state,
+    only_account_execution_state,
+    only_allocation_execution_state,
+    only_order_execution_state,
+    only_position_execution_state,
+    only_risk_execution_state,
+    only_risk_reservation_execution_state,
+    only_strategy_cash_reservation_execution_state,
+    only_strategy_ledger_execution_state,
+)
+from onlyalpha.fee import OnlyFeeConfigurationMode
+from onlyalpha.fee.resolver import OnlyFeeResolverConfig
+from onlyalpha.market.models import OnlyMarketPositionMode, OnlyMarketProfileId
+from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
+from onlyalpha.position.enums import OnlyPositionMode
+from onlyalpha.position.identifiers import OnlyPositionAllocationId
+from tests.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
+
+from .manager_authority_digest import OnlyTestRuntimeAuthorityDigest, only_test_runtime_authority_digest
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTestGenericT0Scenario:
+    name: str
+    fee_enabled: bool = True
+    fill_price: str = "10.00"
+    existing_position: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyTestGenericT0ParityResult:
+    scenario: OnlyTestGenericT0Scenario
+    context: OnlyTradeExecutionPlanningContext
+    prepared: OnlyPreparedExecutionTransaction
+    legacy_result: object
+    manager_before: OnlyTestRuntimeAuthorityDigest
+    manager_after: OnlyTestRuntimeAuthorityDigest
+    planner_before: OnlyTestRuntimeAuthorityDigest
+    planner_after: OnlyTestRuntimeAuthorityDigest
+    legacy_states: tuple[tuple[OnlyExecutionProjectionComponent, object], ...]
+
+
+def only_test_generic_t0_manager_parity(
+    scenario: OnlyTestGenericT0Scenario,
+) -> OnlyTestGenericT0ParityResult:
+    legacy = _environment(scenario)
+    planner = _environment(scenario)
+    _prepare_environment(legacy, scenario)
+    _prepare_environment(planner, scenario)
+    legacy_update = _trade_update(legacy, scenario)
+    planner_update = _trade_update(planner, scenario)
+    assert legacy_update == planner_update
+    context = only_test_real_trade_planning_context(planner, planner_update)
+    manager_before = only_test_runtime_authority_digest(legacy)
+    planner_before = only_test_runtime_authority_digest(planner)
+    prepared = OnlyTradeExecutionTransactionPlanner().prepare(context)
+    planner_after = only_test_runtime_authority_digest(planner)
+    legacy_result = legacy.runtime.execution_processor.process(legacy_update)
+    manager_after = only_test_runtime_authority_digest(legacy)
+    return OnlyTestGenericT0ParityResult(
+        scenario,
+        context,
+        prepared,
+        legacy_result,
+        manager_before,
+        manager_after,
+        planner_before,
+        planner_after,
+        only_test_legacy_projection_states(legacy, context),
+    )
+
+
+def only_test_real_trade_planning_context(
+    env: OnlyIntegrationEnvironment,
+    update: OnlyBrokerTradeUpdate,
+) -> OnlyTradeExecutionPlanningContext:
+    runtime = env.runtime
+    processor = runtime.execution_processor
+    order = runtime.order_manager.require_snapshot(update.order_id)
+    market_rules = processor._market_rules
+    assert market_rules is not None
+    trading_day = env.calendar.trading_day_at(update.ts_event)
+    fallback = processor._position_scope_resolver.resolve_order(order)
+    instruction = market_rules.build_trade_instruction(
+        OnlyTradeApplicationRequest(
+            str(order.instrument_id),
+            str(order.order_id),
+            str(update.fill.trade_id),
+            str(order.account_id),
+            order.side,
+            update.fill.quantity.value,
+            update.fill.price.value,
+            update.ts_event.to_datetime(),
+            trading_day,
+            fallback.position_effect,
+        )
+    )
+    compiled = market_rules.compiled_rules(str(order.instrument_id), trading_day)
+    position_mode = (
+        OnlyPositionMode.HEDGING
+        if compiled.position_policy.mode is OnlyMarketPositionMode.HEDGING
+        else OnlyPositionMode.NETTING
+    )
+    scope = processor._position_scope_resolver.resolve_trade(order, instruction, position_mode)
+    fee_instruction = processor._resolve_fee_instruction(update, order, scope)
+    position_before_snapshot = runtime.position_manager.get_snapshot(scope.position_key)
+    allocation_before_snapshot = (
+        None if scope.allocation_key is None else runtime.allocation_manager.get_snapshot(scope.allocation_key)
+    )
+    account_snapshot = runtime.account_manager.get_snapshot(order.account_id)
+    assert account_snapshot is not None
+    account_reservation = next(item for item in account_snapshot.reservations if item.order_id == order.order_id)
+    ledger_snapshot = runtime.strategy_ledger_locator.require_snapshot(
+        runtime_id=order.runtime_id,
+        account_id=order.account_id,
+        cluster_id=order.cluster_id,
+        currency=account_snapshot.base_currency,
+    )
+    strategy_reservation = next(item for item in ledger_snapshot.reservations if item.order_id == order.order_id)
+    risk_reservation = runtime.risk_service.reservations.get_for_order(order.order_id)
+    assert risk_reservation is not None
+    position_creation = None
+    if position_before_snapshot is None:
+        position_cycle = runtime.position_manager._cycles.get(scope.position_key, 0) + 1
+        position_creation = OnlyPositionCreationAuthority(
+            OnlyPositionId(
+                f"POS-{scope.position_key.runtime_id}-{scope.position_key.account_id}-"
+                f"{scope.position_key.instrument_id}-{scope.position_key.position_side.value}-{position_cycle:08d}"
+            ),
+            position_cycle,
+        )
+    allocation_creation = None
+    if allocation_before_snapshot is None:
+        assert scope.allocation_key is not None
+        allocation_cycle = runtime.allocation_manager._cycles.get(scope.allocation_key, 0) + 1
+        allocation_creation = OnlyAllocationCreationAuthority(
+            OnlyPositionAllocationId(
+                f"ALLOC-{scope.allocation_key.runtime_id}-{scope.allocation_key.account_id}-"
+                f"{scope.allocation_key.cluster_id}-{scope.allocation_key.instrument_id}-{allocation_cycle:08d}"
+            ),
+            allocation_cycle,
+        )
+    valuation_time = account_snapshot.valuation_time or account_snapshot.updated_at
+    latest_mark = runtime._services.market_data_cache.latest_closed(env.bar_1m)
+    assert latest_mark is not None
+    return OnlyTradeExecutionPlanningContext(
+        update=update,
+        prepared_at=update.ts_init,
+        engine_id=OnlyEngineId("integration-engine"),
+        strategy_id=env.cluster.integration_strategy.strategy_id,
+        processing_sequence=processor._processing_sequence + 1,
+        trading_day=trading_day,
+        contract_multiplier=env.instrument.contract_multiplier,
+        valuation_price=latest_mark.close,
+        position_scope=scope,
+        trade_instruction=instruction,
+        fee_instruction=fee_instruction,
+        order_before=only_order_execution_state(order),
+        position_before=(
+            None if position_before_snapshot is None else only_position_execution_state(position_before_snapshot)
+        ),
+        allocation_before=(
+            None if allocation_before_snapshot is None else only_allocation_execution_state(allocation_before_snapshot)
+        ),
+        settlement_before=None,
+        fee_before=None,
+        account_before=only_account_execution_state(account_snapshot),
+        strategy_ledger_before=only_strategy_ledger_execution_state(ledger_snapshot),
+        account_cash_reservation_before=only_account_cash_reservation_execution_state(account_reservation),
+        strategy_cash_reservation_before=only_strategy_cash_reservation_execution_state(strategy_reservation),
+        risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
+        risk_before=only_risk_execution_state(runtime.risk_service.get_snapshot(order.cluster_id)),
+        valuation_before=OnlyValuationExecutionState(
+            order.account_id,
+            valuation_time,
+            account_snapshot.cash.cash_balance,
+            account_snapshot.position_market_value,
+            account_snapshot.unrealized_pnl,
+            account_snapshot.equity,
+            runtime._account_valuation_version,
+        ),
+        position_creation=position_creation,
+        allocation_creation=allocation_creation,
+        settlement_record_sequence=len(runtime.settlement_manager.records),
+        fee_record_sequence=len(runtime.fee_manager.records),
+    )
+
+
+def only_test_legacy_projection_states(
+    env: OnlyIntegrationEnvironment,
+    context: OnlyTradeExecutionPlanningContext,
+) -> tuple[tuple[OnlyExecutionProjectionComponent, object], ...]:
+    runtime = env.runtime
+    order = runtime.order_manager.require_snapshot(context.update.order_id)
+    position = runtime.position_manager.require_snapshot(context.position_scope.position_key)
+    assert context.position_scope.allocation_key is not None
+    allocation = runtime.allocation_manager.get_snapshot(context.position_scope.allocation_key)
+    assert allocation is not None
+    account = runtime.account_manager.get_snapshot(order.account_id)
+    assert account is not None
+    ledger = runtime.strategy_ledger_locator.require_snapshot(
+        runtime_id=order.runtime_id,
+        account_id=order.account_id,
+        cluster_id=order.cluster_id,
+        currency=account.base_currency,
+    )
+    account_reservation = next(item for item in account.reservations if item.order_id == order.order_id)
+    strategy_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
+    risk_reservation = runtime.risk_service.reservations.get_for_order(order.order_id)
+    assert risk_reservation is not None
+    settlement_pending = runtime.settlement_manager._pending[
+        context.trade_instruction.settlement_instruction.instruction_id
+    ]
+    settlement_instruction = settlement_pending.instruction
+    settlement = OnlySettlementExecutionState(
+        settlement_instruction.instruction_id,
+        order.account_id,
+        order.instrument_id,
+        order.order_id,
+        settlement_instruction.source_trade_id,
+        settlement_instruction.asset_quantity,
+        OnlyMoney(settlement_instruction.cash_amount, account.base_currency),
+        settlement_pending.asset_released,
+        settlement_pending.trade_cash_released,
+        settlement_pending.withdrawable_cash_released,
+        settlement_pending.legal_settled,
+        settlement_instruction.asset_available_on,
+        settlement_instruction.cash_trade_available_on,
+        settlement_instruction.cash_withdrawable_on,
+        settlement_instruction.legal_settlement_on,
+        1,
+    )
+    settlement_records = tuple(
+        OnlySettlementRecordReplay(
+            item.instruction_id,
+            order.account_id,
+            order.instrument_id,
+            order.order_id,
+            item.source_trade_id,
+            item.processed_on,
+            item.available_quantity,
+            OnlyMoney(item.trade_available_cash, account.base_currency),
+            OnlyMoney(item.withdrawable_cash, account.base_currency),
+            item.legal_settled,
+            item.sequence,
+        )
+        for item in runtime.settlement_manager.records
+        if item.instruction_id == settlement_instruction.instruction_id
+    )
+    fee_records = tuple(
+        OnlyFeeRecordReplay(
+            item.fee_record_id,
+            item.instruction_id,
+            item.account_id,
+            item.order_id,
+            item.trade_id,
+            OnlyMoney(item.charged, account.base_currency),
+            item.fee_type,
+        )
+        for item in runtime.fee_manager.records
+        if item.instruction_id == context.fee_instruction.instruction_id
+    )
+    fee_state = OnlyFeeExecutionState(
+        OnlyFeeInstructionReplay(
+            context.fee_instruction.instruction_id,
+            context.fee_instruction.runtime_id,
+            context.fee_instruction.cluster_id,
+            context.fee_instruction.account_id,
+            context.fee_instruction.order_id,
+            context.fee_instruction.trade_id,
+            context.fee_instruction.calculation_source,
+            context.fee_instruction.idempotency_key,
+            OnlyTimestamp.from_datetime(context.fee_instruction.created_at),
+        ),
+        fee_records,
+        context.fee_instruction.fee_breakdown.total,
+        context.fee_instruction.fee_breakdown,
+        1,
+    )
+    valuation_time = account.valuation_time or account.updated_at
+    return (
+        (OnlyExecutionProjectionComponent.ORDER, only_order_execution_state(order)),
+        (OnlyExecutionProjectionComponent.POSITION, only_position_execution_state(position)),
+        (OnlyExecutionProjectionComponent.ALLOCATION, only_allocation_execution_state(allocation)),
+        (OnlyExecutionProjectionComponent.SETTLEMENT, (settlement, settlement_records)),
+        (OnlyExecutionProjectionComponent.FEE, fee_state),
+        (OnlyExecutionProjectionComponent.ACCOUNT, only_account_execution_state(account)),
+        (OnlyExecutionProjectionComponent.STRATEGY_LEDGER, only_strategy_ledger_execution_state(ledger)),
+        (
+            OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+            only_account_cash_reservation_execution_state(account_reservation),
+        ),
+        (
+            OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+            only_strategy_cash_reservation_execution_state(strategy_reservation),
+        ),
+        (
+            OnlyExecutionProjectionComponent.RISK_RESERVATION,
+            only_risk_reservation_execution_state(risk_reservation),
+        ),
+        (
+            OnlyExecutionProjectionComponent.RISK,
+            only_risk_execution_state(runtime.risk_service.get_snapshot(order.cluster_id)),
+        ),
+        (
+            OnlyExecutionProjectionComponent.VALUATION,
+            OnlyValuationExecutionState(
+                order.account_id,
+                valuation_time,
+                account.cash.cash_balance,
+                account.position_market_value,
+                account.unrealized_pnl,
+                account.equity,
+                runtime._account_valuation_version,
+            ),
+        ),
+    )
+
+
+def only_test_projection_after(projection: OnlyExecutionProjection) -> object:
+    if isinstance(projection, OnlySettlementExecutionProjection):
+        return projection.after, projection.records
+    return projection.after
+
+
+def _environment(scenario: OnlyTestGenericT0Scenario) -> OnlyIntegrationEnvironment:
+    fee_config = OnlyFeeResolverConfig(
+        market_mode=(OnlyFeeConfigurationMode.DEFAULT if scenario.fee_enabled else OnlyFeeConfigurationMode.NONE)
+    )
+    return OnlyIntegrationEnvironment(
+        market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
+        fee_resolver_config=fee_config,
+    )
+
+
+def _prepare_environment(env: OnlyIntegrationEnvironment, scenario: OnlyTestGenericT0Scenario) -> None:
+    env.start()
+    for minute in range(3):
+        env.process_bar(DAY_ONE, minute, "10.00")
+    if scenario.existing_position:
+        env.submit_buy(request_id="parity-seed")
+        result = env.fill_buy()
+        assert result.status.value == "APPLIED"
+        env.submit_buy(request_id="parity-second", price="12.00", minute=5)
+    else:
+        env.submit_buy(request_id=f"parity-{scenario.name}")
+
+
+def _trade_update(
+    env: OnlyIntegrationEnvironment,
+    scenario: OnlyTestGenericT0Scenario,
+    *,
+    suffix: str | None = None,
+    fill_price: str | None = None,
+) -> OnlyBrokerTradeUpdate:
+    assert env.buy_order is not None and env.buy_order.order_id is not None
+    order = env.runtime.order_manager.require_snapshot(env.buy_order.order_id)
+    timestamp = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
+    env.runtime.clock.advance_by(7_000_000_000)
+    initialized_at = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
+    name = scenario.name if suffix is None else f"{scenario.name}-{suffix}"
+    price = fill_price or scenario.fill_price
+    source_sequence = (order.last_external_sequence or 0) + 1
+    update_id = OnlyBrokerUpdateId(f"parity-update-{name}")
+    fill = OnlyOrderFill(
+        OnlyTradeId(f"parity-trade-{name}"),
+        order.order_id,
+        OnlyPrice(Decimal(price), 2),
+        order.quantity,
+        timestamp,
+        initialized_at,
+        OnlyVenueTradeId(f"parity-venue-trade-{name}"),
+        order.venue_order_id,
+        liquidity_side=OnlyLiquiditySide.TAKER,
+        external_sequence=source_sequence,
+        external_event_id=str(update_id),
+    )
+    return OnlyBrokerTradeUpdate(
+        runtime_id=order.runtime_id,
+        gateway_id=OnlyBrokerGatewayId("virtual-integration"),
+        account_id=order.account_id,
+        update_id=update_id,
+        source_sequence=source_sequence,
+        ts_event=timestamp,
+        ts_init=initialized_at,
+        correlation_id=str(order.order_id),
+        causation_id="generic-t0-manager-parity",
+        order_id=order.order_id,
+        fill=fill,
+    )
+
+
+__all__ = [name for name in globals() if name.startswith("OnlyTest") or name.startswith("only_test_")]

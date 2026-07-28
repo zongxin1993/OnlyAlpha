@@ -1353,6 +1353,7 @@ class OnlyExecutionProcessor:
             "execution_processor",
             context.processing_sequence,
             payload={"update_id": str(update.update_id), "update_type": type(update).__name__},
+            ts_init=update.ts_init.to_datetime(),
             timestamp_ns=update.ts_event.unix_nanos,
             ts_init_ns=update.ts_init.unix_nanos,
         )

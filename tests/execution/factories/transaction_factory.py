@@ -381,8 +381,8 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         account_reservation_before,
         consumed_amount=_money("20.00"),
         remaining_amount=_money("0.00"),
-        state=OnlyAccountReservationState.CONSUMED,
-        version=2,
+        state=OnlyAccountReservationState.RELEASED,
+        version=3,
     )
     ledger_key = _ledger_key()
     strategy_reservation_before = OnlyStrategyCashReservationExecutionState(
@@ -404,8 +404,9 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         strategy_reservation_before,
         consumed_amount=_money("20.00"),
         remaining_amount=_money("0.00"),
-        state=OnlyStrategyCashReservationState.CONSUMED,
-        version=2,
+        state=OnlyStrategyCashReservationState.RELEASED,
+        stage=OnlyStrategyCashReservationStage.RELEASED,
+        version=3,
     )
     risk_reservation_before = OnlyRiskReservationExecutionState(
         OnlyRiskReservationId("risk-reservation"),
@@ -437,17 +438,30 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         version=2,
     )
     risk_before = OnlyRiskExecutionState(
+        OnlyRuntimeId("runtime"),
         OnlyClusterId("cluster"),
         OnlyAccountId("account"),
-        _instrument(),
-        order_id,
-        _quantity("2"),
-        _money("20.00"),
-        OnlyRiskLevel.NORMAL,
+        timestamp,
         timestamp,
         1,
+        OnlyRiskLevel.NORMAL,
+        False,
+        1,
+        1,
+        _money("20.00"),
+        Decimal("2"),
+        _money("80.00"),
+        0,
     )
-    risk_after = replace(risk_before, quantity_exposure=_quantity("0"), notional_exposure=_money("0.00"), version=2)
+    risk_after = replace(
+        risk_before,
+        version=2,
+        active_order_count=0,
+        cluster_active_order_count=0,
+        reserved_notional=_money("0.00"),
+        reserved_quantity=Decimal(0),
+        remaining_order_notional=_money("100.00"),
+    )
 
     projections: tuple[OnlyExecutionProjection, ...] = (
         OnlyOrderExecutionProjection(
@@ -640,17 +654,30 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
         version=2,
     )
     risk_before = OnlyRiskExecutionState(
+        OnlyRuntimeId("runtime"),
         OnlyClusterId("cluster"),
         OnlyAccountId("account"),
-        _instrument(),
-        order_id,
-        _quantity("2"),
-        _money("20.00"),
-        OnlyRiskLevel.NORMAL,
+        timestamp,
         timestamp,
         1,
+        OnlyRiskLevel.NORMAL,
+        False,
+        1,
+        1,
+        _money("20.00"),
+        Decimal("2"),
+        _money("80.00"),
+        0,
     )
-    risk_after = replace(risk_before, quantity_exposure=_quantity("0"), notional_exposure=_money("0.00"), version=2)
+    risk_after = replace(
+        risk_before,
+        version=2,
+        active_order_count=0,
+        cluster_active_order_count=0,
+        reserved_notional=_money("0.00"),
+        reserved_quantity=Decimal(0),
+        remaining_order_notional=_money("100.00"),
+    )
     valuation_before = OnlyValuationExecutionState(
         OnlyAccountId("account"),
         timestamp,

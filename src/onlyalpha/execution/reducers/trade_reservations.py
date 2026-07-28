@@ -13,6 +13,7 @@ from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationStage, On
 
 from ..execution_state import (
     OnlyAccountCashReservationExecutionState,
+    OnlyRiskExecutionState,
     OnlyRiskReservationExecutionState,
     OnlyStrategyCashReservationExecutionState,
 )
@@ -22,7 +23,6 @@ from ..projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyExecutionProjectionComponent,
     OnlyRiskExecutionProjection,
-    OnlyRiskExecutionState,
     OnlyRiskReservationExecutionProjection,
     OnlyStrategyCashReservationExecutionProjection,
 )
@@ -78,9 +78,9 @@ class OnlyAccountCashReservationTradeReducer:
             before,
             consumed_amount=OnlyMoney(before.consumed_amount.amount + cost.amount, cost.currency),
             remaining_amount=OnlyMoney(Decimal(0), cost.currency),
-            state=(OnlyAccountReservationState.CONSUMED if remaining == 0 else OnlyAccountReservationState.RELEASED),
+            state=OnlyAccountReservationState.RELEASED,
             updated_at=trade.ts_init,
-            version=before.version + 1,
+            version=before.version + 2,
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyAccountCashReservationExecutionProjection(
@@ -101,14 +101,13 @@ class OnlyAccountCashReservationTradeReducer:
                 OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION, "ACCOUNT_CASH_RESERVATION_CONSUMED", after
             )
         ]
-        if released.amount:
-            intents.append(
-                _intent(
-                    OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
-                    "ACCOUNT_CASH_RESERVATION_RELEASED",
-                    after,
-                )
+        intents.append(
+            _intent(
+                OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                "ACCOUNT_CASH_RESERVATION_RELEASED",
+                after,
             )
+        )
         return OnlyAccountCashReservationTradeReduction(after, projection, cost, released, tuple(intents))
 
 
@@ -130,14 +129,10 @@ class OnlyStrategyCashReservationTradeReducer:
             before,
             consumed_amount=OnlyMoney(before.consumed_amount.amount + cost.amount, cost.currency),
             remaining_amount=OnlyMoney(Decimal(0), cost.currency),
-            state=(
-                OnlyStrategyCashReservationState.CONSUMED
-                if remaining == 0
-                else OnlyStrategyCashReservationState.RELEASED
-            ),
-            stage=(before.stage if remaining == 0 else OnlyStrategyCashReservationStage.RELEASED),
+            state=OnlyStrategyCashReservationState.RELEASED,
+            stage=OnlyStrategyCashReservationStage.RELEASED,
             updated_at=trade.ts_init,
-            version=before.version + 1,
+            version=before.version + 2,
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyStrategyCashReservationExecutionProjection(
@@ -158,14 +153,13 @@ class OnlyStrategyCashReservationTradeReducer:
                 OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION, "STRATEGY_CASH_RESERVATION_CONSUMED", after
             )
         ]
-        if released.amount:
-            intents.append(
-                _intent(
-                    OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
-                    "STRATEGY_CASH_RESERVATION_RELEASED",
-                    after,
-                )
+        intents.append(
+            _intent(
+                OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+                "STRATEGY_CASH_RESERVATION_RELEASED",
+                after,
             )
+        )
         return OnlyStrategyCashReservationTradeReduction(after, projection, cost, released, tuple(intents))
 
 
@@ -235,18 +229,40 @@ class OnlyRiskTradeReducer:
     ) -> OnlyRiskTradeReduction:
         if reservation_after.remaining_notional is None:
             raise ValueError("Generic cash Risk state requires notional exposure")
+        reserved_quantity = max(Decimal(0), before.reserved_quantity - reservation_after.reserved_quantity.value)
+        reserved_notional = before.reserved_notional
+        remaining_order_notional = before.remaining_order_notional
+        if reserved_notional is not None:
+            if (
+                reservation_after.reserved_notional is None
+                or reservation_after.reserved_notional.currency != reserved_notional.currency
+            ):
+                raise ValueError("Risk Snapshot and Reservation notional currencies disagree")
+            reserved_notional = OnlyMoney(
+                max(Decimal(0), reserved_notional.amount - reservation_after.reserved_notional.amount),
+                reserved_notional.currency,
+            )
+            if remaining_order_notional is not None:
+                remaining_order_notional = OnlyMoney(
+                    remaining_order_notional.amount + reservation_after.reserved_notional.amount,
+                    remaining_order_notional.currency,
+                )
         after = replace(
             before,
-            quantity_exposure=reservation_after.remaining_quantity,
-            notional_exposure=reservation_after.remaining_notional,
-            updated_at=trade.ts_init,
+            ts_event=trade.ts_init,
+            ts_init=trade.ts_init,
+            active_order_count=max(0, before.active_order_count - 1),
+            cluster_active_order_count=max(0, before.cluster_active_order_count - 1),
+            reserved_quantity=reserved_quantity,
+            reserved_notional=reserved_notional,
+            remaining_order_notional=remaining_order_notional,
             version=before.version + 1,
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyRiskExecutionProjection(
             builder.identity(
                 component=OnlyExecutionProjectionComponent.RISK,
-                entity_key=f"{after.cluster_id}:{after.account_id}:{after.instrument_id}:{after.order_id}",
+                entity_key=str(after.cluster_id),
                 before=before,
                 after=after,
                 projection_sequence=projection_sequence,

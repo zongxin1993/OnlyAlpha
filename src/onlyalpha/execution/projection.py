@@ -11,11 +11,10 @@ from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderFill
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId, OnlyOrderId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
+from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.fee.models import OnlyFeeBreakdown
-from onlyalpha.risk.enums import OnlyRiskLevel
 
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -25,6 +24,7 @@ from .execution_state import (
     OnlyOrderExecutionState,
     OnlyPositionExecutionState,
     OnlyPositionReservationExecutionState,
+    OnlyRiskExecutionState,
     OnlyRiskReservationExecutionState,
     OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionState,
@@ -461,26 +461,9 @@ class OnlyRiskReservationExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyRiskExecutionState(OnlyDomainModel):
-    cluster_id: OnlyClusterId
-    account_id: OnlyAccountId
-    instrument_id: OnlyInstrumentId
-    order_id: OnlyOrderId
-    quantity_exposure: OnlyQuantity
-    notional_exposure: OnlyMoney
-    level: OnlyRiskLevel
-    updated_at: OnlyTimestamp
-    version: int
-
-    def __post_init__(self) -> None:
-        if self.quantity_exposure.value < 0 or self.notional_exposure.amount < 0 or self.version < 1:
-            raise ValueError("Risk execution state exposure/version is invalid")
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyRiskExecutionProjection(OnlyDomainModel):
     identity: OnlyExecutionProjectionIdentity
-    before: OnlyRiskExecutionState | None
+    before: OnlyRiskExecutionState
     after: OnlyRiskExecutionState
 
     def __post_init__(self) -> None:
@@ -611,7 +594,7 @@ def _require_account_cash_reservation_transition(
         != (after.runtime_id, after.account_id, after.order_id, after.reserved_amount)
         or after.consumed_amount.amount < before.consumed_amount.amount
         or after.remaining_amount.amount > before.remaining_amount.amount
-        or after.version != before.version + 1
+        or after.version != before.version + 2
     ):
         raise ValueError("Account cash Reservation authority changed")
     _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
@@ -626,7 +609,7 @@ def _require_strategy_cash_reservation_transition(
         != (after.key, after.order_id, after.estimated_notional, after.estimated_fee, after.reserved_amount)
         or after.consumed_amount.amount < before.consumed_amount.amount
         or after.remaining_amount.amount > before.remaining_amount.amount
-        or after.version != before.version + 1
+        or after.version != before.version + 2
     ):
         raise ValueError("Strategy cash Reservation authority changed")
     _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)

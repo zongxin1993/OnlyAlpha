@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
-from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashEntryType, OnlyStrategyFeeType
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyCashEntryId, OnlyStrategyFeeEntryId
@@ -53,6 +53,7 @@ class OnlyAccountTradeReducer:
         reservation_before: OnlyAccountCashReservationExecutionState,
         trade: OnlyPlannedTrade,
         position_market_value_delta: OnlyMoney,
+        position_unrealized_pnl: OnlyMoney,
         *,
         projection_sequence: int,
     ) -> OnlyAccountTradeReduction:
@@ -84,12 +85,12 @@ class OnlyAccountTradeReducer:
             frozen_cash=frozen,
             position_market_value=market_value,
             realized_pnl=before.realized_pnl,
-            unrealized_pnl=before.unrealized_pnl,
+            unrealized_pnl=position_unrealized_pnl,
             fees=before.fees + trade.authoritative_fee,
             equity=cash + market_value,
             updated_at=trade.ts_init,
-            valuation_time=trade.ts_event,
-            version=before.version + 1,
+            valuation_time=trade.ts_init,
+            version=before.version + 4,
             last_external_sequence=trade.source_sequence,
             available_margin=available_margin,
         )
@@ -112,7 +113,10 @@ class OnlyAccountTradeReducer:
             projection,
             cash_delta,
             trade.authoritative_fee,
-            (_intent(OnlyExecutionProjectionComponent.ACCOUNT, "ACCOUNT_TRADE_APPLIED", after),),
+            (
+                _intent(OnlyExecutionProjectionComponent.ACCOUNT, "ACCOUNT_TRADE_APPLIED", after),
+                _intent(OnlyExecutionProjectionComponent.ACCOUNT, "ACCOUNT_VALUED", after),
+            ),
         )
 
 
@@ -124,6 +128,7 @@ class OnlyStrategyLedgerTradeReducer:
         allocation_before: OnlyAllocationExecutionState | None,
         allocation_after: OnlyAllocationExecutionState,
         trade: OnlyPlannedTrade,
+        valuation_price: OnlyPrice,
         *,
         projection_sequence: int,
     ) -> OnlyStrategyLedgerTradeReduction:
@@ -143,12 +148,9 @@ class OnlyStrategyLedgerTradeReducer:
             ).quantize(quantum),
             currency,
         )
-        before_market = Decimal(0)
-        if allocation_before is not None:
-            before_market = allocation_before.total_quantity.value * trade.price.value * trade.multiplier.value
-        after_market = allocation_after.total_quantity.value * trade.price.value * trade.multiplier.value
-        market_delta = (after_market - before_market).quantize(quantum)
-        market_value = OnlyMoney(before.position_market_value.amount + market_delta, currency)
+        del allocation_before
+        after_market = allocation_after.total_quantity.value * valuation_price.value * trade.multiplier.value
+        market_value = OnlyMoney(after_market.quantize(quantum), currency)
         cash_reserved = OnlyMoney(before.cash_reserved.amount - reservation_before.remaining_amount.amount, currency)
         if cash_reserved.amount < 0:
             raise ValueError("Strategy Ledger reserved cash is smaller than Reservation")
@@ -189,6 +191,29 @@ class OnlyStrategyLedgerTradeReducer:
                     entry_sequence + 2,
                 ),
             )
+        release_sequence = max((entry.sequence for entry in cash_entries), default=0) + 1
+        released = OnlyMoney(
+            reservation_before.remaining_amount.amount - trade.settled_notional.amount - trade.authoritative_fee.amount,
+            currency,
+        )
+        cash_entries += (
+            OnlyStrategyCashEntry(
+                OnlyStrategyCashEntryId(f"SCASH-{before.ledger_id}-{release_sequence:010d}"),
+                before.key.runtime_id,
+                before.key.account_id,
+                before.key.cluster_id,
+                currency,
+                released,
+                OnlyStrategyCashEntryType.ORDER_RESERVATION_RELEASE,
+                trade.order_id,
+                None,
+                reservation_before.reservation_id,
+                None,
+                trade.ts_init,
+                trade.ts_init,
+                release_sequence,
+            ),
+        )
         fee_entry = OnlyStrategyFeeEntry(
             OnlyStrategyFeeEntryId(f"SFEE-{trade.runtime_id}-{trade.trade_id}"),
             before.key,
@@ -200,7 +225,14 @@ class OnlyStrategyLedgerTradeReducer:
             trade.ts_init,
             trade.source_sequence,
         )
-        unrealized = before.unrealized_pnl
+        unrealized = OnlyMoney(
+            (
+                (valuation_price.value - allocation_after.average_open_price.value)
+                * allocation_after.total_quantity.value
+                * trade.multiplier.value
+            ).quantize(quantum),
+            currency,
+        )
         after = replace(
             before,
             cash_balance=cash,
@@ -214,9 +246,9 @@ class OnlyStrategyLedgerTradeReducer:
             equity=cash + market_value,
             cash_entries=cash_entries,
             fee_entries=before.fee_entries + (fee_entry,),
-            updated_at=trade.ts_event,
+            updated_at=trade.ts_init,
             valuation_time=trade.ts_event,
-            version=before.version + 1,
+            version=before.version + 4,
             last_trade_sequence=trade.source_sequence,
             last_trade_order=trade.stable_order,
         )
@@ -239,7 +271,10 @@ class OnlyStrategyLedgerTradeReducer:
             projection,
             cash_delta,
             trade.authoritative_fee,
-            (_intent(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, "STRATEGY_TRADE_APPLIED", after),),
+            (
+                _intent(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, "STRATEGY_TRADE_APPLIED", after),
+                _intent(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, "STRATEGY_VALUATION_UPDATED", after),
+            ),
         )
 
 

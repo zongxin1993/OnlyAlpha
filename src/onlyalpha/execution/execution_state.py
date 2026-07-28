@@ -39,9 +39,10 @@ from onlyalpha.position.identifiers import OnlyPositionAllocationId, OnlyPositio
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.position.reservations import OnlyPositionReservation
-from onlyalpha.risk.enums import OnlyRiskReleaseReason, OnlyRiskReservationState, OnlyRiskReservationType
+from onlyalpha.risk.enums import OnlyRiskLevel, OnlyRiskReleaseReason, OnlyRiskReservationState, OnlyRiskReservationType
 from onlyalpha.risk.identifiers import OnlyRiskReservationId
 from onlyalpha.risk.reservations import OnlyRiskReservation
+from onlyalpha.risk.snapshots import OnlyRiskSnapshot
 from onlyalpha.strategy_ledger.enums import (
     OnlyStrategyCashReservationStage,
     OnlyStrategyCashReservationState,
@@ -574,6 +575,36 @@ class OnlyRiskReservationExecutionState(OnlyDomainModel):
             raise ValueError("Risk reservation version must be positive")
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyRiskExecutionState(OnlyDomainModel):
+    """Replay-complete Cluster Risk snapshot authority."""
+
+    runtime_id: OnlyRuntimeId
+    cluster_id: OnlyClusterId
+    account_id: OnlyAccountId
+    ts_event: OnlyTimestamp
+    ts_init: OnlyTimestamp
+    version: int
+    risk_level: OnlyRiskLevel
+    kill_switch_active: bool
+    active_order_count: int
+    cluster_active_order_count: int
+    reserved_notional: OnlyMoney | None
+    reserved_quantity: Decimal
+    remaining_order_notional: OnlyMoney | None
+    recent_rejection_count: int
+    warnings: tuple[str, ...] = ()
+    quality_flags: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.version < 1:
+            raise ValueError("Risk execution state version must be positive")
+        if self.active_order_count < 0 or self.cluster_active_order_count < 0:
+            raise ValueError("Risk execution active Order counts cannot be negative")
+        if self.reserved_quantity < 0 or self.recent_rejection_count < 0:
+            raise ValueError("Risk execution counters cannot be negative")
+
+
 def only_order_execution_state(snapshot: OnlyOrderSnapshot) -> OnlyOrderExecutionState:
     return OnlyOrderExecutionState(
         **{name: getattr(snapshot, name) for name in OnlyOrderExecutionState.__dataclass_fields__}
@@ -723,6 +754,9 @@ def only_risk_reservation_execution_state(
     consumed_quantity = reservation.consumed_quantity or OnlyQuantity(
         Decimal(0), reservation.reserved_quantity.precision
     )
+    consumed_notional = reservation.consumed_notional
+    if consumed_notional is None and reservation.reserved_notional is not None:
+        consumed_notional = OnlyMoney(Decimal(0), reservation.reserved_notional.currency)
     return OnlyRiskReservationExecutionState(
         reservation.reservation_id,
         reservation.reservation_type,
@@ -734,7 +768,7 @@ def only_risk_reservation_execution_state(
         reservation.reserved_quantity,
         reservation.reserved_notional,
         consumed_quantity,
-        reservation.consumed_notional,
+        consumed_notional,
         reservation.remaining_quantity,
         reservation.remaining_notional,
         reservation.state,
@@ -742,6 +776,12 @@ def only_risk_reservation_execution_state(
         reservation.created_at,
         reservation.updated_at,
         reservation.version,
+    )
+
+
+def only_risk_execution_state(snapshot: OnlyRiskSnapshot) -> OnlyRiskExecutionState:
+    return OnlyRiskExecutionState(
+        **{name: getattr(snapshot, name) for name in OnlyRiskExecutionState.__dataclass_fields__}
     )
 
 

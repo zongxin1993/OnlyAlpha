@@ -9,6 +9,7 @@ from typing import NoReturn
 
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus, OnlyAccountType
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeComponent, OnlyFeeType
@@ -125,12 +126,31 @@ class OnlyTradeExecutionTransactionPlanner:
             record_sequence=context.fee_record_sequence,
             projection_sequence=5,
         )
-        position_market_delta = _money(trade.gross_notional.amount, trade.authoritative_fee.currency)
+        currency = trade.authoritative_fee.currency
+        quantum = Decimal(1).scaleb(-currency.precision)
+        if position.after.average_open_price is None:
+            raise ValueError("open Position requires average price")
+        position_market_value = _money(
+            (context.valuation_price.value * position.after.total_quantity.value * trade.multiplier.value).quantize(
+                quantum
+            ),
+            currency,
+        )
+        position_market_delta = position_market_value - context.account_before.position_market_value
+        position_unrealized = _money(
+            (
+                (context.valuation_price.value - position.after.average_open_price.value)
+                * position.after.total_quantity.value
+                * trade.multiplier.value
+            ).quantize(quantum),
+            currency,
+        )
         account = OnlyAccountTradeReducer().reduce(
             context.account_before,
             context.account_cash_reservation_before,
             trade,
             position_market_delta,
+            position_unrealized,
             projection_sequence=6,
         )
         ledger = OnlyStrategyLedgerTradeReducer().reduce(
@@ -139,6 +159,7 @@ class OnlyTradeExecutionTransactionPlanner:
             context.allocation_before,
             allocation.after,
             trade,
+            context.valuation_price,
             projection_sequence=7,
         )
         account_reservation = OnlyAccountCashReservationTradeReducer().reduce(
@@ -180,8 +201,10 @@ class OnlyTradeExecutionTransactionPlanner:
             + fee.event_intents
             + account.event_intents
             + ledger.event_intents
-            + account_reservation.event_intents
-            + strategy_reservation.event_intents
+            + account_reservation.event_intents[:1]
+            + strategy_reservation.event_intents[:1]
+            + account_reservation.event_intents[1:]
+            + strategy_reservation.event_intents[1:]
             + risk.event_intents
         )
         fact = self._fact(
@@ -382,31 +405,22 @@ class OnlyTradeExecutionTransactionPlanner:
         transaction_id: str,
         intents: tuple[OnlyExecutionEventIntent, ...],
     ) -> tuple[OnlyEvent, ...]:
-        ordered = tuple(
-            sorted(
-                enumerate(intents),
-                key=lambda item: (
-                    _component_order(item[1].component),
-                    item[0],
-                ),
-            )
-        )
         factory = OnlyExecutionTransactionEventFactory()
         return tuple(
             factory.create(
                 transaction_id=transaction_id,
                 event_sequence=sequence,
                 event_type=intent.event_type,
-                timestamp=context.update.ts_event.to_datetime(),
+                timestamp=_event_timestamp(context, intent).to_datetime(),
                 engine_id=context.engine_id,
                 runtime_id=context.update.runtime_id,
                 cluster_id=context.order_before.cluster_id,
                 source=intent.source,
                 payload=intent.payload,
-                ts_init=context.update.ts_init.to_datetime(),
+                ts_init=_event_initialized_at(context, intent).to_datetime(),
                 metadata={"broker_update_id": str(context.update.update_id)},
             )
-            for sequence, (_, intent) in enumerate(ordered, start=1)
+            for sequence, intent in enumerate(intents, start=1)
         )
 
     @staticmethod
@@ -525,19 +539,22 @@ class OnlyTradeExecutionTransactionPlanner:
             context.account_cash_reservation_before.reserved_amount,
             context.strategy_cash_reservation_before.reserved_amount,
             context.risk_reservation_before.reserved_notional,
-            context.risk_before.notional_exposure,
             context.valuation_before.cash,
         )
         if any(item is None or item.currency != currency for item in monies):
             _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Planning authority requires one Currency")
+        optional_risk_money = (
+            context.risk_before.reserved_notional,
+            context.risk_before.remaining_order_notional,
+        )
+        if any(item is not None and item.currency != currency for item in optional_risk_money):
+            _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Risk authority Currency disagrees")
         if (
             context.account_before.cash_balance != context.strategy_ledger_before.cash_balance
             or context.account_before.position_market_value != context.strategy_ledger_before.position_market_value
             or context.valuation_before.cash != context.account_before.cash_balance
             or context.valuation_before.position_market_value != context.account_before.position_market_value
             or context.valuation_before.unrealized_pnl != context.account_before.unrealized_pnl
-            or context.risk_before.quantity_exposure != context.risk_reservation_before.remaining_quantity
-            or context.risk_before.notional_exposure != context.risk_reservation_before.remaining_notional
         ):
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.REDUCTION_INVARIANT_FAILED,
@@ -655,10 +672,9 @@ def _validate_reservation_scope(context: OnlyTradeExecutionPlanningContext) -> N
         or risk.cluster_id != order.cluster_id
         or risk.instrument_id != order.instrument_id
         or risk.order_id != order.order_id
+        or context.risk_before.runtime_id != order.runtime_id
         or context.risk_before.cluster_id != order.cluster_id
         or context.risk_before.account_id != order.account_id
-        or context.risk_before.instrument_id != order.instrument_id
-        or context.risk_before.order_id != order.order_id
         or context.valuation_before.account_id != order.account_id
     ):
         _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Reservation/Risk/Valuation scope disagrees")
@@ -718,10 +734,28 @@ def _money(amount: Decimal, currency: OnlyCurrency) -> OnlyMoney:
     return OnlyMoney(amount.quantize(Decimal(1).scaleb(-currency.precision)), currency)
 
 
-def _component_order(component: OnlyExecutionProjectionComponent) -> int:
-    from .projection import OnlyExecutionProjectionOrder
+def _event_timestamp(
+    context: OnlyTradeExecutionPlanningContext,
+    intent: OnlyExecutionEventIntent,
+) -> OnlyTimestamp:
+    initialized_components = {
+        OnlyExecutionProjectionComponent.ACCOUNT,
+        OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+        OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+        OnlyExecutionProjectionComponent.RISK,
+    }
+    return context.update.ts_init if intent.component in initialized_components else context.update.ts_event
 
-    return int(OnlyExecutionProjectionOrder[component.name])
+
+def _event_initialized_at(
+    context: OnlyTradeExecutionPlanningContext,
+    intent: OnlyExecutionEventIntent,
+) -> OnlyTimestamp:
+    event_time_components = {
+        OnlyExecutionProjectionComponent.POSITION,
+        OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
+    }
+    return context.update.ts_event if intent.component in event_time_components else context.update.ts_init
 
 
 def _fail(code: OnlyTradeExecutionPlanningErrorCode, message: str) -> NoReturn:

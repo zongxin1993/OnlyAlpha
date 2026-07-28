@@ -464,7 +464,7 @@ class OnlyValuationTradeReducer:
     ) -> OnlyValuationTradeReduction:
         after = replace(
             before,
-            valuation_time=trade.ts_event,
+            valuation_time=trade.ts_init,
             cash=account_cash,
             position_market_value=position_market_value,
             unrealized_pnl=unrealized_pnl,

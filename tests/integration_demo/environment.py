@@ -61,6 +61,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
+from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
 from onlyalpha.market.registry import OnlyMarketProfileRequest
@@ -249,6 +250,8 @@ class OnlyIntegrationEnvironment:
         maximum_fill_quantity: OnlyQuantity | None = None,
         virtual_broker: bool = True,
         cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
+        market_profile_id: OnlyMarketProfileId = OnlyMarketProfileId.CN_A_SHARE_CASH,
+        fee_resolver_config: OnlyFeeResolverConfig | None = None,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
@@ -288,11 +291,11 @@ class OnlyIntegrationEnvironment:
         market_rules = OnlyMarketRuleEngine(
             registry=only_builtin_market_profile_registry(),
             compiler=OnlyMarketRuleCompiler(),
-            request=OnlyMarketProfileRequest(OnlyMarketProfileId.CN_A_SHARE_CASH),
+            request=OnlyMarketProfileRequest(market_profile_id),
             runtime_mode=OnlyRuntimeMode.BACKTEST,
             references={
                 str(self.instrument.instrument_id): only_instrument_reference(
-                    self.instrument, profile_id=OnlyMarketProfileId.CN_A_SHARE_CASH.value, board="MAIN"
+                    self.instrument, profile_id=market_profile_id.value, board="MAIN"
                 )
             },
             advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
@@ -322,6 +325,7 @@ class OnlyIntegrationEnvironment:
                     {CLUSTER_ID: broker_config.initial_cash} if cluster_capitals is None else cluster_capitals
                 ),
                 market_rule_engine=market_rules,
+                fee_resolver_config=fee_resolver_config or OnlyFeeResolverConfig(),
                 broker_gateway_id=broker_config.gateway_id if virtual_broker else None,
                 account_initial_cash=broker_config.initial_cash,
             ),
@@ -372,17 +376,24 @@ class OnlyIntegrationEnvironment:
         self.event_recorder.capture(self.runtime.event_bus)
         return result.update
 
-    def submit_buy(self) -> OnlyOrderSubmitResult:
+    def submit_buy(
+        self,
+        *,
+        request_id: str = "integration-buy",
+        price: str = "10.00",
+        quantity: str = "100",
+        minute: int = 3,
+    ) -> OnlyOrderSubmitResult:
         self.cluster.pending_order = OnlyOrderRequest(
-            OnlyOrderRequestId("integration-buy"),
+            OnlyOrderRequestId(request_id),
             INSTRUMENT_ID,
             OnlyOrderSide.BUY,
             OnlyOrderType.LIMIT,
-            OnlyQuantity(Decimal("100"), 0),
-            price=OnlyPrice(Decimal("10.00"), 2),
+            OnlyQuantity(Decimal(quantity), 0),
+            price=OnlyPrice(Decimal(price), 2),
             offset=OnlyOffset.OPEN,
         )
-        self.process_bar(DAY_ONE, 3, "10.00")
+        self.process_bar(DAY_ONE, minute, "10.00")
         self.buy_order = self.cluster.submit_results[-1]
         return self.buy_order
 

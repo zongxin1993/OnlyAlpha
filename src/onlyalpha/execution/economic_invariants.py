@@ -230,7 +230,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
     @staticmethod
     def _validate_risk_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
         fact = prepared.fact_draft
-        risk = _one(prepared.projections, OnlyRiskExecutionProjection).after
+        risk_projection = _one(prepared.projections, OnlyRiskExecutionProjection)
+        risk = risk_projection.after
         reservations = tuple(
             item for item in prepared.projections if isinstance(item, OnlyRiskReservationExecutionProjection)
         )
@@ -258,8 +259,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 or projection.after.reserved_notional.currency != fact.currency
                 or consumed_quantity != fact.fill_quantity.value
                 or consumed_notional != fact.gross_notional.amount
-                or risk.quantity_exposure != projection.after.remaining_quantity
-                or risk.notional_exposure != projection.after.remaining_notional
+                or risk.reserved_quantity
+                != max(Decimal(0), risk_projection.before.reserved_quantity - projection.after.reserved_quantity.value)
             ):
                 raise ValueError("Risk Reservation consumption contradicts execution fact")
 
@@ -309,11 +310,10 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or settlement.source_order_id != fact.order_id
             or settlement.source_trade_id != str(fact.trade_id)
             or settlement.cash_amount.currency != fact.currency
+            or risk.runtime_id != fact.runtime_id
             or risk.cluster_id != fact.cluster_id
             or risk.account_id != fact.account_id
-            or risk.instrument_id != fact.instrument_id
-            or risk.order_id != fact.order_id
-            or risk.notional_exposure.currency != fact.currency
+            or (risk.reserved_notional is not None and risk.reserved_notional.currency != fact.currency)
         ):
             raise ValueError("execution Projection scope contradicts execution fact")
 

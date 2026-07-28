@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMultiplier
+from onlyalpha.domain.value import OnlyMultiplier, OnlyPrice
 from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
@@ -21,13 +21,13 @@ from .execution_state import (
     OnlyOrderExecutionState,
     OnlyPositionExecutionState,
     OnlyPositionReservationExecutionState,
+    OnlyRiskExecutionState,
     OnlyRiskReservationExecutionState,
     OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionState,
 )
 from .projection import (
     OnlyFeeExecutionState,
-    OnlyRiskExecutionState,
     OnlySettlementExecutionState,
     OnlyValuationExecutionState,
 )
@@ -69,6 +69,7 @@ class OnlyTradeExecutionPlanningContext:
     processing_sequence: int
     trading_day: OnlyTradingDay
     contract_multiplier: OnlyMultiplier
+    valuation_price: OnlyPrice
     position_scope: OnlyExecutionPositionScope
     trade_instruction: OnlyTradeApplicationInstruction
     fee_instruction: OnlyFeeInstruction

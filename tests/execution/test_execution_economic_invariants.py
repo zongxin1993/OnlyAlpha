@@ -7,9 +7,7 @@ from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
-    OnlyInstrumentId,
-    OnlySymbol,
-    OnlyVenueId,
+    OnlyRuntimeId,
 )
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
@@ -162,8 +160,8 @@ def test_buy_open_rejects_position_reservation() -> None:
         (OnlyExecutionProjectionComponent.SETTLEMENT, "account_id", OnlyAccountId("other-account")),
         (
             OnlyExecutionProjectionComponent.RISK,
-            "instrument_id",
-            OnlyInstrumentId(OnlySymbol("OTHER"), OnlyVenueId("XSHG")),
+            "runtime_id",
+            OnlyRuntimeId("other-runtime"),
         ),
     ),
 )
