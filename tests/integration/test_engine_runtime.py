@@ -8,6 +8,7 @@ from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyClusterId, OnlyVenueId
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.execution import OnlyInMemoryExecutionTransactionStore
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeState
 from onlyalpha.strategy.base import OnlyStrategy
@@ -55,6 +56,7 @@ def test_engine_manages_multiple_runtimes_and_isolates_clusters() -> None:
             ),
             calendar,
             datetime(2026, 1, index + 1, tzinfo=UTC),
+            execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
         )
         for index in range(2)
     ]

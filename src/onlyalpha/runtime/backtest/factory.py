@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
@@ -18,6 +21,8 @@ from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStorePort
+from onlyalpha.execution.transaction_store_factory import OnlyExecutionTransactionStoreCreateRequest
 from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
@@ -61,6 +66,10 @@ class OnlyBacktestRuntimeFactory:
     def validate(self, request: OnlyRuntimeBuildRequest) -> OnlyRuntimeBuildResult:
         try:
             plan = self._plugin_plan(request)
+            components = request.components
+            if not isinstance(components, OnlyComponentFactoryRegistries):
+                raise TypeError("Backtest factory requires OnlyComponentFactoryRegistries")
+            components.execution_transaction_stores.validate(request.config.runtime.execution_store)
             plan.clock.close()
             plan.event_bus.close()
         except Exception as exc:
@@ -81,6 +90,7 @@ class OnlyBacktestRuntimeFactory:
         source: OnlyDataSource | None = None
         gateway: OnlyBrokerGateway | None = None
         broker_resource: OnlyPluginResource | None = None
+        execution_store: OnlyExecutionTransactionStorePort | None = None
         try:
             try:
                 source = plan.data_factory.create(plan.data_request)
@@ -105,6 +115,26 @@ class OnlyBacktestRuntimeFactory:
                     resource_id=str(plan.broker_request.gateway_id),
                 ) from exc
             config = request.config
+            if request.user_data_root is None and config.runtime.execution_store.backend.value == "SQLITE":
+                raise ValueError("SQLite execution Store requires user_data_root")
+            state_root = (
+                OnlyUserDataLayout(request.user_data_root).runtime_state_root(config.engine_id, config.runtime_id)
+                if request.user_data_root is not None
+                else Path(".")
+            )
+            execution_store = components.execution_transaction_stores.create(
+                OnlyExecutionTransactionStoreCreateRequest(
+                    config.engine_id,
+                    config.runtime_id,
+                    OnlyRuntimeMode.BACKTEST,
+                    config.runtime.execution_store,
+                    state_root,
+                    self._config_fingerprint(request),
+                    config.runtime.base_currency.code,
+                    config.accounts[0].account_id,
+                    config.market.profile.value,
+                )
+            )
             clusters = tuple(components.clusters.create(item, config) for item in config.clusters if item.enabled)
             if not clusters:
                 raise ValueError("product Backtest requires at least one enabled Cluster")
@@ -136,14 +166,19 @@ class OnlyBacktestRuntimeFactory:
                 broker_gateway=gateway,
                 deterministic_broker_driver=broker_component.deterministic_driver,
                 broker_inbound_queue=plan.broker_queue,
+                execution_transaction_store=execution_store,
                 plugin_resources=(source, broker_resource),
             )
             for instrument in config.reference_data.instruments:
                 runtime.register_instrument(instrument)
             for cluster in clusters:
                 runtime.add_cluster(config.engine_id, cluster)
+            runtime.bootstrap_execution_transaction_before()
+            execution_store = None
             return OnlyRuntimeBuildResult(runtime=runtime)
         except Exception as exc:
+            if execution_store is not None:
+                execution_store.close()
             if broker_resource is not None:
                 broker_resource.stop()
                 broker_resource.close()
@@ -153,6 +188,15 @@ class OnlyBacktestRuntimeFactory:
             plan.event_bus.close()
             plan.clock.close()
             return self._failure(exc)
+
+    @staticmethod
+    def _config_fingerprint(request: OnlyRuntimeBuildRequest) -> str:
+        payloads = [
+            dict(config.normalized_payload)
+            for config in sorted(request.plan.cluster_configs, key=lambda item: str(item.cluster_id))
+        ]
+        payload = json.dumps(payloads, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _plugin_plan(self, request: OnlyRuntimeBuildRequest) -> _OnlyBacktestPluginPlan:
         config = request.config

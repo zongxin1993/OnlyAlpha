@@ -210,6 +210,8 @@ class OnlyTradeExecutionTransactionPlanner:
             valuation.projection,
             account_equity_points=_account_equity_points(context, trade, account.after),
             strategy_equity_points=_strategy_equity_points(context, trade, ledger.after, allocation.after),
+            account_equity_before=context.account_equity_before,
+            strategy_equity_before=context.strategy_equity_before,
         )
         valuation_projection = OnlyExecutionProjectionBuilder().finalize(valuation_projection)
         assert isinstance(valuation_projection, OnlyValuationExecutionProjection)

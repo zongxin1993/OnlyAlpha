@@ -6,6 +6,10 @@ from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
+from onlyalpha.execution.transaction_store_factory import (
+    OnlyDefaultExecutionTransactionStoreFactory,
+    OnlyExecutionTransactionStoreFactory,
+)
 from onlyalpha.factor.factory import OnlyFactorFactory
 from onlyalpha.fee.schedules import (
     only_builtin_broker_fee_schedule_registry,
@@ -35,7 +39,11 @@ class OnlyEngineServices:
     plugin_discovery: OnlyPluginDiscoveryReport = field(default_factory=lambda: OnlyPluginDiscoveryReport((), ()))
 
 
-def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineServices:
+def only_default_engine_services(
+    *,
+    fail_fast: bool = True,
+    execution_transaction_store_factory: OnlyExecutionTransactionStoreFactory | None = None,
+) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
     data_sources.register(OnlySyntheticDataSourceFactory(), origin=builtin)
@@ -63,6 +71,7 @@ def only_default_engine_services(*, fail_fast: bool = True) -> OnlyEngineService
             OnlyMarketRuleCompiler(),
             only_builtin_market_fee_schedule_registry(),
             only_builtin_broker_fee_schedule_registry(),
+            execution_transaction_store_factory or OnlyDefaultExecutionTransactionStoreFactory(),
         ),
     )
     return OnlyEngineServices(assembler, data_sources, brokers, discovery)

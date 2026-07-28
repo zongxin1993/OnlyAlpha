@@ -102,6 +102,7 @@ def test_recovered_outbox_events_are_dispatched_before_runtime_started() -> None
         ),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
+        execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
     )
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = cast(OnlyExecutionTransactionStorePort, runtime._services.execution_transaction_query)

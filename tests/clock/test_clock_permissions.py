@@ -8,6 +8,7 @@ from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyClusterId, OnlyVenueId
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.execution import OnlyInMemoryExecutionTransactionStore
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
@@ -32,6 +33,7 @@ def test_cluster_receives_clock_view_without_advancement_capability() -> None:
             weekend_days=(),
         ),
         datetime(2026, 1, 1, tzinfo=UTC),
+        execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
     )
     cluster = OnlyCluster(OnlyClusterConfig("cluster"))
     runtime.add_cluster("engine", cluster)

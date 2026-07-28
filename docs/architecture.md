@@ -203,3 +203,7 @@ Runtime 启动在插件资源和 Cluster initialize 后、进入 READY 前执行
 Query/Projection State，并按 sequence 前向完成 committed tail；正式 Result 只持有 Projection Ready Query。start 阶段先交付 recovered
 Outbox，再启动 Cluster。Recovery failure 与 Outbox delivery failure 都阻止 Backtest 启动，但前者表示业务 Authority 不完整，后者表示
 Ready Event 尚未完成 at-least-once delivery，不能混同或回滚 transaction。
+
+Execution Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.execution_store` 唯一创建并显式注入 Runtime。Memory 是默认短回测
+语义；SQLite 位于稳定的 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>`，不依赖 Artifact Run ID。Store 是
+Runtime-owned resource，schema/identity metadata 不匹配即停止装配。Factory 的 validate 阶段不创建目录或数据库。详见 ADR 0043。

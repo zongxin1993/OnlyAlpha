@@ -17,6 +17,7 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyClusterId, OnlyInst
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.execution import OnlyInMemoryExecutionTransactionStore
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
@@ -73,6 +74,7 @@ def make_runtime(
             ),
             runtime_calendar,
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
+            execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
         )
 
     return build

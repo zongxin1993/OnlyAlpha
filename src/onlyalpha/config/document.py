@@ -14,6 +14,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.config.execution_store import OnlyExecutionStoreConfig
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBarSpecificationConfig,
@@ -89,6 +90,7 @@ class OnlyRuntimeConfig:
     start_time: datetime | None
     end_time: datetime | None
     base_currency: OnlyCurrency
+    execution_store: OnlyExecutionStoreConfig
     extensions: OnlyJsonMapping
 
     def __post_init__(self) -> None:
@@ -260,6 +262,9 @@ class _OnlyClusterDocumentParser:
             self._optional_utc(raw.get("start_time"), "$.runtime.start_time"),
             self._optional_utc(raw.get("end_time"), "$.runtime.end_time"),
             currency,
+            OnlyExecutionStoreConfig.from_mapping(
+                self._map(raw.get("execution_store", {}), "$.runtime.execution_store")
+            ),
             self._map(raw.get("extensions", {}), "$.runtime.extensions"),
         )
 

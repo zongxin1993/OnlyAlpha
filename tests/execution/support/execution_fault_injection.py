@@ -26,6 +26,7 @@ from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStoreE
 
 class OnlyTestExecutionStoreFault(StrEnum):
     COMMIT = "COMMIT"
+    AFTER_COMMIT = "AFTER_COMMIT"
     MARK_READY = "MARK_READY"
     MARK_FAILED = "MARK_FAILED"
     OUTBOX_BEGIN_ATTEMPT = "OUTBOX_BEGIN_ATTEMPT"
@@ -105,7 +106,9 @@ class OnlyFailOnceExecutionTransactionStore:
         self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
     ) -> OnlyExecutionTransactionCommitResult:
         self._raise_once(OnlyTestExecutionStoreFault.COMMIT)
-        return self._delegate.commit(prepared, committed_at=committed_at)
+        result = self._delegate.commit(prepared, committed_at=committed_at)
+        self._raise_once(OnlyTestExecutionStoreFault.AFTER_COMMIT)
+        return result
 
     def get_by_sequence(
         self, runtime_id: OnlyRuntimeId, execution_sequence: int
@@ -205,6 +208,9 @@ class OnlyFailOnceExecutionTransactionStore:
     def outbox_records(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionTransactionOutboxRecord, ...]:
         self._raise_once(OnlyTestExecutionStoreFault.QUERY)
         return self._delegate.outbox_records(runtime_id)
+
+    def close(self) -> None:
+        self._delegate.close()
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

@@ -130,6 +130,13 @@ class OnlyAccountPerformanceProjector:
                 self._external_cash_flow[point.account_id] = point.external_cash_flow.amount
             self._sequence = point.sequence
 
+    def restore_execution_sequence_head(self, sequence: int) -> None:
+        """Restore a bootstrap sequence head when historical timeline rows are outside the transaction tail."""
+
+        if sequence < self._sequence:
+            raise ValueError("Account equity sequence cannot regress")
+        self._sequence = sequence
+
     def validate_execution_points(self, points: tuple[OnlyAccountEquityPoint, ...]) -> None:
         installed = {point.sequence: point for values in self._points.values() for point in values}
         next_sequence = self._sequence + 1

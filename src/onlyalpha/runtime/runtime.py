@@ -84,6 +84,7 @@ from onlyalpha.execution import (
     OnlyExecutionSequenceTracker,
     OnlyExecutionTransactionOutboxPort,
     OnlyExecutionTransactionQueryPort,
+    OnlyExecutionTransactionStorePort,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
@@ -527,6 +528,7 @@ class OnlyRuntime:
         self._execution_delivery_diagnostics: list[OnlyExecutionDeliveryDiagnostic] = []
         self._execution_recovery_diagnostics: list[OnlyExecutionRecoveryResult] = []
         self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
+        self._execution_transaction_store: OnlyExecutionTransactionStorePort | None = None
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
         self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
@@ -958,6 +960,11 @@ class OnlyRuntime:
             self._services.event_bus.close()
         except Exception as exc:
             failure = failure or exc
+        if self._execution_transaction_store is not None:
+            try:
+                self._execution_transaction_store.close()
+            except Exception as exc:
+                failure = failure or exc
         try:
             self._services.clock.close()
         except Exception as exc:
@@ -992,6 +999,11 @@ class OnlyRuntime:
         if self._state is not OnlyRuntimeState.CREATED or self._plugin_resources:
             raise OnlyLifecycleError("plugin resources must be bound once while Runtime is CREATED")
         self._plugin_resources = resources
+
+    def _bind_execution_transaction_store(self, store: OnlyExecutionTransactionStorePort) -> None:
+        if self._state is not OnlyRuntimeState.CREATED or self._execution_transaction_store is not None:
+            raise OnlyLifecycleError("execution transaction Store must be bound once while Runtime is CREATED")
+        self._execution_transaction_store = store
 
     def _rollback_plugin_resources(self, resources: tuple[OnlyPluginResource, ...]) -> None:
         for operation in ("stop", "close"):

@@ -9,7 +9,7 @@ from shutil import copyfile
 from typing import TYPE_CHECKING
 
 from onlyalpha.config import OnlyClusterRunConfig
-from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
+from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntimeId
 
 if TYPE_CHECKING:
     from onlyalpha.runtime.planning import OnlyEngineExecutionPlan
@@ -28,6 +28,14 @@ class OnlyUserDataLayout:
 
     def cluster_root(self, engine_id: OnlyEngineId, run_id: str, cluster_id: OnlyClusterId) -> Path:
         return self.run_root(engine_id, run_id) / "clusters" / str(cluster_id)
+
+    def runtime_state_root(self, engine_id: OnlyEngineId, runtime_id: OnlyRuntimeId) -> Path:
+        """Return a stable recovery root independent of artifact Run IDs."""
+
+        return self.root / "state" / "engines" / str(engine_id) / "runtimes" / str(runtime_id)
+
+    def execution_store_path(self, engine_id: OnlyEngineId, runtime_id: OnlyRuntimeId) -> Path:
+        return self.runtime_state_root(engine_id, runtime_id) / "execution.sqlite3"
 
 
 @dataclass(frozen=True, slots=True)

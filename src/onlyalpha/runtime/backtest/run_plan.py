@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from onlyalpha.account.performance import OnlyAccountValuationSource
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
-from onlyalpha.data.models import OnlyHistoricalBarRequest
+from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
@@ -60,8 +58,9 @@ class OnlyBacktestRunPlan:
         self._completed = True
         self._runtime = runtime
         self._collector.start()
-        generated = self._source.load_bars(self._request)
-        replay = runtime.replay_historical_bars(self._source, self._request)
+        request = self._resume_request(runtime)
+        generated = self._source.load_bars(request)
+        replay = runtime.replay_historical_bars(self._source, request)
         runtime.drain_broker_inbound()
         status = (
             OnlyBacktestStatus.FAILED
@@ -77,6 +76,19 @@ class OnlyBacktestRunPlan:
             replay.gap_detected,
             status,
         )
+
+    def _resume_request(self, runtime: OnlyBacktestRuntime) -> OnlyHistoricalBarRequest:
+        resume = runtime.execution_replay_resume_after
+        if resume is None:
+            return self._request
+        start = max(
+            self._request.data_range.start_time,
+            resume.to_datetime() + timedelta(microseconds=1),
+        )
+        end = self._request.data_range.end_time
+        if start >= end:
+            start = end - timedelta(microseconds=1)
+        return replace(self._request, data_range=OnlyHistoricalDataRange(start, end))
 
     def _build_result(
         self,
@@ -171,6 +183,7 @@ class OnlyBacktestRunPlan:
                 OnlyRuntimeId(str(runtime.config.runtime_id))
             )
         )
+        result_time = account.valuation_time or OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns())
         reconciliation = OnlyRuntimeLedgerReconciliationService().reconcile(
             account=account,
             account_initial_equity=account_config.initial_cash,
@@ -179,7 +192,7 @@ class OnlyBacktestRunPlan:
                 OnlyCommittedTradeFeeAttribution(item.trade_id, item.cluster_id, item.authoritative_fee_total)
                 for item in trades
             ),
-            ts_event=OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
+            ts_event=result_time,
         )
         if reconciliation.status is OnlyRuntimeLedgerReconciliationStatus.MISMATCHED:
             status = OnlyBacktestStatus.FAILED
@@ -194,7 +207,7 @@ class OnlyBacktestRunPlan:
                 self._config.runtime_id,
                 status,
                 OnlyTimestamp.from_datetime(self._require_start_time()),
-                OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
+                result_time,
                 tuple(OnlyClusterId(cluster.config.cluster_id) for cluster in sorted_clusters),
             ),
             OnlyBacktestDataSummary(
@@ -227,56 +240,25 @@ class OnlyBacktestRunPlan:
             collected.facts,
             collected.diagnostics,
         )
-        projection = result.to_dict()
-        projection["determinism_fingerprint"] = ""
-        projection["determinism_trace"] = {
-            "market_data": [
-                (
-                    item.audit_id,
-                    str(item.update_id),
-                    item.source_sequence,
-                    item.processing_sequence,
-                    item.status.value,
-                    item.ts_event.unix_nanos,
-                    tuple(sorted(flag.value for flag in item.quality_flags)),
-                )
-                for item in runtime.market_data_audit_store.records()
-            ],
-            "clock": [
-                (item.index, str(item.update.update_id), item.clock_time_ns, item.result.status.value)
-                for item in runtime.historical_replay_service.events
-            ],
-            "factors": (
-                [dict(item.to_dict()) for item in self._factor_snapshots(self._clusters[0])]
-                if len(self._clusters) == 1
-                else {
-                    cluster.config.cluster_id: [dict(item.to_dict()) for item in self._factor_snapshots(cluster)]
-                    for cluster in self._clusters
-                }
-            ),
-            "indicators": (
-                [dict(item.to_dict()) for item in self._clusters[0].indicator_snapshots]
-                if len(self._clusters) == 1
-                else {
-                    cluster.config.cluster_id: [dict(item.to_dict()) for item in cluster.indicator_snapshots]
-                    for cluster in self._clusters
-                }
-            ),
-            "execution": [item.to_dict() for item in runtime.execution_audit_store.records()],
-            "events": [
-                (
-                    str(item.event.event_type),
-                    str(item.event.source),
-                    int(item.event.sequence),
-                    item.event.timestamp_ns,
-                    None if item.event.cluster_id is None else str(item.event.cluster_id),
-                )
-                for item in runtime.event_bus.dispatch_results
-            ],
+        projection = {
+            "runtime_id": result.runtime_id,
+            "data_source_id": result.data.data_source_id,
+            "data_version": result.data.data_version,
+            "final_positions": result.final_positions,
+            "final_allocations": result.final_allocations,
+            "final_ledgers": result.final_ledgers,
+            "final_account": result.final_account,
+            "orders": result.orders,
+            "trades": result.trades,
+            "runtime_performance": result.runtime_performance,
+            "cluster_performance": tuple(item.performance for item in result.cluster_results),
+            "account_equity_timeline": result.account_equity_timeline,
+            "cluster_equity_timelines": result.cluster_equity_timelines,
+            "reconciliation": result.reconciliation,
+            "invariant_results": result.invariant_results,
+            "facts": result.facts,
         }
-        fingerprint = hashlib.sha256(
-            json.dumps(projection, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
+        fingerprint = only_result_fingerprint(projection)
         result = replace(result, determinism_fingerprint=fingerprint)
         result_fingerprint = only_result_fingerprint(
             {
@@ -288,7 +270,7 @@ class OnlyBacktestRunPlan:
                 "account_equity_timeline": result.account_equity_timeline,
                 "cluster_equity_timelines": result.cluster_equity_timelines,
                 "reconciliation": result.reconciliation,
-                "diagnostics": result.diagnostics,
+                "diagnostics": replace(result.diagnostics, execution_recoveries=()),
             }
         )
         return replace(result, result_fingerprint=result_fingerprint)

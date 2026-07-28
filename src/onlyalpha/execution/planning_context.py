@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from onlyalpha.account.performance import OnlyAccountEquityPoint
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
@@ -99,6 +100,8 @@ class OnlyTradeExecutionPlanningContext:
     ledger_high_water_mark: OnlyMoney | None = None
     position_reservation_before: OnlyPositionReservationExecutionState | None = None
     margin_reservation_before: OnlyMarginReservationExecutionState | None = None
+    account_equity_before: tuple[OnlyAccountEquityPoint, ...] = ()
+    strategy_equity_before: tuple[OnlyStrategyLedgerEquityPoint, ...] = ()
 
     def __post_init__(self) -> None:
         if (

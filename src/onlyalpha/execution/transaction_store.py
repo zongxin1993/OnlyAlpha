@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
 from typing import Protocol
@@ -34,6 +36,21 @@ class OnlyExecutionTransactionConflict(ValueError):
 
 class OnlyExecutionTransactionStoreError(RuntimeError):
     """The transaction store failed independently of a business idempotency conflict."""
+
+
+ONLY_EXECUTION_STORE_SCHEMA_VERSION = "1"
+
+
+class OnlyExecutionStoreIdentityMismatch(OnlyExecutionTransactionStoreError):
+    """An existing Store belongs to another stable Runtime identity."""
+
+
+class OnlyExecutionStoreSchemaUnsupported(OnlyExecutionTransactionStoreError):
+    """An existing Store uses an unsupported schema version."""
+
+
+class OnlyExecutionStoreMetadataCorrupt(OnlyExecutionTransactionStoreError):
+    """An existing Store is missing required schema or identity metadata."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +164,8 @@ class OnlyExecutionTransactionStorePort(
     Protocol,
 ):
     """Complete composition-root store contract; consumers receive narrower ports."""
+
+    def close(self) -> None: ...
 
 
 def _finalize(
@@ -438,6 +457,9 @@ class OnlyInMemoryExecutionTransactionStore:
                 for record in self._outbox.values()
             )
 
+    def close(self) -> None:
+        """Release the Store resource; Memory has no external handle."""
+
     def _find_idempotent(self, prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionTransaction | None:
         keys = (
             self._by_transaction.get(prepared.transaction_id),
@@ -485,14 +507,24 @@ class OnlyInMemoryExecutionTransactionStore:
 class OnlySqliteExecutionTransactionStore:
     """SQLite contract implementation with sequence allocation inside BEGIN IMMEDIATE."""
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, identity: Mapping[str, str] | None = None) -> None:
         self._lock = RLock()
+        self._closed = False
+        selected_path = Path(path)
+        existed = selected_path.exists() and selected_path.stat().st_size > 0
         try:
-            self._connection = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
+            self._connection = sqlite3.connect(str(selected_path), check_same_thread=False, isolation_level=None)
             self._connection.row_factory = sqlite3.Row
-            with self._connection:
-                self._connection.executescript(
-                    """
+            if existed:
+                self._validate_existing_schema(identity)
+            else:
+                with self._connection:
+                    self._connection.executescript(
+                        """
+                CREATE TABLE execution_store_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS execution_transactions (
                     runtime_id TEXT NOT NULL,
                     execution_sequence INTEGER NOT NULL,
@@ -532,8 +564,22 @@ class OnlySqliteExecutionTransactionStore:
                     UNIQUE(event_id)
                 );
                 """
-                )
+                    )
+                    metadata = {
+                        "schema_version": ONLY_EXECUTION_STORE_SCHEMA_VERSION,
+                        "created_at": datetime.now(UTC).isoformat(),
+                        **({} if identity is None else dict(identity)),
+                    }
+                    self._connection.executemany(
+                        "INSERT INTO execution_store_metadata(key, value) VALUES (?, ?)",
+                        tuple(sorted(metadata.items())),
+                    )
+        except OnlyExecutionTransactionStoreError:
+            self._connection.close()
+            raise
         except sqlite3.Error as exc:
+            if hasattr(self, "_connection"):
+                self._connection.close()
             raise OnlyExecutionTransactionStoreError(
                 "SQLite execution transaction schema initialization failed"
             ) from exc
@@ -758,7 +804,48 @@ class OnlySqliteExecutionTransactionStore:
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
             self._connection.close()
+            self._closed = True
+
+    def metadata(self) -> Mapping[str, str]:
+        with self._lock:
+            rows = self._connection.execute("SELECT key, value FROM execution_store_metadata ORDER BY key").fetchall()
+        return {str(row["key"]): str(row["value"]) for row in rows}
+
+    def _validate_existing_schema(self, identity: Mapping[str, str] | None) -> None:
+        try:
+            tables = {
+                str(row["name"])
+                for row in self._connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            }
+            required = {
+                "execution_store_metadata",
+                "execution_transactions",
+                "execution_transaction_outbox",
+            }
+            if not required <= tables:
+                missing_tables = ", ".join(sorted(required - tables))
+                raise OnlyExecutionStoreMetadataCorrupt(
+                    f"EXECUTION_STORE_METADATA_CORRUPT: missing tables: {missing_tables}"
+                )
+            metadata = self.metadata()
+        except sqlite3.Error as exc:
+            raise OnlyExecutionStoreMetadataCorrupt("EXECUTION_STORE_METADATA_CORRUPT") from exc
+        schema_version = metadata.get("schema_version")
+        if schema_version != ONLY_EXECUTION_STORE_SCHEMA_VERSION:
+            raise OnlyExecutionStoreSchemaUnsupported(f"EXECUTION_STORE_SCHEMA_UNSUPPORTED: {schema_version!r}")
+        if identity is None:
+            return
+        missing = sorted(set(identity) - set(metadata))
+        if missing:
+            raise OnlyExecutionStoreMetadataCorrupt(
+                f"EXECUTION_STORE_METADATA_CORRUPT: missing keys: {', '.join(missing)}"
+            )
+        mismatches = sorted(key for key, value in identity.items() if metadata.get(key) != value)
+        if mismatches:
+            raise OnlyExecutionStoreIdentityMismatch(f"EXECUTION_STORE_IDENTITY_MISMATCH: {', '.join(mismatches)}")
 
     def _find(self, clause: str, values: tuple[object, ...]) -> OnlyCommittedExecutionTransaction | None:
         with self._lock:

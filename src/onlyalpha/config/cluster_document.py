@@ -122,6 +122,11 @@ class OnlyClusterRunConfig:
         output = parser._output(parser._map(root.get("output", {}), "$.output"))
         market = _parse_market(parser, root)
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
+        normalized_root: dict[str, object] = dict(root)
+        normalized_runtime = dict(runtime_raw)
+        normalized_runtime["execution_store"] = runtime.execution_store.to_dict()
+        normalized_root["runtime"] = normalized_runtime
+        normalized_payload = _normalize_mapping(cast(Mapping[object, object], normalized_root), "$")
 
         # Reuse the shared reference validator without retaining a multi-Cluster
         # document in the product model.
@@ -137,7 +142,7 @@ class OnlyClusterRunConfig:
             (cluster,),
             output,
             source,
-            root,
+            normalized_payload,
         )
         return cls(
             schema_version,
@@ -153,7 +158,7 @@ class OnlyClusterRunConfig:
             output,
             market,
             source,
-            root,
+            normalized_payload,
         )
 
 

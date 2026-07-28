@@ -529,6 +529,8 @@ class OnlyValuationExecutionProjection(OnlyDomainModel):
     after: OnlyValuationExecutionState
     account_equity_points: tuple[OnlyAccountEquityPoint, ...] = ()
     strategy_equity_points: tuple[OnlyStrategyLedgerEquityPoint, ...] = ()
+    account_equity_before: tuple[OnlyAccountEquityPoint, ...] = ()
+    strategy_equity_before: tuple[OnlyStrategyLedgerEquityPoint, ...] = ()
 
     def __post_init__(self) -> None:
         _require_component(self.identity, OnlyExecutionProjectionComponent.VALUATION)

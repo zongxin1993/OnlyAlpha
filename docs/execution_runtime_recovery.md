@@ -59,6 +59,17 @@ Outbox failure 不改变 Projection Ready，也不回滚 Manager。EventBus 已�
 Event ID；因此语义是 at-least-once，消费者必须幂等。Backtest 启动阶段若 recovered Outbox 未完全交付，Runtime 严格失败并阻止
 Cluster start，但该错误与 Projection Recovery failure 使用不同异常和 diagnostic。
 
+## 产品 Factory 与重启状态
+
+正式链为 `OnlyEngine → OnlyBacktestRuntimeFactory → OnlyDefaultExecutionTransactionStoreFactory → OnlyBacktestRuntime`。Factory
+根据强类型配置创建 Memory 或 SQLite Store，并把同一实例交给 Coordinator、Recovery、Admin/Ready Query、Projection State 和
+Outbox。Runtime close 是唯一正常 close 所有者；装配失败发生在接管前时由 Factory 回滚。
+
+SQLite state root 与 Artifact Run Directory 分离，并以 metadata 验证 engine/runtime identity、mode、配置指纹、base currency、
+Account、Market Profile 与 schema version。Runtime Factory 对一笔 sequence-one unprojected Generic T0 transaction 先安装 transaction
+contract 中明确的 Before authority 与历史 Account/Strategy equity points，再由既有 initialize hook forward-recover。该最小 bootstrap
+不序列化任意 Manager，不支持 empty Runtime 或多笔历史 transaction 的完整恢复。
+
 ## 当前限制
 
 当前只支持 Generic T0 Cash、LIMIT、BUY、OPEN、整单成交的 committed Trade tail，并依赖调用方重建正确 Bootstrap Authority。尚未

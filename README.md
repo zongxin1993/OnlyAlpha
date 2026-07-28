@@ -514,6 +514,19 @@ scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 
 
 SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会写入正式 Transaction Store，也不会伪装为 committed execution。正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在进入 READY 前自动 forward-recover 未完成 tail，并在 Cluster start 前交付 recovered Outbox；失败会阻止启动。当前能力仍依赖正确 Bootstrap Authority，不是 Full Runtime Recovery，Outbox 语义是 at-least-once。
 
+Backtest 的 Execution Store 默认为进程内 `MEMORY`。需要进程重启恢复时必须显式配置：
+
+```yaml
+runtime:
+  execution_store:
+    backend: SQLITE
+```
+
+正式 Factory 将数据库放在
+`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/execution.sqlite3`，与随机 Run Artifact 目录分离。SQLite 会校验
+schema version、engine/runtime、mode、配置指纹、币种、Account 和 Market Profile；不匹配或损坏时 fail fast，不会删除旧库或降级
+Memory。当前 transaction-before bootstrap 只覆盖 sequence-one Generic T0 committed tail，仍不是 Full Bootstrap Snapshot。
+
 ---
 
 ## 8. 插件系统

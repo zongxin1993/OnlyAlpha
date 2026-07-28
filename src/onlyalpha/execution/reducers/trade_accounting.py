@@ -248,6 +248,7 @@ class OnlyStrategyLedgerTradeReducer:
             fee_entries=before.fee_entries + (fee_entry,),
             updated_at=trade.ts_init,
             valuation_time=trade.ts_event,
+            trading_day=trade.trading_day,
             version=before.version + 4,
             last_trade_sequence=trade.source_sequence,
             last_trade_order=trade.stable_order,

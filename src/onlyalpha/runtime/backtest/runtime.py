@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Protocol, cast
 
 from onlyalpha.account.enums import OnlyAccountType
-from onlyalpha.account.models import OnlyAccountConfig, OnlyAccountValuation
+from onlyalpha.account.identifiers import OnlyAccountReservationId
+from onlyalpha.account.models import (
+    OnlyAccountCashBalance,
+    OnlyAccountConfig,
+    OnlyAccountReservation,
+    OnlyAccountSnapshot,
+    OnlyAccountValuation,
+)
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.account.views import OnlyAccountQueryView
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
@@ -52,6 +60,7 @@ from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode
+from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyCalendarId,
@@ -63,7 +72,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
+from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
@@ -77,6 +86,8 @@ from onlyalpha.execution.delivery import (
 )
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.execution_state import (
+    OnlyAccountExecutionState,
+    OnlyStrategyLedgerExecutionState,
     only_account_cash_reservation_execution_state,
     only_account_execution_state,
     only_allocation_execution_state,
@@ -95,7 +106,17 @@ from onlyalpha.execution.planning_context import (
     OnlyTradeExecutionPlanningContext,
 )
 from onlyalpha.execution.processor import OnlyExecutionProcessor
-from onlyalpha.execution.projection import OnlyValuationExecutionState
+from onlyalpha.execution.projection import (
+    OnlyAccountCashReservationExecutionProjection,
+    OnlyAccountExecutionProjection,
+    OnlyOrderExecutionProjection,
+    OnlyRiskExecutionProjection,
+    OnlyRiskReservationExecutionProjection,
+    OnlyStrategyCashReservationExecutionProjection,
+    OnlyStrategyLedgerExecutionProjection,
+    OnlyValuationExecutionProjection,
+    OnlyValuationExecutionState,
+)
 from onlyalpha.execution.projection_applier import OnlyExecutionProjectionApplier
 from onlyalpha.execution.projection_targets import (
     OnlyExecutionValuationAuthority,
@@ -110,10 +131,7 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
-from onlyalpha.execution.transaction_store import (
-    OnlyExecutionTransactionStorePort,
-    OnlyInMemoryExecutionTransactionStore,
-)
+from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStorePort
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
@@ -156,8 +174,10 @@ from onlyalpha.risk.factory import OnlyRiskProfileFactory
 from onlyalpha.risk.identifiers import OnlyRiskProfileId, OnlyRiskRuleId
 from onlyalpha.risk.profile import OnlyRiskProfile, OnlyRiskProfileConfig, OnlyRiskRuleConfig
 from onlyalpha.risk.publisher import OnlyRuntimeRiskEventPublisherAdapter
+from onlyalpha.risk.reservations import OnlyRiskReservation
 from onlyalpha.risk.rules.account import OnlyAvailableBalanceRiskRule, OnlyAvailablePositionRiskRule
 from onlyalpha.risk.service import OnlyRiskService
+from onlyalpha.risk.snapshots import OnlyRiskSnapshot
 from onlyalpha.risk.views import (
     OnlyAccountManagerRiskView,
     OnlyInstrumentRiskMappingView,
@@ -187,7 +207,13 @@ from onlyalpha.runtime.runtime import (
     OnlyRuntimeState,
 )
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
-from onlyalpha.strategy_ledger.models import OnlyStrategyMarkPrice
+from onlyalpha.strategy_ledger.models import (
+    OnlyStrategyCashReservation,
+    OnlyStrategyCashSnapshot,
+    OnlyStrategyLedgerSnapshot,
+    OnlyStrategyMarkPrice,
+    OnlyStrategyPnLSnapshot,
+)
 from onlyalpha.strategy_ledger.order_port import OnlyOrderStrategyCashReservationAdapter
 from onlyalpha.strategy_ledger.publisher import OnlyRuntimeStrategyLedgerEventPublisherAdapter
 from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
@@ -216,7 +242,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_gateway: OnlyBrokerGateway | None = None,
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
-        execution_transaction_store: OnlyExecutionTransactionStorePort | None = None,
+        execution_transaction_store: OnlyExecutionTransactionStorePort,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
         if config.mode is not OnlyRuntimeMode.BACKTEST:
@@ -228,6 +254,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
         event_bus = owned_event_bus
         super().__init__(runtime_config)
+        self._bind_execution_transaction_store(execution_transaction_store)
         self._selected_calendar = selected_calendar
         scope = OnlyEventScope(runtime_config.engine_id, runtime_config.runtime_id)  # type: ignore[arg-type]
         owned_bus = event_bus or OnlyEventBus(
@@ -429,7 +456,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        committed_execution_store = execution_transaction_store or OnlyInMemoryExecutionTransactionStore()
+        committed_execution_store = execution_transaction_store
         applied_projection_ledger = OnlyInMemoryAppliedProjectionLedger()
         execution_valuation_authority = OnlyExecutionValuationAuthority(
             account_performance=self._account_performance_projector,
@@ -671,6 +698,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._broker_connection_state: object | None = None
         self._legacy_market_data_sequence = 0
         self._run_plan = run_plan
+        self._execution_replay_resume_after: OnlyTimestamp | None = None
         resources = plugin_resources
         if resources:
             self._bind_plugin_resources(resources)
@@ -681,6 +709,118 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if self._run_plan is None:
             raise OnlyRuntimeError("run() requires a Factory-provided Backtest RunPlan")
         return self._run_plan.execute(self)
+
+    def bootstrap_execution_transaction_before(self) -> None:
+        """Rebuild the supported first-transaction Before authority from its durable contract.
+
+        This is deliberately narrower than a Runtime snapshot: it accepts one unprojected
+        Generic T0 transaction at sequence one and restores only the explicit ``before``
+        authority required by that transaction.
+        """
+
+        store = self._execution_transaction_store
+        if store is None:
+            raise OnlyRuntimeError("execution transaction Store is not bound")
+        transactions = store.unprojected(self.config.runtime_id)  # type: ignore[arg-type]
+        if not transactions:
+            return
+        if (
+            len(transactions) != 1
+            or transactions[0].execution_sequence != 1
+            or store.ready_count(
+                self.config.runtime_id  # type: ignore[arg-type]
+            )
+        ):
+            raise OnlyRuntimeError("execution bootstrap supports only one sequence-one unprojected transaction")
+        transaction = transactions[0]
+        self._execution_replay_resume_after = transaction.fact.ts_event
+        for projection in transaction.projections:
+            if isinstance(projection, OnlyOrderExecutionProjection):
+                snapshot = OnlyOrderSnapshot(
+                    **{name: getattr(projection.before, name) for name in OnlyOrderSnapshot.__dataclass_fields__}
+                )
+                self._services.order_manager.restore_execution_authority(
+                    snapshot,
+                    external_event_ids=frozenset(),
+                    trade_ids=frozenset(),
+                    venue_trade_ids=frozenset(),
+                )
+            elif isinstance(projection, OnlyAccountExecutionProjection):
+                account_current = self._account_manager.require_snapshot(projection.before.account_id)
+                self._account_manager.restore_execution_authority(
+                    _execution_bootstrap_account_snapshot(projection.before, account_current)
+                )
+            elif isinstance(projection, OnlyStrategyLedgerExecutionProjection):
+                ledger_current = self._strategy_ledger_manager.get_snapshot(projection.before.key)
+                if ledger_current is None:
+                    raise OnlyRuntimeError("execution bootstrap Strategy Ledger is unavailable")
+                self._strategy_ledger_manager.restore_execution_authority(
+                    _execution_bootstrap_ledger_snapshot(projection.before, ledger_current),
+                    trade_fingerprints=(),
+                    valuation_lines=projection.valuation_lines,
+                )
+            elif isinstance(projection, OnlyAccountCashReservationExecutionProjection):
+                if projection.before is not None:
+                    account_reservation_state = projection.before
+                    self._account_manager.restore_cash_reservation_execution_authority(
+                        OnlyAccountReservation(
+                            OnlyAccountReservationId(account_reservation_state.reservation_id),
+                            account_reservation_state.runtime_id,
+                            account_reservation_state.account_id,
+                            account_reservation_state.order_id,
+                            account_reservation_state.reserved_amount,
+                            account_reservation_state.consumed_amount,
+                            account_reservation_state.remaining_amount,
+                            account_reservation_state.state,
+                            account_reservation_state.created_at,
+                            account_reservation_state.updated_at,
+                            account_reservation_state.version,
+                        )
+                    )
+            elif isinstance(projection, OnlyStrategyCashReservationExecutionProjection):
+                if projection.before is not None:
+                    strategy_reservation_state = projection.before
+                    self._strategy_ledger_manager.restore_cash_reservation_execution_authority(
+                        OnlyStrategyCashReservation(
+                            **{
+                                name: getattr(strategy_reservation_state, name)
+                                for name in OnlyStrategyCashReservation.__dataclass_fields__
+                            }
+                        )
+                    )
+            elif isinstance(projection, OnlyRiskReservationExecutionProjection):
+                if projection.before is not None:
+                    risk_reservation_state = projection.before
+                    self._services.risk_service.reservations.restore_execution_authority(
+                        OnlyRiskReservation(
+                            **{
+                                name: getattr(risk_reservation_state, name)
+                                for name in OnlyRiskReservation.__dataclass_fields__
+                            }
+                        ),
+                        sequence=risk_reservation_state.version,
+                    )
+            elif isinstance(projection, OnlyRiskExecutionProjection):
+                risk_state = projection.before
+                self._services.risk_service.restore_execution_authority(
+                    OnlyRiskSnapshot(
+                        **{name: getattr(risk_state, name) for name in OnlyRiskSnapshot.__dataclass_fields__}
+                    )
+                )
+            elif isinstance(projection, OnlyValuationExecutionProjection) and projection.before is not None:
+                self._restore_execution_valuation_state(projection.before)
+                if projection.account_equity_before:
+                    self._account_performance_projector.restore_execution_points(projection.account_equity_before)
+                elif projection.account_equity_points:
+                    self._account_performance_projector.restore_execution_sequence_head(
+                        projection.account_equity_points[0].sequence - 1
+                    )
+                if projection.strategy_equity_before:
+                    self._strategy_ledger_manager.restore_execution_equity_points(projection.strategy_equity_before)
+                elif projection.strategy_equity_points:
+                    self._strategy_ledger_manager.restore_execution_equity_sequence_head(
+                        projection.strategy_equity_points[0].sequence - 1
+                    )
 
     def register_instrument(
         self,
@@ -696,6 +836,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._services.reference_data_source.calendar(instrument.trading_calendar_id or OnlyCalendarId("XSHG"))
             or self._selected_calendar
         )
+
+    @property
+    def execution_replay_resume_after(self) -> OnlyTimestamp | None:
+        return self._execution_replay_resume_after
 
     def process_bar(self, bar: OnlyBar) -> OnlyRuntimeBarResult:
         """Compatibility facade implemented as a one-record local historical replay."""
@@ -1109,6 +1253,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             ),
             ledger_equity_before=None if not ledger_timeline else ledger_timeline[-1],
             ledger_high_water_mark=ledger_snapshot.equity.high_water_mark,
+            account_equity_before=account_timeline,
+            strategy_equity_before=ledger_timeline,
         )
 
     def _execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:
@@ -1603,3 +1749,122 @@ class OnlyBacktestRuntime(OnlyRuntime):
     @property
     def execution_valuation_version(self) -> int:
         return self._account_valuation_version
+
+
+def _execution_bootstrap_account_snapshot(
+    state: OnlyAccountExecutionState, current: OnlyAccountSnapshot
+) -> OnlyAccountSnapshot:
+    return OnlyAccountSnapshot(
+        state.runtime_id,
+        state.account_id,
+        state.gateway_id,
+        state.account_type,
+        state.base_currency,
+        state.status,
+        OnlyAccountCashBalance(state.cash_balance, state.available_cash, state.frozen_cash, state.unsettled_cash),
+        state.position_market_value,
+        state.realized_pnl,
+        state.unrealized_pnl,
+        state.fees,
+        state.equity,
+        current.reservations,
+        state.created_at,
+        state.updated_at,
+        state.valuation_time,
+        state.version,
+        state.last_external_sequence,
+        state.quality_flags,
+        state.metadata,
+        state.reserved_margin,
+        state.occupied_margin,
+        state.released_margin,
+        state.available_margin,
+    )
+
+
+def _execution_bootstrap_rate(value: Decimal) -> OnlyRate:
+    return OnlyRate(value.quantize(Decimal("0.00000001")), 8)
+
+
+def _execution_bootstrap_ledger_snapshot(
+    state: OnlyStrategyLedgerExecutionState,
+    current: OnlyStrategyLedgerSnapshot,
+) -> OnlyStrategyLedgerSnapshot:
+    net = state.realized_pnl + state.unrealized_pnl - state.fees
+    high = OnlyMoney(max(current.equity.high_water_mark.amount, state.equity.amount), state.key.base_currency)
+    drawdown = _execution_bootstrap_rate(
+        Decimal(0) if high.amount == 0 else state.equity.amount / high.amount - Decimal(1)
+    )
+    maximum = _execution_bootstrap_rate(min(current.equity.maximum_drawdown.value, drawdown.value))
+    simple = (
+        None
+        if state.initial_capital.amount == 0 or state.external_cash_flow.amount != 0
+        else _execution_bootstrap_rate(
+            (state.equity.amount - state.initial_capital.amount) / state.initial_capital.amount
+        )
+    )
+    daily_pnl = state.equity - current.equity.equity + current.equity.daily_pnl
+    cash = OnlyStrategyCashSnapshot(state.cash_balance, state.cash_reserved, state.cash_available)
+    pnl = OnlyStrategyPnLSnapshot(state.realized_pnl, state.unrealized_pnl, state.fees, net)
+    equity = replace(
+        current.equity,
+        ts_event=state.updated_at,
+        ts_init=state.updated_at,
+        trading_day=state.trading_day,
+        version=state.version,
+        initial_capital=state.initial_capital,
+        external_cash_flow=state.external_cash_flow,
+        cash_balance=state.cash_balance,
+        cash_reserved=state.cash_reserved,
+        cash_available=state.cash_available,
+        position_cost=state.position_cost,
+        position_market_value=state.position_market_value,
+        realized_pnl=state.realized_pnl,
+        unrealized_pnl=state.unrealized_pnl,
+        fees=state.fees,
+        net_pnl=net,
+        equity=state.equity,
+        equity_by_cash_view=state.cash_balance + state.position_market_value,
+        equity_by_pnl_view=state.initial_capital + state.external_cash_flow + net,
+        high_water_mark=high,
+        drawdown=drawdown,
+        maximum_drawdown=maximum,
+        return_since_start=simple,
+        daily_pnl=daily_pnl,
+        quality_flags=state.quality_flags,
+    )
+    performance = replace(
+        current.performance,
+        ts_event=state.updated_at,
+        equity=state.equity,
+        net_pnl=net,
+        return_since_start=simple,
+        daily_pnl=daily_pnl,
+        drawdown=drawdown,
+        maximum_drawdown=maximum,
+        fees=state.fees,
+    )
+    return replace(
+        current,
+        status=state.status,
+        capital=replace(
+            current.capital,
+            initial_capital=state.initial_capital,
+            external_cash_flow=state.external_cash_flow,
+            as_of=state.updated_at,
+            version=state.version,
+        ),
+        cash=cash,
+        pnl=pnl,
+        equity=equity,
+        performance=performance,
+        cash_entries=state.cash_entries,
+        fee_entries=state.fee_entries,
+        created_at=state.created_at,
+        updated_at=state.updated_at,
+        valuation_time=state.valuation_time,
+        version=state.version,
+        last_trade_sequence=state.last_trade_sequence,
+        last_trade_order=state.last_trade_order,
+        quality_flags=state.quality_flags,
+    )

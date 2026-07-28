@@ -386,6 +386,13 @@ class OnlyStrategyLedgerManager:
             self._equity_timelines.setdefault(point.key, []).append(point)
             self._equity_sequence = point.sequence
 
+    def restore_execution_equity_sequence_head(self, sequence: int) -> None:
+        """Restore a bootstrap sequence head for an ordered transaction tail."""
+
+        if sequence < self._equity_sequence:
+            raise ValueError("Strategy Ledger equity sequence cannot regress")
+        self._equity_sequence = sequence
+
     def validate_execution_equity_points(self, points: tuple[OnlyStrategyLedgerEquityPoint, ...]) -> None:
         installed = {point.sequence: point for values in self._equity_timelines.values() for point in values}
         next_sequence = self._equity_sequence + 1

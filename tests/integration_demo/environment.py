@@ -61,6 +61,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
+from onlyalpha.execution.transaction_store import OnlyInMemoryExecutionTransactionStore
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
@@ -335,6 +336,7 @@ class OnlyIntegrationEnvironment:
             broker_gateway=broker_gateway,
             deterministic_broker_driver=broker_gateway,
             broker_inbound_queue=broker_queue,
+            execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
             plugin_resources=() if broker_gateway is None else (broker_gateway,),
         )
         self.runtime.register_instrument(self.instrument)

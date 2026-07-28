@@ -9,6 +9,7 @@ from onlyalpha.config.document import (
     OnlyRuntimeAssemblyPlan,
     OnlyRuntimeConfig,
 )
+from onlyalpha.config.execution_store import OnlyExecutionStoreBackend, OnlyExecutionStoreConfig
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBrokerRuntimeConfig,
@@ -34,6 +35,8 @@ __all__ = [
     "OnlyClusterCapitalMode",
     "OnlyClusterRunConfig",
     "OnlyDataSourceRuntimeConfig",
+    "OnlyExecutionStoreBackend",
+    "OnlyExecutionStoreConfig",
     "OnlyFactorImportConfig",
     "OnlyIndicatorSpecConfig",
     "OnlyJsonMapping",

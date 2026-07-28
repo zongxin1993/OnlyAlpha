@@ -33,6 +33,20 @@ Backtest Bootstrap 完成后，Runtime `initialize()` 自动恢复所有未 Read
 Outbox，再启动 Cluster。Collector、RunPlan、trade count、fee attribution 和 determinism fingerprint 只读取 Projection Ready Query。
 Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
 
+持久恢复必须显式启用：
+
+```yaml
+runtime:
+  execution_store:
+    backend: SQLITE
+    # path: nested/execution.sqlite3  # 可选，相对 Runtime state root
+```
+
+未配置时为 `MEMORY`，不会创建 state 目录。SQLite 默认路径为
+`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/execution.sqlite3`。绝对路径、空路径和 `..` 逃逸被拒绝；Store
+identity 或 schema 不匹配不会覆盖旧库或 fallback。当前只支持 sequence-one Generic T0 transaction-before bootstrap，不是 Full
+Runtime Recovery。
+
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker
 reconciliation and strategy dispatch. Calendar TradingDay changes invoke SettlementService; strategies only see the resulting
@@ -52,3 +66,9 @@ First-phase Backtest 支持一个共享 Account、一个 Base Currency 和多个
 capital，此时等于 Account initial cash；多 Cluster 必须逐个声明，且精确加总为 Account initial cash。当前不支持
 SHARED_POOL、动态再分配、多 Account、FX、System Ledger 或 TWR/MWR。中途逐点对账仍是后续工作；当前正式结果执行最终
 Account/Ledger 对账并在不一致时失败。
+
+`determinism_fingerprint` hashes stable product authority, normalized Result Facts, performance, reconciliation and equity
+timelines. Replay-process counters, EventBus delivery order, Factor/Indicator diagnostics and restart diagnostics are operational
+metadata and are not part of that fingerprint. `result_fingerprint` likewise excludes only execution-recovery diagnostics, while
+retaining failures, warnings and all economic result fields; this makes an interrupted/recovered run comparable with its
+uninterrupted product baseline without hiding business differences.

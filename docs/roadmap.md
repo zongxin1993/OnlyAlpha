@@ -100,3 +100,8 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 Runtime recovery diagnostics，以及 In-memory/SQLite 和 12 个真实 Manager Target 的故障矩阵。当前仍依赖正确 Bootstrap Authority；Full
 Bootstrap Snapshot、Empty Runtime Recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、Non-Trade Transaction 与 Paper/Live
 Recovery 保持为后续边界。
+
+已完成 Execution Store 强类型 MEMORY/SQLITE 配置、稳定 Runtime state directory、schema/identity metadata、正式 Factory 装配、
+Runtime-owned close，以及两个独立 Engine restart 场景（commit-before-projection recovery 与 Ready Outbox retry）。当前产品 bootstrap
+仅支持 sequence-one Generic T0 transaction-before authority；Full Bootstrap Snapshot、多 transaction tail、Paper/Live recovery 与
+exactly-once delivery 仍未完成。

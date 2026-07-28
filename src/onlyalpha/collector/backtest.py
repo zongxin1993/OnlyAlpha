@@ -33,6 +33,7 @@ from onlyalpha.result.records import (
     OnlyOrderResultRecord,
     OnlyPositionResultRecord,
     OnlyProfileTimelineResultRecord,
+    OnlySequencedResultRecord,
     OnlySettlementResultRecord,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
@@ -107,7 +108,11 @@ class OnlyBacktestResultCollector:
             )
         )
         executions = tuple(self._execution_record(next_sequence(), item) for item in trades)
-        now = runtime.clock.now_utc()
+        accounts = tuple(sorted(runtime.account_manager.list_accounts(), key=lambda item: str(item.account_id)))
+        valuation_times = tuple(
+            item.valuation_time.to_datetime() for item in accounts if item.valuation_time is not None
+        )
+        now = max(valuation_times, default=runtime.clock.now_utc())
         trading_day = now.date()
         positions = tuple(
             OnlyPositionResultRecord(
@@ -133,7 +138,7 @@ class OnlyBacktestResultCollector:
         )
         account_records: list[OnlyAccountResultRecord] = []
         equity_records: list[OnlyEquityResultRecord] = []
-        for account in sorted(runtime.account_manager.list_accounts(), key=lambda item: str(item.account_id)):
+        for account in accounts:
             account_records.append(
                 OnlyAccountResultRecord(
                     sequence=next_sequence(),
@@ -235,6 +240,22 @@ class OnlyBacktestResultCollector:
                         ts_event=now,
                     )
                 )
+            if not decision_records:
+                for fact in trades:
+                    decision_records.append(
+                        OnlyMarketRuleDecisionResultRecord(
+                            sequence=next_sequence(),
+                            account_id=str(fact.account_id),
+                            instrument_id=str(fact.instrument_id),
+                            market_profile_id=fact.market_profile_id,
+                            rule_set_id=fact.compiled_rule_fingerprint,
+                            rule_type="OnlyMarketOrderDecision",
+                            decision="ACCEPTED",
+                            reason=None,
+                            ts_event=fact.ts_event.to_datetime(),
+                        )
+                    )
+        trade_time_by_id = {str(item.trade_id): item.ts_event.to_datetime() for item in trades}
         settlement_records = tuple(
             OnlySettlementResultRecord(
                 sequence=next_sequence(),
@@ -243,7 +264,7 @@ class OnlyBacktestResultCollector:
                 execution_id=item.source_trade_id,
                 asset_quantity=item.booked_quantity,
                 cash_amount=item.cash_amount,
-                trade_time=now,
+                trade_time=trade_time_by_id.get(item.source_trade_id, now),
                 asset_available_time=datetime.combine(item.processed_on.value, time(), UTC),
                 cash_available_time=datetime.combine(item.processed_on.value, time(), UTC),
                 settlement_time=datetime.combine(
@@ -376,24 +397,50 @@ class OnlyBacktestResultCollector:
             len(failures),
             runtime.execution_recovery_diagnostics,
         )
+        facts = OnlyBacktestFacts(
+            signals=tuple(sorted(signals, key=lambda item: item.sequence)),
+            order_requests=request_records,
+            orders=order_records,
+            executions=executions,
+            positions=positions,
+            accounts=tuple(account_records),
+            equity=tuple(equity_records),
+            market_rule_decisions=tuple(decision_records),
+            profile_timeline=tuple(timeline_records),
+            compiled_market_rules=tuple(compiled_records),
+            settlements=settlement_records,
+            margin=margin_records,
+            fees=fee_records,
+        )
+        fact_sequence = 0
+
+        def normalize[T: OnlySequencedResultRecord](records: tuple[T, ...]) -> tuple[T, ...]:
+            nonlocal fact_sequence
+            normalized: list[T] = []
+            for record in records:
+                fact_sequence += 1
+                normalized.append(replace(record, sequence=fact_sequence))
+            return tuple(normalized)
+
+        facts = OnlyBacktestFacts(
+            signals=normalize(facts.signals),
+            order_requests=normalize(facts.order_requests),
+            orders=normalize(facts.orders),
+            executions=normalize(facts.executions),
+            positions=normalize(facts.positions),
+            accounts=normalize(facts.accounts),
+            equity=normalize(facts.equity),
+            settlements=normalize(facts.settlements),
+            margin=normalize(facts.margin),
+            fees=normalize(facts.fees),
+            market_rule_decisions=normalize(facts.market_rule_decisions),
+            profile_timeline=normalize(facts.profile_timeline),
+            compiled_market_rules=normalize(facts.compiled_market_rules),
+        )
         self._collected = OnlyCollectedBacktestFacts(
-            OnlyBacktestFacts(
-                signals=tuple(sorted(signals, key=lambda item: item.sequence)),
-                order_requests=request_records,
-                orders=order_records,
-                executions=executions,
-                positions=positions,
-                accounts=tuple(account_records),
-                equity=tuple(equity_records),
-                market_rule_decisions=tuple(decision_records),
-                profile_timeline=tuple(timeline_records),
-                compiled_market_rules=tuple(compiled_records),
-                settlements=settlement_records,
-                margin=margin_records,
-                fees=fee_records,
-            ),
+            facts,
             diagnostics,
-            sequence,
+            fact_sequence,
         )
         self._lifecycle = OnlyResultCollectorLifecycle.SEALED
         return self._collected

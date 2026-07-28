@@ -189,7 +189,11 @@ from .transaction import (
     OnlyPreparedExecutionTransaction,
 )
 from .transaction_store import (
+    ONLY_EXECUTION_STORE_SCHEMA_VERSION,
     OnlyExecutionProjectionStatePort,
+    OnlyExecutionStoreIdentityMismatch,
+    OnlyExecutionStoreMetadataCorrupt,
+    OnlyExecutionStoreSchemaUnsupported,
     OnlyExecutionTransactionCommitPort,
     OnlyExecutionTransactionConflict,
     OnlyExecutionTransactionOutboxKey,
@@ -204,6 +208,10 @@ from .transaction_store import (
 )
 
 __all__ = [
+    "ONLY_EXECUTION_STORE_SCHEMA_VERSION",
+    "OnlyExecutionStoreIdentityMismatch",
+    "OnlyExecutionStoreMetadataCorrupt",
+    "OnlyExecutionStoreSchemaUnsupported",
     "OnlyAllocationCreationAuthority",
     "OnlyAccountCashReservationExecutionState",
     "OnlyAccountExecutionState",

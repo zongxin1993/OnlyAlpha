@@ -538,6 +538,7 @@ def _ledger_snapshot(
         current.equity,
         ts_event=state.updated_at,
         ts_init=state.updated_at,
+        trading_day=state.trading_day,
         version=state.version,
         initial_capital=state.initial_capital,
         external_cash_flow=state.external_cash_flow,

@@ -24,7 +24,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
     OnlyVenueOrderId,
 )
-from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.position.enums import (
@@ -301,6 +301,7 @@ class OnlyStrategyLedgerExecutionState(OnlyDomainModel):
     last_trade_sequence: int | None
     last_trade_order: tuple[int, int, str] | None
     quality_flags: tuple[str, ...] = ()
+    trading_day: OnlyTradingDay | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -679,6 +680,7 @@ def only_strategy_ledger_execution_state(snapshot: OnlyStrategyLedgerSnapshot) -
         snapshot.last_trade_sequence,
         snapshot.last_trade_order,
         snapshot.quality_flags,
+        snapshot.equity.trading_day,
     )
 
 
