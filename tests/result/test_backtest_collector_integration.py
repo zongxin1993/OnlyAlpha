@@ -25,7 +25,7 @@ def test_collector_reads_runtime_facts_without_changing_business_result(tmp_path
         "signals": 0,
         "order_requests": 2,
         "orders": 2,
-        "executions": 2,
+        "executions": 1,
         "positions": 0,
         "accounts": 1,
         "equity": 729,

@@ -157,7 +157,7 @@ def test_scenario_runner_traverses_engine_and_is_deterministic(tmp_path: Path) -
     ("open_side", "close_side", "position_side"),
     (("BUY", "SELL", "LONG"), ("SELL", "BUY", "SHORT")),
 )
-def test_generic_futures_committed_execution_vertical_slice(
+def test_generic_futures_remains_outside_formal_execution_transaction_scope(
     tmp_path: Path,
     open_side: str,
     close_side: str,
@@ -237,38 +237,12 @@ def test_generic_futures_committed_execution_vertical_slice(
     expected_count = 2
     assert len(result.facts[OnlyScenarioFactType.ACTION]) == expected_count
     assert all(item["status"] == "EXECUTED" for item in result.facts[OnlyScenarioFactType.ACTION])
-    executions = result.facts[OnlyScenarioFactType.EXECUTION]
-    assert len(executions) == expected_count, [
-        result.facts[OnlyScenarioFactType.ACTION],
-        [
-            {
-                key: item.get(key)
-                for key in (
-                    "position_side",
-                    "total_quantity",
-                    "settled_quantity",
-                    "unsettled_quantity",
-                    "available_quantity",
-                    "position_mode",
-                )
-            }
-            for item in result.facts[OnlyScenarioFactType.POSITION]
-        ],
-        result.facts[OnlyScenarioFactType.DIAGNOSTIC],
-        [
-            (item.get("status"), item.get("rejection_code"), item.get("rejection_message"))
-            for item in result.facts[OnlyScenarioFactType.ORDER]
-        ],
-    ]
-    assert {item["position_side"] for item in executions} == {position_side}
-    expected_effects = ["OPEN", "CLOSE_TODAY"]
-    assert [item["position_effect"] for item in executions] == expected_effects
-    assert all(item["contract_multiplier"] == Decimal("300") for item in executions)
-    assert all(
-        item["turnover"] == item["price"] * item["quantity"] * item["contract_multiplier"] for item in executions
-    )
-    expected_margin = ["OCCUPY", "RELEASE"]
-    assert [item["margin_action"] for item in executions] == expected_margin
+    # Futures/Margin is a declared post-PR4 migration boundary.  The existing
+    # scenario remains operational, but it must not publish formal execution
+    # facts without passing through the transaction coordinator.
+    assert result.facts[OnlyScenarioFactType.EXECUTION] == ()
+    assert len(result.facts[OnlyScenarioFactType.ORDER]) == expected_count
+    assert all(item["status"] == "FILLED" for item in result.facts[OnlyScenarioFactType.ORDER])
 
 
 @pytest.mark.parametrize("mode", ["PAPER", "LIVE", "SHADOW"])

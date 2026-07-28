@@ -33,10 +33,10 @@ Projection schema v4 将 replay-only metadata 纳入 canonical payload hash。Po
 
 ## Failure and side effects
 
-Target 不发布业务 Event，不写 durable outbox、transaction store 或 committed journal，不触发 audit/reconciliation/broker queue，也不调用普通 Manager mutation API。Applied Projection Ledger 是可丢弃、可重建的 Runtime 应用索引，不是第二持久业务真相；唯一 durable transaction authority 是 `OnlyExecutionTransactionStore`。
+Target 不发布业务 Event，不写 durable outbox 或 transaction store，不触发 audit/reconciliation/broker queue，也不调用普通 Manager mutation API。Applied Projection Ledger 是可丢弃、可重建的 Runtime 应用索引，不是第二持久业务真相；唯一 durable transaction authority 是 `OnlyExecutionTransactionStore`。
 
 Batch 采用 forward recovery：Component N 失败时，1..N-1 保持 APPLIED；有 record 的 Component 重试返回 IDEMPOTENT，Manager 已安装但 record 缺失的 Component 返回 RECOVERED。单 Target 使用预验证、copy-on-write install plan、Repository authority replace 和不可失败 container swap 收口原子边界；不执行跨 Manager 回滚，也不标记 projection-ready。
 
 ## Current scope
 
-Pure Planner、Real Manager Targets 和 Recovery Boundary Hardening 已完成。当前没有切换正式 ExecutionProcessor，没有实现持久化 Applied Ledger、Commit Coordinator、Bootstrap Snapshot 或 Runtime Full Recovery。当前能力是“正确 Bootstrap/Before Authority + ordered committed transaction tail → Runtime Authority Recovery”，不是 Empty Runtime Full Replay。
+Pure Planner、Real Manager Targets、Applied Ledger、Commit Coordinator 与 Runtime 正式装配已完成。受支持的 ExecutionProcessor 路径使用 commit-before-mutation，并在完整 Target Batch 后标记 Projection Ready。当前能力是“正确 Bootstrap/Before Authority + ordered committed transaction tail → Runtime Authority Recovery”，不是 Empty Runtime Full Replay；Applied Ledger 仍是可重建索引而非业务真值。

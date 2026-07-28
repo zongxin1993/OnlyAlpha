@@ -27,6 +27,7 @@ from onlyalpha.execution import (
     OnlyExecutionProcessingResult,
     OnlyExecutionProcessingStatus,
 )
+from onlyalpha.market.models import OnlyMarketProfileId
 
 from ..integration_demo.environment import (
     ACCOUNT_ID,
@@ -57,7 +58,7 @@ def test_runtime_owns_one_isolated_processor_and_execution_state() -> None:
 
 
 def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     result = _complete_buy(env)
 
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
@@ -73,9 +74,11 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
         OnlyExecutionMutationStep.ACCOUNT,
         OnlyExecutionMutationStep.STRATEGY_LEDGER,
         OnlyExecutionMutationStep.RESERVATION,
+        OnlyExecutionMutationStep.RESERVATION,
+        OnlyExecutionMutationStep.RESERVATION,
         OnlyExecutionMutationStep.RISK,
+        OnlyExecutionMutationStep.ACCOUNT,
         OnlyExecutionMutationStep.INVARIANT_CHECK,
-        OnlyExecutionMutationStep.EVENT,
     )
     assert result.snapshot_bundle.order == env.runtime.order_manager.snapshot_all()[0]
     assert result.snapshot_bundle.account == env.runtime.account_manager.list_accounts()[0]
@@ -84,15 +87,17 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     )
     assert result.audit_record.invariant_result.passed
     assert result.audit_record.to_json() == OnlyExecutionAuditRecord.from_json(result.audit_record.to_json()).to_json()
-    facts = env.runtime.committed_execution_query.records()
-    assert len(facts) == 1
-    fact = facts[0]
+    transactions = env.runtime.committed_execution_query.records()
+    assert len(transactions) == 1
+    assert transactions[0].projection_ready
+    fact = transactions[0].fact
     assert fact.processing_sequence == result.sequence
     assert fact.position_side.value == "LONG"
     assert fact.position_effect.value == "OPEN"
     assert fact.contract_multiplier.value == Decimal("1")
     assert fact.gross_notional.amount == fact.fill_price.value * fact.fill_quantity.value
-    assert fact.authoritative_fee_total == result.position.fee  # type: ignore[union-attr]
+    assert result.position_snapshot is not None
+    assert fact.authoritative_fee_total == result.position_snapshot.fees
     assert fact.account_fee_delta == fact.authoritative_fee_total
     assert fact.ledger_fee_delta == fact.authoritative_fee_total
     assert (
@@ -113,7 +118,7 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
 
 
 def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     env.start()
     for minute in range(3):
         env.process_bar(DAY_ONE, minute, "10.00")
@@ -140,7 +145,7 @@ def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
 
 
 def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     applied = _complete_buy(env)
     assert applied.order_snapshot is not None
     order_before = applied.order_snapshot
@@ -197,30 +202,30 @@ def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
     assert len(env.runtime.committed_execution_query.records()) == 1
 
 
-def test_journal_append_failure_is_not_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
-    env = OnlyIntegrationEnvironment()
+def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     env.start()
     for minute in range(3):
         env.process_bar(DAY_ONE, minute, "10.00")
     env.submit_buy()
 
-    def fail_append(fact: object) -> bool:
-        del fact
+    def fail_commit(prepared: object, *, committed_at: OnlyTimestamp) -> object:
+        del prepared, committed_at
         raise RuntimeError("injected journal append failure")
 
-    monkeypatch.setattr(env.runtime._services.committed_execution_query, "append_transaction", fail_append)
+    monkeypatch.setattr(env.runtime.committed_execution_query, "commit", fail_commit)
     env.process_bar(DAY_ONE, 4, "10.00")
     result = next(
         item
         for item in reversed(env.runtime.broker_results)
         if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
     )
-    assert result.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
+    assert result.status is OnlyExecutionProcessingStatus.FAILED
     assert env.runtime.committed_execution_query.records() == ()
 
 
 def test_late_accepted_does_not_regress_filled_order() -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     filled = _complete_buy(env)
     assert filled.order_snapshot is not None
     broker_order = env.runtime.broker_gateway.query_orders(OnlyAccountId(ACCOUNT_ID))[0]  # type: ignore[union-attr]
@@ -247,7 +252,7 @@ def test_late_accepted_does_not_regress_filled_order() -> None:
 
 
 def test_out_of_order_trade_requires_reconciliation_before_mutation() -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     filled = _complete_buy(env)
     assert filled.order_snapshot is not None
     order = filled.order_snapshot
@@ -293,10 +298,10 @@ def test_out_of_order_trade_requires_reconciliation_before_mutation() -> None:
     )
 
 
-def test_mid_pipeline_failure_discards_success_facts_and_requests_reconciliation(
+def test_supported_trade_does_not_call_old_manager_mutation_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     env.start()
     for minute in range(3):
         env.process_bar(DAY_ONE, minute, "10.00")
@@ -316,18 +321,16 @@ def test_mid_pipeline_failure_discards_success_facts_and_requests_reconciliation
     )
     emitted = tuple(str(item.event.event_type) for item in env.runtime.event_bus.dispatch_results[cursor:])
 
-    assert result.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
-    assert result.reconciliation_request is not None
-    assert "ORDER_FILLED" not in emitted
-    assert "POSITION_OPENED" not in emitted
-    assert "STRATEGY_TRADE_APPLIED" not in emitted
-    assert "EXECUTION_PROCESSING_FAILED" in emitted
-    assert "EXECUTION_RECONCILIATION_REQUIRED" in emitted
-    assert env.runtime.committed_execution_query.records() == ()
+    assert result.status is OnlyExecutionProcessingStatus.APPLIED
+    assert result.reconciliation_request is None
+    assert "ORDER_FILLED" in emitted
+    assert "POSITION_OPENED" in emitted
+    assert "STRATEGY_TRADE_APPLIED" in emitted
+    assert len(env.runtime.committed_execution_query.records()) == 1
 
 
 def test_scope_mismatch_is_rejected_without_state_change() -> None:
-    env = OnlyIntegrationEnvironment()
+    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     filled = _complete_buy(env)
     assert filled.order_snapshot is not None
     now = OnlyTimestamp.from_datetime(datetime(2026, 1, 5, 2, 0, tzinfo=UTC))

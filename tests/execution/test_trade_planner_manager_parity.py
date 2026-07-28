@@ -104,34 +104,15 @@ def test_real_manager_parity_covers_complete_economic_and_lifecycle_authority(
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda item: item.name)
-def test_legacy_and_durable_events_have_equivalent_business_semantics(
+def test_product_delivery_events_are_the_planned_durable_events(
     scenario: OnlyTestGenericT0Scenario,
 ) -> None:
     result = only_test_generic_t0_manager_parity(scenario)
-    legacy_events = result.legacy_result.generated_events
+    product_events = result.legacy_result.generated_events
     planned_events = result.prepared.outbox_events
-    aliases = {
-        "ACCOUNT_RESERVATION_CONSUMED": "ACCOUNT_CASH_RESERVATION_CONSUMED",
-        "ACCOUNT_RESERVATION_RELEASED": "ACCOUNT_CASH_RESERVATION_RELEASED",
-    }
-    legacy_types = [aliases.get(event.event_type.value, event.event_type.value) for event in legacy_events]
-    legacy_business_types = [value for value in legacy_types if value != "EXECUTION_UPDATE_APPLIED"]
-    planner_business_types = [
-        event.event_type.value
-        for event in planned_events
-        if event.event_type.value not in {"SETTLEMENT_UPDATED", "FEE_RECORDED", "RISK_STATE_UPDATED"}
-    ]
+    planner_business_types = [event.event_type.value for event in planned_events]
 
-    assert planner_business_types == legacy_business_types
-    legacy_by_type = {
-        aliases.get(event.event_type.value, event.event_type.value): event
-        for event in legacy_events
-        if event.event_type.value != "EXECUTION_UPDATE_APPLIED"
-    }
-    planned_by_type = {event.event_type.value: event for event in planned_events}
-    for event_type in legacy_business_types:
-        assert planned_by_type[event_type].timestamp == legacy_by_type[event_type].timestamp
-        assert planned_by_type[event_type].ts_init == legacy_by_type[event_type].ts_init
+    assert product_events == planned_events
     assert all(event.runtime_id == result.context.update.runtime_id for event in planned_events)
     assert all(event.cluster_id == result.context.order_before.cluster_id for event in planned_events)
     assert all(event.metadata["broker_update_id"] == str(result.context.update.update_id) for event in planned_events)

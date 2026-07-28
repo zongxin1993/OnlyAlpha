@@ -52,13 +52,22 @@ from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyCalendarId, OnlyClusterId, OnlyInstrumentId
+from onlyalpha.domain.identifiers import (
+    OnlyAccountId,
+    OnlyCalendarId,
+    OnlyClusterId,
+    OnlyEngineId,
+    OnlyInstrumentId,
+    OnlyPositionId,
+)
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
+from onlyalpha.execution.commit_coordinator import OnlyExecutionCommitCoordinator
 from onlyalpha.execution.delivery import (
     OnlyEventBusDirectExecutionPublisher,
     OnlyExecutionEventDeliveryCoordinator,
@@ -67,21 +76,46 @@ from onlyalpha.execution.delivery import (
     OnlyExecutionOutboxPublisher,
 )
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
+from onlyalpha.execution.execution_state import (
+    only_account_cash_reservation_execution_state,
+    only_account_execution_state,
+    only_allocation_execution_state,
+    only_order_execution_state,
+    only_position_execution_state,
+    only_risk_execution_state,
+    only_risk_reservation_execution_state,
+    only_strategy_cash_reservation_execution_state,
+    only_strategy_ledger_execution_state,
+)
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
-from onlyalpha.execution.journal import OnlyInMemoryCommittedExecutionJournal
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
+from onlyalpha.execution.planning_context import (
+    OnlyAllocationCreationAuthority,
+    OnlyPositionCreationAuthority,
+    OnlyTradeExecutionPlanningContext,
+)
 from onlyalpha.execution.processor import OnlyExecutionProcessor
+from onlyalpha.execution.projection import OnlyValuationExecutionState
+from onlyalpha.execution.projection_applier import OnlyExecutionProjectionApplier
+from onlyalpha.execution.projection_targets import (
+    OnlyExecutionValuationAuthority,
+    only_create_generic_t0_execution_projection_targets,
+)
+from onlyalpha.execution.scope import OnlyExecutionPositionScope
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
+from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
+from onlyalpha.execution.transaction_store import OnlyInMemoryExecutionTransactionStore
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
 from onlyalpha.market.models import OnlyMarketPositionMode
+from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
 from onlyalpha.market_data.dispatcher import (
@@ -106,6 +140,7 @@ from onlyalpha.plugin.broker import OnlyDeterministicBrokerDriver
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
 from onlyalpha.position.enums import OnlyPositionMode
+from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionTrade, OnlySettlementResult
 from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
@@ -250,6 +285,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._timer_results: list[OnlyClusterExecutionResult] = []
         self._instruments: dict[OnlyInstrumentId, OnlyInstrument] = {}
         self._known_market_data_instruments: set[OnlyInstrumentId] = set()
+        self._execution_valuation_states: dict[OnlyAccountId, OnlyValuationExecutionState] = {}
         self._risk_profile_factory = OnlyRiskProfileFactory()
         manager = OnlyClusterManager(runtime_config.runtime_id, self._make_context, self._cleanup_cluster)  # type: ignore[arg-type]
         executor = OnlyManagedBarDispatchExecutor(
@@ -291,6 +327,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             selected_calendar.trading_day_at,
             runtime_config.fee_resolver_config,
         )
+        self._fee_resolver = fee_resolver
         strategy_cash_reservations = OnlyOrderStrategyCashReservationAdapter(
             self._strategy_ledger_manager,
             self._strategy_ledger_locator,
@@ -387,9 +424,32 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        committed_execution_store = OnlyInMemoryCommittedExecutionJournal(
-            runtime_config.runtime_id,  # type: ignore[arg-type]
-            (runtime_config.broker_gateway_id or OnlyBrokerGatewayId("placeholder"),),
+        committed_execution_store = OnlyInMemoryExecutionTransactionStore()
+        applied_projection_ledger = OnlyInMemoryAppliedProjectionLedger()
+        execution_valuation_authority = OnlyExecutionValuationAuthority(
+            account_performance=self._account_performance_projector,
+            runtime_state_restorer=self._restore_execution_valuation_state,
+            runtime_state_provider=self._execution_valuation_state,
+        )
+        execution_projection_targets = only_create_generic_t0_execution_projection_targets(
+            order_manager=order_manager,
+            position_manager=position_manager,
+            allocation_manager=allocation_manager,
+            settlement_manager=self._settlement_manager,
+            fee_manager=self._fee_manager,
+            account_manager=self._account_manager,
+            ledger_manager=self._strategy_ledger_manager,
+            risk_service=risk_service,
+            valuation_authority=execution_valuation_authority,
+            applied_ledger=applied_projection_ledger,
+        )
+        execution_projection_applier = OnlyExecutionProjectionApplier(execution_projection_targets)
+        execution_commit_coordinator = OnlyExecutionCommitCoordinator(
+            commit_port=committed_execution_store,
+            query_port=committed_execution_store,
+            projection_state_port=committed_execution_store,
+            projection_applier=execution_projection_applier,
+            now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
         execution_outbox_publisher = OnlyExecutionOutboxPublisher(
             committed_execution_store,
@@ -437,7 +497,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_invariant_checker,
             execution_event_buffer,
             execution_audit_store,
-            committed_execution_store,
+            self._build_trade_execution_planning_context,
+            OnlyTradeExecutionTransactionPlanner(),
+            execution_commit_coordinator,
             execution_reconciliation_queue,
             execution_update_deduplicator,
             execution_sequence_tracker,
@@ -452,7 +514,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             fee_resolver,
             order_margin_reservations.release,
             selected_calendar.trading_day_at,
-            lambda cluster_id: manager.require_cluster(cluster_id).strategy.strategy_id,
         )
         self._broker_results: list[object] = []
         historical_source_id = OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history")
@@ -886,6 +947,184 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         return OnlyMoney(amount, self.config.strategy_base_currency)
 
+    def _build_trade_execution_planning_context(
+        self,
+        update: OnlyBrokerTradeUpdate,
+        processing_sequence: int,
+        position_scope: OnlyExecutionPositionScope,
+    ) -> OnlyTradeExecutionPlanningContext:
+        order = self._services.order_manager.require_snapshot(update.order_id)
+        market_rules = self.config.market_rule_engine
+        if market_rules is None:
+            raise ValueError("prepared Trade planning requires compiled market rules")
+        trading_day = self._selected_calendar.trading_day_at(update.ts_event)
+        instruction = market_rules.build_trade_instruction(
+            OnlyTradeApplicationRequest(
+                str(order.instrument_id),
+                str(order.order_id),
+                str(update.fill.trade_id),
+                str(order.account_id),
+                order.side,
+                update.fill.quantity.value,
+                update.fill.price.value,
+                update.ts_event.to_datetime(),
+                trading_day,
+                position_scope.position_effect,
+            )
+        )
+        fee_instruction = self._fee_resolver.resolve_trade(
+            order,
+            trade_id=str(update.fill.trade_id),
+            price=update.fill.price,
+            quantity=update.fill.quantity.value,
+            timestamp=update.ts_event,
+            liquidity_role=update.fill.liquidity_side.value,
+            created_at=update.ts_init.to_datetime(),
+            reported_fee=update.fill.reported_fee,
+            reporting_mode=update.fill.fee_reporting_mode,
+        )
+        position_before_snapshot = self._services.position_manager.get_snapshot(position_scope.position_key)
+        allocation_key = position_scope.allocation_key
+        if allocation_key is None:
+            raise ValueError("prepared Trade planning requires Cluster Allocation scope")
+        allocation_before_snapshot = self._services.allocation_manager.get_snapshot(allocation_key)
+        account_snapshot = self._services.account_manager.get_snapshot(order.account_id)
+        if account_snapshot is None:
+            raise KeyError(f"Account not found: {order.account_id}")
+        account_reservation = next(
+            (item for item in account_snapshot.reservations if item.order_id == order.order_id),
+            None,
+        )
+        if account_reservation is None:
+            raise ValueError("prepared Trade planning requires Account cash Reservation")
+        ledger_snapshot = self._strategy_ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account_snapshot.base_currency,
+        )
+        strategy_reservation = next(
+            (item for item in ledger_snapshot.reservations if item.order_id == order.order_id),
+            None,
+        )
+        if strategy_reservation is None:
+            raise ValueError("prepared Trade planning requires Strategy cash Reservation")
+        risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
+        if risk_reservation is None:
+            raise ValueError("prepared Trade planning requires Risk Reservation")
+        position_cycle = self._services.position_manager.creation_cycle_head(position_scope.position_key)
+        allocation_cycle = self._services.allocation_manager.creation_cycle_head(allocation_key)
+        position_creation = (
+            OnlyPositionCreationAuthority(
+                OnlyPositionId(
+                    f"POS-{position_scope.position_key.runtime_id}-{position_scope.position_key.account_id}-"
+                    f"{position_scope.position_key.instrument_id}-"
+                    f"{position_scope.position_key.position_side.value}-{position_cycle + 1:08d}"
+                ),
+                position_cycle + 1,
+            )
+            if position_before_snapshot is None
+            else None
+        )
+        allocation_creation = (
+            OnlyAllocationCreationAuthority(
+                OnlyPositionAllocationId(
+                    f"ALLOC-{allocation_key.runtime_id}-{allocation_key.account_id}-{allocation_key.cluster_id}-"
+                    f"{allocation_key.instrument_id}-{allocation_cycle + 1:08d}"
+                ),
+                allocation_cycle + 1,
+            )
+            if allocation_before_snapshot is None
+            else None
+        )
+        account_timeline = self._account_performance_projector.timeline(order.account_id)
+        ledger_timeline = self._strategy_ledger_manager.equity_timeline(ledger_snapshot.key)
+        candidates = tuple(
+            bar
+            for registration in self._subscriptions.values()
+            for bar_type in registration.subscription.bar_types
+            if bar_type.instrument_id == order.instrument_id
+            if (bar := self._services.market_data_cache.latest_closed(bar_type)) is not None
+        )
+        if not candidates:
+            raise ValueError("prepared Trade planning requires a closed market-data valuation mark")
+        valuation_state = self._execution_valuation_state(order.account_id)
+        if valuation_state is None:
+            raise ValueError("prepared Trade planning requires Runtime valuation authority")
+        return OnlyTradeExecutionPlanningContext(
+            update=update,
+            prepared_at=update.ts_init,
+            engine_id=OnlyEngineId(str(self.config.engine_id)),
+            strategy_id=self._services.cluster_manager.require_cluster(order.cluster_id).strategy.strategy_id,
+            processing_sequence=processing_sequence,
+            trading_day=trading_day,
+            contract_multiplier=self._instruments[order.instrument_id].contract_multiplier,
+            valuation_price=max(candidates, key=lambda item: item.ts_event).close,
+            position_scope=position_scope,
+            trade_instruction=instruction,
+            fee_instruction=fee_instruction,
+            order_before=only_order_execution_state(order),
+            position_before=(
+                None if position_before_snapshot is None else only_position_execution_state(position_before_snapshot)
+            ),
+            allocation_before=(
+                None
+                if allocation_before_snapshot is None
+                else only_allocation_execution_state(allocation_before_snapshot)
+            ),
+            settlement_before=None,
+            fee_before=None,
+            account_before=only_account_execution_state(account_snapshot),
+            strategy_ledger_before=only_strategy_ledger_execution_state(ledger_snapshot),
+            account_cash_reservation_before=only_account_cash_reservation_execution_state(account_reservation),
+            strategy_cash_reservation_before=only_strategy_cash_reservation_execution_state(strategy_reservation),
+            risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
+            risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
+            valuation_before=valuation_state,
+            position_creation=position_creation,
+            allocation_creation=allocation_creation,
+            position_cycle=position_cycle,
+            allocation_cycle=allocation_cycle,
+            settlement_record_sequence=self._services.settlement_manager.sequence_head,
+            fee_record_sequence=self._services.fee_manager.sequence_head,
+            account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
+            ledger_equity_sequence=0 if not ledger_timeline else ledger_timeline[-1].sequence,
+            account_external_cash_flow=(
+                OnlyMoney(Decimal(0), account_snapshot.base_currency)
+                if not account_timeline
+                else account_timeline[-1].external_cash_flow
+            ),
+            ledger_equity_before=None if not ledger_timeline else ledger_timeline[-1],
+            ledger_high_water_mark=ledger_snapshot.equity.high_water_mark,
+        )
+
+    def _execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:
+        existing = self._execution_valuation_states.get(account_id)
+        if existing is not None:
+            return existing
+        return self._capture_execution_valuation_state(account_id)
+
+    def _capture_execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:
+        snapshot = self._account_manager.get_snapshot(account_id)
+        if snapshot is None:
+            return None
+        valuation_time = snapshot.valuation_time or snapshot.updated_at
+        state = OnlyValuationExecutionState(
+            account_id,
+            valuation_time,
+            snapshot.cash.cash_balance,
+            snapshot.position_market_value,
+            snapshot.unrealized_pnl,
+            snapshot.equity,
+            self._account_valuation_version,
+        )
+        self._execution_valuation_states[account_id] = state
+        return state
+
+    def _restore_execution_valuation_state(self, state: OnlyValuationExecutionState) -> None:
+        self.restore_execution_valuation_version(state.version)
+        self._execution_valuation_states[state.account_id] = state
+
     def _apply_strategy_valuation(
         self,
         key: OnlyStrategyLedgerKey,
@@ -971,6 +1210,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._account_valuation_version,
             )
         )
+        self._capture_execution_valuation_state(trade.account_id)
 
     def _apply_market_valuations(self, bar: OnlyBar, trading_day: OnlyTradingDay) -> None:
         """Mark Runtime-owned account and strategy views before Broker reconciliation and strategy callbacks."""
@@ -1057,6 +1297,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._account_valuation_version,
             )
         )
+        self._capture_execution_valuation_state(self.config.default_account_id)  # type: ignore[arg-type]
 
     def _settles_notional(self, instrument_id: OnlyInstrumentId, trading_day: OnlyTradingDay) -> bool:
         engine = self.config.market_rule_engine

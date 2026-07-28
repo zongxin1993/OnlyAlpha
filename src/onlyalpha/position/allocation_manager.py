@@ -150,6 +150,12 @@ class OnlyPositionAllocationManager:
         state = self._active.get(key)
         return None if state is None else state.snapshot()
 
+    def creation_cycle_head(self, key: OnlyPositionAllocationKey) -> int:
+        """Return the current identity cycle without allocating an Allocation."""
+
+        self._require_scope(key.runtime_id)
+        return self._cycles.get(key, 0)
+
     def list_by_cluster(self, cluster_id: OnlyClusterId) -> tuple[OnlyPositionAllocationSnapshot, ...]:
         return tuple(item for item in self.snapshot_all() if item.key.cluster_id == cluster_id)
 

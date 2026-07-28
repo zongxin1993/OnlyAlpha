@@ -27,6 +27,8 @@ HistoricalDataSource → HistoricalReplayService → BacktestClock → MarketDat
 → Broker queue → ExecutionProcessor → Position → Allocation → StrategyLedger → Account → Result
 ```
 
+其中受支持的 Generic T0 Cash LIMIT BUY OPEN 整单成交细化为 `Pure Planner → Prepared Transaction → durable Transaction Store commit → ordered Projection Targets → Projection Ready → at-least-once Outbox`。SELL/CLOSE、Partial/Multi Fill、Futures/Margin 和多 Cluster 固定资金归约仍是明确的后续迁移边界，不进入正式 committed execution 结果。
+
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker
 reconciliation and strategy dispatch. Calendar TradingDay changes invoke SettlementService; strategies only see the resulting

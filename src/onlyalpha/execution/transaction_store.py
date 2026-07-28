@@ -406,8 +406,11 @@ class OnlyInMemoryExecutionTransactionStore:
         if len(existing_keys) != 1:
             raise OnlyExecutionTransactionConflict("execution idempotency indexes refer to different transactions")
         existing = self._records[existing_keys.pop()]
-        if existing.prepared_authority_hash != prepared.authority_hash:
-            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another authority hash")
+        if (
+            existing.prepared_authority_hash != prepared.authority_hash
+            or existing.prepared_payload_hash != prepared.payload_hash
+        ):
+            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared payload")
         return existing
 
     @staticmethod
@@ -705,10 +708,11 @@ class OnlySqliteExecutionTransactionStore:
             return None
         transactions = tuple(self._decode_row(row) for row in rows)
         if (
-            len({item.prepared_authority_hash for item in transactions}) != 1
+            len({(item.prepared_authority_hash, item.prepared_payload_hash) for item in transactions}) != 1
             or transactions[0].prepared_authority_hash != prepared.authority_hash
+            or transactions[0].prepared_payload_hash != prepared.payload_hash
         ):
-            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another authority hash")
+            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared payload")
         return transactions[0]
 
     def _mark_projection(

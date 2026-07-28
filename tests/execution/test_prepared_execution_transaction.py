@@ -82,10 +82,7 @@ def test_memory_and_sqlite_share_commit_idempotency_ready_and_outbox_contract(
     prepared = _prepared()
     committed_at = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
     first = transaction_store.commit(prepared, committed_at=committed_at)
-    later = replace(
-        prepared, prepared_at=OnlyTimestamp(prepared.prepared_at.unix_nanos + 1), authority_hash="", payload_hash=""
-    )
-    duplicate = transaction_store.commit(later, committed_at=committed_at)
+    duplicate = transaction_store.commit(prepared, committed_at=committed_at)
     assert first.inserted and not duplicate.inserted and duplicate.transaction == first.transaction
     assert first.transaction.execution_sequence == first.transaction.fact.execution_sequence == 1
     assert transaction_store.pending(prepared.runtime_id, limit=10) == ()

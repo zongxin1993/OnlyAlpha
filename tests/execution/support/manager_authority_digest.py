@@ -128,12 +128,7 @@ def only_test_runtime_authority_digest(env: OnlyIntegrationEnvironment) -> OnlyT
         ),
         deduplication=_stable(vars(processor._deduplicator)),
         sequences=_stable((processor._processing_sequence, vars(processor._sequences), processor._trade_instructions)),
-        journal=_stable(
-            (
-                runtime.committed_execution_query.records(),
-                vars(processor._execution_commits),
-            )
-        ),
+        journal=_stable(runtime.committed_execution_query.records()),
         event_buffer=_stable(vars(processor._events)),
         event_bus=_stable(runtime.event_bus.dispatch_results),
         reconciliation=_stable(runtime.execution_reconciliation_queue.requests()),

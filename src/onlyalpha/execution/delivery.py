@@ -12,7 +12,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
 
 from .event_buffer import OnlyExecutionEventBatch
-from .journal import OnlyExecutionOutboxPort
+from .transaction_store import OnlyExecutionTransactionOutboxPort
 
 
 class OnlyExecutionEventDeliveryMode(StrEnum):
@@ -108,7 +108,7 @@ class OnlyExecutionOutboxPublisher:
 
     def __init__(
         self,
-        outbox: OnlyExecutionOutboxPort,
+        outbox: OnlyExecutionTransactionOutboxPort,
         event_bus: OnlyEventBus,
         now: Callable[[], OnlyTimestamp],
     ) -> None:

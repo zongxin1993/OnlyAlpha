@@ -30,8 +30,8 @@ def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> No
     assert first["schema_version"] == 3
     expected_rows = {
         "orders.parquet": 2,
-        "executions.parquet": 2,
-        "trades.parquet": 1,
+        "executions.parquet": 1,
+        "trades.parquet": 0,
         "positions.parquet": 0,
         "accounts.parquet": 1,
         "equity.parquet": 729,
@@ -49,5 +49,5 @@ def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> No
     )
     assert all(item["slippage"] is not None for item in executions)
     assert all(item["position_side"] == "LONG" for item in executions)
-    assert [item["position_effect"] for item in executions] == ["OPEN", "CLOSE"]
+    assert [item["position_effect"] for item in executions] == ["OPEN"]
     assert all(item["market_profile_id"] and item["market_profile_version"] for item in executions)

@@ -32,7 +32,7 @@ def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) ->
     assert clusters["macd-demo"].net_pnl.amount > 0
     assert clusters["macd-fast-demo"].net_pnl.amount < 0
     assert clusters["macd-demo"].fees.amount != clusters["macd-fast-demo"].fees.amount
-    assert {str(item.instrument_id) for item in result.trades} == {"TESTETF.XSHG"}  # type: ignore[attr-defined]
+    assert result.trades == ()  # type: ignore[attr-defined]
     assert result.runtime_performance.net_pnl.amount == sum(  # type: ignore[attr-defined]
         (item.net_pnl.amount for item in clusters.values()), Decimal(0)
     )

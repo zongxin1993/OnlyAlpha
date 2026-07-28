@@ -1,6 +1,6 @@
 # OnlyAlpha 总体架构
 
-Committed execution 的恢复链为 `Committed Transaction → Projection Applier → Real Manager Projection Target → Manager restore API → Applied Projection Ledger`。Transaction Store 是唯一持久事务权威；Applied Ledger 只是可由 Bootstrap Authority 与 ordered transaction tail 重建的派生应用索引。该链已完成 Recovery Boundary Hardening，但不是 Empty Runtime Full Replay，不发布业务 Event，也不替代 `ExecutionProcessor` 的唯一业务状态编排职责。详细边界由 ADR 0038–0040 和 `execution_projection_targets.md` 规定。
+正式成交主链为 `Prepared Transaction → Transaction Store commit → Runtime sequence gate → ordered Projection Targets → Projection Ready → durable Outbox`。Transaction Store 是唯一 durable Trade authority；Applied Ledger 只是可重建的幂等索引。Coordinator 采用 forward recovery，不提供跨 Manager rollback，也不等于 Empty Runtime Full Recovery。详细边界由 ADR 0038–0041 和 `execution_projection_targets.md` 规定。
 
 Virtual Broker 已从 Core 提取为独立 `onlyalpha-plugin-broker-virtual` distribution。依赖方向固定为插件到
 `onlyalpha.plugin.api`/公共 Domain 与 Broker Port；`src/onlyalpha` 不导入、注册或回退到任何 Virtual Broker 实现。
@@ -36,8 +36,8 @@ Runtime 还独占 `OnlyExecutionProcessor`。它是 Queue 后所有 Broker Updat
 Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量通过后提交缓冲事实。详见
 `docs/execution_processor.md` 与 ADR 0016。
 
-成功 Trade 在 Event commit 后被固化为自包含的 `OnlyCommittedExecutionFact`，并由 Runtime-owned Journal 保存。本地历史链为
-`Broker Update → Local Transaction → Committed Execution → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
+受支持的 Trade 先由纯 Planner 形成 Prepared Transaction，再由 Runtime-owned Transaction Store durable commit；只有顺序 Projection 全部完成并标记 Ready 后，Outbox Event 才可发布。本地历史链为
+`Broker Update → Prepared Transaction → Durable Commit → Projection Ready → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
 Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
 Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史

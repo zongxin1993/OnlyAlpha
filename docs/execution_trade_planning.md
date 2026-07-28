@@ -43,5 +43,4 @@ Risk 增加显式 durable state fact；Legacy `EXECUTION_UPDATE_APPLIED` 是处�
 当前明确不支持 SELL、CLOSE、部分成交、多次成交累计、最低佣金跨 Fill 累计、Short、Hedging、Margin、Futures、FX 与多币种。
 这些输入以稳定 `OnlyTradeExecutionPlanningErrorCode` 拒绝。
 
-本实现尚未接入 `OnlyExecutionProcessor`，也没有实现 Store Commit Coordinator 或真实 Manager Projection Target。生产主链仍使用
-现有 Manager-before-Journal 路径；新旧路径的等价对照只存在于测试。
+本 Planner 已接入 `OnlyExecutionProcessor` 的 Generic T0 Cash、LIMIT BUY OPEN、整单成交产品路径。Prepared Transaction 由 Coordinator 先写入 Transaction Store，再经过 Runtime sequence gate 和 12 个真实 Manager Projection Target；Planner 仍保持纯函数边界，不导入 Runtime、Manager、Store 或 EventBus。

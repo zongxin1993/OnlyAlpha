@@ -498,6 +498,7 @@ class OnlyVirtualBrokerGateway:
                 timestamp,
                 str(order.order_id),
                 str(order.order_id),
+                emitted_sequence=fill_sequence,
                 order_id=order.order_id,
                 fill=fill,
             )
@@ -510,9 +511,10 @@ class OnlyVirtualBrokerGateway:
         timestamp: OnlyTimestamp,
         correlation_id: str,
         causation_id: str,
+        emitted_sequence: int | None = None,
         **payload: object,
     ) -> None:
-        sequence = self._next_sequence()
+        sequence = self._next_sequence() if emitted_sequence is None else emitted_sequence
         update = update_type(
             runtime_id=self.runtime_id,
             gateway_id=self.config.gateway_id,

@@ -119,14 +119,18 @@ class OnlyMacdStrategy(OnlyStrategy):
         instrument_id = self.macd_config.instrument_id
         if cluster_id is None or account_id is None or instrument_id is None:
             raise RuntimeError("MACD Strategy identifiers are unavailable")
+        bar = context.primary_bar
+        if not isinstance(bar, OnlyBar):
+            raise TypeError("MACD order submission requires an OnlyBar primary input")
         request_id = OnlyOrderRequestId(f"{cluster_id}-macd-{self._request_sequence:06d}-{side.value.lower()}")
         result = cast(OnlyOrderServiceView, context.strategy.orders).submit(
             OnlyOrderRequest(
                 request_id,
                 instrument_id,
                 side,
-                OnlyOrderType.MARKET,
+                OnlyOrderType.LIMIT,
                 quantity,
+                price=bar.close,
                 account_id=account_id,
                 offset=OnlyOffset.OPEN if side is OnlyOrderSide.BUY else OnlyOffset.CLOSE,
                 tags=("MACD", signal_type),

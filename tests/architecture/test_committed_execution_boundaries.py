@@ -3,7 +3,12 @@ from dataclasses import fields
 from pathlib import Path
 from typing import get_type_hints
 
-from onlyalpha.execution import OnlyCommittedExecutionFact, OnlyCommittedExecutionQueryPort, OnlyExecutionProcessor
+from onlyalpha.execution import (
+    OnlyCommittedExecutionFact,
+    OnlyExecutionCommitCoordinator,
+    OnlyExecutionProcessor,
+    OnlyExecutionTransactionQueryPort,
+)
 from onlyalpha.runtime.runtime import OnlyRuntimeServices
 
 
@@ -15,7 +20,7 @@ def test_committed_fact_and_runtime_service_have_provider_neutral_runtime_owners
     fact_modules = {getattr(field.type, "__module__", "") for field in fields(OnlyCommittedExecutionFact)}
     assert not any(module.startswith("onlyalpha_plugin_") for module in fact_modules)
     service_hints = get_type_hints(OnlyRuntimeServices)
-    assert service_hints["committed_execution_query"] is OnlyCommittedExecutionQueryPort
+    assert service_hints["committed_execution_query"] is OnlyExecutionTransactionQueryPort
 
 
 def test_result_collector_has_no_broker_query_or_virtual_broker_dependency() -> None:
@@ -31,7 +36,7 @@ def test_result_collector_has_no_broker_query_or_virtual_broker_dependency() -> 
     assert not any(name.startswith("onlyalpha_plugin_broker_virtual") for name in imports)
 
 
-def test_processor_is_the_only_production_committed_journal_writer() -> None:
+def test_coordinator_is_the_only_production_execution_transaction_writer() -> None:
     execution_root = Path("src/onlyalpha/execution")
     writers: list[Path] = []
     for path in execution_root.glob("*.py"):
@@ -39,13 +44,14 @@ def test_processor_is_the_only_production_committed_journal_writer() -> None:
         if any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "append_transaction"
+            and node.func.attr == "commit"
             and isinstance(node.func.value, ast.Attribute)
-            and node.func.value.attr == "_execution_commits"
+            and node.func.value.attr == "_commit_port"
             for node in ast.walk(tree)
         ):
             writers.append(path)
-    assert writers == [Path("src/onlyalpha/execution/processor.py")]
+    assert writers == [Path("src/onlyalpha/execution/commit_coordinator.py")]
+    assert OnlyExecutionCommitCoordinator.__module__ == "onlyalpha.execution.commit_coordinator"
     assert OnlyExecutionProcessor.__module__ == "onlyalpha.execution.processor"
 
 

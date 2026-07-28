@@ -96,7 +96,7 @@ class OnlyBacktestResultCollector:
         order_records = tuple(self._order_record(next_sequence(), item, cluster_strategy) for item in orders)
         trades = tuple(
             sorted(
-                runtime.committed_execution_query.records(),
+                (transaction.fact for transaction in runtime.committed_execution_query.records()),
                 key=lambda item: item.stable_order,
             )
         )

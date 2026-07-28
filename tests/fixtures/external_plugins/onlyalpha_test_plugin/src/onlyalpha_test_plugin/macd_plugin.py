@@ -15,6 +15,7 @@ from onlyalpha.domain.identifiers import (
     OnlyInstrumentId,
     OnlyOrderRequestId,
 )
+from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.factor.base import OnlyTimeSeriesFactor
@@ -260,14 +261,18 @@ class OnlyTestMacdStrategy(OnlyStrategy):
         instrument_id = self.config.instrument_id
         if cluster_id is None or account_id is None or instrument_id is None:
             raise RuntimeError("test MACD identifiers unavailable")
+        bar = context.primary_bar
+        if not isinstance(bar, OnlyBar):
+            raise TypeError("test MACD order submission requires an OnlyBar primary input")
         request_id = OnlyOrderRequestId(f"{cluster_id}-macd-{self._request_sequence:06d}-{side.value.lower()}")
         context.strategy.orders.submit(  # type: ignore[union-attr]
             OnlyOrderRequest(
                 request_id,
                 instrument_id,
                 side,
-                OnlyOrderType.MARKET,
+                OnlyOrderType.LIMIT,
                 quantity,
+                price=bar.close,
                 account_id=account_id,
                 offset=OnlyOffset.OPEN if side is OnlyOrderSide.BUY else OnlyOffset.CLOSE,
                 tags=("MACD", signal_type),

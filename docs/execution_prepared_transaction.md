@@ -29,5 +29,4 @@ Planner 的 deterministic event 顺序按业务语义构造，而不是依赖字
 transaction ID、authority/payload/projection/state hash、event count/order/ID/payload；改变 Mapping 插入顺序不改变结果，只有
 `prepared_at` 改变时 business authority 不变而 envelope payload hash 改变。
 
-Pure Reducers、Generic T0 Transaction Planner、Real Manager Targets 与 Recovery Boundary Hardening 已完成；Commit Coordinator、
-ExecutionProcessor 主链切换和 Runtime Full Recovery 仍未完成。本契约不声称 commit-before-mutation 已进入产品主链。
+Pure Reducers、Generic T0 Transaction Planner、Real Manager Targets、Commit Coordinator 与 Runtime 产品装配已经完成。对 Generic T0 Cash 的 LIMIT BUY OPEN 整单成交，ExecutionProcessor 先规划并 durable commit，再应用 Projection；Transaction Store 是唯一 durable authority。当前不支持 SELL/CLOSE、Partial/Multi Fill、Futures/Margin、多 Cluster 固定资金归约或 Full Runtime Recovery。

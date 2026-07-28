@@ -508,10 +508,11 @@ engine.add_cluster(config)
 result = engine.run()
 ```
 
-成交结果来自 Runtime-owned `OnlyCommittedExecutionJournal`。每条记录只在 ExecutionProcessor 完成本地 Order、Position、
-Allocation、Settlement、Margin、Fee、Account、Ledger、Risk、不变量和 Event commit 后形成；Broker `query_trades()` 仅表示
+正式成交结果来自 Runtime-owned `OnlyExecutionTransactionStore`。当前 Generic T0 Cash 的 LIMIT BUY OPEN 整单成交先 durable commit Prepared Transaction，再按固定顺序应用 Order、Position、Allocation、Settlement、Fee、Account、Ledger、Reservation、Risk 与 Valuation Projection；全部完成并标记 Projection Ready 后才开放 durable Outbox。Broker `query_trades()` 仅表示
 外部查询/对账 Projection。可使用 `python examples/committed_execution_report.py <config>` 查看公开 Result 中的 position
 scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 market profile。
+
+SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会写入正式 Transaction Store，也不会伪装为 committed execution。当前恢复能力是 committed transaction tail 的 forward recovery，不是 Full Runtime Recovery，Outbox 语义是 at-least-once。
 
 ---
 

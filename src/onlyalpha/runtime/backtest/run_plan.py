@@ -165,7 +165,7 @@ class OnlyBacktestRunPlan:
                 )
             )
         cluster_results = tuple(cluster_results_list)
-        trades = runtime.committed_execution_query.records()
+        trades = tuple(transaction.fact for transaction in runtime.committed_execution_query.records())
         reconciliation = OnlyRuntimeLedgerReconciliationService().reconcile(
             account=account,
             account_initial_equity=account_config.initial_cash,

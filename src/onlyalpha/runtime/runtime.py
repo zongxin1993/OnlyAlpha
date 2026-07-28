@@ -69,7 +69,6 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import (
-    OnlyCommittedExecutionQueryPort,
     OnlyExecutionDeliveryDiagnostic,
     OnlyExecutionEventBuffer,
     OnlyExecutionEventDeliveryCoordinator,
@@ -79,6 +78,7 @@ from onlyalpha.execution import (
     OnlyExecutionOutboxPublisher,
     OnlyExecutionProcessor,
     OnlyExecutionSequenceTracker,
+    OnlyExecutionTransactionQueryPort,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
@@ -262,7 +262,7 @@ class OnlyRuntimeServices:
     broker_inbound: OnlyBrokerInboundQueue
     broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
-    committed_execution_query: OnlyCommittedExecutionQueryPort
+    committed_execution_query: OnlyExecutionTransactionQueryPort
     execution_event_buffer: OnlyExecutionEventBuffer
     execution_delivery_coordinator: OnlyExecutionEventDeliveryCoordinator
     execution_outbox_publisher: OnlyExecutionOutboxPublisher
@@ -656,7 +656,7 @@ class OnlyRuntime:
         return self._services.broker_gateway
 
     @property
-    def committed_execution_query(self) -> OnlyCommittedExecutionQueryPort:
+    def committed_execution_query(self) -> OnlyExecutionTransactionQueryPort:
         return self._services.committed_execution_query
 
     @property

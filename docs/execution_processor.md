@@ -1,8 +1,7 @@
 # OnlyExecutionProcessor
 
-ExecutionProcessor 在完整应用 Trade、通过不变量并提交 Event 后，才构造 `OnlyCommittedExecutionFact` 并向
-Runtime-owned `OnlyCommittedExecutionJournal` 追加不可变成交事实。
-重复、拒绝、乱序对账和部分变更失败不会形成成功成交记录；Result 不从 Broker Query 重建本地交易历史。
+ExecutionProcessor 对当前受支持的 Generic T0 Cash、LIMIT BUY OPEN、整单成交先调用纯 Planner，随后交给 Runtime-owned `OnlyExecutionCommitCoordinator`。Coordinator 先将 Prepared Transaction durable commit 到唯一 Transaction Store，再应用有序 Projection；全部成功并标记 Projection Ready 后才返回 durable Outbox intent。
+重复、拒绝、乱序对账、Store 失败和未完成 Projection 不会形成可发布成功事实；Result 不从 Broker Query 重建本地交易历史。
 
 ## 1. 职责与统一入口
 
@@ -31,19 +30,14 @@ Mutation 前校验 Runtime、Gateway、Account、Order Scope、UTC/因果时间�
 ## 3. Trade 固定顺序
 
 ```text
-Validation / Mutation Plan
-→ OrderManager.apply_fill
-→ FeeResolver.resolve_trade → immutable FeeInstruction
-→ PositionManager.apply_trade
-→ PositionAllocationManager.apply_trade
-→ StrategyLedgerManager.apply_trade_accounting
-→ AccountManager.apply_trade_cash_flow
-→ FeeManager.apply
-→ Account/Strategy/Position/Risk Reservation consume
-→ Risk post-trade refresh
+Validation / pure planning
+→ Prepared Execution Transaction
+→ Transaction Store durable commit
+→ exact Runtime predecessor-ready gate
+→ ordered Projection Targets
 → cross-component invariant check
-→ buffered facts commit
-→ committed execution build and journal append
+→ Projection Ready
+→ durable at-least-once Outbox intent
 ```
 
 Position/Allocation/Ledger/Account 只消费 Order 确认后的有效 Fill。Allocation 成本和 realized delta 是 Strategy Ledger 的
@@ -54,8 +48,7 @@ Position Trade、Account Cash Flow、Strategy Ledger 和 append-only FeeManager�
 ## 4. Mutation Plan 与 Bundle
 
 Processor 在提交前恢复 Order/Cluster/Account/Instrument、检查 sequence、Instrument multiplier、Reservation 与 Ledger Scope。
-每个结果保存有序 `OnlyExecutionMutationRecord`，并聚合 Order/Position/Allocation/Ledger/Account/Reservation/Risk
-Mutation。第一版没有数据库事务；逻辑事务边界通过预检、单写入者和失败后强制对账实现。
+每个结果保存有序 `OnlyExecutionMutationRecord`。Store commit 是 durable 原子边界；Manager Projection 不是跨组件数据库事务，失败时保留已应用前缀、记录失败并通过幂等 Applied Ledger forward recovery，绝不声称 rollback。
 
 ## 5. Reservation 协调
 
@@ -94,8 +87,7 @@ Broker Account/Position Update 同样只进入字段级 reconciliation，不覆�
 
 阻断性违反转为 `RECONCILIATION_REQUIRED`。
 
-Event commit 失败时不构造 Fact；Fact 构造或 Journal append 失败时，Processor 不返回 APPLIED，而是记录依赖失败、封锁
-作用域并进入显式 Reconciliation。Broker Update/Fill 只是外部输入，只有这一完整事务成功后才成为本地成交历史。
+Store commit 失败时不应用任何 Projection；commit 后的 Target 或 sequence gate 失败时 Processor 不返回 APPLIED，而是记录失败并进入显式 Reconciliation。Outbox 只有 Projection Ready 后才可见。Broker Update/Fill 只是外部输入，只有这一完整事务成功后才成为可交付的本地成交历史。
 
 ## 9. Event、Audit 与 Snapshot Bundle
 
@@ -113,8 +105,8 @@ processing/audit/reconciliation ID 按 Runtime sequence 生成。Backtest、Virt
 
 ## 11. 已知限制
 
-- 尚无数据库事务、持久 Audit/Reconciliation Queue 和自动恢复 Orchestrator；
+- SQLite Transaction Store 可持久化事务与 Outbox，但尚无持久 Audit/Reconciliation Queue 或完整 Runtime bootstrap orchestrator；
 - Connection Update 第一版只保存 Runtime-owned 状态，尚未建立完整重连状态机；
 - Live/Paper Runtime 资源装配与真实 Broker SDK 尚未实现；
-- 当前仍以单币种账户、Average Cost 和 Linear PnL 为主；HEDGING LONG/SHORT 开平仓已进入正式产品场景，但
-  Futures Daily MTM 仍待补齐。
+- Coordinator 当前仅覆盖 Generic T0 Cash、LIMIT BUY OPEN、整单成交；SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约明确待迁移。
+- 当前恢复是 committed transaction tail 的 forward recovery，不等于 Full Runtime Recovery；Outbox 是 at-least-once，不是 exactly-once。

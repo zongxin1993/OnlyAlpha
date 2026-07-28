@@ -142,6 +142,12 @@ class OnlyPositionManager:
     def execution_event_sequence(self) -> int:
         return self._event_sequence
 
+    def creation_cycle_head(self, key: OnlyPositionKey) -> int:
+        """Return the current identity cycle without allocating a Position."""
+
+        self._require_scope(key.runtime_id)
+        return self._cycles.get(key, 0)
+
     def restore_execution_event_sequence(self, sequence: int) -> None:
         if sequence < self._event_sequence:
             raise ValueError("Position event sequence cannot regress")

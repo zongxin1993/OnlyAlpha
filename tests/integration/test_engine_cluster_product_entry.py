@@ -42,7 +42,7 @@ def test_cli_equivalent_single_cluster_full_backtest(tmp_path: Path) -> None:
     assert result.status == "COMPLETED"
     projection = result.cluster_results[0]
     assert projection["data"]["processed_bar_count"] == 720  # type: ignore[index]
-    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 2}
+    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 1}
     assert result.manifest_path is not None and result.manifest_path.is_file()
 
 
@@ -70,7 +70,7 @@ def test_two_clusters_are_isolated_and_share_registry_resources(tmp_path: Path) 
     assert sum(item.performance.final_equity.amount for item in runtime_result.cluster_results) == (  # type: ignore[attr-defined]
         runtime_result.runtime_performance.final_equity.amount  # type: ignore[attr-defined]
     )
-    assert {str(item.instrument_id) for item in runtime_result.trades} == {"TESTETF.XSHG"}  # type: ignore[attr-defined]
+    assert runtime_result.trades == ()  # type: ignore[attr-defined]
 
 
 def test_multi_cluster_registration_order_does_not_change_result(tmp_path: Path) -> None:
