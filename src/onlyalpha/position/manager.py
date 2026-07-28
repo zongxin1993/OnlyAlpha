@@ -160,7 +160,7 @@ class OnlyPositionManager:
         if cycle < current_cycle:
             raise ValueError("Position replay cycle cannot regress")
         entity = OnlyPosition.restore(snapshot)
-        self._repository.save(snapshot)
+        self._repository.replace_execution_authority(snapshot)
         self._cycles[snapshot.key] = cycle
         self._trade_fingerprints.update(trade_fingerprints)
         if snapshot.status is OnlyPositionStatus.CLOSED:

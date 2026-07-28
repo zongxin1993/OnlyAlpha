@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from onlyalpha.account.enums import (
@@ -381,28 +381,34 @@ class OnlyAccountManager:
         state = self._require(snapshot.account_id)
         if state.config.gateway_id != snapshot.gateway_id or state.config.base_currency != snapshot.base_currency:
             raise ValueError("Account replay scope differs from registered Account")
-        state.cash_balance = snapshot.cash.cash_balance
-        state.frozen_cash = snapshot.cash.frozen_cash
-        state.unsettled_cash = snapshot.cash.unsettled_cash
-        state.position_market_value = snapshot.position_market_value
-        state.realized_pnl = snapshot.realized_pnl
-        state.unrealized_pnl = snapshot.unrealized_pnl
-        state.fees = snapshot.fees
-        state.status = snapshot.status
-        state.created_at = snapshot.created_at
-        state.updated_at = snapshot.updated_at
-        state.valuation_time = snapshot.valuation_time
-        state.version = snapshot.version
-        state.last_external_sequence = snapshot.last_external_sequence
-        state.quality_flags = snapshot.quality_flags
-        state.reserved_margin = Decimal(0) if snapshot.reserved_margin is None else snapshot.reserved_margin.amount
-        state.occupied_margin = Decimal(0) if snapshot.occupied_margin is None else snapshot.occupied_margin.amount
-        state.released_margin = Decimal(0) if snapshot.released_margin is None else snapshot.released_margin.amount
-        self._trade_ids.update(trade_ids)
-        restored = self._snapshot(state)
+        candidate = replace(
+            state,
+            cash_balance=snapshot.cash.cash_balance,
+            frozen_cash=snapshot.cash.frozen_cash,
+            unsettled_cash=snapshot.cash.unsettled_cash,
+            position_market_value=snapshot.position_market_value,
+            realized_pnl=snapshot.realized_pnl,
+            unrealized_pnl=snapshot.unrealized_pnl,
+            fees=snapshot.fees,
+            status=snapshot.status,
+            created_at=snapshot.created_at,
+            updated_at=snapshot.updated_at,
+            valuation_time=snapshot.valuation_time,
+            version=snapshot.version,
+            last_external_sequence=snapshot.last_external_sequence,
+            quality_flags=snapshot.quality_flags,
+            reserved_margin=Decimal(0) if snapshot.reserved_margin is None else snapshot.reserved_margin.amount,
+            occupied_margin=Decimal(0) if snapshot.occupied_margin is None else snapshot.occupied_margin.amount,
+            released_margin=Decimal(0) if snapshot.released_margin is None else snapshot.released_margin.amount,
+        )
+        restored = self._snapshot(candidate)
         if restored != snapshot:
             raise ValueError("restored Account does not reproduce committed Snapshot")
-        self._repository.save(restored)
+        installed_trade_ids = set(self._trade_ids)
+        installed_trade_ids.update(trade_ids)
+        self._repository.replace_execution_authority(restored)
+        self._accounts[snapshot.account_id] = candidate
+        self._trade_ids = installed_trade_ids
 
     def _snapshot(self, state: OnlyAccount) -> OnlyAccountSnapshot:
         currency = state.config.base_currency

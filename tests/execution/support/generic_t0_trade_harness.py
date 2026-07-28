@@ -307,7 +307,7 @@ def only_test_legacy_projection_states(
         settlement_instruction.cash_trade_available_on,
         settlement_instruction.cash_withdrawable_on,
         settlement_instruction.legal_settlement_on,
-        1,
+        settlement_pending.version,
         runtime.settlement_manager.sequence_head,
     )
     settlement_records = tuple(

@@ -1,7 +1,7 @@
 """Unified fee domain, schedules, resolution and reconciliation."""
 
 from onlyalpha.fee.engine import OnlyFeeEngine, OnlyFeeEstimate
-from onlyalpha.fee.manager import OnlyFeeManager, OnlyFeeRecord
+from onlyalpha.fee.manager import OnlyFeeExecutionAuthoritySnapshot, OnlyFeeManager, OnlyFeeRecord
 from onlyalpha.fee.models import (
     OnlyBrokerFeeReportingMode,
     OnlyFeeAdjustmentInstruction,
@@ -41,6 +41,7 @@ __all__ = [
     "OnlyFeeDifferenceReason",
     "OnlyFeeEngine",
     "OnlyFeeEstimate",
+    "OnlyFeeExecutionAuthoritySnapshot",
     "OnlyFeeInstruction",
     "OnlyFeeManager",
     "OnlyFeeRateRule",

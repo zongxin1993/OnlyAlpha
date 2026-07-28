@@ -116,8 +116,16 @@ def only_test_runtime_authority_digest(env: OnlyIntegrationEnvironment) -> OnlyT
                 risk.reservations._reservation_id_by_order_id,
             )
         ),
-        settlement=_stable((settlement._pending, settlement.records)),
-        fees=_stable((fees.records, fees._instruction_keys)),
+        settlement=_stable((settlement._pending, settlement.records, settlement.sequence_head)),
+        fees=_stable(
+            (
+                fees.records,
+                fees._instruction_keys,
+                fees._instructions_by_key,
+                fees._instrument_by_key,
+                fees.sequence_head,
+            )
+        ),
         deduplication=_stable(vars(processor._deduplicator)),
         sequences=_stable((processor._processing_sequence, vars(processor._sequences), processor._trade_instructions)),
         journal=_stable(

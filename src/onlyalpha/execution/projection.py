@@ -768,6 +768,7 @@ class _OnlyReservationState(Protocol):
 class OnlyProjectionApplyStatus(StrEnum):
     APPLIED = "APPLIED"
     IDEMPOTENT = "IDEMPOTENT"
+    RECOVERED = "RECOVERED"
     VERSION_CONFLICT = "VERSION_CONFLICT"
     STATE_CONFLICT = "STATE_CONFLICT"
     PAYLOAD_CONFLICT = "PAYLOAD_CONFLICT"

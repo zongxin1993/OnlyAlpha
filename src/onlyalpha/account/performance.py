@@ -122,21 +122,27 @@ class OnlyAccountPerformanceProjector:
 
     def restore_execution_points(self, points: tuple[OnlyAccountEquityPoint, ...]) -> None:
         self.validate_execution_points(points)
-        expected = self._sequence + 1
         for point in points:
+            if point.sequence <= self._sequence:
+                continue
             self._points.setdefault(point.account_id, []).append(point)
             if point.external_cash_flow.amount != 0:
                 self._external_cash_flow[point.account_id] = point.external_cash_flow.amount
             self._sequence = point.sequence
-            expected += 1
 
     def validate_execution_points(self, points: tuple[OnlyAccountEquityPoint, ...]) -> None:
-        expected = self._sequence + 1
-        if any(
-            point.runtime_id != self.runtime_id or point.sequence != expected + index
-            for index, point in enumerate(points)
-        ):
-            raise ValueError("Account equity replay points are out of scope or sequence")
+        installed = {point.sequence: point for values in self._points.values() for point in values}
+        next_sequence = self._sequence + 1
+        for point in points:
+            if point.runtime_id != self.runtime_id:
+                raise ValueError("Account equity replay points are out of scope or sequence")
+            if point.sequence <= self._sequence:
+                if installed.get(point.sequence) != point:
+                    raise ValueError("Account equity replay point conflicts with installed authority")
+                continue
+            if point.sequence != next_sequence:
+                raise ValueError("Account equity replay points are out of scope or sequence")
+            next_sequence += 1
 
     def summarize(self, account_id: OnlyAccountId) -> OnlyRuntimePortfolioPerformanceSummary:
         points = self.timeline(account_id)

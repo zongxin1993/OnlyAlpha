@@ -1,6 +1,6 @@
 # OnlyAlpha 总体架构
 
-Committed execution 的恢复链为 `Committed Transaction → Projection Applier → Real Manager Projection Target → Manager restore API → Applied Projection Ledger`。该链只恢复 Runtime-owned authority，不发布业务 Event，也不替代 `ExecutionProcessor` 的唯一业务状态编排职责。详细边界由 ADR 0038 和 `execution_projection_targets.md` 规定。
+Committed execution 的恢复链为 `Committed Transaction → Projection Applier → Real Manager Projection Target → Manager restore API → Applied Projection Ledger`。Transaction Store 是唯一持久事务权威；Applied Ledger 只是可由 Bootstrap Authority 与 ordered transaction tail 重建的派生应用索引。该链已完成 Recovery Boundary Hardening，但不是 Empty Runtime Full Replay，不发布业务 Event，也不替代 `ExecutionProcessor` 的唯一业务状态编排职责。详细边界由 ADR 0038–0040 和 `execution_projection_targets.md` 规定。
 
 Virtual Broker 已从 Core 提取为独立 `onlyalpha-plugin-broker-virtual` distribution。依赖方向固定为插件到
 `onlyalpha.plugin.api`/公共 Domain 与 Broker Port；`src/onlyalpha` 不导入、注册或回退到任何 Virtual Broker 实现。

@@ -10,7 +10,7 @@ from onlyalpha.cache.historical.models import (
 )
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.data.models import OnlyBarUpdate, OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from .historical import load_bars
@@ -49,7 +49,7 @@ class OnlyMiniQmtHistoricalDataProvider:
             batch_size=self._batch_size,
         )
         updates = load_bars(self._xtdata, self._create_request, source_request)
-        bars = tuple(item.payload.bar for item in updates)
+        bars = tuple(item.payload.bar for item in updates if isinstance(item.payload, OnlyBarUpdate))
         coverage = (
             (
                 OnlyTimeRange(

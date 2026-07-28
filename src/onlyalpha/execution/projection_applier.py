@@ -27,6 +27,7 @@ class OnlyExecutionProjectionBatchResult:
     execution_sequence: int
     applied: tuple[OnlyProjectionApplyResult, ...]
     idempotent: tuple[OnlyProjectionApplyResult, ...]
+    recovered: tuple[OnlyProjectionApplyResult, ...]
     failed_projection: OnlyExecutionProjection | None
     status: OnlyExecutionProjectionBatchStatus
     error: str | None
@@ -50,6 +51,7 @@ class OnlyExecutionProjectionApplier:
             raise ValueError("transaction projection sequence is not contiguous")
         applied: list[OnlyProjectionApplyResult] = []
         idempotent: list[OnlyProjectionApplyResult] = []
+        recovered: list[OnlyProjectionApplyResult] = []
         for projection in ordered:
             identity = projection.identity
             target = self._targets.get(identity.component)
@@ -58,6 +60,7 @@ class OnlyExecutionProjectionApplier:
                     transaction.execution_sequence,
                     tuple(applied),
                     tuple(idempotent),
+                    tuple(recovered),
                     projection,
                     OnlyExecutionProjectionBatchStatus.FAILED,
                     f"missing projection target for {identity.component.value}",
@@ -76,6 +79,7 @@ class OnlyExecutionProjectionApplier:
                     transaction.execution_sequence,
                     tuple(applied),
                     tuple(idempotent),
+                    tuple(recovered),
                     projection,
                     OnlyExecutionProjectionBatchStatus.FAILED,
                     f"{type(exc).__name__}: {exc}",
@@ -86,10 +90,14 @@ class OnlyExecutionProjectionApplier:
             if result.status is OnlyProjectionApplyStatus.IDEMPOTENT:
                 idempotent.append(result)
                 continue
+            if result.status is OnlyProjectionApplyStatus.RECOVERED:
+                recovered.append(result)
+                continue
             return OnlyExecutionProjectionBatchResult(
                 transaction.execution_sequence,
                 tuple(applied),
                 tuple(idempotent),
+                tuple(recovered),
                 projection,
                 OnlyExecutionProjectionBatchStatus.FAILED,
                 result.status.value,
@@ -98,6 +106,7 @@ class OnlyExecutionProjectionApplier:
             transaction.execution_sequence,
             tuple(applied),
             tuple(idempotent),
+            tuple(recovered),
             None,
             OnlyExecutionProjectionBatchStatus.COMPLETED,
             None,

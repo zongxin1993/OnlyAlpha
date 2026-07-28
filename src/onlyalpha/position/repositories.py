@@ -10,6 +10,11 @@ class OnlyInMemoryPositionRepository:
     def save(self, snapshot: OnlyPositionSnapshot) -> None:
         self._items[snapshot.position_id] = snapshot
 
+    def replace_execution_authority(self, snapshot: OnlyPositionSnapshot) -> None:
+        items = dict(self._items)
+        items[snapshot.position_id] = snapshot
+        self._items = items
+
     def snapshots(self) -> tuple[OnlyPositionSnapshot, ...]:
         return tuple(sorted(self._items.values(), key=lambda item: str(item.position_id)))
 
@@ -20,6 +25,11 @@ class OnlyInMemoryPositionAllocationRepository:
 
     def save(self, snapshot: OnlyPositionAllocationSnapshot) -> None:
         self._items[snapshot.allocation_id] = snapshot
+
+    def replace_execution_authority(self, snapshot: OnlyPositionAllocationSnapshot) -> None:
+        items = dict(self._items)
+        items[snapshot.allocation_id] = snapshot
+        self._items = items
 
     def snapshots(self) -> tuple[OnlyPositionAllocationSnapshot, ...]:
         return tuple(sorted(self._items.values(), key=lambda item: str(item.allocation_id)))

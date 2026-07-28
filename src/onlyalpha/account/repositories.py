@@ -11,6 +11,8 @@ class OnlyAccountRepository(Protocol):
 
     def get(self, account_id: OnlyAccountId) -> OnlyAccountSnapshot | None: ...
 
+    def replace_execution_authority(self, snapshot: OnlyAccountSnapshot) -> None: ...
+
 
 class OnlyInMemoryAccountRepository:
     def __init__(self) -> None:
@@ -21,3 +23,8 @@ class OnlyInMemoryAccountRepository:
 
     def get(self, account_id: OnlyAccountId) -> OnlyAccountSnapshot | None:
         return self._snapshots.get(account_id)
+
+    def replace_execution_authority(self, snapshot: OnlyAccountSnapshot) -> None:
+        snapshots = dict(self._snapshots)
+        snapshots[snapshot.account_id] = snapshot
+        self._snapshots = snapshots

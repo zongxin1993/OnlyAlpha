@@ -380,19 +380,25 @@ class OnlyStrategyLedgerManager:
 
     def restore_execution_equity_points(self, points: tuple[OnlyStrategyLedgerEquityPoint, ...]) -> None:
         self.validate_execution_equity_points(points)
-        expected = self._equity_sequence + 1
         for point in points:
+            if point.sequence <= self._equity_sequence:
+                continue
             self._equity_timelines.setdefault(point.key, []).append(point)
             self._equity_sequence = point.sequence
-            expected += 1
 
     def validate_execution_equity_points(self, points: tuple[OnlyStrategyLedgerEquityPoint, ...]) -> None:
-        expected = self._equity_sequence + 1
-        if any(
-            point.key.runtime_id != self.runtime_id or point.sequence != expected + index
-            for index, point in enumerate(points)
-        ):
-            raise ValueError("Strategy Ledger equity replay points are out of scope or sequence")
+        installed = {point.sequence: point for values in self._equity_timelines.values() for point in values}
+        next_sequence = self._equity_sequence + 1
+        for point in points:
+            if point.key.runtime_id != self.runtime_id:
+                raise ValueError("Strategy Ledger equity replay points are out of scope or sequence")
+            if point.sequence <= self._equity_sequence:
+                if installed.get(point.sequence) != point:
+                    raise ValueError("Strategy Ledger equity replay point conflicts with installed authority")
+                continue
+            if point.sequence != next_sequence:
+                raise ValueError("Strategy Ledger equity replay points are out of scope or sequence")
+            next_sequence += 1
 
     def restore_execution_authority(
         self,
@@ -401,9 +407,12 @@ class OnlyStrategyLedgerManager:
         trade_fingerprints: tuple[str, ...],
         valuation_lines: tuple[OnlyStrategyValuationLine, ...],
     ) -> None:
-        ledger = self._require_entity(snapshot.key)
-        if ledger.ledger_id != snapshot.ledger_id:
+        current = self._require_entity(snapshot.key)
+        if current.ledger_id != snapshot.ledger_id:
             raise ValueError("Strategy Ledger replay identity mismatch")
+        ledger = OnlyStrategyLedger(
+            snapshot.ledger_id, snapshot.key, snapshot.capital.initial_capital, snapshot.created_at
+        )
         ledger.status = snapshot.status
         ledger.initial_capital = snapshot.capital.initial_capital
         ledger.external_cash_flow = snapshot.capital.external_cash_flow
@@ -435,15 +444,45 @@ class OnlyStrategyLedgerManager:
         ledger.day_start_equity = snapshot.equity.equity - snapshot.equity.daily_pnl
         ledger._valuation_lines = {item.instrument_id: item for item in valuation_lines}
         ledger._entry_sequence = max((item.sequence for item in snapshot.cash_entries), default=0)
-        self._scope_index[
+        scope_index = dict(self._scope_index)
+        trade_index = set(self._trade_fingerprints)
+        fee_index = set(self._fee_ids)
+        cash_reserved = dict(self._cash_reserved)
+        scope_index[
             (snapshot.key.runtime_id, snapshot.key.account_id, snapshot.key.cluster_id, snapshot.key.base_currency)
         ] = snapshot.key
+        trade_index.update(trade_fingerprints)
+        fee_index.update(item.entry_id for item in snapshot.fee_entries)
+        cash_reserved[snapshot.key] = snapshot.cash.cash_reserved
+        self._repository.replace_execution_authority(snapshot)
+        self._ledgers[snapshot.key] = ledger
+        self._scope_index = scope_index
+        self._trade_fingerprints = trade_index
+        self._fee_ids = fee_index
+        self._cash_reserved = cash_reserved
+
+    def restore_execution_indexes(
+        self,
+        snapshot: OnlyStrategyLedgerSnapshot,
+        *,
+        trade_fingerprints: tuple[str, ...],
+        valuation_lines: tuple[OnlyStrategyValuationLine, ...],
+    ) -> None:
+        """Repair replay indexes without reinstalling economic Ledger state."""
+
+        ledger = self._require_entity(snapshot.key)
+        if ledger.ledger_id != snapshot.ledger_id:
+            raise ValueError("Strategy Ledger replay identity mismatch")
+        scope = (snapshot.key.runtime_id, snapshot.key.account_id, snapshot.key.cluster_id, snapshot.key.base_currency)
+        existing_scope = self._scope_index.get(scope)
+        if existing_scope not in {None, snapshot.key}:
+            raise ValueError("Strategy Ledger replay scope index conflicts with installed authority")
+        self._scope_index[scope] = snapshot.key
         self._trade_fingerprints.update(trade_fingerprints)
         self._fee_ids.update(item.entry_id for item in snapshot.fee_entries)
         self._cash_reserved[snapshot.key] = snapshot.cash.cash_reserved
-        self._repository.save(snapshot)
-        self._repository.save_cash_entries(snapshot.cash_entries)
-        self._repository.save_fee_entries(snapshot.fee_entries)
+        ledger._valuation_lines = {item.instrument_id: item for item in valuation_lines}
+        ledger._entry_sequence = max((item.sequence for item in snapshot.cash_entries), default=0)
 
     def _snapshot(self, ledger: OnlyStrategyLedger) -> OnlyStrategyLedgerSnapshot:
         reservations = self._reservations[ledger.key]

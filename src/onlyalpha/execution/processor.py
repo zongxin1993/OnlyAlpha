@@ -675,7 +675,10 @@ class OnlyExecutionProcessor:
             if self._trading_day is not None
             else OnlyTradingDay(trade.ts_event.to_datetime().date())
         )
-        self._settlement_manager.register(instruction.settlement_instruction)
+        self._settlement_manager.register(
+            instruction.settlement_instruction,
+            cash_currency=fee_instruction.fee_breakdown.total.currency,
+        )
         settlement_records = self._settlement_manager.advance(trading_day)
         settlement_record = next(
             (item for item in settlement_records if item.source_trade_id == str(trade.trade_id)),

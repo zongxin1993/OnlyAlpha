@@ -181,7 +181,7 @@ class OnlyPositionAllocationManager:
         state = _OnlyAllocationState.restore(snapshot)
         if state.snapshot() != snapshot:
             raise ValueError("restored Allocation does not reproduce committed Snapshot")
-        self._repository.save(snapshot)
+        self._repository.replace_execution_authority(snapshot)
         self._cycles[snapshot.key] = cycle
         self._trade_fingerprints.update(trade_fingerprints)
         if snapshot.total_quantity.value == 0:

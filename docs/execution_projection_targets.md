@@ -16,15 +16,15 @@ Target Registry 由 `only_create_generic_t0_execution_projection_targets()` 一�
 
 ## Apply contract
 
-`OnlyExecutionProjectionApplyContext` 提供 transaction ID、正 execution sequence、完整 `OnlyCommittedExecutionFact` 和 projection。Target 先检查 Component 和 Applied Ledger，再检查 Manager 当前 version/state hash，最后一次安装 After Authority 并记录 ledger。
+`OnlyExecutionProjectionApplyContext` 提供 transaction ID、正 execution sequence、完整 `OnlyCommittedExecutionFact` 和 projection。Target 先检查 Component 和 Applied Ledger，再通过 Manager authority query 与正式 converter 读取真实 Current Authority。Current 与 Expected version/hash 一致时安装 Result；Current 已与 Result 一致而 ledger 缺失时只修复 Manager-owned replay index 并重建 ledger record。
 
-Applied Ledger 的重复键只有完全相同记录才是 `IDEMPOTENT`；相同 sequence/component 的不同 transaction、entity 或 payload 是 `PAYLOAD_CONFLICT`。Manager version 或 state 不符合 precondition 时分别返回 `VERSION_CONFLICT`、`STATE_CONFLICT`，且不得修改 Manager。
+Applied Ledger 的重复键只有完全相同记录才是 `IDEMPOTENT`；相同 sequence/component 的不同 transaction、entity 或 payload 是 `PAYLOAD_CONFLICT`。Expected path 成功是 `APPLIED`，Result authority + missing ledger 是 `RECOVERED`。Current version 同时不等于 Expected/Result 是 `VERSION_CONFLICT`；可接受 version 下 hash、scope、record、sequence 或 replay index 冲突是 `STATE_CONFLICT`。
 
 ## Restored authority
 
 - Order：实体、查询索引、open/creation index 与 external/trade/venue dedup identity。
 - Position/Allocation：active/closed repository、cycle 与统一 trade fingerprints。
-- Settlement/Fee：instruction idempotency、records 与显式 global sequence head。
+- Settlement/Fee：原始 instruction、per-instruction version、release flags、instrument/scope、records 与显式 global sequence head；Target 不再用 `projection.after` 冒充 current。
 - Account/Ledger：完整经济 snapshot、repository/index、trade/fee/cash identity；Reservation 由独立 Target 恢复。
 - Risk：Reservation identity/order index/sequence 与 Cluster aggregate snapshot。
 - Valuation：Runtime、Account、Ledger valuation versions，Account performance timeline，Strategy equity timeline 与 sequence。
@@ -33,10 +33,10 @@ Projection schema v4 将 replay-only metadata 纳入 canonical payload hash。Po
 
 ## Failure and side effects
 
-Target 不发布业务 Event，不写 durable outbox、transaction store 或 committed journal，不触发 audit/reconciliation/broker queue，也不调用普通 Manager mutation API。Applied Projection Ledger 是唯一新增副作用。
+Target 不发布业务 Event，不写 durable outbox、transaction store 或 committed journal，不触发 audit/reconciliation/broker queue，也不调用普通 Manager mutation API。Applied Projection Ledger 是可丢弃、可重建的 Runtime 应用索引，不是第二持久业务真相；唯一 durable transaction authority 是 `OnlyExecutionTransactionStore`。
 
-Batch 采用 forward recovery：Component N 失败时，1..N-1 保持 APPLIED；重试时它们返回 IDEMPOTENT，然后继续 N..end。Target 不执行跨 Manager 回滚，也不标记 projection-ready；这些属于后续 commit coordinator。
+Batch 采用 forward recovery：Component N 失败时，1..N-1 保持 APPLIED；有 record 的 Component 重试返回 IDEMPOTENT，Manager 已安装但 record 缺失的 Component 返回 RECOVERED。单 Target 使用预验证、copy-on-write install plan、Repository authority replace 和不可失败 container swap 收口原子边界；不执行跨 Manager 回滚，也不标记 projection-ready。
 
 ## Current scope
 
-已完成 Generic T0 Cash 的 BUY OPEN、新建/增仓、零/非零费用和超额 Reservation release。当前 PR3 没有切换正式 ExecutionProcessor，也没有实现持久化 Applied Ledger 或 PR4 coordinator；`OnlyInMemoryAppliedProjectionLedger` 是正式内存实现和持久化实现的 Protocol 基准。
+Pure Planner、Real Manager Targets 和 Recovery Boundary Hardening 已完成。当前没有切换正式 ExecutionProcessor，没有实现持久化 Applied Ledger、Commit Coordinator、Bootstrap Snapshot 或 Runtime Full Recovery。当前能力是“正确 Bootstrap/Before Authority + ordered committed transaction tail → Runtime Authority Recovery”，不是 Empty Runtime Full Replay。

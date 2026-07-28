@@ -32,3 +32,14 @@ class OnlyInMemoryStrategyLedgerRepository:
 
     def save_event(self, event: OnlyStrategyLedgerEvent) -> None:
         self.events.append(event)
+
+    def replace_execution_authority(self, snapshot: OnlyStrategyLedgerSnapshot) -> None:
+        snapshots = dict(self.snapshots)
+        cash_entries = dict(self.cash_entries)
+        fee_entries = dict(self.fee_entries)
+        snapshots[snapshot.key] = snapshot
+        cash_entries.update((str(item.entry_id), item) for item in snapshot.cash_entries)
+        fee_entries.update((str(item.entry_id), item) for item in snapshot.fee_entries)
+        self.snapshots = snapshots
+        self.cash_entries = cash_entries
+        self.fee_entries = fee_entries

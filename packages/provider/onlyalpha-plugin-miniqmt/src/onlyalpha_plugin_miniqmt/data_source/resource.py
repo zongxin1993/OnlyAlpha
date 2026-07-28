@@ -11,11 +11,15 @@ from onlyalpha.data.enums import (
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyMarketDataGatewayId,
+    OnlyMarketDataSourceId,
     OnlyMarketDataUpdateId,
 )
 from onlyalpha.data.models import (
     OnlyBarUpdate,
+    OnlyHistoricalBarRequest,
     OnlyHistoricalDataStream,
+    OnlyHistoricalQuoteRequest,
+    OnlyHistoricalTradeRequest,
     OnlyMarketDataConnectionResult,
     OnlyMarketDataConnectionSnapshot,
     OnlyMarketDataInboundUpdate,
@@ -23,9 +27,12 @@ from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionResult,
     OnlyMarketDataUnsubscriptionRequest,
 )
+from onlyalpha.domain.calendar import OnlyTradingCalendar
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId
+from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
-from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
+from onlyalpha.plugin.lifecycle import OnlyPluginHealth, OnlyPluginLifecycleState
 
 from ..config import OnlyMiniQmtConfig
 from ..descriptor import DATA_DESCRIPTOR
@@ -47,15 +54,15 @@ class OnlyMiniQmtDataSource:
         return str(self.source_id)
 
     @property
-    def source_id(self):
+    def source_id(self) -> OnlyMarketDataSourceId:
         return self._request.source_id
 
     @property
-    def state(self):
+    def state(self) -> OnlyPluginLifecycleState:
         return self._life.state
 
     @property
-    def capabilities(self):
+    def capabilities(self) -> frozenset[OnlyMarketDataCapability]:
         return frozenset(
             {
                 OnlyMarketDataCapability.CONNECT,
@@ -110,10 +117,10 @@ class OnlyMiniQmtDataSource:
 
     close = stop
 
-    def health(self):
+    def health(self) -> OnlyPluginHealth:
         return self._life.health()
 
-    def load_bars(self, request):
+    def load_bars(self, request: OnlyHistoricalBarRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         from .historical import load_bars
 
         if self._request.historical_cache_service is not None:
@@ -122,7 +129,7 @@ class OnlyMiniQmtDataSource:
             provider = OnlyMiniQmtHistoricalDataProvider(
                 self._xtdata, self._request, request.data_version, request.batch_size
             )
-            updates = []
+            updates: list[OnlyMarketDataInboundUpdate] = []
             sequence = 0
             for bar_type in sorted(request.bar_types, key=str):
                 cache_request = OnlyHistoricalDataRequest(
@@ -158,10 +165,10 @@ class OnlyMiniQmtDataSource:
 
         return OnlyHistoricalDataStream(load_bars(self._xtdata, self._request, request), request.batch_size)
 
-    def load_quotes(self, request):
+    def load_quotes(self, request: OnlyHistoricalQuoteRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         return OnlyHistoricalDataStream((), request.batch_size)
 
-    def load_trades(self, request):
+    def load_trades(self, request: OnlyHistoricalTradeRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         return OnlyHistoricalDataStream((), request.batch_size)
 
     def subscribe(self, request: OnlyMarketDataSubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
@@ -199,30 +206,36 @@ class OnlyMiniQmtDataSource:
         status = OnlyMarketDataRequestStatus.ACCEPTED if sequences else OnlyMarketDataRequestStatus.REJECTED
         return OnlyMarketDataSubscriptionResult(status, request.subscription_id if sequences else None)
 
-    def instrument(self, instrument_id):
+    def instrument(self, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None:
         from .reference import instrument
 
         return instrument(self._xtdata, instrument_id)
 
-    def calendar(self, calendar_id):
+    def calendar(self, calendar_id: OnlyCalendarId) -> OnlyTradingCalendar | None:
         from .reference import calendar
 
         return calendar(self._xtdata, calendar_id)
 
-    def market_rule(self, instrument_id):
+    def market_rule(self, instrument_id: OnlyInstrumentId) -> None:
         return None
 
-    def _subscribe(self, instrument_id, period: str) -> int:
+    def _subscribe(self, instrument_id: OnlyInstrumentId, period: str) -> int:
         from ..mapping.exchange import to_xt_symbol
 
         symbol = to_xt_symbol(instrument_id)
-        return self._xtdata.subscribe_quote(
-            symbol,
-            period=period,
-            callback=lambda raw: self._normalizer.publish(raw, instrument_id, period),
+        return int(
+            self._xtdata.subscribe_quote(
+                symbol,
+                period=period,
+                callback=lambda raw: self._normalizer.publish(raw, instrument_id, period),
+            )
         )
 
-    def _connection_result(self, status, state):
+    def _connection_result(
+        self,
+        status: OnlyMarketDataRequestStatus,
+        state: OnlyMarketDataConnectionState,
+    ) -> OnlyMarketDataConnectionResult:
         return OnlyMarketDataConnectionResult(
             status,
             OnlyMarketDataConnectionSnapshot(OnlyMarketDataGatewayId(str(self.source_id)), state),

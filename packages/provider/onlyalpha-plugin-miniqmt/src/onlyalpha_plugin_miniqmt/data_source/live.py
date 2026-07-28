@@ -1,6 +1,6 @@
 """Normalize XtQuant live callbacks before entering the Runtime queue."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from onlyalpha.data.enums import OnlyMarketDataType
@@ -88,7 +88,13 @@ class OnlyMiniQmtLiveNormalizer:
         )
         return self._envelope(instrument_id, event, OnlyMarketDataType.BAR, OnlyBarUpdate(bar))
 
-    def _envelope(self, instrument_id, event, data_type, payload):
+    def _envelope(
+        self,
+        instrument_id: OnlyInstrumentId,
+        event: datetime,
+        data_type: OnlyMarketDataType,
+        payload: OnlyBarUpdate | OnlyQuoteTickUpdate,
+    ) -> OnlyMarketDataInboundUpdate:
         self._sequence += 1
         stamp = OnlyTimestamp.from_datetime(event)
         return OnlyMarketDataInboundUpdate(

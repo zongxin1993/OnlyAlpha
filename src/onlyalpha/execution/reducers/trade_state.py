@@ -354,7 +354,7 @@ class OnlySettlementTradeReducer:
             instruction.cash_trade_available_on,
             instruction.cash_withdrawable_on,
             instruction.legal_settlement_on,
-            1 if before is None else before.version + 1,
+            (1 if before is None else before.version) + int(flags_before != flags_after),
             record_sequence + int(flags_before != flags_after),
         )
         records: tuple[OnlySettlementRecordReplay, ...] = ()

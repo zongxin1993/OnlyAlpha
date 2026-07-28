@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
 
 
@@ -29,13 +30,30 @@ class OnlySettlementRecord:
     status: str = "BOOKED"
 
 
+@dataclass(frozen=True, slots=True)
+class OnlySettlementExecutionAuthoritySnapshot:
+    """Manager-owned Settlement authority for one instruction."""
+
+    instruction: OnlySettlementRuntimeInstruction
+    cash_currency: OnlyCurrency | None
+    asset_released: bool
+    trade_cash_released: bool
+    withdrawable_cash_released: bool
+    legal_settled: bool
+    version: int
+    records: tuple[OnlySettlementRecord, ...]
+    record_sequence_head: int
+
+
 @dataclass(slots=True)
 class _OnlyPendingSettlement:
     instruction: OnlySettlementRuntimeInstruction
+    cash_currency: OnlyCurrency | None = None
     asset_released: bool = False
     trade_cash_released: bool = False
     withdrawable_cash_released: bool = False
     legal_settled: bool = False
+    version: int = 1
 
 
 class OnlySettlementManager:
@@ -57,13 +75,38 @@ class OnlySettlementManager:
     def has_instruction(self, instruction_id: str) -> bool:
         return instruction_id in self._pending
 
-    def register(self, instruction: OnlySettlementRuntimeInstruction) -> None:
+    def get_execution_authority(self, instruction_id: str) -> OnlySettlementExecutionAuthoritySnapshot | None:
+        pending = self._pending.get(instruction_id)
+        if pending is None:
+            return None
+        return OnlySettlementExecutionAuthoritySnapshot(
+            pending.instruction,
+            pending.cash_currency,
+            pending.asset_released,
+            pending.trade_cash_released,
+            pending.withdrawable_cash_released,
+            pending.legal_settled,
+            pending.version,
+            tuple(item for item in self._records if item.instruction_id == instruction_id),
+            self._sequence,
+        )
+
+    def register(
+        self,
+        instruction: OnlySettlementRuntimeInstruction,
+        *,
+        cash_currency: OnlyCurrency | None = None,
+    ) -> None:
         current = self._pending.get(instruction.instruction_id)
         if current is not None:
-            if current.instruction != instruction:
+            if current.instruction != instruction or (
+                cash_currency is not None and current.cash_currency not in {None, cash_currency}
+            ):
                 raise ValueError("settlement instruction id conflicts with existing instruction")
+            if current.cash_currency is None:
+                current.cash_currency = cash_currency
             return
-        self._pending[instruction.instruction_id] = _OnlyPendingSettlement(instruction)
+        self._pending[instruction.instruction_id] = _OnlyPendingSettlement(instruction, cash_currency)
 
     def advance(self, trading_day: OnlyTradingDay) -> tuple[OnlySettlementRecord, ...]:
         emitted: list[OnlySettlementRecord] = []
@@ -88,6 +131,7 @@ class OnlySettlementManager:
             )
             if before == after:
                 continue
+            state.version += 1
             record = OnlySettlementRecord(
                 item.instruction_id,
                 item.instrument_id,
@@ -121,17 +165,41 @@ class OnlySettlementManager:
         legal_settled: bool,
         records: tuple[OnlySettlementRecord, ...],
         sequence_head: int,
+        version: int,
+        cash_currency: OnlyCurrency,
     ) -> None:
-        if sequence_head < self._sequence or any(item.sequence > sequence_head for item in records):
+        if version < 1 or sequence_head < self._sequence or any(item.sequence > sequence_head for item in records):
             raise ValueError("Settlement replay sequence head is invalid")
-        self._pending[instruction.instruction_id] = _OnlyPendingSettlement(
+        current = self._pending.get(instruction.instruction_id)
+        if current is not None and current.instruction != instruction:
+            raise ValueError("settlement instruction id conflicts with existing instruction")
+        expected = {item.sequence: item for item in records}
+        if len(expected) != len(records):
+            raise ValueError("Settlement replay record sequences are duplicated")
+        existing = {item.sequence: item for item in self._records}
+        for sequence, item in expected.items():
+            if (known := existing.get(sequence)) is not None and known != item:
+                raise ValueError("Settlement replay record sequence conflicts with existing authority")
+        pending = dict(self._pending)
+        pending[instruction.instruction_id] = _OnlyPendingSettlement(
             instruction,
+            cash_currency,
             asset_released,
             trade_cash_released,
             withdrawable_cash_released,
             legal_settled,
+            version,
         )
-        known = {item.sequence for item in self._records}
-        self._records.extend(item for item in records if item.sequence not in known)
-        self._records.sort(key=lambda item: item.sequence)
+        installed_records = list(self._records)
+        installed_records.extend(item for item in records if item.sequence not in existing)
+        installed_records.sort(key=lambda item: item.sequence)
+        self._pending = pending
+        self._records = installed_records
         self._sequence = sequence_head
+
+
+__all__ = [
+    "OnlySettlementExecutionAuthoritySnapshot",
+    "OnlySettlementManager",
+    "OnlySettlementRecord",
+]

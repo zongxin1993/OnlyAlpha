@@ -143,6 +143,7 @@ class OnlyStrategyCashReservationManager:
         return item
 
     def active_reserved(self) -> OnlyMoney:
+        quantum = Decimal(1).scaleb(-self.key.base_currency.precision)
         return OnlyMoney(
             sum(
                 (
@@ -155,7 +156,7 @@ class OnlyStrategyCashReservationManager:
                     }
                 ),
                 Decimal(0),
-            ),
+            ).quantize(quantum),
             self.key.base_currency,
         )
 

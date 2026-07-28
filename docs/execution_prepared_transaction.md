@@ -2,7 +2,7 @@
 
 当前 canonical transaction schema 为 v4。相较 v3，Projection payload 增加真实 Manager replay 所需的 cycle、record sequence、Strategy valuation line 和 valuation timeline metadata；旧 schema 不隐式解码。真实安装语义见 [Real Manager Projection Targets](execution_projection_targets.md)。
 
-`OnlyPreparedExecutionTransaction` 是 Broker Trade Update 与 durable commit 之间的不可变权威输入，schema version 为 3；v2 不兼容且不隐式迁移。事务 ID 由 Runtime、Gateway、Account、Broker Update 与 Trade ID 的稳定身份确定。
+`OnlyPreparedExecutionTransaction` 是 Broker Trade Update 与 durable commit 之间的不可变权威输入，schema version 为 4；旧 schema 不兼容且不隐式迁移。事务 ID 由 Runtime、Gateway、Account、Broker Update 与 Trade ID 的稳定身份确定。
 
 Generic T0 Cash `LIMIT BUY OPEN` 的正式纯构造入口是 `OnlyTradeExecutionTransactionPlanner.prepare(context)`。Planner 从完整
 immutable before authority 生成 Fact Draft、12 项 ordered Projection、逐项 Precondition 和 deterministic durable Events；相同
@@ -29,5 +29,5 @@ Planner 的 deterministic event 顺序按业务语义构造，而不是依赖字
 transaction ID、authority/payload/projection/state hash、event count/order/ID/payload；改变 Mapping 插入顺序不改变结果，只有
 `prepared_at` 改变时 business authority 不变而 envelope payload hash 改变。
 
-Pure Reducers 与 Generic T0 Transaction Planner 已完成，但仍未完成 Manager Projection Targets、Commit Coordinator、
-ExecutionProcessor 主链切换和 Full Replay Runtime；本契约不声称生产主链已经解决 Manager-before-Journal。
+Pure Reducers、Generic T0 Transaction Planner、Real Manager Targets 与 Recovery Boundary Hardening 已完成；Commit Coordinator、
+ExecutionProcessor 主链切换和 Runtime Full Recovery 仍未完成。本契约不声称 commit-before-mutation 已进入产品主链。

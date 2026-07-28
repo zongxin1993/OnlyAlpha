@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
+from enum import StrEnum
 
 from onlyalpha.account.identifiers import OnlyAccountReservationId
 from onlyalpha.account.manager import OnlyAccountManager
@@ -37,6 +38,11 @@ from .applied_projection import (
     OnlyAppliedProjectionLedger,
     OnlyAppliedProjectionRecord,
     OnlyExecutionProjectionApplyContext,
+)
+from .authority_state import (
+    only_fee_execution_state,
+    only_settlement_execution_state,
+    only_settlement_record_replay,
 )
 from .execution_state import (
     OnlyAccountExecutionState,
@@ -93,6 +99,17 @@ def _version(state: OnlyDomainModel | None) -> int:
     return value
 
 
+class _OnlyProjectionApplyDecision(StrEnum):
+    APPLY = "APPLY"
+    RECOVER = "RECOVER"
+
+
+@dataclass(frozen=True, slots=True)
+class _OnlyProjectionApplyPreparation:
+    decision: _OnlyProjectionApplyDecision
+    record: OnlyAppliedProjectionRecord
+
+
 class _OnlyProjectionTargetBase:
     def __init__(
         self,
@@ -110,7 +127,7 @@ class _OnlyProjectionTargetBase:
         self,
         context: OnlyExecutionProjectionApplyContext,
         current: OnlyDomainModel | None,
-    ) -> OnlyProjectionApplyResult | OnlyAppliedProjectionRecord:
+    ) -> OnlyProjectionApplyResult | _OnlyProjectionApplyPreparation:
         identity = context.projection.identity
         if identity.component is not self.component:
             return self._result(OnlyProjectionApplyStatus.INVALID_COMPONENT, context, current)
@@ -128,25 +145,34 @@ class _OnlyProjectionTargetBase:
                 OnlyProjectionApplyStatus.IDEMPOTENT if prior == record else OnlyProjectionApplyStatus.PAYLOAD_CONFLICT
             )
             return self._result(status, context, current)
-        if _version(current) != identity.expected_version:
-            return self._result(OnlyProjectionApplyStatus.VERSION_CONFLICT, context, current)
-        if only_execution_state_hash(current) != identity.expected_state_hash:
-            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         if only_execution_state_hash(context.projection.after) != identity.result_state_hash:
             return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
-        return record
+        current_version = _version(current)
+        current_hash = only_execution_state_hash(current)
+        if current_version == identity.expected_version and current_hash == identity.expected_state_hash:
+            return _OnlyProjectionApplyPreparation(_OnlyProjectionApplyDecision.APPLY, record)
+        if current_version == identity.result_version and current_hash == identity.result_state_hash:
+            return _OnlyProjectionApplyPreparation(_OnlyProjectionApplyDecision.RECOVER, record)
+        if current_version not in {identity.expected_version, identity.result_version}:
+            return self._result(OnlyProjectionApplyStatus.VERSION_CONFLICT, context, current)
+        return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
 
     def _complete(
         self,
         context: OnlyExecutionProjectionApplyContext,
         before: OnlyDomainModel | None,
         after: OnlyDomainModel,
-        record: OnlyAppliedProjectionRecord,
+        preparation: _OnlyProjectionApplyPreparation,
     ) -> OnlyProjectionApplyResult:
         if only_execution_state_hash(after) != context.projection.identity.result_state_hash:
             raise RuntimeError(f"{self.component.value} Projection installation produced the wrong authority")
-        self._applied_ledger.record(record)
-        return self._result(OnlyProjectionApplyStatus.APPLIED, context, before, after)
+        self._applied_ledger.record(preparation.record)
+        status = (
+            OnlyProjectionApplyStatus.APPLIED
+            if preparation.decision is _OnlyProjectionApplyDecision.APPLY
+            else OnlyProjectionApplyStatus.RECOVERED
+        )
+        return self._result(status, context, before, after)
 
     def _result(
         self,
@@ -211,7 +237,8 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
             trade_ids=trade_ids,
             venue_trade_ids=venue_ids,
         )
-        self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 1)
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 1)
         return self._complete(
             context, current, only_order_execution_state(self._manager.require_snapshot(snapshot.order_id)), prepared
         )
@@ -238,7 +265,8 @@ class OnlyPositionExecutionProjectionTarget(_OnlyProjectionTargetBase):
             cycle=projection.replay.cycle,
             trade_fingerprints=only_execution_trade_fingerprints(context),
         )
-        self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 1)
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 1)
         installed = self._current(projection)
         if installed is None:
             raise RuntimeError("Position Projection installation lost its entity")
@@ -293,16 +321,23 @@ class OnlySettlementExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
     def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
-        current = (
-            projection.after
+        authority = (
+            self._manager.get_execution_authority(projection.after.instruction_id)
             if isinstance(projection, OnlySettlementExecutionProjection)
-            and self._manager.has_instruction(projection.after.instruction_id)
             else None
         )
+        if authority is not None and authority.cash_currency is None:
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
+        try:
+            current = None if authority is None else only_settlement_execution_state(authority)
+        except (TypeError, ValueError):
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
         assert isinstance(projection, OnlySettlementExecutionProjection)
+        if authority is not None and only_settlement_record_replay(authority) != projection.records:
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         after = projection.after
         instruction = OnlySettlementRuntimeInstruction(
             after.instruction_id,
@@ -346,8 +381,16 @@ class OnlySettlementExecutionProjectionTarget(_OnlyProjectionTargetBase):
             legal_settled=after.legal_settled,
             records=records,
             sequence_head=after.record_sequence_head,
+            version=after.version,
+            cash_currency=after.cash_amount.currency,
         )
-        return self._complete(context, current, after, prepared)
+        installed_authority = self._manager.get_execution_authority(after.instruction_id)
+        if installed_authority is None:
+            raise RuntimeError("Settlement Projection installation lost its instruction")
+        installed = only_settlement_execution_state(installed_authority)
+        if only_settlement_record_replay(installed_authority) != projection.records:
+            raise RuntimeError("Settlement Projection installation produced the wrong records")
+        return self._complete(context, current, installed, prepared)
 
 
 class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
@@ -357,12 +400,17 @@ class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
     def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
-        current = (
-            projection.after
+        authority = (
+            self._manager.get_execution_authority(projection.after.instruction.idempotency_key)
             if isinstance(projection, OnlyFeeExecutionProjection)
-            and self._manager.has_instruction_key(projection.after.instruction.idempotency_key)
             else None
         )
+        try:
+            current = None if authority is None else only_fee_execution_state(authority)
+        except (TypeError, ValueError):
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
+        if authority is not None and authority.instrument_id != str(context.fact.instrument_id):
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
@@ -386,7 +434,10 @@ class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
             record_ids=tuple(item.record_id for item in projection.after.records),
             sequence_head=projection.after.record_sequence_head,
         )
-        return self._complete(context, current, projection.after, prepared)
+        installed_authority = self._manager.get_execution_authority(replay.idempotency_key)
+        if installed_authority is None:
+            raise RuntimeError("Fee Projection installation lost its instruction")
+        return self._complete(context, current, only_fee_execution_state(installed_authority), prepared)
 
 
 def _account_snapshot(state: OnlyAccountExecutionState, current: OnlyAccountSnapshot) -> OnlyAccountSnapshot:
@@ -439,7 +490,8 @@ class OnlyAccountExecutionProjectionTarget(_OnlyProjectionTargetBase):
             _account_snapshot(projection.after, current_snapshot),
             trade_ids=(context.fact.trade_id,),
         )
-        self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 4)
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 4)
         installed = self._manager.require_snapshot(projection.after.account_id)
         return self._complete(context, current, only_account_execution_state(installed), prepared)
 
@@ -563,12 +615,27 @@ class OnlyStrategyLedgerExecutionProjectionTarget(_OnlyProjectionTargetBase):
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
         assert isinstance(projection, OnlyStrategyLedgerExecutionProjection) and current_snapshot is not None
-        self._manager.restore_execution_authority(
-            _ledger_snapshot(projection.after, current_snapshot, context, projection),
-            trade_fingerprints=only_execution_trade_fingerprints(context),
-            valuation_lines=projection.valuation_lines,
+        snapshot = (
+            _ledger_snapshot(projection.after, current_snapshot, context, projection)
+            if prepared.decision is _OnlyProjectionApplyDecision.APPLY
+            else current_snapshot
         )
-        self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 4)
+        if only_strategy_ledger_execution_state(snapshot) != projection.after:
+            raise ValueError("Strategy Ledger install plan does not reproduce committed authority")
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._manager.restore_execution_authority(
+                snapshot,
+                trade_fingerprints=only_execution_trade_fingerprints(context),
+                valuation_lines=projection.valuation_lines,
+            )
+        else:
+            self._manager.restore_execution_indexes(
+                snapshot,
+                trade_fingerprints=only_execution_trade_fingerprints(context),
+                valuation_lines=projection.valuation_lines,
+            )
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 4)
         installed = self._manager.require_snapshot(projection.after.key)
         return self._complete(context, current, only_strategy_ledger_execution_state(installed), prepared)
 
@@ -705,7 +772,8 @@ class OnlyRiskExecutionProjectionTarget(_OnlyProjectionTargetBase):
         state = projection.after
         snapshot = OnlyRiskSnapshot(**{name: getattr(state, name) for name in OnlyRiskSnapshot.__dataclass_fields__})
         self._service.restore_execution_authority(snapshot)
-        self._service.restore_execution_event_sequence(self._service.execution_event_sequence + 1)
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._service.restore_execution_event_sequence(self._service.execution_event_sequence + 1)
         return self._complete(context, current, only_risk_execution_state(snapshot), prepared)
 
 

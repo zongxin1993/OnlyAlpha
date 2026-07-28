@@ -6,6 +6,11 @@ from .applied_projection import (
     OnlyExecutionProjectionApplyContext,
     OnlyInMemoryAppliedProjectionLedger,
 )
+from .authority_state import (
+    only_fee_execution_state,
+    only_settlement_execution_state,
+    only_settlement_record_replay,
+)
 from .codec import (
     OnlyExecutionTransactionCodec,
     only_committed_execution_transaction_payload_hash,
@@ -341,6 +346,7 @@ __all__ = [
     "OnlyExecutionValuationAuthority",
     "only_create_generic_t0_execution_projection_targets",
     "only_execution_trade_fingerprints",
+    "only_fee_execution_state",
     "only_committed_execution_transaction_payload_hash",
     "only_decode_committed_execution_transaction",
     "only_decode_prepared_execution_transaction",
@@ -366,6 +372,8 @@ __all__ = [
     "only_position_reservation_execution_state",
     "only_risk_execution_state",
     "only_risk_reservation_execution_state",
+    "only_settlement_execution_state",
+    "only_settlement_record_replay",
     "only_strategy_cash_reservation_execution_state",
     "only_strategy_ledger_execution_state",
     "only_expected_execution_reservations",

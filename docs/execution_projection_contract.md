@@ -17,7 +17,7 @@ after.version  == result_version
 
 新实体使用 `before=None`、expected version 0 和固定 null-state hash。Payload hash 覆盖 Before/After State，但排除 payload hash 自身。
 
-参考 Apply Target 的检查顺序是 component、同 execution sequence 的 payload、expected version、expected state hash；之后才安装 result version/hash。结果明确区分 APPLIED、IDEMPOTENT、PAYLOAD_CONFLICT、VERSION_CONFLICT、STATE_CONFLICT 和 INVALID_COMPONENT。
+正式 Apply Target 的检查顺序是 component、Applied Ledger payload、真实 Manager Current Authority、Expected/Result version/hash。Expected path 安装 result 后返回 APPLIED；Result path 只 repair replay authority 并重建 ledger record，返回 RECOVERED。结果完整区分 APPLIED、IDEMPOTENT、RECOVERED、PAYLOAD_CONFLICT、VERSION_CONFLICT、STATE_CONFLICT 和 INVALID_COMPONENT。
 
 `OnlyPreparedExecutionEconomicInvariantValidator` 在 Prepared 构造期间交叉验证 Order Fill、Position/Allocation 数量、Fee、Account/Ledger Cash/Fee/PnL、Settlement、Margin presence、Reservation consumption 与完整 scope，禁止 Fact 与 Projection 分别形成不同经济真相。
 
@@ -37,4 +37,4 @@ Account/Strategy Cash Reservation 在非 RELEASED 状态满足 `consumed + remai
 
 所有真实 Snapshot converter 保留字段原值，包括可选 Margin authority、metadata、quality flags、外部 sequence、时间和会计 entries；不得自行重算或伪造缺失字段。
 
-Pure Reducers、Generic T0 Cash Transaction Planner 与真实 Manager Projection Targets 已实现；Commit Coordinator、Processor Switch 和 Full Replay Runtime 仍未实现。Target 的正式恢复边界见 `execution_projection_targets.md` 与 ADR 0038。
+Pure Reducers、Generic T0 Cash Transaction Planner、真实 Manager Projection Targets 与 Recovery Boundary Hardening 已实现；Commit Coordinator、Processor Switch 和 Runtime Full Recovery 仍未实现。Target 的正式恢复边界见 `execution_projection_targets.md` 与 ADR 0038–0040。

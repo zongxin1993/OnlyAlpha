@@ -1,17 +1,18 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
+from typing import Any
 
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlyMarketType
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyRawSymbol, OnlyVenueId
-from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyIndex
+from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRawSymbol, OnlyVenueId
+from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyIndex, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
 
 from ..mapping.exchange import to_xt_symbol
 
 
-def instrument(xtdata, instrument_id):
+def instrument(xtdata: Any, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None:
     detail = xtdata.get_instrument_detail(to_xt_symbol(instrument_id))
     if not detail:
         return None
@@ -39,7 +40,7 @@ def instrument(xtdata, instrument_id):
     )
 
 
-def calendar(xtdata, calendar_id):
+def calendar(xtdata: Any, calendar_id: OnlyCalendarId) -> OnlyTradingCalendar:
     venue = "XSHG" if "SH" in str(calendar_id).upper() else "XSHE"
     market = "SH" if venue == "XSHG" else "SZ"
     days = xtdata.get_trading_calendar(market) or []
@@ -51,10 +52,9 @@ def calendar(xtdata, calendar_id):
     }
     span = range((max(parsed) - min(parsed)).days + 1) if parsed else ()
     holidays = tuple(
-        min(parsed) + __import__("datetime").timedelta(days=i)
+        min(parsed) + timedelta(days=i)
         for i in span
-        if (min(parsed) + __import__("datetime").timedelta(days=i)).weekday() < 5
-        and min(parsed) + __import__("datetime").timedelta(days=i) not in parsed
+        if (min(parsed) + timedelta(days=i)).weekday() < 5 and min(parsed) + timedelta(days=i) not in parsed
     )
     return OnlyTradingCalendar(
         calendar_id=OnlyCalendarId(str(calendar_id)),

@@ -45,9 +45,6 @@ jobs:
       - name: Validate lock file
         run: uv lock --check
 
-      - name: Validate lock file
-        run: uv lock --check
-
       - name: Synchronize complete workspace
         run: uv sync --frozen --all-packages --all-groups
 
@@ -261,10 +258,10 @@ jobs:
           packages/provider/onlyalpha-plugin-miniqmt/src
           packages/provider/onlyalpha-plugin-miniqmt/tests
 
-    #   - name: Mypy MiniQMT
-    #     run: >-
-    #       uv run mypy
-    #       packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+      - name: Mypy MiniQMT
+        run: >-
+          uv run mypy
+          packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
 
       - name: Run offline MiniQMT tests
         env:
