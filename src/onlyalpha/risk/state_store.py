@@ -38,6 +38,10 @@ class OnlyInMemoryRiskStateStore(OnlyRiskStateStore):
     def get_snapshot(self, cluster_id: OnlyClusterId) -> OnlyRiskSnapshot | None:
         return self._snapshots.get(cluster_id)
 
+    def restore_snapshot(self, snapshot: OnlyRiskSnapshot) -> None:
+        self._snapshots[snapshot.cluster_id] = snapshot
+        self._snapshot_versions[snapshot.cluster_id] = snapshot.version
+
     def remove_cluster(self, cluster_id: OnlyClusterId) -> None:
         self._snapshots.pop(cluster_id, None)
         self._snapshot_versions.pop(cluster_id, None)

@@ -1,5 +1,7 @@
 # Prepared Execution Transaction
 
+当前 canonical transaction schema 为 v4。相较 v3，Projection payload 增加真实 Manager replay 所需的 cycle、record sequence、Strategy valuation line 和 valuation timeline metadata；旧 schema 不隐式解码。真实安装语义见 [Real Manager Projection Targets](execution_projection_targets.md)。
+
 `OnlyPreparedExecutionTransaction` 是 Broker Trade Update 与 durable commit 之间的不可变权威输入，schema version 为 3；v2 不兼容且不隐式迁移。事务 ID 由 Runtime、Gateway、Account、Broker Update 与 Trade ID 的稳定身份确定。
 
 Generic T0 Cash `LIMIT BUY OPEN` 的正式纯构造入口是 `OnlyTradeExecutionTransactionPlanner.prepare(context)`。Planner 从完整

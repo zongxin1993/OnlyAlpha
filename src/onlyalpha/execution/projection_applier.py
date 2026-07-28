@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .applied_projection import OnlyExecutionProjectionApplyContext
 from .projection import (
     OnlyExecutionProjection,
     OnlyExecutionProjectionComponent,
@@ -61,7 +62,24 @@ class OnlyExecutionProjectionApplier:
                     OnlyExecutionProjectionBatchStatus.FAILED,
                     f"missing projection target for {identity.component.value}",
                 )
-            result = target.apply_execution_projection(transaction.execution_sequence, projection)
+            try:
+                result = target.apply_execution_projection(
+                    OnlyExecutionProjectionApplyContext(
+                        transaction.transaction_id,
+                        transaction.execution_sequence,
+                        transaction.fact,
+                        projection,
+                    )
+                )
+            except Exception as exc:
+                return OnlyExecutionProjectionBatchResult(
+                    transaction.execution_sequence,
+                    tuple(applied),
+                    tuple(idempotent),
+                    projection,
+                    OnlyExecutionProjectionBatchStatus.FAILED,
+                    f"{type(exc).__name__}: {exc}",
+                )
             if result.status is OnlyProjectionApplyStatus.APPLIED:
                 applied.append(result)
                 continue

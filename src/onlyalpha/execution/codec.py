@@ -292,7 +292,7 @@ def _load_object(payload: str) -> Mapping[str, object]:
 
 
 def _require_schema(value: Mapping[str, object]) -> None:
-    if value.get("schema_version") != 3:
+    if value.get("schema_version") != 4:
         raise ValueError("unsupported execution transaction schema version")
 
 

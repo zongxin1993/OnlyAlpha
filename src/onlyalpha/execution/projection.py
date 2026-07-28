@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import IntEnum, StrEnum
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
+from onlyalpha.account.performance import OnlyAccountEquityPoint
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import OnlyOrderStatus
@@ -15,6 +16,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOr
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.fee.models import OnlyFeeBreakdown
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -30,6 +32,9 @@ from .execution_state import (
     OnlyStrategyLedgerExecutionState,
 )
 from .state_hash import only_execution_state_hash
+
+if TYPE_CHECKING:
+    from .applied_projection import OnlyExecutionProjectionApplyContext
 
 
 class OnlyExecutionProjectionComponent(StrEnum):
@@ -120,11 +125,30 @@ class OnlyOrderExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyPositionExecutionReplayMetadata(OnlyDomainModel):
+    cycle: int
+
+    def __post_init__(self) -> None:
+        if self.cycle < 1:
+            raise ValueError("Position replay cycle must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyAllocationExecutionReplayMetadata(OnlyDomainModel):
+    cycle: int
+
+    def __post_init__(self) -> None:
+        if self.cycle < 1:
+            raise ValueError("Allocation replay cycle must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyPositionExecutionProjection(OnlyDomainModel):
     identity: OnlyExecutionProjectionIdentity
     before: OnlyPositionExecutionState | None
     after: OnlyPositionExecutionState
     realized_pnl_delta: OnlyMoney
+    replay: OnlyPositionExecutionReplayMetadata
 
     def __post_init__(self) -> None:
         _require_component(self.identity, OnlyExecutionProjectionComponent.POSITION)
@@ -151,6 +175,7 @@ class OnlyAllocationExecutionProjection(OnlyDomainModel):
     before: OnlyAllocationExecutionState | None
     after: OnlyAllocationExecutionState
     realized_pnl_delta: OnlyMoney
+    replay: OnlyAllocationExecutionReplayMetadata
 
     def __post_init__(self) -> None:
         _require_component(self.identity, OnlyExecutionProjectionComponent.ALLOCATION)
@@ -189,9 +214,15 @@ class OnlySettlementExecutionState(OnlyDomainModel):
     cash_withdrawable_on: OnlyTradingDay
     legal_settlement_on: OnlyTradingDay
     version: int
+    record_sequence_head: int
 
     def __post_init__(self) -> None:
-        if not self.instruction_id.strip() or not self.source_trade_id.strip() or self.version < 1:
+        if (
+            not self.instruction_id.strip()
+            or not self.source_trade_id.strip()
+            or self.version < 1
+            or self.record_sequence_head < 0
+        ):
             raise ValueError("Settlement execution state requires identity and version")
         if self.asset_quantity < 0 or self.cash_amount.amount < 0:
             raise ValueError("Settlement execution values cannot be negative")
@@ -323,9 +354,10 @@ class OnlyFeeExecutionState(OnlyDomainModel):
     authoritative_total: OnlyMoney
     fee_breakdown: OnlyFeeBreakdown
     version: int
+    record_sequence_head: int
 
     def __post_init__(self) -> None:
-        if self.authoritative_total != self.fee_breakdown.total or self.version < 1:
+        if self.authoritative_total != self.fee_breakdown.total or self.version < 1 or self.record_sequence_head < 0:
             raise ValueError("Fee execution state total/version mismatch")
         if sum((item.amount.amount for item in self.records), Decimal(0)) != self.authoritative_total.amount:
             raise ValueError("Fee records must equal authoritative total")
@@ -379,6 +411,7 @@ class OnlyStrategyLedgerExecutionProjection(OnlyDomainModel):
     identity: OnlyExecutionProjectionIdentity
     before: OnlyStrategyLedgerExecutionState
     after: OnlyStrategyLedgerExecutionState
+    valuation_lines: tuple[OnlyStrategyValuationLine, ...] = ()
 
     def __post_init__(self) -> None:
         _require_component(self.identity, OnlyExecutionProjectionComponent.STRATEGY_LEDGER)
@@ -494,6 +527,8 @@ class OnlyValuationExecutionProjection(OnlyDomainModel):
     identity: OnlyExecutionProjectionIdentity
     before: OnlyValuationExecutionState | None
     after: OnlyValuationExecutionState
+    account_equity_points: tuple[OnlyAccountEquityPoint, ...] = ()
+    strategy_equity_points: tuple[OnlyStrategyLedgerEquityPoint, ...] = ()
 
     def __post_init__(self) -> None:
         _require_component(self.identity, OnlyExecutionProjectionComponent.VALUATION)
@@ -756,9 +791,7 @@ class OnlyExecutionProjectionTarget(Protocol):
     @property
     def component(self) -> OnlyExecutionProjectionComponent: ...
 
-    def apply_execution_projection(
-        self, execution_sequence: int, projection: OnlyExecutionProjection
-    ) -> OnlyProjectionApplyResult: ...
+    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -768,7 +801,7 @@ class _OnlyProjectionEntityState:
     applied: tuple[tuple[int, str], ...]
 
 
-class OnlyInMemoryExecutionProjectionState:
+class OnlyReferenceExecutionProjectionTarget:
     """Reference target implementing version, state-hash and idempotency checks."""
 
     def __init__(self, component: OnlyExecutionProjectionComponent) -> None:
@@ -783,9 +816,9 @@ class OnlyInMemoryExecutionProjectionState:
         _require_digest(state_hash, "seed state_hash")
         self._entities[entity_key] = _OnlyProjectionEntityState(version, state_hash, ())
 
-    def apply_execution_projection(
-        self, execution_sequence: int, projection: OnlyExecutionProjection
-    ) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+        execution_sequence = context.execution_sequence
+        projection = context.projection
         identity = projection.identity
         state = self._entities.get(
             identity.entity_key,

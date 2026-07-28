@@ -53,6 +53,7 @@ class OnlyTestGenericT0Scenario:
     fee_enabled: bool = True
     fill_price: str = "10.00"
     existing_position: bool = False
+    virtual_broker: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,41 @@ def only_test_generic_t0_manager_parity(
         planner_after,
         only_test_legacy_projection_states(legacy, context),
     )
+
+
+def only_test_generic_t0_projection_environment(
+    scenario: OnlyTestGenericT0Scenario,
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+    """Return untouched real Managers plus the transaction planned from their authority."""
+
+    environment = _environment(scenario)
+    _prepare_environment(environment, scenario)
+    context = only_test_real_trade_planning_context(environment, _trade_update(environment, scenario))
+    return environment, context, OnlyTradeExecutionTransactionPlanner().prepare(context)
+
+
+def only_test_generic_t0_legacy_environment(
+    scenario: OnlyTestGenericT0Scenario,
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext]:
+    """Return the same real Managers after the legacy ExecutionProcessor path."""
+
+    environment = _environment(scenario)
+    _prepare_environment(environment, scenario)
+    update = _trade_update(environment, scenario)
+    context = only_test_real_trade_planning_context(environment, update)
+    result = environment.runtime.execution_processor.process(update)
+    assert result.status.value == "APPLIED"
+    return environment, context
+
+
+def only_test_generic_t0_trade_update(
+    environment: OnlyIntegrationEnvironment,
+    scenario: OnlyTestGenericT0Scenario,
+    *,
+    suffix: str,
+    fill_price: str = "10.00",
+) -> OnlyBrokerTradeUpdate:
+    return _trade_update(environment, scenario, suffix=suffix, fill_price=fill_price)
 
 
 def only_test_real_trade_planning_context(
@@ -169,6 +205,8 @@ def only_test_real_trade_planning_context(
             allocation_cycle,
         )
     valuation_time = account_snapshot.valuation_time or account_snapshot.updated_at
+    account_timeline = runtime.account_performance_projector.timeline(order.account_id)
+    ledger_timeline = runtime.strategy_ledger_manager.equity_timeline(ledger_snapshot.key)
     latest_mark = runtime._services.market_data_cache.latest_closed(env.bar_1m)
     assert latest_mark is not None
     return OnlyTradeExecutionPlanningContext(
@@ -209,8 +247,21 @@ def only_test_real_trade_planning_context(
         ),
         position_creation=position_creation,
         allocation_creation=allocation_creation,
-        settlement_record_sequence=len(runtime.settlement_manager.records),
-        fee_record_sequence=len(runtime.fee_manager.records),
+        position_cycle=runtime.position_manager._cycles.get(scope.position_key, 0),
+        allocation_cycle=(
+            0 if scope.allocation_key is None else runtime.allocation_manager._cycles.get(scope.allocation_key, 0)
+        ),
+        settlement_record_sequence=runtime.settlement_manager.sequence_head,
+        fee_record_sequence=runtime.fee_manager.sequence_head,
+        account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
+        ledger_equity_sequence=0 if not ledger_timeline else ledger_timeline[-1].sequence,
+        account_external_cash_flow=(
+            OnlyMoney(Decimal(0), account_snapshot.base_currency)
+            if not account_timeline
+            else account_timeline[-1].external_cash_flow
+        ),
+        ledger_equity_before=None if not ledger_timeline else ledger_timeline[-1],
+        ledger_high_water_mark=ledger_snapshot.equity.high_water_mark,
     )
 
 
@@ -257,6 +308,7 @@ def only_test_legacy_projection_states(
         settlement_instruction.cash_withdrawable_on,
         settlement_instruction.legal_settlement_on,
         1,
+        runtime.settlement_manager.sequence_head,
     )
     settlement_records = tuple(
         OnlySettlementRecordReplay(
@@ -304,6 +356,7 @@ def only_test_legacy_projection_states(
         context.fee_instruction.fee_breakdown.total,
         context.fee_instruction.fee_breakdown,
         1,
+        runtime.fee_manager.sequence_head,
     )
     valuation_time = account.valuation_time or account.updated_at
     return (
@@ -358,6 +411,7 @@ def _environment(scenario: OnlyTestGenericT0Scenario) -> OnlyIntegrationEnvironm
     return OnlyIntegrationEnvironment(
         market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
         fee_resolver_config=fee_config,
+        virtual_broker=scenario.virtual_broker,
     )
 
 

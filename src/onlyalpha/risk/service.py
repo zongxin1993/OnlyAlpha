@@ -154,6 +154,15 @@ class OnlyRiskService:
     def audits(self) -> tuple[OnlyRiskDecisionAudit, ...]:
         return tuple(self._audits)
 
+    @property
+    def execution_event_sequence(self) -> int:
+        return self._event_sequence
+
+    def restore_execution_event_sequence(self, sequence: int) -> None:
+        if sequence < self._event_sequence:
+            raise ValueError("Risk event sequence cannot regress")
+        self._event_sequence = sequence
+
     def bind_cluster_profile(
         self,
         cluster_id: OnlyClusterId,
@@ -399,6 +408,11 @@ class OnlyRiskService:
         if snapshot is None:
             raise KeyError(f"Risk Snapshot is unavailable for Cluster: {cluster_id}")
         return snapshot
+
+    def restore_execution_authority(self, snapshot: OnlyRiskSnapshot) -> None:
+        if snapshot.runtime_id != self.runtime_id:
+            raise ValueError("Risk Snapshot belongs to another Runtime")
+        self._state.restore_snapshot(snapshot)
 
     def reserve_order(
         self,

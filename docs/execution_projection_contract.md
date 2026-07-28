@@ -37,4 +37,4 @@ Account/Strategy Cash Reservation 在非 RELEASED 状态满足 `consumed + remai
 
 所有真实 Snapshot converter 保留字段原值，包括可选 Margin authority、metadata、quality flags、外部 sequence、时间和会计 entries；不得自行重算或伪造缺失字段。
 
-本契约尚未实现 Pure Reducers、Transaction Planner、真实 Manager Projection Targets、Commit Coordinator、Processor Switch 或 Full Replay Runtime。
+Pure Reducers、Generic T0 Cash Transaction Planner 与真实 Manager Projection Targets 已实现；Commit Coordinator、Processor Switch 和 Full Replay Runtime 仍未实现。Target 的正式恢复边界见 `execution_projection_targets.md` 与 ADR 0038。

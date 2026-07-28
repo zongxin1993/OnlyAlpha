@@ -305,6 +305,60 @@ class OnlyOrderManager:
     def snapshot_all(self) -> tuple[OnlyOrderSnapshot, ...]:
         return self._snapshots(self._creation_order)
 
+    @property
+    def execution_event_sequence(self) -> int:
+        return self._event_sequence
+
+    def restore_execution_event_sequence(self, sequence: int) -> None:
+        if sequence < self._event_sequence:
+            raise ValueError("Order event sequence cannot regress")
+        self._event_sequence = sequence
+
+    def restore_execution_authority(
+        self,
+        snapshot: OnlyOrderSnapshot,
+        *,
+        external_event_ids: frozenset[str],
+        trade_ids: frozenset[str],
+        venue_trade_ids: frozenset[str],
+    ) -> None:
+        """Install replay authority without publishing events or running mutations."""
+
+        if snapshot.runtime_id != self.runtime_id:
+            raise ValueError("restored Order belongs to another Runtime")
+        existing = self._orders.get(snapshot.order_id)
+        prior_external = frozenset() if existing is None else frozenset(existing._external_event_ids)
+        prior_trades = frozenset() if existing is None else frozenset(existing._trade_ids)
+        prior_venue_trades = frozenset() if existing is None else frozenset(existing._venue_trade_ids)
+        request_account_id = snapshot.account_id if existing is None else existing._request.account_id
+        entity = OnlyOrder.restore(
+            snapshot,
+            external_event_ids=prior_external | external_event_ids,
+            trade_ids=prior_trades | trade_ids,
+            venue_trade_ids=prior_venue_trades | venue_trade_ids,
+            request_account_id=request_account_id,
+        )
+        if existing is None:
+            self._creation_order.append(snapshot.order_id)
+            self._order_ids_by_cluster_id.setdefault(snapshot.cluster_id, []).append(snapshot.order_id)
+            self._order_ids_by_account_id.setdefault(snapshot.account_id, []).append(snapshot.order_id)
+            self._order_ids_by_instrument_id.setdefault(snapshot.instrument_id, []).append(snapshot.order_id)
+        self._orders[snapshot.order_id] = entity
+        self._order_id_by_request_id[snapshot.request_id] = snapshot.order_id
+        self._order_id_by_client_order_id[snapshot.client_order_id] = snapshot.order_id
+        if snapshot.venue_order_id is not None:
+            self._order_id_by_venue_order_id[snapshot.venue_order_id] = snapshot.order_id
+        if snapshot.status in {
+            OnlyOrderStatus.CREATED,
+            OnlyOrderStatus.SUBMITTED,
+            OnlyOrderStatus.ACCEPTED,
+            OnlyOrderStatus.PARTIALLY_FILLED,
+            OnlyOrderStatus.PENDING_CANCEL,
+        }:
+            self._open_order_ids.add(snapshot.order_id)
+        else:
+            self._open_order_ids.discard(snapshot.order_id)
+
     def _mutate(
         self,
         order_id: OnlyOrderId,

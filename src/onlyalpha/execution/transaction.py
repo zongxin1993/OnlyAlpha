@@ -168,7 +168,7 @@ class OnlyExecutionPrecondition(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyPreparedExecutionTransaction:
-    schema_version = 3
+    schema_version = 4
 
     transaction_id: str
     runtime_id: OnlyRuntimeId
@@ -275,7 +275,7 @@ class OnlyPreparedExecutionTransaction:
 
 @dataclass(frozen=True, slots=True)
 class OnlyCommittedExecutionTransaction:
-    schema_version = 3
+    schema_version = 4
 
     runtime_id: OnlyRuntimeId
     execution_sequence: int

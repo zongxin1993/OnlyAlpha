@@ -7,6 +7,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.account.models import OnlyAccountSnapshot
+from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyRate
@@ -25,7 +26,7 @@ class OnlyAccountValuationSource(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyAccountEquityPoint:
+class OnlyAccountEquityPoint(OnlyDomainModel):
     sequence: int
     runtime_id: OnlyRuntimeId
     account_id: OnlyAccountId
@@ -118,6 +119,24 @@ class OnlyAccountPerformanceProjector:
 
     def timeline(self, account_id: OnlyAccountId) -> tuple[OnlyAccountEquityPoint, ...]:
         return tuple(self._points.get(account_id, ()))
+
+    def restore_execution_points(self, points: tuple[OnlyAccountEquityPoint, ...]) -> None:
+        self.validate_execution_points(points)
+        expected = self._sequence + 1
+        for point in points:
+            self._points.setdefault(point.account_id, []).append(point)
+            if point.external_cash_flow.amount != 0:
+                self._external_cash_flow[point.account_id] = point.external_cash_flow.amount
+            self._sequence = point.sequence
+            expected += 1
+
+    def validate_execution_points(self, points: tuple[OnlyAccountEquityPoint, ...]) -> None:
+        expected = self._sequence + 1
+        if any(
+            point.runtime_id != self.runtime_id or point.sequence != expected + index
+            for index, point in enumerate(points)
+        ):
+            raise ValueError("Account equity replay points are out of scope or sequence")
 
     def summarize(self, account_id: OnlyAccountId) -> OnlyRuntimePortfolioPerformanceSummary:
         points = self.timeline(account_id)

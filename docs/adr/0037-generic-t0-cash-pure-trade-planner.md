@@ -57,6 +57,6 @@ payload；仅 `prepared_at` 改变时 business authority hash 保持不变。
 当前不支持 SELL、CLOSE、Partial Fill、多 Fill 累计、最低佣金累计、Short、Hedging、Margin、Futures、Daily MTM、Margin Call、
 多 Account、多 Currency、FX 或 Corporate Action。
 
-后续职责：PR3 实现真实 Manager Projection Targets；PR4 实现 Commit Coordinator 与 projection-ready 编排；PR5 切换
+后续职责：真实 Manager Projection Targets 已由 ADR 0038 完成；PR4 实现 Commit Coordinator 与 projection-ready 编排；PR5 切换
 ExecutionProcessor 并完成 recovery/replay。当前不得声称 Store Commit Coordinator、ExecutionProcessor Switch、Legacy Journal
 Removal 或 Full Runtime Replay 已完成。

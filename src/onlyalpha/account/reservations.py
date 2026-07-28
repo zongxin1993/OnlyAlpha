@@ -43,3 +43,8 @@ class OnlyAccountReservationManager:
                 key=lambda item: str(item.reservation_id),
             )
         )
+
+    def restore_execution_authority(self, reservation: OnlyAccountReservation) -> None:
+        if reservation.runtime_id != self.runtime_id:
+            raise ValueError("Account Reservation belongs to another Runtime")
+        self._reservations[reservation.reservation_id] = reservation

@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
-from onlyalpha.domain.value import OnlyMultiplier, OnlyPrice
+from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice
 from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.strategy.identifiers import OnlyStrategyId
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint
 
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -87,13 +88,28 @@ class OnlyTradeExecutionPlanningContext:
     valuation_before: OnlyValuationExecutionState
     position_creation: OnlyPositionCreationAuthority | None
     allocation_creation: OnlyAllocationCreationAuthority | None
+    position_cycle: int = 0
+    allocation_cycle: int = 0
     settlement_record_sequence: int = 0
     fee_record_sequence: int = 0
+    account_equity_sequence: int = 0
+    ledger_equity_sequence: int = 0
+    account_external_cash_flow: OnlyMoney | None = None
+    ledger_equity_before: OnlyStrategyLedgerEquityPoint | None = None
+    ledger_high_water_mark: OnlyMoney | None = None
     position_reservation_before: OnlyPositionReservationExecutionState | None = None
     margin_reservation_before: OnlyMarginReservationExecutionState | None = None
 
     def __post_init__(self) -> None:
-        if self.processing_sequence < 0 or self.settlement_record_sequence < 0 or self.fee_record_sequence < 0:
+        if (
+            self.processing_sequence < 0
+            or self.position_cycle < 0
+            or self.allocation_cycle < 0
+            or self.settlement_record_sequence < 0
+            or self.fee_record_sequence < 0
+            or self.account_equity_sequence < 0
+            or self.ledger_equity_sequence < 0
+        ):
             raise ValueError("Trade planning sequences cannot be negative")
 
 

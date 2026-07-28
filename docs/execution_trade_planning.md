@@ -1,5 +1,7 @@
 # Execution Trade Planning
 
+Planner 输出的 v4 Projection 已可由 12 个真实 Manager Target 直接安装。Planner 仍保持纯函数边界；Target 只消费 committed fact/After Authority，不重新执行 reducer 或市场、费用、结算、风险规则。连续 replay 与 forward recovery 见 [Real Manager Projection Targets](execution_projection_targets.md)。
+
 `OnlyTradeExecutionTransactionPlanner` 是 Generic T0 Cash `LIMIT BUY OPEN` 整单成交的纯事务编译器。它只接收
 `OnlyTradeExecutionPlanningContext`，不读取 Manager、Runtime、Clock、Broker、Store 或 EventBus，也不分配 Store
 execution sequence。

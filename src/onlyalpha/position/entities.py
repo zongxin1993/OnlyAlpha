@@ -1,5 +1,7 @@
 """Runtime-private controlled mutable account Position entity."""
 
+from __future__ import annotations
+
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from onlyalpha.domain.identifiers import OnlyPositionId
@@ -48,6 +50,37 @@ class OnlyPosition:
         self.quality_flags: tuple[str, ...] = ()
         self.broker_available_quantity: OnlyQuantity | None = None
         self._restrictions: dict[object, OnlyPositionRestriction] = {}
+
+    @classmethod
+    def restore(cls, snapshot: OnlyPositionSnapshot) -> OnlyPosition:
+        """Rehydrate Generic T0 Position authority without applying a Trade."""
+
+        if snapshot.restricted_quantity.value != 0:
+            raise ValueError("Position replay requires explicit restriction authority")
+        entity = cls.__new__(cls)
+        entity.position_id = snapshot.position_id
+        entity.key = snapshot.key
+        entity.status = snapshot.status
+        entity.total_quantity = snapshot.total_quantity
+        entity.settled_quantity = snapshot.settled_quantity
+        entity.unsettled_quantity = snapshot.unsettled_quantity
+        entity.order_frozen_quantity = snapshot.order_frozen_quantity
+        entity.risk_reserved_quantity = snapshot.risk_reserved_quantity
+        entity.average_open_price = snapshot.average_open_price
+        entity.realized_pnl = snapshot.realized_pnl
+        entity.fees = snapshot.fees
+        entity.opened_at = snapshot.opened_at
+        entity.updated_at = snapshot.updated_at
+        entity.closed_at = snapshot.closed_at
+        entity.version = snapshot.version
+        entity.last_trade_sequence = snapshot.last_trade_sequence
+        entity.last_trade_order = snapshot.last_trade_order
+        entity.quality_flags = snapshot.quality_flags
+        entity.broker_available_quantity = snapshot.broker_available_quantity
+        entity._restrictions = {}
+        if entity.snapshot() != snapshot:
+            raise ValueError("restored Position does not reproduce committed Snapshot")
+        return entity
 
     @property
     def restricted_quantity(self) -> OnlyQuantity:

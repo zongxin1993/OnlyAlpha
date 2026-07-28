@@ -349,6 +349,61 @@ class OnlyAccountManager:
     def list_accounts(self) -> tuple[OnlyAccountSnapshot, ...]:
         return tuple(self._snapshot(self._accounts[key]) for key in sorted(self._accounts, key=str))
 
+    @property
+    def execution_event_sequence(self) -> int:
+        return self._event_sequence
+
+    def restore_execution_event_sequence(self, sequence: int) -> None:
+        if sequence < self._event_sequence:
+            raise ValueError("Account event sequence cannot regress")
+        self._event_sequence = sequence
+
+    def get_cash_reservation(self, reservation_id: OnlyAccountReservationId) -> OnlyAccountReservation | None:
+        return self._reservation_manager.get(reservation_id)
+
+    def restore_cash_reservation_execution_authority(self, reservation: OnlyAccountReservation) -> None:
+        self._reservation_manager.restore_execution_authority(reservation)
+        state = self._require(reservation.account_id)
+        self._repository.save(self._snapshot(state))
+
+    def restore_valuation_version(self, account_id: OnlyAccountId, version: int) -> None:
+        if version < 1:
+            raise ValueError("Account valuation version must be positive")
+        self._valuation_versions[account_id] = version
+
+    def restore_execution_authority(
+        self,
+        snapshot: OnlyAccountSnapshot,
+        *,
+        trade_ids: tuple[object, ...] = (),
+    ) -> None:
+        self._require_scope(snapshot.runtime_id)
+        state = self._require(snapshot.account_id)
+        if state.config.gateway_id != snapshot.gateway_id or state.config.base_currency != snapshot.base_currency:
+            raise ValueError("Account replay scope differs from registered Account")
+        state.cash_balance = snapshot.cash.cash_balance
+        state.frozen_cash = snapshot.cash.frozen_cash
+        state.unsettled_cash = snapshot.cash.unsettled_cash
+        state.position_market_value = snapshot.position_market_value
+        state.realized_pnl = snapshot.realized_pnl
+        state.unrealized_pnl = snapshot.unrealized_pnl
+        state.fees = snapshot.fees
+        state.status = snapshot.status
+        state.created_at = snapshot.created_at
+        state.updated_at = snapshot.updated_at
+        state.valuation_time = snapshot.valuation_time
+        state.version = snapshot.version
+        state.last_external_sequence = snapshot.last_external_sequence
+        state.quality_flags = snapshot.quality_flags
+        state.reserved_margin = Decimal(0) if snapshot.reserved_margin is None else snapshot.reserved_margin.amount
+        state.occupied_margin = Decimal(0) if snapshot.occupied_margin is None else snapshot.occupied_margin.amount
+        state.released_margin = Decimal(0) if snapshot.released_margin is None else snapshot.released_margin.amount
+        self._trade_ids.update(trade_ids)
+        restored = self._snapshot(state)
+        if restored != snapshot:
+            raise ValueError("restored Account does not reproduce committed Snapshot")
+        self._repository.save(restored)
+
     def _snapshot(self, state: OnlyAccount) -> OnlyAccountSnapshot:
         currency = state.config.base_currency
         available = OnlyMoney(

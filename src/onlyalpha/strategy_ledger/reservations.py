@@ -162,6 +162,11 @@ class OnlyStrategyCashReservationManager:
     def snapshots(self) -> tuple[OnlyStrategyCashReservation, ...]:
         return tuple(sorted(self._by_order.values(), key=lambda item: str(item.reservation_id)))
 
+    def restore_execution_authority(self, reservation: OnlyStrategyCashReservation) -> None:
+        if reservation.key != self.key:
+            raise ValueError("Strategy cash Reservation belongs to another Ledger")
+        self._by_order[reservation.order_id] = reservation
+
     def _require_currency(self, amount: OnlyMoney) -> None:
         if amount.currency != self.key.base_currency:
             raise ValueError("cash Reservation currency differs from Ledger base currency")

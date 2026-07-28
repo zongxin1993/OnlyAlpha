@@ -99,6 +99,66 @@ class OnlyOrder:
         self._rejection: OnlyOrderRejection | None = None
         self._failure: OnlyOrderFailure | None = None
 
+    @classmethod
+    def restore(
+        cls,
+        snapshot: OnlyOrderSnapshot,
+        *,
+        external_event_ids: frozenset[str] = frozenset(),
+        trade_ids: frozenset[str] = frozenset(),
+        venue_trade_ids: frozenset[str] = frozenset(),
+        request_account_id: OnlyAccountId | None = None,
+    ) -> OnlyOrder:
+        """Rehydrate committed authority without executing an Order transition."""
+
+        request = OnlyOrderRequest(
+            snapshot.request_id,
+            snapshot.instrument_id,
+            snapshot.side,
+            snapshot.order_type,
+            snapshot.quantity,
+            snapshot.time_in_force,
+            request_account_id,
+            snapshot.offset,
+            snapshot.price,
+            snapshot.stop_price,
+            snapshot.expire_time,
+            snapshot.tags,
+            snapshot.metadata,
+        )
+        entity = cls(
+            request,
+            snapshot.order_id,
+            snapshot.client_order_id,
+            snapshot.runtime_id,
+            snapshot.cluster_id,
+            snapshot.account_id,
+            snapshot.created_at,
+        )
+        entity._venue_order_id = snapshot.venue_order_id
+        entity._status = snapshot.status
+        entity._filled_quantity = snapshot.filled_quantity
+        entity._average_fill_price = snapshot.average_fill_price
+        entity._updated_at = snapshot.updated_at
+        entity._submitted_at = snapshot.submitted_at
+        entity._accepted_at = snapshot.accepted_at
+        entity._cancel_requested_at = snapshot.cancel_requested_at
+        entity._cancelled_at = snapshot.cancelled_at
+        entity._filled_at = snapshot.filled_at
+        entity._rejected_at = snapshot.rejected_at
+        entity._expired_at = snapshot.expired_at
+        entity._failed_at = snapshot.failed_at
+        entity._version = snapshot.version
+        entity._last_external_sequence = snapshot.last_external_sequence
+        entity._external_event_ids = set(external_event_ids)
+        entity._trade_ids = set(trade_ids)
+        entity._venue_trade_ids = set(venue_trade_ids)
+        entity._rejection = snapshot.rejection
+        entity._failure = snapshot.failure
+        if entity.snapshot() != snapshot:
+            raise ValueError("restored Order does not reproduce committed Snapshot")
+        return entity
+
     @property
     def order_id(self) -> OnlyOrderId:
         return self._order_id

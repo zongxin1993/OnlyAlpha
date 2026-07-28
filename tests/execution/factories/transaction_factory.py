@@ -42,6 +42,7 @@ from onlyalpha.execution import (
     OnlyAccountExecutionProjection,
     OnlyAccountExecutionState,
     OnlyAllocationExecutionProjection,
+    OnlyAllocationExecutionReplayMetadata,
     OnlyAllocationExecutionState,
     OnlyCommittedExecutionFactDraft,
     OnlyExecutionPrecondition,
@@ -61,6 +62,7 @@ from onlyalpha.execution import (
     OnlyOrderExecutionProjection,
     OnlyOrderExecutionState,
     OnlyPositionExecutionProjection,
+    OnlyPositionExecutionReplayMetadata,
     OnlyPositionExecutionState,
     OnlyPositionReservationExecutionProjection,
     OnlyPositionReservationExecutionState,
@@ -336,6 +338,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         _day(),
         _day(),
         1,
+        0,
     )
     fee = OnlyFeeExecutionState(
         OnlyFeeInstructionReplay(
@@ -353,6 +356,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         _money("0.00"),
         OnlyFeeBreakdown.empty(_currency(), OnlyFeeStatus.CONFIRMED),
         1,
+        0,
     )
     account_before = _account_state(cash="100.00", market_value="0.00", version=1, sequence=6)
     account_after = _account_state(cash="80.00", market_value="20.00", version=2, sequence=7)
@@ -476,12 +480,14 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
             None,
             position,
             _money("0.00"),
+            OnlyPositionExecutionReplayMetadata(1),
         ),
         OnlyAllocationExecutionProjection(
             _identity(OnlyExecutionProjectionComponent.ALLOCATION, 3, "allocation", None, allocation),
             None,
             allocation,
             _money("0.00"),
+            OnlyAllocationExecutionReplayMetadata(1),
         ),
         OnlySettlementExecutionProjection(
             _identity(OnlyExecutionProjectionComponent.SETTLEMENT, 4, "settlement", None, settlement),

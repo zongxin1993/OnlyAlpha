@@ -129,6 +129,10 @@ class OnlyRiskReservationManager:
         self._reservation_id_by_order_id[order_id] = reservation_id
         return OnlyRiskReservationResult(OnlyRiskReservationApplyResult.APPLIED, True, reservation)
 
+    @property
+    def sequence_head(self) -> int:
+        return self._sequence
+
     def release(
         self,
         reservation_id: OnlyRiskReservationId,
@@ -305,6 +309,13 @@ class OnlyRiskReservationManager:
 
     def snapshot_active(self) -> tuple[OnlyRiskReservation, ...]:
         return tuple(item for item in self.snapshot_all() if item.state is OnlyRiskReservationState.ACTIVE)
+
+    def restore_execution_authority(self, reservation: OnlyRiskReservation, *, sequence: int) -> None:
+        if reservation.runtime_id != self.runtime_id or sequence < self._sequence:
+            raise ValueError("invalid Risk Reservation replay authority")
+        self._reservations[reservation.reservation_id] = reservation
+        self._reservation_id_by_order_id[reservation.order_id] = reservation.reservation_id
+        self._sequence = sequence
 
     def active_notional(
         self,

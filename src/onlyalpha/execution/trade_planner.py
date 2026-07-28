@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import NoReturn
 
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus, OnlyAccountType
+from onlyalpha.account.performance import OnlyAccountEquityPoint, OnlyAccountValuationSource
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyRate
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeComponent, OnlyFeeType
 from onlyalpha.market.models import OnlyPositionEffect
@@ -18,6 +19,7 @@ from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide, OnlySet
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState, OnlyStrategyLedgerStatus
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
 from .event_identity import OnlyExecutionTransactionEventFactory
 from .identity import only_execution_transaction_id
@@ -28,7 +30,8 @@ from .planning_results import (
     OnlyTradeExecutionPlanningError,
     OnlyTradeExecutionPlanningErrorCode,
 )
-from .projection import OnlyExecutionProjection, OnlyExecutionProjectionComponent
+from .projection import OnlyExecutionProjection, OnlyExecutionProjectionComponent, OnlyValuationExecutionProjection
+from .projection_builder import OnlyExecutionProjectionBuilder
 from .reducers import (
     OnlyAccountCashReservationTradeReducer,
     OnlyAccountTradeReducer,
@@ -106,10 +109,18 @@ class OnlyTradeExecutionTransactionPlanner:
         trade = self._planned_trade(context)
         order = OnlyOrderTradeReducer().reduce(context.order_before, trade, projection_sequence=1)
         position = OnlyPositionTradeReducer().reduce(
-            context.position_before, trade, context.position_creation, projection_sequence=2
+            context.position_before,
+            trade,
+            context.position_creation,
+            cycle=context.position_cycle,
+            projection_sequence=2,
         )
         allocation = OnlyAllocationTradeReducer().reduce(
-            context.allocation_before, trade, context.allocation_creation, projection_sequence=3
+            context.allocation_before,
+            trade,
+            context.allocation_creation,
+            cycle=context.allocation_cycle,
+            projection_sequence=3,
         )
         settlement = OnlySettlementTradeReducer().reduce(
             context.settlement_before,
@@ -180,6 +191,28 @@ class OnlyTradeExecutionTransactionPlanner:
             account.after.unrealized_pnl,
             projection_sequence=12,
         )
+        ledger_projection = replace(
+            ledger.projection,
+            valuation_lines=(
+                OnlyStrategyValuationLine(
+                    trade.instrument_id,
+                    ledger.after.position_cost,
+                    ledger.after.position_market_value,
+                    ledger.after.unrealized_pnl,
+                    context.valuation_price,
+                    valuation.after.version,
+                ),
+            ),
+            identity=replace(ledger.projection.identity, payload_hash="0" * 64),
+        )
+        ledger_projection = OnlyExecutionProjectionBuilder().finalize(ledger_projection)
+        valuation_projection = replace(
+            valuation.projection,
+            account_equity_points=_account_equity_points(context, trade, account.after),
+            strategy_equity_points=_strategy_equity_points(context, trade, ledger.after, allocation.after),
+        )
+        valuation_projection = OnlyExecutionProjectionBuilder().finalize(valuation_projection)
+        assert isinstance(valuation_projection, OnlyValuationExecutionProjection)
         projections: tuple[OnlyExecutionProjection, ...] = (
             order.projection,
             position.projection,
@@ -187,12 +220,12 @@ class OnlyTradeExecutionTransactionPlanner:
             settlement.projection,
             fee.projection,
             account.projection,
-            ledger.projection,
+            ledger_projection,
             account_reservation.projection,
             strategy_reservation.projection,
             risk_reservation.projection,
             risk.projection,
-            valuation.projection,
+            valuation_projection,
         )
         intents = (
             order.event_intents
@@ -732,6 +765,122 @@ def _sum_fee(currency: OnlyCurrency, components: tuple[OnlyFeeComponent, ...]) -
 
 def _money(amount: Decimal, currency: OnlyCurrency) -> OnlyMoney:
     return OnlyMoney(amount.quantize(Decimal(1).scaleb(-currency.precision)), currency)
+
+
+def _rate(value: Decimal) -> OnlyRate:
+    return OnlyRate(value.quantize(Decimal("0.00000001")), 8)
+
+
+def _account_equity_points(
+    context: OnlyTradeExecutionPlanningContext,
+    trade: OnlyPlannedTrade,
+    after: object,
+) -> tuple[OnlyAccountEquityPoint, ...]:
+    from .execution_state import OnlyAccountExecutionState
+
+    if not isinstance(after, OnlyAccountExecutionState):
+        raise TypeError("Account replay points require Account execution state")
+    external = context.account_external_cash_flow or _money(Decimal(0), after.base_currency)
+    values = (
+        (
+            context.account_before.position_market_value,
+            context.account_before.unrealized_pnl,
+            OnlyAccountValuationSource.COMMITTED_EXECUTION,
+        ),
+        (after.position_market_value, after.unrealized_pnl, OnlyAccountValuationSource.MARKET_VALUATION),
+        (after.position_market_value, after.unrealized_pnl, OnlyAccountValuationSource.STATE_CHANGE),
+        (after.position_market_value, after.unrealized_pnl, OnlyAccountValuationSource.STATE_CHANGE),
+    )
+    start_version = after.version - 3
+    return tuple(
+        OnlyAccountEquityPoint(
+            context.account_equity_sequence + index,
+            after.runtime_id,
+            after.account_id,
+            trade.ts_init,
+            None,
+            after.base_currency,
+            after.cash_balance,
+            market_value,
+            after.realized_pnl,
+            unrealized,
+            after.fees,
+            after.cash_balance + market_value,
+            external,
+            source,
+            start_version + index - 1,
+            after.quality_flags,
+        )
+        for index, (market_value, unrealized, source) in enumerate(values, start=1)
+    )
+
+
+def _strategy_equity_points(
+    context: OnlyTradeExecutionPlanningContext,
+    trade: OnlyPlannedTrade,
+    after: object,
+    allocation_after: object,
+) -> tuple[OnlyStrategyLedgerEquityPoint, ...]:
+    from .execution_state import OnlyAllocationExecutionState, OnlyStrategyLedgerExecutionState
+
+    if not isinstance(after, OnlyStrategyLedgerExecutionState) or not isinstance(
+        allocation_after, OnlyAllocationExecutionState
+    ):
+        raise TypeError("Strategy replay points require Ledger execution state")
+    stage_market = _money(
+        trade.price.value * allocation_after.total_quantity.value * trade.multiplier.value,
+        after.key.base_currency,
+    )
+    stage_unrealized = stage_market - after.position_cost
+    stage_equity = after.cash_balance + stage_market
+    economic_values = (
+        (stage_market, stage_unrealized, stage_equity),
+        (after.position_market_value, after.unrealized_pnl, after.equity),
+        (after.position_market_value, after.unrealized_pnl, after.equity),
+        (after.position_market_value, after.unrealized_pnl, after.equity),
+    )
+    high = (
+        after.initial_capital.amount
+        if context.ledger_high_water_mark is None
+        else context.ledger_high_water_mark.amount
+    )
+    previous_max = OnlyRate(Decimal(0), 8)
+    if context.ledger_equity_before is not None:
+        high = max(high, context.ledger_equity_before.equity.amount)
+        previous_max = context.ledger_equity_before.maximum_drawdown
+    start_version = after.version - 3
+    points: list[OnlyStrategyLedgerEquityPoint] = []
+    maximum = previous_max
+    for index, (market_value, unrealized, equity) in enumerate(economic_values, start=1):
+        high = max(high, equity.amount)
+        drawdown = Decimal(0) if high == 0 else equity.amount / high - Decimal(1)
+        if drawdown < maximum.value:
+            maximum = _rate(drawdown)
+        simple = None
+        if after.external_cash_flow.amount == 0 and after.initial_capital.amount > 0:
+            simple = _rate((equity.amount - after.initial_capital.amount) / after.initial_capital.amount)
+        points.append(
+            OnlyStrategyLedgerEquityPoint(
+                context.ledger_equity_sequence + index,
+                after.ledger_id,
+                after.key,
+                trade.ts_event if index <= 2 else trade.ts_init,
+                after.key.base_currency,
+                after.initial_capital,
+                after.cash_balance,
+                market_value,
+                after.realized_pnl,
+                unrealized,
+                after.fees,
+                equity,
+                simple,
+                _rate(drawdown),
+                maximum,
+                start_version + index - 1,
+                after.quality_flags,
+            )
+        )
+    return tuple(points)
 
 
 def _event_timestamp(

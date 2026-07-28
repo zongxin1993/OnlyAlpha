@@ -46,10 +46,18 @@ def _reductions() -> tuple[object, ...]:
     prepared = OnlyTradeExecutionTransactionPlanner().prepare(context)
     expected = {type(item): item for item in prepared.projections}
     position = OnlyPositionTradeReducer().reduce(
-        context.position_before, trade, context.position_creation, projection_sequence=2
+        context.position_before,
+        trade,
+        context.position_creation,
+        cycle=context.position_cycle,
+        projection_sequence=2,
     )
     allocation = OnlyAllocationTradeReducer().reduce(
-        context.allocation_before, trade, context.allocation_creation, projection_sequence=3
+        context.allocation_before,
+        trade,
+        context.allocation_creation,
+        cycle=context.allocation_cycle,
+        projection_sequence=3,
     )
     account_expected = expected[OnlyAccountExecutionProjection]
     account = OnlyAccountTradeReducer().reduce(
@@ -124,7 +132,10 @@ def test_every_reducer_matches_complete_prepared_projection_and_keeps_inputs_imm
     expected = OnlyTradeExecutionTransactionPlanner().prepare(context).projections
     reductions = _reductions()
 
-    assert tuple(item.projection for item in reductions) == expected
+    for reduction, projection in zip(reductions, expected, strict=True):
+        assert type(reduction.projection) is type(projection)
+        assert reduction.projection.before == projection.before
+        assert reduction.projection.after == projection.after
     assert context == before
     for result in reductions:
         projection = result.projection

@@ -6,7 +6,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyPo
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.position.entities import OnlyPosition
-from onlyalpha.position.enums import OnlyPositionMutationStatus
+from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionStatus
 from onlyalpha.position.events import OnlyNullPositionEventPublisher, OnlyPositionEvent
 from onlyalpha.position.exceptions import OnlyPositionOverSellError
 from onlyalpha.position.keys import OnlyPositionKey
@@ -137,6 +137,38 @@ class OnlyPositionManager:
 
     def closed(self) -> tuple[OnlyPositionSnapshot, ...]:
         return tuple(self._closed)
+
+    @property
+    def execution_event_sequence(self) -> int:
+        return self._event_sequence
+
+    def restore_execution_event_sequence(self, sequence: int) -> None:
+        if sequence < self._event_sequence:
+            raise ValueError("Position event sequence cannot regress")
+        self._event_sequence = sequence
+
+    def restore_execution_authority(
+        self,
+        snapshot: OnlyPositionSnapshot,
+        *,
+        cycle: int,
+        trade_fingerprints: tuple[str, ...],
+    ) -> None:
+        if snapshot.key.runtime_id != self.runtime_id or cycle < 1:
+            raise ValueError("invalid Position replay scope or cycle")
+        current_cycle = self._cycles.get(snapshot.key, 0)
+        if cycle < current_cycle:
+            raise ValueError("Position replay cycle cannot regress")
+        entity = OnlyPosition.restore(snapshot)
+        self._repository.save(snapshot)
+        self._cycles[snapshot.key] = cycle
+        self._trade_fingerprints.update(trade_fingerprints)
+        if snapshot.status is OnlyPositionStatus.CLOSED:
+            self._active.pop(snapshot.key, None)
+            self._closed = [item for item in self._closed if item.position_id != snapshot.position_id]
+            self._closed.append(snapshot)
+        else:
+            self._active[snapshot.key] = entity
 
     def freeze(self, key: OnlyPositionKey, quantity: OnlyQuantity, *, risk: bool = False) -> OnlyPositionSnapshot:
         entity = self._require_entity(key)

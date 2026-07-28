@@ -1,5 +1,7 @@
 """Runtime-owned Cluster Position attribution ledger."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
@@ -61,6 +63,28 @@ class _OnlyAllocationState:
             self.version,
             self.last_sequence,
             self.last_order,
+        )
+
+    @classmethod
+    def restore(cls, snapshot: OnlyPositionAllocationSnapshot) -> _OnlyAllocationState:
+        return cls(
+            snapshot.allocation_id,
+            snapshot.key,
+            snapshot.total_quantity,
+            snapshot.settled_quantity,
+            snapshot.unsettled_quantity,
+            snapshot.order_frozen_quantity,
+            snapshot.risk_reserved_quantity,
+            snapshot.restricted_quantity,
+            snapshot.average_open_price,
+            snapshot.realized_pnl,
+            snapshot.fees,
+            snapshot.opened_at,
+            snapshot.updated_at,
+            snapshot.closed_at,
+            snapshot.version,
+            snapshot.last_trade_sequence,
+            snapshot.last_trade_order,
         )
 
 
@@ -142,6 +166,30 @@ class OnlyPositionAllocationManager:
         """Return immutable closed Allocation history in deterministic order."""
 
         return tuple(self._closed)
+
+    def restore_execution_authority(
+        self,
+        snapshot: OnlyPositionAllocationSnapshot,
+        *,
+        cycle: int,
+        trade_fingerprints: tuple[str, ...],
+    ) -> None:
+        if snapshot.key.runtime_id != self.runtime_id or cycle < 1:
+            raise ValueError("invalid Allocation replay scope or cycle")
+        if cycle < self._cycles.get(snapshot.key, 0):
+            raise ValueError("Allocation replay cycle cannot regress")
+        state = _OnlyAllocationState.restore(snapshot)
+        if state.snapshot() != snapshot:
+            raise ValueError("restored Allocation does not reproduce committed Snapshot")
+        self._repository.save(snapshot)
+        self._cycles[snapshot.key] = cycle
+        self._trade_fingerprints.update(trade_fingerprints)
+        if snapshot.total_quantity.value == 0:
+            self._active.pop(snapshot.key, None)
+            self._closed = [item for item in self._closed if item.allocation_id != snapshot.allocation_id]
+            self._closed.append(snapshot)
+        else:
+            self._active[snapshot.key] = state
 
     def unallocated(self) -> tuple[OnlyUnallocatedPosition, ...]:
         return tuple(

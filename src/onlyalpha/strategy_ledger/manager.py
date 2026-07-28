@@ -24,6 +24,7 @@ from onlyalpha.strategy_ledger.identifiers import (
 )
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.models import (
+    OnlyStrategyCashReservation,
     OnlyStrategyFeeEntry,
     OnlyStrategyLedgerEquityPoint,
     OnlyStrategyLedgerEvent,
@@ -31,6 +32,7 @@ from onlyalpha.strategy_ledger.models import (
     OnlyStrategyLedgerSnapshot,
     OnlyStrategyTradeAccountingInput,
     OnlyStrategyValuation,
+    OnlyStrategyValuationLine,
     only_zero_money,
 )
 from onlyalpha.strategy_ledger.ports import (
@@ -61,6 +63,7 @@ class OnlyStrategyLedgerManager:
             OnlyStrategyLedgerKey,
         ] = {}
         self._reservations: dict[OnlyStrategyLedgerKey, OnlyStrategyCashReservationManager] = {}
+        self._cash_reserved: dict[OnlyStrategyLedgerKey, OnlyMoney] = {}
         self._trade_fingerprints: set[str] = set()
         self._fee_ids: set[OnlyStrategyFeeEntryId] = set()
         self._cash_flow_ids: set[OnlyStrategyCashFlowId] = set()
@@ -86,6 +89,7 @@ class OnlyStrategyLedgerManager:
         self._ledgers[key] = ledger
         self._scope_index[scope] = key
         self._reservations[key] = OnlyStrategyCashReservationManager(key)
+        self._cash_reserved[key] = only_zero_money(key.base_currency)
         snapshot = self._save(ledger)
         self._publish("STRATEGY_LEDGER_CREATED", snapshot, timestamp)
         return snapshot
@@ -135,6 +139,7 @@ class OnlyStrategyLedgerManager:
             OnlyMoney(-requested.amount, key.base_currency),
             timestamp,
         )
+        self._cash_reserved[key] = self._reservations[key].active_reserved()
         after = self._save(ledger)
         event = self._publish("STRATEGY_CASH_RESERVED", after, timestamp)
         return self._result(before, after, (event,))
@@ -149,6 +154,7 @@ class OnlyStrategyLedgerManager:
         ledger = self._require_entity(key)
         _, changed = self._reservations[key].advance_stage(order_id, stage, timestamp)
         if changed:
+            self._cash_reserved[key] = self._reservations[key].active_reserved()
             ledger.reservation_changed(timestamp)
             return self._save(ledger)
         return self._snapshot(ledger)
@@ -168,6 +174,7 @@ class OnlyStrategyLedgerManager:
             previous.remaining_amount,
             timestamp,
         )
+        self._cash_reserved[key] = self._reservations[key].active_reserved()
         after = self._save(ledger)
         event = self._publish("STRATEGY_CASH_RESERVATION_RELEASED", after, timestamp)
         return self._result(before, after, (event,))
@@ -187,6 +194,7 @@ class OnlyStrategyLedgerManager:
             raise OnlyStrategyLedgerInsufficientCashError("fill exceeds Reservation and available cash")
         _, changed = self._reservations[key].consume(order_id, actual_amount, timestamp)
         if changed:
+            self._cash_reserved[key] = self._reservations[key].active_reserved()
             ledger.reservation_changed(timestamp)
             snapshot = self._save(ledger)
             self._publish("STRATEGY_CASH_RESERVATION_CONSUMED", snapshot, timestamp)
@@ -351,9 +359,107 @@ class OnlyStrategyLedgerManager:
         self._require_entity(key)
         return self._valuation_versions.get(key, 0)
 
+    @property
+    def execution_event_sequence(self) -> int:
+        return self._event_sequence
+
+    def restore_execution_event_sequence(self, sequence: int) -> None:
+        if sequence < self._event_sequence:
+            raise ValueError("Strategy Ledger event sequence cannot regress")
+        self._event_sequence = sequence
+
+    def get_cash_reservation(
+        self, key: OnlyStrategyLedgerKey, order_id: OnlyOrderId
+    ) -> OnlyStrategyCashReservation | None:
+        return self._reservations[key].get(order_id)
+
+    def restore_valuation_version(self, key: OnlyStrategyLedgerKey, version: int) -> None:
+        if version < 1:
+            raise ValueError("Strategy Ledger valuation version must be positive")
+        self._valuation_versions[key] = version
+
+    def restore_execution_equity_points(self, points: tuple[OnlyStrategyLedgerEquityPoint, ...]) -> None:
+        self.validate_execution_equity_points(points)
+        expected = self._equity_sequence + 1
+        for point in points:
+            self._equity_timelines.setdefault(point.key, []).append(point)
+            self._equity_sequence = point.sequence
+            expected += 1
+
+    def validate_execution_equity_points(self, points: tuple[OnlyStrategyLedgerEquityPoint, ...]) -> None:
+        expected = self._equity_sequence + 1
+        if any(
+            point.key.runtime_id != self.runtime_id or point.sequence != expected + index
+            for index, point in enumerate(points)
+        ):
+            raise ValueError("Strategy Ledger equity replay points are out of scope or sequence")
+
+    def restore_execution_authority(
+        self,
+        snapshot: OnlyStrategyLedgerSnapshot,
+        *,
+        trade_fingerprints: tuple[str, ...],
+        valuation_lines: tuple[OnlyStrategyValuationLine, ...],
+    ) -> None:
+        ledger = self._require_entity(snapshot.key)
+        if ledger.ledger_id != snapshot.ledger_id:
+            raise ValueError("Strategy Ledger replay identity mismatch")
+        ledger.status = snapshot.status
+        ledger.initial_capital = snapshot.capital.initial_capital
+        ledger.external_cash_flow = snapshot.capital.external_cash_flow
+        ledger.cash_balance = snapshot.cash.cash_balance
+        ledger.position_cost = snapshot.equity.position_cost
+        ledger.position_market_value = snapshot.equity.position_market_value
+        ledger.realized_pnl = snapshot.pnl.realized_pnl
+        ledger.unrealized_pnl = snapshot.pnl.unrealized_pnl
+        ledger.fees = snapshot.pnl.fees
+        ledger._equity = snapshot.equity.equity
+        ledger.high_water_mark = snapshot.equity.high_water_mark
+        ledger.maximum_drawdown = snapshot.equity.maximum_drawdown
+        ledger.created_at = snapshot.created_at
+        ledger.updated_at = snapshot.updated_at
+        ledger.valuation_time = snapshot.valuation_time
+        ledger.version = snapshot.version
+        ledger.last_trade_sequence = snapshot.last_trade_sequence
+        ledger.last_trade_order = snapshot.last_trade_order
+        ledger.quality_flags = snapshot.quality_flags
+        ledger.cash_entries = list(snapshot.cash_entries)
+        ledger.fee_entries = list(snapshot.fee_entries)
+        ledger.trade_count = snapshot.performance.trade_count
+        ledger.realized_pnl_delta_count = snapshot.performance.realized_pnl_delta_count
+        ledger.winning_trade_count = snapshot.performance.winning_trade_count
+        ledger.losing_trade_count = snapshot.performance.losing_trade_count
+        ledger.gross_profit = snapshot.performance.gross_profit
+        ledger.gross_loss = snapshot.performance.gross_loss
+        ledger.trading_day = snapshot.equity.trading_day
+        ledger.day_start_equity = snapshot.equity.equity - snapshot.equity.daily_pnl
+        ledger._valuation_lines = {item.instrument_id: item for item in valuation_lines}
+        ledger._entry_sequence = max((item.sequence for item in snapshot.cash_entries), default=0)
+        self._scope_index[
+            (snapshot.key.runtime_id, snapshot.key.account_id, snapshot.key.cluster_id, snapshot.key.base_currency)
+        ] = snapshot.key
+        self._trade_fingerprints.update(trade_fingerprints)
+        self._fee_ids.update(item.entry_id for item in snapshot.fee_entries)
+        self._cash_reserved[snapshot.key] = snapshot.cash.cash_reserved
+        self._repository.save(snapshot)
+        self._repository.save_cash_entries(snapshot.cash_entries)
+        self._repository.save_fee_entries(snapshot.fee_entries)
+
     def _snapshot(self, ledger: OnlyStrategyLedger) -> OnlyStrategyLedgerSnapshot:
         reservations = self._reservations[ledger.key]
-        return ledger.snapshot(reservations.active_reserved(), reservations.snapshots())
+        cash_reserved = self._cash_reserved.get(ledger.key, reservations.active_reserved())
+        return ledger.snapshot(cash_reserved, reservations.snapshots())
+
+    def restore_cash_reservation_execution_authority(self, reservation: OnlyStrategyCashReservation) -> None:
+        manager = self._reservations[reservation.key]
+        manager.restore_execution_authority(reservation)
+        self._cash_reserved[reservation.key] = manager.active_reserved()
+        ledger = self._require_entity(reservation.key)
+        snapshot = self._snapshot(ledger)
+        self._repository.save(snapshot)
+        self._repository.save_cash_entries(snapshot.cash_entries)
+        self._repository.save_fee_entries(snapshot.fee_entries)
+        self._repository.save_reservations(snapshot.reservations)
 
     def _save(self, ledger: OnlyStrategyLedger) -> OnlyStrategyLedgerSnapshot:
         snapshot = self._snapshot(ledger)

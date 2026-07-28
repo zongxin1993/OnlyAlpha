@@ -20,6 +20,7 @@ from ..planning_context import OnlyAllocationCreationAuthority, OnlyPositionCrea
 from ..planning_results import OnlyExecutionEventIntent
 from ..projection import (
     OnlyAllocationExecutionProjection,
+    OnlyAllocationExecutionReplayMetadata,
     OnlyExecutionProjectionComponent,
     OnlyFeeExecutionProjection,
     OnlyFeeExecutionState,
@@ -27,6 +28,7 @@ from ..projection import (
     OnlyFeeRecordReplay,
     OnlyOrderExecutionProjection,
     OnlyPositionExecutionProjection,
+    OnlyPositionExecutionReplayMetadata,
     OnlySettlementExecutionProjection,
     OnlySettlementExecutionState,
     OnlySettlementRecordReplay,
@@ -135,6 +137,7 @@ class OnlyPositionTradeReducer:
         trade: OnlyPlannedTrade,
         creation: OnlyPositionCreationAuthority | None,
         *,
+        cycle: int,
         projection_sequence: int,
     ) -> OnlyPositionTradeReduction:
         zero_quantity = OnlyQuantity(Decimal(0), trade.quantity.precision)
@@ -215,6 +218,7 @@ class OnlyPositionTradeReducer:
             before,
             after,
             zero,
+            OnlyPositionExecutionReplayMetadata(creation.cycle if before is None and creation is not None else cycle),
         )
         projection = builder.finalize(projection)
         assert isinstance(projection, OnlyPositionExecutionProjection)
@@ -234,6 +238,7 @@ class OnlyAllocationTradeReducer:
         trade: OnlyPlannedTrade,
         creation: OnlyAllocationCreationAuthority | None,
         *,
+        cycle: int,
         projection_sequence: int,
     ) -> OnlyAllocationTradeReduction:
         zero_quantity = OnlyQuantity(Decimal(0), trade.quantity.precision)
@@ -301,6 +306,7 @@ class OnlyAllocationTradeReducer:
             before,
             after,
             zero_money,
+            OnlyAllocationExecutionReplayMetadata(creation.cycle if before is None and creation is not None else cycle),
         )
         projection = builder.finalize(projection)
         assert isinstance(projection, OnlyAllocationExecutionProjection)
@@ -349,6 +355,7 @@ class OnlySettlementTradeReducer:
             instruction.cash_withdrawable_on,
             instruction.legal_settlement_on,
             1 if before is None else before.version + 1,
+            record_sequence + int(flags_before != flags_after),
         )
         records: tuple[OnlySettlementRecordReplay, ...] = ()
         if flags_before != flags_after:
@@ -430,6 +437,7 @@ class OnlyFeeTradeReducer:
             instruction.fee_breakdown.total,
             instruction.fee_breakdown,
             1 if before is None else before.version + 1,
+            record_sequence + len(records),
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyFeeExecutionProjection(

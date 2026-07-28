@@ -1331,3 +1331,21 @@ class OnlyBacktestRuntime(OnlyRuntime):
             for handles in self._timer_handles.values()
             for handle in handles.values()
         )
+
+    def restore_execution_valuation_version(self, version: int) -> None:
+        """Restore the committed Runtime valuation sequence without running valuation."""
+
+        if version < self._account_valuation_version:
+            raise ValueError("Runtime valuation version cannot regress")
+        ledgers = self._strategy_ledger_manager.list_ledgers()
+        for ledger in ledgers:
+            current = self._valuation_versions.get(ledger.key, 0)
+            if version < current:
+                raise ValueError("Runtime Strategy valuation version cannot regress")
+        self._account_valuation_version = version
+        for ledger in ledgers:
+            self._valuation_versions[ledger.key] = version
+
+    @property
+    def execution_valuation_version(self) -> int:
+        return self._account_valuation_version
