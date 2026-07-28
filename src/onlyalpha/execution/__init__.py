@@ -164,6 +164,11 @@ from .projection_targets import (
     only_create_generic_t0_execution_projection_targets,
     only_execution_trade_fingerprints,
 )
+from .recovery import (
+    OnlyExecutionRecoveryResult,
+    OnlyExecutionRecoveryService,
+    OnlyExecutionRecoveryStatus,
+)
 from .reservation_presence import OnlyExecutionReservationPresence, only_expected_execution_reservations
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver, OnlyPositionScopeResolutionSource
 from .state import (
@@ -192,7 +197,9 @@ from .transaction_store import (
     OnlyExecutionTransactionOutboxRecord,
     OnlyExecutionTransactionQueryPort,
     OnlyExecutionTransactionStoreError,
+    OnlyExecutionTransactionStorePort,
     OnlyInMemoryExecutionTransactionStore,
+    OnlyProjectionReadyExecutionQueryPort,
     OnlySqliteExecutionTransactionStore,
 )
 
@@ -227,6 +234,9 @@ __all__ = [
     "OnlyExecutionCommitCoordinationResult",
     "OnlyExecutionCommitCoordinationStatus",
     "OnlyExecutionCommitCoordinator",
+    "OnlyExecutionRecoveryResult",
+    "OnlyExecutionRecoveryService",
+    "OnlyExecutionRecoveryStatus",
     "OnlyExecutionEventBatch",
     "OnlyExecutionEventDeliveryCoordinator",
     "OnlyExecutionEventDeliveryIntent",
@@ -287,6 +297,7 @@ __all__ = [
     "OnlyExecutionTransactionOutboxPort",
     "OnlyExecutionTransactionOutboxRecord",
     "OnlyExecutionTransactionQueryPort",
+    "OnlyExecutionTransactionStorePort",
     "OnlyFeeExecutionProjection",
     "OnlyAppliedProjectionLedger",
     "OnlyAppliedProjectionRecord",
@@ -294,6 +305,7 @@ __all__ = [
     "OnlyInMemoryAppliedProjectionLedger",
     "OnlyReferenceExecutionProjectionTarget",
     "OnlyInMemoryExecutionTransactionStore",
+    "OnlyProjectionReadyExecutionQueryPort",
     "OnlyMarginExecutionProjection",
     "OnlyMarginReservationExecutionProjection",
     "OnlyOrderExecutionProjection",

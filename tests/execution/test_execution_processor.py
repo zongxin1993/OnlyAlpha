@@ -87,7 +87,7 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     )
     assert result.audit_record.invariant_result.passed
     assert result.audit_record.to_json() == OnlyExecutionAuditRecord.from_json(result.audit_record.to_json()).to_json()
-    transactions = env.runtime.committed_execution_query.records()
+    transactions = env.runtime.execution_transaction_query.records()
     assert len(transactions) == 1
     assert transactions[0].projection_ready
     fact = transactions[0].fact
@@ -199,7 +199,7 @@ def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
     assert trade_result.status is OnlyExecutionProcessingStatus.DUPLICATE
     assert env.runtime.order_manager.require_snapshot(order_before.order_id).version == order_before.version
     assert env.runtime.account_manager.list_accounts()[0].version == account_before.version
-    assert len(env.runtime.committed_execution_query.records()) == 1
+    assert len(env.runtime.execution_transaction_query.records()) == 1
 
 
 def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,7 +213,7 @@ def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch
         del prepared, committed_at
         raise RuntimeError("injected journal append failure")
 
-    monkeypatch.setattr(env.runtime.committed_execution_query, "commit", fail_commit)
+    monkeypatch.setattr(env.runtime.execution_transaction_query, "commit", fail_commit)
     env.process_bar(DAY_ONE, 4, "10.00")
     result = next(
         item
@@ -221,7 +221,7 @@ def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch
         if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
     )
     assert result.status is OnlyExecutionProcessingStatus.FAILED
-    assert env.runtime.committed_execution_query.records() == ()
+    assert env.runtime.execution_transaction_query.records() == ()
 
 
 def test_late_accepted_does_not_regress_filled_order() -> None:
@@ -326,7 +326,7 @@ def test_supported_trade_does_not_call_old_manager_mutation_api(
     assert "ORDER_FILLED" in emitted
     assert "POSITION_OPENED" in emitted
     assert "STRATEGY_TRADE_APPLIED" in emitted
-    assert len(env.runtime.committed_execution_query.records()) == 1
+    assert len(env.runtime.execution_transaction_query.records()) == 1
 
 
 def test_scope_mismatch_is_rejected_without_state_change() -> None:

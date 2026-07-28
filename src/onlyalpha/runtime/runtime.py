@@ -69,6 +69,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import (
+    OnlyExecutionCommitCoordinator,
     OnlyExecutionDeliveryDiagnostic,
     OnlyExecutionEventBuffer,
     OnlyExecutionEventDeliveryCoordinator,
@@ -77,11 +78,17 @@ from onlyalpha.execution import (
     OnlyExecutionEventDeliveryResult,
     OnlyExecutionOutboxPublisher,
     OnlyExecutionProcessor,
+    OnlyExecutionProjectionStatePort,
+    OnlyExecutionRecoveryResult,
+    OnlyExecutionRecoveryService,
     OnlyExecutionSequenceTracker,
+    OnlyExecutionTransactionOutboxPort,
     OnlyExecutionTransactionQueryPort,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
+    OnlyOutboxPublishResult,
+    OnlyProjectionReadyExecutionQueryPort,
 )
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
@@ -133,6 +140,25 @@ _LOGGER = logging.getLogger(__name__)
 
 class OnlyRuntimeError(Exception):
     """Base Runtime orchestration error."""
+
+
+class OnlyRuntimeRecoveryError(OnlyRuntimeError):
+    """Startup was blocked because committed execution authority could not recover."""
+
+    def __init__(self, result: OnlyExecutionRecoveryResult) -> None:
+        self.result = result
+        super().__init__(
+            "execution recovery failed: "
+            f"runtime_id={result.runtime_id} status={result.status.value} "
+            f"coordinator_status={None if result.coordinator_status is None else result.coordinator_status.value} "
+            f"sequence={result.failed_sequence} transaction_id={result.failed_transaction_id} "
+            f"component={None if result.failure_component is None else result.failure_component.value} "
+            f"projection_error={result.projection_error!r} error={result.error!r}"
+        )
+
+
+class OnlyRuntimeOutboxDeliveryError(OnlyRuntimeError):
+    """Recovered durable events could not be delivered before Cluster startup."""
 
 
 class OnlyRuntimeState(StrEnum):
@@ -262,7 +288,12 @@ class OnlyRuntimeServices:
     broker_inbound: OnlyBrokerInboundQueue
     broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
-    committed_execution_query: OnlyExecutionTransactionQueryPort
+    execution_commit_coordinator: OnlyExecutionCommitCoordinator
+    execution_recovery_service: OnlyExecutionRecoveryService
+    execution_transaction_query: OnlyExecutionTransactionQueryPort
+    ready_execution_query: OnlyProjectionReadyExecutionQueryPort
+    execution_projection_state: OnlyExecutionProjectionStatePort
+    execution_transaction_outbox: OnlyExecutionTransactionOutboxPort
     execution_event_buffer: OnlyExecutionEventBuffer
     execution_delivery_coordinator: OnlyExecutionEventDeliveryCoordinator
     execution_outbox_publisher: OnlyExecutionOutboxPublisher
@@ -494,6 +525,7 @@ class OnlyRuntime:
         self._services: OnlyRuntimeServices
         self._last_error: str | None = None
         self._execution_delivery_diagnostics: list[OnlyExecutionDeliveryDiagnostic] = []
+        self._execution_recovery_diagnostics: list[OnlyExecutionRecoveryResult] = []
         self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
@@ -656,8 +688,20 @@ class OnlyRuntime:
         return self._services.broker_gateway
 
     @property
-    def committed_execution_query(self) -> OnlyExecutionTransactionQueryPort:
-        return self._services.committed_execution_query
+    def execution_transaction_query(self) -> OnlyExecutionTransactionQueryPort:
+        """Administrative query over every durably committed transaction."""
+
+        return self._services.execution_transaction_query
+
+    @property
+    def ready_execution_query(self) -> OnlyProjectionReadyExecutionQueryPort:
+        """Business query over Projection Ready transactions only."""
+
+        return self._services.ready_execution_query
+
+    @property
+    def execution_recovery_diagnostics(self) -> tuple[OnlyExecutionRecoveryResult, ...]:
+        return tuple(self._execution_recovery_diagnostics)
 
     @property
     def execution_delivery_diagnostics(self) -> tuple[OnlyExecutionDeliveryDiagnostic, ...]:
@@ -680,10 +724,15 @@ class OnlyRuntime:
             )
         )
 
-    def _drain_execution_outbox(self) -> None:
-        result = self._services.execution_outbox_publisher.publish_pending(
-            self.config.runtime_id  # type: ignore[arg-type]
-        )
+    def _drain_execution_outbox(self) -> OnlyOutboxPublishResult:
+        try:
+            result = self._services.execution_outbox_publisher.publish_pending(
+                self.config.runtime_id  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            raise OnlyRuntimeOutboxDeliveryError(
+                f"execution Outbox query/delivery failed: {type(exc).__name__}: {exc}"
+            ) from exc
         self._record_execution_delivery(
             None,
             OnlyExecutionEventDeliveryResult(
@@ -696,6 +745,7 @@ class OnlyRuntime:
                 result.last_error,
             ),
         )
+        return result
 
     @property
     def broker_inbound_queue(self) -> OnlyBrokerInboundQueue:
@@ -810,7 +860,15 @@ class OnlyRuntime:
                 initialized.append(resource)
                 resource.connect()
             self._services.cluster_manager.initialize_all()
+            recovery = self._services.execution_recovery_service.recover(self.config.runtime_id)  # type: ignore[arg-type]
+            self._execution_recovery_diagnostics.append(recovery)
+            if not recovery.succeeded:
+                raise OnlyRuntimeRecoveryError(recovery)
             self._state = OnlyRuntimeState.READY
+        except OnlyRuntimeRecoveryError:
+            self._rollback_plugin_resources(tuple(initialized))
+            self._state = OnlyRuntimeState.FAILED
+            raise
         except Exception as exc:
             self._rollback_plugin_resources(tuple(initialized))
             self._state = OnlyRuntimeState.FAILED
@@ -832,7 +890,17 @@ class OnlyRuntime:
             for resource in self._plugin_resources:
                 current_resource = resource
                 resource.start()
+            outbox = self._drain_execution_outbox()
+            if outbox.failed or outbox.remaining:
+                raise OnlyRuntimeOutboxDeliveryError(
+                    "recovered execution Outbox delivery failed: "
+                    f"failed={outbox.failed} remaining={outbox.remaining} error={outbox.last_error!r}"
+                )
             self._services.cluster_manager.start_all()
+        except OnlyRuntimeOutboxDeliveryError:
+            self._rollback_plugin_resources(self._plugin_resources)
+            self._state = OnlyRuntimeState.FAILED
+            raise
         except Exception as exc:
             self._rollback_plugin_resources(self._plugin_resources)
             self._state = OnlyRuntimeState.FAILED
@@ -843,7 +911,6 @@ class OnlyRuntime:
                 plugin_id=failing[0],
                 resource_id=failing[1],
             ) from exc
-        self._drain_execution_outbox()
         self._state = OnlyRuntimeState.RUNNING
         self._publish_runtime_fact("RUNTIME_STARTED")
         self._services.event_bus.drain()

@@ -40,3 +40,7 @@ Batch 采用 forward recovery：Component N 失败时，1..N-1 保持 APPLIED；
 ## Current scope
 
 Pure Planner、Real Manager Targets、Applied Ledger、Commit Coordinator 与 Runtime 正式装配已完成。受支持的 ExecutionProcessor 路径使用 commit-before-mutation，并在完整 Target Batch 后标记 Projection Ready。当前能力是“正确 Bootstrap/Before Authority + ordered committed transaction tail → Runtime Authority Recovery”，不是 Empty Runtime Full Replay；Applied Ledger 仍是可重建索引而非业务真值。
+
+12 个 Generic T0 Target 现由 Runtime startup Recovery 使用同一正式 Registry。测试以 Target wrapper 和 failing Applied Ledger 覆盖每个
+Component 的 target 前、Manager install/ledger 前、target 返回后、payload/version/state conflict，并比较真实 Manager economic digest；
+生产 Target 没有故障开关。Recovery 完成前 Transaction 不进入 Ready Query 或 Outbox。

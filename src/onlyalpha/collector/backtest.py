@@ -11,6 +11,7 @@ from enum import StrEnum
 from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
+from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult
 from onlyalpha.result.diagnostics import (
@@ -96,7 +97,12 @@ class OnlyBacktestResultCollector:
         order_records = tuple(self._order_record(next_sequence(), item, cluster_strategy) for item in orders)
         trades = tuple(
             sorted(
-                (transaction.fact for transaction in runtime.committed_execution_query.records()),
+                (
+                    transaction.fact
+                    for transaction in runtime.ready_execution_query.ready_records(
+                        OnlyRuntimeId(str(runtime.config.runtime_id))
+                    )
+                ),
                 key=lambda item: item.stable_order,
             )
         )
@@ -363,7 +369,13 @@ class OnlyBacktestResultCollector:
                         bar_type=None if update.bar_type is None else update.bar_type.to_json(),
                     )
                 )
-        diagnostics = OnlyBacktestDiagnostics(tuple(failures), (), False, len(failures))
+        diagnostics = OnlyBacktestDiagnostics(
+            tuple(failures),
+            (),
+            False,
+            len(failures),
+            runtime.execution_recovery_diagnostics,
+        )
         self._collected = OnlyCollectedBacktestFacts(
             OnlyBacktestFacts(
                 signals=tuple(sorted(signals, key=lambda item: item.sequence)),

@@ -101,6 +101,7 @@ from onlyalpha.execution.projection_targets import (
     OnlyExecutionValuationAuthority,
     only_create_generic_t0_execution_projection_targets,
 )
+from onlyalpha.execution.recovery import OnlyExecutionRecoveryService
 from onlyalpha.execution.scope import OnlyExecutionPositionScope
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
@@ -109,7 +110,10 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
-from onlyalpha.execution.transaction_store import OnlyInMemoryExecutionTransactionStore
+from onlyalpha.execution.transaction_store import (
+    OnlyExecutionTransactionStorePort,
+    OnlyInMemoryExecutionTransactionStore,
+)
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
@@ -212,6 +216,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_gateway: OnlyBrokerGateway | None = None,
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
+        execution_transaction_store: OnlyExecutionTransactionStorePort | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
         if config.mode is not OnlyRuntimeMode.BACKTEST:
@@ -424,7 +429,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        committed_execution_store = OnlyInMemoryExecutionTransactionStore()
+        committed_execution_store = execution_transaction_store or OnlyInMemoryExecutionTransactionStore()
         applied_projection_ledger = OnlyInMemoryAppliedProjectionLedger()
         execution_valuation_authority = OnlyExecutionValuationAuthority(
             account_performance=self._account_performance_projector,
@@ -451,6 +456,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             projection_applier=execution_projection_applier,
             now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
+        execution_recovery_service = OnlyExecutionRecoveryService(execution_commit_coordinator)
         execution_outbox_publisher = OnlyExecutionOutboxPublisher(
             committed_execution_store,
             owned_bus,
@@ -635,6 +641,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             broker_inbound,
             selected_broker_gateway,
             execution_processor,
+            execution_commit_coordinator,
+            execution_recovery_service,
+            committed_execution_store,
+            committed_execution_store,
+            committed_execution_store,
             committed_execution_store,
             execution_event_buffer,
             execution_delivery_coordinator,
@@ -811,6 +822,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
     def receive_broker_update(self, update: OnlyBrokerInboundUpdate) -> None:
         """Runtime management inbound Port used by Gateways and explicit fault adapters."""
 
+        if self._state is not OnlyRuntimeState.RUNNING:
+            raise OnlyLifecycleError("Runtime accepts Broker updates only while RUNNING")
         self._services.broker_inbound.put(update)
 
     @property

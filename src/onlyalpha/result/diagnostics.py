@@ -7,6 +7,7 @@ from datetime import date, datetime
 from enum import StrEnum
 
 from onlyalpha.domain.time import only_require_utc
+from onlyalpha.execution.recovery import OnlyExecutionRecoveryResult
 
 
 class OnlyResultDiagnosticSeverity(StrEnum):
@@ -83,6 +84,7 @@ class OnlyBacktestDiagnostics:
     warnings: tuple[OnlyBacktestWarning, ...] = ()
     truncated: bool = False
     total_failure_count: int = 0
+    execution_recoveries: tuple[OnlyExecutionRecoveryResult, ...] = ()
 
     def __post_init__(self) -> None:
         failures = tuple(self.failures)

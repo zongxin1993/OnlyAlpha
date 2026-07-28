@@ -110,3 +110,7 @@ processing/audit/reconciliation ID 按 Runtime sequence 生成。Backtest、Virt
 - Live/Paper Runtime 资源装配与真实 Broker SDK 尚未实现；
 - Coordinator 当前仅覆盖 Generic T0 Cash、LIMIT BUY OPEN、整单成交；SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约明确待迁移。
 - 当前恢复是 committed transaction tail 的 forward recovery，不等于 Full Runtime Recovery；Outbox 是 at-least-once，不是 exactly-once。
+
+Runtime 生命周期通过 `OnlyExecutionRecoveryService` 在 READY 前调用 Coordinator 的 tail recovery。Processor 不解释恢复结果，也不在
+失败后继续接收 Broker update。全部 committed transaction 由 Admin Query 查询；Processor 下游的 Result/Collector 只通过 Projection
+Ready Query 读取。Recovered Outbox 在 Cluster start 前交付，delivery failure 不回滚已经 Ready 的 Manager authority。

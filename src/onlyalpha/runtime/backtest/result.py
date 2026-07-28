@@ -278,5 +278,25 @@ class OnlyBacktestResult:
                         "sequence": self.diagnostics.first_failure.sequence,
                     }
                 ),
+                "execution_recoveries": [
+                    {
+                        "runtime_id": str(item.runtime_id),
+                        "status": item.status.value,
+                        "attempted_transactions": item.attempted_transactions,
+                        "completed_transactions": item.completed_transactions,
+                        "recovered_transactions": item.recovered_transactions,
+                        "idempotent_transactions": item.idempotent_transactions,
+                        "failed_sequence": item.failed_sequence,
+                        "failed_transaction_id": item.failed_transaction_id,
+                        "blocked_sequence": item.blocked_sequence,
+                        "failure_component": (None if item.failure_component is None else item.failure_component.value),
+                        "coordinator_status": (
+                            None if item.coordinator_status is None else item.coordinator_status.value
+                        ),
+                        "projection_error": item.projection_error,
+                        "error": item.error,
+                    }
+                    for item in self.diagnostics.execution_recoveries
+                ],
             },
         }

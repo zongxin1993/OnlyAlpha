@@ -25,7 +25,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert risk_reservation.consumed_quantity.value == Decimal("40")
     assert risk_reservation.remaining_quantity.value == Decimal("60")
     assert risk_reservation.remaining_notional.amount == Decimal("600.00")
-    committed = partial.runtime.committed_execution_query.records()
+    committed = partial.runtime.ready_execution_query.ready_records(partial.runtime.config.runtime_id)
     # Partial/Multi Fill is an explicit post-PR4 migration boundary.  Its
     # existing accounting path must not masquerade as a formal transaction.
     assert committed == ()

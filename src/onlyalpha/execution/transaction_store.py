@@ -89,6 +89,16 @@ class OnlyExecutionTransactionQueryPort(Protocol):
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
 
 
+class OnlyProjectionReadyExecutionQueryPort(Protocol):
+    """Business query boundary exposing only completely projected transactions."""
+
+    def ready_records(
+        self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
+
+    def ready_count(self, runtime_id: OnlyRuntimeId | None = None) -> int: ...
+
+
 class OnlyExecutionProjectionStatePort(Protocol):
     def mark_projection_ready(
         self,
@@ -124,6 +134,19 @@ class OnlyExecutionTransactionOutboxPort(Protocol):
     def mark_failed(self, key: OnlyExecutionTransactionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None: ...
 
     def pending_count(self, runtime_id: OnlyRuntimeId) -> int: ...
+
+    def outbox_records(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionTransactionOutboxRecord, ...]: ...
+
+
+class OnlyExecutionTransactionStorePort(
+    OnlyExecutionTransactionCommitPort,
+    OnlyExecutionTransactionQueryPort,
+    OnlyProjectionReadyExecutionQueryPort,
+    OnlyExecutionProjectionStatePort,
+    OnlyExecutionTransactionOutboxPort,
+    Protocol,
+):
+    """Complete composition-root store contract; consumers receive narrower ports."""
 
 
 def _finalize(
@@ -294,6 +317,27 @@ class OnlyInMemoryExecutionTransactionStore:
                     self._records.values(), key=lambda value: (str(value.runtime_id), value.execution_sequence)
                 )
                 if item.execution_sequence > after_sequence and (runtime_id is None or item.runtime_id == runtime_id)
+            )
+
+    def ready_records(
+        self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
+        with self._lock:
+            return tuple(
+                item
+                for item in sorted(
+                    self._records.values(), key=lambda value: (str(value.runtime_id), value.execution_sequence)
+                )
+                if item.projection_ready
+                and item.execution_sequence > after_sequence
+                and (runtime_id is None or item.runtime_id == runtime_id)
+            )
+
+    def ready_count(self, runtime_id: OnlyRuntimeId | None = None) -> int:
+        with self._lock:
+            return sum(
+                item.projection_ready and (runtime_id is None or item.runtime_id == runtime_id)
+                for item in self._records.values()
             )
 
     def mark_projection_ready(
@@ -603,6 +647,36 @@ class OnlySqliteExecutionTransactionStore:
                 f"SELECT * FROM execution_transactions WHERE {clause} ORDER BY runtime_id, execution_sequence", values
             ).fetchall()
         return tuple(self._decode_row(row) for row in rows)
+
+    def ready_records(
+        self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
+        clause, values = (
+            ("projection_ready=1 AND execution_sequence>?", (after_sequence,))
+            if runtime_id is None
+            else (
+                "runtime_id=? AND projection_ready=1 AND execution_sequence>?",
+                (str(runtime_id), after_sequence),
+            )
+        )
+        with self._lock:
+            rows = self._connection.execute(
+                f"SELECT * FROM execution_transactions WHERE {clause} ORDER BY runtime_id, execution_sequence",
+                values,
+            ).fetchall()
+        return tuple(self._decode_row(row) for row in rows)
+
+    def ready_count(self, runtime_id: OnlyRuntimeId | None = None) -> int:
+        clause, values = (
+            ("projection_ready=1", ())
+            if runtime_id is None
+            else ("runtime_id=? AND projection_ready=1", (str(runtime_id),))
+        )
+        with self._lock:
+            row = self._connection.execute(
+                f"SELECT COUNT(*) AS value FROM execution_transactions WHERE {clause}", values
+            ).fetchone()
+        return int(row["value"])
 
     def mark_projection_ready(
         self,

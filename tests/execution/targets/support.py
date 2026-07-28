@@ -12,6 +12,7 @@ from onlyalpha.execution import (
     OnlyExecutionProjectionBatchStatus,
     OnlyExecutionProjectionComponent,
     OnlyExecutionProjectionTarget,
+    OnlyExecutionTransactionStorePort,
     OnlyExecutionValuationAuthority,
     OnlyInMemoryAppliedProjectionLedger,
     OnlyInMemoryExecutionTransactionStore,
@@ -34,7 +35,7 @@ class OnlyTestProjectionTargetBundle:
     valuation_authority: OnlyExecutionValuationAuthority
     applied_ledger: OnlyInMemoryAppliedProjectionLedger
     targets: dict[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget]
-    transaction_store: OnlyInMemoryExecutionTransactionStore
+    transaction_store: OnlyExecutionTransactionStorePort
 
     def apply_all(self) -> OnlyExecutionProjectionBatchResult:
         return OnlyExecutionProjectionApplier(self.targets).apply(self.transaction)
@@ -61,10 +62,11 @@ class OnlyTestProjectionTargetBundle:
 
 def only_test_projection_target_bundle(
     scenario: OnlyTestGenericT0Scenario | None = None,
+    transaction_store: OnlyExecutionTransactionStorePort | None = None,
 ) -> OnlyTestProjectionTargetBundle:
     selected = scenario or OnlyTestGenericT0Scenario("real-target")
     environment, context, prepared = only_test_generic_t0_projection_environment(selected)
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = transaction_store or OnlyInMemoryExecutionTransactionStore()
     committed = store.commit(prepared, committed_at=context.prepared_at).transaction
     runtime = environment.runtime
 

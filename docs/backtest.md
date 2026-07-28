@@ -29,6 +29,10 @@ HistoricalDataSource → HistoricalReplayService → BacktestClock → MarketDat
 
 其中受支持的 Generic T0 Cash LIMIT BUY OPEN 整单成交细化为 `Pure Planner → Prepared Transaction → durable Transaction Store commit → ordered Projection Targets → Projection Ready → at-least-once Outbox`。SELL/CLOSE、Partial/Multi Fill、Futures/Margin 和多 Cluster 固定资金归约仍是明确的后续迁移边界，不进入正式 committed execution 结果。
 
+Backtest Bootstrap 完成后，Runtime `initialize()` 自动恢复所有未 Ready transaction，成功后才进入 READY；`start()` 先交付 recovered
+Outbox，再启动 Cluster。Collector、RunPlan、trade count、fee attribution 和 determinism fingerprint 只读取 Projection Ready Query。
+Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
+
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker
 reconciliation and strategy dispatch. Calendar TradingDay changes invoke SettlementService; strategies only see the resulting

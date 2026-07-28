@@ -94,3 +94,9 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 ## Phase 8：性能与分布式（未完成）
 
 多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。
+## PR4.1 Projection Ready Query 与 Runtime Recovery
+
+已完成 Admin/Business execution query 分离、Backtest READY 前自动 transaction-tail recovery、Cluster start 前 recovered Outbox delivery、
+Runtime recovery diagnostics，以及 In-memory/SQLite 和 12 个真实 Manager Target 的故障矩阵。当前仍依赖正确 Bootstrap Authority；Full
+Bootstrap Snapshot、Empty Runtime Recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、Non-Trade Transaction 与 Paper/Live
+Recovery 保持为后续边界。

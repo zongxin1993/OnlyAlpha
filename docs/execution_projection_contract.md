@@ -37,4 +37,8 @@ Account/Strategy Cash Reservation 在非 RELEASED 状态满足 `consumed + remai
 
 所有真实 Snapshot converter 保留字段原值，包括可选 Margin authority、metadata、quality flags、外部 sequence、时间和会计 entries；不得自行重算或伪造缺失字段。
 
-Pure Reducers、Generic T0 Cash Transaction Planner、真实 Manager Projection Targets、Commit Coordinator 与受支持 Processor 路径均已实现。Projection Ready 是 Outbox 可见性门禁；Target 失败保留已完成前缀并由 Coordinator forward recovery。该能力不是跨 Manager rollback 或 Full Runtime Recovery，见 `execution_projection_targets.md` 与 ADR 0038–0041。
+Pure Reducers、Generic T0 Cash Transaction Planner、真实 Manager Projection Targets、Commit Coordinator 与受支持 Processor 路径均已实现。Projection Ready 是 Outbox 可见性门禁；Target 失败保留已完成前缀并由 Coordinator forward recovery。该能力不是跨 Manager rollback 或 Full Runtime Recovery，见 `execution_projection_targets.md` 与 ADR 0038–0042。
+
+Projection Ready 同时是正式业务查询门禁。`records()` 保留为全部 committed transaction 的 Admin/Recovery query；业务链只能调用
+`ready_records()`。Runtime 在 READY 前恢复未完成 Projection，任一 payload/version/state conflict 或 Store failure 都阻止启动。详细状态机
+见 ADR 0042 与 `execution_runtime_recovery.md`。

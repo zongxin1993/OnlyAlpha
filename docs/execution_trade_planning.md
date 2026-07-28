@@ -44,3 +44,9 @@ Risk 增加显式 durable state fact；Legacy `EXECUTION_UPDATE_APPLIED` 是处�
 这些输入以稳定 `OnlyTradeExecutionPlanningErrorCode` 拒绝。
 
 本 Planner 已接入 `OnlyExecutionProcessor` 的 Generic T0 Cash、LIMIT BUY OPEN、整单成交产品路径。Prepared Transaction 由 Coordinator 先写入 Transaction Store，再经过 Runtime sequence gate 和 12 个真实 Manager Projection Target；Planner 仍保持纯函数边界，不导入 Runtime、Manager、Store 或 EventBus。
+
+## Runtime Recovery 边界
+
+Startup Recovery 从 durable committed payload 开始，不重新调用 Trade Planner。Planner、Broker、Market Rule 与 Fee Resolver 都不参与
+tail replay；否则重启时的外部状态或当前规则可能改变已提交 Authority。只有 Projection Ready transaction 才进入正式 Result，未 Ready
+transaction 仍由其原始 Prepared payload 和 hash 驱动确定性前向恢复。

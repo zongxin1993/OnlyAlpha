@@ -7,7 +7,11 @@ from onlyalpha.execution import (
     OnlyCommittedExecutionFact,
     OnlyExecutionCommitCoordinator,
     OnlyExecutionProcessor,
+    OnlyExecutionProjectionStatePort,
+    OnlyExecutionRecoveryService,
+    OnlyExecutionTransactionOutboxPort,
     OnlyExecutionTransactionQueryPort,
+    OnlyProjectionReadyExecutionQueryPort,
 )
 from onlyalpha.runtime.runtime import OnlyRuntimeServices
 
@@ -20,7 +24,11 @@ def test_committed_fact_and_runtime_service_have_provider_neutral_runtime_owners
     fact_modules = {getattr(field.type, "__module__", "") for field in fields(OnlyCommittedExecutionFact)}
     assert not any(module.startswith("onlyalpha_plugin_") for module in fact_modules)
     service_hints = get_type_hints(OnlyRuntimeServices)
-    assert service_hints["committed_execution_query"] is OnlyExecutionTransactionQueryPort
+    assert service_hints["execution_transaction_query"] is OnlyExecutionTransactionQueryPort
+    assert service_hints["ready_execution_query"] is OnlyProjectionReadyExecutionQueryPort
+    assert service_hints["execution_projection_state"] is OnlyExecutionProjectionStatePort
+    assert service_hints["execution_transaction_outbox"] is OnlyExecutionTransactionOutboxPort
+    assert service_hints["execution_recovery_service"] is OnlyExecutionRecoveryService
 
 
 def test_result_collector_has_no_broker_query_or_virtual_broker_dependency() -> None:

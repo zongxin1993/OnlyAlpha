@@ -11,6 +11,8 @@ _EXPORTS = {
     "OnlyResearchRuntime": "onlyalpha.runtime.research.runtime",
     "OnlyShadowRuntime": "onlyalpha.runtime.shadow.runtime",
     "OnlyRuntime": "onlyalpha.runtime.runtime",
+    "OnlyRuntimeOutboxDeliveryError": "onlyalpha.runtime.runtime",
+    "OnlyRuntimeRecoveryError": "onlyalpha.runtime.runtime",
     "OnlyRuntimeState": "onlyalpha.runtime.runtime",
     "OnlyRuntimeStatus": "onlyalpha.runtime.runtime",
     "OnlyRuntimeTradeResult": "onlyalpha.runtime.runtime",

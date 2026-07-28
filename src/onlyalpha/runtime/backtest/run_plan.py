@@ -14,7 +14,7 @@ from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.data.models import OnlyHistoricalBarRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
-from onlyalpha.domain.identifiers import OnlyClusterId
+from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.models import OnlyExecutionProcessingResult
@@ -165,7 +165,12 @@ class OnlyBacktestRunPlan:
                 )
             )
         cluster_results = tuple(cluster_results_list)
-        trades = tuple(transaction.fact for transaction in runtime.committed_execution_query.records())
+        trades = tuple(
+            transaction.fact
+            for transaction in runtime.ready_execution_query.ready_records(
+                OnlyRuntimeId(str(runtime.config.runtime_id))
+            )
+        )
         reconciliation = OnlyRuntimeLedgerReconciliationService().reconcile(
             account=account,
             account_initial_equity=account_config.initial_cash,

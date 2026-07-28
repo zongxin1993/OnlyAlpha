@@ -30,3 +30,7 @@ transaction ID、authority/payload/projection/state hash、event count/order/ID/
 `prepared_at` 改变时 business authority 不变而 envelope payload hash 改变。
 
 Pure Reducers、Generic T0 Transaction Planner、Real Manager Targets、Commit Coordinator 与 Runtime 产品装配已经完成。对 Generic T0 Cash 的 LIMIT BUY OPEN 整单成交，ExecutionProcessor 先规划并 durable commit，再应用 Projection；Transaction Store 是唯一 durable authority。当前不支持 SELL/CLOSE、Partial/Multi Fill、Futures/Margin、多 Cluster 固定资金归约或 Full Runtime Recovery。
+
+Prepared/Committed 不等于可供业务读取。只有 Store 持久标记 Projection Ready 后，Transaction 才进入独立的 Business Query；未 Ready
+记录只能由 Coordinator、Recovery、Admin 与 Diagnostic 查询。Runtime startup recovery 重放 committed projection payload，不重新生成
+Prepared Transaction，也不重新运行 Planner、Fee 或 Market Rule。

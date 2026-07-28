@@ -1,6 +1,6 @@
 # OnlyAlpha 总体架构
 
-正式成交主链为 `Prepared Transaction → Transaction Store commit → Runtime sequence gate → ordered Projection Targets → Projection Ready → durable Outbox`。Transaction Store 是唯一 durable Trade authority；Applied Ledger 只是可重建的幂等索引。Coordinator 采用 forward recovery，不提供跨 Manager rollback，也不等于 Empty Runtime Full Recovery。详细边界由 ADR 0038–0041 和 `execution_projection_targets.md` 规定。
+正式成交主链为 `Prepared Transaction → Transaction Store commit → Runtime sequence gate → ordered Projection Targets → Projection Ready → durable Outbox`。Transaction Store 是唯一 durable Trade authority；Applied Ledger 只是可重建的幂等索引。Coordinator 采用 forward recovery，不提供跨 Manager rollback，也不等于 Empty Runtime Full Recovery。详细边界由 ADR 0038–0042、`execution_projection_targets.md` 与 `execution_runtime_recovery.md` 规定。
 
 Virtual Broker 已从 Core 提取为独立 `onlyalpha-plugin-broker-virtual` distribution。依赖方向固定为插件到
 `onlyalpha.plugin.api`/公共 Domain 与 Broker Port；`src/onlyalpha` 不导入、注册或回退到任何 Virtual Broker 实现。
@@ -37,7 +37,7 @@ Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量�
 `docs/execution_processor.md` 与 ADR 0016。
 
 受支持的 Trade 先由纯 Planner 形成 Prepared Transaction，再由 Runtime-owned Transaction Store durable commit；只有顺序 Projection 全部完成并标记 Ready 后，Outbox Event 才可发布。本地历史链为
-`Broker Update → Prepared Transaction → Durable Commit → Projection Ready → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
+`Broker Update → Prepared Transaction → Durable Commit → Projection Ready Query → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
 Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
 Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
@@ -198,3 +198,8 @@ Factor 与 Indicator 接口分别从同名顶层包导入。DataSource/Broker �
 Runtime Planner、Assembly Plan、Assembler、Engine/Cluster/Runtime Session、Infrastructure Registry、各领域 Manager、
 Registry 内部容器及 ExecutionProcessor 编排细节属于内部实现。它们不从 `onlyalpha`、`onlyalpha.engine` 或
 `onlyalpha.runtime` 的公共 `__all__` 导出，插件不得依赖这些对象。内部模块路径仍可供核心仓自身使用，但不承诺外部兼容性。
+
+Runtime 启动在插件资源和 Cluster initialize 后、进入 READY 前执行 `OnlyExecutionRecoveryService`。恢复只读取 Admin Transaction
+Query/Projection State，并按 sequence 前向完成 committed tail；正式 Result 只持有 Projection Ready Query。start 阶段先交付 recovered
+Outbox，再启动 Cluster。Recovery failure 与 Outbox delivery failure 都阻止 Backtest 启动，但前者表示业务 Authority 不完整，后者表示
+Ready Event 尚未完成 at-least-once delivery，不能混同或回滚 transaction。

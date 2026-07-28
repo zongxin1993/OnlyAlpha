@@ -512,7 +512,7 @@ result = engine.run()
 外部查询/对账 Projection。可使用 `python examples/committed_execution_report.py <config>` 查看公开 Result 中的 position
 scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 market profile。
 
-SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会写入正式 Transaction Store，也不会伪装为 committed execution。当前恢复能力是 committed transaction tail 的 forward recovery，不是 Full Runtime Recovery，Outbox 语义是 at-least-once。
+SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会写入正式 Transaction Store，也不会伪装为 committed execution。正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在进入 READY 前自动 forward-recover 未完成 tail，并在 Cluster start 前交付 recovered Outbox；失败会阻止启动。当前能力仍依赖正确 Bootstrap Authority，不是 Full Runtime Recovery，Outbox 语义是 at-least-once。
 
 ---
 
