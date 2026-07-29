@@ -52,8 +52,10 @@ class OnlyTestClusterFinalizationManager:
 class OnlyTestValidator:
     def __init__(self, passed: bool = True) -> None:
         self._passed = passed
+        self.calls = 0
 
     def validate(self, context: OnlyPostRecoveryValidationContext) -> OnlyPostRecoveryValidationReport:
+        self.calls += 1
         return OnlyPostRecoveryValidationReport(
             context.runtime_id,
             (
@@ -96,7 +98,14 @@ class OnlyTestCheckpointService:
         return checkpoint
 
 
-def _fixture(failure: str | None = None, *, validation_passed: bool = True):  # type: ignore[no-untyped-def]
+def _fixture(
+    failure: str | None = None,
+    *,
+    validation_passed: bool = True,
+    broker_inbound_count: int = 0,
+    market_data_inbound_count: int = 0,
+    event_bus_pending_count: int = 0,
+):  # type: ignore[no-untyped-def]
     runtime_id = OnlyRuntimeId("runtime")
     cursor = OnlyBacktestReplayCursor(OnlyMarketDataSourceId("source"), OnlyDataVersion("version"), None, 0, None, 0)
     checkpoint = only_seal_runtime_checkpoint(
@@ -125,24 +134,35 @@ def _fixture(failure: str | None = None, *, validation_passed: bool = True):  # 
         store,
         store,
         OnlyInMemoryAppliedProjectionLedger(),
-        OnlyRuntimeBoundaryAuthorityView(runtime_id, 0, 0, 0, cursor, 0, 0, 0, OnlyTimestamp.from_unix_nanos(1)),
+        OnlyRuntimeBoundaryAuthorityView(
+            runtime_id,
+            broker_inbound_count,
+            market_data_inbound_count,
+            event_bus_pending_count,
+            cursor,
+            0,
+            0,
+            0,
+            OnlyTimestamp.from_unix_nanos(1),
+        ),
     )
     manager = OnlyTestClusterFinalizationManager()
     service = OnlyTestCheckpointService(checkpoint, failure)
+    validator = OnlyTestValidator(validation_passed)
     finalizer = OnlyRuntimeRecoveryFinalizer(
         cluster_manager=manager,  # type: ignore[arg-type]
         event_bus=OnlyEventBus(),
-        validator=OnlyTestValidator(validation_passed),  # type: ignore[arg-type]
+        validator=validator,  # type: ignore[arg-type]
         context_factory=lambda _: context,
         checkpoint_service=service,  # type: ignore[arg-type]
         replay_cursor=lambda: cursor,
         created_at=lambda: OnlyTimestamp.from_unix_nanos(1),
     )
-    return outcome, manager, service, finalizer
+    return outcome, manager, service, validator, finalizer
 
 
 def test_finalizer_marks_recovered_only_after_read_back() -> None:
-    outcome, manager, service, finalizer = _fixture()
+    outcome, manager, service, _, finalizer = _fixture()
     result = finalizer.finalize(outcome)
     assert result.validation_report.passed
     assert service.calls == ["capture", "write", "verify"]
@@ -159,7 +179,7 @@ def test_finalizer_marks_recovered_only_after_read_back() -> None:
     ),
 )
 def test_finalizer_failures_clean_cluster_and_fail_closed(failure: str, phase) -> None:  # type: ignore[no-untyped-def]
-    outcome, manager, _, finalizer = _fixture(failure)
+    outcome, manager, _, _, finalizer = _fixture(failure)
     with pytest.raises(OnlyRuntimeRecoveryFinalizationError) as caught:
         finalizer.finalize(outcome)
     assert caught.value.phase is phase
@@ -169,7 +189,7 @@ def test_finalizer_failures_clean_cluster_and_fail_closed(failure: str, phase) -
 
 
 def test_validation_failure_never_captures_checkpoint() -> None:
-    outcome, manager, service, finalizer = _fixture(validation_passed=False)
+    outcome, manager, service, _, finalizer = _fixture(validation_passed=False)
     with pytest.raises(OnlyRuntimeRecoveryFinalizationError) as caught:
         finalizer.finalize(outcome)
     assert caught.value.phase is OnlyRuntimeRecoveryFinalizationPhase.AUTHORITY_VALIDATION
@@ -178,7 +198,32 @@ def test_validation_failure_never_captures_checkpoint() -> None:
 
 
 def test_finalizer_cannot_run_twice() -> None:
-    outcome, _, _, finalizer = _fixture()
+    outcome, _, _, _, finalizer = _fixture()
     finalizer.finalize(outcome)
     with pytest.raises(OnlyRuntimeRecoveryFinalizationError):
         finalizer.finalize(replace(outcome))
+
+
+@pytest.mark.parametrize(
+    "counts,code",
+    (
+        ((1, 0, 0), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY"),
+        ((0, 1, 0), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY"),
+        ((0, 0, 1), "POST_RECOVERY_EVENT_BUS_NOT_DRAINED"),
+    ),
+)
+def test_quiescence_failure_is_precise_and_prevents_validation_and_checkpoint(
+    counts: tuple[int, int, int], code: str
+) -> None:
+    outcome, manager, service, validator, finalizer = _fixture(
+        broker_inbound_count=counts[0],
+        market_data_inbound_count=counts[1],
+        event_bus_pending_count=counts[2],
+    )
+    with pytest.raises(OnlyRuntimeRecoveryFinalizationError) as caught:
+        finalizer.finalize(outcome)
+    assert caught.value.phase is OnlyRuntimeRecoveryFinalizationPhase.QUIESCENCE_CHECK
+    assert caught.value.original_error_message == code
+    assert validator.calls == 0
+    assert service.calls == []
+    assert manager.state == "FAILED"

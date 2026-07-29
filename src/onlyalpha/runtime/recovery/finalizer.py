@@ -21,6 +21,14 @@ from .validation import (
 )
 
 
+def _require_quiescent(context: OnlyPostRecoveryValidationContext) -> None:
+    boundary = context.runtime_boundary_view
+    if boundary.broker_inbound_count != 0 or boundary.market_data_inbound_count != 0:
+        raise RuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")
+    if boundary.event_bus_pending_count != 0:
+        raise RuntimeError("POST_RECOVERY_EVENT_BUS_NOT_DRAINED")
+
+
 class OnlyRuntimeRecoveryFinalizationPhase(StrEnum):
     CREATED = "CREATED"
     CLUSTER_COMPLETION = "CLUSTER_COMPLETION"
@@ -105,12 +113,7 @@ class OnlyRuntimeRecoveryFinalizer:
 
             self._phase = failure_phase = OnlyRuntimeRecoveryFinalizationPhase.QUIESCENCE_CHECK
             context = self._context_factory(outcome)
-            if (
-                context.runtime_boundary_view.broker_inbound_count
-                or context.runtime_boundary_view.market_data_inbound_count
-                or context.runtime_boundary_view.event_bus_pending_count
-            ):
-                raise RuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")
+            _require_quiescent(context)
 
             self._phase = failure_phase = OnlyRuntimeRecoveryFinalizationPhase.AUTHORITY_VALIDATION
             report = self._validator.validate(context)

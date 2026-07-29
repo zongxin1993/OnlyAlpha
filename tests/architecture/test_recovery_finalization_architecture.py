@@ -20,6 +20,34 @@ def test_validator_is_read_only_and_runtime_agnostic() -> None:
     assert "OnlyVirtualBrokerGateway" not in validator
     for forbidden in ("._records", "._positions", "._orders", "._reservations"):
         assert forbidden not in validator
+    for forbidden in (
+        ".commit(",
+        ".reserve(",
+        ".release(",
+        "FeeResolver",
+        "SettlementRule",
+        "MarginFormula",
+        "EventGate",
+    ):
+        assert forbidden not in validator
+
+
+def test_validation_closure_keeps_the_single_structured_outbox_identity() -> None:
+    persistence = Path("src/onlyalpha/execution/persistence_ports.py").read_text(encoding="utf-8")
+    key = persistence[
+        persistence.index("class OnlyExecutionTransactionOutboxKey") : persistence.index(
+            "class OnlyExecutionTransactionOutboxRecord"
+        )
+    ]
+    for field in ("runtime_id", "execution_sequence", "event_sequence"):
+        assert field in key
+    assert "idempotency_key" not in key
+
+
+def test_finalizer_distinguishes_inbound_and_event_bus_quiescence_errors() -> None:
+    finalizer = Path("src/onlyalpha/runtime/recovery/finalizer.py").read_text(encoding="utf-8")
+    assert 'RuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")' in finalizer
+    assert 'RuntimeError("POST_RECOVERY_EVENT_BUS_NOT_DRAINED")' in finalizer
 
 
 def test_finalizer_orders_verify_before_recovered_transition() -> None:

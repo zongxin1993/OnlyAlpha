@@ -211,7 +211,10 @@ class OnlyOutboxAuthorityCheck:
         by_sequence = {item.execution_sequence: item for item in records}
         outbox = context.outbox_query.outbox_records(context.runtime_id)
         event_ids = tuple(str(item.event.event_id) for item in outbox)
-        keys = tuple((item.key.execution_sequence, item.key.event_sequence) for item in outbox)
+        keys = tuple(
+            (str(item.key.runtime_id), item.key.execution_sequence, item.key.event_sequence) for item in outbox
+        )
+        wrong_runtime = tuple(item.key for item in outbox if item.key.runtime_id != context.runtime_id)
         orphan = tuple(item.key for item in outbox if item.key.execution_sequence not in by_sequence)
         unready = tuple(
             item.key
@@ -255,12 +258,20 @@ class OnlyOutboxAuthorityCheck:
                 "outbox event ids must be unique",
             ),
             _check(
-                "POST_RECOVERY_DUPLICATE_OUTBOX_EVENT",
-                "sequence-index",
+                "POST_RECOVERY_DUPLICATE_OUTBOX_KEY",
+                "outbox-key",
                 len(keys) == len(set(keys)),
                 "unique",
                 keys,
-                "outbox sequence/index pairs must be unique",
+                "durable outbox keys must be unique",
+            ),
+            _check(
+                "POST_RECOVERY_OUTBOX_SCOPE_MISMATCH",
+                "outbox-runtime",
+                not wrong_runtime,
+                context.runtime_id,
+                wrong_runtime,
+                "outbox key Runtime must equal validation Runtime",
             ),
             _check(
                 "POST_RECOVERY_CONTINUATION_OUTBOX_MISSING",
@@ -415,7 +426,9 @@ class OnlyOrderReservationAuthorityCheck:
             OnlyOrderStatus.REJECTED,
             OnlyOrderStatus.FAILED,
         }
-        open_orders = {item.order_id: item for item in context.orders if item.status not in terminal}
+        all_orders = {item.order_id: item for item in context.orders}
+        open_orders = {order_id: order for order_id, order in all_orders.items() if order.status not in terminal}
+        terminal_order_ids = set(all_orders) - set(open_orders)
         account = {
             item.order_id: item
             for item in context.account_reservations
@@ -439,31 +452,80 @@ class OnlyOrderReservationAuthorityCheck:
             if order.side.value == "BUY"
             and (order_id not in account or order_id not in strategy or order_id not in risk)
         )
-        known = set(open_orders)
+        maps = (
+            ("account", account),
+            ("strategy", strategy),
+            ("position", position),
+            ("risk", risk),
+            ("margin", margin),
+        )
         orphan = tuple(
-            sorted(
-                str(item) for item in (set(account) | set(position) | set(margin) | set(strategy) | set(risk)) - known
-            )
+            sorted(f"{kind}:{order_id}" for kind, items in maps for order_id in set(items) - set(all_orders))
         )
-        scoped = tuple(
-            str(order_id)
-            for order_id, order in open_orders.items()
-            if (order_id in account and account[order_id].account_id != order.account_id)
-            or (
-                order_id in risk
-                and (
-                    risk[order_id].runtime_id != order.runtime_id
-                    or risk[order_id].account_id != order.account_id
-                    or risk[order_id].cluster_id != order.cluster_id
-                    or risk[order_id].instrument_id != order.instrument_id
-                )
-            )
+        terminal_active = tuple(
+            sorted(f"{kind}:{order_id}" for kind, items in maps for order_id in set(items) & terminal_order_ids)
         )
-        invalid = tuple(
-            str(item.order_id)
-            for item in context.account_reservations
-            if item.consumed_amount.amount + item.remaining_amount.amount > item.reserved_amount.amount
-        )
+        account_snapshots = {item.account_id: item for item in context.accounts}
+        scoped: list[str] = []
+        currency: list[str] = []
+        for order_id, order in all_orders.items():
+            if order_id in account:
+                account_item = account[order_id]
+                if (
+                    account_item.runtime_id != order.runtime_id
+                    or account_item.account_id != order.account_id
+                    or account_item.order_id != order.order_id
+                ):
+                    scoped.append(f"account:{order_id}")
+                snapshot = account_snapshots.get(order.account_id)
+                if snapshot is not None and account_item.reserved_amount.currency != snapshot.base_currency:
+                    currency.append(f"account:{order_id}")
+            if order_id in strategy:
+                strategy_item = strategy[order_id]
+                if (
+                    strategy_item.key.runtime_id != order.runtime_id
+                    or strategy_item.key.account_id != order.account_id
+                    or strategy_item.key.cluster_id != order.cluster_id
+                    or strategy_item.order_id != order.order_id
+                ):
+                    scoped.append(f"strategy:{order_id}")
+                snapshot = account_snapshots.get(order.account_id)
+                if snapshot is not None and strategy_item.key.base_currency != snapshot.base_currency:
+                    currency.append(f"strategy:{order_id}")
+            if order_id in risk:
+                risk_item = risk[order_id]
+                if (
+                    risk_item.runtime_id != order.runtime_id
+                    or risk_item.account_id != order.account_id
+                    or risk_item.cluster_id != order.cluster_id
+                    or risk_item.instrument_id != order.instrument_id
+                    or risk_item.order_id != order.order_id
+                ):
+                    scoped.append(f"risk:{order_id}")
+            if order_id in position:
+                position_item = position[order_id]
+                if (
+                    position_item.runtime_id != order.runtime_id
+                    or position_item.account_id != order.account_id
+                    or position_item.cluster_id != order.cluster_id
+                    or position_item.instrument_id != order.instrument_id
+                    or position_item.order_id != order.order_id
+                    or position_item.quantity.precision != order.quantity.precision
+                    or position_item.quantity.value > order.quantity.value
+                ):
+                    scoped.append(f"position:{order_id}")
+            if order_id in margin:
+                margin_item = margin[order_id]
+                if (
+                    margin_item.runtime_id != order.runtime_id
+                    or margin_item.account_id != order.account_id
+                    or margin_item.instrument_id != order.instrument_id
+                    or margin_item.source_order_id != order.order_id
+                ):
+                    scoped.append(f"margin:{order_id}")
+                snapshot = account_snapshots.get(order.account_id)
+                if snapshot is not None and margin_item.currency != snapshot.base_currency:
+                    currency.append(f"margin:{order_id}")
         return (
             _check(
                 "POST_RECOVERY_OPEN_ORDER_RESERVATION_MISSING",
@@ -482,20 +544,28 @@ class OnlyOrderReservationAuthorityCheck:
                 "active reservation requires non-terminal order",
             ),
             _check(
+                "POST_RECOVERY_TERMINAL_ORDER_ACTIVE_RESERVATION",
+                "reservations-terminal",
+                not terminal_active,
+                (),
+                terminal_active,
+                "terminal orders cannot retain active reservations",
+            ),
+            _check(
                 "POST_RECOVERY_RESERVATION_SCOPE_MISMATCH",
                 "reservations",
                 not scoped,
                 (),
-                scoped,
+                tuple(scoped),
                 "reservation scope must equal its order",
             ),
             _check(
-                "POST_RECOVERY_RESERVATION_AMOUNT_MISMATCH",
-                "reservations",
-                not invalid,
+                "POST_RECOVERY_RESERVATION_CURRENCY_MISMATCH",
+                "reservation-currency",
+                not currency,
                 (),
-                invalid,
-                "reservation consumption cannot exceed original",
+                tuple(currency),
+                "cash and margin reservation currency must equal Account base currency",
             ),
         )
 
@@ -540,6 +610,8 @@ class OnlyFeeSettlementMarginAuthorityCheck:
         records = context.transaction_query.records(context.runtime_id)
         fee_keys = {item.instruction_id for item in context.fee_records}
         settlement_keys = {item.instruction_id for item in context.settlement_records}
+        fact_by_fee = {item.fact.fee_instruction_id: item.fact for item in records}
+        fact_by_settlement = {item.fact.settlement_instruction_id: item.fact for item in records}
         missing_fee = tuple(item.execution_sequence for item in records if item.fact.fee_instruction_id not in fee_keys)
         missing_settlement = tuple(
             item.execution_sequence for item in records if item.fact.settlement_instruction_id not in settlement_keys
@@ -560,7 +632,48 @@ class OnlyFeeSettlementMarginAuthorityCheck:
             for item in records
             if fee_totals.get(item.fact.fee_instruction_id, Decimal(0)) != item.fact.authoritative_fee_total.amount
         )
+        fee_scope = tuple(
+            item.fee_record_id
+            for item in context.fee_records
+            if (fact := fact_by_fee.get(item.instruction_id)) is not None
+            and (
+                item.account_id != str(fact.account_id)
+                or item.instrument_id != str(fact.instrument_id)
+                or item.order_id != str(fact.order_id)
+                or item.trade_id != str(fact.trade_id)
+                or item.currency != fact.currency.code
+            )
+        )
+        orphan_fee = tuple(item.fee_record_id for item in context.fee_records if item.instruction_id not in fact_by_fee)
+        settlement_scope = tuple(
+            item.instruction_id
+            for item in context.settlement_records
+            if (fact := fact_by_settlement.get(item.instruction_id)) is not None
+            and (
+                item.account_id != str(fact.account_id)
+                or item.instrument_id != str(fact.instrument_id)
+                or item.source_order_id != str(fact.order_id)
+                or item.source_trade_id != str(fact.trade_id)
+                or item.legal_settlement_date != fact.legal_settlement_date
+            )
+        )
+        orphan_settlement = tuple(
+            item.instruction_id for item in context.settlement_records if item.instruction_id not in fact_by_settlement
+        )
+        settlement_state = tuple(
+            item.instruction_id
+            for item in context.settlement_records
+            if (item.legal_settled and item.status != "SETTLED")
+            or (not item.legal_settled and item.status not in {"BOOKED", "PENDING"})
+            or (item.status == "SETTLED" and not item.legal_settled)
+        )
         margin_applicable = any(item.fact.margin_instruction_id is not None for item in records)
+        active_margin = tuple(item for item in context.margin_reservations if item.reserved or item.occupied)
+        margin_applicable = (
+            margin_applicable
+            or bool(context.margin_records or context.margin_reservations)
+            or any(item.reserved_margin is not None for item in context.accounts)
+        )
         margin_check = (
             _check(
                 "POST_RECOVERY_MARGIN_STATE_MISMATCH",
@@ -575,6 +688,51 @@ class OnlyFeeSettlementMarginAuthorityCheck:
                 "POST_RECOVERY_MARGIN_STATE_MISMATCH",
                 OnlyPostRecoveryCheckStatus.NOT_APPLICABLE,
                 "margin",
+                None,
+                None,
+                "margin is not enabled for generic T0 cash recovery",
+            )
+        )
+        margin_totals: dict[tuple[str, str], tuple[Decimal, Decimal, Decimal]] = {}
+        for item in active_margin:
+            key = str(item.account_id), item.currency.code
+            before = margin_totals.get(key, (Decimal(0), Decimal(0), Decimal(0)))
+            margin_totals[key] = (
+                before[0] + item.reserved,
+                before[1] + item.occupied,
+                before[2] + item.released,
+            )
+        margin_account_mismatch: list[str] = []
+        for account in context.accounts:
+            if account.reserved_margin is None:
+                continue
+            assert account.occupied_margin is not None and account.released_margin is not None
+            key = str(account.account_id), account.base_currency.code
+            totals = margin_totals.get(key, (Decimal(0), Decimal(0), Decimal(0)))
+            wrong_currency = any(
+                str(item.account_id) == str(account.account_id) and item.currency != account.base_currency
+                for item in active_margin
+            )
+            if wrong_currency or totals != (
+                account.reserved_margin.amount,
+                account.occupied_margin.amount,
+                account.released_margin.amount,
+            ):
+                margin_account_mismatch.append(str(account.account_id))
+        margin_account_check = (
+            _check(
+                "POST_RECOVERY_MARGIN_ACCOUNT_MISMATCH",
+                "margin-account",
+                not margin_account_mismatch,
+                (),
+                tuple(margin_account_mismatch),
+                "active margin reservations must equal Account margin authority",
+            )
+            if margin_applicable
+            else OnlyPostRecoveryValidationCheck(
+                "POST_RECOVERY_MARGIN_ACCOUNT_MISMATCH",
+                OnlyPostRecoveryCheckStatus.NOT_APPLICABLE,
+                "margin-account",
                 None,
                 None,
                 "margin is not enabled for generic T0 cash recovery",
@@ -598,6 +756,22 @@ class OnlyFeeSettlementMarginAuthorityCheck:
                 "fee records must reduce to the committed fee total",
             ),
             _check(
+                "POST_RECOVERY_FEE_SCOPE_MISMATCH",
+                "fee-scope",
+                not fee_scope,
+                (),
+                fee_scope,
+                "fee record scope must equal its committed transaction",
+            ),
+            _check(
+                "POST_RECOVERY_ORPHAN_FEE_RECORD",
+                "fee-orphan",
+                not orphan_fee,
+                (),
+                orphan_fee,
+                "fee records require a durable transaction",
+            ),
+            _check(
                 "POST_RECOVERY_SETTLEMENT_RECORD_MISSING",
                 "settlement",
                 not missing_settlement,
@@ -605,7 +779,32 @@ class OnlyFeeSettlementMarginAuthorityCheck:
                 missing_settlement,
                 "ready transactions require settlement authority",
             ),
+            _check(
+                "POST_RECOVERY_SETTLEMENT_SCOPE_MISMATCH",
+                "settlement-scope",
+                not settlement_scope,
+                (),
+                settlement_scope,
+                "settlement record scope must equal its committed transaction",
+            ),
+            _check(
+                "POST_RECOVERY_ORPHAN_SETTLEMENT_RECORD",
+                "settlement-orphan",
+                not orphan_settlement,
+                (),
+                orphan_settlement,
+                "settlement records require a durable transaction",
+            ),
+            _check(
+                "POST_RECOVERY_SETTLEMENT_STATE_MISMATCH",
+                "settlement-state",
+                not settlement_state,
+                (),
+                settlement_state,
+                "settlement status and legal-settled flag must agree",
+            ),
             margin_check,
+            margin_account_check,
         )
 
 

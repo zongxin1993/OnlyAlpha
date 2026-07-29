@@ -70,7 +70,9 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
    ends causal replay only after the current boundary becomes `BOUNDARY_COMPLETED`.
 9. Produce an immutable Recovery Outcome, move Clusters to `RECOVERY_FINALIZING`, call `on_recovery_complete()`, drain internal
    events, and validate transaction, Outbox, recovery projection range, manager, Broker and Runtime-boundary authority through
-   read-only Ports.
+   read-only Ports. Finalizer preflight diagnoses non-empty Broker/MarketData inbound queues separately from pending EventBus
+   work. `OnlyExecutionTransactionOutboxKey(runtime_id, execution_sequence, event_sequence)` is the durable Outbox idempotency
+   identity; it is validated independently from each Event's `event_id` and has no second string idempotency key.
 10. Capture and write the post-recovery checkpoint, read it back through `latest_checkpoint()` and compare the complete header,
     aggregate hash and components. Only then mark Clusters `RECOVERED` and Runtime `READY`.
 11. Deliver pending Outbox records, resume recovered Clusters without repeating `on_start()`, and continue ordinary Replay from
@@ -101,7 +103,10 @@ does not delete the previous complete checkpoint. SQLite schema version 1 is uns
 
 PR4.2.2b adds read-only post-recovery authority validation, `RECOVERY_FINALIZING`, fail-closed finalization and durable checkpoint
 read-back. A commit-then-raise failure retains the checkpoint for the next Engine while preventing the current Engine from READY,
-Outbox delivery or Cluster resume. Unified Recovery Event Gate remains later work. The formal committed transaction
+Outbox delivery or Cluster resume. Its validation closure checks cross-object Runtime, Account, Cluster, Instrument, Order,
+Currency and Transaction scope for Outbox, Reservations, Fee, Settlement and Margin authorities. It relies on each Domain model
+for internal amount, quantity and lifecycle invariants and does not rerun Fee, Settlement or Margin calculations. Unified Recovery
+Event Gate remains later PR4.2.2c work. The formal committed transaction
 path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE, Futures/Margin transactions, non-trade
 transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
 and remote stores remain outside this phase.
