@@ -57,6 +57,36 @@ class OnlyBarCache:
     def versions_all(self) -> dict[OnlyBarType, int]:
         return dict(self._versions)
 
+    def capture_checkpoint(self) -> object:
+        return {
+            "closed": [
+                [bar_type.to_json(), [bar.to_json() for bar in bars]]
+                for bar_type, bars in sorted(self._closed.items(), key=lambda item: item[0].to_json())
+            ],
+            "partials": [
+                [bar_type.to_json(), bar.to_json()]
+                for bar_type, bar in sorted(self._partials.items(), key=lambda item: item[0].to_json())
+            ],
+            "versions": [
+                [bar_type.to_json(), version]
+                for bar_type, version in sorted(self._versions.items(), key=lambda item: item[0].to_json())
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("MarketData cache checkpoint must be an object")
+        self._closed = {
+            OnlyBarType.from_json(str(bar_type)): [OnlyBar.from_json(str(bar)) for bar in bars]
+            for bar_type, bars in payload["closed"]
+        }
+        self._partials = {
+            OnlyBarType.from_json(str(bar_type)): OnlyBar.from_json(str(bar)) for bar_type, bar in payload["partials"]
+        }
+        self._versions = {
+            OnlyBarType.from_json(str(bar_type)): int(version) for bar_type, version in payload["versions"]
+        }
+
 
 class OnlyMarketDataCache(OnlyBarCache):
     """Named first-phase Runtime market-data cache."""

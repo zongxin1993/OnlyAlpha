@@ -350,6 +350,115 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         self._cache[key] = compiled
         return compiled
 
+    def capture_checkpoint(self) -> object:
+        def identity_payload(identity: OnlyCompiledMarketRuleIdentity) -> dict[str, str]:
+            return {
+                "compiled_rules_fingerprint": identity.compiled_rules_fingerprint,
+                "instrument_id": identity.instrument_id,
+                "profile_id": identity.profile_id,
+                "profile_version": identity.profile_version,
+                "reference_fingerprint": identity.reference_fingerprint,
+                "resolved_profile_fingerprint": identity.resolved_profile_fingerprint,
+                "runtime_mode": identity.runtime_mode.value,
+                "trading_day": identity.trading_day.isoformat(),
+                "venue": identity.venue,
+            }
+
+        decisions: list[dict[str, object]] = []
+        for item in self._decisions:
+            if isinstance(item, OnlyMarketOrderDecision):
+                decisions.append(
+                    {
+                        "accepted": item.accepted,
+                        "compiled_identity": identity_payload(item.compiled_identity),
+                        "details": dict(sorted(item.details.items())),
+                        "kind": "ORDER",
+                        "normalized_price": str(item.normalized_price),
+                        "normalized_quantity": str(item.normalized_quantity),
+                        "position_effect": item.position_effect.value,
+                        "reason_code": item.reason_code,
+                        "required_cash": str(item.required_cash),
+                        "required_margin": str(item.required_margin),
+                        "required_position": str(item.required_position),
+                        "rule_code": item.rule_code,
+                    }
+                )
+            else:
+                decisions.append(
+                    {
+                        "compiled_identity": identity_payload(item.compiled_identity),
+                        "fill_price": None if item.fill_price is None else str(item.fill_price),
+                        "fill_quantity": str(item.fill_quantity),
+                        "kind": "MATCH",
+                        "matched": item.matched,
+                        "reference_price": str(item.reference_price),
+                        "remaining_liquidity": (
+                            None if item.remaining_liquidity is None else str(item.remaining_liquidity)
+                        ),
+                        "unfilled_reason": item.unfilled_reason,
+                    }
+                )
+        return {"decisions": decisions}
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
+            raise ValueError("Market Rule checkpoint must contain decisions")
+
+        def identity(raw: object) -> OnlyCompiledMarketRuleIdentity:
+            if not isinstance(raw, dict):
+                raise ValueError("Market Rule decision identity must be an object")
+            return OnlyCompiledMarketRuleIdentity(
+                str(raw["profile_id"]),
+                str(raw["profile_version"]),
+                date.fromisoformat(str(raw["trading_day"])),
+                OnlyRuntimeMode(str(raw["runtime_mode"])),
+                str(raw["instrument_id"]),
+                str(raw["venue"]),
+                str(raw["reference_fingerprint"]),
+                str(raw["resolved_profile_fingerprint"]),
+                str(raw["compiled_rules_fingerprint"]),
+            )
+
+        restored: list[OnlyMarketOrderDecision | OnlyMarketMatchDecision] = []
+        for raw in payload["decisions"]:
+            if not isinstance(raw, dict):
+                raise ValueError("Market Rule decision must be an object")
+            compiled_identity = identity(raw["compiled_identity"])
+            if raw["kind"] == "ORDER":
+                details = raw["details"]
+                if not isinstance(details, dict):
+                    raise ValueError("Market order decision details must be an object")
+                restored.append(
+                    OnlyMarketOrderDecision(
+                        bool(raw["accepted"]),
+                        None if raw["reason_code"] is None else str(raw["reason_code"]),
+                        str(raw["rule_code"]),
+                        Decimal(str(raw["normalized_price"])),
+                        Decimal(str(raw["normalized_quantity"])),
+                        OnlyPositionEffect(str(raw["position_effect"])),
+                        Decimal(str(raw["required_cash"])),
+                        Decimal(str(raw["required_position"])),
+                        Decimal(str(raw["required_margin"])),
+                        compiled_identity,
+                        {str(key): str(value) for key, value in details.items()},
+                    )
+                )
+            elif raw["kind"] == "MATCH":
+                restored.append(
+                    OnlyMarketMatchDecision(
+                        bool(raw["matched"]),
+                        None if raw["unfilled_reason"] is None else str(raw["unfilled_reason"]),
+                        Decimal(str(raw["reference_price"])),
+                        None if raw["fill_price"] is None else Decimal(str(raw["fill_price"])),
+                        Decimal(str(raw["fill_quantity"])),
+                        None if raw["remaining_liquidity"] is None else Decimal(str(raw["remaining_liquidity"])),
+                        compiled_identity,
+                    )
+                )
+            else:
+                raise ValueError("unsupported Market Rule decision kind")
+        self._decisions = restored
+
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         rules = self.compiled_rules(context.instrument_id, context.trading_day)
         reference = self._reference(context.instrument_id, context.trading_day)

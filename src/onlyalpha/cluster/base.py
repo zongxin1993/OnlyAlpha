@@ -18,7 +18,12 @@ from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.registry import OnlyFactorRegistry
 from onlyalpha.factor.score import OnlyFactorScore
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
-from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry, OnlyIndicatorRegistry
+from onlyalpha.indicator.base import OnlyBarIndicator
+from onlyalpha.indicator.registry import (
+    OnlyIndicatorFactoryRegistry,
+    OnlyIndicatorInstanceKey,
+    OnlyIndicatorRegistry,
+)
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.result.strategy import OnlyStrategyResultRecorder
@@ -119,6 +124,18 @@ class OnlyCluster:
     @property
     def last_pipeline_result(self) -> OnlyClusterPipelineResult | None:
         return self._last_pipeline_result
+
+    @property
+    def checkpoint_indicators(
+        self,
+    ) -> tuple[tuple[OnlyIndicatorInstanceKey, OnlyBarIndicator[OnlyIndicatorSnapshot]], ...]:
+        if self._indicator_registry is None:
+            raise OnlyClusterError("Cluster checkpoint participants require initialization")
+        return self._indicator_registry.checkpoint_instances
+
+    def refresh_checkpoint_factor_views(self) -> None:
+        self._factor_snapshots = {factor.factor_id: factor.snapshot() for factor in self.factors}
+        self._factor_scores = {factor.factor_id: factor.score() for factor in self.factors}
 
     def snapshot(self) -> OnlyClusterSnapshot:
         required = self.strategy.config.required_factor_ids

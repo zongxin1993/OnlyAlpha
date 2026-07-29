@@ -25,6 +25,7 @@ from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.score import OnlyFactorQualityFlag, OnlyFactorScore, OnlyFactorScoreDimension
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
 from onlyalpha.indicator.macd import OnlyMacdCrossState, OnlyMacdSnapshot
+from onlyalpha.plugin.api import OnlyCheckpointCapability
 from onlyalpha.strategy.base import OnlyStrategy
 from onlyalpha.strategy.config import OnlyStrategyConfig
 from onlyalpha.strategy.context import OnlyStrategyBarContext
@@ -131,6 +132,34 @@ class OnlyTestMacdFactor(OnlyTimeSeriesFactor):
             self.ready,
             self._snapshot.macd_snapshot.ts_event,
             flags,
+        )
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return dict(self._snapshot.to_dict())
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, Mapping):
+            raise ValueError("test MACD Factor checkpoint must be an object")
+        event = payload["ts_event_ns"]
+        macd = payload["macd"]
+        if not isinstance(macd, Mapping):
+            raise ValueError("test MACD Factor indicator checkpoint must be an object")
+        self._snapshot = OnlyTestMacdFactorSnapshot(
+            OnlyFactorId(str(payload["factor_id"])),
+            None if event is None else OnlyTimestamp.from_unix_nanos(int(str(event))),
+            bool(payload["ready"]),
+            str(payload["signal"]),
+            Decimal(str(payload["trend_score"])),
+            Decimal(str(payload["confidence"])),
+            OnlyMacdSnapshot.from_dict(macd),
         )
 
 
@@ -301,3 +330,45 @@ class OnlyTestMacdStrategy(OnlyStrategy):
             "signal_state": self._signal_state.value,
             "callback_count": self._callback_count,
         }
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "callback_count": self._callback_count,
+            "exit_pending": self._exit_pending,
+            "has_entered": self._has_entered,
+            "request_sequence": self._request_sequence,
+            "signal_state": self._signal_state.value,
+            "signals": [item.to_dict() for item in self._signals],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, Mapping):
+            raise ValueError("test MACD Strategy checkpoint must be an object")
+        self._callback_count = int(str(payload["callback_count"]))
+        self._exit_pending = bool(payload["exit_pending"])
+        self._has_entered = bool(payload["has_entered"])
+        self._request_sequence = int(str(payload["request_sequence"]))
+        self._signal_state = OnlyTestMacdSignalState(str(payload["signal_state"]))
+        signals = payload["signals"]
+        if not isinstance(signals, list):
+            raise ValueError("test MACD Strategy signals checkpoint must be a list")
+        self._signals = [
+            OnlyTestMacdSignal(
+                int(str(item["sequence"])),
+                str(item["signal_type"]),
+                OnlyTimestamp.from_unix_nanos(int(str(item["ts_event_ns"]))),
+                str(item["dif"]),
+                str(item["dea"]),
+                None if item["order_request_id"] is None else OnlyOrderRequestId(str(item["order_request_id"])),
+            )
+            for item in signals
+            if isinstance(item, Mapping)
+        ]

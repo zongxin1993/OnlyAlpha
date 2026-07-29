@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
 from datetime import timedelta
+from typing import cast
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.audit import OnlyMarketDataAuditRecord, OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataQualityFlag
+from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataQualityFlag, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyMarketDataFailure,
@@ -45,6 +47,44 @@ class OnlyMarketDataDeduplicator:
         self._keys.add(key)
         return False
 
+    def capture_checkpoint(self) -> object:
+        records: list[dict[str, object]] = []
+        for key in self._keys:
+            if (
+                len(key) != 5
+                or not isinstance(key[0], OnlyMarketDataSourceId)
+                or not isinstance(key[1], OnlyInstrumentId)
+                or not isinstance(key[2], OnlyBarType)
+                or not isinstance(key[3], int)
+                or not isinstance(key[4], OnlyDataVersion)
+            ):
+                raise ValueError("unsupported MarketData dedup checkpoint key")
+            records.append(
+                {
+                    "bar_type": key[2].to_json(),
+                    "data_version": str(key[4]),
+                    "instrument_id": key[1].to_json(),
+                    "source_id": str(key[0]),
+                    "ts_event_ns": key[3],
+                }
+            )
+        return sorted(records, key=lambda item: (str(item["source_id"]), str(item["ts_event_ns"])))
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("MarketData dedup checkpoint must be a list")
+        self._keys = {
+            (
+                OnlyMarketDataSourceId(str(item["source_id"])),
+                OnlyInstrumentId.from_json(str(item["instrument_id"])),
+                OnlyBarType.from_json(str(item["bar_type"])),
+                int(item["ts_event_ns"]),
+                OnlyDataVersion(str(item["data_version"])),
+            )
+            for item in payload
+            if isinstance(item, dict)
+        }
+
 
 class OnlyMarketDataSequenceTracker:
     def __init__(self) -> None:
@@ -59,6 +99,32 @@ class OnlyMarketDataSequenceTracker:
         gap = previous is not None and current > previous + 1
         self._last[key] = current
         return False, gap
+
+    def capture_checkpoint(self) -> object:
+        return [
+            {
+                "bar_type": None if key[3] is None else cast(OnlyBarType, key[3]).to_json(),
+                "data_type": cast(OnlyMarketDataType, key[2]).value,
+                "instrument_id": cast(OnlyInstrumentId, key[1]).to_json(),
+                "sequence": value,
+                "source_id": str(key[0]),
+            }
+            for key, value in sorted(self._last.items(), key=lambda item: tuple(str(value) for value in item[0]))
+        ]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("MarketData sequence checkpoint must be a list")
+        self._last = {
+            (
+                OnlyMarketDataSourceId(str(item["source_id"])),
+                OnlyInstrumentId.from_json(str(item["instrument_id"])),
+                OnlyMarketDataType(str(item["data_type"])),
+                None if item["bar_type"] is None else OnlyBarType.from_json(str(item["bar_type"])),
+            ): int(item["sequence"])
+            for item in payload
+            if isinstance(item, dict)
+        }
 
 
 class OnlyMarketDataGapDetector:
@@ -95,6 +161,19 @@ class OnlyMarketDataGapDetector:
         )
         return tuple(dict.fromkeys(flags))
 
+    def capture_checkpoint(self) -> object:
+        return [
+            [bar_type.to_json(), bar.to_json()]
+            for bar_type, bar in sorted(self._last_bars.items(), key=lambda item: item[0].to_json())
+        ]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("MarketData gap checkpoint must be a list")
+        self._last_bars = {
+            OnlyBarType.from_json(str(bar_type)): OnlyBar.from_json(str(bar)) for bar_type, bar in payload
+        }
+
 
 class OnlyMarketDataProcessor:
     def __init__(
@@ -111,7 +190,7 @@ class OnlyMarketDataProcessor:
         audit_store: OnlyMarketDataAuditStore,
         event_publisher: OnlyMarketDataEventPublisher,
         before_dispatch: Callable[[OnlyMarketDataUpdateResult], None] | None = None,
-        after_dispatch: Callable[[], None] | None = None,
+        after_dispatch: Callable[[OnlyMarketDataInboundUpdate], None] | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._clock = clock
@@ -125,8 +204,16 @@ class OnlyMarketDataProcessor:
         self._audit_store = audit_store
         self._event_publisher = event_publisher
         self._before_dispatch = before_dispatch or (lambda result: None)
-        self._after_dispatch = after_dispatch or (lambda: None)
+        self._after_dispatch = after_dispatch or (lambda update: None)
         self._sequence = 0
+
+    def capture_checkpoint(self) -> object:
+        return {"processing_sequence": self._sequence}
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("MarketData processor checkpoint must be an object")
+        self._sequence = int(payload["processing_sequence"])
 
     def process(self, update: OnlyMarketDataInboundUpdate) -> OnlyMarketDataProcessingResult:
         self._sequence += 1
@@ -151,7 +238,7 @@ class OnlyMarketDataProcessor:
             pipeline_result = self._pipeline.process_bar(update.payload.bar, input_quality_flags=quality_strings)
             self._before_dispatch(pipeline_result)
             dispatches = self._dispatcher.dispatch(pipeline_result)
-            self._after_dispatch()
+            self._after_dispatch(update)
             status = (
                 OnlyMarketDataProcessingStatus.GAP_DETECTED
                 if OnlyMarketDataQualityFlag.GAP_DETECTED in quality.flags

@@ -10,10 +10,9 @@ from onlyalpha.execution import (
     OnlyExecutionEventDeliveryMode,
     OnlyExecutionProjectionApplier,
     OnlyExecutionProjectionComponent,
-    OnlyInMemoryExecutionTransactionStore,
     OnlyReferenceExecutionProjectionTarget,
 )
-from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStoreError
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStoreError
 from tests.execution.factories.transaction_factory import (
     only_test_generic_t0_cash_buy_open_transaction,
     only_test_rehash,
@@ -24,7 +23,7 @@ _PROJECTED_AT = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 2, tzinfo=UT
 
 
 def _coordinator(
-    store: OnlyInMemoryExecutionTransactionStore,
+    store: OnlyInMemoryRuntimePersistenceStore,
     *,
     missing: OnlyExecutionProjectionComponent | None = None,
 ) -> OnlyExecutionCommitCoordinator:
@@ -53,7 +52,7 @@ def _coordinator(
 
 def test_commit_is_durable_before_projection_ready_and_duplicate_is_already_ready() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     coordinator = _coordinator(store)
 
     first = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
@@ -74,7 +73,7 @@ def test_same_id_with_changed_prepared_payload_is_a_transaction_conflict() -> No
         prepared,
         prepared_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)),
     )
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     coordinator = _coordinator(store)
     assert coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT).transaction is not None
 
@@ -87,7 +86,7 @@ def test_same_id_with_changed_prepared_payload_is_a_transaction_conflict() -> No
 
 def test_missing_target_marks_projection_failed_and_hides_outbox() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     coordinator = _coordinator(store, missing=OnlyExecutionProjectionComponent.FEE)
 
     result = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
@@ -112,7 +111,7 @@ def test_failure_before_first_after_middle_and_before_last_projection_preserves_
     missing: OnlyExecutionProjectionComponent,
 ) -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     result = _coordinator(store, missing=missing).commit(
         prepared,
         committed_at=_COMMITTED_AT,
@@ -133,7 +132,7 @@ def test_sequence_gate_requires_the_immediate_predecessor_to_be_ready() -> None:
         trade_id=OnlyTradeId("trade-2"),
         update_id=type(first.broker_update_id)("update-2"),
     )
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     store.commit(first, committed_at=_COMMITTED_AT)
     store.commit(second, committed_at=OnlyTimestamp(_COMMITTED_AT.unix_nanos + 1))
     coordinator = _coordinator(store)
@@ -151,7 +150,7 @@ def test_sequence_gate_requires_the_immediate_predecessor_to_be_ready() -> None:
 
 def test_recovery_stops_on_first_failed_transaction() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     store.commit(prepared, committed_at=_COMMITTED_AT)
     coordinator = _coordinator(store, missing=OnlyExecutionProjectionComponent.FEE)
 
@@ -161,9 +160,9 @@ def test_recovery_stops_on_first_failed_transaction() -> None:
     assert results[0].status is OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED
 
 
-class _OnlyFailingCommitStore(OnlyInMemoryExecutionTransactionStore):
+class _OnlyFailingCommitStore(OnlyInMemoryRuntimePersistenceStore):
     def commit(self, prepared, *, committed_at):  # type: ignore[no-untyped-def]
-        raise OnlyExecutionTransactionStoreError("injected commit failure")
+        raise OnlyRuntimePersistenceStoreError("injected commit failure")
 
 
 def test_store_commit_failure_never_applies_projection() -> None:
@@ -177,7 +176,7 @@ def test_store_commit_failure_never_applies_projection() -> None:
     assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.NONE
 
 
-class _OnlyFailReadyOnceStore(OnlyInMemoryExecutionTransactionStore):
+class _OnlyFailReadyOnceStore(OnlyInMemoryRuntimePersistenceStore):
     def __init__(self) -> None:
         super().__init__()
         self._failed = False
@@ -191,7 +190,7 @@ class _OnlyFailReadyOnceStore(OnlyInMemoryExecutionTransactionStore):
     ) -> None:
         if not self._failed:
             self._failed = True
-            raise OnlyExecutionTransactionStoreError("injected ready failure")
+            raise OnlyRuntimePersistenceStoreError("injected ready failure")
         super().mark_projection_ready(runtime_id, execution_sequence, projected_at=projected_at)
 
 

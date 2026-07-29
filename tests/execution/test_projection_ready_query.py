@@ -6,23 +6,23 @@ import pytest
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution import (
-    OnlyExecutionTransactionStorePort,
-    OnlyInMemoryExecutionTransactionStore,
-    OnlySqliteExecutionTransactionStore,
+from onlyalpha.runtime.persistence.store import (
+    OnlyInMemoryRuntimePersistenceStore,
+    OnlyRuntimePersistenceStorePort,
+    OnlySqliteRuntimePersistenceStore,
 )
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
 
 @pytest.fixture(params=("memory", "sqlite"))
-def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[OnlyExecutionTransactionStorePort]:
-    selected: OnlyExecutionTransactionStorePort
+def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[OnlyRuntimePersistenceStorePort]:
+    selected: OnlyRuntimePersistenceStorePort
     if request.param == "memory":
-        selected = OnlyInMemoryExecutionTransactionStore()
+        selected = OnlyInMemoryRuntimePersistenceStore()
     else:
-        selected = OnlySqliteExecutionTransactionStore(tmp_path / "ready-query.sqlite3")
+        selected = OnlySqliteRuntimePersistenceStore(tmp_path / "ready-query.sqlite3")
     yield selected
-    if isinstance(selected, OnlySqliteExecutionTransactionStore):
+    if isinstance(selected, OnlySqliteRuntimePersistenceStore):
         selected.close()
 
 
@@ -30,7 +30,7 @@ def _timestamp(second: int) -> OnlyTimestamp:
     return OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=second))
 
 
-def _populate(store: OnlyExecutionTransactionStorePort, runtime_id: OnlyRuntimeId) -> None:
+def _populate(store: OnlyRuntimePersistenceStorePort, runtime_id: OnlyRuntimeId) -> None:
     for sequence in range(1, 5):
         prepared = only_test_generic_t0_cash_buy_open_transaction(
             runtime_id=runtime_id,
@@ -46,7 +46,7 @@ def _populate(store: OnlyExecutionTransactionStorePort, runtime_id: OnlyRuntimeI
 
 
 def test_ready_query_is_distinct_from_admin_and_projection_state_queries(
-    store: OnlyExecutionTransactionStorePort,
+    store: OnlyRuntimePersistenceStorePort,
 ) -> None:
     runtime_id = OnlyRuntimeId("runtime")
     _populate(store, runtime_id)
@@ -59,7 +59,7 @@ def test_ready_query_is_distinct_from_admin_and_projection_state_queries(
 
 
 def test_ready_query_runtime_scope_after_sequence_and_global_order(
-    store: OnlyExecutionTransactionStorePort,
+    store: OnlyRuntimePersistenceStorePort,
 ) -> None:
     runtime_id = OnlyRuntimeId("runtime")
     _populate(store, runtime_id)
@@ -77,12 +77,12 @@ def test_ready_query_runtime_scope_after_sequence_and_global_order(
 def test_sqlite_ready_state_payload_and_hash_survive_reopen(tmp_path: Path) -> None:
     path = tmp_path / "ready-restart.sqlite3"
     runtime_id = OnlyRuntimeId("runtime")
-    first = OnlySqliteExecutionTransactionStore(path)
+    first = OnlySqliteRuntimePersistenceStore(path)
     _populate(first, runtime_id)
     expected = first.ready_records(runtime_id)
     first.close()
 
-    reopened = OnlySqliteExecutionTransactionStore(path)
+    reopened = OnlySqliteRuntimePersistenceStore(path)
     try:
         actual = reopened.ready_records(runtime_id)
         assert actual == expected

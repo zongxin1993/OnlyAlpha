@@ -94,14 +94,14 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 ## Phase 8：性能与分布式（未完成）
 
 多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。
-## PR4.1 Projection Ready Query 与 Runtime Recovery
+## PR4.2 Runtime Checkpoint 与连续 Engine Restart
 
-已完成 Admin/Business execution query 分离、Backtest READY 前自动 transaction-tail recovery、Cluster start 前 recovered Outbox delivery、
-Runtime recovery diagnostics，以及 In-memory/SQLite 和 12 个真实 Manager Target 的故障矩阵。当前仍依赖正确 Bootstrap Authority；Full
-Bootstrap Snapshot、Empty Runtime Recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、Non-Trade Transaction 与 Paper/Live
-Recovery 保持为后续边界。
+已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、每 Bar 原子 checkpoint、完整 Participant Registry、精确
+MarketData cursor、Ready 前缀 rehydration、未投影后缀 Coordinator recovery、Open Order/Virtual Broker/Strategy/Factor/Indicator
+恢复，以及独立 Engine 多次连续重启和基线等价测试。Paper/Live recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、
+Non-Trade Transaction、exactly-once Outbox、schema migration 与分布式 checkpoint 仍未完成。
 
-已完成 Execution Store 强类型 MEMORY/SQLITE 配置、稳定 Runtime state directory、schema/identity metadata、正式 Factory 装配、
-Runtime-owned close，以及两个独立 Engine restart 场景（commit-before-projection recovery 与 Ready Outbox retry）。当前产品 bootstrap
-仅支持 sequence-one Generic T0 transaction-before authority；Full Bootstrap Snapshot、多 transaction tail、Paper/Live recovery 与
-exactly-once delivery 仍未完成。
+## PR4.1 Projection Ready Query 与 Runtime Recovery（Historical）
+
+本节记录此前只覆盖 transaction-tail forward recovery 的历史阶段；其单笔 bootstrap、旧 Store 命名与 schema 已由 PR4.2/ADR 0044
+整体替代，不再是当前产品边界。

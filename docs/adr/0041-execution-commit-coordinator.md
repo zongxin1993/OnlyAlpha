@@ -9,7 +9,7 @@
 
 ## Decision
 
-`OnlyExecutionTransactionStore` 是唯一 durable Trade authority。`OnlyAppliedProjectionLedger` 仅记录某个 Projection 是否已应用，是可由 authoritative bootstrap state 与有序 transaction tail 重建的幂等索引，不是第二业务真值。
+`OnlyRuntimePersistenceStorePort` 中的 transaction 记录是唯一 durable Trade authority。`OnlyAppliedProjectionLedger` 仅记录某个 Projection 是否已应用，是可由 checkpoint authority 与有序 transaction tail 重建的幂等索引，不是第二业务真值。
 
 当前正式流程固定为：
 
@@ -32,11 +32,11 @@ Outbox 记录与事务一起 durable commit，但 `pending()` 只返回 Projecti
 
 ## Supported scope
 
-产品主链当前覆盖 Generic T0 Cash、LIMIT、BUY、OPEN、未成交订单的一次整单 Fill。SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁移。这些既有路径与正式路径清晰分离，且不得写入 Transaction Store 或生成正式 committed execution 结果。
+产品主链当前覆盖 Generic T0 Cash、LIMIT、BUY/SELL、OPEN/CLOSE 与多笔连续 Fill。Futures/Margin 与多 Cluster 固定资金归约仍受各自产品能力边界约束；不受支持的路径不得写入 Runtime Persistence Store 或生成正式 committed execution 结果。
 
 ## Recovery boundary
 
-该设计提供已 durable commit transaction tail 的 forward recovery，不提供跨 Manager rollback，也不等于 Full Runtime Recovery。空 Runtime 的完整恢复仍需要可靠的 bootstrap snapshot、持久 Applied Ledger 策略以及 Runtime 生命周期 orchestrator。
+ADR 0044 已补全这里原先缺失的 Runtime Recovery：新 Engine 从完整 checkpoint authority 恢复，再按精确 replay cursor 追赶连续 transaction tail；不执行跨 Manager rollback。
 
 ## Removed design
 

@@ -17,14 +17,14 @@ from onlyalpha.execution import (
     OnlyExecutionTransactionCommitResult,
     OnlyExecutionTransactionOutboxKey,
     OnlyExecutionTransactionOutboxRecord,
-    OnlyExecutionTransactionStorePort,
     OnlyPreparedExecutionTransaction,
     OnlyProjectionApplyResult,
 )
-from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStoreError
+from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
+from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStoreError, OnlyRuntimePersistenceStorePort
 
 
-class OnlyTestExecutionStoreFault(StrEnum):
+class OnlyTestRuntimePersistenceFault(StrEnum):
     COMMIT = "COMMIT"
     AFTER_COMMIT = "AFTER_COMMIT"
     MARK_READY = "MARK_READY"
@@ -33,6 +33,7 @@ class OnlyTestExecutionStoreFault(StrEnum):
     OUTBOX_MARK_PUBLISHED = "OUTBOX_MARK_PUBLISHED"
     OUTBOX_MARK_FAILED = "OUTBOX_MARK_FAILED"
     QUERY = "QUERY"
+    CHECKPOINT_WRITE = "CHECKPOINT_WRITE"
 
 
 class OnlyFailOnceExecutionProjectionTarget:
@@ -87,37 +88,43 @@ class OnlyFailOnceAppliedProjectionLedger:
         self._delegate.record(record)
 
 
-class OnlyFailOnceExecutionTransactionStore:
+class OnlyFailOnceRuntimePersistenceStore:
     def __init__(
         self,
-        delegate: OnlyExecutionTransactionStorePort,
-        fault: OnlyTestExecutionStoreFault,
+        delegate: OnlyRuntimePersistenceStorePort,
+        fault: OnlyTestRuntimePersistenceFault,
+        *,
+        fault_after: int = 0,
     ) -> None:
         self._delegate = delegate
         self._fault = fault
         self._failed = False
+        self._fault_after = fault_after
+        self._operation_counts: dict[OnlyTestRuntimePersistenceFault, int] = {}
 
-    def _raise_once(self, operation: OnlyTestExecutionStoreFault) -> None:
-        if self._fault is operation and not self._failed:
+    def _raise_once(self, operation: OnlyTestRuntimePersistenceFault) -> None:
+        count = self._operation_counts.get(operation, 0)
+        self._operation_counts[operation] = count + 1
+        if self._fault is operation and not self._failed and count >= self._fault_after:
             self._failed = True
-            raise OnlyExecutionTransactionStoreError(f"injected {operation.value} failure")
+            raise OnlyRuntimePersistenceStoreError(f"injected {operation.value} failure")
 
     def commit(
         self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
     ) -> OnlyExecutionTransactionCommitResult:
-        self._raise_once(OnlyTestExecutionStoreFault.COMMIT)
+        self._raise_once(OnlyTestRuntimePersistenceFault.COMMIT)
         result = self._delegate.commit(prepared, committed_at=committed_at)
-        self._raise_once(OnlyTestExecutionStoreFault.AFTER_COMMIT)
+        self._raise_once(OnlyTestRuntimePersistenceFault.AFTER_COMMIT)
         return result
 
     def get_by_sequence(
         self, runtime_id: OnlyRuntimeId, execution_sequence: int
     ) -> OnlyCommittedExecutionTransaction | None:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_sequence(runtime_id, execution_sequence)
 
     def get_by_transaction_id(self, transaction_id: str) -> OnlyCommittedExecutionTransaction | None:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_transaction_id(transaction_id)
 
     def get_by_trade(
@@ -127,7 +134,7 @@ class OnlyFailOnceExecutionTransactionStore:
         account_id: OnlyAccountId,
         trade_id: OnlyTradeId,
     ) -> OnlyCommittedExecutionTransaction | None:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_trade(runtime_id, gateway_id, account_id, trade_id)
 
     def get_by_update(
@@ -137,23 +144,23 @@ class OnlyFailOnceExecutionTransactionStore:
         account_id: OnlyAccountId,
         update_id: OnlyBrokerUpdateId,
     ) -> OnlyCommittedExecutionTransaction | None:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_update(runtime_id, gateway_id, account_id, update_id)
 
     def records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.records(runtime_id, after_sequence=after_sequence)
 
     def ready_records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.ready_records(runtime_id, after_sequence=after_sequence)
 
     def ready_count(self, runtime_id: OnlyRuntimeId | None = None) -> int:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.ready_count(runtime_id)
 
     def mark_projection_ready(
@@ -163,7 +170,7 @@ class OnlyFailOnceExecutionTransactionStore:
         *,
         projected_at: OnlyTimestamp,
     ) -> None:
-        self._raise_once(OnlyTestExecutionStoreFault.MARK_READY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.MARK_READY)
         self._delegate.mark_projection_ready(runtime_id, execution_sequence, projected_at=projected_at)
 
     def mark_projection_failed(
@@ -174,40 +181,53 @@ class OnlyFailOnceExecutionTransactionStore:
         failed_at: OnlyTimestamp,
         error: str,
     ) -> None:
-        self._raise_once(OnlyTestExecutionStoreFault.MARK_FAILED)
+        self._raise_once(OnlyTestRuntimePersistenceFault.MARK_FAILED)
         self._delegate.mark_projection_failed(runtime_id, execution_sequence, failed_at=failed_at, error=error)
 
     def unprojected(
         self, runtime_id: OnlyRuntimeId, *, after_sequence: int = 0
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.unprojected(runtime_id, after_sequence=after_sequence)
 
     def pending(self, runtime_id: OnlyRuntimeId, *, limit: int) -> tuple[OnlyExecutionTransactionOutboxRecord, ...]:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.pending(runtime_id, limit=limit)
 
     def begin_attempt(
         self, key: OnlyExecutionTransactionOutboxKey, attempted_at: OnlyTimestamp
     ) -> OnlyExecutionTransactionOutboxRecord:
-        self._raise_once(OnlyTestExecutionStoreFault.OUTBOX_BEGIN_ATTEMPT)
+        self._raise_once(OnlyTestRuntimePersistenceFault.OUTBOX_BEGIN_ATTEMPT)
         return self._delegate.begin_attempt(key, attempted_at)
 
     def mark_published(self, key: OnlyExecutionTransactionOutboxKey, published_at: OnlyTimestamp) -> None:
-        self._raise_once(OnlyTestExecutionStoreFault.OUTBOX_MARK_PUBLISHED)
+        self._raise_once(OnlyTestRuntimePersistenceFault.OUTBOX_MARK_PUBLISHED)
         self._delegate.mark_published(key, published_at)
 
     def mark_failed(self, key: OnlyExecutionTransactionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None:
-        self._raise_once(OnlyTestExecutionStoreFault.OUTBOX_MARK_FAILED)
+        self._raise_once(OnlyTestRuntimePersistenceFault.OUTBOX_MARK_FAILED)
         self._delegate.mark_failed(key, failed_at, error)
 
     def pending_count(self, runtime_id: OnlyRuntimeId) -> int:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.pending_count(runtime_id)
 
     def outbox_records(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionTransactionOutboxRecord, ...]:
-        self._raise_once(OnlyTestExecutionStoreFault.QUERY)
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.outbox_records(runtime_id)
+
+    def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
+        self._raise_once(OnlyTestRuntimePersistenceFault.CHECKPOINT_WRITE)
+        self._delegate.write_checkpoint(checkpoint, retain_last=retain_last)
+
+    def latest_checkpoint(self, runtime_id: OnlyRuntimeId) -> OnlyRuntimeCheckpoint | None:
+        return self._delegate.latest_checkpoint(runtime_id)
+
+    def checkpoints(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeCheckpoint, ...]:
+        return self._delegate.checkpoints(runtime_id)
+
+    def bind_participant_registry_fingerprint(self, fingerprint: str) -> None:
+        self._delegate.bind_participant_registry_fingerprint(fingerprint)
 
     def close(self) -> None:
         self._delegate.close()

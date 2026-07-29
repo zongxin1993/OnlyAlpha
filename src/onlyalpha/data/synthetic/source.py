@@ -31,7 +31,7 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
+from onlyalpha.plugin.capabilities import OnlyCheckpointCapability, OnlyDataSourceCapabilities
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.lifecycle import (
     OnlyPluginHealth,
@@ -47,7 +47,10 @@ ONLY_SYNTHETIC_PLUGIN_DESCRIPTOR = OnlyPluginDescriptor(
     ONLYALPHA_PLUGIN_API_VERSION,
     "OnlyAlpha Synthetic Historical Data",
     "OnlyAlpha",
-    OnlyDataSourceCapabilities(historical_bars=True),
+    OnlyDataSourceCapabilities(
+        historical_bars=True,
+        supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
+    ),
 )
 
 

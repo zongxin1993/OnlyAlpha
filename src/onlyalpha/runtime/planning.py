@@ -21,7 +21,7 @@ class OnlyRuntimeCompatibilityKey:
     broker_environment: str
     account_environment: str
     market_environment: str
-    execution_store_environment: str
+    persistence_environment: str
 
     @classmethod
     def from_config(cls, config: OnlyClusterRunConfig) -> OnlyRuntimeCompatibilityKey:
@@ -64,7 +64,7 @@ class OnlyRuntimeCompatibilityKey:
                     "overrides": dict(config.market.overrides),
                 }
             ),
-            _fingerprint(config.runtime.execution_store.to_dict()),
+            _fingerprint(config.runtime.persistence.to_dict()),
         )
 
 

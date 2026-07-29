@@ -7,6 +7,7 @@ from onlyalpha.factor.context import OnlyCrossSectionFactorContext, OnlyFactorBa
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.score import OnlyFactorScore
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
+from onlyalpha.plugin.capabilities import OnlyCheckpointCapability
 
 
 class OnlyFactorContextError(RuntimeError):
@@ -57,6 +58,21 @@ class OnlyFactor(ABC):
     def on_stop(self) -> None:
         """Optional lifecycle hook."""
         return None
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return None
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return None
+
+    def capture_checkpoint(self) -> object:
+        raise NotImplementedError(f"{type(self).__name__} does not declare checkpoint capability")
+
+    def restore_checkpoint(self, payload: object) -> None:
+        del payload
+        raise NotImplementedError(f"{type(self).__name__} does not declare checkpoint capability")
 
 
 class OnlyTimeSeriesFactor(OnlyFactor, ABC):

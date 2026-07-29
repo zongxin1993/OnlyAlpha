@@ -11,7 +11,7 @@ ledger 重试却会把它误报为 version conflict。若再把 ledger 建成独
 
 ## Decision
 
-`OnlyExecutionTransactionStore` 是唯一持久业务事务权威。`OnlyAppliedProjectionLedger` 是 Runtime Projection Application
+`OnlyRuntimePersistenceStorePort` 中的 transaction 记录是唯一持久业务事务权威。`OnlyAppliedProjectionLedger` 是 Runtime Projection Application
 Acceleration Index：它按 execution sequence/component 快速识别重复 apply，支持 batch forward recovery，并避免每次重查完整
 Manager authority。
 

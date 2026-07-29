@@ -12,7 +12,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
 
 from .event_buffer import OnlyExecutionEventBatch
-from .transaction_store import OnlyExecutionTransactionOutboxPort
+from .persistence_ports import OnlyExecutionTransactionOutboxPort
 
 
 class OnlyExecutionEventDeliveryMode(StrEnum):

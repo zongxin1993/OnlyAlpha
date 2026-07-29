@@ -10,6 +10,13 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 
 from .delivery import OnlyExecutionEventDeliveryIntent, OnlyExecutionEventDeliveryMode
+from .persistence_ports import (
+    OnlyExecutionProjectionStatePort,
+    OnlyExecutionTransactionCommitPort,
+    OnlyExecutionTransactionConflict,
+    OnlyExecutionTransactionQueryPort,
+    OnlyRuntimePersistenceStoreError,
+)
 from .projection import OnlyExecutionProjectionComponent
 from .projection_applier import (
     OnlyExecutionProjectionApplier,
@@ -17,13 +24,6 @@ from .projection_applier import (
     OnlyExecutionProjectionBatchStatus,
 )
 from .transaction import OnlyCommittedExecutionTransaction, OnlyPreparedExecutionTransaction
-from .transaction_store import (
-    OnlyExecutionProjectionStatePort,
-    OnlyExecutionTransactionCommitPort,
-    OnlyExecutionTransactionConflict,
-    OnlyExecutionTransactionQueryPort,
-    OnlyExecutionTransactionStoreError,
-)
 
 
 class OnlyExecutionCommitCoordinationStatus(StrEnum):
@@ -79,7 +79,7 @@ class OnlyExecutionCommitCoordinator:
             committed = self._commit_port.commit(prepared, committed_at=committed_at)
         except OnlyExecutionTransactionConflict as exc:
             return self._result(OnlyExecutionCommitCoordinationStatus.TRANSACTION_CONFLICT, error=str(exc))
-        except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+        except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return self._result(
                 OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
                 error=f"{type(exc).__name__}: {exc}",
@@ -100,7 +100,7 @@ class OnlyExecutionCommitCoordinator:
             raise ValueError("execution recovery limit must be positive")
         try:
             transactions = self._projection_state_port.unprojected(runtime_id)
-        except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+        except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return (
                 self._result(
                     OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
@@ -133,7 +133,7 @@ class OnlyExecutionCommitCoordinator:
     ) -> OnlyExecutionCommitCoordinationResult:
         try:
             current = self._query_port.get_by_sequence(transaction.runtime_id, transaction.execution_sequence)
-        except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+        except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return self._result(
                 OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
                 transaction=transaction,
@@ -157,7 +157,7 @@ class OnlyExecutionCommitCoordinator:
         if current.execution_sequence > 1:
             try:
                 previous = self._query_port.get_by_sequence(current.runtime_id, current.execution_sequence - 1)
-            except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+            except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
                 return self._result(
                     OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
                     transaction=current,
@@ -199,7 +199,7 @@ class OnlyExecutionCommitCoordinator:
                 projected_at=projected_at,
             )
             ready = self._query_port.get_by_sequence(current.runtime_id, current.execution_sequence)
-        except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+        except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             error = f"mark projection ready failed: {type(exc).__name__}: {exc}"
             return self._projection_state_failure(
                 current,
@@ -241,7 +241,7 @@ class OnlyExecutionCommitCoordinator:
                 failed_at=projected_at,
                 error=error,
             )
-        except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+        except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return self._result(
                 OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
                 transaction=transaction,
@@ -275,7 +275,7 @@ class OnlyExecutionCommitCoordinator:
                 failed_at=projected_at,
                 error=error,
             )
-        except (OnlyExecutionTransactionStoreError, OSError, RuntimeError, ValueError) as exc:
+        except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             error = f"{error}; mark projection failed failed: {type(exc).__name__}: {exc}"
         return self._result(
             OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,

@@ -25,8 +25,8 @@ from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
-from onlyalpha.execution import OnlyInMemoryExecutionTransactionStore
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
 
@@ -70,7 +70,7 @@ def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster"
         ),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
-        execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
+        runtime_persistence_store=OnlyInMemoryRuntimePersistenceStore(),
     )
     instrument_id = only_demo_bar_types()[0].instrument_id
     runtime.register_instrument(

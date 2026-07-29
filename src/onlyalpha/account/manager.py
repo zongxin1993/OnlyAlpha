@@ -29,7 +29,7 @@ from onlyalpha.account.performance import OnlyAccountValuationSource
 from onlyalpha.account.repositories import OnlyAccountRepository, OnlyInMemoryAccountRepository
 from onlyalpha.account.reservations import OnlyAccountReservationManager
 from onlyalpha.domain.enums import OnlyOrderSide
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney
 
@@ -409,6 +409,32 @@ class OnlyAccountManager:
         self._repository.replace_execution_authority(restored)
         self._accounts[snapshot.account_id] = candidate
         self._trade_ids = installed_trade_ids
+
+    def capture_checkpoint(self) -> object:
+        """Return canonical, complete Account authority for a Runtime checkpoint."""
+
+        return {
+            "accounts": [item.to_json() for item in self.list_accounts()],
+            "event_sequence": self._event_sequence,
+            "trade_ids": sorted(str(item) for item in self._trade_ids),
+            "valuation_versions": [
+                [str(account_id), version]
+                for account_id, version in sorted(self._valuation_versions.items(), key=lambda item: str(item[0]))
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Account checkpoint must be an object")
+        snapshots = tuple(OnlyAccountSnapshot.from_json(str(item)) for item in payload["accounts"])
+        trade_ids = tuple(OnlyTradeId(str(item)) for item in payload["trade_ids"])
+        for snapshot in snapshots:
+            for reservation in snapshot.reservations:
+                self._reservation_manager.restore_execution_authority(reservation)
+            self.restore_execution_authority(snapshot, trade_ids=trade_ids)
+        for account_id, version in payload["valuation_versions"]:
+            self.restore_valuation_version(OnlyAccountId(str(account_id)), int(version))
+        self.restore_execution_event_sequence(int(payload["event_sequence"]))
 
     def _snapshot(self, state: OnlyAccount) -> OnlyAccountSnapshot:
         currency = state.config.base_currency

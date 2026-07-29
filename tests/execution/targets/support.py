@@ -12,14 +12,13 @@ from onlyalpha.execution import (
     OnlyExecutionProjectionBatchStatus,
     OnlyExecutionProjectionComponent,
     OnlyExecutionProjectionTarget,
-    OnlyExecutionTransactionStorePort,
     OnlyExecutionValuationAuthority,
     OnlyInMemoryAppliedProjectionLedger,
-    OnlyInMemoryExecutionTransactionStore,
     OnlyProjectionApplyStatus,
     OnlyValuationExecutionState,
     only_create_generic_t0_execution_projection_targets,
 )
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStorePort
 from tests.execution.support.generic_t0_trade_harness import (
     OnlyTestGenericT0Scenario,
     only_test_generic_t0_projection_environment,
@@ -35,7 +34,7 @@ class OnlyTestProjectionTargetBundle:
     valuation_authority: OnlyExecutionValuationAuthority
     applied_ledger: OnlyInMemoryAppliedProjectionLedger
     targets: dict[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget]
-    transaction_store: OnlyExecutionTransactionStorePort
+    transaction_store: OnlyRuntimePersistenceStorePort
 
     def apply_all(self) -> OnlyExecutionProjectionBatchResult:
         return OnlyExecutionProjectionApplier(self.targets).apply(self.transaction)
@@ -62,11 +61,11 @@ class OnlyTestProjectionTargetBundle:
 
 def only_test_projection_target_bundle(
     scenario: OnlyTestGenericT0Scenario | None = None,
-    transaction_store: OnlyExecutionTransactionStorePort | None = None,
+    transaction_store: OnlyRuntimePersistenceStorePort | None = None,
 ) -> OnlyTestProjectionTargetBundle:
     selected = scenario or OnlyTestGenericT0Scenario("real-target")
     environment, context, prepared = only_test_generic_t0_projection_environment(selected)
-    store = transaction_store or OnlyInMemoryExecutionTransactionStore()
+    store = transaction_store or OnlyInMemoryRuntimePersistenceStore()
     committed = store.commit(prepared, committed_at=context.prepared_at).transaction
     runtime = environment.runtime
 

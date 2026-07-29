@@ -139,3 +139,31 @@ class OnlyBarAggregationManager:
             if result is not None:
                 derived.append(result)
         return tuple(derived)
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "aggregators": [
+                [target.to_json(), aggregator.capture_checkpoint()]
+                for target, aggregator in sorted(self._aggregators.items(), key=lambda item: item[0].to_json())
+            ],
+            "creation_count": self._creation_count,
+            "reference_counts": [
+                [target.to_json(), count]
+                for target, count in sorted(self._reference_counts.items(), key=lambda item: item[0].to_json())
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Bar Aggregation checkpoint must be an object")
+        states = {OnlyBarType.from_json(str(target)): value for target, value in payload["aggregators"]}
+        if set(states) != set(self._aggregators):
+            raise ValueError("Bar Aggregation participant graph changed")
+        for target, state in states.items():
+            self._aggregators[target].restore_checkpoint(state)
+        expected_counts = {
+            OnlyBarType.from_json(str(target)): int(count) for target, count in payload["reference_counts"]
+        }
+        if expected_counts != self._reference_counts:
+            raise ValueError("Bar Aggregation reference graph changed")
+        self._creation_count = int(payload["creation_count"])

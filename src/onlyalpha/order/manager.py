@@ -359,6 +359,38 @@ class OnlyOrderManager:
         else:
             self._open_order_ids.discard(snapshot.order_id)
 
+    def capture_checkpoint(self) -> object:
+        return {
+            "client_order_id_sequence": self._client_order_id_generator.checkpoint_sequence(),
+            "event_sequence": self._event_sequence,
+            "order_id_sequence": self._order_id_generator.checkpoint_sequence(),
+            "orders": [
+                {
+                    "external_event_ids": sorted(self._orders[snapshot.order_id]._external_event_ids),
+                    "snapshot": snapshot.to_json(),
+                    "trade_ids": sorted(self._orders[snapshot.order_id]._trade_ids),
+                    "venue_trade_ids": sorted(self._orders[snapshot.order_id]._venue_trade_ids),
+                }
+                for snapshot in self.snapshot_all()
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Order checkpoint must be an object")
+        for raw in payload["orders"]:
+            if not isinstance(raw, dict):
+                raise ValueError("Order checkpoint entry must be an object")
+            self.restore_execution_authority(
+                OnlyOrderSnapshot.from_json(str(raw["snapshot"])),
+                external_event_ids=frozenset(str(item) for item in raw["external_event_ids"]),
+                trade_ids=frozenset(str(item) for item in raw["trade_ids"]),
+                venue_trade_ids=frozenset(str(item) for item in raw["venue_trade_ids"]),
+            )
+        self._order_id_generator.restore_checkpoint_sequence(int(payload["order_id_sequence"]))
+        self._client_order_id_generator.restore_checkpoint_sequence(int(payload["client_order_id_sequence"]))
+        self.restore_execution_event_sequence(int(payload["event_sequence"]))
+
     def _mutate(
         self,
         order_id: OnlyOrderId,

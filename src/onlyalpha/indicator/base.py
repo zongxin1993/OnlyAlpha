@@ -13,6 +13,7 @@ from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 from onlyalpha.indicator.score import OnlyIndicatorScore
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot, OnlyWarmupProgress
+from onlyalpha.plugin.capabilities import OnlyCheckpointCapability
 
 OnlyIndicatorSnapshotT = TypeVar("OnlyIndicatorSnapshotT", bound=OnlyIndicatorSnapshot, covariant=True)
 
@@ -61,6 +62,21 @@ class OnlyIndicator(ABC, Generic[OnlyIndicatorSnapshotT]):  # noqa: UP046
 
     def canonical_score(self) -> OnlyIndicatorScore | None:
         return None
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return None
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return None
+
+    def capture_checkpoint(self) -> object:
+        raise NotImplementedError(f"{type(self).__name__} does not declare checkpoint capability")
+
+    def restore_checkpoint(self, payload: object) -> None:
+        del payload
+        raise NotImplementedError(f"{type(self).__name__} does not declare checkpoint capability")
 
 
 class OnlyBarIndicator(OnlyIndicator[OnlyIndicatorSnapshotT], ABC):

@@ -15,13 +15,13 @@ def _imports(path: str) -> set[str]:
 def test_coordinator_planner_and_store_dependency_direction() -> None:
     coordinator = _imports("src/onlyalpha/execution/commit_coordinator.py")
     planner = _imports("src/onlyalpha/execution/trade_planner.py")
-    store = _imports("src/onlyalpha/execution/transaction_store.py")
+    store = _imports("src/onlyalpha/runtime/persistence/store.py")
     assert not any(name.endswith(".manager") for name in coordinator)
     assert not any(
         name.endswith(".manager") or ".runtime" in name or name.endswith("transaction_store") for name in planner
     )
     assert "onlyalpha.event.bus" not in planner
-    assert not any(name.endswith(".manager") or ".runtime" in name for name in store)
+    assert not any(name.endswith(".manager") or ".backtest" in name or ".engine" in name for name in store)
 
 
 def test_projection_targets_use_restore_authority_not_business_mutations() -> None:
@@ -44,7 +44,8 @@ def test_product_supported_trade_path_has_one_transaction_authority_and_no_switc
     execution = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha/execution").glob("*.py"))
     assert "def _trade(" not in processor
     assert "self._execution_commit_coordinator.commit(" in processor
-    assert "OnlyInMemoryExecutionTransactionStore()" in runtime
+    assert "runtime_persistence_store" in runtime
+    assert "OnlyInMemoryRuntimePersistenceStore()" not in runtime
     assert "OnlyExecutionCommitCoordinator(" in runtime
     assert "CommittedExecutionJournal" not in execution
     assert "ExecutionCommitPort" not in execution

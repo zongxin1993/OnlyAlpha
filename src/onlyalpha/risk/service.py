@@ -15,6 +15,7 @@ from onlyalpha.domain.identifiers import (
     OnlyEngineId,
     OnlyInstrumentId,
     OnlyOrderId,
+    OnlyOrderRequestId,
     OnlyRuntimeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
@@ -413,6 +414,46 @@ class OnlyRiskService:
         if snapshot.runtime_id != self.runtime_id:
             raise ValueError("Risk Snapshot belongs to another Runtime")
         self._state.restore_snapshot(snapshot)
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "audit_sequence": self._audit_sequence,
+            "audits": [item.to_json() for item in self._audits],
+            "event_sequence": self._event_sequence,
+            "kill_switch": self._kill_switch.capture_checkpoint(),
+            "requests": [
+                [str(cluster_id), str(account_id), str(request_id), request.to_json()]
+                for (cluster_id, account_id, request_id), request in sorted(
+                    self._requests.items(), key=lambda item: tuple(str(part) for part in item[0])
+                )
+            ],
+            "reservations": [item.to_json() for item in self._reservations.snapshot_all()],
+            "reservation_sequence": self._reservations.sequence_head,
+            "state": self._state.capture_checkpoint(),
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Risk checkpoint must be an object")
+        reservation_sequence = int(payload["reservation_sequence"])
+        for raw in payload["reservations"]:
+            self._reservations.restore_execution_authority(
+                OnlyRiskReservation.from_json(str(raw)),
+                sequence=reservation_sequence,
+            )
+        self._state.restore_checkpoint(payload["state"])
+        self._requests = {
+            (
+                OnlyClusterId(str(cluster_id)),
+                OnlyAccountId(str(account_id)),
+                OnlyOrderRequestId(str(request_id)),
+            ): OnlyOrderRequest.from_json(str(raw))
+            for cluster_id, account_id, request_id, raw in payload["requests"]
+        }
+        self._audits = [OnlyRiskDecisionAudit.from_json(str(raw)) for raw in payload["audits"]]
+        self._kill_switch.restore_checkpoint(payload["kill_switch"])
+        self._audit_sequence = int(payload["audit_sequence"])
+        self.restore_execution_event_sequence(int(payload["event_sequence"]))
 
     def reserve_order(
         self,

@@ -1,4 +1,4 @@
-# PR4.1 Ready Query 与 Runtime Recovery 修改前审计
+﻿# PR4.1 Ready Query 与 Runtime Recovery 修改前审计
 
 - 审计日期：2026-07-28
 - 审计基线：`cab2658 Feat: 实现 Execution Commit Coordinator 与正式事务提交主链`
@@ -39,14 +39,14 @@
 ## Store 查询语义
 
 - `src/onlyalpha/execution/transaction_store.py::OnlyExecutionTransactionQueryPort.records()` 明确定义为全部 committed transaction。
-- `OnlyInMemoryExecutionTransactionStore.records()` 在锁内按 `(runtime_id, execution_sequence)` 排序，但不筛选 `projection_ready`。
-- `OnlySqliteExecutionTransactionStore.records()` 通过 SQL 按 `runtime_id, execution_sequence` 排序，同样不筛选 `projection_ready`。
+- `OnlyInMemoryRuntimePersistenceStore.records()` 在锁内按 `(runtime_id, execution_sequence)` 排序，但不筛选 `projection_ready`。
+- `OnlySqliteRuntimePersistenceStore.records()` 通过 SQL 按 `runtime_id, execution_sequence` 排序，同样不筛选 `projection_ready`。
 - 两个 Store 的 `unprojected()` 都表示未 Ready 记录；SQLite 当前先加载 `records()` 后用 Python 过滤。
 - 两个 Store 均没有正式 `OnlyProjectionReadyExecutionQueryPort`、`ready_records()` 或 `ready_count()`。因此 Admin 与 Business query 尚未分离。
 
 ## Runtime 装配与生命周期缺口
 
-- `src/onlyalpha/runtime/backtest/runtime.py::OnlyBacktestRuntime.__init__()` 构造唯一的 `OnlyInMemoryExecutionTransactionStore`、`OnlyInMemoryAppliedProjectionLedger`、真实 12 Target、`OnlyExecutionProjectionApplier`、`OnlyExecutionCommitCoordinator` 和 `OnlyExecutionOutboxPublisher`。
+- `src/onlyalpha/runtime/backtest/runtime.py::OnlyBacktestRuntime.__init__()` 构造唯一的 `OnlyInMemoryRuntimePersistenceStore`、`OnlyInMemoryAppliedProjectionLedger`、真实 12 Target、`OnlyExecutionProjectionApplier`、`OnlyExecutionCommitCoordinator` 和 `OnlyExecutionOutboxPublisher`。
 - Coordinator 随后只注入 `OnlyExecutionProcessor`；`src/onlyalpha/runtime/runtime.py::OnlyRuntimeServices` 没有保存 Coordinator、Recovery Service、Projection State 或 Outbox Port，只保存模糊的 `committed_execution_query`。
 - `OnlyRuntime.initialize()` 当前执行插件 `initialize/connect`、Cluster `initialize_all()` 后直接设置 `READY`，没有 `recover_unprojected()`。
 - `OnlyRuntime.start()` 当前先启动插件资源和 Cluster，再调用 `_drain_execution_outbox()`；旧 transaction event 可能晚于 Cluster 新业务事件。

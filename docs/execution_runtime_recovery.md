@@ -1,77 +1,90 @@
-# Execution Runtime Recovery
+# Runtime Checkpoint and Continuous Backtest Recovery
 
-OnlyAlpha 将 durable transaction truth、Runtime Manager authority、Applied Projection Ledger 与 Outbox delivery 明确分层：
-
-```text
-Transaction Store (durable Trade authority)
-→ ordered real Manager Projection
-→ Projection Ready business visibility
-→ durable at-least-once Outbox delivery
-```
-
-## 生命周期
-
-Backtest Runtime 的启动顺序固定为：
+OnlyAlpha uses one Runtime Persistence Store for three distinct authorities:
 
 ```text
-CREATED
-→ plugin resource initialize/connect
-→ Cluster initialize
-→ Execution Recovery
-→ READY
-→ plugin resource start
-→ recovered Outbox delivery
-→ Cluster start
-→ RUNNING
-→ RUNTIME_STARTED
+latest complete Runtime checkpoint
++ durable execution transaction tail
++ durable at-least-once Outbox
+= recoverable Runtime authority
 ```
 
-Recovery 发生在正确 Bootstrap/Before Authority 已建立之后、任何新行情、Broker update 或策略回调之前。失败时 Runtime 进入
-`FAILED`，保留 `OnlyExecutionRecoveryResult`，不进入 `READY/RUNNING`，也不发布 `RUNTIME_STARTED`。
+The checkpoint is an immutable snapshot at a stable Bar boundary. It does not replace transactions. Transactions after the
+checkpoint remain the execution tail, and the Outbox remains only the delivery intent for Projection Ready events.
 
-## 恢复顺序与状态
+## Lifecycle and barrier
 
-`OnlyExecutionRecoveryService` 查询最早的未 Ready transaction，按 `execution_sequence` 升序调用正式 Coordinator。前序未 Ready
-产生 `SEQUENCE_BLOCKED`；Projection failure、Store failure 分别映射为稳定状态，并立即停止后续 transaction。`NO_WORK` 与
-`RECOVERED` 是仅有的成功状态。
+Checkpoint-enabled Backtest follows `CREATED → INITIALIZING → RECOVERING → READY → RUNNING`. The Runtime creates an initial
+checkpoint after Cluster initialization and queue draining. After every accepted Bar it completes market dispatch, runs the
+deterministic broker, drains Broker inbound and EventBus work, verifies both inbound queues are empty, advances the exact replay
+cursor, and atomically writes the checkpoint. A checkpoint failure fails processing and prevents later Bars.
 
-每个真实 Target 的恢复状态为：matching Applied Ledger record 返回 `IDEMPOTENT`；Manager 已是 Result authority 而 ledger 缺失时
-验证/修复 replay index 并返回 `RECOVERED`；Current 等于 Expected 时安装 Result 并返回 `APPLIED`。Payload、version 或 state conflict
-在 mutation 前失败，不覆盖 Manager。
+The replay cursor is identified by source ID, data version, source sequence and update ID; event time is diagnostic only. It
+therefore cannot skip same-timestamp updates and never uses transaction time as a resume boundary.
 
-Recovery 不运行 Planner，不调用 Broker、Market Rule 或 Fee Resolver，不生成新 Event，不删除失败 transaction，不跨 Manager
-回滚，也不跳过 sequence。
+## Participant inventory
 
-## 查询与诊断
+Every current component uses participant schema version 1. `capture_checkpoint()` returns canonical JSON-compatible owned state;
+`restore_checkpoint()` validates and installs that same authority without business events.
 
-- `OnlyExecutionTransactionQueryPort.records()`：Admin/Recovery/Diagnostic，可读取全部 committed transaction。
-- `OnlyProjectionReadyExecutionQueryPort.ready_records()`：正式业务查询，只返回 Ready transaction。
-- `OnlyExecutionProjectionStatePort.unprojected()`：恢复工作集。
-- `OnlyExecutionTransactionOutboxPort.pending()`：只返回 Ready 且未发布的 Event。
+| Component ID | Snapshot authority | Capability |
+| --- | --- | --- |
+| `runtime.progress` | Clock, timers, trading day, replay cursor and valuation heads | CHECKPOINTABLE |
+| `data-source.<source-id>` | Historical source identity is validated by config/data version/cursor; no mutable replay state | STATELESS |
+| `market-data.cache`, `.aggregation`, `.dedup`, `.sequence`, `.gap`, `.processor` | Market windows, aggregation state and processing/dedup heads | CHECKPOINTABLE |
+| `market.rules` | Compiled identity plus deterministic order/match decision history | CHECKPOINTABLE |
+| `account.authority`, `account.valuation-timeline` | Account authority and complete valuation history | CHECKPOINTABLE |
+| `order.authority` | Orders, lifecycle/dedup indexes and ID/event sequence heads | CHECKPOINTABLE |
+| `position.authority`, `allocation.authority`, `position-reservation.authority` | Position/allocation repositories, buckets, cycles, fingerprints and reservations | CHECKPOINTABLE |
+| `strategy-ledger.authority` | Per-Cluster ledgers, reservations, entries and equity/valuation timelines | CHECKPOINTABLE |
+| `risk.authority`, `settlement.authority`, `fee.authority`, `margin.authority` | Dynamic rule state, decisions, reservations, records and sequence heads | CHECKPOINTABLE |
+| `execution.dedup`, `.sequence`, `.processor`, `.audit`, `.reconciliation` | Broker-update processing identity, diagnostics and recovery work | CHECKPOINTABLE |
+| `broker.virtual` | Orders, account/positions, pending scheduler work and venue/update/trade sequences | CHECKPOINTABLE |
+| `cluster.<id>.10.indicator.<factor>.<indicator>` | Declared rolling Indicator state and last snapshot | declared CHECKPOINTABLE or STATELESS |
+| `cluster.<id>.20.factor.<factor>` | Declared Factor state, snapshot and trace | declared CHECKPOINTABLE or STATELESS |
+| `cluster.<id>.30.strategy.<strategy>` | Declared Strategy counters, intent and signal history | declared CHECKPOINTABLE or STATELESS |
+| `cluster.<id>.40.result-recorder`, `.90.factor-views` | Strategy result prefix and reconstructable factor views | CHECKPOINTABLE |
 
-Runtime status 的 execution recovery diagnostic 包含尝试/完成/恢复/幂等 transaction 数、失败 sequence/transaction/component、
-Coordinator status、projection error 与 Store error。Backtest Result、Artifact 和 Report 通过标准 diagnostics projection 读取这些信息，
-不暴露内部 Store。
+Participant IDs, schema versions and capabilities are sorted into the Registry fingerprint. SQLite assembly rejects any
+DataSource, Broker, Strategy, Factor or Indicator without an explicit capability; it never infers state from Python attributes.
 
-## Outbox 故障
+## Recovery order
 
-Outbox failure 不改变 Projection Ready，也不回滚 Manager。EventBus 已接受但 `mark_published` 失败时，下一次会再次投递同一个稳定
-Event ID；因此语义是 at-least-once，消费者必须幂等。Backtest 启动阶段若 recovered Outbox 未完全交付，Runtime 严格失败并阻止
-Cluster start，但该错误与 Projection Recovery failure 使用不同异常和 diagnostic。
+1. Open and validate the schema-version-2 Runtime store and stable Runtime identity.
+2. Load the latest complete checkpoint and verify aggregate/component hashes, schema versions, configuration fingerprint and
+   Participant Registry fingerprint.
+3. Restore every required participant in registry order. Strategy, Factor, Indicator and deterministic Broker capabilities must
+   be explicitly declared.
+4. Analyze the contiguous transaction tail. Projection Ready rows must form one prefix; unprojected rows form one suffix.
+5. Replay only enough MarketData after the checkpoint cursor to reproduce every tail Broker update. Existing transaction IDs are
+   resolved without recommit and historical Direct Events are not republished.
+6. Rehydrate the Ready prefix through real Manager Projection Targets, then recover the unprojected suffix through the formal
+   Coordinator.
+7. Persist a new stable checkpoint, deliver pending Outbox records, and continue ordinary Replay from the recovered cursor.
 
-## 产品 Factory 与重启状态
+Tail gaps, Ready-after-unready ordering, transaction hash conflicts, cursor mismatch, unknown/missing participants and partial or
+corrupt checkpoints fail fast. Recovery never deletes or rewrites historical transactions.
 
-正式链为 `OnlyEngine → OnlyBacktestRuntimeFactory → OnlyDefaultExecutionTransactionStoreFactory → OnlyBacktestRuntime`。Factory
-根据强类型配置创建 Memory 或 SQLite Store，并把同一实例交给 Coordinator、Recovery、Admin/Ready Query、Projection State 和
-Outbox。Runtime close 是唯一正常 close 所有者；装配失败发生在接管前时由 Factory 回滚。
+## Store and configuration
 
-SQLite state root 与 Artifact Run Directory 分离，并以 metadata 验证 engine/runtime identity、mode、配置指纹、base currency、
-Account、Market Profile 与 schema version。Runtime Factory 对一笔 sequence-one unprojected Generic T0 transaction 先安装 transaction
-contract 中明确的 Before authority 与历史 Account/Strategy equity points，再由既有 initialize hook forward-recover。该最小 bootstrap
-不序列化任意 Manager，不支持 empty Runtime 或多笔历史 transaction 的完整恢复。
+```yaml
+runtime:
+  persistence:
+    backend: SQLITE
+    checkpoint:
+      enabled: true
+      retain_last: 2
+```
 
-## 当前限制
+The single file is
+`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`. Checkpoint header, components, transactions and
+Outbox share the same connection and identity. Retention happens in the same transaction as insertion, so a failed new write
+does not delete the previous complete checkpoint. SQLite schema version 1 is unsupported and is never migrated automatically.
 
-当前只支持 Generic T0 Cash、LIMIT、BUY、OPEN、整单成交的 committed Trade tail，并依赖调用方重建正确 Bootstrap Authority。尚未
-实现 Full Bootstrap Snapshot、Empty Runtime Recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、Non-Trade Transaction、
-Paper/Live Recovery 或 exactly-once delivery。
+`MEMORY` requires checkpoint to be disabled and is not restartable.
+
+## Current limits
+
+The formal committed transaction path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE,
+Futures/Margin transactions, non-trade transactions, Paper/Live recovery, exactly-once Outbox, schema migration, distributed
+checkpointing and remote stores remain outside this phase.

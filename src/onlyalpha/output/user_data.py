@@ -34,8 +34,8 @@ class OnlyUserDataLayout:
 
         return self.root / "state" / "engines" / str(engine_id) / "runtimes" / str(runtime_id)
 
-    def execution_store_path(self, engine_id: OnlyEngineId, runtime_id: OnlyRuntimeId) -> Path:
-        return self.runtime_state_root(engine_id, runtime_id) / "execution.sqlite3"
+    def runtime_persistence_path(self, engine_id: OnlyEngineId, runtime_id: OnlyRuntimeId) -> Path:
+        return self.runtime_state_root(engine_id, runtime_id) / "runtime.sqlite3"
 
 
 @dataclass(frozen=True, slots=True)

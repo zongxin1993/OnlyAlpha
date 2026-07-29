@@ -11,9 +11,9 @@ from onlyalpha.execution import (
     OnlyExecutionProjectionTarget,
     OnlyExecutionRecoveryResult,
     OnlyExecutionRecoveryService,
-    OnlyExecutionTransactionStorePort,
     OnlyInMemoryAppliedProjectionLedger,
 )
+from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from tests.execution.support.execution_authority_digest import OnlyExecutionAuthorityDigest
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceAppliedProjectionLedger,
@@ -41,7 +41,7 @@ class OnlyRealExecutionRecoveryHarness:
     def create(
         cls,
         *,
-        store: OnlyExecutionTransactionStorePort | None = None,
+        store: OnlyRuntimePersistenceStorePort | None = None,
         scenario: OnlyTestGenericT0Scenario | None = None,
         target_fault: tuple[OnlyExecutionProjectionComponent, str] | None = None,
         ledger_fault: OnlyExecutionProjectionComponent | None = None,
@@ -60,7 +60,7 @@ class OnlyRealExecutionRecoveryHarness:
         return cls(bundle, targets, ledger)
 
     @property
-    def transaction_store(self) -> OnlyExecutionTransactionStorePort:
+    def transaction_store(self) -> OnlyRuntimePersistenceStorePort:
         return self.bundle.transaction_store
 
     def recover(self) -> OnlyExecutionRecoveryResult:

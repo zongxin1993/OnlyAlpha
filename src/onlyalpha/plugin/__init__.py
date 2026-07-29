@@ -2,6 +2,7 @@
 
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
+    OnlyCheckpointCapability,
     OnlyDataSourceCapabilities,
     OnlyPluginValidationIssue,
 )
@@ -13,6 +14,7 @@ from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION, OnlyPluginApi
 __all__ = [
     "ONLYALPHA_PLUGIN_API_VERSION",
     "OnlyBrokerPluginCapabilities",
+    "OnlyCheckpointCapability",
     "OnlyDataSourceCapabilities",
     "OnlyPluginApiVersion",
     "OnlyPluginDescriptor",

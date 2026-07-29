@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from onlyalpha.domain.time import OnlyTradingDay
@@ -196,6 +197,130 @@ class OnlySettlementManager:
         self._pending = pending
         self._records = installed_records
         self._sequence = sequence_head
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "pending": [
+                {
+                    "asset_released": state.asset_released,
+                    "cash_currency": None if state.cash_currency is None else state.cash_currency.code,
+                    "instruction": self._instruction_payload(state.instruction),
+                    "legal_settled": state.legal_settled,
+                    "trade_cash_released": state.trade_cash_released,
+                    "version": state.version,
+                    "withdrawable_cash_released": state.withdrawable_cash_released,
+                }
+                for _, state in sorted(self._pending.items())
+            ],
+            "records": [self._record_payload(item) for item in self._records],
+            "sequence": self._sequence,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Settlement checkpoint must be an object")
+        records = tuple(self._record_from_payload(item) for item in payload["records"])
+        sequence = int(payload["sequence"])
+        for item in payload["pending"]:
+            if not isinstance(item, dict) or item["cash_currency"] is None:
+                raise ValueError("Settlement checkpoint authority is incomplete")
+            instruction = self._instruction_from_payload(item["instruction"])
+            self.restore_execution_authority(
+                instruction,
+                asset_released=bool(item["asset_released"]),
+                trade_cash_released=bool(item["trade_cash_released"]),
+                withdrawable_cash_released=bool(item["withdrawable_cash_released"]),
+                legal_settled=bool(item["legal_settled"]),
+                records=tuple(record for record in records if record.instruction_id == instruction.instruction_id),
+                sequence_head=sequence,
+                version=int(item["version"]),
+                cash_currency=OnlyCurrency(str(item["cash_currency"])),
+            )
+
+    @staticmethod
+    def _instruction_payload(item: OnlySettlementRuntimeInstruction) -> dict[str, object]:
+        return {
+            "account_id": item.account_id,
+            "asset_available_on": item.asset_available_on.value.isoformat(),
+            "asset_quantity": str(item.asset_quantity),
+            "cash_amount": str(item.cash_amount),
+            "cash_trade_available_on": item.cash_trade_available_on.value.isoformat(),
+            "cash_withdrawable_on": item.cash_withdrawable_on.value.isoformat(),
+            "instruction_id": item.instruction_id,
+            "instrument_id": item.instrument_id,
+            "legal_settlement_on": item.legal_settlement_on.value.isoformat(),
+            "source_order_id": item.source_order_id,
+            "source_trade_id": item.source_trade_id,
+        }
+
+    @staticmethod
+    def _instruction_from_payload(payload: object) -> OnlySettlementRuntimeInstruction:
+        if not isinstance(payload, dict):
+            raise ValueError("Settlement instruction checkpoint must be an object")
+        return OnlySettlementRuntimeInstruction(
+            str(payload["instruction_id"]),
+            str(payload["instrument_id"]),
+            str(payload["source_trade_id"]),
+            Decimal(str(payload["asset_quantity"])),
+            Decimal(str(payload["cash_amount"])),
+            OnlyTradingDay(date.fromisoformat(str(payload["asset_available_on"]))),
+            OnlyTradingDay(date.fromisoformat(str(payload["cash_trade_available_on"]))),
+            OnlyTradingDay(date.fromisoformat(str(payload["cash_withdrawable_on"]))),
+            OnlyTradingDay(date.fromisoformat(str(payload["legal_settlement_on"]))),
+            str(payload["account_id"]),
+            str(payload["source_order_id"]),
+        )
+
+    @staticmethod
+    def _record_payload(item: OnlySettlementRecord) -> dict[str, object]:
+        return {
+            "account_id": item.account_id,
+            "asset_quantity": str(item.asset_quantity),
+            "available_quantity": str(item.available_quantity),
+            "booked_quantity": str(item.booked_quantity),
+            "cash_amount": str(item.cash_amount),
+            "instruction_id": item.instruction_id,
+            "instrument_id": item.instrument_id,
+            "legal_settled": item.legal_settled,
+            "legal_settlement_date": None
+            if item.legal_settlement_date is None
+            else item.legal_settlement_date.value.isoformat(),
+            "processed_on": item.processed_on.value.isoformat(),
+            "sequence": item.sequence,
+            "source_order_id": item.source_order_id,
+            "source_trade_id": item.source_trade_id,
+            "status": item.status,
+            "trade_available_cash": str(item.trade_available_cash),
+            "withdrawable_cash": str(item.withdrawable_cash),
+        }
+
+    @staticmethod
+    def _record_from_payload(payload: object) -> OnlySettlementRecord:
+        if not isinstance(payload, dict):
+            raise ValueError("Settlement record checkpoint must be an object")
+
+        def day(value: object) -> OnlyTradingDay:
+            return OnlyTradingDay(date.fromisoformat(str(value)))
+
+        legal = payload["legal_settlement_date"]
+        return OnlySettlementRecord(
+            str(payload["instruction_id"]),
+            str(payload["instrument_id"]),
+            str(payload["source_trade_id"]),
+            Decimal(str(payload["asset_quantity"])),
+            Decimal(str(payload["cash_amount"])),
+            Decimal(str(payload["booked_quantity"])),
+            Decimal(str(payload["available_quantity"])),
+            Decimal(str(payload["trade_available_cash"])),
+            Decimal(str(payload["withdrawable_cash"])),
+            bool(payload["legal_settled"]),
+            day(payload["processed_on"]),
+            int(payload["sequence"]),
+            str(payload["account_id"]),
+            str(payload["source_order_id"]),
+            None if legal is None else day(legal),
+            str(payload["status"]),
+        )
 
 
 __all__ = [

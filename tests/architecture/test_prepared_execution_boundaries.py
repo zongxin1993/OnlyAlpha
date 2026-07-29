@@ -19,17 +19,19 @@ def test_prepared_transaction_projection_and_store_do_not_import_runtime_manager
         "src/onlyalpha/execution/economic_invariants.py",
         "src/onlyalpha/execution/projection.py",
         "src/onlyalpha/execution/codec.py",
-        "src/onlyalpha/execution/transaction_store.py",
         "src/onlyalpha/execution/projection_applier.py",
     ):
         imports = _imports(path)
         assert not any("runtime" in name for name in imports)
         assert not any(name.endswith(".manager") for name in imports)
         assert "onlyalpha.event.bus" not in imports
+    store_imports = _imports("src/onlyalpha/runtime/persistence/store.py")
+    assert not any(name.endswith(".manager") or ".backtest" in name or ".engine" in name for name in store_imports)
+    assert "onlyalpha.event.bus" not in store_imports
 
 
 def test_new_transaction_commit_port_has_no_two_step_sequence_or_append_contract() -> None:
-    source = Path("src/onlyalpha/execution/transaction_store.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/execution/persistence_ports.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     protocol = next(
         node
@@ -69,7 +71,8 @@ def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_abse
         "src/onlyalpha/execution/transaction.py",
         "src/onlyalpha/execution/projection.py",
         "src/onlyalpha/execution/codec.py",
-        "src/onlyalpha/execution/transaction_store.py",
+        "src/onlyalpha/execution/persistence_ports.py",
+        "src/onlyalpha/runtime/persistence/store.py",
         "src/onlyalpha/execution/__init__.py",
     )
     source = "\n".join(Path(path).read_text(encoding="utf-8") for path in paths)
@@ -102,7 +105,7 @@ def test_execution_authority_states_are_strongly_typed_and_store_errors_are_dist
         encoding="utf-8"
     )
 
-    from onlyalpha.execution import OnlyExecutionTransactionConflict, OnlyExecutionTransactionStoreError
+    from onlyalpha.execution import OnlyExecutionTransactionConflict, OnlyRuntimePersistenceStoreError
 
-    assert not issubclass(OnlyExecutionTransactionStoreError, OnlyExecutionTransactionConflict)
-    assert not issubclass(OnlyExecutionTransactionConflict, OnlyExecutionTransactionStoreError)
+    assert not issubclass(OnlyRuntimePersistenceStoreError, OnlyExecutionTransactionConflict)
+    assert not issubclass(OnlyExecutionTransactionConflict, OnlyRuntimePersistenceStoreError)

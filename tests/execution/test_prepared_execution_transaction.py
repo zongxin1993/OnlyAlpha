@@ -6,22 +6,21 @@ from pathlib import Path
 
 import pytest
 
-import onlyalpha.execution.transaction_store as transaction_store_module
+import onlyalpha.runtime.persistence.store as transaction_store_module
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEventId
 from onlyalpha.execution import (
     OnlyExecutionTransactionConflict,
-    OnlyExecutionTransactionStoreError,
-    OnlyInMemoryExecutionTransactionStore,
-    OnlySqliteExecutionTransactionStore,
+    OnlyRuntimePersistenceStoreError,
     only_decode_committed_execution_transaction,
     only_decode_prepared_execution_transaction,
     only_encode_committed_execution_transaction,
     only_encode_prepared_execution_transaction,
 )
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlySqliteRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
-type TransactionStore = OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTransactionStore
+type TransactionStore = OnlyInMemoryRuntimePersistenceStore | OnlySqliteRuntimePersistenceStore
 _prepared = only_test_generic_t0_cash_buy_open_transaction
 
 
@@ -67,12 +66,12 @@ def test_prepared_transaction_rejects_identity_projection_precondition_and_hash_
 @pytest.fixture(params=("memory", "sqlite"))
 def transaction_store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[TransactionStore]:
     store: TransactionStore = (
-        OnlyInMemoryExecutionTransactionStore()
+        OnlyInMemoryRuntimePersistenceStore()
         if request.param == "memory"
-        else OnlySqliteExecutionTransactionStore(tmp_path / "transactions.sqlite3")
+        else OnlySqliteRuntimePersistenceStore(tmp_path / "transactions.sqlite3")
     )
     yield store
-    if isinstance(store, OnlySqliteExecutionTransactionStore):
+    if isinstance(store, OnlySqliteRuntimePersistenceStore):
         store.close()
 
 
@@ -114,18 +113,18 @@ def test_sqlite_restart_and_payload_corruption_detection(tmp_path: Path) -> None
     path = tmp_path / "restart.sqlite3"
     prepared = _prepared()
     committed_at = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
-    store = OnlySqliteExecutionTransactionStore(path)
+    store = OnlySqliteRuntimePersistenceStore(path)
     expected = store.commit(prepared, committed_at=committed_at).transaction
     store.close()
-    recovered = OnlySqliteExecutionTransactionStore(path)
+    recovered = OnlySqliteRuntimePersistenceStore(path)
     assert recovered.get_by_sequence(prepared.runtime_id, 1) == expected
     recovered.close()
     connection = sqlite3.connect(path)
     with connection:
         connection.execute("UPDATE execution_transactions SET prepared_payload_hash=?", ("0" * 64,))
     connection.close()
-    corrupted = OnlySqliteExecutionTransactionStore(path)
-    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
+    corrupted = OnlySqliteRuntimePersistenceStore(path)
+    with pytest.raises(OnlyRuntimePersistenceStoreError) as captured:
         corrupted.get_by_sequence(prepared.runtime_id, 1)
     assert isinstance(captured.value.__cause__, ValueError)
     corrupted.close()
@@ -134,7 +133,7 @@ def test_sqlite_restart_and_payload_corruption_detection(tmp_path: Path) -> None
 def test_sqlite_detects_outbox_payload_corruption(tmp_path: Path) -> None:
     path = tmp_path / "outbox-corrupt.sqlite3"
     prepared = _prepared()
-    store = OnlySqliteExecutionTransactionStore(path)
+    store = OnlySqliteRuntimePersistenceStore(path)
     store.commit(
         prepared,
         committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
@@ -155,8 +154,8 @@ def test_sqlite_detects_outbox_payload_corruption(tmp_path: Path) -> None:
             (payload.replace('"sequence":1', '"sequence":99'),),
         )
     connection.close()
-    corrupted = OnlySqliteExecutionTransactionStore(path)
-    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
+    corrupted = OnlySqliteRuntimePersistenceStore(path)
+    with pytest.raises(OnlyRuntimePersistenceStoreError) as captured:
         corrupted.pending(prepared.runtime_id, limit=10)
     assert isinstance(captured.value.__cause__, ValueError)
     corrupted.close()
@@ -164,13 +163,13 @@ def test_sqlite_detects_outbox_payload_corruption(tmp_path: Path) -> None:
 
 def test_memory_commit_failure_does_not_publish_partial_state(monkeypatch: pytest.MonkeyPatch) -> None:
     prepared = _prepared()
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
 
     def fail_outbox(*args: object, **kwargs: object) -> None:
         raise RuntimeError("injected outbox failure")
 
     monkeypatch.setattr(transaction_store_module, "OnlyExecutionTransactionOutboxRecord", fail_outbox)
-    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
+    with pytest.raises(OnlyRuntimePersistenceStoreError) as captured:
         store.commit(
             prepared,
             committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
@@ -183,7 +182,7 @@ def test_memory_commit_failure_does_not_publish_partial_state(monkeypatch: pytes
 
 def test_sqlite_commit_failure_rolls_back_transaction_and_sequence(tmp_path: Path) -> None:
     path = tmp_path / "rollback.sqlite3"
-    bootstrap = OnlySqliteExecutionTransactionStore(path)
+    bootstrap = OnlySqliteRuntimePersistenceStore(path)
     bootstrap.close()
     connection = sqlite3.connect(path)
     with connection:
@@ -193,8 +192,8 @@ def test_sqlite_commit_failure_rolls_back_transaction_and_sequence(tmp_path: Pat
         )
     connection.close()
     prepared = _prepared()
-    store = OnlySqliteExecutionTransactionStore(path)
-    with pytest.raises(OnlyExecutionTransactionStoreError) as captured:
+    store = OnlySqliteRuntimePersistenceStore(path)
+    with pytest.raises(OnlyRuntimePersistenceStoreError) as captured:
         store.commit(
             prepared,
             committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
@@ -206,7 +205,7 @@ def test_sqlite_commit_failure_rolls_back_transaction_and_sequence(tmp_path: Pat
     with connection:
         connection.execute("DROP TRIGGER fail_outbox")
     connection.close()
-    recovered = OnlySqliteExecutionTransactionStore(path)
+    recovered = OnlySqliteRuntimePersistenceStore(path)
     result = recovered.commit(
         prepared,
         committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),

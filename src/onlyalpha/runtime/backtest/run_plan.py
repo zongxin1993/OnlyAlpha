@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from onlyalpha.account.performance import OnlyAccountValuationSource
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
-from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.data.models import OnlyHistoricalBarRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
@@ -58,7 +58,7 @@ class OnlyBacktestRunPlan:
         self._completed = True
         self._runtime = runtime
         self._collector.start()
-        request = self._resume_request(runtime)
+        request = self._request
         generated = self._source.load_bars(request)
         replay = runtime.replay_historical_bars(self._source, request)
         runtime.drain_broker_inbound()
@@ -71,24 +71,11 @@ class OnlyBacktestRunPlan:
         )
         return self._build_result(
             len(generated.records),
-            replay.processed,
+            runtime.replay_cursor.processed_bar_count,
             replay.duplicate,
             replay.gap_detected,
             status,
         )
-
-    def _resume_request(self, runtime: OnlyBacktestRuntime) -> OnlyHistoricalBarRequest:
-        resume = runtime.execution_replay_resume_after
-        if resume is None:
-            return self._request
-        start = max(
-            self._request.data_range.start_time,
-            resume.to_datetime() + timedelta(microseconds=1),
-        )
-        end = self._request.data_range.end_time
-        if start >= end:
-            start = end - timedelta(microseconds=1)
-        return replace(self._request, data_range=OnlyHistoricalDataRange(start, end))
 
     def _build_result(
         self,

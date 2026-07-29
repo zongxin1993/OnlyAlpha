@@ -2,7 +2,7 @@
 
 from importlib.metadata import version
 
-from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities
+from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyCheckpointCapability
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
 
@@ -21,6 +21,8 @@ ONLY_VIRTUAL_PLUGIN_DESCRIPTOR = OnlyPluginDescriptor(
         query_account=True,
         query_positions=True,
         simulated_execution=True,
+        supports_runtime_checkpoint=OnlyCheckpointCapability.CHECKPOINTABLE,
+        checkpoint_schema_version=1,
     ),
 )
 

@@ -212,6 +212,53 @@ class OnlyVirtualBrokerAccountStore:
             for instrument_id, state in sorted(self.positions.items(), key=lambda item: str(item[0]))
         )
 
+    def capture_checkpoint(self) -> object:
+        return {
+            "cash": str(self.cash),
+            "frozen_cash": str(self.frozen_cash),
+            "marks": [
+                [instrument_id.to_json(), price.to_json()]
+                for instrument_id, price in sorted(self.marks.items(), key=lambda item: str(item[0]))
+            ],
+            "positions": [
+                {
+                    "average_price": None if state.average_price is None else state.average_price.to_json(),
+                    "frozen_quantity": str(state.frozen_quantity),
+                    "instrument_id": instrument_id.to_json(),
+                    "position_side": state.position_side.value,
+                    "quantity": str(state.quantity),
+                    "quantity_precision": state.quantity_precision,
+                    "settled_quantity": str(state.settled_quantity),
+                }
+                for instrument_id, state in sorted(self.positions.items(), key=lambda item: str(item[0]))
+            ],
+            "sequence": self.sequence,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Virtual Broker Account checkpoint must be an object")
+        self.cash = Decimal(str(payload["cash"]))
+        self.frozen_cash = Decimal(str(payload["frozen_cash"]))
+        self.marks = {
+            OnlyInstrumentId.from_json(str(instrument_id)): OnlyPrice.from_json(str(price))
+            for instrument_id, price in payload["marks"]
+        }
+        self.positions = {}
+        for item in payload["positions"]:
+            if not isinstance(item, dict):
+                raise ValueError("Virtual Broker Position checkpoint must be an object")
+            average = item["average_price"]
+            self.positions[OnlyInstrumentId.from_json(str(item["instrument_id"]))] = _OnlyVirtualPositionState(
+                OnlyPositionSide(str(item["position_side"])),
+                Decimal(str(item["quantity"])),
+                Decimal(str(item["settled_quantity"])),
+                Decimal(str(item["frozen_quantity"])),
+                None if average is None else OnlyPrice.from_json(str(average)),
+                int(item["quantity_precision"]),
+            )
+        self.sequence = int(payload["sequence"])
+
 
 class OnlyVirtualBrokerOrderStore:
     def __init__(self) -> None:
@@ -230,6 +277,16 @@ class OnlyVirtualBrokerOrderStore:
         terminal = {OnlyOrderStatus.CANCELLED, OnlyOrderStatus.FILLED, OnlyOrderStatus.REJECTED, OnlyOrderStatus.FAILED}
         return tuple(value for value in self.list(account_id) if value.status not in terminal)
 
+    def capture_checkpoint(self) -> object:
+        return [item.to_json() for item in sorted(self._orders.values(), key=lambda item: str(item.order_id))]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("Virtual Broker Order checkpoint must be a list")
+        self._orders = {
+            item.order_id: item for item in (OnlyBrokerOrderSnapshot.from_json(str(raw)) for raw in payload)
+        }
+
 
 class OnlyVirtualBrokerTradeStore:
     def __init__(self) -> None:
@@ -240,3 +297,13 @@ class OnlyVirtualBrokerTradeStore:
 
     def list(self, account_id: OnlyAccountId) -> tuple[OnlyBrokerTradeSnapshot, ...]:
         return tuple(value for value in self._trades.values() if value.account_id == account_id)
+
+    def capture_checkpoint(self) -> object:
+        return [item.to_json() for item in sorted(self._trades.values(), key=lambda item: str(item.trade_id))]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("Virtual Broker Trade checkpoint must be a list")
+        self._trades = {
+            item.trade_id: item for item in (OnlyBrokerTradeSnapshot.from_json(str(raw)) for raw in payload)
+        }

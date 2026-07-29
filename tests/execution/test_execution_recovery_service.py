@@ -9,17 +9,16 @@ from onlyalpha.execution import (
     OnlyExecutionProjectionComponent,
     OnlyExecutionRecoveryService,
     OnlyExecutionRecoveryStatus,
-    OnlyInMemoryExecutionTransactionStore,
     OnlyReferenceExecutionProjectionTarget,
 )
-from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStoreError
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStoreError
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
 _NOW = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 10, tzinfo=UTC))
 
 
 def _service(
-    store: OnlyInMemoryExecutionTransactionStore,
+    store: OnlyInMemoryRuntimePersistenceStore,
     *,
     missing: OnlyExecutionProjectionComponent | None = None,
 ) -> OnlyExecutionRecoveryService:
@@ -49,7 +48,7 @@ def _service(
 
 
 def test_recovery_reports_no_work_without_committed_tail() -> None:
-    result = _service(OnlyInMemoryExecutionTransactionStore()).recover(OnlyRuntimeId("runtime"))
+    result = _service(OnlyInMemoryRuntimePersistenceStore()).recover(OnlyRuntimeId("runtime"))
 
     assert result.status is OnlyExecutionRecoveryStatus.NO_WORK
     assert result.succeeded
@@ -57,7 +56,7 @@ def test_recovery_reports_no_work_without_committed_tail() -> None:
 
 
 def test_recovery_completes_committed_tail_and_reports_component_counts() -> None:
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store.commit(prepared, committed_at=_NOW)
 
@@ -70,7 +69,7 @@ def test_recovery_completes_committed_tail_and_reports_component_counts() -> Non
 
 
 def test_recovery_stops_and_preserves_diagnostic_on_projection_failure() -> None:
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store.commit(prepared, committed_at=_NOW)
 
@@ -85,9 +84,9 @@ def test_recovery_stops_and_preserves_diagnostic_on_projection_failure() -> None
     assert store.ready_records(prepared.runtime_id) == ()
 
 
-class _OnlyQueryFailingStore(OnlyInMemoryExecutionTransactionStore):
+class _OnlyQueryFailingStore(OnlyInMemoryRuntimePersistenceStore):
     def unprojected(self, runtime_id: OnlyRuntimeId, *, after_sequence: int = 0):  # type: ignore[no-untyped-def]
-        raise OnlyExecutionTransactionStoreError("injected query failure")
+        raise OnlyRuntimePersistenceStoreError("injected query failure")
 
 
 def test_recovery_query_failure_is_not_misreported_as_no_work() -> None:
@@ -100,7 +99,7 @@ def test_recovery_query_failure_is_not_misreported_as_no_work() -> None:
     assert "injected query failure" in (result.error or "")
 
 
-class _OnlySecondOnlyRecoveryStore(OnlyInMemoryExecutionTransactionStore):
+class _OnlySecondOnlyRecoveryStore(OnlyInMemoryRuntimePersistenceStore):
     def unprojected(self, runtime_id: OnlyRuntimeId, *, after_sequence: int = 0):  # type: ignore[no-untyped-def]
         return super().unprojected(runtime_id, after_sequence=after_sequence)[1:]
 

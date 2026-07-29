@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
+
+
+class OnlyCheckpointCapability(StrEnum):
+    STATELESS = "STATELESS"
+    CHECKPOINTABLE = "CHECKPOINTABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +19,11 @@ class OnlyDataSourceCapabilities:
     live_ticks: bool = False
     instruments: bool = False
     calendars: bool = False
+    supports_runtime_checkpoint: OnlyCheckpointCapability | None = None
+    checkpoint_schema_version: int | None = None
+
+    def __post_init__(self) -> None:
+        _validate_checkpoint_capability(self.supports_runtime_checkpoint, self.checkpoint_schema_version)
 
     def missing(self, required: OnlyDataSourceCapabilities) -> tuple[str, ...]:
         return tuple(
@@ -33,6 +44,11 @@ class OnlyBrokerPluginCapabilities:
     query_positions: bool = False
     live_execution: bool = False
     simulated_execution: bool = False
+    supports_runtime_checkpoint: OnlyCheckpointCapability | None = None
+    checkpoint_schema_version: int | None = None
+
+    def __post_init__(self) -> None:
+        _validate_checkpoint_capability(self.supports_runtime_checkpoint, self.checkpoint_schema_version)
 
     def missing(self, required: OnlyBrokerPluginCapabilities) -> tuple[str, ...]:
         return tuple(
@@ -47,3 +63,18 @@ class OnlyPluginValidationIssue:
     code: str
     message: str
     field: str | None = None
+
+
+def _validate_checkpoint_capability(
+    capability: OnlyCheckpointCapability | None,
+    schema_version: int | None,
+) -> None:
+    if capability is None:
+        if schema_version is not None:
+            raise ValueError("checkpoint schema version requires an explicit capability")
+        return
+    if capability is OnlyCheckpointCapability.CHECKPOINTABLE:
+        if schema_version is None or schema_version < 1:
+            raise ValueError("checkpointable capability requires a positive schema version")
+    elif schema_version is not None:
+        raise ValueError("stateless capability does not accept a checkpoint schema version")

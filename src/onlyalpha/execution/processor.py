@@ -224,6 +224,19 @@ class OnlyExecutionProcessor:
         self._position_scope_resolver = OnlyExecutionPositionScopeResolver(config.runtime_id)
         self._processing_sequence = 0
 
+    def capture_checkpoint(self) -> object:
+        return {"processing_sequence": self._processing_sequence}
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Execution Processor checkpoint must be an object")
+        self.restore_processing_sequence(int(payload["processing_sequence"]))
+
+    def restore_processing_sequence(self, sequence: int) -> None:
+        if sequence < self._processing_sequence:
+            raise ValueError("Execution processing sequence cannot regress")
+        self._processing_sequence = sequence
+
     def process(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionProcessingResult:
         self._processing_sequence += 1
         started = OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns())

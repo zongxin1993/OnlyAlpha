@@ -8,23 +8,22 @@ from decimal import Decimal
 from typing import Protocol, cast
 
 from onlyalpha.account.enums import OnlyAccountType
-from onlyalpha.account.identifiers import OnlyAccountReservationId
 from onlyalpha.account.models import (
     OnlyAccountCashBalance,
     OnlyAccountConfig,
-    OnlyAccountReservation,
     OnlyAccountSnapshot,
     OnlyAccountValuation,
 )
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.account.views import OnlyAccountQueryView
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
-from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue, OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
-from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
-from onlyalpha.cluster.base import OnlyClusterState
+from onlyalpha.broker.updates import OnlyBrokerConnectionUpdate, OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
+from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
+from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
 from onlyalpha.core.clock import OnlyBacktestClock, OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.data.audit import OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
@@ -41,6 +40,7 @@ from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
     OnlyHistoricalDataRange,
+    OnlyHistoricalDataStream,
     OnlyHistoricalReplayConfig,
     OnlyHistoricalReplayResult,
     OnlyMarketDataInboundUpdate,
@@ -107,14 +107,6 @@ from onlyalpha.execution.planning_context import (
 )
 from onlyalpha.execution.processor import OnlyExecutionProcessor
 from onlyalpha.execution.projection import (
-    OnlyAccountCashReservationExecutionProjection,
-    OnlyAccountExecutionProjection,
-    OnlyOrderExecutionProjection,
-    OnlyRiskExecutionProjection,
-    OnlyRiskReservationExecutionProjection,
-    OnlyStrategyCashReservationExecutionProjection,
-    OnlyStrategyLedgerExecutionProjection,
-    OnlyValuationExecutionProjection,
     OnlyValuationExecutionState,
 )
 from onlyalpha.execution.projection_applier import OnlyExecutionProjectionApplier
@@ -131,7 +123,6 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
-from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStorePort
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
@@ -174,15 +165,20 @@ from onlyalpha.risk.factory import OnlyRiskProfileFactory
 from onlyalpha.risk.identifiers import OnlyRiskProfileId, OnlyRiskRuleId
 from onlyalpha.risk.profile import OnlyRiskProfile, OnlyRiskProfileConfig, OnlyRiskRuleConfig
 from onlyalpha.risk.publisher import OnlyRuntimeRiskEventPublisherAdapter
-from onlyalpha.risk.reservations import OnlyRiskReservation
 from onlyalpha.risk.rules.account import OnlyAvailableBalanceRiskRule, OnlyAvailablePositionRiskRule
 from onlyalpha.risk.service import OnlyRiskService
-from onlyalpha.risk.snapshots import OnlyRiskSnapshot
 from onlyalpha.risk.views import (
     OnlyAccountManagerRiskView,
     OnlyInstrumentRiskMappingView,
     OnlyRiskSnapshotView,
 )
+from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor, OnlyCheckpointCapability, OnlyRuntimeCheckpoint
+from onlyalpha.runtime.checkpoint.participant import (
+    OnlyJsonRuntimeCheckpointParticipant,
+    OnlyStatelessRuntimeCheckpointParticipant,
+)
+from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
+from onlyalpha.runtime.checkpoint.service import OnlyRuntimeCheckpointService
 from onlyalpha.runtime.context import (
     OnlyClusterContext,
     OnlyInstrumentView,
@@ -192,6 +188,13 @@ from onlyalpha.runtime.context import (
     OnlySubscriptionService,
     OnlyTimerService,
 )
+from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
+from onlyalpha.runtime.recovery.orchestrator import (
+    OnlyRuntimeRecoveryDiagnostic,
+    OnlyRuntimeRecoveryOrchestrator,
+)
+from onlyalpha.runtime.recovery.ready_tail_rehydration import OnlyExecutionReadyTailRehydrationService
+from onlyalpha.runtime.recovery.tail import OnlyExecutionTransactionTail
 from onlyalpha.runtime.runtime import (
     OnlyManagedBarDispatchExecutor,
     OnlyRuntime,
@@ -208,7 +211,6 @@ from onlyalpha.runtime.runtime import (
 )
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.models import (
-    OnlyStrategyCashReservation,
     OnlyStrategyCashSnapshot,
     OnlyStrategyLedgerSnapshot,
     OnlyStrategyMarkPrice,
@@ -242,7 +244,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_gateway: OnlyBrokerGateway | None = None,
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
-        execution_transaction_store: OnlyExecutionTransactionStorePort,
+        runtime_persistence_store: OnlyRuntimePersistenceStorePort,
+        persistence_config: OnlyRuntimePersistenceConfig | None = None,
+        config_fingerprint: str = "",
+        replay_source_id: OnlyMarketDataSourceId | None = None,
+        replay_data_version: OnlyDataVersion | None = None,
+        recovery_source: OnlyHistoricalDataSource | None = None,
+        recovery_request: OnlyHistoricalBarRequest | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
         if config.mode is not OnlyRuntimeMode.BACKTEST:
@@ -250,11 +258,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if isinstance(initial_time_or_event_bus, bool):
             raise TypeError("Backtest Runtime requires an initial UTC time")
         runtime_config = config
+        if persistence_config is None:
+            persistence_config = OnlyRuntimePersistenceConfig()
         selected_calendar = calendar_or_clock
         clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
         event_bus = owned_event_bus
         super().__init__(runtime_config)
-        self._bind_execution_transaction_store(execution_transaction_store)
+        self._bind_runtime_persistence_store(runtime_persistence_store)
         self._selected_calendar = selected_calendar
         scope = OnlyEventScope(runtime_config.engine_id, runtime_config.runtime_id)  # type: ignore[arg-type]
         owned_bus = event_bus or OnlyEventBus(
@@ -456,7 +466,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservations,
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
-        committed_execution_store = execution_transaction_store
+        persistence_store = runtime_persistence_store
         applied_projection_ledger = OnlyInMemoryAppliedProjectionLedger()
         execution_valuation_authority = OnlyExecutionValuationAuthority(
             account_performance=self._account_performance_projector,
@@ -477,15 +487,15 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         execution_projection_applier = OnlyExecutionProjectionApplier(execution_projection_targets)
         execution_commit_coordinator = OnlyExecutionCommitCoordinator(
-            commit_port=committed_execution_store,
-            query_port=committed_execution_store,
-            projection_state_port=committed_execution_store,
+            commit_port=persistence_store,
+            query_port=persistence_store,
+            projection_state_port=persistence_store,
             projection_applier=execution_projection_applier,
             now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
         execution_recovery_service = OnlyExecutionRecoveryService(execution_commit_coordinator)
         execution_outbox_publisher = OnlyExecutionOutboxPublisher(
-            committed_execution_store,
+            persistence_store,
             owned_bus,
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
@@ -578,6 +588,20 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         def drain_execution_updates() -> None:
             for update in broker_inbound.drain():
+                if self._in_recovery_replay:
+                    if isinstance(update, OnlyBrokerConnectionUpdate):
+                        continue
+                    existing = persistence_store.get_by_update(
+                        update.runtime_id,
+                        update.gateway_id,
+                        update.account_id,
+                        update.update_id,
+                    )
+                    if existing is not None:
+                        if update.update_id in self._recovery_expected_update_ids:
+                            self._recovery_seen_update_ids.add(update.update_id)
+                            execution_processor.restore_processing_sequence(existing.fact.processing_sequence)
+                        continue
                 processing = execution_processor.process(update)
                 delivery = execution_delivery_coordinator.deliver(
                     runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -585,6 +609,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 )
                 self._record_execution_delivery(processing.sequence, delivery)
                 self._broker_results.append(processing)
+
+        self._drain_execution_updates_for_checkpoint = drain_execution_updates
 
         def before_market_dispatch(result: OnlyMarketDataUpdateResult) -> None:
             owned_bus.publish_many(result.facts)
@@ -614,11 +640,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 deterministic_broker_driver.on_bar(result.base_bar)
                 drain_execution_updates()
 
-        def after_market_dispatch() -> None:
+        def after_market_dispatch(update: OnlyMarketDataInboundUpdate) -> None:
             if deterministic_broker_driver is not None:
                 deterministic_broker_driver.run_due()
                 drain_execution_updates()
             owned_bus.drain()
+            self._checkpoint_barrier(update)
 
         market_data_processor = OnlyMarketDataProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -670,10 +697,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_processor,
             execution_commit_coordinator,
             execution_recovery_service,
-            committed_execution_store,
-            committed_execution_store,
-            committed_execution_store,
-            committed_execution_store,
+            persistence_store,
+            persistence_store,
+            persistence_store,
+            persistence_store,
             execution_event_buffer,
             execution_delivery_coordinator,
             execution_outbox_publisher,
@@ -698,7 +725,255 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._broker_connection_state: object | None = None
         self._legacy_market_data_sequence = 0
         self._run_plan = run_plan
-        self._execution_replay_resume_after: OnlyTimestamp | None = None
+        self._persistence_config = persistence_config
+        self._config_fingerprint = config_fingerprint
+        self._replay_cursor = OnlyBacktestReplayCursor(
+            replay_source_id or OnlyMarketDataSourceId(f"{runtime_config.runtime_id}-local-history"),
+            replay_data_version or OnlyDataVersion("memory"),
+            None,
+            0,
+            None,
+            0,
+        )
+        self._recovery_source = recovery_source
+        self._recovery_request = recovery_request
+        self._checkpoint_query = runtime_persistence_store
+        self._checkpoint_registry = OnlyRuntimeCheckpointParticipantRegistry()
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "runtime.progress",
+                1,
+                self._capture_runtime_progress_checkpoint,
+                self._restore_runtime_progress_checkpoint,
+            )
+        )
+        if persistence_config.checkpoint.enabled:
+            if replay_source_id is None:
+                raise ValueError("checkpoint-enabled Backtest requires a stable Historical DataSource identity")
+            self._checkpoint_registry.register(
+                OnlyStatelessRuntimeCheckpointParticipant(f"data-source.{replay_source_id}")
+            )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market-data.cache",
+                1,
+                market_cache.capture_checkpoint,
+                market_cache.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market-data.aggregation",
+                1,
+                aggregation.capture_checkpoint,
+                aggregation.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market-data.dedup",
+                1,
+                market_data_deduplicator.capture_checkpoint,
+                market_data_deduplicator.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market-data.sequence",
+                1,
+                market_data_sequence_tracker.capture_checkpoint,
+                market_data_sequence_tracker.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market-data.gap",
+                1,
+                market_data_gap_detector.capture_checkpoint,
+                market_data_gap_detector.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "market-data.processor",
+                1,
+                market_data_processor.capture_checkpoint,
+                market_data_processor.restore_checkpoint,
+            )
+        )
+        if runtime_config.market_rule_engine is not None:
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    "market.rules",
+                    1,
+                    runtime_config.market_rule_engine.capture_checkpoint,
+                    runtime_config.market_rule_engine.restore_checkpoint,
+                )
+            )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "account.authority",
+                1,
+                self._account_manager.capture_checkpoint,
+                self._account_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "account.valuation-timeline",
+                1,
+                self._account_performance_projector.capture_checkpoint,
+                self._account_performance_projector.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "order.authority",
+                1,
+                order_manager.capture_checkpoint,
+                order_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "position-reservation.authority",
+                1,
+                position_reservations.capture_checkpoint,
+                position_reservations.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "position.authority",
+                1,
+                position_manager.capture_checkpoint,
+                position_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "allocation.authority",
+                1,
+                allocation_manager.capture_checkpoint,
+                allocation_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "settlement.authority",
+                1,
+                self._settlement_manager.capture_checkpoint,
+                self._settlement_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "fee.authority",
+                1,
+                self._fee_manager.capture_checkpoint,
+                self._fee_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "margin.authority",
+                1,
+                self._margin_manager.capture_checkpoint,
+                self._margin_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "risk.authority",
+                1,
+                risk_service.capture_checkpoint,
+                risk_service.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "execution.dedup",
+                1,
+                execution_update_deduplicator.capture_checkpoint,
+                execution_update_deduplicator.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "execution.sequence",
+                1,
+                execution_sequence_tracker.capture_checkpoint,
+                execution_sequence_tracker.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "execution.processor",
+                1,
+                execution_processor.capture_checkpoint,
+                execution_processor.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "execution.audit",
+                1,
+                execution_audit_store.capture_checkpoint,
+                execution_audit_store.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "execution.reconciliation",
+                1,
+                execution_reconciliation_queue.capture_checkpoint,
+                execution_reconciliation_queue.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "strategy-ledger.authority",
+                1,
+                self._strategy_ledger_manager.capture_checkpoint,
+                self._strategy_ledger_manager.restore_checkpoint,
+            )
+        )
+        if persistence_config.checkpoint.enabled:
+            if deterministic_broker_driver is None:
+                raise ValueError("checkpoint-enabled Backtest requires a checkpoint-capable Broker driver")
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    "broker.virtual",
+                    1,
+                    deterministic_broker_driver.capture_checkpoint,
+                    deterministic_broker_driver.restore_checkpoint,
+                )
+            )
+        self._checkpoint_service = OnlyRuntimeCheckpointService(
+            runtime_id=runtime_config.runtime_id,  # type: ignore[arg-type]
+            config_fingerprint=config_fingerprint,
+            registry=self._checkpoint_registry,
+            write_port=runtime_persistence_store,
+            query_port=runtime_persistence_store,
+            transaction_query=runtime_persistence_store,
+            outbox_port=runtime_persistence_store,
+            retain_last=persistence_config.checkpoint.retain_last,
+        )
+        self._runtime_recovery_orchestrator = OnlyRuntimeRecoveryOrchestrator(
+            runtime_id=runtime_config.runtime_id,  # type: ignore[arg-type]
+            config_fingerprint=config_fingerprint,
+            participant_registry=self._checkpoint_registry,
+            checkpoint_query=runtime_persistence_store,
+            transaction_query=runtime_persistence_store,
+            ready_rehydration=OnlyExecutionReadyTailRehydrationService(execution_projection_applier),
+            execution_recovery=execution_recovery_service,
+            catch_up=self._recover_market_data_tail,
+        )
+        self._runtime_recovery_diagnostics: list[OnlyRuntimeRecoveryDiagnostic] = []
+        self._in_recovery_replay = False
+        self._recovery_expected_update_ids: set[OnlyBrokerUpdateId] = set()
+        self._recovery_seen_update_ids: set[OnlyBrokerUpdateId] = set()
+        self._cluster_checkpoint_participants_registered = False
         resources = plugin_resources
         if resources:
             self._bind_plugin_resources(resources)
@@ -710,117 +985,327 @@ class OnlyBacktestRuntime(OnlyRuntime):
             raise OnlyRuntimeError("run() requires a Factory-provided Backtest RunPlan")
         return self._run_plan.execute(self)
 
-    def bootstrap_execution_transaction_before(self) -> None:
-        """Rebuild the supported first-transaction Before authority from its durable contract.
+    @property
+    def replay_cursor(self) -> OnlyBacktestReplayCursor:
+        return self._replay_cursor
 
-        This is deliberately narrower than a Runtime snapshot: it accepts one unprojected
-        Generic T0 transaction at sequence one and restores only the explicit ``before``
-        authority required by that transaction.
-        """
+    @property
+    def runtime_recovery_diagnostics(self) -> tuple[OnlyRuntimeRecoveryDiagnostic, ...]:
+        return tuple(self._runtime_recovery_diagnostics)
 
-        store = self._execution_transaction_store
-        if store is None:
-            raise OnlyRuntimeError("execution transaction Store is not bound")
-        transactions = store.unprojected(self.config.runtime_id)  # type: ignore[arg-type]
-        if not transactions:
+    def _recover_runtime(self) -> None:
+        if not self._persistence_config.checkpoint.enabled:
             return
-        if (
-            len(transactions) != 1
-            or transactions[0].execution_sequence != 1
-            or store.ready_count(
-                self.config.runtime_id  # type: ignore[arg-type]
+        self._register_cluster_checkpoint_participants()
+        self._checkpoint_query.bind_participant_registry_fingerprint(self._checkpoint_registry.fingerprint)
+        if self._checkpoint_query.latest_checkpoint(self.config.runtime_id) is not None:  # type: ignore[arg-type]
+            self._services.cluster_manager.start_all()
+            self._clusters_started = True
+        diagnostic = self._runtime_recovery_orchestrator.recover()
+        if diagnostic is None:
+            self._drain_execution_updates_for_checkpoint()
+            self._services.event_bus.drain()
+            self._checkpoint_service.create(
+                self._replay_cursor,
+                OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
             )
+            return
+        self._runtime_recovery_diagnostics.append(diagnostic)
+        self._checkpoint_service.create(
+            self._replay_cursor,
+            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+        )
+
+    def _register_cluster_checkpoint_participants(self) -> None:
+        if self._cluster_checkpoint_participants_registered:
+            return
+        for cluster in sorted(self.clusters, key=lambda item: item.config.cluster_id):
+            prefix = f"cluster.{cluster.config.cluster_id}"
+            strategy = cluster.strategy
+            strategy_component_id = f"{prefix}.30.strategy.{strategy.strategy_id}"
+            if strategy.checkpoint_capability is None:
+                raise OnlyRuntimeError(f"checkpoint capability is not declared by Strategy: {type(strategy).__name__}")
+            if strategy.checkpoint_capability is OnlyCheckpointCapability.STATELESS:
+                self._checkpoint_registry.register(OnlyStatelessRuntimeCheckpointParticipant(strategy_component_id))
+            else:
+                if strategy.checkpoint_schema_version is None:
+                    raise OnlyRuntimeError(
+                        f"checkpoint schema version is not declared by Strategy: {type(strategy).__name__}"
+                    )
+                self._checkpoint_registry.register(
+                    OnlyJsonRuntimeCheckpointParticipant(
+                        strategy_component_id,
+                        strategy.checkpoint_schema_version,
+                        strategy.capture_checkpoint,
+                        strategy.restore_checkpoint,
+                    )
+                )
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    f"{prefix}.40.result-recorder",
+                    1,
+                    strategy.context.results.capture_checkpoint,
+                    strategy.context.results.restore_checkpoint,
+                )
+            )
+            for factor in cluster.factors:
+                factor_component_id = f"{prefix}.20.factor.{factor.factor_id}"
+                if factor.checkpoint_capability is None:
+                    raise OnlyRuntimeError(f"checkpoint capability is not declared by Factor: {type(factor).__name__}")
+                if factor.checkpoint_capability is OnlyCheckpointCapability.STATELESS:
+                    self._checkpoint_registry.register(OnlyStatelessRuntimeCheckpointParticipant(factor_component_id))
+                else:
+                    if factor.checkpoint_schema_version is None:
+                        raise OnlyRuntimeError(
+                            f"checkpoint schema version is not declared by Factor: {type(factor).__name__}"
+                        )
+                    self._checkpoint_registry.register(
+                        OnlyJsonRuntimeCheckpointParticipant(
+                            factor_component_id,
+                            factor.checkpoint_schema_version,
+                            factor.capture_checkpoint,
+                            factor.restore_checkpoint,
+                        )
+                    )
+            for key, value in cluster.checkpoint_indicators:
+                indicator = value
+                indicator_component_id = f"{prefix}.10.indicator.{key.factor_id}.{key.indicator_id}"
+                if indicator.checkpoint_capability is None:
+                    raise OnlyRuntimeError(
+                        f"checkpoint capability is not declared by Indicator: {type(indicator).__name__}"
+                    )
+                if indicator.checkpoint_capability is OnlyCheckpointCapability.STATELESS:
+                    self._checkpoint_registry.register(
+                        OnlyStatelessRuntimeCheckpointParticipant(indicator_component_id)
+                    )
+                else:
+                    if indicator.checkpoint_schema_version is None:
+                        raise OnlyRuntimeError(
+                            f"checkpoint schema version is not declared by Indicator: {type(indicator).__name__}"
+                        )
+                    self._checkpoint_registry.register(
+                        OnlyJsonRuntimeCheckpointParticipant(
+                            indicator_component_id,
+                            indicator.checkpoint_schema_version,
+                            indicator.capture_checkpoint,
+                            indicator.restore_checkpoint,
+                        )
+                    )
+
+            def restore_factor_views(payload: object, selected: OnlyCluster = cluster) -> None:
+                if payload != {}:
+                    raise ValueError("Cluster factor view checkpoint must be empty")
+                selected.refresh_checkpoint_factor_views()
+
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    f"{prefix}.90.factor-views",
+                    1,
+                    lambda: {},
+                    restore_factor_views,
+                )
+            )
+        self._cluster_checkpoint_participants_registered = True
+
+    def _checkpoint_barrier(self, update: OnlyMarketDataInboundUpdate) -> None:
+        if self._persistence_config.checkpoint.enabled and (
+            len(self._services.broker_inbound) or len(self._services.market_data_inbound)
         ):
-            raise OnlyRuntimeError("execution bootstrap supports only one sequence-one unprojected transaction")
-        transaction = transactions[0]
-        self._execution_replay_resume_after = transaction.fact.ts_event
-        for projection in transaction.projections:
-            if isinstance(projection, OnlyOrderExecutionProjection):
-                snapshot = OnlyOrderSnapshot(
-                    **{name: getattr(projection.before, name) for name in OnlyOrderSnapshot.__dataclass_fields__}
+            raise OnlyRuntimeError("checkpoint barrier requires empty inbound queues")
+        self._replay_cursor = OnlyBacktestReplayCursor(
+            update.source_id,
+            update.data_version,
+            update.update_id,
+            int(update.source_sequence),
+            update.ts_event,
+            self._replay_cursor.processed_bar_count + 1,
+        )
+        if not self._persistence_config.checkpoint.enabled or self._in_recovery_replay:
+            return
+        self._checkpoint_service.create(
+            self._replay_cursor,
+            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+        )
+
+    def _capture_runtime_progress_checkpoint(self) -> object:
+        clock_snapshot = self._services.clock.snapshot()
+        return {
+            "account_valuation_version": self._account_valuation_version,
+            "clock_sequence": clock_snapshot.sequence,
+            "clock_timestamp_ns": self._services.clock.timestamp_ns(),
+            "timers": [
+                {
+                    "created_at_ns": timer.created_at_ns,
+                    "fire_count": timer.fire_count,
+                    "interval_ns": timer.interval_ns,
+                    "metadata": dict(sorted(timer.metadata.items())),
+                    "mode": timer.mode.value,
+                    "next_deadline_ns": timer.next_deadline_ns,
+                    "sequence": timer.sequence,
+                    "state": timer.state.value,
+                    "timer_id": str(timer.timer_id),
+                }
+                for timer in clock_snapshot.active_timers
+            ],
+            "last_market_trading_day": None
+            if self._last_market_trading_day is None
+            else self._last_market_trading_day.value.isoformat(),
+            "legacy_market_data_sequence": self._legacy_market_data_sequence,
+            "replay_cursor": {
+                "data_version": str(self._replay_cursor.data_version),
+                "last_event_time_ns": None
+                if self._replay_cursor.last_event_time is None
+                else self._replay_cursor.last_event_time.unix_nanos,
+                "last_source_sequence": self._replay_cursor.last_source_sequence,
+                "last_update_id": None
+                if self._replay_cursor.last_update_id is None
+                else str(self._replay_cursor.last_update_id),
+                "processed_bar_count": self._replay_cursor.processed_bar_count,
+                "source_id": str(self._replay_cursor.source_id),
+            },
+            "strategy_valuation_versions": [
+                [key.to_json(), value]
+                for key, value in sorted(self._valuation_versions.items(), key=lambda item: item[0].to_json())
+            ],
+        }
+
+    def _restore_runtime_progress_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, Mapping):
+            raise ValueError("runtime progress checkpoint must be an object")
+        from types import MappingProxyType
+
+        from onlyalpha.core.clock import (
+            OnlyClockSnapshot,
+            OnlyTimerId,
+            OnlyTimerMode,
+            OnlyTimerSnapshot,
+            OnlyTimerState,
+        )
+
+        raw_timers = payload["timers"]
+        if not isinstance(raw_timers, list):
+            raise ValueError("runtime timer checkpoint must be an array")
+        timers: list[OnlyTimerSnapshot] = []
+        for raw in raw_timers:
+            if not isinstance(raw, Mapping):
+                raise ValueError("runtime timer checkpoint entry must be an object")
+            metadata = raw["metadata"]
+            if not isinstance(metadata, Mapping):
+                raise ValueError("runtime timer metadata must be an object")
+            timers.append(
+                OnlyTimerSnapshot(
+                    OnlyTimerId(str(raw["timer_id"])),
+                    OnlyTimerMode(str(raw["mode"])),
+                    int(raw["created_at_ns"]),
+                    int(raw["next_deadline_ns"]),
+                    None if raw["interval_ns"] is None else int(raw["interval_ns"]),
+                    int(raw["sequence"]),
+                    OnlyTimerState(str(raw["state"])),
+                    int(raw["fire_count"]),
+                    MappingProxyType({str(key): str(value) for key, value in metadata.items()}),
                 )
-                self._services.order_manager.restore_execution_authority(
-                    snapshot,
-                    external_event_ids=frozenset(),
-                    trade_ids=frozenset(),
-                    venue_trade_ids=frozenset(),
+            )
+        self._services.clock.restore_with_registered_callbacks(
+            OnlyClockSnapshot(
+                int(payload["clock_timestamp_ns"]),
+                int(payload["clock_sequence"]),
+                tuple(timers),
+            )
+        )
+        cursor = payload["replay_cursor"]
+        if not isinstance(cursor, Mapping):
+            raise ValueError("runtime replay cursor checkpoint must be an object")
+        update_id = cursor["last_update_id"]
+        event_time_ns = cursor["last_event_time_ns"]
+        self._replay_cursor = OnlyBacktestReplayCursor(
+            OnlyMarketDataSourceId(str(cursor["source_id"])),
+            OnlyDataVersion(str(cursor["data_version"])),
+            None if update_id is None else OnlyMarketDataUpdateId(str(update_id)),
+            int(cursor["last_source_sequence"]),
+            None if event_time_ns is None else OnlyTimestamp.from_unix_nanos(int(event_time_ns)),
+            int(cursor["processed_bar_count"]),
+        )
+        self._account_valuation_version = int(payload["account_valuation_version"])
+        self._legacy_market_data_sequence = int(payload["legacy_market_data_sequence"])
+        trading_day = payload["last_market_trading_day"]
+        self._last_market_trading_day = (
+            None if trading_day is None else OnlyTradingDay(datetime.fromisoformat(str(trading_day)).date())
+        )
+        versions = payload["strategy_valuation_versions"]
+        if not isinstance(versions, list):
+            raise ValueError("strategy valuation versions checkpoint must be a list")
+        self._valuation_versions = {
+            OnlyStrategyLedgerKey.from_json(str(item[0])): int(item[1])
+            for item in versions
+            if isinstance(item, list) and len(item) == 2
+        }
+
+    def _recover_market_data_tail(
+        self,
+        checkpoint: OnlyRuntimeCheckpoint,
+        tail: OnlyExecutionTransactionTail,
+    ) -> int:
+        if self._recovery_source is None or self._recovery_request is None:
+            raise OnlyRuntimeError("Recovery replay source is unavailable")
+        if not self._services.market_data_source_registry.contains(self._recovery_source.source_id):
+            self._services.market_data_source_registry.register(self._recovery_source)
+        stream = self._recovery_source.load_bars(self._recovery_request)
+        cursor = checkpoint.header.replay_cursor
+        if cursor.last_update_id is None:
+            remaining = stream.records
+        else:
+            matched = tuple(
+                index
+                for index, item in enumerate(stream.records)
+                if item.update_id == cursor.last_update_id
+                and int(item.source_sequence) == cursor.last_source_sequence
+                and item.source_id == cursor.source_id
+                and item.data_version == cursor.data_version
+            )
+            if len(matched) != 1:
+                raise OnlyRuntimeError("recovery replay cursor identity is absent or ambiguous")
+            remaining = stream.records[matched[0] + 1 :]
+        self._recovery_expected_update_ids = {
+            transaction.fact.broker_update_id for transaction in (*tail.ready_prefix, *tail.unprojected_suffix)
+        }
+        self._recovery_seen_update_ids.clear()
+        processed = 0
+        resolved = False
+        self._in_recovery_replay = True
+        try:
+            for record in remaining:
+                replay = self._services.historical_replay_service.prepare(
+                    OnlyHistoricalReplayConfig(
+                        (OnlyHistoricalDataStream((record,), 1),),
+                        source_priority=(self._recovery_source.source_id,),
+                    )
                 )
-            elif isinstance(projection, OnlyAccountExecutionProjection):
-                account_current = self._account_manager.require_snapshot(projection.before.account_id)
-                self._account_manager.restore_execution_authority(
-                    _execution_bootstrap_account_snapshot(projection.before, account_current)
-                )
-            elif isinstance(projection, OnlyStrategyLedgerExecutionProjection):
-                ledger_current = self._strategy_ledger_manager.get_snapshot(projection.before.key)
-                if ledger_current is None:
-                    raise OnlyRuntimeError("execution bootstrap Strategy Ledger is unavailable")
-                self._strategy_ledger_manager.restore_execution_authority(
-                    _execution_bootstrap_ledger_snapshot(projection.before, ledger_current),
-                    trade_fingerprints=(),
-                    valuation_lines=projection.valuation_lines,
-                )
-            elif isinstance(projection, OnlyAccountCashReservationExecutionProjection):
-                if projection.before is not None:
-                    account_reservation_state = projection.before
-                    self._account_manager.restore_cash_reservation_execution_authority(
-                        OnlyAccountReservation(
-                            OnlyAccountReservationId(account_reservation_state.reservation_id),
-                            account_reservation_state.runtime_id,
-                            account_reservation_state.account_id,
-                            account_reservation_state.order_id,
-                            account_reservation_state.reserved_amount,
-                            account_reservation_state.consumed_amount,
-                            account_reservation_state.remaining_amount,
-                            account_reservation_state.state,
-                            account_reservation_state.created_at,
-                            account_reservation_state.updated_at,
-                            account_reservation_state.version,
+                result = self._services.historical_replay_service.run(replay)
+                if result.failed or result.rejected:
+                    failures = tuple(
+                        (
+                            event.result.status.value,
+                            event.result.validation.reasons,
+                            None
+                            if event.result.failure is None
+                            else (event.result.failure.error_type, event.result.failure.message),
                         )
+                        for event in result.events
+                        if event.result.status
+                        in {OnlyMarketDataProcessingStatus.FAILED, OnlyMarketDataProcessingStatus.REJECTED}
                     )
-            elif isinstance(projection, OnlyStrategyCashReservationExecutionProjection):
-                if projection.before is not None:
-                    strategy_reservation_state = projection.before
-                    self._strategy_ledger_manager.restore_cash_reservation_execution_authority(
-                        OnlyStrategyCashReservation(
-                            **{
-                                name: getattr(strategy_reservation_state, name)
-                                for name in OnlyStrategyCashReservation.__dataclass_fields__
-                            }
-                        )
-                    )
-            elif isinstance(projection, OnlyRiskReservationExecutionProjection):
-                if projection.before is not None:
-                    risk_reservation_state = projection.before
-                    self._services.risk_service.reservations.restore_execution_authority(
-                        OnlyRiskReservation(
-                            **{
-                                name: getattr(risk_reservation_state, name)
-                                for name in OnlyRiskReservation.__dataclass_fields__
-                            }
-                        ),
-                        sequence=risk_reservation_state.version,
-                    )
-            elif isinstance(projection, OnlyRiskExecutionProjection):
-                risk_state = projection.before
-                self._services.risk_service.restore_execution_authority(
-                    OnlyRiskSnapshot(
-                        **{name: getattr(risk_state, name) for name in OnlyRiskSnapshot.__dataclass_fields__}
-                    )
-                )
-            elif isinstance(projection, OnlyValuationExecutionProjection) and projection.before is not None:
-                self._restore_execution_valuation_state(projection.before)
-                if projection.account_equity_before:
-                    self._account_performance_projector.restore_execution_points(projection.account_equity_before)
-                elif projection.account_equity_points:
-                    self._account_performance_projector.restore_execution_sequence_head(
-                        projection.account_equity_points[0].sequence - 1
-                    )
-                if projection.strategy_equity_before:
-                    self._strategy_ledger_manager.restore_execution_equity_points(projection.strategy_equity_before)
-                elif projection.strategy_equity_points:
-                    self._strategy_ledger_manager.restore_execution_equity_sequence_head(
-                        projection.strategy_equity_points[0].sequence - 1
-                    )
+                    raise OnlyRuntimeError(f"recovery MarketData replay failed: {failures}")
+                processed += result.processed
+                if self._recovery_seen_update_ids == self._recovery_expected_update_ids:
+                    resolved = True
+                    break
+        finally:
+            self._in_recovery_replay = False
+            self._recovery_expected_update_ids.clear()
+            self._recovery_seen_update_ids.clear()
+        if not resolved:
+            raise OnlyRuntimeError("recovery replay did not resolve every transaction-tail Broker update")
+        return processed
 
     def register_instrument(
         self,
@@ -836,10 +1321,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._services.reference_data_source.calendar(instrument.trading_calendar_id or OnlyCalendarId("XSHG"))
             or self._selected_calendar
         )
-
-    @property
-    def execution_replay_resume_after(self) -> OnlyTimestamp | None:
-        return self._execution_replay_resume_after
 
     def process_bar(self, bar: OnlyBar) -> OnlyRuntimeBarResult:
         """Compatibility facade implemented as a one-record local historical replay."""
@@ -940,6 +1421,19 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if not self._services.market_data_source_registry.contains(source.source_id):
             self._services.market_data_source_registry.register(source)
         stream = source.load_bars(request)
+        replay_cursor = self._replay_cursor
+        if replay_cursor.last_update_id is not None:
+            if source.source_id != replay_cursor.source_id or request.data_version != replay_cursor.data_version:
+                raise OnlyRuntimeError("replay cursor source identity or data version changed")
+            matched = tuple(
+                index
+                for index, item in enumerate(stream.records)
+                if item.update_id == replay_cursor.last_update_id
+                and int(item.source_sequence) == replay_cursor.last_source_sequence
+            )
+            if len(matched) != 1:
+                raise OnlyRuntimeError("replay cursor update identity is absent or ambiguous")
+            stream = OnlyHistoricalDataStream(stream.records[matched[0] + 1 :], stream.batch_size)
         cursor = self._services.historical_replay_service.prepare(
             OnlyHistoricalReplayConfig((stream,), source_priority=(source.source_id,))
         )
@@ -1021,7 +1515,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         trade: OnlyPositionTrade,
         order: object,
     ) -> None:
-        from onlyalpha.domain.execution import OnlyOrderSnapshot
 
         if not isinstance(order, OnlyOrderSnapshot):
             raise TypeError("Order query must return OnlyOrderSnapshot")
@@ -1645,6 +2138,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
         cluster_id: OnlyClusterId,
         snapshot: OnlyMarketDataSnapshot,
     ) -> None:
+        if self._in_recovery_replay:
+            return
         self._services.risk_service.update_pre_decision_state(
             OnlyRiskStateUpdateContext(
                 self.config.runtime_id,  # type: ignore[arg-type]

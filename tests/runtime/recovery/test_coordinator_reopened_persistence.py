@@ -3,16 +3,16 @@ from pathlib import Path
 from onlyalpha.execution import (
     OnlyExecutionProjectionComponent,
     OnlyExecutionRecoveryStatus,
-    OnlySqliteExecutionTransactionStore,
 )
+from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 
 
-def test_runtime_hook_recovers_reopened_store_with_prebuilt_bootstrap_authority(tmp_path: Path) -> None:
+def test_coordinator_recovers_reopened_persistence_with_fresh_test_authority(tmp_path: Path) -> None:
     """Component contract only; product restart is covered by the Engine integration test."""
 
     path = tmp_path / "runtime-recovery-component.sqlite3"
-    first_store = OnlySqliteExecutionTransactionStore(path)
+    first_store = OnlySqliteRuntimePersistenceStore(path)
     first = OnlyRealExecutionRecoveryHarness.create(
         store=first_store,
         target_fault=(OnlyExecutionProjectionComponent.ORDER, "before"),
@@ -21,7 +21,7 @@ def test_runtime_hook_recovers_reopened_store_with_prebuilt_bootstrap_authority(
     committed = first_store.records(first.bundle.transaction.runtime_id)[0]
     first_store.close()
 
-    reopened = OnlySqliteExecutionTransactionStore(path)
+    reopened = OnlySqliteRuntimePersistenceStore(path)
     restarted = OnlyRealExecutionRecoveryHarness.create(store=reopened)
     recovery = restarted.recover()
     assert recovery.status is OnlyExecutionRecoveryStatus.RECOVERED

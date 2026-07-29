@@ -176,6 +176,32 @@ class OnlyPositionManager:
         else:
             self._active[snapshot.key] = entity
 
+    def capture_checkpoint(self) -> object:
+        return {
+            "closed": [item.to_json() for item in self.closed()],
+            "cycles": [
+                [key.to_json(), cycle]
+                for key, cycle in sorted(self._cycles.items(), key=lambda item: item[0].to_json())
+            ],
+            "event_sequence": self._event_sequence,
+            "open": [item.to_json() for item in self.snapshot_all()],
+            "trade_fingerprints": sorted(self._trade_fingerprints),
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Position checkpoint must be an object")
+        cycles = {OnlyPositionKey.from_json(str(key)): int(value) for key, value in payload["cycles"]}
+        fingerprints = tuple(str(item) for item in payload["trade_fingerprints"])
+        snapshots = tuple(OnlyPositionSnapshot.from_json(str(raw)) for raw in (*payload["open"], *payload["closed"]))
+        for snapshot in snapshots:
+            self.restore_execution_authority(
+                snapshot,
+                cycle=cycles[snapshot.key],
+                trade_fingerprints=fingerprints,
+            )
+        self.restore_execution_event_sequence(int(payload["event_sequence"]))
+
     def freeze(self, key: OnlyPositionKey, quantity: OnlyQuantity, *, risk: bool = False) -> OnlyPositionSnapshot:
         entity = self._require_entity(key)
         entity.freeze(quantity, risk=risk)

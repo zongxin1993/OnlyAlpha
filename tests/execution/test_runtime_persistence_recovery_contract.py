@@ -6,14 +6,16 @@ import pytest
 from onlyalpha.execution import (
     OnlyExecutionProjectionComponent,
     OnlyExecutionRecoveryStatus,
-    OnlyExecutionTransactionStorePort,
-    OnlyInMemoryExecutionTransactionStore,
-    OnlySqliteExecutionTransactionStore,
 )
-from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStoreError
+from onlyalpha.runtime.persistence.store import (
+    OnlyInMemoryRuntimePersistenceStore,
+    OnlyRuntimePersistenceStoreError,
+    OnlyRuntimePersistenceStorePort,
+    OnlySqliteRuntimePersistenceStore,
+)
 from tests.execution.support.execution_fault_injection import (
-    OnlyFailOnceExecutionTransactionStore,
-    OnlyTestExecutionStoreFault,
+    OnlyFailOnceRuntimePersistenceStore,
+    OnlyTestRuntimePersistenceFault,
 )
 from tests.execution.support.generic_t0_trade_harness import (
     OnlyTestGenericT0Scenario,
@@ -24,25 +26,27 @@ from tests.execution.support.real_execution_recovery_harness import OnlyRealExec
 
 
 @pytest.fixture(params=("memory", "sqlite"))
-def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[OnlyExecutionTransactionStorePort]:
-    selected: OnlyExecutionTransactionStorePort
+def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[OnlyRuntimePersistenceStorePort]:
+    selected: OnlyRuntimePersistenceStorePort
     if request.param == "memory":
-        selected = OnlyInMemoryExecutionTransactionStore()
+        selected = OnlyInMemoryRuntimePersistenceStore()
     else:
-        selected = OnlySqliteExecutionTransactionStore(tmp_path / "recovery-contract.sqlite3")
+        selected = OnlySqliteRuntimePersistenceStore(tmp_path / "recovery-contract.sqlite3")
     yield selected
-    if isinstance(selected, OnlySqliteExecutionTransactionStore):
+    if isinstance(selected, OnlySqliteRuntimePersistenceStore):
         selected.close()
 
 
-def test_commit_failure_leaves_store_and_real_managers_unchanged(store: OnlyExecutionTransactionStorePort) -> None:
+def test_commit_failure_leaves_persistence_and_real_managers_unchanged(
+    store: OnlyRuntimePersistenceStorePort,
+) -> None:
     environment, context, prepared = only_test_generic_t0_projection_environment(
         OnlyTestGenericT0Scenario("commit-failure")
     )
     before = only_test_runtime_authority_digest(environment)
-    faulting = OnlyFailOnceExecutionTransactionStore(store, OnlyTestExecutionStoreFault.COMMIT)
+    faulting = OnlyFailOnceRuntimePersistenceStore(store, OnlyTestRuntimePersistenceFault.COMMIT)
 
-    with pytest.raises(OnlyExecutionTransactionStoreError, match="COMMIT"):
+    with pytest.raises(OnlyRuntimePersistenceStoreError, match="COMMIT"):
         faulting.commit(prepared, committed_at=context.prepared_at)
 
     assert store.records(prepared.runtime_id) == ()
@@ -51,7 +55,7 @@ def test_commit_failure_leaves_store_and_real_managers_unchanged(store: OnlyExec
 
 
 def test_committed_before_projection_interruption_is_forward_recoverable(
-    store: OnlyExecutionTransactionStorePort,
+    store: OnlyRuntimePersistenceStorePort,
 ) -> None:
     harness = OnlyRealExecutionRecoveryHarness.create(store=store)
     before = harness.manager_digest()
@@ -65,9 +69,9 @@ def test_committed_before_projection_interruption_is_forward_recoverable(
 
 
 def test_mark_ready_failure_retries_all_real_targets_idempotently(
-    store: OnlyExecutionTransactionStorePort,
+    store: OnlyRuntimePersistenceStorePort,
 ) -> None:
-    faulting = OnlyFailOnceExecutionTransactionStore(store, OnlyTestExecutionStoreFault.MARK_READY)
+    faulting = OnlyFailOnceRuntimePersistenceStore(store, OnlyTestRuntimePersistenceFault.MARK_READY)
     harness = OnlyRealExecutionRecoveryHarness.create(store=faulting)
 
     failed = harness.recover()
@@ -87,9 +91,9 @@ def test_mark_ready_failure_retries_all_real_targets_idempotently(
 
 
 def test_mark_failed_failure_preserves_original_projection_error_and_tail(
-    store: OnlyExecutionTransactionStorePort,
+    store: OnlyRuntimePersistenceStorePort,
 ) -> None:
-    faulting = OnlyFailOnceExecutionTransactionStore(store, OnlyTestExecutionStoreFault.MARK_FAILED)
+    faulting = OnlyFailOnceRuntimePersistenceStore(store, OnlyTestRuntimePersistenceFault.MARK_FAILED)
     harness = OnlyRealExecutionRecoveryHarness.create(
         store=faulting,
         target_fault=(OnlyExecutionProjectionComponent.FEE, "before"),
@@ -109,9 +113,9 @@ def test_mark_failed_failure_preserves_original_projection_error_and_tail(
 
 
 def test_query_failure_blocks_recovery_instead_of_reporting_no_work(
-    store: OnlyExecutionTransactionStorePort,
+    store: OnlyRuntimePersistenceStorePort,
 ) -> None:
-    faulting = OnlyFailOnceExecutionTransactionStore(store, OnlyTestExecutionStoreFault.QUERY)
+    faulting = OnlyFailOnceRuntimePersistenceStore(store, OnlyTestRuntimePersistenceFault.QUERY)
     harness = OnlyRealExecutionRecoveryHarness.create(store=faulting)
 
     failed = harness.recover()
@@ -122,7 +126,7 @@ def test_query_failure_blocks_recovery_instead_of_reporting_no_work(
 
 def test_sqlite_reopen_with_fresh_bootstrap_authority_recovers_transaction_tail(tmp_path: Path) -> None:
     path = tmp_path / "runtime-restart.sqlite3"
-    first_store = OnlySqliteExecutionTransactionStore(path)
+    first_store = OnlySqliteRuntimePersistenceStore(path)
     first = OnlyRealExecutionRecoveryHarness.create(
         store=first_store,
         target_fault=(OnlyExecutionProjectionComponent.FEE, "before"),
@@ -133,7 +137,7 @@ def test_sqlite_reopen_with_fresh_bootstrap_authority_recovers_transaction_tail(
     outbox_before = first_store.outbox_records(first.bundle.transaction.runtime_id)
     first_store.close()
 
-    reopened = OnlySqliteExecutionTransactionStore(path)
+    reopened = OnlySqliteRuntimePersistenceStore(path)
     try:
         restarted = OnlyRealExecutionRecoveryHarness.create(store=reopened)
         recovered = restarted.recover()

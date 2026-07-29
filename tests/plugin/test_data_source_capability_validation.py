@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+import pytest
 from onlyalpha_test_plugin.data_source import OnlyExternalTestDataSourceFactory
 
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
@@ -9,7 +10,7 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId, OnlySymbol, OnlyVenueId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.plugin import OnlyDataSourceCapabilities
+from onlyalpha.plugin import OnlyCheckpointCapability, OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 
@@ -17,6 +18,21 @@ def test_data_source_capability_reports_missing_requirement() -> None:
     actual = OnlyDataSourceCapabilities(historical_bars=True)
     required = OnlyDataSourceCapabilities(historical_bars=True, live_ticks=True)
     assert actual.missing(required) == ("live_ticks",)
+
+
+def test_data_source_checkpoint_capability_is_explicit_and_validated() -> None:
+    stateless = OnlyDataSourceCapabilities(
+        historical_bars=True,
+        supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
+    )
+    assert stateless.supports_runtime_checkpoint is OnlyCheckpointCapability.STATELESS
+    with pytest.raises(ValueError, match="explicit capability"):
+        OnlyDataSourceCapabilities(checkpoint_schema_version=1)
+    with pytest.raises(ValueError, match="stateless"):
+        OnlyDataSourceCapabilities(
+            supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
+            checkpoint_schema_version=1,
+        )
 
 
 def test_data_source_factory_validates_requested_capabilities_before_create() -> None:

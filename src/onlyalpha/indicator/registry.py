@@ -100,6 +100,12 @@ class OnlyIndicatorRegistry:
     def all_snapshots(self) -> tuple[OnlyIndicatorSnapshot, ...]:
         return tuple(self._instances[key].snapshot() for key in sorted(self._instances))
 
+    @property
+    def checkpoint_instances(
+        self,
+    ) -> tuple[tuple[OnlyIndicatorInstanceKey, OnlyBarIndicator[OnlyIndicatorSnapshot]], ...]:
+        return tuple((key, self._instances[key]) for key in sorted(self._instances))
+
     def _require(
         self, factor_id: OnlyFactorId, indicator_id: OnlyIndicatorId
     ) -> OnlyBarIndicator[OnlyIndicatorSnapshot]:

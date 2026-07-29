@@ -151,6 +151,21 @@ class OnlyAccountPerformanceProjector:
                 raise ValueError("Account equity replay points are out of scope or sequence")
             next_sequence += 1
 
+    def capture_checkpoint(self) -> object:
+        return {
+            "points": [
+                point.to_json() for account_id in sorted(self._points, key=str) for point in self._points[account_id]
+            ],
+            "sequence": self._sequence,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Account performance checkpoint must be an object")
+        points = tuple(OnlyAccountEquityPoint.from_json(str(item)) for item in payload["points"])
+        self.restore_execution_points(points)
+        self.restore_execution_sequence_head(int(payload["sequence"]))
+
     def summarize(self, account_id: OnlyAccountId) -> OnlyRuntimePortfolioPerformanceSummary:
         points = self.timeline(account_id)
         if not points:

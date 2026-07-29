@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId, OnlyRuntimeId
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.market.runtime_rules import OnlyMarginInstruction
@@ -203,6 +204,96 @@ class OnlyMarginManager:
         )
         self._records.append(record)
         return record
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "occupied": [[list(key), str(value[0]), str(value[1])] for key, value in sorted(self._occupied.items())],
+            "records": [
+                {
+                    "account_id": item.account_id,
+                    "action": item.action,
+                    "amount": str(item.amount),
+                    "currency": item.currency,
+                    "instrument_id": item.instrument_id,
+                    "maintenance_required_after": str(item.maintenance_required_after),
+                    "occupied_after": str(item.occupied_after),
+                    "reserved_after": str(item.reserved_after),
+                    "sequence": item.sequence,
+                    "source_order_id": item.source_order_id,
+                    "source_trade_id": item.source_trade_id,
+                }
+                for item in self._records
+            ],
+            "states": [
+                {
+                    "account_id": str(item.account_id),
+                    "created_at_ns": item.created_at.unix_nanos,
+                    "currency": item.currency.code,
+                    "instrument_id": str(item.instrument_id),
+                    "maintenance_required": str(item.maintenance_required),
+                    "occupied": str(item.occupied),
+                    "original_reserved": str(item.original_reserved),
+                    "released": str(item.released),
+                    "reservation_id": item.reservation_id,
+                    "reserved": str(item.reserved),
+                    "source_order_id": str(item.source_order_id),
+                    "updated_at_ns": item.updated_at.unix_nanos,
+                    "version": item.version,
+                }
+                for item in sorted(self._states.values(), key=lambda value: str(value.source_order_id))
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Margin checkpoint must be an object")
+        self._states = {}
+        for item in payload["states"]:
+            if not isinstance(item, dict):
+                raise ValueError("Margin checkpoint state must be an object")
+            state = OnlyMarginReservation(
+                str(item["reservation_id"]),
+                self.runtime_id,
+                OnlyAccountId(str(item["account_id"])),
+                OnlyInstrumentId.parse(str(item["instrument_id"])),
+                OnlyOrderId(str(item["source_order_id"])),
+                OnlyCurrency(str(item["currency"])),
+                Decimal(str(item["original_reserved"])),
+                Decimal(str(item["reserved"])),
+                Decimal(str(item["occupied"])),
+                Decimal(str(item["released"])),
+                Decimal(str(item["maintenance_required"])),
+                OnlyTimestamp.from_unix_nanos(int(item["created_at_ns"])),
+                OnlyTimestamp.from_unix_nanos(int(item["updated_at_ns"])),
+                int(item["version"]),
+            )
+            self._states[str(state.source_order_id)] = state
+        occupied_states: dict[tuple[str, str, str], tuple[Decimal, Decimal]] = {}
+        for key, occupied, maintenance in payload["occupied"]:
+            if not isinstance(key, list) or len(key) != 3:
+                raise ValueError("Margin occupied checkpoint scope must contain three values")
+            occupied_states[(str(key[0]), str(key[1]), str(key[2]))] = (
+                Decimal(str(occupied)),
+                Decimal(str(maintenance)),
+            )
+        self._occupied = occupied_states
+        self._records = [
+            OnlyMarginRecord(
+                int(item["sequence"]),
+                str(item["action"]),
+                str(item["account_id"]),
+                str(item["instrument_id"]),
+                str(item["source_order_id"]),
+                str(item["source_trade_id"]),
+                str(item["currency"]),
+                Decimal(str(item["amount"])),
+                Decimal(str(item["reserved_after"])),
+                Decimal(str(item["occupied_after"])),
+                Decimal(str(item["maintenance_required_after"])),
+            )
+            for item in payload["records"]
+            if isinstance(item, dict)
+        ]
 
     @staticmethod
     def _margin_scope(reservation: OnlyMarginReservation) -> tuple[str, str, str]:

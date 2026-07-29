@@ -349,6 +349,39 @@ class OnlyVirtualClock(OnlyClock):
         self._current_ns = snapshot.current_timestamp_ns
         self._sequence = snapshot.sequence
 
+    def restore_with_registered_callbacks(self, snapshot: OnlyClockSnapshot) -> None:
+        """Restore deterministic timer state using callbacks registered during Cluster start."""
+        self._require_open()
+        callbacks = {
+            timer_id: timer.callback
+            for timer_id, timer in self._timers.items()
+            if timer.state in {OnlyTimerState.SCHEDULED, OnlyTimerState.FIRING}
+        }
+        expected_ids = {item.timer_id for item in snapshot.active_timers}
+        if set(callbacks) != expected_ids:
+            raise OnlyClockError("restored timer identities do not match timers registered during Cluster start")
+        self._current_ns = snapshot.current_timestamp_ns
+        self._sequence = snapshot.sequence
+        self._heap.clear()
+        self._timers.clear()
+        for item in snapshot.active_timers:
+            if item.state not in {OnlyTimerState.SCHEDULED, OnlyTimerState.FIRING}:
+                raise OnlyClockError("checkpoint contains a non-active timer")
+            timer = OnlyTimer(
+                item.timer_id,
+                item.mode,
+                item.created_at_ns,
+                item.next_deadline_ns,
+                item.interval_ns,
+                item.sequence,
+                callbacks[item.timer_id],
+                item.metadata,
+                OnlyTimerState.SCHEDULED,
+                item.fire_count,
+            )
+            self._timers[item.timer_id] = timer
+            heapq.heappush(self._heap, (item.next_deadline_ns, item.sequence, item.timer_id.value))
+
     def timer_snapshot(self, timer_id: OnlyTimerId | str) -> OnlyTimerSnapshot:
         return self._snapshot_timer(self._coerce_timer_id(timer_id))
 

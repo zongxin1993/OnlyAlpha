@@ -1,4 +1,4 @@
-# OnlyAlpha 总体架构
+﻿# OnlyAlpha 总体架构
 
 正式成交主链为 `Prepared Transaction → Transaction Store commit → Runtime sequence gate → ordered Projection Targets → Projection Ready → durable Outbox`。Transaction Store 是唯一 durable Trade authority；Applied Ledger 只是可重建的幂等索引。Coordinator 采用 forward recovery，不提供跨 Manager rollback，也不等于 Empty Runtime Full Recovery。详细边界由 ADR 0038–0042、`execution_projection_targets.md` 与 `execution_runtime_recovery.md` 规定。
 
@@ -199,11 +199,11 @@ Runtime Planner、Assembly Plan、Assembler、Engine/Cluster/Runtime Session、I
 Registry 内部容器及 ExecutionProcessor 编排细节属于内部实现。它们不从 `onlyalpha`、`onlyalpha.engine` 或
 `onlyalpha.runtime` 的公共 `__all__` 导出，插件不得依赖这些对象。内部模块路径仍可供核心仓自身使用，但不承诺外部兼容性。
 
-Runtime 启动在插件资源和 Cluster initialize 后、进入 READY 前执行 `OnlyExecutionRecoveryService`。恢复只读取 Admin Transaction
-Query/Projection State，并按 sequence 前向完成 committed tail；正式 Result 只持有 Projection Ready Query。start 阶段先交付 recovered
-Outbox，再启动 Cluster。Recovery failure 与 Outbox delivery failure 都阻止 Backtest 启动，但前者表示业务 Authority 不完整，后者表示
-Ready Event 尚未完成 at-least-once delivery，不能混同或回滚 transaction。
+Runtime 在 Cluster initialize 后进入 `RECOVERING`。`OnlyRuntimeRecoveryOrchestrator` 验证并恢复最新完整 checkpoint，按精确
+MarketData cursor 重放到原 transaction tail，使用真实 Target rehydrate Ready 前缀，再由正式 Coordinator 恢复未投影后缀。正式
+Result 只持有 Projection Ready Query。恢复完成后交付 recovered Outbox；任一阶段失败都阻止 READY/RUNNING。
 
-Execution Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.execution_store` 唯一创建并显式注入 Runtime。Memory 是默认短回测
-语义；SQLite 位于稳定的 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>`，不依赖 Artifact Run ID。Store 是
-Runtime-owned resource，schema/identity metadata 不匹配即停止装配。Factory 的 validate 阶段不创建目录或数据库。详见 ADR 0043。
+Runtime Persistence Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.persistence` 唯一创建并显式注入 Runtime。SQLite checkpoint
+模式使用 schema version 2，并把 checkpoint、transaction、Projection state 和 Outbox 放在稳定的
+`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`；它不依赖 Artifact Run ID。Store 是 Runtime-owned
+resource，schema/identity/registry/hash 不匹配即停止装配。Factory 的 validate 阶段不创建目录或数据库。详见 ADR 0044。

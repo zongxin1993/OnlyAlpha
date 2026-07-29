@@ -10,27 +10,26 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution import (
     OnlyExecutionOutboxPublisher,
-    OnlyInMemoryExecutionTransactionStore,
-    OnlySqliteExecutionTransactionStore,
 )
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlySqliteRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
 
 @pytest.fixture(params=("memory", "sqlite"))
 def outbox_store(
     request: pytest.FixtureRequest, tmp_path: Path
-) -> Iterator[OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTransactionStore]:
-    store: OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTransactionStore
+) -> Iterator[OnlyInMemoryRuntimePersistenceStore | OnlySqliteRuntimePersistenceStore]:
+    store: OnlyInMemoryRuntimePersistenceStore | OnlySqliteRuntimePersistenceStore
     if request.param == "memory":
-        store = OnlyInMemoryExecutionTransactionStore()
+        store = OnlyInMemoryRuntimePersistenceStore()
     else:
-        store = OnlySqliteExecutionTransactionStore(tmp_path / "outbox.sqlite3")
+        store = OnlySqliteRuntimePersistenceStore(tmp_path / "outbox.sqlite3")
     yield store
-    if isinstance(store, OnlySqliteExecutionTransactionStore):
+    if isinstance(store, OnlySqliteRuntimePersistenceStore):
         store.close()
 
 
-def _append(store: OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTransactionStore):
+def _append(store: OnlyInMemoryRuntimePersistenceStore | OnlySqliteRuntimePersistenceStore):
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     committed_at = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
     committed = store.commit(prepared, committed_at=committed_at).transaction
@@ -39,7 +38,7 @@ def _append(store: OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTr
 
 
 def test_memory_and_sqlite_outbox_share_attempt_failure_and_published_semantics(
-    outbox_store: OnlyInMemoryExecutionTransactionStore | OnlySqliteExecutionTransactionStore,
+    outbox_store: OnlyInMemoryRuntimePersistenceStore | OnlySqliteRuntimePersistenceStore,
 ) -> None:
     prepared = _append(outbox_store)
     events = prepared.outbox_events
@@ -71,11 +70,11 @@ def test_memory_and_sqlite_outbox_share_attempt_failure_and_published_semantics(
 def test_sqlite_restart_preserves_pending_payload_and_event_identity(tmp_path: Path) -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     path = tmp_path / "restart.sqlite3"
-    store = OnlySqliteExecutionTransactionStore(path)
+    store = OnlySqliteRuntimePersistenceStore(path)
     events = _append(store).outbox_events
     store.close()
 
-    recovered = OnlySqliteExecutionTransactionStore(path)
+    recovered = OnlySqliteRuntimePersistenceStore(path)
     pending = recovered.pending(prepared.runtime_id, limit=100)
     assert tuple(record.event.event_id for record in pending) == tuple(event.event_id for event in events)
     assert tuple(record.event.to_dict() for record in pending) == tuple(event.to_dict() for event in events)
@@ -83,7 +82,7 @@ def test_sqlite_restart_preserves_pending_payload_and_event_identity(tmp_path: P
 
 
 def test_outbox_publisher_stops_on_first_failure_and_retries_same_event_id() -> None:
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     prepared = _append(store)
     events = prepared.outbox_events
     bus = OnlyEventBus(capacity=1, scope=OnlyEventScope(OnlyEngineId("engine"), prepared.runtime_id))
@@ -106,7 +105,7 @@ def test_outbox_publisher_stops_on_first_failure_and_retries_same_event_id() -> 
     assert tuple(record.attempt_count for record in store.outbox_records(prepared.runtime_id)) == (2, 2)
 
 
-class _OnlyFailPublishedOnceStore(OnlyInMemoryExecutionTransactionStore):
+class _OnlyFailPublishedOnceStore(OnlyInMemoryRuntimePersistenceStore):
     def __init__(self) -> None:
         super().__init__()
         self._failed = False

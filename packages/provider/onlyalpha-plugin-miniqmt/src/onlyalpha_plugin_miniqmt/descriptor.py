@@ -1,5 +1,6 @@
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
+    OnlyCheckpointCapability,
     OnlyDataSourceCapabilities,
 )
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
@@ -14,6 +15,7 @@ DATA_CAPABILITIES = OnlyDataSourceCapabilities(
     live_ticks=True,
     instruments=True,
     calendars=True,
+    supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
 )
 BROKER_CAPABILITIES = OnlyBrokerPluginCapabilities(
     submit_order=True,

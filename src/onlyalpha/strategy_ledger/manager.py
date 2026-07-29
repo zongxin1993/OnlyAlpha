@@ -463,10 +463,63 @@ class OnlyStrategyLedgerManager:
         cash_reserved[snapshot.key] = snapshot.cash.cash_reserved
         self._repository.replace_execution_authority(snapshot)
         self._ledgers[snapshot.key] = ledger
+        self._reservations.setdefault(snapshot.key, OnlyStrategyCashReservationManager(snapshot.key))
+        self._equity_timelines.setdefault(snapshot.key, [])
         self._scope_index = scope_index
         self._trade_fingerprints = trade_index
         self._fee_ids = fee_index
         self._cash_reserved = cash_reserved
+
+    def capture_checkpoint(self) -> object:
+        """Capture ledger economics, timelines, reservations, and idempotency heads."""
+
+        return {
+            "cash_flow_ids": sorted(str(item) for item in self._cash_flow_ids),
+            "equity_sequence": self._equity_sequence,
+            "event_sequence": self._event_sequence,
+            "ledgers": [item.to_json() for item in self.list_ledgers()],
+            "timelines": [
+                point.to_json()
+                for key in sorted(self._equity_timelines, key=lambda item: item.to_json())
+                for point in self._equity_timelines[key]
+            ],
+            "trade_fingerprints": sorted(self._trade_fingerprints),
+            "valuation_lines": [
+                [key.to_json(), [item.to_json() for item in self._ledgers[key]._valuation_lines.values()]]
+                for key in sorted(self._ledgers, key=lambda item: item.to_json())
+            ],
+            "valuation_versions": [
+                [key.to_json(), version]
+                for key, version in sorted(self._valuation_versions.items(), key=lambda item: item[0].to_json())
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Strategy Ledger checkpoint must be an object")
+        lines = {
+            OnlyStrategyLedgerKey.from_json(str(key)): tuple(
+                OnlyStrategyValuationLine.from_json(str(item)) for item in values
+            )
+            for key, values in payload["valuation_lines"]
+        }
+        fingerprints = tuple(str(item) for item in payload["trade_fingerprints"])
+        for raw in payload["ledgers"]:
+            snapshot = OnlyStrategyLedgerSnapshot.from_json(str(raw))
+            self.restore_execution_authority(
+                snapshot,
+                trade_fingerprints=fingerprints,
+                valuation_lines=lines.get(snapshot.key, ()),
+            )
+            for reservation in snapshot.reservations:
+                self.restore_cash_reservation_execution_authority(reservation)
+        points = tuple(OnlyStrategyLedgerEquityPoint.from_json(str(item)) for item in payload["timelines"])
+        self.restore_execution_equity_points(points)
+        self.restore_execution_equity_sequence_head(int(payload["equity_sequence"]))
+        for key, version in payload["valuation_versions"]:
+            self.restore_valuation_version(OnlyStrategyLedgerKey.from_json(str(key)), int(version))
+        self._cash_flow_ids.update(OnlyStrategyCashFlowId(str(item)) for item in payload["cash_flow_ids"])
+        self.restore_execution_event_sequence(int(payload["event_sequence"]))
 
     def restore_execution_indexes(
         self,

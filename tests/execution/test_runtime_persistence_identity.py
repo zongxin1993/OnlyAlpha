@@ -2,7 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from onlyalpha.execution import OnlyExecutionStoreIdentityMismatch, OnlySqliteExecutionTransactionStore
+from onlyalpha.runtime.persistence.store import (
+    OnlyRuntimePersistenceIdentityMismatch,
+    OnlySqliteRuntimePersistenceStore,
+)
 
 
 @pytest.mark.parametrize(
@@ -17,8 +20,8 @@ from onlyalpha.execution import OnlyExecutionStoreIdentityMismatch, OnlySqliteEx
         ("market_profile_id", "OTHER_PROFILE"),
     ],
 )
-def test_reopen_rejects_every_stable_identity_mismatch(tmp_path: Path, field: str, changed: str) -> None:
-    path = tmp_path / "execution.sqlite3"
+def test_persistence_reopen_rejects_every_stable_identity_mismatch(tmp_path: Path, field: str, changed: str) -> None:
+    path = tmp_path / "runtime.sqlite3"
     identity = {
         "runtime_id": "runtime",
         "engine_id": "engine",
@@ -28,14 +31,14 @@ def test_reopen_rejects_every_stable_identity_mismatch(tmp_path: Path, field: st
         "account_id": "account",
         "market_profile_id": "GENERIC_T0_CASH",
     }
-    store = OnlySqliteExecutionTransactionStore(path, identity=identity)
+    store = OnlySqliteRuntimePersistenceStore(path, identity=identity)
     store.close()
     changed_identity = dict(identity)
     changed_identity[field] = changed
 
-    with pytest.raises(OnlyExecutionStoreIdentityMismatch, match=field):
-        OnlySqliteExecutionTransactionStore(path, identity=changed_identity)
+    with pytest.raises(OnlyRuntimePersistenceIdentityMismatch, match=field):
+        OnlySqliteRuntimePersistenceStore(path, identity=changed_identity)
 
-    reopened = OnlySqliteExecutionTransactionStore(path, identity=identity)
+    reopened = OnlySqliteRuntimePersistenceStore(path, identity=identity)
     assert reopened.metadata()[field] == identity[field]
     reopened.close()

@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 
+from onlyalpha.plugin.capabilities import OnlyCheckpointCapability
 from onlyalpha.strategy.config import OnlyStrategyConfig
 from onlyalpha.strategy.context import OnlyStrategyBarContext, OnlyStrategyContext, OnlyStrategyTimerContext
 from onlyalpha.strategy.identifiers import OnlyStrategyId
@@ -69,6 +70,23 @@ class OnlyStrategy(ABC):
     def build_result_extension(self) -> Mapping[str, object]:
         return {}
 
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        """Explicitly unsupported unless a concrete Strategy opts in."""
+
+        return None
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return None
+
+    def capture_checkpoint(self) -> object:
+        raise NotImplementedError(f"{type(self).__name__} does not declare checkpoint capability")
+
+    def restore_checkpoint(self, payload: object) -> None:
+        del payload
+        raise NotImplementedError(f"{type(self).__name__} does not declare checkpoint capability")
+
 
 class OnlyNoopStrategy(OnlyStrategy):
     """Explicit inert Strategy for infrastructure-only Cluster tests and services."""
@@ -78,3 +96,18 @@ class OnlyNoopStrategy(OnlyStrategy):
 
     def on_bar(self, context: OnlyStrategyBarContext) -> None:
         del context
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return {}
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if payload != {}:
+            raise ValueError("Noop Strategy checkpoint must be empty")

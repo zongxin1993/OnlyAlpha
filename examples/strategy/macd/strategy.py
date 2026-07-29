@@ -8,8 +8,10 @@ from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import OnlyOrderRequestId
 from onlyalpha.domain.market import OnlyBar
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.order.views import OnlyOrderServiceView
+from onlyalpha.plugin.api import OnlyCheckpointCapability
 from onlyalpha.position.views import OnlyPositionContextView
 from onlyalpha.strategy.base import OnlyStrategy
 from onlyalpha.strategy.context import OnlyStrategyBarContext
@@ -205,3 +207,49 @@ class OnlyMacdStrategy(OnlyStrategy):
             "entry_count": self._entry_count,
             "order_attempts": list(self._order_attempts),
         }
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "callback_count": self._callback_count,
+            "entry_count": self._entry_count,
+            "exit_pending": self._exit_pending,
+            "has_entered": self._has_entered,
+            "order_attempts": list(self._order_attempts),
+            "request_sequence": self._request_sequence,
+            "signal_state": self._signal_state.value,
+            "signals": [item.to_dict() for item in self._signals],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("MACD Strategy checkpoint must be an object")
+        self._callback_count = int(payload["callback_count"])
+        self._entry_count = int(payload["entry_count"])
+        self._exit_pending = bool(payload["exit_pending"])
+        self._has_entered = bool(payload["has_entered"])
+        attempts = payload["order_attempts"]
+        if not isinstance(attempts, list) or not all(isinstance(item, dict) for item in attempts):
+            raise ValueError("MACD Strategy order attempts must be a list of objects")
+        self._order_attempts = attempts
+        self._request_sequence = int(payload["request_sequence"])
+        self._signal_state = OnlyMacdSignalState(str(payload["signal_state"]))
+        self._signals = [
+            OnlyMacdSignal(
+                int(item["sequence"]),
+                str(item["signal_type"]),
+                OnlyTimestamp.from_unix_nanos(int(item["ts_event_ns"])),
+                str(item["dif"]),
+                str(item["dea"]),
+                None if item["order_request_id"] is None else OnlyOrderRequestId(str(item["order_request_id"])),
+            )
+            for item in payload["signals"]
+            if isinstance(item, dict)
+        ]

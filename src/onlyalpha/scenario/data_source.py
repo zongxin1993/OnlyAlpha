@@ -18,7 +18,11 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities, OnlyPluginValidationIssue
+from onlyalpha.plugin.capabilities import (
+    OnlyCheckpointCapability,
+    OnlyDataSourceCapabilities,
+    OnlyPluginValidationIssue,
+)
 from onlyalpha.plugin.data_source import OnlyDataSource, OnlyDataSourceCreateRequest
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginType
 from onlyalpha.plugin.lifecycle import OnlyPluginHealth, OnlyPluginHealthStatus, OnlyPluginLifecycleState
@@ -31,7 +35,10 @@ ONLY_SCENARIO_DATA_PLUGIN = OnlyPluginDescriptor(
     ONLYALPHA_PLUGIN_API_VERSION,
     "OnlyAlpha Exact Scenario Data",
     "OnlyAlpha",
-    OnlyDataSourceCapabilities(historical_bars=True),
+    OnlyDataSourceCapabilities(
+        historical_bars=True,
+        supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
+    ),
 )
 
 

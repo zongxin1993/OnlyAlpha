@@ -124,7 +124,7 @@ class OnlyClusterRunConfig:
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
         normalized_root: dict[str, object] = dict(root)
         normalized_runtime = dict(runtime_raw)
-        normalized_runtime["execution_store"] = runtime.execution_store.to_dict()
+        normalized_runtime["persistence"] = runtime.persistence.to_dict()
         normalized_root["runtime"] = normalized_runtime
         normalized_payload = _normalize_mapping(cast(Mapping[object, object], normalized_root), "$")
 

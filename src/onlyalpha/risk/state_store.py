@@ -83,3 +83,50 @@ class OnlyInMemoryRiskStateStore(OnlyRiskStateStore):
 
     def set_rule_state(self, cluster_id: OnlyClusterId, key: Hashable, value: object) -> None:
         self._rule_state[(cluster_id, key)] = value
+
+    def capture_checkpoint(self) -> object:
+        if self._rule_state:
+            raise ValueError("stateful Risk rule checkpoint contracts are not declared")
+        return {
+            "decisions": [
+                [str(cluster_id), str(account_id), str(request_id), decision.to_json()]
+                for (cluster_id, account_id, request_id), decision in sorted(
+                    self._decisions.items(), key=lambda item: tuple(str(part) for part in item[0])
+                )
+            ],
+            "rejection_counts": [
+                [str(cluster_id), count]
+                for cluster_id, count in sorted(self._rejection_counts.items(), key=lambda item: str(item[0]))
+            ],
+            "snapshot_versions": [
+                [str(cluster_id), version]
+                for cluster_id, version in sorted(self._snapshot_versions.items(), key=lambda item: str(item[0]))
+            ],
+            "snapshots": [
+                snapshot.to_json() for _, snapshot in sorted(self._snapshots.items(), key=lambda item: str(item[0]))
+            ],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Risk state checkpoint must be an object")
+        self._snapshots = {
+            snapshot.cluster_id: snapshot
+            for raw in payload["snapshots"]
+            if (snapshot := OnlyRiskSnapshot.from_json(str(raw)))
+        }
+        self._snapshot_versions = {
+            OnlyClusterId(str(cluster_id)): int(version) for cluster_id, version in payload["snapshot_versions"]
+        }
+        self._rejection_counts = {
+            OnlyClusterId(str(cluster_id)): int(count) for cluster_id, count in payload["rejection_counts"]
+        }
+        self._decisions = {
+            (
+                OnlyClusterId(str(cluster_id)),
+                OnlyAccountId(str(account_id)),
+                OnlyOrderRequestId(str(request_id)),
+            ): OnlyRiskDecision.from_json(str(raw))
+            for cluster_id, account_id, request_id, raw in payload["decisions"]
+        }
+        self._rule_state.clear()

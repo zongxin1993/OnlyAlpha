@@ -10,6 +10,7 @@ from onlyalpha.indicator.macd.config import OnlyMacdIndicatorConfig
 from onlyalpha.indicator.macd.snapshot import OnlyMacdCrossState, OnlyMacdSnapshot
 from onlyalpha.indicator.score import OnlyIndicatorQualityFlag, OnlyIndicatorScore, OnlyIndicatorScoreDimension
 from onlyalpha.indicator.snapshot import OnlyWarmupProgress
+from onlyalpha.plugin.capabilities import OnlyCheckpointCapability
 
 
 class OnlyMacdIndicator(OnlyBarIndicator[OnlyMacdSnapshot]):
@@ -104,6 +105,38 @@ class OnlyMacdIndicator(OnlyBarIndicator[OnlyMacdSnapshot]):
             self._snapshot.ts_event,
             flags,
         )
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "dea": None if self._dea is None else str(self._dea),
+            "fast": None if self._fast is None else str(self._fast),
+            "last_event_ns": self._last_event_ns,
+            "samples": self._samples,
+            "slow": None if self._slow is None else str(self._slow),
+            "snapshot": dict(self._snapshot.to_dict()),
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("MACD checkpoint must be an object")
+        self._fast = None if payload["fast"] is None else Decimal(str(payload["fast"]))
+        self._slow = None if payload["slow"] is None else Decimal(str(payload["slow"]))
+        self._dea = None if payload["dea"] is None else Decimal(str(payload["dea"]))
+        self._samples = int(payload["samples"])
+        value = payload["last_event_ns"]
+        self._last_event_ns = None if value is None else int(value)
+        snapshot = payload["snapshot"]
+        if not isinstance(snapshot, dict):
+            raise ValueError("MACD checkpoint snapshot must be an object")
+        self._snapshot = OnlyMacdSnapshot.from_dict(snapshot)
 
     @classmethod
     def _ema(cls, previous: Decimal, value: Decimal, alpha: Decimal) -> Decimal:

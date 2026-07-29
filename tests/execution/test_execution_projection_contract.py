@@ -8,7 +8,6 @@ from onlyalpha.execution import (
     OnlyExecutionProjectionApplyContext,
     OnlyExecutionProjectionBatchStatus,
     OnlyExecutionProjectionComponent,
-    OnlyInMemoryExecutionTransactionStore,
     OnlyProjectionApplyStatus,
     OnlyReferenceExecutionProjectionTarget,
     only_decode_execution_projection,
@@ -17,6 +16,7 @@ from onlyalpha.execution import (
     only_encode_prepared_execution_transaction,
     only_execution_state_hash,
 )
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import (
     only_test_generic_t0_cash_buy_open_projections,
     only_test_generic_t0_cash_buy_open_transaction,
@@ -89,7 +89,7 @@ def test_projection_state_distinguishes_state_hash_from_version_conflict() -> No
 
 def test_projection_applier_replay_is_idempotent_and_does_not_mark_store_ready() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    store = OnlyInMemoryExecutionTransactionStore()
+    store = OnlyInMemoryRuntimePersistenceStore()
     transaction = store.commit(
         prepared, committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
     ).transaction
@@ -114,7 +114,7 @@ def test_projection_applier_replay_is_idempotent_and_does_not_mark_store_ready()
 def _committed_transaction():
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     return (
-        OnlyInMemoryExecutionTransactionStore()
+        OnlyInMemoryRuntimePersistenceStore()
         .commit(prepared, committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC)))
         .transaction
     )

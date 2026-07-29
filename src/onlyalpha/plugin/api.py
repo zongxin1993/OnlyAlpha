@@ -11,6 +11,7 @@ from onlyalpha.plugin.broker import (
 )
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
+    OnlyCheckpointCapability,
     OnlyDataSourceCapabilities,
     OnlyPluginValidationIssue,
 )

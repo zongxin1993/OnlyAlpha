@@ -1,33 +1,33 @@
 import json
 from pathlib import Path
 
-from onlyalpha.config import OnlyClusterRunConfig, OnlyExecutionStoreBackend, OnlyExecutionStoreConfig
+from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
-from onlyalpha.execution import OnlyExecutionRecoveryStatus, OnlySqliteExecutionTransactionStore
-from onlyalpha.execution.transaction_store_factory import (
-    OnlyDefaultExecutionTransactionStoreFactory,
-    OnlyExecutionTransactionStoreCreateRequest,
-)
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.defaults import only_default_engine_services
+from onlyalpha.runtime.persistence.factory import (
+    OnlyDefaultRuntimePersistenceStoreFactory,
+    OnlyRuntimePersistenceStoreCreateRequest,
+)
+from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from tests.execution.support.execution_fault_injection import (
-    OnlyFailOnceExecutionTransactionStore,
-    OnlyTestExecutionStoreFault,
+    OnlyFailOnceRuntimePersistenceStore,
+    OnlyTestRuntimePersistenceFault,
 )
 
 
-class OnlyFaultInjectingExecutionTransactionStoreFactory:
+class OnlyFaultInjectingRuntimePersistenceStoreFactory:
     def __init__(self) -> None:
-        self._delegate = OnlyDefaultExecutionTransactionStoreFactory()
+        self._delegate = OnlyDefaultRuntimePersistenceStoreFactory()
 
-    def validate(self, config: OnlyExecutionStoreConfig) -> None:
+    def validate(self, config: OnlyRuntimePersistenceConfig) -> None:
         self._delegate.validate(config)
 
-    def create(self, request: OnlyExecutionTransactionStoreCreateRequest) -> OnlyFailOnceExecutionTransactionStore:
-        return OnlyFailOnceExecutionTransactionStore(
+    def create(self, request: OnlyRuntimePersistenceStoreCreateRequest) -> OnlyFailOnceRuntimePersistenceStore:
+        return OnlyFailOnceRuntimePersistenceStore(
             self._delegate.create(request),
-            OnlyTestExecutionStoreFault.AFTER_COMMIT,
+            OnlyTestRuntimePersistenceFault.AFTER_COMMIT,
         )
 
 
@@ -35,26 +35,29 @@ def _sqlite_config() -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["end_time"] = "2026-01-05T01:53:00Z"
-    payload["runtime"]["execution_store"] = {"backend": OnlyExecutionStoreBackend.SQLITE.value}
+    payload["runtime"]["persistence"] = {
+        "backend": "SQLITE",
+        "checkpoint": {"enabled": True, "retain_last": 2},
+    }
     return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
 
 
-def test_engine_factory_reopens_store_and_recovers_without_private_mutation(tmp_path: Path) -> None:
+def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
     config = _sqlite_config()
     engine_id = OnlyEngineId("execution-restart")
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_default_engine_services(
-            execution_transaction_store_factory=OnlyFaultInjectingExecutionTransactionStoreFactory()
+            runtime_persistence_store_factory=OnlyFaultInjectingRuntimePersistenceStoreFactory()
         ),
     )
     engine_a.add_cluster(config)
     result_a = engine_a.run()
     runtime_id = engine_a.runtime_sessions[0].runtime_id
-    path = OnlyUserDataLayout(tmp_path).execution_store_path(engine_id, runtime_id)
+    path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     assert result_a.status == "FAILED"
     assert path.is_file()
-    reader = OnlySqliteExecutionTransactionStore(path)
+    reader = OnlySqliteRuntimePersistenceStore(path)
     committed = reader.records(runtime_id)
     assert len(committed) == 1
     assert not committed[0].projection_ready
@@ -66,8 +69,8 @@ def test_engine_factory_reopens_store_and_recovers_without_private_mutation(tmp_
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
     engine_b.add_cluster(config)
     result_b = engine_b.run()
-    recovery = engine_b.runtime_sessions[0].runtime.execution_recovery_diagnostics[-1]
-    assert recovery.status is OnlyExecutionRecoveryStatus.RECOVERED
+    recovery = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
+    assert recovery.recovered_transaction_count + recovery.rehydrated_transaction_count == 1
     assert result_b.status == "COMPLETED"
 
     baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
@@ -94,8 +97,12 @@ def test_engine_factory_reopens_store_and_recovers_without_private_mutation(tmp_
     assert recovered_runtime.determinism_fingerprint == baseline_runtime.determinism_fingerprint
     assert recovered_runtime.result_fingerprint == baseline_runtime.result_fingerprint
 
-    reopened = OnlySqliteExecutionTransactionStore(path)
+    reopened = OnlySqliteRuntimePersistenceStore(path)
     assert reopened.ready_count(runtime_id) == 1
     assert reopened.pending_count(runtime_id) == 0
     assert reopened.records(runtime_id)[0].transaction_id == committed[0].transaction_id
     reopened.close()
+
+
+def test_engine_factory_reopens_store_and_recovers_without_private_mutation(tmp_path: Path) -> None:
+    only_assert_engine_restart_equivalence(tmp_path)

@@ -25,9 +25,9 @@ def test_slippage_and_latency_are_independent_exact_models() -> None:
 def test_scheduler_is_stable_and_queue_is_bounded() -> None:
     observed: list[int] = []
     scheduler = OnlyVirtualBrokerScheduler()
-    scheduler.schedule(2, lambda: observed.append(2))
-    scheduler.schedule(1, lambda: observed.append(1))
-    scheduler.schedule(2, lambda: observed.append(3))
+    scheduler.schedule(2, lambda: observed.append(2), checkpoint_payload={"value": 2})
+    scheduler.schedule(1, lambda: observed.append(1), checkpoint_payload={"value": 1})
+    scheduler.schedule(2, lambda: observed.append(3), checkpoint_payload={"value": 3})
 
     assert scheduler.run_due(2) == 3
     assert observed == [1, 2, 3]

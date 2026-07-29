@@ -13,15 +13,14 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution import (
     OnlyExecutionOutboxPublisher,
-    OnlyExecutionTransactionStorePort,
-    OnlyInMemoryExecutionTransactionStore,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 from tests.execution.support.execution_fault_injection import (
-    OnlyFailOnceExecutionTransactionStore,
-    OnlyTestExecutionStoreFault,
+    OnlyFailOnceRuntimePersistenceStore,
+    OnlyTestRuntimePersistenceFault,
 )
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 
@@ -60,8 +59,8 @@ def test_event_bus_failure_keeps_ready_transaction_and_manager_authority_for_ret
 
 
 def test_mark_published_failure_retries_same_event_without_reprojecting() -> None:
-    store = OnlyInMemoryExecutionTransactionStore()
-    faulting = OnlyFailOnceExecutionTransactionStore(store, OnlyTestExecutionStoreFault.OUTBOX_MARK_PUBLISHED)
+    store = OnlyInMemoryRuntimePersistenceStore()
+    faulting = OnlyFailOnceRuntimePersistenceStore(store, OnlyTestRuntimePersistenceFault.OUTBOX_MARK_PUBLISHED)
     harness = OnlyRealExecutionRecoveryHarness.create(store=faulting)
     assert harness.recover().succeeded
     manager_before = harness.manager_digest()
@@ -102,10 +101,10 @@ def test_recovered_outbox_events_are_dispatched_before_runtime_started() -> None
         ),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
-        execution_transaction_store=OnlyInMemoryExecutionTransactionStore(),
+        runtime_persistence_store=OnlyInMemoryRuntimePersistenceStore(),
     )
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    store = cast(OnlyExecutionTransactionStorePort, runtime._services.execution_transaction_query)
+    store = cast(OnlyRuntimePersistenceStorePort, runtime._services.execution_transaction_query)
     committed_at = OnlyTimestamp.from_datetime(runtime.clock.now_utc())
     transaction = store.commit(prepared, committed_at=committed_at).transaction
     store.mark_projection_ready(

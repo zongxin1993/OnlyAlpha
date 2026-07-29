@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from onlyalpha.plugin.api import (
     ONLYALPHA_PLUGIN_API_VERSION,
+    OnlyCheckpointCapability,
     OnlyDataSourceCapabilities,
     OnlyDataSourceCreateRequest,
     OnlyPluginDescriptor,
@@ -25,7 +26,10 @@ _DESCRIPTOR = OnlyPluginDescriptor(
     ONLYALPHA_PLUGIN_API_VERSION,
     "OnlyAlpha External Test DataSource",
     "OnlyAlpha Tests",
-    OnlyDataSourceCapabilities(historical_bars=True),
+    OnlyDataSourceCapabilities(
+        historical_bars=True,
+        supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,
+    ),
 )
 
 

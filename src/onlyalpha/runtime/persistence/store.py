@@ -1,12 +1,11 @@
-"""Atomic stores for prepared execution transactions and projection-gated outbox records."""
+"""Unified Runtime persistence for checkpoints, execution transactions, and outbox."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from dataclasses import replace
 from pathlib import Path
 from threading import RLock
 from typing import Protocol
@@ -15,155 +14,78 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
-
-from .codec import (
+from onlyalpha.execution.codec import (
     only_committed_execution_transaction_payload_hash,
     only_decode_committed_execution_transaction,
     only_decode_prepared_execution_transaction,
     only_encode_committed_execution_transaction,
     only_encode_prepared_execution_transaction,
 )
-from .transaction import (
+from onlyalpha.execution.persistence_ports import (
+    OnlyExecutionProjectionStatePort,
+    OnlyExecutionTransactionCommitPort,
+    OnlyExecutionTransactionConflict,
+    OnlyExecutionTransactionOutboxKey,
+    OnlyExecutionTransactionOutboxPort,
+    OnlyExecutionTransactionOutboxRecord,
+    OnlyExecutionTransactionQueryPort,
+    OnlyProjectionReadyExecutionQueryPort,
+    OnlyRuntimePersistenceStoreError,
+)
+from onlyalpha.execution.transaction import (
     OnlyCommittedExecutionTransaction,
     OnlyExecutionTransactionCommitResult,
     OnlyPreparedExecutionTransaction,
 )
+from onlyalpha.runtime.checkpoint.codec import (
+    only_decode_replay_cursor,
+    only_encode_replay_cursor,
+    only_validate_runtime_checkpoint,
+)
+from onlyalpha.runtime.checkpoint.model import (
+    OnlyRuntimeCheckpoint,
+    OnlyRuntimeCheckpointComponent,
+    OnlyRuntimeCheckpointHeader,
+)
+
+ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "2"
 
 
-class OnlyExecutionTransactionConflict(ValueError):
-    """An idempotency key was reused for a different prepared authority."""
-
-
-class OnlyExecutionTransactionStoreError(RuntimeError):
-    """The transaction store failed independently of a business idempotency conflict."""
-
-
-ONLY_EXECUTION_STORE_SCHEMA_VERSION = "1"
-
-
-class OnlyExecutionStoreIdentityMismatch(OnlyExecutionTransactionStoreError):
+class OnlyRuntimePersistenceIdentityMismatch(OnlyRuntimePersistenceStoreError):
     """An existing Store belongs to another stable Runtime identity."""
 
 
-class OnlyExecutionStoreSchemaUnsupported(OnlyExecutionTransactionStoreError):
+class OnlyRuntimePersistenceSchemaUnsupported(OnlyRuntimePersistenceStoreError):
     """An existing Store uses an unsupported schema version."""
 
 
-class OnlyExecutionStoreMetadataCorrupt(OnlyExecutionTransactionStoreError):
+class OnlyRuntimePersistenceMetadataCorrupt(OnlyRuntimePersistenceStoreError):
     """An existing Store is missing required schema or identity metadata."""
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyExecutionTransactionOutboxKey:
-    runtime_id: OnlyRuntimeId
-    execution_sequence: int
-    event_sequence: int
+class OnlyRuntimeCheckpointWritePort(Protocol):
+    def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None: ...
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyExecutionTransactionOutboxRecord:
-    key: OnlyExecutionTransactionOutboxKey
-    event: OnlyEvent
-    projection_ready: bool
-    published: bool
-    attempt_count: int
-    last_attempted_at: OnlyTimestamp | None
-    published_at: OnlyTimestamp | None
-    last_error: str | None
+class OnlyRuntimeCheckpointQueryPort(Protocol):
+    def latest_checkpoint(self, runtime_id: OnlyRuntimeId) -> OnlyRuntimeCheckpoint | None: ...
+
+    def checkpoints(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeCheckpoint, ...]: ...
 
 
-class OnlyExecutionTransactionCommitPort(Protocol):
-    def commit(
-        self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
-    ) -> OnlyExecutionTransactionCommitResult: ...
-
-
-class OnlyExecutionTransactionQueryPort(Protocol):
-    def get_by_sequence(
-        self, runtime_id: OnlyRuntimeId, execution_sequence: int
-    ) -> OnlyCommittedExecutionTransaction | None: ...
-
-    def get_by_transaction_id(self, transaction_id: str) -> OnlyCommittedExecutionTransaction | None: ...
-
-    def get_by_trade(
-        self,
-        runtime_id: OnlyRuntimeId,
-        gateway_id: OnlyBrokerGatewayId,
-        account_id: OnlyAccountId,
-        trade_id: OnlyTradeId,
-    ) -> OnlyCommittedExecutionTransaction | None: ...
-
-    def get_by_update(
-        self,
-        runtime_id: OnlyRuntimeId,
-        gateway_id: OnlyBrokerGatewayId,
-        account_id: OnlyAccountId,
-        update_id: OnlyBrokerUpdateId,
-    ) -> OnlyCommittedExecutionTransaction | None: ...
-
-    def records(
-        self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
-    ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
-
-
-class OnlyProjectionReadyExecutionQueryPort(Protocol):
-    """Business query boundary exposing only completely projected transactions."""
-
-    def ready_records(
-        self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
-    ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
-
-    def ready_count(self, runtime_id: OnlyRuntimeId | None = None) -> int: ...
-
-
-class OnlyExecutionProjectionStatePort(Protocol):
-    def mark_projection_ready(
-        self,
-        runtime_id: OnlyRuntimeId,
-        execution_sequence: int,
-        *,
-        projected_at: OnlyTimestamp,
-    ) -> None: ...
-
-    def mark_projection_failed(
-        self,
-        runtime_id: OnlyRuntimeId,
-        execution_sequence: int,
-        *,
-        failed_at: OnlyTimestamp,
-        error: str,
-    ) -> None: ...
-
-    def unprojected(
-        self, runtime_id: OnlyRuntimeId, *, after_sequence: int = 0
-    ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
-
-
-class OnlyExecutionTransactionOutboxPort(Protocol):
-    def pending(self, runtime_id: OnlyRuntimeId, *, limit: int) -> tuple[OnlyExecutionTransactionOutboxRecord, ...]: ...
-
-    def begin_attempt(
-        self, key: OnlyExecutionTransactionOutboxKey, attempted_at: OnlyTimestamp
-    ) -> OnlyExecutionTransactionOutboxRecord: ...
-
-    def mark_published(self, key: OnlyExecutionTransactionOutboxKey, published_at: OnlyTimestamp) -> None: ...
-
-    def mark_failed(self, key: OnlyExecutionTransactionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None: ...
-
-    def pending_count(self, runtime_id: OnlyRuntimeId) -> int: ...
-
-    def outbox_records(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyExecutionTransactionOutboxRecord, ...]: ...
-
-
-class OnlyExecutionTransactionStorePort(
+class OnlyRuntimePersistenceStorePort(
     OnlyExecutionTransactionCommitPort,
     OnlyExecutionTransactionQueryPort,
     OnlyProjectionReadyExecutionQueryPort,
     OnlyExecutionProjectionStatePort,
     OnlyExecutionTransactionOutboxPort,
+    OnlyRuntimeCheckpointWritePort,
+    OnlyRuntimeCheckpointQueryPort,
     Protocol,
 ):
     """Complete composition-root store contract; consumers receive narrower ports."""
+
+    def bind_participant_registry_fingerprint(self, fingerprint: str) -> None: ...
 
     def close(self) -> None: ...
 
@@ -209,7 +131,7 @@ def _with_projection_state(
     return replace(updated, committed_payload_hash=only_committed_execution_transaction_payload_hash(updated))
 
 
-class OnlyInMemoryExecutionTransactionStore:
+class OnlyInMemoryRuntimePersistenceStore:
     """Thread-safe reference store; all indexes and outbox rows share one commit lock."""
 
     def __init__(self) -> None:
@@ -223,6 +145,8 @@ class OnlyInMemoryExecutionTransactionStore:
             tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyAccountId, OnlyBrokerUpdateId], tuple[OnlyRuntimeId, int]
         ] = {}
         self._outbox: dict[tuple[OnlyRuntimeId, int, int], OnlyExecutionTransactionOutboxRecord] = {}
+        self._checkpoints: dict[tuple[OnlyRuntimeId, int], OnlyRuntimeCheckpoint] = {}
+        self._participant_registry_fingerprint: str | None = None
 
     def commit(
         self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
@@ -291,7 +215,7 @@ class OnlyInMemoryExecutionTransactionStore:
                     self._by_update,
                     self._outbox,
                 ) = snapshots
-                raise OnlyExecutionTransactionStoreError("in-memory execution transaction commit failed") from exc
+                raise OnlyRuntimePersistenceStoreError("in-memory execution transaction commit failed") from exc
 
     def get_by_sequence(
         self, runtime_id: OnlyRuntimeId, execution_sequence: int
@@ -460,6 +384,41 @@ class OnlyInMemoryExecutionTransactionStore:
     def close(self) -> None:
         """Release the Store resource; Memory has no external handle."""
 
+    def bind_participant_registry_fingerprint(self, fingerprint: str) -> None:
+        if not fingerprint.strip():
+            raise ValueError("participant registry fingerprint is required")
+        if self._participant_registry_fingerprint not in {None, fingerprint}:
+            raise OnlyRuntimePersistenceStoreError("participant registry fingerprint mismatch")
+        self._participant_registry_fingerprint = fingerprint
+
+    def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
+        if retain_last < 1:
+            raise ValueError("checkpoint retention must be positive")
+        only_validate_runtime_checkpoint(checkpoint)
+        with self._lock:
+            key = checkpoint.header.runtime_id, checkpoint.header.checkpoint_sequence
+            existing = self._checkpoints.get(key)
+            if existing is not None and existing != checkpoint:
+                raise OnlyRuntimePersistenceStoreError("checkpoint sequence conflicts with existing payload")
+            self._checkpoints[key] = checkpoint
+            sequences = sorted(
+                sequence for runtime_id, sequence in self._checkpoints if runtime_id == checkpoint.header.runtime_id
+            )
+            for sequence in sequences[:-retain_last]:
+                del self._checkpoints[checkpoint.header.runtime_id, sequence]
+
+    def latest_checkpoint(self, runtime_id: OnlyRuntimeId) -> OnlyRuntimeCheckpoint | None:
+        records = self.checkpoints(runtime_id)
+        return None if not records else records[-1]
+
+    def checkpoints(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeCheckpoint, ...]:
+        with self._lock:
+            return tuple(
+                self._checkpoints[key]
+                for key in sorted(self._checkpoints, key=lambda item: (str(item[0]), item[1]))
+                if key[0] == runtime_id
+            )
+
     def _find_idempotent(self, prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionTransaction | None:
         keys = (
             self._by_transaction.get(prepared.transaction_id),
@@ -504,7 +463,7 @@ class OnlyInMemoryExecutionTransactionStore:
             raise KeyError(f"unknown execution transaction outbox record: {key}") from exc
 
 
-class OnlySqliteExecutionTransactionStore:
+class OnlySqliteRuntimePersistenceStore:
     """SQLite contract implementation with sequence allocation inside BEGIN IMMEDIATE."""
 
     def __init__(self, path: Path | str, *, identity: Mapping[str, str] | None = None) -> None:
@@ -515,13 +474,14 @@ class OnlySqliteExecutionTransactionStore:
         try:
             self._connection = sqlite3.connect(str(selected_path), check_same_thread=False, isolation_level=None)
             self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys=ON")
             if existed:
                 self._validate_existing_schema(identity)
             else:
                 with self._connection:
                     self._connection.executescript(
                         """
-                CREATE TABLE execution_store_metadata (
+                CREATE TABLE runtime_persistence_metadata (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
@@ -563,26 +523,52 @@ class OnlySqliteExecutionTransactionStore:
                     PRIMARY KEY(runtime_id, execution_sequence, event_sequence),
                     UNIQUE(event_id)
                 );
+                CREATE TABLE runtime_checkpoints (
+                    runtime_id TEXT NOT NULL,
+                    checkpoint_sequence INTEGER NOT NULL,
+                    covered_execution_sequence INTEGER NOT NULL,
+                    checkpoint_schema_version INTEGER NOT NULL,
+                    replay_cursor_payload TEXT NOT NULL,
+                    config_fingerprint TEXT NOT NULL,
+                    participant_registry_fingerprint TEXT NOT NULL,
+                    aggregate_payload_hash TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    pending_outbox_count INTEGER NOT NULL,
+                    PRIMARY KEY(runtime_id, checkpoint_sequence)
+                );
+                CREATE TABLE runtime_checkpoint_components (
+                    runtime_id TEXT NOT NULL,
+                    checkpoint_sequence INTEGER NOT NULL,
+                    component_id TEXT NOT NULL,
+                    component_schema_version INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_hash TEXT NOT NULL,
+                    PRIMARY KEY(runtime_id, checkpoint_sequence, component_id),
+                    FOREIGN KEY(runtime_id, checkpoint_sequence)
+                        REFERENCES runtime_checkpoints(runtime_id, checkpoint_sequence)
+                        ON DELETE CASCADE
+                );
                 """
                     )
+                    created_at_row = self._connection.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')").fetchone()
+                    if created_at_row is None:
+                        raise OnlyRuntimePersistenceStoreError("SQLite could not create persistence metadata time")
                     metadata = {
-                        "schema_version": ONLY_EXECUTION_STORE_SCHEMA_VERSION,
-                        "created_at": datetime.now(UTC).isoformat(),
+                        "schema_version": ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION,
+                        "created_at": str(created_at_row[0]),
                         **({} if identity is None else dict(identity)),
                     }
                     self._connection.executemany(
-                        "INSERT INTO execution_store_metadata(key, value) VALUES (?, ?)",
+                        "INSERT INTO runtime_persistence_metadata(key, value) VALUES (?, ?)",
                         tuple(sorted(metadata.items())),
                     )
-        except OnlyExecutionTransactionStoreError:
+        except OnlyRuntimePersistenceStoreError:
             self._connection.close()
             raise
         except sqlite3.Error as exc:
             if hasattr(self, "_connection"):
                 self._connection.close()
-            raise OnlyExecutionTransactionStoreError(
-                "SQLite execution transaction schema initialization failed"
-            ) from exc
+            raise OnlyRuntimePersistenceStoreError("SQLite Runtime persistence schema initialization failed") from exc
 
     def commit(
         self, prepared: OnlyPreparedExecutionTransaction, *, committed_at: OnlyTimestamp
@@ -637,13 +623,13 @@ class OnlySqliteExecutionTransactionStore:
                 except OnlyExecutionTransactionConflict:
                     raise
                 if existing is None:
-                    raise OnlyExecutionTransactionStoreError(
+                    raise OnlyRuntimePersistenceStoreError(
                         "SQLite execution transaction integrity failure is not a business conflict"
                     ) from exc
                 return OnlyExecutionTransactionCommitResult(existing, False)
             except sqlite3.Error as exc:
                 self._connection.execute("ROLLBACK")
-                raise OnlyExecutionTransactionStoreError("SQLite execution transaction commit failed") from exc
+                raise OnlyRuntimePersistenceStoreError("SQLite execution transaction commit failed") from exc
             except BaseException:
                 self._connection.execute("ROLLBACK")
                 raise
@@ -723,6 +709,127 @@ class OnlySqliteExecutionTransactionStore:
                 f"SELECT COUNT(*) AS value FROM execution_transactions WHERE {clause}", values
             ).fetchone()
         return int(row["value"])
+
+    def bind_participant_registry_fingerprint(self, fingerprint: str) -> None:
+        if not fingerprint.strip():
+            raise ValueError("participant registry fingerprint is required")
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT value FROM runtime_persistence_metadata WHERE key='participant_registry_fingerprint'"
+            ).fetchone()
+            current = None if row is None else str(row["value"])
+            if current not in {None, fingerprint}:
+                raise OnlyRuntimePersistenceIdentityMismatch(
+                    "RUNTIME_PERSISTENCE_IDENTITY_MISMATCH: participant_registry_fingerprint"
+                )
+            with self._connection:
+                self._connection.execute(
+                    "INSERT INTO runtime_persistence_metadata(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ("participant_registry_fingerprint", fingerprint),
+                )
+
+    def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
+        if retain_last < 1:
+            raise ValueError("checkpoint retention must be positive")
+        only_validate_runtime_checkpoint(checkpoint)
+        header = checkpoint.header
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._connection.execute(
+                    "INSERT INTO runtime_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(header.runtime_id),
+                        header.checkpoint_sequence,
+                        header.covered_execution_sequence,
+                        header.checkpoint_schema_version,
+                        only_encode_replay_cursor(header.replay_cursor),
+                        header.config_fingerprint,
+                        header.participant_registry_fingerprint,
+                        header.aggregate_payload_hash,
+                        header.created_at.unix_nanos,
+                        header.pending_outbox_count,
+                    ),
+                )
+                self._connection.executemany(
+                    "INSERT INTO runtime_checkpoint_components VALUES (?, ?, ?, ?, ?, ?)",
+                    tuple(
+                        (
+                            str(header.runtime_id),
+                            header.checkpoint_sequence,
+                            item.component_id,
+                            item.component_schema_version,
+                            item.payload,
+                            item.payload_hash,
+                        )
+                        for item in checkpoint.components
+                    ),
+                )
+                row = self._connection.execute(
+                    "SELECT COUNT(*) AS value FROM runtime_checkpoint_components "
+                    "WHERE runtime_id=? AND checkpoint_sequence=?",
+                    (str(header.runtime_id), header.checkpoint_sequence),
+                ).fetchone()
+                if int(row["value"]) != len(checkpoint.components):
+                    raise OnlyRuntimePersistenceStoreError("checkpoint component count mismatch")
+                self._connection.execute(
+                    "DELETE FROM runtime_checkpoints "
+                    "WHERE runtime_id=? AND checkpoint_sequence NOT IN ("
+                    "SELECT checkpoint_sequence FROM runtime_checkpoints "
+                    "WHERE runtime_id=? ORDER BY checkpoint_sequence DESC LIMIT ?)",
+                    (str(header.runtime_id), str(header.runtime_id), retain_last),
+                )
+                self._connection.execute("COMMIT")
+            except sqlite3.Error as exc:
+                self._connection.execute("ROLLBACK")
+                raise OnlyRuntimePersistenceStoreError("Runtime checkpoint write failed") from exc
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def latest_checkpoint(self, runtime_id: OnlyRuntimeId) -> OnlyRuntimeCheckpoint | None:
+        checkpoints = self.checkpoints(runtime_id)
+        return None if not checkpoints else checkpoints[-1]
+
+    def checkpoints(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeCheckpoint, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM runtime_checkpoints WHERE runtime_id=? ORDER BY checkpoint_sequence",
+                (str(runtime_id),),
+            ).fetchall()
+            result: list[OnlyRuntimeCheckpoint] = []
+            for row in rows:
+                component_rows = self._connection.execute(
+                    "SELECT * FROM runtime_checkpoint_components "
+                    "WHERE runtime_id=? AND checkpoint_sequence=? ORDER BY component_id",
+                    (str(runtime_id), int(row["checkpoint_sequence"])),
+                ).fetchall()
+                components = tuple(
+                    OnlyRuntimeCheckpointComponent(
+                        str(item["component_id"]),
+                        int(item["component_schema_version"]),
+                        str(item["payload"]),
+                        str(item["payload_hash"]),
+                    )
+                    for item in component_rows
+                )
+                header = OnlyRuntimeCheckpointHeader(
+                    OnlyRuntimeId(str(row["runtime_id"])),
+                    int(row["checkpoint_sequence"]),
+                    int(row["covered_execution_sequence"]),
+                    int(row["checkpoint_schema_version"]),
+                    OnlyTimestamp.from_unix_nanos(int(row["created_at"])),
+                    only_decode_replay_cursor(str(row["replay_cursor_payload"])),
+                    str(row["config_fingerprint"]),
+                    str(row["participant_registry_fingerprint"]),
+                    str(row["aggregate_payload_hash"]),
+                    int(row["pending_outbox_count"]),
+                )
+                checkpoint = OnlyRuntimeCheckpoint(header, components)
+                only_validate_runtime_checkpoint(checkpoint)
+                result.append(checkpoint)
+        return tuple(result)
 
     def mark_projection_ready(
         self,
@@ -811,7 +918,9 @@ class OnlySqliteExecutionTransactionStore:
 
     def metadata(self) -> Mapping[str, str]:
         with self._lock:
-            rows = self._connection.execute("SELECT key, value FROM execution_store_metadata ORDER BY key").fetchall()
+            rows = self._connection.execute(
+                "SELECT key, value FROM runtime_persistence_metadata ORDER BY key"
+            ).fetchall()
         return {str(row["key"]): str(row["value"]) for row in rows}
 
     def _validate_existing_schema(self, identity: Mapping[str, str] | None) -> None:
@@ -820,32 +929,38 @@ class OnlySqliteExecutionTransactionStore:
                 str(row["name"])
                 for row in self._connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             }
+            if "execution_store_metadata" in tables:
+                raise OnlyRuntimePersistenceSchemaUnsupported("RUNTIME_PERSISTENCE_SCHEMA_UNSUPPORTED: '1'")
             required = {
-                "execution_store_metadata",
+                "runtime_persistence_metadata",
                 "execution_transactions",
                 "execution_transaction_outbox",
+                "runtime_checkpoints",
+                "runtime_checkpoint_components",
             }
             if not required <= tables:
                 missing_tables = ", ".join(sorted(required - tables))
-                raise OnlyExecutionStoreMetadataCorrupt(
-                    f"EXECUTION_STORE_METADATA_CORRUPT: missing tables: {missing_tables}"
+                raise OnlyRuntimePersistenceMetadataCorrupt(
+                    f"RUNTIME_PERSISTENCE_METADATA_CORRUPT: missing tables: {missing_tables}"
                 )
             metadata = self.metadata()
         except sqlite3.Error as exc:
-            raise OnlyExecutionStoreMetadataCorrupt("EXECUTION_STORE_METADATA_CORRUPT") from exc
+            raise OnlyRuntimePersistenceMetadataCorrupt("RUNTIME_PERSISTENCE_METADATA_CORRUPT") from exc
         schema_version = metadata.get("schema_version")
-        if schema_version != ONLY_EXECUTION_STORE_SCHEMA_VERSION:
-            raise OnlyExecutionStoreSchemaUnsupported(f"EXECUTION_STORE_SCHEMA_UNSUPPORTED: {schema_version!r}")
+        if schema_version != ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION:
+            raise OnlyRuntimePersistenceSchemaUnsupported(f"RUNTIME_PERSISTENCE_SCHEMA_UNSUPPORTED: {schema_version!r}")
         if identity is None:
             return
         missing = sorted(set(identity) - set(metadata))
         if missing:
-            raise OnlyExecutionStoreMetadataCorrupt(
-                f"EXECUTION_STORE_METADATA_CORRUPT: missing keys: {', '.join(missing)}"
+            raise OnlyRuntimePersistenceMetadataCorrupt(
+                f"RUNTIME_PERSISTENCE_METADATA_CORRUPT: missing keys: {', '.join(missing)}"
             )
         mismatches = sorted(key for key, value in identity.items() if metadata.get(key) != value)
         if mismatches:
-            raise OnlyExecutionStoreIdentityMismatch(f"EXECUTION_STORE_IDENTITY_MISMATCH: {', '.join(mismatches)}")
+            raise OnlyRuntimePersistenceIdentityMismatch(
+                f"RUNTIME_PERSISTENCE_IDENTITY_MISMATCH: {', '.join(mismatches)}"
+            )
 
     def _find(self, clause: str, values: tuple[object, ...]) -> OnlyCommittedExecutionTransaction | None:
         with self._lock:
@@ -941,10 +1056,10 @@ class OnlySqliteExecutionTransactionStore:
             if transaction.prepared_payload_hash != prepared.payload_hash:
                 raise ValueError("prepared and committed payload hashes disagree")
             return transaction
-        except OnlyExecutionTransactionStoreError:
+        except OnlyRuntimePersistenceStoreError:
             raise
         except Exception as exc:
-            raise OnlyExecutionTransactionStoreError("stored execution transaction is malformed") from exc
+            raise OnlyRuntimePersistenceStoreError("stored execution transaction is malformed") from exc
 
     def _decode_outbox(self, row: sqlite3.Row) -> OnlyExecutionTransactionOutboxRecord:
         try:
@@ -976,10 +1091,10 @@ class OnlySqliteExecutionTransactionStore:
                 self._timestamp(row["published_at"]),
                 None if row["last_error"] is None else str(row["last_error"]),
             )
-        except OnlyExecutionTransactionStoreError:
+        except OnlyRuntimePersistenceStoreError:
             raise
         except Exception as exc:
-            raise OnlyExecutionTransactionStoreError("stored execution outbox record is malformed") from exc
+            raise OnlyRuntimePersistenceStoreError("stored execution outbox record is malformed") from exc
 
     def _require_outbox(self, key: OnlyExecutionTransactionOutboxKey) -> OnlyExecutionTransactionOutboxRecord:
         with self._lock:

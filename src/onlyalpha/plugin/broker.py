@@ -40,6 +40,10 @@ class OnlyDeterministicBrokerDriver(Protocol):
 
     def run_due(self) -> int: ...
 
+    def capture_checkpoint(self) -> object: ...
+
+    def restore_checkpoint(self, payload: object) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerComponent:

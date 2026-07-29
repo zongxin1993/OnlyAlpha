@@ -19,9 +19,10 @@ def test_runtime_services_owns_recovery_and_initialize_start_have_strict_order()
     source = Path("src/onlyalpha/runtime/runtime.py").read_text(encoding="utf-8")
     initialize = source[source.index("    def initialize(self)") : source.index("    def start(self)")]
     start = source[source.index("    def start(self)") : source.index("    def pause(self)")]
-    assert initialize.index("execution_recovery_service.recover") < initialize.index("OnlyRuntimeState.READY")
+    assert initialize.index("OnlyRuntimeState.RECOVERING") < initialize.index("_recover_runtime()")
+    assert initialize.index("_recover_runtime()") < initialize.index("OnlyRuntimeState.READY")
     assert start.index("_drain_execution_outbox") < start.index("cluster_manager.start_all")
-    assert "if not recovery.succeeded" in initialize
+    assert "except OnlyRuntimeRecoveryError" in initialize
     assert "OnlyRuntimeState.FAILED" in initialize
 
 

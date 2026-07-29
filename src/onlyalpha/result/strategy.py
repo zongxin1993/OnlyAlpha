@@ -63,3 +63,55 @@ class OnlyStrategyResultRecorder:
     def seal(self) -> tuple[OnlySignalResultRecord, ...]:
         self._sealed = True
         return self.snapshot()
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "records": [
+                {
+                    "cluster_id": item.cluster_id,
+                    "confidence": None if item.confidence is None else str(item.confidence),
+                    "factor_id": item.factor_id,
+                    "instrument_id": item.instrument_id,
+                    "payload": dict(item.payload),
+                    "related_order_request_id": item.related_order_request_id,
+                    "score": None if item.score is None else str(item.score),
+                    "sequence": item.sequence,
+                    "signal_id": item.signal_id,
+                    "signal_type": item.signal_type,
+                    "strategy_id": item.strategy_id,
+                    "trading_day": item.trading_day.isoformat(),
+                    "ts_event": item.ts_event.isoformat(),
+                }
+                for item in self._records
+            ],
+            "sealed": self._sealed,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Strategy result checkpoint must be an object")
+        records: list[OnlySignalResultRecord] = []
+        for item in payload["records"]:
+            if not isinstance(item, dict):
+                raise ValueError("Strategy result checkpoint record must be an object")
+            records.append(
+                OnlySignalResultRecord(
+                    sequence=int(item["sequence"]),
+                    signal_id=str(item["signal_id"]),
+                    cluster_id=str(item["cluster_id"]),
+                    strategy_id=str(item["strategy_id"]),
+                    factor_id=None if item["factor_id"] is None else str(item["factor_id"]),
+                    instrument_id=str(item["instrument_id"]),
+                    signal_type=str(item["signal_type"]),
+                    ts_event=datetime.fromisoformat(str(item["ts_event"])),
+                    trading_day=date.fromisoformat(str(item["trading_day"])),
+                    score=None if item["score"] is None else Decimal(str(item["score"])),
+                    confidence=None if item["confidence"] is None else Decimal(str(item["confidence"])),
+                    related_order_request_id=(
+                        None if item["related_order_request_id"] is None else str(item["related_order_request_id"])
+                    ),
+                    payload=item["payload"],
+                )
+            )
+        self._records = records
+        self._sealed = bool(payload["sealed"])

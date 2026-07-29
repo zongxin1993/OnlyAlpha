@@ -21,8 +21,6 @@ from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
-from onlyalpha.execution.transaction_store import OnlyExecutionTransactionStorePort
-from onlyalpha.execution.transaction_store_factory import OnlyExecutionTransactionStoreCreateRequest
 from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
@@ -30,6 +28,7 @@ from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import (
     OnlyBrokerPluginCapabilities,
+    OnlyCheckpointCapability,
     OnlyDataSourceCapabilities,
     OnlyPluginValidationIssue,
 )
@@ -41,6 +40,10 @@ from onlyalpha.runtime.backtest.config import OnlyBacktestRuntimeExtensionConfig
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
+from onlyalpha.runtime.persistence.factory import (
+    OnlyRuntimePersistenceStoreCreateRequest,
+)
+from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,7 +72,7 @@ class OnlyBacktestRuntimeFactory:
             components = request.components
             if not isinstance(components, OnlyComponentFactoryRegistries):
                 raise TypeError("Backtest factory requires OnlyComponentFactoryRegistries")
-            components.execution_transaction_stores.validate(request.config.runtime.execution_store)
+            components.runtime_persistence_stores.validate(request.config.runtime.persistence)
             plan.clock.close()
             plan.event_bus.close()
         except Exception as exc:
@@ -90,7 +93,7 @@ class OnlyBacktestRuntimeFactory:
         source: OnlyDataSource | None = None
         gateway: OnlyBrokerGateway | None = None
         broker_resource: OnlyPluginResource | None = None
-        execution_store: OnlyExecutionTransactionStorePort | None = None
+        persistence_store: OnlyRuntimePersistenceStorePort | None = None
         try:
             try:
                 source = plan.data_factory.create(plan.data_request)
@@ -115,21 +118,22 @@ class OnlyBacktestRuntimeFactory:
                     resource_id=str(plan.broker_request.gateway_id),
                 ) from exc
             config = request.config
-            if request.user_data_root is None and config.runtime.execution_store.backend.value == "SQLITE":
-                raise ValueError("SQLite execution Store requires user_data_root")
+            if request.user_data_root is None and config.runtime.persistence.backend.value == "SQLITE":
+                raise ValueError("SQLite Runtime persistence requires user_data_root")
             state_root = (
                 OnlyUserDataLayout(request.user_data_root).runtime_state_root(config.engine_id, config.runtime_id)
                 if request.user_data_root is not None
                 else Path(".")
             )
-            execution_store = components.execution_transaction_stores.create(
-                OnlyExecutionTransactionStoreCreateRequest(
+            persistence_store = components.runtime_persistence_stores.create(
+                OnlyRuntimePersistenceStoreCreateRequest(
                     config.engine_id,
                     config.runtime_id,
                     OnlyRuntimeMode.BACKTEST,
-                    config.runtime.execution_store,
+                    config.runtime.persistence,
                     state_root,
                     self._config_fingerprint(request),
+                    None,
                     config.runtime.base_currency.code,
                     config.accounts[0].account_id,
                     config.market.profile.value,
@@ -166,19 +170,24 @@ class OnlyBacktestRuntimeFactory:
                 broker_gateway=gateway,
                 deterministic_broker_driver=broker_component.deterministic_driver,
                 broker_inbound_queue=plan.broker_queue,
-                execution_transaction_store=execution_store,
+                runtime_persistence_store=persistence_store,
+                persistence_config=config.runtime.persistence,
+                config_fingerprint=self._config_fingerprint(request),
+                replay_source_id=source.source_id,
+                replay_data_version=source_common.data_version,
+                recovery_source=source,
+                recovery_request=request_model,
                 plugin_resources=(source, broker_resource),
             )
             for instrument in config.reference_data.instruments:
                 runtime.register_instrument(instrument)
             for cluster in clusters:
                 runtime.add_cluster(config.engine_id, cluster)
-            runtime.bootstrap_execution_transaction_before()
-            execution_store = None
+            persistence_store = None
             return OnlyRuntimeBuildResult(runtime=runtime)
         except Exception as exc:
-            if execution_store is not None:
-                execution_store.close()
+            if persistence_store is not None:
+                persistence_store.close()
             if broker_resource is not None:
                 broker_resource.stop()
                 broker_resource.close()
@@ -293,6 +302,10 @@ class OnlyBacktestRuntimeFactory:
         queue = OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
         bar_types = self._configured_bar_types(config)
         data_factory = components.data_sources.resolve(source_common.plugin_id)
+        if config.runtime.persistence.checkpoint.enabled:
+            data_checkpoint = self._require_checkpoint_capability(data_factory.descriptor.capabilities, "DataSource")
+            if data_checkpoint is not OnlyCheckpointCapability.STATELESS:
+                raise ValueError("Backtest Historical DataSource checkpoint capability must be STATELESS")
         data_plugin_config = data_factory.parse_config(source_common.extensions)
         data_request = OnlyDataSourceCreateRequest(
             source_common.source_id,
@@ -325,6 +338,12 @@ class OnlyBacktestRuntimeFactory:
             data_factory.descriptor.plugin_id, str(source_common.source_id), data_factory.validate_request(data_request)
         )
         broker_factory = components.brokers.resolve(broker_common.plugin_id)
+        if config.runtime.persistence.checkpoint.enabled:
+            broker_checkpoint = self._require_checkpoint_capability(broker_factory.descriptor.capabilities, "Broker")
+            if broker_checkpoint is not OnlyCheckpointCapability.CHECKPOINTABLE:
+                raise ValueError("checkpoint-enabled Backtest Broker must be CHECKPOINTABLE")
+            if getattr(broker_factory.descriptor.capabilities, "checkpoint_schema_version", None) != 1:
+                raise ValueError("Backtest Broker checkpoint schema version must be 1")
         broker_plugin_config = broker_factory.parse_config(broker_common.extensions)
         broker_request = OnlyBrokerCreateRequest(
             broker_common.gateway_id,
@@ -354,6 +373,13 @@ class OnlyBacktestRuntimeFactory:
             broker_factory,
             broker_request,
         )
+
+    @staticmethod
+    def _require_checkpoint_capability(capabilities: object, component_type: str) -> OnlyCheckpointCapability:
+        capability = getattr(capabilities, "supports_runtime_checkpoint", None)
+        if not isinstance(capability, OnlyCheckpointCapability):
+            raise ValueError(f"SQLite checkpoint requires explicit {component_type} checkpoint capability")
+        return capability
 
     @staticmethod
     def _validate_fee_schedules(

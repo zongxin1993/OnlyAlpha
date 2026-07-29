@@ -1,4 +1,4 @@
-# Execution Store Factory 与 Engine Restart 预实现审计
+﻿# Execution Store Factory 与 Engine Restart 预实现审计
 
 日期：2026-07-28
 基线：`418636a Feat: Ready Query、Runtime Recovery Hook 与真实故障矩阵`
@@ -8,7 +8,7 @@
 当前产品链为 `OnlyEngine.initialize()` → `OnlyEngineRunAssembler.build()` →
 `OnlyBacktestRuntimeFactory.create()` → `OnlyBacktestRuntime(...)`。Factory 没有创建或注入 Execution Transaction
 Store；`OnlyBacktestRuntime.__init__()` 以
-`execution_transaction_store or OnlyInMemoryExecutionTransactionStore()` 隐式创建进程内 Store。因此现有正式产品链不能重新打开
+`execution_transaction_store or OnlyInMemoryRuntimePersistenceStore()` 隐式创建进程内 Store。因此现有正式产品链不能重新打开
 SQLite transaction tail。
 
 ## 强制问题审计
@@ -22,8 +22,8 @@ SQLite transaction tail。
    Execution Store 配置。
 4. Core 没有可复用的通用 Storage Backend 枚举。`onlyalpha.storage` 只有通用 `OnlyStorage` port 和 SQLite 实现，不能表达
    Execution Transaction Store 的 MEMORY/SQLITE 产品语义。
-5. `OnlySqliteExecutionTransactionStore.__init__()` 直接 `sqlite3.connect()` 并执行两个
-   `CREATE TABLE IF NOT EXISTS`；`close()` 直接关闭 connection。`OnlyInMemoryExecutionTransactionStore` 没有统一的
+5. `OnlySqliteRuntimePersistenceStore.__init__()` 直接 `sqlite3.connect()` 并执行两个
+   `CREATE TABLE IF NOT EXISTS`；`close()` 直接关闭 connection。`OnlyInMemoryRuntimePersistenceStore` 没有统一的
    `close()`。
 6. Store 当前没有 schema version 或 metadata table，只以业务表是否存在作为隐式 schema。
 7. Runtime 当前不拥有 Store 生命周期。Store 只通过多个窄 port 放入 `OnlyRuntimeServices`。

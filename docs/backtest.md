@@ -1,4 +1,4 @@
-# Product Backtest
+﻿# Product Backtest
 
 内建 `scenario-exact` 通过 DataSource SPI 和正式 Historical Replay 提供 exact bars；Action Strategy 只经 `ctx.orders` 下单。
 
@@ -29,23 +29,24 @@ HistoricalDataSource → HistoricalReplayService → BacktestClock → MarketDat
 
 其中受支持的 Generic T0 Cash LIMIT BUY OPEN 整单成交细化为 `Pure Planner → Prepared Transaction → durable Transaction Store commit → ordered Projection Targets → Projection Ready → at-least-once Outbox`。SELL/CLOSE、Partial/Multi Fill、Futures/Margin 和多 Cluster 固定资金归约仍是明确的后续迁移边界，不进入正式 committed execution 结果。
 
-Backtest Bootstrap 完成后，Runtime `initialize()` 自动恢复所有未 Ready transaction，成功后才进入 READY；`start()` 先交付 recovered
-Outbox，再启动 Cluster。Collector、RunPlan、trade count、fee attribution 和 determinism fingerprint 只读取 Projection Ready Query。
+Backtest Runtime 在 `INITIALIZING → RECOVERING → READY` 中自动恢复最新完整 checkpoint、checkpoint 后的 Ready 前缀和未投影后缀；Ready tail 经真实 Projection Target rehydrate，未投影 tail 经正式 Coordinator 恢复。随后按精确 MarketData cursor 继续 Replay，再交付 recovered Outbox。Collector、RunPlan、trade count、fee attribution 和 determinism fingerprint 只读取 Projection Ready Query。
 Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
 
 持久恢复必须显式启用：
 
 ```yaml
 runtime:
-  execution_store:
+  persistence:
     backend: SQLITE
-    # path: nested/execution.sqlite3  # 可选，相对 Runtime state root
+    checkpoint:
+      enabled: true
+      retain_last: 2
+    # path: nested/runtime.sqlite3  # 可选，相对 Runtime state root
 ```
 
 未配置时为 `MEMORY`，不会创建 state 目录。SQLite 默认路径为
-`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/execution.sqlite3`。绝对路径、空路径和 `..` 逃逸被拒绝；Store
-identity 或 schema 不匹配不会覆盖旧库或 fallback。当前只支持 sequence-one Generic T0 transaction-before bootstrap，不是 Full
-Runtime Recovery。
+`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`。绝对路径、空路径和 `..` 逃逸被拒绝；Store
+identity、Participant Registry、schema 或 checkpoint hash 不匹配不会覆盖旧库或 fallback。SQLite 使用 schema version 2，明确拒绝 version 1 且不迁移。初始稳定边界和每个完整 Bar 都写 checkpoint；写入失败阻止后续 Bar。
 
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker

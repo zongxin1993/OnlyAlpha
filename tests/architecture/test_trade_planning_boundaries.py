@@ -13,7 +13,7 @@ def test_trade_planning_modules_do_not_cross_runtime_mutation_boundaries() -> No
     forbidden_modules = (
         "onlyalpha.runtime",
         "onlyalpha.event.bus",
-        "onlyalpha.execution.transaction_store",
+        "onlyalpha.runtime.persistence.store",
     )
     forbidden_calls = {"uuid4", "new", "apply_trade", "reserve", "consume", "release"}
     for path in files:

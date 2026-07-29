@@ -9,7 +9,6 @@ from onlyalpha.config.document import (
     OnlyRuntimeAssemblyPlan,
     OnlyRuntimeConfig,
 )
-from onlyalpha.config.execution_store import OnlyExecutionStoreBackend, OnlyExecutionStoreConfig
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBrokerRuntimeConfig,
@@ -26,6 +25,11 @@ from onlyalpha.config.models import (
     OnlyStrategyImportConfig,
     OnlyUniverseConfig,
 )
+from onlyalpha.config.persistence import (
+    OnlyRuntimeCheckpointConfig,
+    OnlyRuntimePersistenceBackend,
+    OnlyRuntimePersistenceConfig,
+)
 
 __all__ = [
     "OnlyAccountRuntimeConfig",
@@ -35,8 +39,6 @@ __all__ = [
     "OnlyClusterCapitalMode",
     "OnlyClusterRunConfig",
     "OnlyDataSourceRuntimeConfig",
-    "OnlyExecutionStoreBackend",
-    "OnlyExecutionStoreConfig",
     "OnlyFactorImportConfig",
     "OnlyIndicatorSpecConfig",
     "OnlyJsonMapping",
@@ -47,6 +49,9 @@ __all__ = [
     "OnlyClusterConfigError",
     "OnlyRuntimeConfig",
     "OnlyRuntimeAssemblyPlan",
+    "OnlyRuntimeCheckpointConfig",
+    "OnlyRuntimePersistenceBackend",
+    "OnlyRuntimePersistenceConfig",
     "OnlyStrategyImportConfig",
     "OnlyUniverseConfig",
 ]

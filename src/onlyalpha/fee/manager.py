@@ -7,9 +7,10 @@ broker report and therefore cannot become a second fee authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
-from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.fee.models import OnlyFeeBreakdown, OnlyFeeInstruction
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +179,65 @@ class OnlyFeeManager:
         self._instrument_by_key = instruments
         self._instruction_keys = keys
         self._sequence = sequence_head
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "authorities": [
+                {
+                    "instruction": self._instruction_payload(self._instructions_by_key[key]),
+                    "instrument_id": self._instrument_by_key[key],
+                    "record_ids": [item.fee_record_id for item in self._records if item.idempotency_key == key],
+                }
+                for key in sorted(self._instructions_by_key)
+            ],
+            "sequence": self._sequence,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Fee checkpoint must be an object")
+        sequence = int(payload["sequence"])
+        for item in payload["authorities"]:
+            if not isinstance(item, dict):
+                raise ValueError("Fee checkpoint authority must be an object")
+            self.restore_execution_authority(
+                self._instruction_from_payload(item["instruction"]),
+                instrument_id=str(item["instrument_id"]),
+                record_ids=tuple(str(value) for value in item["record_ids"]),
+                sequence_head=sequence,
+            )
+
+    @staticmethod
+    def _instruction_payload(item: OnlyFeeInstruction) -> dict[str, object]:
+        return {
+            "account_id": item.account_id,
+            "calculation_source": item.calculation_source,
+            "cluster_id": item.cluster_id,
+            "created_at": item.created_at.isoformat(),
+            "fee_breakdown": item.fee_breakdown.to_json(),
+            "idempotency_key": item.idempotency_key,
+            "instruction_id": item.instruction_id,
+            "order_id": item.order_id,
+            "runtime_id": item.runtime_id,
+            "trade_id": item.trade_id,
+        }
+
+    @staticmethod
+    def _instruction_from_payload(payload: object) -> OnlyFeeInstruction:
+        if not isinstance(payload, dict):
+            raise ValueError("Fee instruction checkpoint must be an object")
+        return OnlyFeeInstruction(
+            str(payload["instruction_id"]),
+            str(payload["runtime_id"]),
+            None if payload["cluster_id"] is None else str(payload["cluster_id"]),
+            str(payload["account_id"]),
+            str(payload["order_id"]),
+            str(payload["trade_id"]),
+            OnlyFeeBreakdown.from_json(str(payload["fee_breakdown"])),
+            str(payload["calculation_source"]),
+            datetime.fromisoformat(str(payload["created_at"])),
+            str(payload["idempotency_key"]),
+        )
 
 
 __all__ = ["OnlyFeeExecutionAuthoritySnapshot", "OnlyFeeManager", "OnlyFeeRecord"]

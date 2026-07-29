@@ -45,7 +45,11 @@ class OnlyHistoricalReplayService:
         )
 
     def step(self, cursor: OnlyHistoricalReplayCursor) -> OnlyHistoricalReplayEvent | None:
-        if cursor.state in (OnlyHistoricalReplayState.STOPPED, OnlyHistoricalReplayState.COMPLETED):
+        if cursor.state in (
+            OnlyHistoricalReplayState.STOPPED,
+            OnlyHistoricalReplayState.COMPLETED,
+            OnlyHistoricalReplayState.FAILED,
+        ):
             return None
         if cursor.index >= len(cursor.updates):
             cursor.state = OnlyHistoricalReplayState.COMPLETED
@@ -58,14 +62,20 @@ class OnlyHistoricalReplayService:
         cursor.results.append(result)
         cursor.index += 1
         self._events.append(event)
-        if cursor.index >= len(cursor.updates):
+        if result.status is OnlyMarketDataProcessingStatus.FAILED:
+            cursor.state = OnlyHistoricalReplayState.FAILED
+        elif cursor.index >= len(cursor.updates):
             cursor.state = OnlyHistoricalReplayState.COMPLETED
         return event
 
     def run(self, cursor: OnlyHistoricalReplayCursor) -> OnlyHistoricalReplayResult:
         started = len(self._events)
         try:
-            while cursor.state not in (OnlyHistoricalReplayState.PAUSED, OnlyHistoricalReplayState.STOPPED):
+            while cursor.state not in (
+                OnlyHistoricalReplayState.PAUSED,
+                OnlyHistoricalReplayState.STOPPED,
+                OnlyHistoricalReplayState.FAILED,
+            ):
                 if self.step(cursor) is None:
                     break
         except Exception:

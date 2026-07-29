@@ -41,5 +41,5 @@ def test_ready_query_signature_has_no_ambiguous_filter_switch() -> None:
 
 
 def test_sqlite_ready_query_filters_in_sql() -> None:
-    source = Path("src/onlyalpha/execution/transaction_store.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/runtime/persistence/store.py").read_text(encoding="utf-8")
     assert "projection_ready=1 AND execution_sequence>?" in source

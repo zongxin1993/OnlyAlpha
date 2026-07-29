@@ -266,6 +266,16 @@ class OnlyPositionReservationManager:
     def get(self, order_id: OnlyOrderId) -> OnlyPositionReservation | None:
         return self._by_order.get(order_id)
 
+    def capture_checkpoint(self) -> object:
+        return [item.to_json() for item in sorted(self._by_order.values(), key=lambda item: str(item.order_id))]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("Position Reservation checkpoint must be a list")
+        self._by_order = {
+            item.order_id: item for item in (OnlyPositionReservation.from_json(str(raw)) for raw in payload)
+        }
+
     def active_quantity(
         self,
         instrument_id: OnlyInstrumentId,

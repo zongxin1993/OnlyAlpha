@@ -1,13 +1,16 @@
 from decimal import Decimal
 
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.factor.base import OnlyTimeSeriesFactor
 from onlyalpha.factor.context import OnlyFactorBarContext
+from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.score import (
     OnlyFactorQualityFlag,
     OnlyFactorScore,
     OnlyFactorScoreDimension,
 )
 from onlyalpha.indicator.macd import OnlyMacdCrossState, OnlyMacdSnapshot
+from onlyalpha.plugin.api import OnlyCheckpointCapability
 
 from .config import OnlyMacdSignalFactorConfig
 from .snapshot import OnlyMacdSignalFactorSnapshot
@@ -77,3 +80,41 @@ class OnlyMacdSignalFactor(OnlyTimeSeriesFactor):
             self._snapshot.ts_event,
             flags,
         )
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "snapshot": dict(self._snapshot.to_dict()),
+            "trace": [dict(item.to_dict()) for item in self._trace],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("MACD Factor checkpoint must be an object")
+
+        def decode(value: object) -> OnlyMacdSignalFactorSnapshot:
+            if not isinstance(value, dict):
+                raise ValueError("MACD Factor snapshot checkpoint must be an object")
+            event = value["ts_event_ns"]
+            macd = value["macd"]
+            if not isinstance(macd, dict):
+                raise ValueError("MACD Factor indicator snapshot must be an object")
+            return OnlyMacdSignalFactorSnapshot(
+                OnlyFactorId(str(value["factor_id"])),
+                None if event is None else OnlyTimestamp.from_unix_nanos(int(event)),
+                bool(value["ready"]),
+                str(value["signal"]),
+                Decimal(str(value["trend_score"])),
+                Decimal(str(value["confidence"])),
+                OnlyMacdSnapshot.from_dict(macd),
+            )
+
+        self._snapshot = decode(payload["snapshot"])
+        self._trace = [decode(item) for item in payload["trace"]]

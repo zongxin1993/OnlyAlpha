@@ -37,6 +37,8 @@ from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOffset, OnlyOrderSide,
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderRejection
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
+    OnlyInstrumentId,
+    OnlyOrderId,
     OnlyRuntimeId,
     OnlyTradeId,
     OnlyVenueOrderId,
@@ -100,9 +102,9 @@ class OnlyVirtualBrokerGateway:
         self._venue_order_sequence = 0
         self._trade_sequence = 0
         self._bar_sequence = 0
-        self._accepted_bar: dict[object, int] = {}
+        self._accepted_bar: dict[OnlyOrderId, int] = {}
         self._current_day: date | None = None
-        self._latest_bars: dict[object, OnlyBar] = {}
+        self._latest_bars: dict[OnlyInstrumentId, OnlyBar] = {}
         self._plugin_state = OnlyPluginLifecycleState.CREATED
 
     @property
@@ -240,7 +242,16 @@ class OnlyVirtualBrokerGateway:
         )
         self.order_store.save(order)
         due = request.submitted_at.unix_nanos + self._latency.submit_latency_ns + self._latency.acceptance_latency_ns
-        self.scheduler.schedule(due, lambda: self._accept(order, request.gateway_request_id.value))
+        action_payload = {
+            "causation_id": request.gateway_request_id.value,
+            "order_id": str(order.order_id),
+            "type": "ACCEPT",
+        }
+        self.scheduler.schedule(
+            due,
+            lambda: self._accept(order, request.gateway_request_id.value),
+            checkpoint_payload=action_payload,
+        )
         return OnlyBrokerOrderSubmitResult(
             True,
             OnlyBrokerOperationStatus.RECEIVED,
@@ -264,7 +275,16 @@ class OnlyVirtualBrokerGateway:
                 False, OnlyBrokerOperationStatus.REJECTED, request.gateway_request_id, "Broker order is terminal"
             )
         due = request.requested_at.unix_nanos + self._latency.cancel_latency_ns
-        self.scheduler.schedule(due, lambda: self._cancel(request.order_id, request.gateway_request_id.value))
+        action_payload = {
+            "causation_id": request.gateway_request_id.value,
+            "order_id": str(request.order_id),
+            "type": "CANCEL",
+        }
+        self.scheduler.schedule(
+            due,
+            lambda: self._cancel(request.order_id, request.gateway_request_id.value),
+            checkpoint_payload=action_payload,
+        )
         return OnlyBrokerCancelResult(True, OnlyBrokerOperationStatus.RECEIVED, request.gateway_request_id)
 
     def on_bar(self, bar: OnlyBar) -> None:
@@ -503,7 +523,90 @@ class OnlyVirtualBrokerGateway:
                 fill=fill,
             )
 
-        self.scheduler.schedule(timestamp.unix_nanos + self._latency.fill_latency_ns, publish)
+        action_payload = {
+            "fill": fill.to_json(),
+            "order_id": str(order.order_id),
+            "sequence": fill_sequence,
+            "timestamp_ns": timestamp.unix_nanos,
+            "type": "PUBLISH_FILL",
+        }
+        self.scheduler.schedule(
+            timestamp.unix_nanos + self._latency.fill_latency_ns,
+            publish,
+            checkpoint_payload=action_payload,
+        )
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "accepted_bar": [
+                [str(order_id), sequence]
+                for order_id, sequence in sorted(self._accepted_bar.items(), key=lambda item: str(item[0]))
+            ],
+            "account": self.account_store.capture_checkpoint(),
+            "bar_sequence": self._bar_sequence,
+            "connection_state": self._state.value,
+            "current_day": None if self._current_day is None else self._current_day.isoformat(),
+            "latest_bars": [
+                [instrument_id.to_json(), bar.to_json()]
+                for instrument_id, bar in sorted(self._latest_bars.items(), key=lambda item: str(item[0]))
+            ],
+            "orders": self.order_store.capture_checkpoint(),
+            "plugin_state": self._plugin_state.value,
+            "scheduler": self.scheduler.capture_checkpoint(),
+            "source_sequence": self._source_sequence,
+            "state_time_ns": self._state_time.unix_nanos,
+            "trade_sequence": self._trade_sequence,
+            "trades": self.trade_store.capture_checkpoint(),
+            "venue_order_sequence": self._venue_order_sequence,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Virtual Broker checkpoint must be an object")
+        self.account_store.restore_checkpoint(payload["account"])
+        self.order_store.restore_checkpoint(payload["orders"])
+        self.trade_store.restore_checkpoint(payload["trades"])
+        self._accepted_bar = {
+            OnlyOrderId(str(order_id)): int(sequence) for order_id, sequence in payload["accepted_bar"]
+        }
+        self._bar_sequence = int(payload["bar_sequence"])
+        self._state = OnlyBrokerConnectionState(str(payload["connection_state"]))
+        self._state_time = OnlyTimestamp.from_unix_nanos(int(payload["state_time_ns"]))
+        current_day = payload["current_day"]
+        self._current_day = None if current_day is None else date.fromisoformat(str(current_day))
+        self._latest_bars = {
+            OnlyInstrumentId.from_json(str(instrument_id)): OnlyBar.from_json(str(bar))
+            for instrument_id, bar in payload["latest_bars"]
+        }
+        self._plugin_state = OnlyPluginLifecycleState(str(payload["plugin_state"]))
+        self._source_sequence = int(payload["source_sequence"])
+        self._venue_order_sequence = int(payload["venue_order_sequence"])
+        self._trade_sequence = int(payload["trade_sequence"])
+        self.scheduler.restore_checkpoint(payload["scheduler"], self._resolve_scheduled_action)
+
+    def _resolve_scheduled_action(self, payload: object) -> Callable[[], None]:
+        if not isinstance(payload, dict):
+            raise ValueError("Virtual Broker scheduled action payload must be an object")
+        action_type = str(payload["type"])
+        order_id = OnlyOrderId(str(payload["order_id"]))
+        if action_type == "ACCEPT":
+            return lambda: self._accept(self.order_store.require(order_id), str(payload["causation_id"]))
+        if action_type == "CANCEL":
+            return lambda: self._cancel(order_id, str(payload["causation_id"]))
+        if action_type == "PUBLISH_FILL":
+            fill = OnlyOrderFill.from_json(str(payload["fill"]))
+            timestamp = OnlyTimestamp.from_unix_nanos(int(payload["timestamp_ns"]))
+            sequence = int(payload["sequence"])
+            return lambda: self._emit(
+                OnlyBrokerTradeUpdate,
+                timestamp,
+                str(order_id),
+                str(order_id),
+                emitted_sequence=sequence,
+                order_id=order_id,
+                fill=fill,
+            )
+        raise ValueError(f"unsupported Virtual Broker scheduled action: {action_type}")
 
     def _emit(
         self,

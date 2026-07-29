@@ -14,6 +14,7 @@ from onlyalpha.indicator.base import OnlyBarIndicator
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 from onlyalpha.indicator.score import OnlyIndicatorQualityFlag, OnlyIndicatorScore, OnlyIndicatorScoreDimension
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot, OnlyWarmupProgress
+from onlyalpha.plugin.capabilities import OnlyCheckpointCapability
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +248,84 @@ class OnlyStandardBarIndicator(OnlyBarIndicator[OnlyIndicatorSnapshot]):
         return OnlyIndicatorScore(
             self.indicator_id, dimension, value, confidence, self.ready, self._snapshot.ts_event, flags
         )
+
+    @property
+    def checkpoint_schema_version(self) -> int | None:
+        return 1
+
+    @property
+    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
+        return OnlyCheckpointCapability.CHECKPOINTABLE
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "ema": None if self._ema is None else str(self._ema),
+            "last_event_ns": self._last_event_ns,
+            "previous_close": None if self._previous_close is None else str(self._previous_close),
+            "samples": self._samples,
+            "snapshot": dict(self._snapshot.to_dict()),
+            "snapshot_type": type(self._snapshot).__name__,
+            "true_ranges": [str(item) for item in self._true_ranges],
+            "values": [str(item) for item in self._values],
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("standard Indicator checkpoint must be an object")
+        self._values = deque((Decimal(str(item)) for item in payload["values"]), maxlen=self.config.period + 1)
+        self._true_ranges = deque(
+            (Decimal(str(item)) for item in payload["true_ranges"]),
+            maxlen=self.config.period,
+        )
+        self._samples = int(payload["samples"])
+        value = payload["last_event_ns"]
+        self._last_event_ns = None if value is None else int(value)
+        value = payload["previous_close"]
+        self._previous_close = None if value is None else Decimal(str(value))
+        value = payload["ema"]
+        self._ema = None if value is None else Decimal(str(value))
+        snapshot = payload["snapshot"]
+        if not isinstance(snapshot, dict):
+            raise ValueError("standard Indicator checkpoint snapshot must be an object")
+        timestamp = snapshot["ts_event_ns"]
+        common = (
+            OnlyIndicatorId(str(snapshot["indicator_id"])),
+            None if timestamp is None else OnlyTimestamp.from_unix_nanos(int(timestamp)),
+            int(snapshot["samples"]),
+        )
+        snapshot_type = str(payload["snapshot_type"])
+        if snapshot_type == "OnlyAtrSnapshot":
+            self._snapshot = OnlyAtrSnapshot(
+                *common,
+                None if snapshot["atr"] is None else Decimal(str(snapshot["atr"])),
+                None if snapshot["normalized_atr"] is None else Decimal(str(snapshot["normalized_atr"])),
+                bool(snapshot["ready"]),
+            )
+        elif snapshot_type == "OnlyBollingerSnapshot":
+            self._snapshot = OnlyBollingerSnapshot(
+                *common,
+                None if snapshot["middle"] is None else Decimal(str(snapshot["middle"])),
+                None if snapshot["upper"] is None else Decimal(str(snapshot["upper"])),
+                None if snapshot["lower"] is None else Decimal(str(snapshot["lower"])),
+                bool(snapshot["ready"]),
+            )
+        else:
+            scalar = (
+                *common,
+                None if snapshot["value"] is None else Decimal(str(snapshot["value"])),
+                bool(snapshot["ready"]),
+            )
+            self._snapshot = (
+                OnlyRsiSnapshot(*scalar, OnlyRsiZone(str(snapshot["zone"])))
+                if snapshot_type == "OnlyRsiSnapshot"
+                else OnlyScalarIndicatorSnapshot(*scalar)
+                if snapshot_type == "OnlyScalarIndicatorSnapshot"
+                else self._unsupported_checkpoint_snapshot(snapshot_type)
+            )
+
+    @staticmethod
+    def _unsupported_checkpoint_snapshot(snapshot_type: str) -> OnlyIndicatorSnapshot:
+        raise ValueError(f"standard Indicator checkpoint snapshot type is unsupported: {snapshot_type}")
 
     def _scalar(self, timestamp: OnlyTimestamp, value: Decimal | None) -> OnlyScalarIndicatorSnapshot:
         return OnlyScalarIndicatorSnapshot(

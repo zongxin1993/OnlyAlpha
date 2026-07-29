@@ -78,17 +78,18 @@ from onlyalpha.execution import (
     OnlyExecutionEventDeliveryResult,
     OnlyExecutionOutboxPublisher,
     OnlyExecutionProcessor,
-    OnlyExecutionProjectionStatePort,
     OnlyExecutionRecoveryResult,
     OnlyExecutionRecoveryService,
     OnlyExecutionSequenceTracker,
-    OnlyExecutionTransactionOutboxPort,
-    OnlyExecutionTransactionQueryPort,
-    OnlyExecutionTransactionStorePort,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
     OnlyOutboxPublishResult,
+)
+from onlyalpha.execution.persistence_ports import (
+    OnlyExecutionProjectionStatePort,
+    OnlyExecutionTransactionOutboxPort,
+    OnlyExecutionTransactionQueryPort,
     OnlyProjectionReadyExecutionQueryPort,
 )
 from onlyalpha.fee.manager import OnlyFeeManager
@@ -129,6 +130,9 @@ from onlyalpha.position.reservations import OnlyPositionReservationManager
 from onlyalpha.position.settlement import OnlySettlementService
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
+from onlyalpha.runtime.persistence.store import (
+    OnlyRuntimePersistenceStorePort,
+)
 from onlyalpha.settlement.manager import OnlySettlementManager
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
@@ -164,6 +168,8 @@ class OnlyRuntimeOutboxDeliveryError(OnlyRuntimeError):
 
 class OnlyRuntimeState(StrEnum):
     CREATED = "CREATED"
+    INITIALIZING = "INITIALIZING"
+    RECOVERING = "RECOVERING"
     READY = "READY"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
@@ -528,7 +534,8 @@ class OnlyRuntime:
         self._execution_delivery_diagnostics: list[OnlyExecutionDeliveryDiagnostic] = []
         self._execution_recovery_diagnostics: list[OnlyExecutionRecoveryResult] = []
         self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
-        self._execution_transaction_store: OnlyExecutionTransactionStorePort | None = None
+        self._runtime_persistence_store: OnlyRuntimePersistenceStorePort | None = None
+        self._clusters_started = False
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
         self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
@@ -853,6 +860,7 @@ class OnlyRuntime:
     def initialize(self) -> None:
         if self._state is not OnlyRuntimeState.CREATED:
             raise OnlyLifecycleError("Runtime can only initialize from CREATED")
+        self._state = OnlyRuntimeState.INITIALIZING
         initialized: list[OnlyPluginResource] = []
         current_resource: OnlyPluginResource | None = None
         try:
@@ -862,10 +870,8 @@ class OnlyRuntime:
                 initialized.append(resource)
                 resource.connect()
             self._services.cluster_manager.initialize_all()
-            recovery = self._services.execution_recovery_service.recover(self.config.runtime_id)  # type: ignore[arg-type]
-            self._execution_recovery_diagnostics.append(recovery)
-            if not recovery.succeeded:
-                raise OnlyRuntimeRecoveryError(recovery)
+            self._state = OnlyRuntimeState.RECOVERING
+            self._recover_runtime()
             self._state = OnlyRuntimeState.READY
         except OnlyRuntimeRecoveryError:
             self._rollback_plugin_resources(tuple(initialized))
@@ -881,6 +887,9 @@ class OnlyRuntime:
                 plugin_id=failing[0],
                 resource_id=failing[1],
             ) from exc
+
+    def _recover_runtime(self) -> None:
+        """Concrete Runtime recovery hook invoked only in RECOVERING state."""
 
     def start(self) -> None:
         if self._state is OnlyRuntimeState.CREATED:
@@ -898,7 +907,9 @@ class OnlyRuntime:
                     "recovered execution Outbox delivery failed: "
                     f"failed={outbox.failed} remaining={outbox.remaining} error={outbox.last_error!r}"
                 )
-            self._services.cluster_manager.start_all()
+            if not self._clusters_started:
+                self._services.cluster_manager.start_all()
+                self._clusters_started = True
         except OnlyRuntimeOutboxDeliveryError:
             self._rollback_plugin_resources(self._plugin_resources)
             self._state = OnlyRuntimeState.FAILED
@@ -960,9 +971,9 @@ class OnlyRuntime:
             self._services.event_bus.close()
         except Exception as exc:
             failure = failure or exc
-        if self._execution_transaction_store is not None:
+        if self._runtime_persistence_store is not None:
             try:
-                self._execution_transaction_store.close()
+                self._runtime_persistence_store.close()
             except Exception as exc:
                 failure = failure or exc
         try:
@@ -1000,10 +1011,10 @@ class OnlyRuntime:
             raise OnlyLifecycleError("plugin resources must be bound once while Runtime is CREATED")
         self._plugin_resources = resources
 
-    def _bind_execution_transaction_store(self, store: OnlyExecutionTransactionStorePort) -> None:
-        if self._state is not OnlyRuntimeState.CREATED or self._execution_transaction_store is not None:
-            raise OnlyLifecycleError("execution transaction Store must be bound once while Runtime is CREATED")
-        self._execution_transaction_store = store
+    def _bind_runtime_persistence_store(self, store: OnlyRuntimePersistenceStorePort) -> None:
+        if self._state is not OnlyRuntimeState.CREATED or self._runtime_persistence_store is not None:
+            raise OnlyLifecycleError("Runtime Persistence Store must be bound once while Runtime is CREATED")
+        self._runtime_persistence_store = store
 
     def _rollback_plugin_resources(self, resources: tuple[OnlyPluginResource, ...]) -> None:
         for operation in ("stop", "close"):

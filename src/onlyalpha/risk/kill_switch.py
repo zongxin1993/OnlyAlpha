@@ -41,3 +41,27 @@ class OnlyRiskKillSwitch:
                 self._clusters.get(cluster_id, OnlyKillSwitchState.INACTIVE),
             )
         )
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "accounts": [
+                [str(key), value.value] for key, value in sorted(self._accounts.items(), key=lambda item: str(item[0]))
+            ],
+            "clusters": [
+                [str(key), value.value] for key, value in sorted(self._clusters.items(), key=lambda item: str(item[0]))
+            ],
+            "runtime": self._runtime.value,
+            "system": self._system.value,
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Risk kill-switch checkpoint must be an object")
+        self._system = OnlyKillSwitchState(str(payload["system"]))
+        self._runtime = OnlyKillSwitchState(str(payload["runtime"]))
+        self._accounts = {
+            OnlyAccountId(str(key)): OnlyKillSwitchState(str(value)) for key, value in payload["accounts"]
+        }
+        self._clusters = {
+            OnlyClusterId(str(key)): OnlyKillSwitchState(str(value)) for key, value in payload["clusters"]
+        }

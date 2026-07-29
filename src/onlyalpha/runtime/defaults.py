@@ -6,10 +6,6 @@ from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
-from onlyalpha.execution.transaction_store_factory import (
-    OnlyDefaultExecutionTransactionStoreFactory,
-    OnlyExecutionTransactionStoreFactory,
-)
 from onlyalpha.factor.factory import OnlyFactorFactory
 from onlyalpha.fee.schedules import (
     only_builtin_broker_fee_schedule_registry,
@@ -25,6 +21,10 @@ from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
 from onlyalpha.runtime.factory import OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.live.factory import OnlyLiveRuntimeFactory
 from onlyalpha.runtime.paper.factory import OnlyPaperRuntimeFactory
+from onlyalpha.runtime.persistence.factory import (
+    OnlyDefaultRuntimePersistenceStoreFactory,
+    OnlyRuntimePersistenceStoreFactory,
+)
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 from onlyalpha.runtime.shadow.factory import OnlyShadowRuntimeFactory
 from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
@@ -42,7 +42,7 @@ class OnlyEngineServices:
 def only_default_engine_services(
     *,
     fail_fast: bool = True,
-    execution_transaction_store_factory: OnlyExecutionTransactionStoreFactory | None = None,
+    runtime_persistence_store_factory: OnlyRuntimePersistenceStoreFactory | None = None,
 ) -> OnlyEngineServices:
     data_sources = OnlyDataSourceFactoryRegistry()
     builtin = OnlyPluginOrigin(OnlyPluginOriginType.BUILTIN, "onlyalpha")
@@ -71,7 +71,7 @@ def only_default_engine_services(
             OnlyMarketRuleCompiler(),
             only_builtin_market_fee_schedule_registry(),
             only_builtin_broker_fee_schedule_registry(),
-            execution_transaction_store_factory or OnlyDefaultExecutionTransactionStoreFactory(),
+            runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
         ),
     )
     return OnlyEngineServices(assembler, data_sources, brokers, discovery)

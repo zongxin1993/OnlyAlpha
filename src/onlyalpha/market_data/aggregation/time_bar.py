@@ -219,3 +219,25 @@ class OnlyTimeBarAggregator(OnlyBarAggregator):
         self._window_start = None
         self._window_end = None
         self._window_is_partial = False
+
+    def capture_checkpoint(self) -> object:
+        return {
+            "bars": [item.to_json() for item in self._bars],
+            "skipped_until": None if self._skipped_until is None else self._skipped_until.isoformat(),
+            "window_end": None if self._window_end is None else self._window_end.isoformat(),
+            "window_is_partial": self._window_is_partial,
+            "window_start": None if self._window_start is None else self._window_start.isoformat(),
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Bar Aggregator checkpoint must be an object")
+        self._bars = [OnlyBar.from_json(str(item)) for item in payload["bars"]]
+        self._window_start = self._decode_time(payload["window_start"])
+        self._window_end = self._decode_time(payload["window_end"])
+        self._skipped_until = self._decode_time(payload["skipped_until"])
+        self._window_is_partial = bool(payload["window_is_partial"])
+
+    @staticmethod
+    def _decode_time(value: object) -> datetime | None:
+        return None if value is None else datetime.fromisoformat(str(value))

@@ -23,6 +23,18 @@ class OnlyExecutionUpdateDeduplicator:
         self._updates.add(update_id)
         self._trades.update(trade_fingerprints)
 
+    def capture_checkpoint(self) -> object:
+        return {
+            "trades": sorted(self._trades),
+            "updates": sorted(str(item) for item in self._updates),
+        }
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("Execution dedup checkpoint must be an object")
+        self._updates = {OnlyBrokerUpdateId(str(item)) for item in payload["updates"]}
+        self._trades = {str(item) for item in payload["trades"]}
+
 
 class OnlyExecutionSequenceTracker:
     def __init__(self) -> None:
@@ -34,6 +46,14 @@ class OnlyExecutionSequenceTracker:
 
     def observe(self, scope: tuple[str, ...], source_sequence: int) -> None:
         self._last[scope] = max(source_sequence, self._last.get(scope, source_sequence))
+
+    def capture_checkpoint(self) -> object:
+        return [[list(scope), sequence] for scope, sequence in sorted(self._last.items())]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("Execution sequence checkpoint must be an array")
+        self._last = {(tuple(str(part) for part in scope)): int(sequence) for scope, sequence in payload}
 
 
 class OnlyExecutionAuditStore(Protocol):
@@ -52,6 +72,14 @@ class OnlyInMemoryExecutionAuditStore:
     def records(self) -> tuple[OnlyExecutionAuditRecord, ...]:
         return tuple(self._records)
 
+    def capture_checkpoint(self) -> object:
+        return [item.to_json() for item in self._records]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("Execution audit checkpoint must be an array")
+        self._records = [OnlyExecutionAuditRecord.from_json(str(item)) for item in payload]
+
 
 class OnlyExecutionReconciliationPort(Protocol):
     def request_reconciliation(self, request: OnlyExecutionReconciliationRequest) -> None: ...
@@ -66,3 +94,11 @@ class OnlyInMemoryExecutionReconciliationQueue:
 
     def requests(self) -> tuple[OnlyExecutionReconciliationRequest, ...]:
         return tuple(self._requests)
+
+    def capture_checkpoint(self) -> object:
+        return [item.to_json() for item in self._requests]
+
+    def restore_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, list):
+            raise ValueError("Execution reconciliation checkpoint must be an array")
+        self._requests = [OnlyExecutionReconciliationRequest.from_json(str(item)) for item in payload]
