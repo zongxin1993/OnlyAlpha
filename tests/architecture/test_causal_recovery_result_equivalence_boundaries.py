@@ -13,8 +13,8 @@ def test_runtime_uses_one_causal_session_and_never_skips_existing_transactions()
         "_recover_market_data_tail",
     ):
         assert removed not in source
-    assert "execution_processor.replay(update, session)" in source
-    assert "OnlyExecutionRecoverySession | None" in source
+    assert "execution_processor.replay(update, session.execution_session)" in source
+    assert "OnlyBacktestRecoverySession | None" in source
 
 
 def test_stable_bar_completion_precedes_checkpoint() -> None:
@@ -34,7 +34,7 @@ def test_recovery_rebuilds_and_compares_the_complete_prepared_contract() -> None
     processor = Path("src/onlyalpha/execution/processor.py").read_text(encoding="utf-8")
     session = Path("src/onlyalpha/execution/causal_recovery.py").read_text(encoding="utf-8")
     assert "self._trade_planner.prepare(planning_context)" in processor
-    assert "recovery_session.require_expected(update, prepared)" in processor
+    assert "recovery_session.decide(update, prepared)" in processor
     assert "prepared != expected" in session
     assert "only_prepared_execution_transaction_authority_hash" in session
     assert "only_prepared_execution_transaction_payload_hash" in session

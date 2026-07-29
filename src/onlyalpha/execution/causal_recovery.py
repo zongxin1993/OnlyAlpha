@@ -4,16 +4,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import NoReturn
 
+from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
-from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
 
 from .codec import (
     only_prepared_execution_transaction_authority_hash,
     only_prepared_execution_transaction_payload_hash,
 )
 from .persistence_ports import OnlyExecutionTransactionRecoveryQueryPort
-from .transaction import OnlyPreparedExecutionTransaction, OnlyStoredExecutionTransaction
+from .transaction import (
+    OnlyCommittedExecutionTransaction,
+    OnlyPreparedExecutionTransaction,
+    OnlyStoredExecutionTransaction,
+)
 
 
 class OnlyExecutionRecoveryError(RuntimeError):
@@ -30,6 +36,18 @@ class OnlyExecutionRecoveryResolution(StrEnum):
     UNPROJECTED_RECOVERED = "UNPROJECTED_RECOVERED"
 
 
+class OnlyExecutionRecoveryPhase(StrEnum):
+    MATCHING_PERSISTED_TAIL = "MATCHING_PERSISTED_TAIL"
+    TAIL_RESOLVED = "TAIL_RESOLVED"
+    FAILED = "FAILED"
+
+
+class OnlyExecutionRecoveryDecisionKind(StrEnum):
+    REHYDRATE_READY = "REHYDRATE_READY"
+    RECOVER_UNPROJECTED = "RECOVER_UNPROJECTED"
+    COMMIT_CONTINUATION = "COMMIT_CONTINUATION"
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyExecutionRecoveryEntry:
     execution_sequence: int
@@ -43,6 +61,35 @@ class OnlyExecutionRecoveryEntry:
     @property
     def trade_id(self) -> object:
         return self.stored.prepared.trade_id
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExecutionRecoveryDecision:
+    kind: OnlyExecutionRecoveryDecisionKind
+    entry: OnlyExecutionRecoveryEntry | None
+
+    def __post_init__(self) -> None:
+        if self.kind is OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION:
+            if self.entry is not None:
+                raise ValueError("COMMIT_CONTINUATION recovery decision cannot contain a persisted entry")
+            return
+        if self.entry is None:
+            raise ValueError("persisted recovery decision requires an entry")
+        expected = (
+            OnlyExecutionRecoveryEntryState.READY
+            if self.kind is OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY
+            else OnlyExecutionRecoveryEntryState.UNPROJECTED
+        )
+        if self.entry.state is not expected:
+            raise ValueError("recovery decision kind and persisted entry state disagree")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExecutionRecoveryContinuation:
+    execution_sequence: int
+    transaction_id: str
+    broker_update_id: OnlyBrokerUpdateId
+    trade_id: OnlyTradeId
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,15 +146,24 @@ class OnlyExecutionRecoverySession:
         self._plan = plan
         self._index = 0
         self._resolutions: list[tuple[int, OnlyExecutionRecoveryResolution]] = []
-        self._boundary_complete = False
+        self._phase = (
+            OnlyExecutionRecoveryPhase.TAIL_RESOLVED
+            if not plan.entries
+            else OnlyExecutionRecoveryPhase.MATCHING_PERSISTED_TAIL
+        )
+        self._continuations: list[OnlyExecutionRecoveryContinuation] = []
 
     @property
-    def complete(self) -> bool:
-        return self._index == len(self._plan.entries)
+    def phase(self) -> OnlyExecutionRecoveryPhase:
+        return self._phase
+
+    @property
+    def tail_resolved(self) -> bool:
+        return self._phase is OnlyExecutionRecoveryPhase.TAIL_RESOLVED
 
     @property
     def next_entry(self) -> OnlyExecutionRecoveryEntry | None:
-        return None if self.complete else self._plan.entries[self._index]
+        return None if self._index == len(self._plan.entries) else self._plan.entries[self._index]
 
     @property
     def ready_rehydrated_count(self) -> int:
@@ -118,17 +174,22 @@ class OnlyExecutionRecoverySession:
         return sum(item[1] is OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED for item in self._resolutions)
 
     @property
-    def boundary_complete(self) -> bool:
-        return self._boundary_complete
+    def continuations(self) -> tuple[OnlyExecutionRecoveryContinuation, ...]:
+        return tuple(self._continuations)
 
-    def require_expected(
+    def decide(
         self,
         update: OnlyBrokerTradeUpdate,
         prepared: OnlyPreparedExecutionTransaction,
-    ) -> OnlyExecutionRecoveryEntry:
+    ) -> OnlyExecutionRecoveryDecision:
+        self._require_usable()
+        if self._phase is OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
+            if prepared.broker_update_id != update.update_id or prepared.trade_id != update.fill.trade_id:
+                self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
+            return OnlyExecutionRecoveryDecision(OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION, None)
         entry = self.next_entry
         if entry is None:
-            raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_MISSING")
+            self._fail("RECOVERY_TRANSACTION_MISSING")
         expected = entry.stored.prepared
         if (
             expected.broker_update_id != update.update_id
@@ -141,7 +202,7 @@ class OnlyExecutionRecoverySession:
                 for candidate in self._plan.entries[self._index + 1 :]
             )
             code = "RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH" if later else "RECOVERY_TRANSACTION_MISSING"
-            raise OnlyExecutionRecoveryError(code)
+            self._fail(code)
         if prepared != expected:
             mismatches = tuple(
                 name for name in prepared.__dataclass_fields__ if getattr(prepared, name) != getattr(expected, name)
@@ -155,7 +216,7 @@ class OnlyExecutionRecoverySession:
                 f" expected_processing={expected.fact_draft.processing_sequence}"
                 f" actual_processing={prepared.fact_draft.processing_sequence}"
             )
-            raise OnlyExecutionRecoveryError(
+            self._fail(
                 "RECOVERY_PREPARED_TRANSACTION_MISMATCH: "
                 f"fields={','.join(mismatches)} fact_fields={','.join(fact_mismatches)}{processing_detail}"
             )
@@ -163,31 +224,80 @@ class OnlyExecutionRecoverySession:
             authority_hash = only_prepared_execution_transaction_authority_hash(prepared)
             payload_hash = only_prepared_execution_transaction_payload_hash(prepared)
         except ValueError as exc:
+            self._phase = OnlyExecutionRecoveryPhase.FAILED
             raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_CODEC_OR_HASH_MISMATCH") from exc
         if authority_hash != expected.authority_hash or payload_hash != expected.payload_hash:
-            raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_CODEC_OR_HASH_MISMATCH")
-        return entry
+            self._fail("RECOVERY_TRANSACTION_CODEC_OR_HASH_MISMATCH")
+        kind = (
+            OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY
+            if entry.state is OnlyExecutionRecoveryEntryState.READY
+            else OnlyExecutionRecoveryDecisionKind.RECOVER_UNPROJECTED
+        )
+        return OnlyExecutionRecoveryDecision(kind, entry)
 
-    def resolve(self, execution_sequence: int, resolution: OnlyExecutionRecoveryResolution) -> None:
+    def resolve_persisted(self, execution_sequence: int, resolution: OnlyExecutionRecoveryResolution) -> None:
+        self._require_usable()
+        if self._phase is not OnlyExecutionRecoveryPhase.MATCHING_PERSISTED_TAIL:
+            self._fail("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
         entry = self.next_entry
         if entry is None or entry.execution_sequence != execution_sequence:
-            raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
+            self._fail("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
         expected_resolution = (
             OnlyExecutionRecoveryResolution.READY_REHYDRATED
             if entry.state is OnlyExecutionRecoveryEntryState.READY
             else OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
         )
         if resolution is not expected_resolution:
-            raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_STATE_MISMATCH")
+            self._fail("RECOVERY_TRANSACTION_STATE_MISMATCH")
         self._resolutions.append((execution_sequence, resolution))
         self._index += 1
+        if self._index == len(self._plan.entries):
+            self._phase = OnlyExecutionRecoveryPhase.TAIL_RESOLVED
 
-    def complete_boundary(self) -> None:
-        self.require_complete()
-        self._boundary_complete = True
+    def record_continuation(self, transaction: OnlyCommittedExecutionTransaction) -> None:
+        self._require_usable()
+        if self._phase is not OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
+            self._fail("RECOVERY_CONTINUATION_BEFORE_TAIL_RESOLVED")
+        expected_sequence = (
+            self._plan.covered_execution_sequence + len(self._plan.entries) + 1
+            if not self._continuations
+            else self._continuations[-1].execution_sequence + 1
+        )
+        if transaction.execution_sequence != expected_sequence:
+            self._fail(
+                "RECOVERY_CONTINUATION_SEQUENCE_MISMATCH: "
+                f"expected={expected_sequence} actual={transaction.execution_sequence}"
+            )
+        if not transaction.projection_ready:
+            self._fail("RECOVERY_CONTINUATION_TRANSACTION_NOT_READY")
+        if transaction.runtime_id != self._plan.runtime_id:
+            self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
+        continuation = OnlyExecutionRecoveryContinuation(
+            transaction.execution_sequence,
+            transaction.transaction_id,
+            transaction.fact.broker_update_id,
+            transaction.fact.trade_id,
+        )
+        if any(
+            item.transaction_id == continuation.transaction_id
+            or item.broker_update_id == continuation.broker_update_id
+            or item.trade_id == continuation.trade_id
+            for item in self._continuations
+        ):
+            self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
+        self._continuations.append(continuation)
 
-    def require_complete(self) -> None:
-        if not self.complete:
+    def require_tail_resolved(self) -> None:
+        self._require_usable()
+        if self._phase is not OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
             entry = self.next_entry
             sequence = None if entry is None else entry.execution_sequence
             raise OnlyExecutionRecoveryError(f"RECOVERY_TRANSACTION_TAIL_INCOMPLETE: sequence={sequence}")
+
+    def _require_usable(self) -> None:
+        if self._phase is OnlyExecutionRecoveryPhase.FAILED:
+            raise OnlyExecutionRecoveryError("RECOVERY_SESSION_FAILED")
+
+    def _fail(self, message: str) -> NoReturn:
+        self._phase = OnlyExecutionRecoveryPhase.FAILED
+        raise OnlyExecutionRecoveryError(message)

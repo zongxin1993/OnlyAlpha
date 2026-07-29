@@ -76,7 +76,6 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
-from onlyalpha.execution import OnlyExecutionRecoverySession
 from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
 from onlyalpha.execution.commit_coordinator import OnlyExecutionCommitCoordinator
 from onlyalpha.execution.delivery import (
@@ -174,6 +173,7 @@ from onlyalpha.risk.views import (
     OnlyInstrumentRiskMappingView,
     OnlyRiskSnapshotView,
 )
+from onlyalpha.runtime.backtest.recovery_boundary import OnlyBacktestRecoverySession
 from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayService
 from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion, OnlyBacktestResultProgress
 from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor, OnlyCheckpointCapability
@@ -591,11 +591,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         def drain_execution_updates() -> None:
             for update in broker_inbound.drain():
-                session = self._execution_recovery_session
+                session = self._backtest_recovery_session
                 processing = (
                     execution_processor.process(update)
                     if session is None
-                    else execution_processor.replay(update, session)
+                    else execution_processor.replay(update, session.execution_session)
                 )
                 if session is None:
                     delivery = execution_delivery_coordinator.deliver(
@@ -646,6 +646,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
         ) -> None:
             completion = self._result_progress.observe_market_data_result(result, update)
             owned_bus.drain()
+            recovery_session = self._backtest_recovery_session
+            if recovery_session is not None:
+                recovery_session.observe_completion(completion)
             if result.pipeline_result is not None and result.status in {
                 OnlyMarketDataProcessingStatus.APPLIED,
                 OnlyMarketDataProcessingStatus.GAP_DETECTED,
@@ -971,14 +974,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
             outbox_port=runtime_persistence_store,
             retain_last=persistence_config.checkpoint.retain_last,
         )
-        self._execution_recovery_session: OnlyExecutionRecoverySession | None = None
+        self._backtest_recovery_session: OnlyBacktestRecoverySession | None = None
         recovery_replay = OnlyBacktestRecoveryReplayService(
             source=recovery_source,
             request=recovery_request,
             source_registry=market_data_source_registry,
             replay=historical_replay_service,
-            activate=self._activate_execution_recovery,
-            deactivate=self._deactivate_execution_recovery,
+            activate=self._activate_backtest_recovery,
+            deactivate=self._deactivate_backtest_recovery,
         )
         self._runtime_recovery_orchestrator = OnlyRuntimeRecoveryOrchestrator(
             runtime_id=runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -1174,7 +1177,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             completion.ts_event,
             self._result_progress.snapshot().processed_bar_count,
         )
-        if not self._persistence_config.checkpoint.enabled or self._execution_recovery_session is not None:
+        if not self._persistence_config.checkpoint.enabled or self._backtest_recovery_session is not None:
             return
         self._checkpoint_service.create(
             self._replay_cursor,
@@ -1294,13 +1297,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
             if isinstance(item, list) and len(item) == 2
         }
 
-    def _activate_execution_recovery(self, session: OnlyExecutionRecoverySession) -> None:
-        if self._execution_recovery_session is not None:
-            raise OnlyRuntimeError("execution recovery session is already active")
-        self._execution_recovery_session = session
+    def _activate_backtest_recovery(self, session: OnlyBacktestRecoverySession) -> None:
+        if self._backtest_recovery_session is not None:
+            raise OnlyRuntimeError("Backtest recovery session is already active")
+        self._backtest_recovery_session = session
 
-    def _deactivate_execution_recovery(self) -> None:
-        self._execution_recovery_session = None
+    def _deactivate_backtest_recovery(self) -> None:
+        self._backtest_recovery_session = None
 
     def register_instrument(
         self,
@@ -2016,8 +2019,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
 
     def _order_commands_enabled(self, cluster_id: OnlyClusterId) -> bool:
-        return self._state in {OnlyRuntimeState.READY, OnlyRuntimeState.RUNNING} and (
-            self._services.cluster_manager.state_of(cluster_id) in {OnlyClusterState.STARTING, OnlyClusterState.RUNNING}
+        return self._state in {OnlyRuntimeState.RECOVERING, OnlyRuntimeState.READY, OnlyRuntimeState.RUNNING} and (
+            self._services.cluster_manager.state_of(cluster_id)
+            in {OnlyClusterState.RECOVERING, OnlyClusterState.STARTING, OnlyClusterState.RUNNING}
         )
 
     def _begin_direct_execution_events(self) -> None:
@@ -2113,6 +2117,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if self._services.cluster_manager.state_of(cluster_id) not in {
             OnlyClusterState.LOADED,
             OnlyClusterState.INITIALIZED,
+            OnlyClusterState.RECOVERING,
             OnlyClusterState.STARTING,
             OnlyClusterState.RUNNING,
             OnlyClusterState.PAUSED,

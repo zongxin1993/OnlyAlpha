@@ -508,11 +508,11 @@ engine.add_cluster(config)
 result = engine.run()
 ```
 
-正式成交结果来自 Runtime-owned Runtime Persistence Store 中的 Projection Ready transaction。当前 Generic T0 Cash 的 LIMIT BUY OPEN 整单成交先 durable commit Prepared Transaction，再按固定顺序应用 Order、Position、Allocation、Settlement、Fee、Account、Ledger、Reservation、Risk 与 Valuation Projection；全部完成并标记 Projection Ready 后才开放 durable Outbox。Recovery 以 Stored Prepared + Committed 构建严格 causal session，在原 Broker Update 点重跑 Planner 并逐笔 rehydrate/recover，使后续 Strategy 立即观察最新 authority。Broker `query_trades()` 仅表示
+正式成交结果来自 Runtime-owned Runtime Persistence Store 中的 Projection Ready transaction。当前 Generic T0 Cash 的 LIMIT BUY OPEN 整单成交先 durable commit Prepared Transaction，再按固定顺序应用 Order、Position、Allocation、Settlement、Fee、Account、Ledger、Reservation、Risk 与 Valuation Projection；全部完成并标记 Projection Ready 后才开放 durable Outbox。Recovery 以 Stored Prepared + Committed 构建严格 causal session，在原 Broker Update 点重跑 Planner 并逐笔 rehydrate/recover，使后续 Strategy 立即观察最新 authority。Persisted tail resolved 后当前 exact MarketData boundary 仍继续；同 Bar 后续 Trade 作为 continuation 使用相同 Planner 与 Coordinator 正式 commit，获得连续 Store sequence、Projection Ready 与 durable Outbox，且 recovery 中不即时投递。Broker `query_trades()` 仅表示
 外部查询/对账 Projection。可使用 `python examples/committed_execution_report.py <config>` 查看公开 Result 中的 position
 scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 market profile。
 
-SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会伪装为 committed execution。正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在 `RECOVERING` 阶段恢复最新完整 checkpoint，并在精确行情游标重放期间逐点处理 Ready/未投影 tail；不会重复 Strategy/Factor `on_start()`。Outbox 语义是 at-least-once。
+SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会伪装为 committed execution。正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在 `RECOVERING` 阶段恢复最新完整 checkpoint，并在精确行情游标重放期间逐点处理 Ready/未投影 tail；独立 Backtest Recovery Session 以 source ID、data version、update ID、source sequence 和 event time 验证完整 boundary，不会重复 Strategy/Factor `on_start()`。Outbox 语义是 at-least-once。
 
 普通 Backtest 使用进程内 `MEMORY` 且关闭 checkpoint。需要连续重启恢复时必须显式配置：
 
@@ -527,7 +527,7 @@ runtime:
 
 正式 Factory 将数据库放在
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`，与随机 Run Artifact 目录分离。SQLite 会校验
-schema version 2、engine/runtime、mode、配置指纹、Participant Registry 指纹、币种、Account 和 Market Profile；不匹配、Version 1 或 checkpoint 损坏时 fail fast，不会迁移、删除旧库或降级 Memory。Checkpoint 在首次 Cluster start 后以及每个 Processing Result、Audit、Result Progress、Event drain 均完成的 Bar barrier 原子写入，并与 transaction/outbox 使用同一数据库。Partial/Multi-Fill、未事务化 SELL/CLOSE、Futures/Margin、Non-Trade Transaction、Paper/Live Recovery、Exactly-once Outbox、Schema Migration、Distributed Checkpoint、Full Broker Reconciliation、Remote Store 与 Web Recovery 仍未完成。
+schema version 2、engine/runtime、mode、配置指纹、Participant Registry 指纹、币种、Account 和 Market Profile；不匹配、Version 1 或 checkpoint 损坏时 fail fast，不会迁移、删除旧库或降级 Memory。Checkpoint 在首次 Cluster start 后以及每个 Processing Result、Audit、Result Progress、Event drain 均完成的 Bar barrier 原子写入，并与 transaction/outbox 使用同一数据库。PR4.2.2a 只解决 Recovery Phase、Exact Boundary 与 Continuation Transaction；Unified Recovery Event Gate、Post-Recovery Authority Validator 重构和 Recovery Finalizer 仍属于 PR4.2.2b/PR4.2.2c。Partial/Multi-Fill、未事务化 SELL/CLOSE、Futures/Margin、Non-Trade Transaction、Paper/Live Recovery、Exactly-once Outbox、Schema Migration、Distributed Checkpoint、Full Broker Reconciliation、Remote Store 与 Web Recovery 仍未完成。
 
 Checkpoint 模式还要求 DataSource、Broker、Strategy、Factor 和 Indicator 显式声明 `CHECKPOINTABLE` 或 `STATELESS`；未声明能力、Checkpointable 缺少 schema version、或把有状态 Broker 声明为 Stateless 都会在装配期失败。内建历史 DataSource 明确 Stateless，官方 Virtual Broker 明确 Checkpointable schema 1。
 

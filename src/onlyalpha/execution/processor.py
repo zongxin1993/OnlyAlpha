@@ -81,7 +81,8 @@ from onlyalpha.strategy_ledger.models import (
 )
 
 from .causal_recovery import (
-    OnlyExecutionRecoveryEntryState,
+    OnlyExecutionRecoveryDecision,
+    OnlyExecutionRecoveryDecisionKind,
     OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
 )
@@ -508,22 +509,35 @@ class OnlyExecutionProcessor:
                 position_scope=position_scope,
             )
         coordinated_at = OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns())
+        recovery_decision: OnlyExecutionRecoveryDecision | None = None
+        resolution: OnlyExecutionRecoveryResolution | None = None
         if mode is OnlyExecutionProcessingMode.RECOVERY:
             if recovery_session is None:
                 raise AssertionError("Recovery processing requires an explicit causal session")
-            entry = recovery_session.require_expected(update, prepared)
-            if entry.state is OnlyExecutionRecoveryEntryState.READY:
+            recovery_decision = recovery_session.decide(update, prepared)
+            entry = recovery_decision.entry
+            if recovery_decision.kind is OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY:
+                if entry is None:
+                    raise AssertionError("Ready recovery decision lost its persisted entry")
                 coordination = self._execution_commit_coordinator.rehydrate_existing(
                     entry.stored.committed,
                     projected_at=coordinated_at,
                 )
                 resolution = OnlyExecutionRecoveryResolution.READY_REHYDRATED
-            else:
+            elif recovery_decision.kind is OnlyExecutionRecoveryDecisionKind.RECOVER_UNPROJECTED:
+                if entry is None:
+                    raise AssertionError("Unprojected recovery decision lost its persisted entry")
                 coordination = self._execution_commit_coordinator.recover_existing(
                     entry.stored.committed,
                     projected_at=coordinated_at,
                 )
                 resolution = OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
+            else:
+                coordination = self._execution_commit_coordinator.commit(
+                    prepared,
+                    committed_at=coordinated_at,
+                    projected_at=coordinated_at,
+                )
         else:
             coordination = self._execution_commit_coordinator.commit(
                 prepared,
@@ -596,7 +610,13 @@ class OnlyExecutionProcessor:
             )
             if mode is OnlyExecutionProcessingMode.RECOVERY:
                 assert recovery_session is not None
-                recovery_session.resolve(transaction.execution_sequence, resolution)
+                assert recovery_decision is not None
+                if recovery_decision.kind is OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION:
+                    recovery_session.record_continuation(transaction)
+                else:
+                    if resolution is None:
+                        raise AssertionError("persisted recovery decision lost its resolution")
+                    recovery_session.resolve_persisted(transaction.execution_sequence, resolution)
             return self._complete(
                 update,
                 context,

@@ -9,7 +9,9 @@ from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import (
+    OnlyExecutionRecoveryDecisionKind,
     OnlyExecutionRecoveryError,
+    OnlyExecutionRecoveryPhase,
     OnlyExecutionRecoveryPlanBuilder,
     OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
@@ -74,15 +76,20 @@ def test_session_resolves_ready_then_unprojected_in_strict_causal_order(
     )
     session = OnlyExecutionRecoverySession(plan)
 
-    entry = session.require_expected(_update(first), first)
+    decision = session.decide(_update(first), first)
+    assert decision.kind is OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY
+    entry = decision.entry
+    assert entry is not None
     assert entry.execution_sequence == first_committed.execution_sequence
-    session.resolve(entry.execution_sequence, OnlyExecutionRecoveryResolution.READY_REHYDRATED)
-    entry = session.require_expected(_update(second), second)
-    session.resolve(entry.execution_sequence, OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED)
-    session.complete_boundary()
+    session.resolve_persisted(entry.execution_sequence, OnlyExecutionRecoveryResolution.READY_REHYDRATED)
+    decision = session.decide(_update(second), second)
+    assert decision.kind is OnlyExecutionRecoveryDecisionKind.RECOVER_UNPROJECTED
+    entry = decision.entry
+    assert entry is not None
+    session.resolve_persisted(entry.execution_sequence, OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED)
 
-    assert session.complete
-    assert session.boundary_complete
+    assert session.phase is OnlyExecutionRecoveryPhase.TAIL_RESOLVED
+    assert session.tail_resolved
     assert session.ready_rehydrated_count == 1
     assert session.unprojected_recovered_count == 1
 
@@ -104,21 +111,21 @@ def test_session_rejects_missing_conflicting_and_out_of_order_transactions(
     )
 
     with pytest.raises(OnlyExecutionRecoveryError, match="RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH"):
-        OnlyExecutionRecoverySession(plan).require_expected(_update(second), second)
+        OnlyExecutionRecoverySession(plan).decide(_update(second), second)
 
     conflict = only_test_rehash(
         first,
         prepared_at=OnlyTimestamp.from_unix_nanos(first.prepared_at.unix_nanos + 1),
     )
     with pytest.raises(OnlyExecutionRecoveryError, match="RECOVERY_PREPARED_TRANSACTION_MISMATCH"):
-        OnlyExecutionRecoverySession(plan).require_expected(_update(first), conflict)
+        OnlyExecutionRecoverySession(plan).decide(_update(first), conflict)
 
     missing = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("missing-trade"),
         update_id=OnlyBrokerUpdateId("missing-update"),
     )
     with pytest.raises(OnlyExecutionRecoveryError, match="RECOVERY_TRANSACTION_MISSING"):
-        OnlyExecutionRecoverySession(plan).require_expected(_update(missing), missing)
+        OnlyExecutionRecoverySession(plan).decide(_update(missing), missing)
 
 
 def test_session_resolves_three_ready_and_multiple_unprojected_entries_strictly(
@@ -147,14 +154,15 @@ def test_session_resolves_three_ready_and_multiple_unprojected_entries_strictly(
     session = OnlyExecutionRecoverySession(plan)
 
     for sequence, prepared in enumerate(prepared_values, start=1):
-        entry = session.require_expected(_update(prepared), prepared)
+        decision = session.decide(_update(prepared), prepared)
+        entry = decision.entry
+        assert entry is not None
         resolution = (
             OnlyExecutionRecoveryResolution.READY_REHYDRATED
             if sequence <= 3
             else OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
         )
-        session.resolve(entry.execution_sequence, resolution)
-    session.complete_boundary()
+        session.resolve_persisted(entry.execution_sequence, resolution)
 
     assert session.ready_rehydrated_count == 3
     assert session.unprojected_recovered_count == 2

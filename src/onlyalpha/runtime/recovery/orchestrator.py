@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution import (
@@ -16,6 +17,9 @@ from onlyalpha.runtime.checkpoint.codec import only_validate_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import OnlyCheckpointRestoreContext, OnlyRuntimeCheckpoint
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.persistence.store import OnlyRuntimeCheckpointQueryPort
+
+if TYPE_CHECKING:
+    from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayResult
 
 
 class OnlyRuntimeRecoveryStatus(StrEnum):
@@ -38,6 +42,8 @@ class OnlyRuntimeRecoveryDiagnostic:
     final_ready_sequence: int
     pending_outbox_count: int
     catch_up_bar_count: int
+    continuation_transaction_count: int
+    final_boundary_update_id: str | None
 
 
 class OnlyRuntimeRecoveryOrchestrator:
@@ -49,7 +55,10 @@ class OnlyRuntimeRecoveryOrchestrator:
         participant_registry: OnlyRuntimeCheckpointParticipantRegistry,
         checkpoint_query: OnlyRuntimeCheckpointQueryPort,
         transaction_query: OnlyExecutionTransactionRecoveryQueryPort,
-        causal_replay: Callable[[OnlyRuntimeCheckpoint, OnlyExecutionRecoverySession], int],
+        causal_replay: Callable[
+            [OnlyRuntimeCheckpoint, OnlyExecutionRecoverySession],
+            OnlyBacktestRecoveryReplayResult,
+        ],
     ) -> None:
         self._runtime_id = runtime_id
         self._config_fingerprint = config_fingerprint
@@ -77,11 +86,12 @@ class OnlyRuntimeRecoveryOrchestrator:
             covered_execution_sequence=checkpoint.header.covered_execution_sequence,
         )
         session = OnlyExecutionRecoverySession(plan)
-        catch_up_count = self._causal_replay(checkpoint, session) if plan.entries else 0
-        session.require_complete()
+        replay_result = self._causal_replay(checkpoint, session) if plan.entries else None
+        session.require_tail_resolved()
         ready_count = sum(item.state.value == "READY" for item in plan.entries)
         unprojected_count = len(plan.entries) - ready_count
-        final_ready = checkpoint.header.covered_execution_sequence + len(plan.entries)
+        continuation_count = 0 if replay_result is None else replay_result.continuation_transaction_count
+        final_ready = checkpoint.header.covered_execution_sequence + len(plan.entries) + continuation_count
         status = (
             OnlyRuntimeRecoveryStatus.RESTORED_AND_RECOVERED
             if unprojected_count
@@ -100,5 +110,7 @@ class OnlyRuntimeRecoveryOrchestrator:
             session.unprojected_recovered_count,
             final_ready,
             checkpoint.header.pending_outbox_count,
-            catch_up_count,
+            0 if replay_result is None else replay_result.catch_up_bar_count,
+            continuation_count,
+            None if replay_result is None else str(replay_result.final_boundary.update_id),
         )

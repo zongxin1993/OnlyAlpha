@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.data.models import (
@@ -14,7 +15,19 @@ from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.execution import OnlyExecutionRecoverySession
+from onlyalpha.runtime.backtest.recovery_boundary import (
+    OnlyBacktestRecoveryBoundary,
+    OnlyBacktestRecoveryPhase,
+    OnlyBacktestRecoverySession,
+)
 from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestRecoveryReplayResult:
+    catch_up_bar_count: int
+    final_boundary: OnlyBacktestRecoveryBoundary
+    continuation_transaction_count: int
 
 
 class OnlyBacktestRecoveryReplayService:
@@ -25,7 +38,7 @@ class OnlyBacktestRecoveryReplayService:
         request: OnlyHistoricalBarRequest | None,
         source_registry: OnlyMarketDataSourceRegistry,
         replay: OnlyHistoricalReplayService,
-        activate: Callable[[OnlyExecutionRecoverySession], None],
+        activate: Callable[[OnlyBacktestRecoverySession], None],
         deactivate: Callable[[], None],
     ) -> None:
         self._source = source
@@ -35,7 +48,11 @@ class OnlyBacktestRecoveryReplayService:
         self._activate = activate
         self._deactivate = deactivate
 
-    def run(self, checkpoint: OnlyRuntimeCheckpoint, session: OnlyExecutionRecoverySession) -> int:
+    def run(
+        self,
+        checkpoint: OnlyRuntimeCheckpoint,
+        execution_session: OnlyExecutionRecoverySession,
+    ) -> OnlyBacktestRecoveryReplayResult:
         if self._source is None or self._request is None:
             raise RuntimeError("Recovery replay source is unavailable")
         if not self._source_registry.contains(self._source.source_id):
@@ -57,10 +74,11 @@ class OnlyBacktestRecoveryReplayService:
                 raise RuntimeError("recovery replay cursor identity is absent or ambiguous")
             remaining = stream.records[matched[0] + 1 :]
         processed = 0
-        resolved = False
-        self._activate(session)
+        backtest_session = OnlyBacktestRecoverySession(execution_session, cursor)
+        self._activate(backtest_session)
         try:
             for record in remaining:
+                backtest_session.enter_boundary(OnlyBacktestRecoveryBoundary.from_record(record))
                 replay_cursor = self._replay.prepare(
                     OnlyHistoricalReplayConfig(
                         (OnlyHistoricalDataStream((record,), 1),),
@@ -83,12 +101,18 @@ class OnlyBacktestRecoveryReplayService:
                     )
                     raise RuntimeError(f"recovery MarketData replay failed: {failures}")
                 processed += result.processed
-                if session.complete:
-                    session.complete_boundary()
-                    resolved = True
+                backtest_session.require_boundary_callback()
+                if backtest_session.phase is OnlyBacktestRecoveryPhase.BOUNDARY_COMPLETED:
                     break
         finally:
             self._deactivate()
-        if not resolved:
-            raise RuntimeError("recovery replay did not resolve every transaction-tail Broker update")
-        return processed
+        execution_session.require_tail_resolved()
+        backtest_session.require_boundary_completed()
+        final_boundary = backtest_session.final_boundary
+        if final_boundary is None:
+            raise AssertionError("completed Backtest recovery lost its final boundary")
+        return OnlyBacktestRecoveryReplayResult(
+            processed,
+            final_boundary,
+            len(execution_session.continuations),
+        )

@@ -2,6 +2,13 @@
 
 # ruff: noqa: F401
 
+from onlyalpha.runtime.backtest.recovery_boundary import (
+    OnlyBacktestRecoveryBoundary,
+    OnlyBacktestRecoveryError,
+    OnlyBacktestRecoveryPhase,
+    OnlyBacktestRecoverySession,
+)
+from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayResult
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,

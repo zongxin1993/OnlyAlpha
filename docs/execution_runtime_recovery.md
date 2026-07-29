@@ -56,11 +56,20 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
 3. Restore every required participant in registry order. Strategy, Factor, Indicator and deterministic Broker capabilities must
    be explicitly declared.
 4. Analyze the contiguous transaction tail. Projection Ready rows must form one prefix; unprojected rows form one suffix.
-5. Replay exact MarketData after the checkpoint cursor. Every Broker update enters ExecutionProcessor; each durable Trade rebuilds the same Prepared contract and resolves the next causal session entry at that update point. Existing transaction IDs are never
-   resolved without recommit and historical Direct Events are not republished.
-6. Rehydrate the Ready prefix through real Manager Projection Targets, then recover the unprojected suffix through the formal
-   Coordinator.
-7. Complete MarketData Result, Audit, Result Progress and Event drain; validate Runtime authority; persist a new stable checkpoint; enter READY; deliver pending Outbox records; resume recovered Clusters without repeating `on_start()`; and continue ordinary Replay from the recovered cursor.
+5. Replay exact MarketData after the checkpoint cursor. Before each record, enter a boundary identified by source ID, data
+   version, update ID, source sequence and event time. Every Broker update enters ExecutionProcessor; each persisted Trade rebuilds
+   the same Prepared contract and resolves the next causal session entry at that update point.
+6. Rehydrate Ready entries through real Manager Projection Targets and recover unprojected entries through the formal Coordinator
+   at their original causal points. Resolving the last persisted entry changes Execution phase to `TAIL_RESOLVED`; it does not end
+   the Bar.
+7. Continue the same Bar's Strategy and Broker work. New Trades after tail resolution use the ordinary Planner and
+   `Coordinator.commit()`, receive contiguous Store-owned sequences, become Projection Ready and write durable Outbox rows.
+   `ExecutionProcessor.replay()` suppresses immediate delivery, so these continuation rows remain pending during recovery.
+8. Complete MarketData Result and Audit, observe checkpointable Result Progress, drain EventBus work, and only then let Runtime
+   `after_market_processing()` confirm the exact boundary. An unresolved tail continues into the next boundary; a resolved tail
+   ends causal replay only after the current boundary becomes `BOUNDARY_COMPLETED`.
+9. Validate Runtime authority, persist a new stable checkpoint through the existing recovery close-out, enter READY, deliver
+   pending Outbox records, resume recovered Clusters without repeating `on_start()`, and continue ordinary Replay from the cursor.
 
 Tail gaps, Ready-after-unready ordering, transaction hash conflicts, cursor mismatch, unknown/missing participants and partial or
 corrupt checkpoints fail fast. Recovery never deletes or rewrites historical transactions.
@@ -85,6 +94,8 @@ does not delete the previous complete checkpoint. SQLite schema version 1 is uns
 
 ## Current limits
 
-The formal committed transaction path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE,
-Futures/Margin transactions, non-trade transactions, Paper/Live recovery, exactly-once Outbox, schema migration, distributed
-checkpointing and remote stores remain outside this phase.
+PR4.2.2a covers only Recovery phase, exact Backtest boundary and continuation transactions. Unified Recovery Event Gate,
+Post-Recovery Authority Validator redesign and Recovery Finalizer remain PR4.2.2b/PR4.2.2c work. The formal committed transaction
+path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE, Futures/Margin transactions, non-trade
+transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
+and remote stores remain outside this phase.
