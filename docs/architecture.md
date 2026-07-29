@@ -200,7 +200,7 @@ Registry 内部容器及 ExecutionProcessor 编排细节属于内部实现。它
 `onlyalpha.runtime` 的公共 `__all__` 导出，插件不得依赖这些对象。内部模块路径仍可供核心仓自身使用，但不承诺外部兼容性。
 
 Runtime 在 Cluster initialize 后进入 `RECOVERING`。`OnlyRuntimeRecoveryOrchestrator` 验证并恢复最新完整 checkpoint，按精确
-MarketData cursor 重放到原 transaction tail，使用真实 Target rehydrate Ready 前缀，再由正式 Coordinator 恢复未投影后缀。正式
+MarketData cursor 建立单一 causal Recovery Session。每个 Broker Update 进入 ExecutionProcessor，重新构建并验证完整 Prepared contract；Ready transaction 由真实 Target 当场 rehydrate，未投影 transaction 由正式 Coordinator 当场恢复。后续 Strategy callback 立即读取更新后的 authority。MarketData Result、Audit、checkpointable Result Progress 与 Event drain 全部完成后才允许 checkpoint。正式
 Result 只持有 Projection Ready Query。恢复完成后交付 recovered Outbox；任一阶段失败都阻止 READY/RUNNING。
 
 Runtime Persistence Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.persistence` 唯一创建并显式注入 Runtime。SQLite checkpoint

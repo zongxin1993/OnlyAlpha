@@ -318,6 +318,24 @@ class OnlyCommittedExecutionTransaction:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyStoredExecutionTransaction:
+    """Durable recovery record retaining the original planning contract."""
+
+    prepared: OnlyPreparedExecutionTransaction
+    committed: OnlyCommittedExecutionTransaction
+
+    def __post_init__(self) -> None:
+        if self.prepared.runtime_id != self.committed.runtime_id:
+            raise ValueError("stored execution transaction Runtime scope disagrees")
+        if self.prepared.transaction_id != self.committed.transaction_id:
+            raise ValueError("stored execution transaction identity disagrees")
+        if self.prepared.authority_hash != self.committed.prepared_authority_hash:
+            raise ValueError("stored execution transaction authority hash disagrees")
+        if self.prepared.payload_hash != self.committed.prepared_payload_hash:
+            raise ValueError("stored execution transaction payload hash disagrees")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyExecutionTransactionCommitResult:
     transaction: OnlyCommittedExecutionTransaction
     inserted: bool

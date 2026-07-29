@@ -13,6 +13,7 @@ from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.persistence.factory import (
     OnlyDefaultRuntimePersistenceStoreFactory,
@@ -128,10 +129,8 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     assert engine_a.run().status == "FAILED"
     failed_runtime = engine_a.runtime_sessions[0].runtime
     assert failed_runtime.historical_replay_service.events
-    assert failed_runtime.historical_replay_service.events[-1].result.failure is not None
-    assert "contiguous projection-ready transaction prefix" in (
-        failed_runtime.historical_replay_service.events[-1].result.failure.message
-    )
+    assert failed_runtime.historical_replay_service.events[-1].result.status.value == "APPLIED"
+    assert failed_runtime.result_progress.snapshot().processed_bar_count > 0
     assert config.end_time is not None
     assert failed_runtime.historical_replay_service.events[-1].update.ts_event.to_datetime() < config.end_time
     runtime_id = engine_a.runtime_sessions[0].runtime_id
@@ -170,3 +169,6 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     assert baseline.status == "COMPLETED"
     assert recovered.runtime_results[0].trades == baseline.runtime_results[0].trades
     assert recovered.runtime_results[0].result_fingerprint == baseline.runtime_results[0].result_fingerprint
+    assert only_backtest_business_projection(recovered.runtime_results[0]) == only_backtest_business_projection(
+        baseline.runtime_results[0]
+    )

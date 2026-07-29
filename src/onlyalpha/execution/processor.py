@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from decimal import Decimal
+from enum import StrEnum
 
 from onlyalpha.account.manager import OnlyAccountManager
 from onlyalpha.account.models import OnlyAccountMutationResult, OnlyAccountTradeCashFlow
@@ -78,6 +80,11 @@ from onlyalpha.strategy_ledger.models import (
     OnlyStrategyTradeAccountingInput,
 )
 
+from .causal_recovery import (
+    OnlyExecutionRecoveryEntryState,
+    OnlyExecutionRecoveryResolution,
+    OnlyExecutionRecoverySession,
+)
 from .commit_coordinator import (
     OnlyExecutionCommitCoordinationStatus,
     OnlyExecutionCommitCoordinator,
@@ -138,6 +145,11 @@ OnlyExecutionDispatchPayload = tuple[
     OnlyAccountMutationResult | None,
     tuple[str, ...],
 ]
+
+
+class OnlyExecutionProcessingMode(StrEnum):
+    NORMAL = "NORMAL"
+    RECOVERY = "RECOVERY"
 
 
 class OnlyExecutionProcessor:
@@ -238,6 +250,36 @@ class OnlyExecutionProcessor:
         self._processing_sequence = sequence
 
     def process(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionProcessingResult:
+        return self._process(update, OnlyExecutionProcessingMode.NORMAL, None)
+
+    def replay(
+        self,
+        update: OnlyBrokerInboundUpdate,
+        session: OnlyExecutionRecoverySession,
+    ) -> OnlyExecutionProcessingResult:
+        result = self._process(update, OnlyExecutionProcessingMode.RECOVERY, session)
+        return replace(
+            result,
+            delivery_intent=OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE),
+        )
+
+    def replay_non_transaction(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionProcessingResult:
+        """Normalize a bootstrap/recovery non-transaction Update without external delivery."""
+
+        if isinstance(update, OnlyBrokerTradeUpdate):
+            raise ValueError("replay_non_transaction does not accept Trade updates")
+        result = self._process(update, OnlyExecutionProcessingMode.RECOVERY, None)
+        return replace(
+            result,
+            delivery_intent=OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE),
+        )
+
+    def _process(
+        self,
+        update: OnlyBrokerInboundUpdate,
+        mode: OnlyExecutionProcessingMode,
+        recovery_session: OnlyExecutionRecoverySession | None,
+    ) -> OnlyExecutionProcessingResult:
         self._processing_sequence += 1
         started = OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns())
         context = OnlyExecutionProcessingContext(
@@ -304,6 +346,8 @@ class OnlyExecutionProcessor:
                 position_scope,
                 trade_fingerprints,
                 sequence_scope,
+                mode,
+                recovery_session,
             )
         self._events.begin()
         steps: list[OnlyExecutionMutationRecord] = [
@@ -415,6 +459,8 @@ class OnlyExecutionProcessor:
         position_scope: OnlyExecutionPositionScope,
         trade_fingerprints: tuple[str, ...],
         sequence_scope: tuple[str, ...],
+        mode: OnlyExecutionProcessingMode,
+        recovery_session: OnlyExecutionRecoverySession | None,
     ) -> OnlyExecutionProcessingResult:
         steps = [
             OnlyExecutionMutationRecord(
@@ -462,11 +508,28 @@ class OnlyExecutionProcessor:
                 position_scope=position_scope,
             )
         coordinated_at = OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns())
-        coordination = self._execution_commit_coordinator.commit(
-            prepared,
-            committed_at=coordinated_at,
-            projected_at=coordinated_at,
-        )
+        if mode is OnlyExecutionProcessingMode.RECOVERY:
+            if recovery_session is None:
+                raise AssertionError("Recovery processing requires an explicit causal session")
+            entry = recovery_session.require_expected(update, prepared)
+            if entry.state is OnlyExecutionRecoveryEntryState.READY:
+                coordination = self._execution_commit_coordinator.rehydrate_existing(
+                    entry.stored.committed,
+                    projected_at=coordinated_at,
+                )
+                resolution = OnlyExecutionRecoveryResolution.READY_REHYDRATED
+            else:
+                coordination = self._execution_commit_coordinator.recover_existing(
+                    entry.stored.committed,
+                    projected_at=coordinated_at,
+                )
+                resolution = OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
+        else:
+            coordination = self._execution_commit_coordinator.commit(
+                prepared,
+                committed_at=coordinated_at,
+                projected_at=coordinated_at,
+            )
         if coordination.status in {
             OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
             OnlyExecutionCommitCoordinationStatus.ALREADY_READY,
@@ -531,6 +594,9 @@ class OnlyExecutionProcessor:
                 None,
                 (),
             )
+            if mode is OnlyExecutionProcessingMode.RECOVERY:
+                assert recovery_session is not None
+                recovery_session.resolve(transaction.execution_sequence, resolution)
             return self._complete(
                 update,
                 context,

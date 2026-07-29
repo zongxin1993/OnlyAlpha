@@ -29,6 +29,7 @@ from onlyalpha.execution.persistence_ports import (
     OnlyExecutionTransactionOutboxPort,
     OnlyExecutionTransactionOutboxRecord,
     OnlyExecutionTransactionQueryPort,
+    OnlyExecutionTransactionRecoveryQueryPort,
     OnlyProjectionReadyExecutionQueryPort,
     OnlyRuntimePersistenceStoreError,
 )
@@ -36,6 +37,7 @@ from onlyalpha.execution.transaction import (
     OnlyCommittedExecutionTransaction,
     OnlyExecutionTransactionCommitResult,
     OnlyPreparedExecutionTransaction,
+    OnlyStoredExecutionTransaction,
 )
 from onlyalpha.runtime.checkpoint.codec import (
     only_decode_replay_cursor,
@@ -76,6 +78,7 @@ class OnlyRuntimeCheckpointQueryPort(Protocol):
 class OnlyRuntimePersistenceStorePort(
     OnlyExecutionTransactionCommitPort,
     OnlyExecutionTransactionQueryPort,
+    OnlyExecutionTransactionRecoveryQueryPort,
     OnlyProjectionReadyExecutionQueryPort,
     OnlyExecutionProjectionStatePort,
     OnlyExecutionTransactionOutboxPort,
@@ -137,6 +140,7 @@ class OnlyInMemoryRuntimePersistenceStore:
     def __init__(self) -> None:
         self._lock = RLock()
         self._records: dict[tuple[OnlyRuntimeId, int], OnlyCommittedExecutionTransaction] = {}
+        self._prepared_records: dict[tuple[OnlyRuntimeId, int], OnlyPreparedExecutionTransaction] = {}
         self._by_transaction: dict[str, tuple[OnlyRuntimeId, int]] = {}
         self._by_trade: dict[
             tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyAccountId, OnlyTradeId], tuple[OnlyRuntimeId, int]
@@ -154,6 +158,7 @@ class OnlyInMemoryRuntimePersistenceStore:
         with self._lock:
             snapshots = (
                 dict(self._records),
+                dict(self._prepared_records),
                 dict(self._by_transaction),
                 dict(self._by_trade),
                 dict(self._by_update),
@@ -200,6 +205,7 @@ class OnlyInMemoryRuntimePersistenceStore:
                     for event_sequence, event in enumerate(prepared.outbox_events, start=1)
                 )
                 self._records[key] = transaction
+                self._prepared_records[key] = prepared
                 self._by_transaction[prepared.transaction_id] = key
                 self._by_trade[self._trade_key(prepared)] = key
                 self._by_update[self._update_key(prepared)] = key
@@ -210,6 +216,7 @@ class OnlyInMemoryRuntimePersistenceStore:
             except Exception as exc:
                 (
                     self._records,
+                    self._prepared_records,
                     self._by_transaction,
                     self._by_trade,
                     self._by_update,
@@ -261,6 +268,32 @@ class OnlyInMemoryRuntimePersistenceStore:
                 )
                 if item.execution_sequence > after_sequence and (runtime_id is None or item.runtime_id == runtime_id)
             )
+
+    def recovery_records(
+        self,
+        runtime_id: OnlyRuntimeId,
+        *,
+        after_sequence: int,
+    ) -> tuple[OnlyStoredExecutionTransaction, ...]:
+        with self._lock:
+            return tuple(
+                OnlyStoredExecutionTransaction(self._prepared_records[key], transaction)
+                for key, transaction in sorted(self._records.items(), key=lambda item: item[0][1])
+                if key[0] == runtime_id and transaction.execution_sequence > after_sequence
+            )
+
+    def get_recovery_record_by_update(
+        self,
+        runtime_id: OnlyRuntimeId,
+        gateway_id: OnlyBrokerGatewayId,
+        account_id: OnlyAccountId,
+        update_id: OnlyBrokerUpdateId,
+    ) -> OnlyStoredExecutionTransaction | None:
+        with self._lock:
+            key = self._by_update.get((runtime_id, gateway_id, account_id, update_id))
+            if key is None:
+                return None
+            return OnlyStoredExecutionTransaction(self._prepared_records[key], self._records[key])
 
     def ready_records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
@@ -680,6 +713,35 @@ class OnlySqliteRuntimePersistenceStore:
             ).fetchall()
         return tuple(self._decode_row(row) for row in rows)
 
+    def recovery_records(
+        self,
+        runtime_id: OnlyRuntimeId,
+        *,
+        after_sequence: int,
+    ) -> tuple[OnlyStoredExecutionTransaction, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM execution_transactions WHERE runtime_id=? AND execution_sequence>? "
+                "ORDER BY execution_sequence",
+                (str(runtime_id), after_sequence),
+            ).fetchall()
+        return tuple(self._decode_recovery_row(row) for row in rows)
+
+    def get_recovery_record_by_update(
+        self,
+        runtime_id: OnlyRuntimeId,
+        gateway_id: OnlyBrokerGatewayId,
+        account_id: OnlyAccountId,
+        update_id: OnlyBrokerUpdateId,
+    ) -> OnlyStoredExecutionTransaction | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM execution_transactions WHERE runtime_id=? AND gateway_id=? AND account_id=? "
+                "AND broker_update_id=?",
+                (str(runtime_id), str(gateway_id), str(account_id), str(update_id)),
+            ).fetchone()
+        return None if row is None else self._decode_recovery_row(row)
+
     def ready_records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
@@ -1041,6 +1103,9 @@ class OnlySqliteRuntimePersistenceStore:
                 raise
 
     def _decode_row(self, row: sqlite3.Row) -> OnlyCommittedExecutionTransaction:
+        return self._decode_recovery_row(row).committed
+
+    def _decode_recovery_row(self, row: sqlite3.Row) -> OnlyStoredExecutionTransaction:
         try:
             prepared_payload = str(row["prepared_payload"])
             prepared = only_decode_prepared_execution_transaction(prepared_payload)
@@ -1055,7 +1120,7 @@ class OnlySqliteRuntimePersistenceStore:
                 raise ValueError("prepared and committed authority hashes disagree")
             if transaction.prepared_payload_hash != prepared.payload_hash:
                 raise ValueError("prepared and committed payload hashes disagree")
-            return transaction
+            return OnlyStoredExecutionTransaction(prepared, transaction)
         except OnlyRuntimePersistenceStoreError:
             raise
         except Exception as exc:

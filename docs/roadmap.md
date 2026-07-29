@@ -96,9 +96,7 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。
 ## PR4.2 Runtime Checkpoint 与连续 Engine Restart
 
-已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、每 Bar 原子 checkpoint、完整 Participant Registry、精确
-MarketData cursor、Ready 前缀 rehydration、未投影后缀 Coordinator recovery、Open Order/Virtual Broker/Strategy/Factor/Indicator
-恢复，以及独立 Engine 多次连续重启和基线等价测试。Paper/Live recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、
+已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、完整 Bar completion 后原子 checkpoint、checkpointable Result Progress、完整 Participant Registry、精确 MarketData cursor、Broker Update 因果点 Ready rehydration/未投影 Coordinator recovery、Stored Prepared 全量验证、Open Order/Virtual Broker/Strategy/Factor/Indicator 恢复，以及独立 Engine 连续重启和 canonical business projection 基线等价测试。Paper/Live recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、
 Non-Trade Transaction、exactly-once Outbox、schema migration 与分布式 checkpoint 仍未完成。
 
 ## PR4.1 Projection Ready Query 与 Runtime Recovery（Historical）

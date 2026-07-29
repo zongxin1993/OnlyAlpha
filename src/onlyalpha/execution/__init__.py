@@ -11,6 +11,15 @@ from .authority_state import (
     only_settlement_execution_state,
     only_settlement_record_replay,
 )
+from .causal_recovery import (
+    OnlyExecutionRecoveryEntry,
+    OnlyExecutionRecoveryEntryState,
+    OnlyExecutionRecoveryError,
+    OnlyExecutionRecoveryPlan,
+    OnlyExecutionRecoveryPlanBuilder,
+    OnlyExecutionRecoveryResolution,
+    OnlyExecutionRecoverySession,
+)
 from .codec import (
     OnlyExecutionTransactionCodec,
     only_committed_execution_transaction_payload_hash,
@@ -103,6 +112,7 @@ from .persistence_ports import (
     OnlyExecutionTransactionOutboxPort,
     OnlyExecutionTransactionOutboxRecord,
     OnlyExecutionTransactionQueryPort,
+    OnlyExecutionTransactionRecoveryQueryPort,
     OnlyProjectionReadyExecutionQueryPort,
     OnlyRuntimePersistenceStoreError,
 )
@@ -117,7 +127,7 @@ from .planning_results import (
     OnlyTradeExecutionPlanningError,
     OnlyTradeExecutionPlanningErrorCode,
 )
-from .processor import OnlyExecutionProcessor
+from .processor import OnlyExecutionProcessingMode, OnlyExecutionProcessor
 from .projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
@@ -198,6 +208,7 @@ from .transaction import (
     OnlyExecutionPrecondition,
     OnlyExecutionTransactionCommitResult,
     OnlyPreparedExecutionTransaction,
+    OnlyStoredExecutionTransaction,
 )
 
 __all__ = [
@@ -232,6 +243,13 @@ __all__ = [
     "OnlyExecutionCommitCoordinationStatus",
     "OnlyExecutionCommitCoordinator",
     "OnlyExecutionRecoveryResult",
+    "OnlyExecutionRecoveryEntry",
+    "OnlyExecutionRecoveryEntryState",
+    "OnlyExecutionRecoveryError",
+    "OnlyExecutionRecoveryPlan",
+    "OnlyExecutionRecoveryPlanBuilder",
+    "OnlyExecutionRecoveryResolution",
+    "OnlyExecutionRecoverySession",
     "OnlyExecutionRecoveryService",
     "OnlyExecutionRecoveryStatus",
     "OnlyExecutionEventBatch",
@@ -253,6 +271,7 @@ __all__ = [
     "OnlyExecutionProcessingContext",
     "OnlyExecutionProcessingResult",
     "OnlyExecutionProcessingStatus",
+    "OnlyExecutionProcessingMode",
     "OnlyExecutionProcessor",
     "OnlyExecutionOutboxPublisher",
     "OnlyOutboxPublishResult",
@@ -294,6 +313,7 @@ __all__ = [
     "OnlyExecutionTransactionOutboxPort",
     "OnlyExecutionTransactionOutboxRecord",
     "OnlyExecutionTransactionQueryPort",
+    "OnlyExecutionTransactionRecoveryQueryPort",
     "OnlyFeeExecutionProjection",
     "OnlyAppliedProjectionLedger",
     "OnlyAppliedProjectionRecord",
@@ -309,6 +329,7 @@ __all__ = [
     "OnlyAllocationExecutionReplayMetadata",
     "OnlyPositionReservationExecutionProjection",
     "OnlyPreparedExecutionTransaction",
+    "OnlyStoredExecutionTransaction",
     "OnlyPlannedTrade",
     "OnlyProjectionApplyResult",
     "OnlyProjectionApplyStatus",

@@ -17,10 +17,10 @@ from onlyalpha.account.models import (
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.account.views import OnlyAccountQueryView
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
-from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
+from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue, OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
-from onlyalpha.broker.updates import OnlyBrokerConnectionUpdate, OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
+from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
 from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
@@ -68,6 +68,7 @@ from onlyalpha.domain.identifiers import (
     OnlyEngineId,
     OnlyInstrumentId,
     OnlyPositionId,
+    OnlyRuntimeId,
 )
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
@@ -75,6 +76,7 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.execution import OnlyExecutionRecoverySession
 from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
 from onlyalpha.execution.commit_coordinator import OnlyExecutionCommitCoordinator
 from onlyalpha.execution.delivery import (
@@ -172,7 +174,9 @@ from onlyalpha.risk.views import (
     OnlyInstrumentRiskMappingView,
     OnlyRiskSnapshotView,
 )
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor, OnlyCheckpointCapability, OnlyRuntimeCheckpoint
+from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayService
+from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion, OnlyBacktestResultProgress
+from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor, OnlyCheckpointCapability
 from onlyalpha.runtime.checkpoint.participant import (
     OnlyJsonRuntimeCheckpointParticipant,
     OnlyStatelessRuntimeCheckpointParticipant,
@@ -193,8 +197,6 @@ from onlyalpha.runtime.recovery.orchestrator import (
     OnlyRuntimeRecoveryDiagnostic,
     OnlyRuntimeRecoveryOrchestrator,
 )
-from onlyalpha.runtime.recovery.ready_tail_rehydration import OnlyExecutionReadyTailRehydrationService
-from onlyalpha.runtime.recovery.tail import OnlyExecutionTransactionTail
 from onlyalpha.runtime.runtime import (
     OnlyManagedBarDispatchExecutor,
     OnlyRuntime,
@@ -580,6 +582,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             {selected_calendar.calendar_id: selected_calendar},
         )
         market_data_audit_store = OnlyMarketDataAuditStore()
+        self._result_progress = OnlyBacktestResultProgress()
         market_data_deduplicator = OnlyMarketDataDeduplicator()
         market_data_sequence_tracker = OnlyMarketDataSequenceTracker()
         market_data_gap_detector = OnlyMarketDataGapDetector(self._market_calendars)
@@ -588,26 +591,18 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         def drain_execution_updates() -> None:
             for update in broker_inbound.drain():
-                if self._in_recovery_replay:
-                    if isinstance(update, OnlyBrokerConnectionUpdate):
-                        continue
-                    existing = persistence_store.get_by_update(
-                        update.runtime_id,
-                        update.gateway_id,
-                        update.account_id,
-                        update.update_id,
-                    )
-                    if existing is not None:
-                        if update.update_id in self._recovery_expected_update_ids:
-                            self._recovery_seen_update_ids.add(update.update_id)
-                            execution_processor.restore_processing_sequence(existing.fact.processing_sequence)
-                        continue
-                processing = execution_processor.process(update)
-                delivery = execution_delivery_coordinator.deliver(
-                    runtime_config.runtime_id,  # type: ignore[arg-type]
-                    processing.delivery_intent,
+                session = self._execution_recovery_session
+                processing = (
+                    execution_processor.process(update)
+                    if session is None
+                    else execution_processor.replay(update, session)
                 )
-                self._record_execution_delivery(processing.sequence, delivery)
+                if session is None:
+                    delivery = execution_delivery_coordinator.deliver(
+                        runtime_config.runtime_id,  # type: ignore[arg-type]
+                        processing.delivery_intent,
+                    )
+                    self._record_execution_delivery(processing.sequence, delivery)
                 self._broker_results.append(processing)
 
         self._drain_execution_updates_for_checkpoint = drain_execution_updates
@@ -644,8 +639,18 @@ class OnlyBacktestRuntime(OnlyRuntime):
             if deterministic_broker_driver is not None:
                 deterministic_broker_driver.run_due()
                 drain_execution_updates()
+
+        def after_market_processing(
+            update: OnlyMarketDataInboundUpdate,
+            result: OnlyMarketDataProcessingResult,
+        ) -> None:
+            completion = self._result_progress.observe_market_data_result(result, update)
             owned_bus.drain()
-            self._checkpoint_barrier(update)
+            if result.pipeline_result is not None and result.status in {
+                OnlyMarketDataProcessingStatus.APPLIED,
+                OnlyMarketDataProcessingStatus.GAP_DETECTED,
+            }:
+                self._checkpoint_barrier(completion)
 
         market_data_processor = OnlyMarketDataProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -661,6 +666,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             market_data_event_publisher,
             before_market_dispatch,
             after_market_dispatch,
+            after_market_processing,
         )
         historical_replay_service = OnlyHistoricalReplayService(clock, market_data_processor)
         self._services = OnlyRuntimeServices(
@@ -735,8 +741,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             None,
             0,
         )
-        self._recovery_source = recovery_source
-        self._recovery_request = recovery_request
         self._checkpoint_query = runtime_persistence_store
         self._checkpoint_registry = OnlyRuntimeCheckpointParticipantRegistry()
         self._checkpoint_registry.register(
@@ -745,6 +749,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 1,
                 self._capture_runtime_progress_checkpoint,
                 self._restore_runtime_progress_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "backtest.result-progress",
+                1,
+                self._result_progress.capture_checkpoint,
+                self._result_progress.restore_checkpoint,
             )
         )
         if persistence_config.checkpoint.enabled:
@@ -959,20 +971,24 @@ class OnlyBacktestRuntime(OnlyRuntime):
             outbox_port=runtime_persistence_store,
             retain_last=persistence_config.checkpoint.retain_last,
         )
+        self._execution_recovery_session: OnlyExecutionRecoverySession | None = None
+        recovery_replay = OnlyBacktestRecoveryReplayService(
+            source=recovery_source,
+            request=recovery_request,
+            source_registry=market_data_source_registry,
+            replay=historical_replay_service,
+            activate=self._activate_execution_recovery,
+            deactivate=self._deactivate_execution_recovery,
+        )
         self._runtime_recovery_orchestrator = OnlyRuntimeRecoveryOrchestrator(
             runtime_id=runtime_config.runtime_id,  # type: ignore[arg-type]
             config_fingerprint=config_fingerprint,
             participant_registry=self._checkpoint_registry,
             checkpoint_query=runtime_persistence_store,
             transaction_query=runtime_persistence_store,
-            ready_rehydration=OnlyExecutionReadyTailRehydrationService(execution_projection_applier),
-            execution_recovery=execution_recovery_service,
-            catch_up=self._recover_market_data_tail,
+            causal_replay=recovery_replay.run,
         )
         self._runtime_recovery_diagnostics: list[OnlyRuntimeRecoveryDiagnostic] = []
-        self._in_recovery_replay = False
-        self._recovery_expected_update_ids: set[OnlyBrokerUpdateId] = set()
-        self._recovery_seen_update_ids: set[OnlyBrokerUpdateId] = set()
         self._cluster_checkpoint_participants_registered = False
         resources = plugin_resources
         if resources:
@@ -990,6 +1006,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
         return self._replay_cursor
 
     @property
+    def result_progress(self) -> OnlyBacktestResultProgress:
+        return self._result_progress
+
+    @property
     def runtime_recovery_diagnostics(self) -> tuple[OnlyRuntimeRecoveryDiagnostic, ...]:
         return tuple(self._runtime_recovery_diagnostics)
 
@@ -998,19 +1018,53 @@ class OnlyBacktestRuntime(OnlyRuntime):
             return
         self._register_cluster_checkpoint_participants()
         self._checkpoint_query.bind_participant_registry_fingerprint(self._checkpoint_registry.fingerprint)
-        if self._checkpoint_query.latest_checkpoint(self.config.runtime_id) is not None:  # type: ignore[arg-type]
-            self._services.cluster_manager.start_all()
-            self._clusters_started = True
-        diagnostic = self._runtime_recovery_orchestrator.recover()
+        has_checkpoint = self._checkpoint_query.latest_checkpoint(self.config.runtime_id) is not None  # type: ignore[arg-type]
+        if has_checkpoint:
+            for update in self._services.broker_inbound.drain():
+                self._services.execution_processor.replay_non_transaction(update)
+            self._services.cluster_manager.enter_recovery_all()
+        try:
+            diagnostic = self._runtime_recovery_orchestrator.recover()
+        except Exception as exc:
+            if has_checkpoint:
+                self._services.cluster_manager.fail_recovery_all(exc)
+            raise
         if diagnostic is None:
-            self._drain_execution_updates_for_checkpoint()
-            self._services.event_bus.drain()
-            self._checkpoint_service.create(
-                self._replay_cursor,
-                OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
-            )
             return
         self._runtime_recovery_diagnostics.append(diagnostic)
+        self._services.cluster_manager.complete_recovery_all()
+        self._clusters_recovered = True
+        self._validate_post_recovery_authority(diagnostic)
+        self._checkpoint_service.create(
+            self._replay_cursor,
+            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+        )
+
+    def _validate_post_recovery_authority(self, diagnostic: OnlyRuntimeRecoveryDiagnostic) -> None:
+        runtime_id = self.config.runtime_id
+        if runtime_id is None:
+            raise OnlyRuntimeError("post-recovery authority validation requires Runtime identity")
+        records = self._services.execution_transaction_query.records(OnlyRuntimeId(str(runtime_id)))
+        sequences = tuple(item.execution_sequence for item in records)
+        if sequences != tuple(range(1, len(records) + 1)):
+            raise OnlyRuntimeError("POST_RECOVERY_TRANSACTION_SEQUENCE_GAP")
+        if any(not item.projection_ready for item in records):
+            raise OnlyRuntimeError("POST_RECOVERY_UNPROJECTED_TRANSACTION")
+        if sequences and sequences[-1] != diagnostic.final_ready_sequence:
+            raise OnlyRuntimeError("POST_RECOVERY_READY_SEQUENCE_MISMATCH")
+        if len(self._services.broker_inbound) or len(self._services.market_data_inbound):
+            raise OnlyRuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")
+        progress = self._result_progress.snapshot()
+        if progress.last_market_processing_sequence < self._replay_cursor.processed_bar_count:
+            raise OnlyRuntimeError("POST_RECOVERY_RESULT_PROGRESS_BEHIND_CURSOR")
+
+    def _after_clusters_started(self) -> None:
+        if not self._persistence_config.checkpoint.enabled:
+            return
+        if self._checkpoint_query.latest_checkpoint(self.config.runtime_id) is not None:  # type: ignore[arg-type]
+            return
+        self._drain_execution_updates_for_checkpoint()
+        self._services.event_bus.drain()
         self._checkpoint_service.create(
             self._replay_cursor,
             OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
@@ -1107,20 +1161,20 @@ class OnlyBacktestRuntime(OnlyRuntime):
             )
         self._cluster_checkpoint_participants_registered = True
 
-    def _checkpoint_barrier(self, update: OnlyMarketDataInboundUpdate) -> None:
+    def _checkpoint_barrier(self, completion: OnlyBacktestBarCompletion) -> None:
         if self._persistence_config.checkpoint.enabled and (
             len(self._services.broker_inbound) or len(self._services.market_data_inbound)
         ):
             raise OnlyRuntimeError("checkpoint barrier requires empty inbound queues")
         self._replay_cursor = OnlyBacktestReplayCursor(
-            update.source_id,
-            update.data_version,
-            update.update_id,
-            int(update.source_sequence),
-            update.ts_event,
-            self._replay_cursor.processed_bar_count + 1,
+            completion.source_id,
+            completion.data_version,
+            completion.update_id,
+            completion.source_sequence,
+            completion.ts_event,
+            self._result_progress.snapshot().processed_bar_count,
         )
-        if not self._persistence_config.checkpoint.enabled or self._in_recovery_replay:
+        if not self._persistence_config.checkpoint.enabled or self._execution_recovery_session is not None:
             return
         self._checkpoint_service.create(
             self._replay_cursor,
@@ -1240,72 +1294,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
             if isinstance(item, list) and len(item) == 2
         }
 
-    def _recover_market_data_tail(
-        self,
-        checkpoint: OnlyRuntimeCheckpoint,
-        tail: OnlyExecutionTransactionTail,
-    ) -> int:
-        if self._recovery_source is None or self._recovery_request is None:
-            raise OnlyRuntimeError("Recovery replay source is unavailable")
-        if not self._services.market_data_source_registry.contains(self._recovery_source.source_id):
-            self._services.market_data_source_registry.register(self._recovery_source)
-        stream = self._recovery_source.load_bars(self._recovery_request)
-        cursor = checkpoint.header.replay_cursor
-        if cursor.last_update_id is None:
-            remaining = stream.records
-        else:
-            matched = tuple(
-                index
-                for index, item in enumerate(stream.records)
-                if item.update_id == cursor.last_update_id
-                and int(item.source_sequence) == cursor.last_source_sequence
-                and item.source_id == cursor.source_id
-                and item.data_version == cursor.data_version
-            )
-            if len(matched) != 1:
-                raise OnlyRuntimeError("recovery replay cursor identity is absent or ambiguous")
-            remaining = stream.records[matched[0] + 1 :]
-        self._recovery_expected_update_ids = {
-            transaction.fact.broker_update_id for transaction in (*tail.ready_prefix, *tail.unprojected_suffix)
-        }
-        self._recovery_seen_update_ids.clear()
-        processed = 0
-        resolved = False
-        self._in_recovery_replay = True
-        try:
-            for record in remaining:
-                replay = self._services.historical_replay_service.prepare(
-                    OnlyHistoricalReplayConfig(
-                        (OnlyHistoricalDataStream((record,), 1),),
-                        source_priority=(self._recovery_source.source_id,),
-                    )
-                )
-                result = self._services.historical_replay_service.run(replay)
-                if result.failed or result.rejected:
-                    failures = tuple(
-                        (
-                            event.result.status.value,
-                            event.result.validation.reasons,
-                            None
-                            if event.result.failure is None
-                            else (event.result.failure.error_type, event.result.failure.message),
-                        )
-                        for event in result.events
-                        if event.result.status
-                        in {OnlyMarketDataProcessingStatus.FAILED, OnlyMarketDataProcessingStatus.REJECTED}
-                    )
-                    raise OnlyRuntimeError(f"recovery MarketData replay failed: {failures}")
-                processed += result.processed
-                if self._recovery_seen_update_ids == self._recovery_expected_update_ids:
-                    resolved = True
-                    break
-        finally:
-            self._in_recovery_replay = False
-            self._recovery_expected_update_ids.clear()
-            self._recovery_seen_update_ids.clear()
-        if not resolved:
-            raise OnlyRuntimeError("recovery replay did not resolve every transaction-tail Broker update")
-        return processed
+    def _activate_execution_recovery(self, session: OnlyExecutionRecoverySession) -> None:
+        if self._execution_recovery_session is not None:
+            raise OnlyRuntimeError("execution recovery session is already active")
+        self._execution_recovery_session = session
+
+    def _deactivate_execution_recovery(self) -> None:
+        self._execution_recovery_session = None
 
     def register_instrument(
         self,
@@ -2138,8 +2133,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         cluster_id: OnlyClusterId,
         snapshot: OnlyMarketDataSnapshot,
     ) -> None:
-        if self._in_recovery_replay:
-            return
         self._services.risk_service.update_pre_decision_state(
             OnlyRiskStateUpdateContext(
                 self.config.runtime_id,  # type: ignore[arg-type]

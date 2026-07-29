@@ -5,6 +5,7 @@ from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.persistence.factory import (
     OnlyDefaultRuntimePersistenceStoreFactory,
@@ -96,6 +97,7 @@ def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
     assert recovered_runtime.facts == baseline_runtime.facts
     assert recovered_runtime.determinism_fingerprint == baseline_runtime.determinism_fingerprint
     assert recovered_runtime.result_fingerprint == baseline_runtime.result_fingerprint
+    assert only_backtest_business_projection(recovered_runtime) == only_backtest_business_projection(baseline_runtime)
 
     reopened = OnlySqliteRuntimePersistenceStore(path)
     assert reopened.ready_count(runtime_id) == 1

@@ -191,6 +191,7 @@ class OnlyMarketDataProcessor:
         event_publisher: OnlyMarketDataEventPublisher,
         before_dispatch: Callable[[OnlyMarketDataUpdateResult], None] | None = None,
         after_dispatch: Callable[[OnlyMarketDataInboundUpdate], None] | None = None,
+        after_processing: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._clock = clock
@@ -205,6 +206,7 @@ class OnlyMarketDataProcessor:
         self._event_publisher = event_publisher
         self._before_dispatch = before_dispatch or (lambda result: None)
         self._after_dispatch = after_dispatch or (lambda update: None)
+        self._after_processing = after_processing or (lambda update, result: None)
         self._sequence = 0
 
     def capture_checkpoint(self) -> object:
@@ -315,4 +317,5 @@ class OnlyMarketDataProcessor:
             )
         )
         self._event_publisher.publish(f"MARKET_DATA_{status.value}", update.update_id, self._sequence)
+        self._after_processing(update, result)
         return result

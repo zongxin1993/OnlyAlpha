@@ -536,6 +536,7 @@ class OnlyRuntime:
         self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
         self._runtime_persistence_store: OnlyRuntimePersistenceStorePort | None = None
         self._clusters_started = False
+        self._clusters_recovered = False
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
         self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
@@ -907,9 +908,14 @@ class OnlyRuntime:
                     "recovered execution Outbox delivery failed: "
                     f"failed={outbox.failed} remaining={outbox.remaining} error={outbox.last_error!r}"
                 )
-            if not self._clusters_started:
+            if self._clusters_recovered:
+                self._services.cluster_manager.resume_recovered_all()
+                self._clusters_started = True
+                self._clusters_recovered = False
+            elif not self._clusters_started:
                 self._services.cluster_manager.start_all()
                 self._clusters_started = True
+            self._after_clusters_started()
         except OnlyRuntimeOutboxDeliveryError:
             self._rollback_plugin_resources(self._plugin_resources)
             self._state = OnlyRuntimeState.FAILED
@@ -927,6 +933,9 @@ class OnlyRuntime:
         self._state = OnlyRuntimeState.RUNNING
         self._publish_runtime_fact("RUNTIME_STARTED")
         self._services.event_bus.drain()
+
+    def _after_clusters_started(self) -> None:
+        """Concrete Runtime hook for a stable post-start boundary."""
 
     def pause(self) -> None:
         if self._state is not OnlyRuntimeState.RUNNING:

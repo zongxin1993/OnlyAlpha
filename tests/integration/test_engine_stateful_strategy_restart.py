@@ -2,6 +2,7 @@ from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.result import only_backtest_business_projection
 from tests.integration.test_engine_continuous_restart import (
     _sqlite_config,
     only_assert_engine_restart_equivalence,
@@ -20,4 +21,6 @@ def test_stateful_macd_strategy_factor_and_indicator_restart(tmp_path: Path) -> 
     baseline_result = baseline.run()
     assert baseline_result.status == "COMPLETED"
     assert result_c.runtime_results[0].facts.signals == baseline_result.runtime_results[0].facts.signals
-    assert result_c.runtime_results[0].result_fingerprint == baseline_result.runtime_results[0].result_fingerprint
+    recovered_projection = only_backtest_business_projection(result_c.runtime_results[0])
+    baseline_projection = only_backtest_business_projection(baseline_result.runtime_results[0])
+    assert recovered_projection == baseline_projection

@@ -17,6 +17,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.models import OnlyExecutionProcessingResult
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
+from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.result.fingerprint import only_result_fingerprint
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
@@ -62,18 +63,21 @@ class OnlyBacktestRunPlan:
         generated = self._source.load_bars(request)
         replay = runtime.replay_historical_bars(self._source, request)
         runtime.drain_broker_inbound()
+        progress = runtime.result_progress.snapshot()
         status = (
             OnlyBacktestStatus.FAILED
             if replay.failed
             or replay.rejected
+            or progress.failed_count
+            or progress.rejected_count
             or any(cluster.state is OnlyClusterState.FAILED for cluster in self._clusters)
             else OnlyBacktestStatus.COMPLETED
         )
         return self._build_result(
             len(generated.records),
-            runtime.replay_cursor.processed_bar_count,
-            replay.duplicate,
-            replay.gap_detected,
+            progress.processed_bar_count,
+            progress.duplicate_count,
+            progress.gap_detected_count,
             status,
         )
 
@@ -183,11 +187,7 @@ class OnlyBacktestRunPlan:
         )
         if reconciliation.status is OnlyRuntimeLedgerReconciliationStatus.MISMATCHED:
             status = OnlyBacktestStatus.FAILED
-        quality = tuple(
-            sorted(
-                {flag.value for record in runtime.market_data_audit_store.records() for flag in record.quality_flags}
-            )
-        )
+        quality = runtime.result_progress.snapshot().quality_flags
         collected = self._collector.seal(runtime, self._clusters)
         result = OnlyBacktestResult(
             OnlyBacktestRunSummary(
@@ -227,45 +227,12 @@ class OnlyBacktestRunPlan:
             collected.facts,
             collected.diagnostics,
         )
-        projection = {
-            "runtime_id": result.runtime_id,
-            "data_source_id": result.data.data_source_id,
-            "data_version": result.data.data_version,
-            "final_positions": result.final_positions,
-            "final_allocations": result.final_allocations,
-            "final_ledgers": result.final_ledgers,
-            "final_account": result.final_account,
-            "orders": result.orders,
-            "trades": result.trades,
-            "runtime_performance": result.runtime_performance,
-            "cluster_performance": tuple(item.performance for item in result.cluster_results),
-            "account_equity_timeline": result.account_equity_timeline,
-            "cluster_equity_timelines": result.cluster_equity_timelines,
-            "reconciliation": result.reconciliation,
-            "invariant_results": result.invariant_results,
-            "facts": result.facts,
-        }
-        fingerprint = only_result_fingerprint(projection)
-        result = replace(result, determinism_fingerprint=fingerprint)
-        result_fingerprint = only_result_fingerprint(
-            {
-                "facts": result.facts,
-                "final_positions": result.final_positions,
-                "final_allocations": result.final_allocations,
-                "final_ledgers": result.final_ledgers,
-                "final_account": result.final_account,
-                "account_equity_timeline": result.account_equity_timeline,
-                "cluster_equity_timelines": result.cluster_equity_timelines,
-                "reconciliation": result.reconciliation,
-                "diagnostics": replace(result.diagnostics, execution_recoveries=()),
-            }
-        )
-        return replace(result, result_fingerprint=result_fingerprint)
+        fingerprint = only_result_fingerprint(only_backtest_business_projection(result))
+        return replace(result, determinism_fingerprint=fingerprint, result_fingerprint=fingerprint)
 
     @staticmethod
     def _factor_snapshots(cluster: OnlyCluster) -> tuple[OnlyFactorSnapshot, ...]:
-        result = cluster.last_pipeline_result
-        return () if result is None else result.factor_snapshots
+        return tuple(factor.snapshot() for factor in cluster.factors)
 
     def _invariants(
         self,

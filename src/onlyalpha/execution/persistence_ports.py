@@ -14,6 +14,7 @@ from .transaction import (
     OnlyCommittedExecutionTransaction,
     OnlyExecutionTransactionCommitResult,
     OnlyPreparedExecutionTransaction,
+    OnlyStoredExecutionTransaction,
 )
 
 
@@ -76,6 +77,23 @@ class OnlyExecutionTransactionQueryPort(Protocol):
     def records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
+
+
+class OnlyExecutionTransactionRecoveryQueryPort(Protocol):
+    def recovery_records(
+        self,
+        runtime_id: OnlyRuntimeId,
+        *,
+        after_sequence: int,
+    ) -> tuple[OnlyStoredExecutionTransaction, ...]: ...
+
+    def get_recovery_record_by_update(
+        self,
+        runtime_id: OnlyRuntimeId,
+        gateway_id: OnlyBrokerGatewayId,
+        account_id: OnlyAccountId,
+        update_id: OnlyBrokerUpdateId,
+    ) -> OnlyStoredExecutionTransaction | None: ...
 
 
 class OnlyProjectionReadyExecutionQueryPort(Protocol):

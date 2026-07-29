@@ -9,16 +9,11 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.cluster.base import OnlyCluster
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
-from onlyalpha.market_data.dispatcher import OnlyBarDispatchResult
 from onlyalpha.result.diagnostics import (
     OnlyBacktestDiagnostics,
-    OnlyBacktestFailure,
-    OnlyResultDiagnosticSeverity,
-    OnlyResultFailureStage,
 )
 from onlyalpha.result.records import (
     OnlyAccountResultRecord,
@@ -79,7 +74,7 @@ class OnlyBacktestResultCollector:
     ) -> OnlyCollectedBacktestFacts:
         if self._lifecycle is not OnlyResultCollectorLifecycle.STARTED:
             raise OnlyResultCollectorError("collector must be started before seal")
-        sequence = max((int(item.event.sequence) for item in runtime.event_bus.dispatch_results), default=0)
+        sequence = 0
 
         def next_sequence() -> int:
             nonlocal sequence
@@ -329,67 +324,7 @@ class OnlyBacktestResultCollector:
             )
             for item in runtime.fee_manager.records
         )
-        failures: list[OnlyBacktestFailure] = []
-        for audit in runtime.market_data_audit_store.records():
-            if audit.failure is None and audit.status is not OnlyMarketDataProcessingStatus.REJECTED:
-                continue
-            sequence += 1
-            if audit.failure is None:
-                exception_type = "OnlyMarketDataValidationError"
-                message = "; ".join(audit.validation_reasons) or "market data rejected"
-            else:
-                exception_type, separator, message = audit.failure.partition(": ")
-                if not separator:
-                    exception_type, message = "OnlyMarketDataProcessingError", audit.failure
-            stable_identity = (
-                f"{audit.runtime_id}:{audit.processing_sequence}:{audit.update_id}:{exception_type}:{message}"
-            )
-            failures.append(
-                OnlyBacktestFailure(
-                    failure_id=hashlib.sha256(stable_identity.encode("utf-8")).hexdigest(),
-                    sequence=sequence,
-                    severity=OnlyResultDiagnosticSeverity.ERROR,
-                    stage=OnlyResultFailureStage.MARKET_DATA_PIPELINE,
-                    exception_type=exception_type,
-                    message=message,
-                    ts_event=audit.ts_event.to_datetime(),
-                    trading_day=audit.ts_event.to_datetime().date(),
-                    runtime_id=str(audit.runtime_id),
-                    source_id=str(audit.source_id),
-                    instrument_id=str(audit.instrument_id),
-                )
-            )
-        for replay_event in runtime.historical_replay_service.events:
-            for dispatch in replay_event.result.dispatches:
-                if not isinstance(dispatch, OnlyBarDispatchResult):
-                    continue
-                if dispatch.error_message is None:
-                    continue
-                sequence += 1
-                exception_type, separator, message = dispatch.error_message.partition(": ")
-                if not separator:
-                    exception_type, message = "OnlyStrategyCallbackError", dispatch.error_message
-                update = replay_event.update
-                stable_identity = (
-                    f"{update.runtime_id}:{dispatch.cluster_id}:{replay_event.index}:{exception_type}:{message}"
-                )
-                failures.append(
-                    OnlyBacktestFailure(
-                        failure_id=hashlib.sha256(stable_identity.encode("utf-8")).hexdigest(),
-                        sequence=sequence,
-                        severity=OnlyResultDiagnosticSeverity.ERROR,
-                        stage=OnlyResultFailureStage.STRATEGY,
-                        exception_type=exception_type,
-                        message=message,
-                        ts_event=update.ts_event.to_datetime(),
-                        trading_day=update.ts_event.to_datetime().date(),
-                        runtime_id=str(update.runtime_id),
-                        cluster_id=str(dispatch.cluster_id),
-                        source_id=str(update.source_id),
-                        instrument_id=str(update.instrument_id),
-                        bar_type=None if update.bar_type is None else update.bar_type.to_json(),
-                    )
-                )
+        failures = list(runtime.result_progress.snapshot().business_failures)
         diagnostics = OnlyBacktestDiagnostics(
             tuple(failures),
             (),

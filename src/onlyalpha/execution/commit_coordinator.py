@@ -124,6 +124,54 @@ class OnlyExecutionCommitCoordinator:
                 break
         return tuple(results)
 
+    def rehydrate_existing(
+        self,
+        transaction: OnlyCommittedExecutionTransaction,
+        *,
+        projected_at: OnlyTimestamp,
+    ) -> OnlyExecutionCommitCoordinationResult:
+        """Reapply a durable Ready transaction without changing Store or Outbox state."""
+
+        try:
+            current = self._query_port.get_by_sequence(transaction.runtime_id, transaction.execution_sequence)
+            if current is None or current != transaction or not current.projection_ready:
+                return self._result(
+                    OnlyExecutionCommitCoordinationStatus.TRANSACTION_CONFLICT,
+                    transaction=transaction,
+                    error="recovery Ready transaction does not match durable Store authority",
+                )
+            projection_result = self._projection_applier.apply(current)
+        except (AssertionError, OnlyRuntimePersistenceStoreError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            return self._result(
+                OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED,
+                transaction=transaction,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        if projection_result.status is OnlyExecutionProjectionBatchStatus.FAILED:
+            failed = projection_result.failed_projection
+            return self._result(
+                OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED,
+                transaction=current,
+                projection_result=projection_result,
+                failure_component=None if failed is None else failed.identity.component,
+                error=projection_result.error or "recovery projection batch failed",
+            )
+        return self._result(
+            OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
+            transaction=current,
+            projection_result=projection_result,
+        )
+
+    def recover_existing(
+        self,
+        transaction: OnlyCommittedExecutionTransaction,
+        *,
+        projected_at: OnlyTimestamp,
+    ) -> OnlyExecutionCommitCoordinationResult:
+        """Forward-recover one durable unprojected transaction at its causal update point."""
+
+        return self._coordinate(transaction, transaction_inserted=False, projected_at=projected_at)
+
     def _coordinate(
         self,
         transaction: OnlyCommittedExecutionTransaction,

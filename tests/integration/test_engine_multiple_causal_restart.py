@@ -1,0 +1,47 @@
+from pathlib import Path
+
+from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.result import only_backtest_business_projection
+from onlyalpha.runtime.defaults import only_default_engine_services
+from tests.integration.test_engine_continuous_restart import (
+    OnlyFaultInjectingRuntimePersistenceStoreFactory,
+    _sqlite_config,
+)
+
+
+def test_engine_a_b_c_restarts_preserve_complete_business_result(tmp_path: Path) -> None:
+    config = _sqlite_config()
+    engine_id = OnlyEngineId("three-causal-restarts")
+
+    engine_a = OnlyEngine(
+        OnlyEngineConfig(engine_id, tmp_path),
+        services=only_default_engine_services(
+            runtime_persistence_store_factory=OnlyFaultInjectingRuntimePersistenceStoreFactory()
+        ),
+    )
+    engine_a.add_cluster(config)
+    assert engine_a.run().status == "FAILED"
+
+    engine_b = OnlyEngine(
+        OnlyEngineConfig(engine_id, tmp_path),
+        services=only_default_engine_services(
+            runtime_persistence_store_factory=OnlyFaultInjectingRuntimePersistenceStoreFactory()
+        ),
+    )
+    engine_b.add_cluster(config)
+    result_b = engine_b.run()
+
+    engine_c = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
+    engine_c.add_cluster(config)
+    result_c = engine_c.run()
+    assert result_c.status == "COMPLETED"
+
+    baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
+    baseline.add_cluster(config)
+    baseline_result = baseline.run()
+    assert baseline_result.status == "COMPLETED"
+    assert only_backtest_business_projection(result_c.runtime_results[0]) == only_backtest_business_projection(
+        baseline_result.runtime_results[0]
+    )
+    assert result_b.status == "FAILED"

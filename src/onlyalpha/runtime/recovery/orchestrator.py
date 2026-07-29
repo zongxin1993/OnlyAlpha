@@ -1,4 +1,4 @@
-"""Runtime lifecycle orchestrator for checkpoint plus execution-tail recovery."""
+"""Runtime lifecycle orchestrator for checkpoint plus causal execution-tail recovery."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.execution import OnlyExecutionRecoveryService
-from onlyalpha.execution.persistence_ports import OnlyExecutionTransactionQueryPort
+from onlyalpha.execution import (
+    OnlyExecutionRecoveryPlanBuilder,
+    OnlyExecutionRecoverySession,
+    OnlyExecutionTransactionRecoveryQueryPort,
+)
 from onlyalpha.runtime.checkpoint.codec import only_validate_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import OnlyCheckpointRestoreContext, OnlyRuntimeCheckpoint
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.persistence.store import OnlyRuntimeCheckpointQueryPort
-
-from .ready_tail_rehydration import OnlyExecutionReadyTailRehydrationService
-from .tail import OnlyExecutionTransactionTail, OnlyExecutionTransactionTailAnalyzer
 
 
 class OnlyRuntimeRecoveryStatus(StrEnum):
@@ -48,19 +48,15 @@ class OnlyRuntimeRecoveryOrchestrator:
         config_fingerprint: str,
         participant_registry: OnlyRuntimeCheckpointParticipantRegistry,
         checkpoint_query: OnlyRuntimeCheckpointQueryPort,
-        transaction_query: OnlyExecutionTransactionQueryPort,
-        ready_rehydration: OnlyExecutionReadyTailRehydrationService,
-        execution_recovery: OnlyExecutionRecoveryService,
-        catch_up: Callable[[OnlyRuntimeCheckpoint, OnlyExecutionTransactionTail], int],
+        transaction_query: OnlyExecutionTransactionRecoveryQueryPort,
+        causal_replay: Callable[[OnlyRuntimeCheckpoint, OnlyExecutionRecoverySession], int],
     ) -> None:
         self._runtime_id = runtime_id
         self._config_fingerprint = config_fingerprint
         self._registry = participant_registry
         self._checkpoint_query = checkpoint_query
-        self._tail = OnlyExecutionTransactionTailAnalyzer(transaction_query)
-        self._ready_rehydration = ready_rehydration
-        self._execution_recovery = execution_recovery
-        self._catch_up = catch_up
+        self._plan_builder = OnlyExecutionRecoveryPlanBuilder(transaction_query)
+        self._causal_replay = causal_replay
 
     def recover(self) -> OnlyRuntimeRecoveryDiagnostic | None:
         checkpoint = self._checkpoint_query.latest_checkpoint(self._runtime_id)
@@ -75,35 +71,22 @@ class OnlyRuntimeRecoveryOrchestrator:
             checkpoint.components,
             OnlyCheckpointRestoreContext(self._runtime_id, checkpoint.header.replay_cursor),
         )
-        tail = self._tail.analyze(
+        plan = self._plan_builder.build(
             self._runtime_id,
             checkpoint_sequence=checkpoint.header.checkpoint_sequence,
             covered_execution_sequence=checkpoint.header.covered_execution_sequence,
         )
-        catch_up_count = self._catch_up(checkpoint, tail) if tail.ready_prefix or tail.unprojected_suffix else 0
-        if catch_up_count:
-            tail = self._tail.analyze(
-                self._runtime_id,
-                checkpoint_sequence=checkpoint.header.checkpoint_sequence,
-                covered_execution_sequence=checkpoint.header.covered_execution_sequence,
-            )
-        rehydrated = self._ready_rehydration.rehydrate(tail.ready_prefix)
-        recovered_result = self._execution_recovery.recover(self._runtime_id)
-        if not recovered_result.succeeded:
-            raise RuntimeError(
-                "UNPROJECTED_TAIL_RECOVERY_FAILED: "
-                f"sequence={recovered_result.failed_sequence} "
-                f"component={recovered_result.failure_component} "
-                f"error={recovered_result.error}"
-            )
-        final_ready = (
-            checkpoint.header.covered_execution_sequence + rehydrated + recovered_result.completed_transactions
-        )
+        session = OnlyExecutionRecoverySession(plan)
+        catch_up_count = self._causal_replay(checkpoint, session) if plan.entries else 0
+        session.require_complete()
+        ready_count = sum(item.state.value == "READY" for item in plan.entries)
+        unprojected_count = len(plan.entries) - ready_count
+        final_ready = checkpoint.header.covered_execution_sequence + len(plan.entries)
         status = (
             OnlyRuntimeRecoveryStatus.RESTORED_AND_RECOVERED
-            if tail.unprojected_suffix
+            if unprojected_count
             else OnlyRuntimeRecoveryStatus.RESTORED_AND_REHYDRATED
-            if tail.ready_prefix
+            if ready_count
             else OnlyRuntimeRecoveryStatus.RESTORED
         )
         return OnlyRuntimeRecoveryDiagnostic(
@@ -111,10 +94,10 @@ class OnlyRuntimeRecoveryOrchestrator:
             checkpoint.header.checkpoint_sequence,
             checkpoint.header.covered_execution_sequence,
             len(checkpoint.components),
-            len(tail.ready_prefix),
-            rehydrated,
-            len(tail.unprojected_suffix),
-            recovered_result.completed_transactions,
+            ready_count,
+            session.ready_rehydrated_count,
+            unprojected_count,
+            session.unprojected_recovered_count,
             final_ready,
             checkpoint.header.pending_outbox_count,
             catch_up_count,

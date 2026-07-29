@@ -42,6 +42,8 @@ class OnlyClusterState(StrEnum):
     CREATED = "CREATED"
     LOADED = "LOADED"
     INITIALIZED = "INITIALIZED"
+    RECOVERING = "RECOVERING"
+    RECOVERED = "RECOVERED"
     STARTING = "STARTING"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
@@ -200,6 +202,12 @@ class OnlyCluster:
         for factor in self.factors:
             factor.on_start()
         self.strategy.on_start()
+
+    def on_recovery_enter(self) -> None:
+        """Enter deterministic replay without repeating ordinary start side effects."""
+
+    def on_recovery_complete(self) -> None:
+        """Finish restored replay before Runtime becomes externally ready."""
 
     def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
         if self._pipeline is None:

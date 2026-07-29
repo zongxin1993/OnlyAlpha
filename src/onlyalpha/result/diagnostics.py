@@ -79,6 +79,17 @@ class OnlyBacktestWarning:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyBacktestBusinessDiagnostics:
+    failures: tuple[OnlyBacktestFailure, ...] = ()
+    warnings: tuple[OnlyBacktestWarning, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestOperationalDiagnostics:
+    execution_recoveries: tuple[OnlyExecutionRecoveryResult, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyBacktestDiagnostics:
     failures: tuple[OnlyBacktestFailure, ...] = ()
     warnings: tuple[OnlyBacktestWarning, ...] = ()
@@ -101,3 +112,11 @@ class OnlyBacktestDiagnostics:
     @property
     def first_failure(self) -> OnlyBacktestFailure | None:
         return self.failures[0] if self.failures else None
+
+    @property
+    def business(self) -> OnlyBacktestBusinessDiagnostics:
+        return OnlyBacktestBusinessDiagnostics(self.failures, self.warnings)
+
+    @property
+    def operational(self) -> OnlyBacktestOperationalDiagnostics:
+        return OnlyBacktestOperationalDiagnostics(self.execution_recoveries)

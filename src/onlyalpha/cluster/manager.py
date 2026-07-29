@@ -103,6 +103,43 @@ class OnlyClusterManager:
         for cluster_id in sorted(self._clusters, key=str):
             self.start(cluster_id)
 
+    def enter_recovery_all(self) -> None:
+        for cluster_id in sorted(self._clusters, key=str):
+            managed = self._clusters[cluster_id]
+            self._require_state(managed, {OnlyClusterState.INITIALIZED}, "enter recovery")
+            self._transition(managed, OnlyClusterState.RECOVERING)
+            try:
+                managed.cluster.on_recovery_enter()
+            except Exception as exc:
+                self._fail(managed, cluster_id, "on_recovery_enter", exc)
+                self._cleanup(cluster_id)
+                raise OnlyClusterError(f"Cluster recovery entry failed: {cluster_id}") from exc
+
+    def complete_recovery_all(self) -> None:
+        for cluster_id in sorted(self._clusters, key=str):
+            managed = self._clusters[cluster_id]
+            self._require_state(managed, {OnlyClusterState.RECOVERING}, "complete recovery")
+            try:
+                managed.cluster.on_recovery_complete()
+            except Exception as exc:
+                self._fail(managed, cluster_id, "on_recovery_complete", exc)
+                self._cleanup(cluster_id)
+                raise OnlyClusterError(f"Cluster recovery completion failed: {cluster_id}") from exc
+            self._transition(managed, OnlyClusterState.RECOVERED)
+
+    def resume_recovered_all(self) -> None:
+        for cluster_id in sorted(self._clusters, key=str):
+            managed = self._clusters[cluster_id]
+            self._require_state(managed, {OnlyClusterState.RECOVERED}, "resume recovered")
+            self._transition(managed, OnlyClusterState.RUNNING)
+
+    def fail_recovery_all(self, error: Exception) -> None:
+        for cluster_id in reversed(sorted(self._clusters, key=str)):
+            managed = self._clusters[cluster_id]
+            if managed.state is OnlyClusterState.RECOVERING:
+                self._fail(managed, cluster_id, "recovery", error)
+                self._cleanup(cluster_id)
+
     def start(self, cluster_id: OnlyClusterId) -> None:
         managed = self._require(cluster_id)
         if managed.state is OnlyClusterState.FAILED:
@@ -145,6 +182,8 @@ class OnlyClusterManager:
             managed,
             {
                 OnlyClusterState.INITIALIZED,
+                OnlyClusterState.RECOVERING,
+                OnlyClusterState.RECOVERED,
                 OnlyClusterState.RUNNING,
                 OnlyClusterState.PAUSED,
                 OnlyClusterState.FAILED,
@@ -177,7 +216,7 @@ class OnlyClusterManager:
         snapshot: OnlyMarketDataSnapshot,
     ) -> OnlyClusterExecutionResult:
         managed = self._require(cluster_id)
-        if managed.state is not OnlyClusterState.RUNNING or managed.context is None:
+        if managed.state not in {OnlyClusterState.RUNNING, OnlyClusterState.RECOVERING} or managed.context is None:
             return OnlyClusterExecutionResult(cluster_id, "on_bar", False, True)
         try:
             managed.cluster.on_bar(bar, OnlyBarContext(snapshot, managed.context))
@@ -196,7 +235,7 @@ class OnlyClusterManager:
 
     def execute_timer(self, cluster_id: OnlyClusterId, event: OnlyTimerEvent) -> OnlyClusterExecutionResult:
         managed = self._require(cluster_id)
-        if managed.state is not OnlyClusterState.RUNNING or managed.context is None:
+        if managed.state not in {OnlyClusterState.RUNNING, OnlyClusterState.RECOVERING} or managed.context is None:
             return OnlyClusterExecutionResult(cluster_id, "on_timer", False, True)
         try:
             managed.cluster.on_timer(OnlyTimerContext(event, managed.context))

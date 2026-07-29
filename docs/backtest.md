@@ -29,7 +29,7 @@ HistoricalDataSource → HistoricalReplayService → BacktestClock → MarketDat
 
 其中受支持的 Generic T0 Cash LIMIT BUY OPEN 整单成交细化为 `Pure Planner → Prepared Transaction → durable Transaction Store commit → ordered Projection Targets → Projection Ready → at-least-once Outbox`。SELL/CLOSE、Partial/Multi Fill、Futures/Margin 和多 Cluster 固定资金归约仍是明确的后续迁移边界，不进入正式 committed execution 结果。
 
-Backtest Runtime 在 `INITIALIZING → RECOVERING → READY` 中自动恢复最新完整 checkpoint、checkpoint 后的 Ready 前缀和未投影后缀；Ready tail 经真实 Projection Target rehydrate，未投影 tail 经正式 Coordinator 恢复。随后按精确 MarketData cursor 继续 Replay，再交付 recovered Outbox。Collector、RunPlan、trade count、fee attribution 和 determinism fingerprint 只读取 Projection Ready Query。
+Backtest Runtime 在 `INITIALIZING → RECOVERING → READY` 中自动恢复最新完整 checkpoint，并以严格 Recovery Session 在原 Broker Update 因果点逐笔处理 Ready 与未投影 transaction；每笔都重跑正式 Planner 并完整比较 Stored Prepared。恢复 replay 完成整个 Bar 的 Processing Result、Audit、Result Progress 和 Event drain 后才 checkpoint，READY 后才交付 recovered Outbox。Collector/RunPlan 的统计前缀来自 checkpointable Result Progress，fingerprint 与 restart equality 使用唯一 canonical business projection。
 Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
 
 持久恢复必须显式启用：

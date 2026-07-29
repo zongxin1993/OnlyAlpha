@@ -56,11 +56,11 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
 3. Restore every required participant in registry order. Strategy, Factor, Indicator and deterministic Broker capabilities must
    be explicitly declared.
 4. Analyze the contiguous transaction tail. Projection Ready rows must form one prefix; unprojected rows form one suffix.
-5. Replay only enough MarketData after the checkpoint cursor to reproduce every tail Broker update. Existing transaction IDs are
+5. Replay exact MarketData after the checkpoint cursor. Every Broker update enters ExecutionProcessor; each durable Trade rebuilds the same Prepared contract and resolves the next causal session entry at that update point. Existing transaction IDs are never
    resolved without recommit and historical Direct Events are not republished.
 6. Rehydrate the Ready prefix through real Manager Projection Targets, then recover the unprojected suffix through the formal
    Coordinator.
-7. Persist a new stable checkpoint, deliver pending Outbox records, and continue ordinary Replay from the recovered cursor.
+7. Complete MarketData Result, Audit, Result Progress and Event drain; validate Runtime authority; persist a new stable checkpoint; enter READY; deliver pending Outbox records; resume recovered Clusters without repeating `on_start()`; and continue ordinary Replay from the recovered cursor.
 
 Tail gaps, Ready-after-unready ordering, transaction hash conflicts, cursor mismatch, unknown/missing participants and partial or
 corrupt checkpoints fail fast. Recovery never deletes or rewrites historical transactions.

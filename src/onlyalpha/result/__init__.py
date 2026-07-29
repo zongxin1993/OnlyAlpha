@@ -1,8 +1,11 @@
 """Stable immutable facts produced by OnlyAlpha runs."""
 
+from onlyalpha.result.business_projection import only_backtest_business_projection
 from onlyalpha.result.diagnostics import (
+    OnlyBacktestBusinessDiagnostics,
     OnlyBacktestDiagnostics,
     OnlyBacktestFailure,
+    OnlyBacktestOperationalDiagnostics,
     OnlyBacktestWarning,
     OnlyResultDiagnosticSeverity,
     OnlyResultFailureStage,
@@ -27,6 +30,8 @@ from onlyalpha.result.records import (
 __all__ = [
     "OnlyAccountResultRecord",
     "OnlyBacktestDiagnostics",
+    "OnlyBacktestBusinessDiagnostics",
+    "OnlyBacktestOperationalDiagnostics",
     "OnlyBacktestFacts",
     "OnlyBacktestFailure",
     "OnlyBacktestWarning",
@@ -44,4 +49,5 @@ __all__ = [
     "OnlySignalResultRecord",
     "OnlySettlementResultRecord",
     "only_result_fingerprint",
+    "only_backtest_business_projection",
 ]
