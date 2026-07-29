@@ -105,8 +105,11 @@ PR4.2.2b adds read-only post-recovery authority validation, `RECOVERY_FINALIZING
 read-back. A commit-then-raise failure retains the checkpoint for the next Engine while preventing the current Engine from READY,
 Outbox delivery or Cluster resume. Its validation closure checks cross-object Runtime, Account, Cluster, Instrument, Order,
 Currency and Transaction scope for Outbox, Reservations, Fee, Settlement and Margin authorities. It relies on each Domain model
-for internal amount, quantity and lifecycle invariants and does not rerun Fee, Settlement or Margin calculations. Unified Recovery
-Event Gate remains later PR4.2.2c work. The formal committed transaction
+for internal amount, quantity and lifecycle invariants and does not rerun Fee, Settlement or Margin calculations. PR4.2.2c adds
+the unified Runtime Event Router and Recovery Event Gate. Recovery bootstrap Direct events are discarded; historical Direct
+events are suppressed during replay/finalization and never replayed; continuation transaction events remain pending in the
+durable Outbox until finalization succeeds and Runtime is OPEN. The Gate is operational-only and is excluded from checkpoint and
+business fingerprints. Direct delivery remains best-effort and Outbox delivery remains at-least-once. The formal committed transaction
 path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE, Futures/Margin transactions, non-trade
 transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
 and remote stores remain outside this phase.

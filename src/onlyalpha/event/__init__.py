@@ -19,6 +19,15 @@ from onlyalpha.event.model import (
     OnlyEventSource,
     OnlyEventType,
 )
+from onlyalpha.event.ports import (
+    OnlyDirectEventPublicationPort,
+    OnlyDurableEventPublicationPort,
+    OnlyLifecycleEventPublicationPort,
+    OnlyRuntimeEventDisposition,
+    OnlyRuntimeEventPublicationResult,
+    OnlyRuntimeEventRoute,
+)
+from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
 
 __all__ = [
     "OnlyCausationId",
@@ -26,6 +35,7 @@ __all__ = [
     "OnlyDroppedEvent",
     "OnlyEvent",
     "OnlyEventBus",
+    "OnlyEventBusSubscriptionView",
     "OnlyEventDispatchResult",
     "OnlyEventId",
     "OnlyEventPriority",
@@ -34,6 +44,12 @@ __all__ = [
     "OnlyEventSequence",
     "OnlyEventSource",
     "OnlyEventType",
+    "OnlyDirectEventPublicationPort",
+    "OnlyDurableEventPublicationPort",
+    "OnlyLifecycleEventPublicationPort",
+    "OnlyRuntimeEventDisposition",
+    "OnlyRuntimeEventPublicationResult",
+    "OnlyRuntimeEventRoute",
     "OnlySubscription",
     "OnlySubscriptionId",
 ]

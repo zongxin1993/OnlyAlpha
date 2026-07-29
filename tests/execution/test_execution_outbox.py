@@ -11,6 +11,7 @@ from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution import (
     OnlyExecutionOutboxPublisher,
 )
+from onlyalpha.runtime.events import OnlyRuntimeEventRouter, OnlyRuntimeRecoveryEventGate
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlySqliteRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
@@ -35,6 +36,13 @@ def _append(store: OnlyInMemoryRuntimePersistenceStore | OnlySqliteRuntimePersis
     committed = store.commit(prepared, committed_at=committed_at).transaction
     store.mark_projection_ready(prepared.runtime_id, committed.execution_sequence, projected_at=committed_at)
     return prepared
+
+
+def _open_router(bus: OnlyEventBus, scope: OnlyEventScope) -> OnlyRuntimeEventRouter:
+    router = OnlyRuntimeEventRouter(bus, OnlyRuntimeRecoveryEventGate(100), scope)
+    router.complete_fresh_bootstrap()
+    router.open()
+    return router
 
 
 def test_memory_and_sqlite_outbox_share_attempt_failure_and_published_semantics(
@@ -81,14 +89,16 @@ def test_sqlite_restart_preserves_pending_payload_and_event_identity(tmp_path: P
     recovered.close()
 
 
-def test_outbox_publisher_stops_on_first_failure_and_retries_same_event_id() -> None:
+def test_outbox_publisher_stops_on_failure_and_new_runtime_retries_same_event_id() -> None:
     store = OnlyInMemoryRuntimePersistenceStore()
     prepared = _append(store)
     events = prepared.outbox_events
-    bus = OnlyEventBus(capacity=1, scope=OnlyEventScope(OnlyEngineId("engine"), prepared.runtime_id))
+    scope = OnlyEventScope(OnlyEngineId("engine"), prepared.runtime_id)
+    bus = OnlyEventBus(capacity=1, scope=scope)
+    router = _open_router(bus, scope)
     bus.publish(events[0])
     now = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
-    publisher = OnlyExecutionOutboxPublisher(store, bus, lambda: now)
+    publisher = OnlyExecutionOutboxPublisher(store, router, lambda: now)
 
     failed = publisher.publish_pending(prepared.runtime_id)
     records = store.outbox_records(prepared.runtime_id)
@@ -97,9 +107,13 @@ def test_outbox_publisher_stops_on_first_failure_and_retries_same_event_id() -> 
     assert records[0].event.event_id == events[0].event_id
 
     bus.drain()
+    bus = OnlyEventBus(capacity=1, scope=scope)
+    publisher = OnlyExecutionOutboxPublisher(store, _open_router(bus, scope), lambda: now)
     first_retry = publisher.publish_pending(prepared.runtime_id)
     assert (first_retry.attempted, first_retry.published, first_retry.failed) == (2, 1, 1)
     bus.drain()
+    bus = OnlyEventBus(capacity=1, scope=scope)
+    publisher = OnlyExecutionOutboxPublisher(store, _open_router(bus, scope), lambda: now)
     final_retry = publisher.publish_pending(prepared.runtime_id)
     assert (final_retry.attempted, final_retry.published, final_retry.failed, final_retry.remaining) == (1, 1, 0, 0)
     assert tuple(record.attempt_count for record in store.outbox_records(prepared.runtime_id)) == (2, 2)
@@ -120,9 +134,10 @@ class _OnlyFailPublishedOnceStore(OnlyInMemoryRuntimePersistenceStore):
 def test_eventbus_accept_before_mark_published_retries_the_same_stable_event() -> None:
     store = _OnlyFailPublishedOnceStore()
     prepared = _append(store)
-    bus = OnlyEventBus(capacity=10, scope=OnlyEventScope(OnlyEngineId("engine"), prepared.runtime_id))
+    scope = OnlyEventScope(OnlyEngineId("engine"), prepared.runtime_id)
+    bus = OnlyEventBus(capacity=10, scope=scope)
     now = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
-    publisher = OnlyExecutionOutboxPublisher(store, bus, lambda: now)
+    publisher = OnlyExecutionOutboxPublisher(store, _open_router(bus, scope), lambda: now)
 
     failed = publisher.publish_pending(prepared.runtime_id)
     assert (failed.published, failed.failed) == (0, 1)

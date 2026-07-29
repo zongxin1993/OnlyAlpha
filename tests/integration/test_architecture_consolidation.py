@@ -136,7 +136,10 @@ def test_production_import_graph_has_no_cycles() -> None:
 def test_event_bus_does_not_drive_production_state_machines() -> None:
     subscribers: list[str] = []
     for path in Path("src/onlyalpha").rglob("*.py"):
-        if path == Path("src/onlyalpha/event/bus.py"):
+        if path in {
+            Path("src/onlyalpha/event/bus.py"),
+            Path("src/onlyalpha/event/subscription_view.py"),
+        }:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         if any(

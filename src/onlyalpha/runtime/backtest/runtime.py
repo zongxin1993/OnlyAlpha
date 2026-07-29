@@ -76,14 +76,15 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
 from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
 from onlyalpha.execution.commit_coordinator import OnlyExecutionCommitCoordinator
 from onlyalpha.execution.delivery import (
-    OnlyEventBusDirectExecutionPublisher,
     OnlyExecutionEventDeliveryCoordinator,
     OnlyExecutionEventDeliveryIntent,
     OnlyExecutionEventDeliveryMode,
     OnlyExecutionOutboxPublisher,
+    OnlyRoutedDirectExecutionPublisher,
 )
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.execution_state import (
@@ -192,6 +193,8 @@ from onlyalpha.runtime.context import (
     OnlySubscriptionService,
     OnlyTimerService,
 )
+from onlyalpha.runtime.events.gate import OnlyRuntimeRecoveryEventGate
+from onlyalpha.runtime.events.router import OnlyRuntimeEventRouter
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.reconciliation import (
     OnlyCommittedTradeFeeAttribution,
@@ -290,9 +293,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             scope=scope,
             queue_policy=runtime_config.event_queue_policy,
         )
+        event_gate = OnlyRuntimeRecoveryEventGate(runtime_config.event_capacity)
+        event_router = OnlyRuntimeEventRouter(owned_bus, event_gate, scope)
+        event_bus_view = OnlyEventBusSubscriptionView(owned_bus)
         execution_event_buffer = OnlyExecutionEventBuffer()
-        direct_execution_event_publisher = OnlyEventBusDirectExecutionPublisher(owned_bus)
-        event_sink = owned_bus
+        direct_execution_event_publisher = OnlyRoutedDirectExecutionPublisher(event_router)
         self._strategy_ledger_manager.bind_publisher(
             OnlyRuntimeStrategyLedgerEventPublisherAdapter(
                 runtime_config.engine_id,  # type: ignore[arg-type]
@@ -360,7 +365,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             OnlySequenceOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
             OnlySequenceClientOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
         )
-        order_publisher = OnlyRuntimeOrderEventPublisherAdapter(event_sink)
+        order_publisher = OnlyRuntimeOrderEventPublisherAdapter(event_router)
         order_query = OnlyOrderQueryService(order_manager)
         position_manager = self._position_manager
         allocation_manager = self._allocation_manager
@@ -434,7 +439,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             selected_calendar,
             OnlyInstrumentRiskMappingView(self._instruments),
             order_query,
-            OnlyRuntimeRiskEventPublisherAdapter(event_sink),
+            OnlyRuntimeRiskEventPublisherAdapter(event_router),
             account_rules=(OnlyAvailableBalanceRiskRule(), OnlyAvailablePositionRiskRule()),
             account_risk=OnlyAccountManagerRiskView(self._account_query),
             position_risk=OnlyPositionRiskView(position_query, clock.timestamp_ns),
@@ -515,7 +520,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         execution_recovery_service = OnlyExecutionRecoveryService(execution_commit_coordinator)
         execution_outbox_publisher = OnlyExecutionOutboxPublisher(
             persistence_store,
-            owned_bus,
+            event_router,
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
         execution_delivery_coordinator = OnlyExecutionEventDeliveryCoordinator(
@@ -625,7 +630,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._drain_execution_updates_for_checkpoint = drain_execution_updates
 
         def before_market_dispatch(result: OnlyMarketDataUpdateResult) -> None:
-            owned_bus.publish_many(result.facts)
+            event_router.publish_direct_many(result.facts)
             trading_day = OnlyTradingDay(result.base_bar.trading_day)
             execution_event_buffer.begin()
             try:
@@ -692,6 +697,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._services = OnlyRuntimeServices(
             clock,
             owned_bus,
+            event_bus_view,
+            event_router,
             market_cache,
             aggregation,
             indicators,
@@ -1049,23 +1056,36 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
     def _recover_runtime(self) -> None:
         if not self._persistence_config.checkpoint.enabled:
+            self._services.event_router.complete_fresh_bootstrap()
             return
         self._register_cluster_checkpoint_participants()
         self._checkpoint_query.bind_participant_registry_fingerprint(self._checkpoint_registry.fingerprint)
         has_checkpoint = self._checkpoint_query.latest_checkpoint(self.config.runtime_id) is not None  # type: ignore[arg-type]
         if has_checkpoint:
+            self._services.event_router.begin_recovery()
             for update in self._services.broker_inbound.drain():
                 self._services.execution_processor.replay_non_transaction(update)
             self._services.cluster_manager.enter_recovery_all()
         try:
             outcome = self._runtime_recovery_orchestrator.recover()
         except Exception as exc:
+            self._services.event_router.fail()
             if has_checkpoint:
                 self._services.cluster_manager.fail_recovery_finalization_all(exc)
             raise
         if outcome is None:
+            if has_checkpoint:
+                self._services.event_router.fail()
+                raise AssertionError("checkpoint query and recovery outcome disagree")
+            self._services.event_router.complete_fresh_bootstrap()
             return
-        finalization = self._runtime_recovery_finalizer.finalize(outcome)
+        self._services.event_router.begin_finalization()
+        try:
+            finalization = self._runtime_recovery_finalizer.finalize(outcome)
+        except Exception:
+            self._services.event_router.fail()
+            raise
+        self._services.event_router.complete_recovery()
         self._runtime_recovery_diagnostics.append(finalization.outcome.diagnostic)
         self._post_recovery_validation_reports.append(finalization.validation_report)
         self._clusters_recovered = True

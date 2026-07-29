@@ -15,6 +15,7 @@ from onlyalpha.execution import (
     OnlyExecutionOutboxPublisher,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.events import OnlyRuntimeEventRouter, OnlyRuntimeRecoveryEventGate
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
@@ -25,6 +26,13 @@ from tests.execution.support.execution_fault_injection import (
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 
 _NOW = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def _open_router(bus: OnlyEventBus, scope: OnlyEventScope) -> OnlyRuntimeEventRouter:
+    router = OnlyRuntimeEventRouter(bus, OnlyRuntimeRecoveryEventGate(100), scope)
+    router.complete_fresh_bootstrap()
+    router.open()
+    return router
 
 
 def test_outbox_is_inaccessible_before_projection_ready() -> None:
@@ -43,9 +51,11 @@ def test_event_bus_failure_keeps_ready_transaction_and_manager_authority_for_ret
     manager_before = harness.manager_digest()
     runtime_id = harness.bundle.transaction.runtime_id
     events = harness.bundle.transaction.outbox_events
-    bus = OnlyEventBus(capacity=1, scope=OnlyEventScope(OnlyEngineId("integration-engine"), runtime_id))
+    scope = OnlyEventScope(OnlyEngineId("integration-engine"), runtime_id)
+    bus = OnlyEventBus(capacity=1, scope=scope)
+    router = _open_router(bus, scope)
     bus.publish(events[0])
-    publisher = OnlyExecutionOutboxPublisher(harness.transaction_store, bus, lambda: _NOW)
+    publisher = OnlyExecutionOutboxPublisher(harness.transaction_store, router, lambda: _NOW)
 
     failed = publisher.publish_pending(runtime_id)
     records = harness.transaction_store.outbox_records(runtime_id)
@@ -66,8 +76,9 @@ def test_mark_published_failure_retries_same_event_without_reprojecting() -> Non
     manager_before = harness.manager_digest()
     runtime_id = harness.bundle.transaction.runtime_id
     events = harness.bundle.transaction.outbox_events
-    bus = OnlyEventBus(capacity=100, scope=OnlyEventScope(OnlyEngineId("integration-engine"), runtime_id))
-    publisher = OnlyExecutionOutboxPublisher(faulting, bus, lambda: _NOW)
+    scope = OnlyEventScope(OnlyEngineId("integration-engine"), runtime_id)
+    bus = OnlyEventBus(capacity=100, scope=scope)
+    publisher = OnlyExecutionOutboxPublisher(faulting, _open_router(bus, scope), lambda: _NOW)
 
     failed = publisher.publish_pending(runtime_id)
     retried = publisher.publish_pending(runtime_id)

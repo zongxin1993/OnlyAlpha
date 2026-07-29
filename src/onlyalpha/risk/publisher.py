@@ -1,9 +1,9 @@
-"""Risk Event publication ports and Runtime EventBus adapter."""
+"""Risk Event publication ports and Runtime direct-event adapter."""
 
 from typing import Protocol
 
-from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.event.ports import OnlyDirectEventPublicationPort
 
 
 class OnlyRiskEventPublisher(Protocol):
@@ -36,11 +36,11 @@ class OnlyInMemoryRiskEventPublisher:
 
 
 class OnlyRuntimeRiskEventPublisherAdapter:
-    def __init__(self, event_bus: OnlyEventBus) -> None:
-        self._event_bus = event_bus
+    def __init__(self, publisher: OnlyDirectEventPublicationPort) -> None:
+        self._publisher = publisher
 
     def publish(self, event: OnlyEvent) -> None:
-        self._event_bus.publish(event)
+        self._publisher.publish_direct(event)
 
     def publish_many(self, events: tuple[OnlyEvent, ...]) -> None:
-        self._event_bus.publish_many(events)
+        self._publisher.publish_direct_many(events)

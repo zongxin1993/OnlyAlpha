@@ -9,7 +9,11 @@ from typing import Protocol
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.event.ports import (
+    OnlyDirectEventPublicationPort,
+    OnlyDurableEventPublicationPort,
+    OnlyRuntimeEventDisposition,
+)
 
 from .event_buffer import OnlyExecutionEventBatch
 from .persistence_ports import OnlyExecutionTransactionOutboxPort
@@ -42,6 +46,8 @@ class OnlyExecutionEventDeliveryIntent:
 class OnlyDirectEventDeliveryResult:
     attempted: int
     published: int
+    staged: int
+    suppressed: int
     failed: int
     error: str | None
 
@@ -61,6 +67,8 @@ class OnlyExecutionEventDeliveryResult:
     mode: OnlyExecutionEventDeliveryMode
     attempted: int
     published: int
+    staged: int
+    suppressed: int
     failed: int
     remaining: int
     stopped_on_error: bool
@@ -74,6 +82,8 @@ class OnlyExecutionDeliveryDiagnostic:
     delivery_mode: OnlyExecutionEventDeliveryMode
     attempted: int
     published: int
+    staged: int
+    suppressed: int
     failed: int
     remaining: int
     last_error: str | None
@@ -84,23 +94,26 @@ class OnlyDirectExecutionEventPublisher(Protocol):
     def publish(self, batch: OnlyExecutionEventBatch) -> OnlyDirectEventDeliveryResult: ...
 
 
-class OnlyEventBusDirectExecutionPublisher:
-    """Best-effort non-durable publication to one Runtime EventBus."""
+class OnlyRoutedDirectExecutionPublisher:
+    """Best-effort non-durable publication through the Runtime direct port."""
 
-    def __init__(self, event_bus: OnlyEventBus) -> None:
-        self._event_bus = event_bus
+    def __init__(self, publisher: OnlyDirectEventPublicationPort) -> None:
+        self._publisher = publisher
 
     def publish(self, batch: OnlyExecutionEventBatch) -> OnlyDirectEventDeliveryResult:
-        attempted = published = 0
         try:
-            for event in batch.events:
-                attempted += 1
-                if not self._event_bus.publish(event):
-                    return OnlyDirectEventDeliveryResult(attempted, published, 1, "EventBus rejected event")
-                published += 1
+            result = self._publisher.publish_direct_many(batch.events)
         except Exception as exc:
-            return OnlyDirectEventDeliveryResult(attempted, published, 1, f"{type(exc).__name__}: {exc}")
-        return OnlyDirectEventDeliveryResult(attempted, published, 0, None)
+            return OnlyDirectEventDeliveryResult(len(batch.events), 0, 0, 0, 1, f"{type(exc).__name__}: {exc}")
+        failed = result.rejected
+        return OnlyDirectEventDeliveryResult(
+            result.attempted,
+            result.published,
+            result.staged,
+            result.suppressed,
+            failed,
+            result.error,
+        )
 
 
 class OnlyExecutionOutboxPublisher:
@@ -109,11 +122,11 @@ class OnlyExecutionOutboxPublisher:
     def __init__(
         self,
         outbox: OnlyExecutionTransactionOutboxPort,
-        event_bus: OnlyEventBus,
+        publisher: OnlyDurableEventPublicationPort,
         now: Callable[[], OnlyTimestamp],
     ) -> None:
         self._outbox = outbox
-        self._event_bus = event_bus
+        self._publisher = publisher
         self._now = now
 
     def publish_pending(self, runtime_id: OnlyRuntimeId, *, limit: int = 100) -> OnlyOutboxPublishResult:
@@ -124,8 +137,9 @@ class OnlyExecutionOutboxPublisher:
             self._outbox.begin_attempt(record.key, attempted_at)
             attempted += 1
             try:
-                if not self._event_bus.publish(record.event):
-                    raise RuntimeError("EventBus rejected event")
+                result = self._publisher.publish_durable(record.event)
+                if result.disposition is not OnlyRuntimeEventDisposition.PUBLISHED:
+                    raise RuntimeError(f"durable event was not published: {result.disposition.value}")
                 self._outbox.mark_published(record.key, self._now())
                 published += 1
             except Exception as exc:
@@ -155,7 +169,7 @@ class OnlyExecutionEventDeliveryCoordinator:
         self, runtime_id: OnlyRuntimeId, intent: OnlyExecutionEventDeliveryIntent
     ) -> OnlyExecutionEventDeliveryResult:
         if intent.mode is OnlyExecutionEventDeliveryMode.NONE:
-            return OnlyExecutionEventDeliveryResult(intent.mode, 0, 0, 0, 0, False, None)
+            return OnlyExecutionEventDeliveryResult(intent.mode, 0, 0, 0, 0, 0, 0, False, None)
         if intent.mode is OnlyExecutionEventDeliveryMode.DIRECT:
             if intent.direct_batch is None:
                 raise AssertionError("validated DIRECT intent lost its batch")
@@ -164,6 +178,8 @@ class OnlyExecutionEventDeliveryCoordinator:
                 intent.mode,
                 direct_result.attempted,
                 direct_result.published,
+                direct_result.staged,
+                direct_result.suppressed,
                 direct_result.failed,
                 0,
                 direct_result.failed > 0,
@@ -174,6 +190,8 @@ class OnlyExecutionEventDeliveryCoordinator:
             intent.mode,
             outbox_result.attempted,
             outbox_result.published,
+            0,
+            0,
             outbox_result.failed,
             outbox_result.remaining,
             outbox_result.stopped_on_error,
@@ -184,7 +202,7 @@ class OnlyExecutionEventDeliveryCoordinator:
 __all__ = [
     "OnlyDirectEventDeliveryResult",
     "OnlyDirectExecutionEventPublisher",
-    "OnlyEventBusDirectExecutionPublisher",
+    "OnlyRoutedDirectExecutionPublisher",
     "OnlyExecutionDeliveryDiagnostic",
     "OnlyExecutionEventDeliveryCoordinator",
     "OnlyExecutionEventDeliveryIntent",

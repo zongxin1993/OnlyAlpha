@@ -7,13 +7,14 @@ from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent, OnlyEventScope
 from onlyalpha.execution import (
-    OnlyEventBusDirectExecutionPublisher,
     OnlyExecutionEventBatch,
     OnlyExecutionEventBuffer,
     OnlyExecutionEventDeliveryCoordinator,
     OnlyExecutionEventDeliveryIntent,
     OnlyExecutionEventDeliveryMode,
+    OnlyRoutedDirectExecutionPublisher,
 )
+from onlyalpha.runtime.events import OnlyRuntimeEventRouter, OnlyRuntimeRecoveryEventGate
 
 
 def _event(sequence: int = 1) -> OnlyEvent:
@@ -26,6 +27,17 @@ def _event(sequence: int = 1) -> OnlyEvent:
         sequence,
         payload={"sequence": sequence},
     )
+
+
+def _router(bus: OnlyEventBus) -> OnlyRuntimeEventRouter:
+    router = OnlyRuntimeEventRouter(
+        bus,
+        OnlyRuntimeRecoveryEventGate(10),
+        OnlyEventScope(OnlyEngineId("engine"), OnlyRuntimeId("runtime")),
+    )
+    router.complete_fresh_bootstrap()
+    router.open()
+    return router
 
 
 def test_event_buffer_requires_explicit_scope_and_seals_immutable_batch() -> None:
@@ -93,13 +105,14 @@ def test_delivery_intent_accepts_the_three_valid_shapes() -> None:
 
 def test_direct_publisher_reports_success_empty_and_event_bus_failure() -> None:
     bus = OnlyEventBus(scope=OnlyEventScope(OnlyEngineId("engine"), OnlyRuntimeId("runtime")), capacity=1)
-    publisher = OnlyEventBusDirectExecutionPublisher(bus)
+    publisher = OnlyRoutedDirectExecutionPublisher(_router(bus))
     empty = publisher.publish(OnlyExecutionEventBatch(()))
     assert (empty.attempted, empty.published, empty.failed, empty.error) == (0, 0, 0, None)
 
     failed = publisher.publish(OnlyExecutionEventBatch((_event(), _event(2))))
-    assert (failed.attempted, failed.published, failed.failed) == (2, 1, 1)
+    assert (failed.attempted, failed.published, failed.failed) == (2, 0, 1)
     assert failed.error is not None
+    assert bus.pending_count() == 1
 
 
 class _UnusedOutboxPublisher:
@@ -111,7 +124,7 @@ class _UnusedOutboxPublisher:
 def test_coordinator_routes_none_and_direct_without_changing_business_result() -> None:
     bus = OnlyEventBus(scope=OnlyEventScope(OnlyEngineId("engine"), OnlyRuntimeId("runtime")))
     coordinator = OnlyExecutionEventDeliveryCoordinator(
-        OnlyEventBusDirectExecutionPublisher(bus),
+        OnlyRoutedDirectExecutionPublisher(_router(bus)),
         _UnusedOutboxPublisher(),  # type: ignore[arg-type]
     )
     none = coordinator.deliver(

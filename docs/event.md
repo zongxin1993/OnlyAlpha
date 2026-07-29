@@ -54,4 +54,11 @@ Broker 回调不是 EventBus 订阅者。Gateway 先将标准化 Broker Update �
 完成状态修改后才发布 Order/Position/StrategyLedger/Account 过去式事实。EventBus 不决定 Broker Update 顺序，也不驱动状态机。
 
 Runtime-owned `OnlyExecutionEventPublisher` 在一次 Processor 逻辑事务内缓冲 Manager 事实。只有固定 Trade 链和跨组件不变量
+完成后，这些事实才经 Direct Publication Port 进入唯一 Runtime Event Router。Order、Risk、MarketData 与 Runtime lifecycle
+同样不再直接写 EventBus。Router 先验证 Runtime scope，再由 Recovery Gate 决定 `PUBLISHED/STAGED/SUPPRESSED/REJECTED`。
+
+Gate 初始为 `BOOTSTRAPPING`：fresh direct facts 有界 FIFO 暂存并在 OPEN flush；发现 checkpoint 时整批丢弃。
+`RECOVERING/FINALIZING` 的历史 direct facts 被抑制且永不补发。Durable Outbox 与 Lifecycle 只允许在 OPEN 发布，Runtime
+公开的 `event_bus` 是只读订阅视图。Direct facts 无 durable journal/watermark/subscriber ACK，不能同时保证不重不丢；
+Outbox 保持 at-least-once。EventBus 自身不感知 Runtime 或 recovery，详见 ADR 0048。
 全部成功后才按产生顺序批量提交；中途失败丢弃成功事实，只允许 Execution Processing Failed/Reconciliation Required 事实。

@@ -203,6 +203,12 @@ Runtime 在 Cluster initialize 后进入 `RECOVERING`。`OnlyRuntimeRecoveryOrch
 MarketData cursor 建立由 Backtest Boundary Session 组合的 Execution Recovery Session。每个 Broker Update 进入 ExecutionProcessor，重新构建并验证完整 Prepared contract；Ready transaction 由真实 Target 当场 rehydrate，未投影 transaction 由正式 Coordinator 当场恢复。Execution tail resolved 不等于 Boundary completed：后续 Strategy callback 立即读取更新后的 authority，并可在同 Bar 产生经正式 Planner/Coordinator commit 的 continuation transaction。MarketData Result、Audit、checkpointable Result Progress 与 Event drain 全部完成后，Runtime `after_market_processing()` 才以 source/data-version/update/sequence identity 确认 boundary；Session 活跃期间普通 checkpoint 仍被抑制。正式
 Result 只持有 Projection Ready Query。Orchestrator 结束后 Cluster 先进入 `RECOVERY_FINALIZING`；Finalizer 编排 completion callback、内部 quiescence、只读 Authority Validator、checkpoint capture/write/read-back 完整验证，随后才标记 `RECOVERED`。Runtime READY 后才交付 recovered Outbox 并 resume Cluster；任一阶段失败都使 Runtime/Cluster fail closed 并阻止 READY/RUNNING。
 
+所有外部可观察事件统一经过 `business publisher → publication port → OnlyRuntimeEventRouter →
+OnlyRuntimeRecoveryEventGate → EventBus`。Gate 在 fresh bootstrap 暂存 Direct facts，在 checkpoint recovery 开始时丢弃临时
+bootstrap facts，并在 replay/finalization 抑制历史 Direct facts且不补发。Durable Outbox 与 Lifecycle 仅在 OPEN 可发布；start
+顺序固定为 Router OPEN、Outbox、Cluster start/resume、`RUNTIME_STARTED`。EventBus 保持纯队列/dispatch 职责，Runtime 公共 API
+仅返回订阅视图，Gate 不进入 checkpoint 或业务 projection。详见 ADR 0048。
+
 Runtime Persistence Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.persistence` 唯一创建并显式注入 Runtime。SQLite checkpoint
 模式使用 schema version 2，并把 checkpoint、transaction、Projection state 和 Outbox 放在稳定的
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`；它不依赖 Artifact Run ID。Store 是 Runtime-owned

@@ -49,7 +49,6 @@ from .committed import OnlyCommittedExecutionFact
 from .delivery import (
     OnlyDirectEventDeliveryResult,
     OnlyDirectExecutionEventPublisher,
-    OnlyEventBusDirectExecutionPublisher,
     OnlyExecutionDeliveryDiagnostic,
     OnlyExecutionEventDeliveryCoordinator,
     OnlyExecutionEventDeliveryIntent,
@@ -57,6 +56,7 @@ from .delivery import (
     OnlyExecutionEventDeliveryResult,
     OnlyExecutionOutboxPublisher,
     OnlyOutboxPublishResult,
+    OnlyRoutedDirectExecutionPublisher,
 )
 from .economic_invariants import OnlyPreparedExecutionEconomicInvariantValidator
 from .enums import (
@@ -241,7 +241,7 @@ __all__ = [
     "OnlyCommittedExecutionFact",
     "OnlyDirectExecutionEventPublisher",
     "OnlyDirectEventDeliveryResult",
-    "OnlyEventBusDirectExecutionPublisher",
+    "OnlyRoutedDirectExecutionPublisher",
     "OnlyExecutionDeliveryDiagnostic",
     "OnlyExecutionCommitCoordinationResult",
     "OnlyExecutionCommitCoordinationStatus",

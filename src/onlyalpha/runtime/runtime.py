@@ -68,6 +68,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
 from onlyalpha.execution import (
     OnlyExecutionCommitCoordinator,
     OnlyExecutionDeliveryDiagnostic,
@@ -130,6 +131,8 @@ from onlyalpha.position.reservations import OnlyPositionReservationManager
 from onlyalpha.position.settlement import OnlySettlementService
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
+from onlyalpha.runtime.events.gate import OnlyRuntimeEventGatePhase, OnlyRuntimeEventGateSnapshot
+from onlyalpha.runtime.events.router import OnlyRuntimeEventRouter
 from onlyalpha.runtime.persistence.store import (
     OnlyRuntimePersistenceStorePort,
 )
@@ -266,6 +269,8 @@ class OnlyRuntimeServices:
 
     clock: OnlyBacktestClock
     event_bus: OnlyEventBus
+    event_bus_view: OnlyEventBusSubscriptionView
+    event_router: OnlyRuntimeEventRouter
     market_data_cache: OnlyMarketDataCache
     aggregation_manager: OnlyBarAggregationManager
     indicator_pipeline: OnlyIndicatorPipeline
@@ -650,10 +655,14 @@ class OnlyRuntime:
         return self._services.clock
 
     @property
-    def event_bus(self) -> OnlyEventBus:
-        """Runtime management EventBus; never injected into Cluster Context."""
+    def event_bus(self) -> OnlyEventBusSubscriptionView:
+        """Read-only Runtime event subscription and diagnostic view."""
 
-        return self._services.event_bus
+        return self._services.event_bus_view
+
+    @property
+    def event_gate_snapshot(self) -> OnlyRuntimeEventGateSnapshot:
+        return self._services.event_router.snapshot()
 
     @property
     def market_data_pipeline(self) -> OnlyMarketDataPipeline:
@@ -727,6 +736,8 @@ class OnlyRuntime:
                 result.mode,
                 result.attempted,
                 result.published,
+                result.staged,
+                result.suppressed,
                 result.failed,
                 result.remaining,
                 result.last_error,
@@ -749,6 +760,8 @@ class OnlyRuntime:
                 OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX,
                 result.attempted,
                 result.published,
+                0,
+                0,
                 result.failed,
                 result.remaining,
                 result.stopped_on_error,
@@ -875,14 +888,17 @@ class OnlyRuntime:
             self._recover_runtime()
             self._state = OnlyRuntimeState.READY
         except OnlyRuntimeRecoveryError:
+            self._services.event_router.fail()
             self._rollback_plugin_resources(tuple(initialized))
             self._state = OnlyRuntimeState.FAILED
             raise
         except OnlyRuntimeError:
+            self._services.event_router.fail()
             self._rollback_plugin_resources(tuple(initialized))
             self._state = OnlyRuntimeState.FAILED
             raise
         except Exception as exc:
+            self._services.event_router.fail()
             self._rollback_plugin_resources(tuple(initialized))
             self._state = OnlyRuntimeState.FAILED
             failing = self._plugin_context(current_resource)
@@ -906,6 +922,7 @@ class OnlyRuntime:
             for resource in self._plugin_resources:
                 current_resource = resource
                 resource.start()
+            self._services.event_router.open()
             outbox = self._drain_execution_outbox()
             if outbox.failed or outbox.remaining:
                 raise OnlyRuntimeOutboxDeliveryError(
@@ -920,11 +937,16 @@ class OnlyRuntime:
                 self._services.cluster_manager.start_all()
                 self._clusters_started = True
             self._after_clusters_started()
+            self._state = OnlyRuntimeState.RUNNING
+            self._publish_runtime_fact("RUNTIME_STARTED")
+            self._services.event_bus.drain()
         except OnlyRuntimeOutboxDeliveryError:
+            self._services.event_router.fail()
             self._rollback_plugin_resources(self._plugin_resources)
             self._state = OnlyRuntimeState.FAILED
             raise
         except Exception as exc:
+            self._services.event_router.fail()
             self._rollback_plugin_resources(self._plugin_resources)
             self._state = OnlyRuntimeState.FAILED
             failing = self._plugin_context(current_resource)
@@ -934,9 +956,6 @@ class OnlyRuntime:
                 plugin_id=failing[0],
                 resource_id=failing[1],
             ) from exc
-        self._state = OnlyRuntimeState.RUNNING
-        self._publish_runtime_fact("RUNTIME_STARTED")
-        self._services.event_bus.drain()
 
     def _after_clusters_started(self) -> None:
         """Concrete Runtime hook for a stable post-start boundary."""
@@ -969,6 +988,7 @@ class OnlyRuntime:
         self._services.event_bus.drain()
         failure = self._run_plugin_cleanup("stop")
         if failure is not None:
+            self._services.event_router.fail()
             self._state = OnlyRuntimeState.FAILED
             raise failure
         self._state = OnlyRuntimeState.STOPPED
@@ -987,6 +1007,16 @@ class OnlyRuntime:
             failure = failure or exc
         plugin_failure = self._run_plugin_cleanup("close")
         failure = failure or plugin_failure
+        try:
+            if self._services.event_router.snapshot().phase not in {
+                OnlyRuntimeEventGatePhase.OPEN,
+                OnlyRuntimeEventGatePhase.FAILED,
+                OnlyRuntimeEventGatePhase.CLOSED,
+            }:
+                self._services.event_router.fail()
+            self._services.event_router.close()
+        except Exception as exc:
+            failure = failure or exc
         try:
             self._services.event_bus.close()
         except Exception as exc:
@@ -1106,7 +1136,7 @@ class OnlyRuntime:
 
     def _publish_runtime_fact(self, event_type: str) -> None:
         clock = self._services.clock
-        self._services.event_bus.publish(
+        self._services.event_router.publish_lifecycle(
             OnlyEvent(
                 event_type,
                 clock.now_utc(),
