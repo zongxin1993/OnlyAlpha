@@ -266,6 +266,9 @@ class OnlyPositionReservationManager:
     def get(self, order_id: OnlyOrderId) -> OnlyPositionReservation | None:
         return self._by_order.get(order_id)
 
+    def snapshots(self) -> tuple[OnlyPositionReservation, ...]:
+        return tuple(self._by_order[key] for key in sorted(self._by_order, key=str))
+
     def capture_checkpoint(self) -> object:
         return [item.to_json() for item in sorted(self._by_order.values(), key=lambda item: str(item.order_id))]
 

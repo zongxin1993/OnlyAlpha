@@ -193,9 +193,25 @@ from onlyalpha.runtime.context import (
     OnlyTimerService,
 )
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
+from onlyalpha.runtime.reconciliation import (
+    OnlyCommittedTradeFeeAttribution,
+    OnlyRuntimeLedgerReconciliationService,
+    OnlyRuntimeLedgerReconciliationStatus,
+)
+from onlyalpha.runtime.recovery.authority_views import (
+    OnlyGatewayBrokerRecoveryAuthorityView,
+    OnlyRuntimeBoundaryAuthorityView,
+)
+from onlyalpha.runtime.recovery.finalizer import OnlyRuntimeRecoveryFinalizer
 from onlyalpha.runtime.recovery.orchestrator import (
     OnlyRuntimeRecoveryDiagnostic,
     OnlyRuntimeRecoveryOrchestrator,
+)
+from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
+from onlyalpha.runtime.recovery.validation import (
+    OnlyPostRecoveryValidationContext,
+    OnlyPostRecoveryValidationReport,
+    only_default_post_recovery_authority_validator,
 )
 from onlyalpha.runtime.runtime import (
     OnlyManagedBarDispatchExecutor,
@@ -470,6 +486,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
         persistence_store = runtime_persistence_store
         applied_projection_ledger = OnlyInMemoryAppliedProjectionLedger()
+        self._applied_projection_ledger = applied_projection_ledger
         execution_valuation_authority = OnlyExecutionValuationAuthority(
             account_performance=self._account_performance_projector,
             runtime_state_restorer=self._restore_execution_valuation_state,
@@ -992,6 +1009,16 @@ class OnlyBacktestRuntime(OnlyRuntime):
             causal_replay=recovery_replay.run,
         )
         self._runtime_recovery_diagnostics: list[OnlyRuntimeRecoveryDiagnostic] = []
+        self._post_recovery_validation_reports: list[OnlyPostRecoveryValidationReport] = []
+        self._runtime_recovery_finalizer = OnlyRuntimeRecoveryFinalizer(
+            cluster_manager=self._services.cluster_manager,
+            event_bus=self._services.event_bus,
+            validator=only_default_post_recovery_authority_validator(),
+            context_factory=self._post_recovery_validation_context,
+            checkpoint_service=self._checkpoint_service,
+            replay_cursor=lambda: self._replay_cursor,
+            created_at=lambda: OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+        )
         self._cluster_checkpoint_participants_registered = False
         resources = plugin_resources
         if resources:
@@ -1016,6 +1043,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
     def runtime_recovery_diagnostics(self) -> tuple[OnlyRuntimeRecoveryDiagnostic, ...]:
         return tuple(self._runtime_recovery_diagnostics)
 
+    @property
+    def post_recovery_validation_reports(self) -> tuple[OnlyPostRecoveryValidationReport, ...]:
+        return tuple(self._post_recovery_validation_reports)
+
     def _recover_runtime(self) -> None:
         if not self._persistence_config.checkpoint.enabled:
             return
@@ -1027,39 +1058,90 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 self._services.execution_processor.replay_non_transaction(update)
             self._services.cluster_manager.enter_recovery_all()
         try:
-            diagnostic = self._runtime_recovery_orchestrator.recover()
+            outcome = self._runtime_recovery_orchestrator.recover()
         except Exception as exc:
             if has_checkpoint:
-                self._services.cluster_manager.fail_recovery_all(exc)
+                self._services.cluster_manager.fail_recovery_finalization_all(exc)
             raise
-        if diagnostic is None:
+        if outcome is None:
             return
-        self._runtime_recovery_diagnostics.append(diagnostic)
-        self._services.cluster_manager.complete_recovery_all()
+        finalization = self._runtime_recovery_finalizer.finalize(outcome)
+        self._runtime_recovery_diagnostics.append(finalization.outcome.diagnostic)
+        self._post_recovery_validation_reports.append(finalization.validation_report)
         self._clusters_recovered = True
-        self._validate_post_recovery_authority(diagnostic)
-        self._checkpoint_service.create(
-            self._replay_cursor,
-            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
-        )
 
-    def _validate_post_recovery_authority(self, diagnostic: OnlyRuntimeRecoveryDiagnostic) -> None:
-        runtime_id = self.config.runtime_id
-        if runtime_id is None:
-            raise OnlyRuntimeError("post-recovery authority validation requires Runtime identity")
-        records = self._services.execution_transaction_query.records(OnlyRuntimeId(str(runtime_id)))
-        sequences = tuple(item.execution_sequence for item in records)
-        if sequences != tuple(range(1, len(records) + 1)):
-            raise OnlyRuntimeError("POST_RECOVERY_TRANSACTION_SEQUENCE_GAP")
-        if any(not item.projection_ready for item in records):
-            raise OnlyRuntimeError("POST_RECOVERY_UNPROJECTED_TRANSACTION")
-        if sequences and sequences[-1] != diagnostic.final_ready_sequence:
-            raise OnlyRuntimeError("POST_RECOVERY_READY_SEQUENCE_MISMATCH")
-        if len(self._services.broker_inbound) or len(self._services.market_data_inbound):
-            raise OnlyRuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")
+    def _post_recovery_validation_context(
+        self,
+        outcome: OnlyRuntimeRecoveryOutcome,
+    ) -> OnlyPostRecoveryValidationContext:
+        runtime_id = OnlyRuntimeId(str(self.config.runtime_id))
         progress = self._result_progress.snapshot()
-        if progress.last_market_processing_sequence < self._replay_cursor.processed_bar_count:
-            raise OnlyRuntimeError("POST_RECOVERY_RESULT_PROGRESS_BEHIND_CURSOR")
+        accounts = self._services.account_query.list_accounts()
+        ledgers = self._services.strategy_ledger_manager.list_ledgers()
+        violations: list[str] = []
+        ready = self._services.ready_execution_query.ready_records(runtime_id)
+        for account in accounts:
+            account_ledgers = tuple(item for item in ledgers if item.key.account_id == account.account_id)
+            if not account_ledgers:
+                violations.append(f"missing-ledger:{account.account_id}")
+                continue
+            result = OnlyRuntimeLedgerReconciliationService().reconcile(
+                account=account,
+                account_initial_equity=self.config.account_initial_cash or account.equity,
+                ledgers=account_ledgers,
+                committed_trade_fees=tuple(
+                    OnlyCommittedTradeFeeAttribution(
+                        item.fact.trade_id, item.fact.cluster_id, item.fact.authoritative_fee_total
+                    )
+                    for item in ready
+                    if item.fact.account_id == account.account_id
+                ),
+                ts_event=OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+            )
+            if result.status is OnlyRuntimeLedgerReconciliationStatus.MISMATCHED:
+                violations.extend(f"{account.account_id}:{item.field}" for item in result.differences)
+        broker_view = (
+            None
+            if self._services.broker_gateway is None
+            else OnlyGatewayBrokerRecoveryAuthorityView(
+                self._services.broker_gateway,
+                tuple(item.account_id for item in accounts),
+            )
+        )
+        return OnlyPostRecoveryValidationContext(
+            runtime_id=runtime_id,
+            outcome=outcome,
+            transaction_query=self._services.execution_transaction_query,
+            ready_transaction_query=self._services.ready_execution_query,
+            outbox_query=self._services.execution_transaction_outbox,
+            applied_projection_view=self._applied_projection_ledger,
+            runtime_boundary_view=OnlyRuntimeBoundaryAuthorityView(
+                runtime_id,
+                len(self._services.broker_inbound),
+                len(self._services.market_data_inbound),
+                self._services.event_bus.pending_count(),
+                self._replay_cursor,
+                progress.processed_bar_count,
+                progress.last_market_processing_sequence,
+                self._services.market_data_processor.processing_sequence,
+                OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
+            ),
+            orders=self._services.order_manager.snapshot_all(),
+            positions=self._services.position_manager.snapshot_all(),
+            allocations=self._services.allocation_manager.snapshot_all(),
+            accounts=accounts,
+            strategy_ledgers=ledgers,
+            account_reservations=self._account_reservation_manager.snapshots(),
+            position_reservations=self._position_reservation_manager.snapshots(),
+            strategy_reservations=tuple(item for ledger in ledgers for item in ledger.reservations),
+            risk_reservations=self._services.risk_service.reservations.snapshot_all(),
+            margin_reservations=self._margin_manager.active_reservations,
+            fee_records=self._fee_manager.records,
+            settlement_records=self._settlement_manager.records,
+            margin_records=self._margin_manager.records,
+            broker_view=broker_view,
+            ledger_reconciliation_violations=tuple(violations),
+        )
 
     def _after_clusters_started(self) -> None:
         if not self._persistence_config.checkpoint.enabled:

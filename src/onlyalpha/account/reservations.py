@@ -44,6 +44,9 @@ class OnlyAccountReservationManager:
             )
         )
 
+    def snapshots(self) -> tuple[OnlyAccountReservation, ...]:
+        return tuple(self._reservations[key] for key in sorted(self._reservations, key=str))
+
     def restore_execution_authority(self, reservation: OnlyAccountReservation) -> None:
         if reservation.runtime_id != self.runtime_id:
             raise ValueError("Account Reservation belongs to another Runtime")

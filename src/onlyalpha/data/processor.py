@@ -319,3 +319,7 @@ class OnlyMarketDataProcessor:
         self._event_publisher.publish(f"MARKET_DATA_{status.value}", update.update_id, self._sequence)
         self._after_processing(update, result)
         return result
+
+    @property
+    def processing_sequence(self) -> int:
+        return self._sequence

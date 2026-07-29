@@ -878,6 +878,10 @@ class OnlyRuntime:
             self._rollback_plugin_resources(tuple(initialized))
             self._state = OnlyRuntimeState.FAILED
             raise
+        except OnlyRuntimeError:
+            self._rollback_plugin_resources(tuple(initialized))
+            self._state = OnlyRuntimeState.FAILED
+            raise
         except Exception as exc:
             self._rollback_plugin_resources(tuple(initialized))
             self._state = OnlyRuntimeState.FAILED
@@ -952,9 +956,16 @@ class OnlyRuntime:
     def stop(self) -> None:
         if self._state in {OnlyRuntimeState.STOPPED, OnlyRuntimeState.CLOSED}:
             return
+        previous_state = self._state
         self._state = OnlyRuntimeState.STOPPING
         self._services.cluster_manager.stop_all()
-        self._drain_execution_outbox()
+        if previous_state not in {
+            OnlyRuntimeState.CREATED,
+            OnlyRuntimeState.INITIALIZING,
+            OnlyRuntimeState.RECOVERING,
+            OnlyRuntimeState.FAILED,
+        }:
+            self._drain_execution_outbox()
         self._services.event_bus.drain()
         failure = self._run_plugin_cleanup("stop")
         if failure is not None:

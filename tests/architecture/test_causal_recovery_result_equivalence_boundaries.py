@@ -59,6 +59,9 @@ def test_recovery_lifecycle_does_not_repeat_normal_start() -> None:
     recovery = runtime[runtime.index("    def _recover_runtime(") : runtime.index("    def _register_cluster")]
     assert "start_all()" not in recovery
     assert "enter_recovery_all()" in recovery
-    assert "complete_recovery_all()" in recovery
+    assert "_runtime_recovery_finalizer.finalize(outcome)" in recovery
+    assert "complete_recovery_all()" not in manager
+    assert "begin_recovery_finalization_all" in manager
+    assert "mark_recovered_all" in manager
     assert "on_recovery_enter" in manager
     assert "on_recovery_complete" in manager

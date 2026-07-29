@@ -187,6 +187,7 @@ class OnlyFeeManager:
                     "instruction": self._instruction_payload(self._instructions_by_key[key]),
                     "instrument_id": self._instrument_by_key[key],
                     "record_ids": [item.fee_record_id for item in self._records if item.idempotency_key == key],
+                    "sequence_head": max(item.sequence for item in self._records if item.idempotency_key == key),
                 }
                 for key in sorted(self._instructions_by_key)
             ],
@@ -197,14 +198,20 @@ class OnlyFeeManager:
         if not isinstance(payload, dict):
             raise ValueError("Fee checkpoint must be an object")
         sequence = int(payload["sequence"])
-        for item in payload["authorities"]:
+        authorities = payload["authorities"]
+        if not isinstance(authorities, list):
+            raise ValueError("Fee checkpoint authorities must be an array")
+        for item in sorted(
+            authorities,
+            key=lambda value: int(value.get("sequence_head", sequence)) if isinstance(value, dict) else 0,
+        ):
             if not isinstance(item, dict):
                 raise ValueError("Fee checkpoint authority must be an object")
             self.restore_execution_authority(
                 self._instruction_from_payload(item["instruction"]),
                 instrument_id=str(item["instrument_id"]),
                 record_ids=tuple(str(value) for value in item["record_ids"]),
-                sequence_head=sequence,
+                sequence_head=int(item.get("sequence_head", sequence)),
             )
 
     @staticmethod

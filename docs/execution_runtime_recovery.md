@@ -68,8 +68,13 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
 8. Complete MarketData Result and Audit, observe checkpointable Result Progress, drain EventBus work, and only then let Runtime
    `after_market_processing()` confirm the exact boundary. An unresolved tail continues into the next boundary; a resolved tail
    ends causal replay only after the current boundary becomes `BOUNDARY_COMPLETED`.
-9. Validate Runtime authority, persist a new stable checkpoint through the existing recovery close-out, enter READY, deliver
-   pending Outbox records, resume recovered Clusters without repeating `on_start()`, and continue ordinary Replay from the cursor.
+9. Produce an immutable Recovery Outcome, move Clusters to `RECOVERY_FINALIZING`, call `on_recovery_complete()`, drain internal
+   events, and validate transaction, Outbox, recovery projection range, manager, Broker and Runtime-boundary authority through
+   read-only Ports.
+10. Capture and write the post-recovery checkpoint, read it back through `latest_checkpoint()` and compare the complete header,
+    aggregate hash and components. Only then mark Clusters `RECOVERED` and Runtime `READY`.
+11. Deliver pending Outbox records, resume recovered Clusters without repeating `on_start()`, and continue ordinary Replay from
+    the verified cursor.
 
 Tail gaps, Ready-after-unready ordering, transaction hash conflicts, cursor mismatch, unknown/missing participants and partial or
 corrupt checkpoints fail fast. Recovery never deletes or rewrites historical transactions.
@@ -94,8 +99,9 @@ does not delete the previous complete checkpoint. SQLite schema version 1 is uns
 
 ## Current limits
 
-PR4.2.2a covers only Recovery phase, exact Backtest boundary and continuation transactions. Unified Recovery Event Gate,
-Post-Recovery Authority Validator redesign and Recovery Finalizer remain PR4.2.2b/PR4.2.2c work. The formal committed transaction
+PR4.2.2b adds read-only post-recovery authority validation, `RECOVERY_FINALIZING`, fail-closed finalization and durable checkpoint
+read-back. A commit-then-raise failure retains the checkpoint for the next Engine while preventing the current Engine from READY,
+Outbox delivery or Cluster resume. Unified Recovery Event Gate remains later work. The formal committed transaction
 path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE, Futures/Margin transactions, non-trade
 transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
 and remote stores remain outside this phase.

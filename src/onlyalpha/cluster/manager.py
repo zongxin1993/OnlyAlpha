@@ -115,16 +115,22 @@ class OnlyClusterManager:
                 self._cleanup(cluster_id)
                 raise OnlyClusterError(f"Cluster recovery entry failed: {cluster_id}") from exc
 
-    def complete_recovery_all(self) -> None:
+    def begin_recovery_finalization_all(self) -> None:
         for cluster_id in sorted(self._clusters, key=str):
             managed = self._clusters[cluster_id]
-            self._require_state(managed, {OnlyClusterState.RECOVERING}, "complete recovery")
+            self._require_state(managed, {OnlyClusterState.RECOVERING}, "begin recovery finalization")
+            self._transition(managed, OnlyClusterState.RECOVERY_FINALIZING)
             try:
                 managed.cluster.on_recovery_complete()
             except Exception as exc:
                 self._fail(managed, cluster_id, "on_recovery_complete", exc)
                 self._cleanup(cluster_id)
                 raise OnlyClusterError(f"Cluster recovery completion failed: {cluster_id}") from exc
+
+    def mark_recovered_all(self) -> None:
+        for cluster_id in sorted(self._clusters, key=str):
+            managed = self._clusters[cluster_id]
+            self._require_state(managed, {OnlyClusterState.RECOVERY_FINALIZING}, "mark recovered")
             self._transition(managed, OnlyClusterState.RECOVERED)
 
     def resume_recovered_all(self) -> None:
@@ -133,11 +139,15 @@ class OnlyClusterManager:
             self._require_state(managed, {OnlyClusterState.RECOVERED}, "resume recovered")
             self._transition(managed, OnlyClusterState.RUNNING)
 
-    def fail_recovery_all(self, error: Exception) -> None:
+    def fail_recovery_finalization_all(self, error: Exception) -> None:
         for cluster_id in reversed(sorted(self._clusters, key=str)):
             managed = self._clusters[cluster_id]
-            if managed.state is OnlyClusterState.RECOVERING:
-                self._fail(managed, cluster_id, "recovery", error)
+            if managed.state in {
+                OnlyClusterState.RECOVERING,
+                OnlyClusterState.RECOVERY_FINALIZING,
+                OnlyClusterState.RECOVERED,
+            }:
+                self._fail(managed, cluster_id, "recovery_finalization", error)
                 self._cleanup(cluster_id)
 
     def start(self, cluster_id: OnlyClusterId) -> None:
@@ -183,6 +193,7 @@ class OnlyClusterManager:
             {
                 OnlyClusterState.INITIALIZED,
                 OnlyClusterState.RECOVERING,
+                OnlyClusterState.RECOVERY_FINALIZING,
                 OnlyClusterState.RECOVERED,
                 OnlyClusterState.RUNNING,
                 OnlyClusterState.PAUSED,

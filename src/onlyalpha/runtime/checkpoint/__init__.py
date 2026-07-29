@@ -27,6 +27,7 @@ from .participant import (
     OnlyStatelessRuntimeCheckpointParticipant,
 )
 from .registry import OnlyRuntimeCheckpointParticipantRegistry
+from .service import OnlyRuntimeCheckpointService
 
 __all__ = [
     "ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION",
@@ -40,6 +41,7 @@ __all__ = [
     "OnlyRuntimeCheckpointHeader",
     "OnlyRuntimeCheckpointParticipant",
     "OnlyRuntimeCheckpointParticipantRegistry",
+    "OnlyRuntimeCheckpointService",
     "OnlyStatelessRuntimeCheckpointParticipant",
     "only_canonical_checkpoint_payload",
     "only_checkpoint_payload_hash",

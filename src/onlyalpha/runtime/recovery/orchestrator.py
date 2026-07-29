@@ -20,6 +20,7 @@ from onlyalpha.runtime.persistence.store import OnlyRuntimeCheckpointQueryPort
 
 if TYPE_CHECKING:
     from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayResult
+    from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 
 
 class OnlyRuntimeRecoveryStatus(StrEnum):
@@ -67,7 +68,7 @@ class OnlyRuntimeRecoveryOrchestrator:
         self._plan_builder = OnlyExecutionRecoveryPlanBuilder(transaction_query)
         self._causal_replay = causal_replay
 
-    def recover(self) -> OnlyRuntimeRecoveryDiagnostic | None:
+    def recover(self) -> OnlyRuntimeRecoveryOutcome | None:
         checkpoint = self._checkpoint_query.latest_checkpoint(self._runtime_id)
         if checkpoint is None:
             return None
@@ -99,7 +100,7 @@ class OnlyRuntimeRecoveryOrchestrator:
             if ready_count
             else OnlyRuntimeRecoveryStatus.RESTORED
         )
-        return OnlyRuntimeRecoveryDiagnostic(
+        diagnostic = OnlyRuntimeRecoveryDiagnostic(
             status,
             checkpoint.header.checkpoint_sequence,
             checkpoint.header.covered_execution_sequence,
@@ -113,4 +114,22 @@ class OnlyRuntimeRecoveryOrchestrator:
             0 if replay_result is None else replay_result.catch_up_bar_count,
             continuation_count,
             None if replay_result is None else str(replay_result.final_boundary.update_id),
+        )
+        from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
+
+        tail_start = checkpoint.header.covered_execution_sequence + 1 if plan.entries else None
+        tail_end = checkpoint.header.covered_execution_sequence + len(plan.entries) if plan.entries else None
+        continuation_start = tail_end + 1 if tail_end is not None and continuation_count else None
+        if continuation_count and continuation_start is None:
+            continuation_start = checkpoint.header.covered_execution_sequence + 1
+        continuation_end = None if continuation_start is None else continuation_start + continuation_count - 1
+        return OnlyRuntimeRecoveryOutcome(
+            checkpoint,
+            diagnostic,
+            tail_start,
+            tail_end,
+            continuation_start,
+            continuation_end,
+            None if replay_result is None else replay_result.final_boundary,
+            replay_result is not None,
         )
