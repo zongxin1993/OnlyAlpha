@@ -134,7 +134,12 @@ def test_buy_open_rejects_position_reservation() -> None:
         for item in only_test_projection_codec_cases()
         if item.identity.component is OnlyExecutionProjectionComponent.POSITION_RESERVATION
     )
-    projections = (*prepared.projections, position_reservation)
+    risk_index = next(
+        index
+        for index, item in enumerate(prepared.projections)
+        if item.identity.component is OnlyExecutionProjectionComponent.RISK_RESERVATION
+    )
+    projections = (*prepared.projections[:risk_index], position_reservation, *prepared.projections[risk_index:])
     projections = tuple(
         only_with_execution_projection_hash(
             replace(item, identity=replace(item.identity, projection_sequence=index, payload_hash="0" * 64))

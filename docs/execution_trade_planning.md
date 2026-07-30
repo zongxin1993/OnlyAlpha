@@ -40,10 +40,10 @@ Durable Event 保留 Legacy 的业务顺序，并将 `ACCOUNT_RESERVATION_*` 规
 Risk 增加显式 durable state fact；Legacy `EXECUTION_UPDATE_APPLIED` 是处理器完成标记，由 Prepared Transaction/fact envelope
 承载而非重复业务事件。Event ID 机制有意不同，但 type、scope、timestamp、terminal payload 和映射后的业务顺序均有真实路径测试。
 
-当前明确不支持 SELL、CLOSE、部分成交、多次成交累计、最低佣金跨 Fill 累计、Short、Hedging、Margin、Futures、FX 与多币种。
+当前支持 Generic T0 Cash BUY OPEN 的 whole/partial/multi Fill，以及 SELL CLOSE LONG NETTING 的首个 whole Fill。仍明确不支持 Partial/Multi-Close、Short、Hedging、CloseToday/CloseYesterday、Margin、Futures、FX 与多币种。
 这些输入以稳定 `OnlyTradeExecutionPlanningErrorCode` 拒绝。
 
-本 Planner 已接入 `OnlyExecutionProcessor` 的 Generic T0 Cash、LIMIT BUY OPEN whole/partial Fill 产品路径。Prepared Transaction 由 Coordinator 先写入 Transaction Store，再经过 Runtime sequence gate 和 13 个真实经济 Projection Target；Planner 仍保持纯函数边界，不导入 Runtime、Manager、Store 或 EventBus。
+本 Planner 已接入 `OnlyExecutionProcessor` 的 Generic T0 Cash、LIMIT BUY OPEN whole/partial Fill 与 LIMIT SELL CLOSE LONG NETTING whole Fill 产品路径。Prepared Transaction 由 Coordinator 先写入 Transaction Store，再经过 Runtime sequence gate 和正式经济 Projection Target；Close 批次新增 Position Reservation Target，Planner 仍保持纯函数边界，不导入 Runtime、Manager、Store 或 EventBus。
 
 ## Runtime Recovery 边界
 

@@ -420,28 +420,44 @@ class OnlyIntegrationEnvironment:
         self.event_recorder.capture(self.runtime.event_bus)
         return results
 
-    def submit_and_fill_sell(self) -> OnlyExecutionProcessingResult:
+    def submit_sell(
+        self,
+        *,
+        request_id: str = "integration-sell",
+        price: str = "12.00",
+        quantity: str = "100",
+        minute: int = 1,
+    ) -> OnlyOrderSubmitResult:
         self.cluster.pending_order = OnlyOrderRequest(
-            OnlyOrderRequestId("integration-sell"),
+            OnlyOrderRequestId(request_id),
             INSTRUMENT_ID,
             OnlyOrderSide.SELL,
             OnlyOrderType.LIMIT,
-            OnlyQuantity(Decimal("100"), 0),
-            price=OnlyPrice(Decimal("12.00"), 2),
+            OnlyQuantity(Decimal(quantity), 0),
+            price=OnlyPrice(Decimal(price), 2),
             offset=OnlyOffset.CLOSE,
         )
-        self.process_bar(DAY_TWO, 1, "12.00")
+        self.process_bar(DAY_TWO, minute, price)
         self.sell_order = self.cluster.submit_results[-1]
         if self.sell_order.order_id is None:
             raise RuntimeError("sell Order was not created")
+        return self.sell_order
+
+    def fill_sell(self, *, price: str = "12.00", minute: int = 2) -> OnlyExecutionProcessingResult:
+        if self.sell_order is None or self.sell_order.order_id is None:
+            raise RuntimeError("sell Order must be submitted first")
         before = len(self.runtime.broker_results)
-        self.process_bar(DAY_TWO, 2, "12.00")
+        self.process_bar(DAY_TWO, minute, price)
         self.sell_trade_result = next(
             item
             for item in self.runtime.broker_results[before:]
             if isinstance(item, OnlyExecutionProcessingResult) and item.update_type == "OnlyBrokerTradeUpdate"
         )
         return self.sell_trade_result
+
+    def submit_and_fill_sell(self) -> OnlyExecutionProcessingResult:
+        self.submit_sell()
+        return self.fill_sell()
 
     def final_snapshot(self) -> OnlyIntegrationSnapshot:
         self.event_recorder.capture(self.runtime.event_bus)

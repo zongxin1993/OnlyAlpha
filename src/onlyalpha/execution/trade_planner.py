@@ -11,17 +11,28 @@ from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStat
 from onlyalpha.account.performance import OnlyAccountEquityPoint, OnlyAccountValuationSource
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyRate
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity, OnlyRate
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeComponent, OnlyFeeType
 from onlyalpha.market.models import OnlyPositionEffect
-from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide, OnlySettlementBucket
+from onlyalpha.position.enums import (
+    OnlyPositionMode,
+    OnlyPositionReservationState,
+    OnlyPositionSide,
+    OnlyPositionStatus,
+    OnlySettlementBucket,
+)
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState, OnlyStrategyLedgerStatus
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
 from .event_identity import OnlyExecutionTransactionEventFactory
+from .execution_state import (
+    OnlyAccountCashReservationExecutionState,
+    OnlyPositionReservationExecutionState,
+    OnlyStrategyCashReservationExecutionState,
+)
 from .fill_identity import only_execution_fill_identity_from_update, only_execution_fill_payload_fingerprint
 from .identity import only_execution_transaction_id
 from .planned_trade import OnlyPlannedTrade
@@ -40,6 +51,7 @@ from .reducers import (
     OnlyFeeTradeReducer,
     OnlyOrderFeeAccrualTradeReducer,
     OnlyOrderTradeReducer,
+    OnlyPositionReservationTradeReducer,
     OnlyPositionTradeReducer,
     OnlyRiskReservationTradeReducer,
     OnlyRiskTradeReducer,
@@ -117,6 +129,7 @@ class OnlyTradeExecutionTransactionPlanner:
             ) from exc
 
     def _reduce(self, context: OnlyTradeExecutionPlanningContext) -> _OnlyTradePlan:
+        closing = context.position_scope.position_effect is OnlyPositionEffect.CLOSE
         trade_without_fee = replace(
             self._planned_trade(context),
             authoritative_fee=_money(Decimal(0), context.fee_instruction.fee_breakdown.currency),
@@ -134,6 +147,7 @@ class OnlyTradeExecutionTransactionPlanner:
             context.position_before,
             trade,
             context.position_creation,
+            context.position_reservation_before,
             cycle=context.position_cycle,
             projection_sequence=2,
         )
@@ -141,6 +155,8 @@ class OnlyTradeExecutionTransactionPlanner:
             context.allocation_before,
             trade,
             context.allocation_creation,
+            context.position_reservation_before,
+            position.realized_pnl_delta if closing else None,
             cycle=context.allocation_cycle,
             projection_sequence=3,
         )
@@ -159,28 +175,44 @@ class OnlyTradeExecutionTransactionPlanner:
             record_sequence=context.fee_record_sequence,
             projection_sequence=6,
         )
-        account_reservation = OnlyAccountCashReservationTradeReducer().reduce(
-            context.account_cash_reservation_before,
-            trade,
-            order.terminal_fill,
-            projection_sequence=9,
+        account_reservation = (
+            None
+            if closing
+            else OnlyAccountCashReservationTradeReducer().reduce(
+                _require_account_reservation(context),
+                trade,
+                order.terminal_fill,
+                projection_sequence=9,
+            )
         )
-        strategy_reservation = OnlyStrategyCashReservationTradeReducer().reduce(
-            context.strategy_cash_reservation_before,
-            trade,
-            order.terminal_fill,
-            projection_sequence=10,
+        strategy_reservation = (
+            None
+            if closing
+            else OnlyStrategyCashReservationTradeReducer().reduce(
+                _require_strategy_reservation(context),
+                trade,
+                order.terminal_fill,
+                projection_sequence=10,
+            )
+        )
+        position_reservation = (
+            OnlyPositionReservationTradeReducer().reduce(
+                _require_position_reservation(context),
+                trade,
+                order.terminal_fill,
+                projection_sequence=9,
+            )
+            if closing
+            else None
         )
         risk_reservation = OnlyRiskReservationTradeReducer().reduce(
             context.risk_reservation_before,
             trade,
             order.terminal_fill,
-            projection_sequence=11,
+            projection_sequence=10 if closing else 11,
         )
         currency = trade.authoritative_fee.currency
         quantum = Decimal(1).scaleb(-currency.precision)
-        if position.after.average_open_price is None:
-            raise ValueError("open Position requires average price")
         position_market_value = _money(
             (context.valuation_price.value * position.after.total_quantity.value * trade.multiplier.value).quantize(
                 quantum
@@ -189,7 +221,9 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         position_market_delta = position_market_value - context.account_before.position_market_value
         position_unrealized = _money(
-            (
+            Decimal(0)
+            if position.after.average_open_price is None
+            else (
                 (context.valuation_price.value - position.after.average_open_price.value)
                 * position.after.total_quantity.value
                 * trade.multiplier.value
@@ -202,6 +236,8 @@ class OnlyTradeExecutionTransactionPlanner:
             trade,
             position_market_delta,
             position_unrealized,
+            position.realized_pnl_delta if closing else None,
+            settlement.after.trade_cash_released,
             projection_sequence=7,
         )
         ledger = OnlyStrategyLedgerTradeReducer().reduce(
@@ -211,6 +247,7 @@ class OnlyTradeExecutionTransactionPlanner:
             allocation.after,
             trade,
             context.valuation_price,
+            position.realized_pnl_delta if closing else None,
             projection_sequence=8,
         )
         risk = OnlyRiskTradeReducer().reduce(
@@ -218,7 +255,7 @@ class OnlyTradeExecutionTransactionPlanner:
             risk_reservation,
             trade,
             order.terminal_fill,
-            projection_sequence=12,
+            projection_sequence=11 if closing else 12,
         )
         valuation = OnlyValuationTradeReducer().reduce(
             context.valuation_before,
@@ -226,7 +263,7 @@ class OnlyTradeExecutionTransactionPlanner:
             account.after.cash_balance,
             account.after.position_market_value,
             account.after.unrealized_pnl,
-            projection_sequence=13,
+            projection_sequence=12 if closing else 13,
         )
         ledger_projection = replace(
             ledger.projection,
@@ -252,7 +289,7 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         valuation_projection = OnlyExecutionProjectionBuilder().finalize(valuation_projection)
         assert isinstance(valuation_projection, OnlyValuationExecutionProjection)
-        projections: tuple[OnlyExecutionProjection, ...] = (
+        common_projections: tuple[OnlyExecutionProjection, ...] = (
             order.projection,
             position.projection,
             allocation.projection,
@@ -261,13 +298,22 @@ class OnlyTradeExecutionTransactionPlanner:
             fee.projection,
             account.projection,
             ledger_projection,
-            account_reservation.projection,
-            strategy_reservation.projection,
+        )
+        reservation_projections: tuple[OnlyExecutionProjection, ...]
+        if closing:
+            assert position_reservation is not None
+            reservation_projections = (position_reservation.projection,)
+        else:
+            assert account_reservation is not None and strategy_reservation is not None
+            reservation_projections = (account_reservation.projection, strategy_reservation.projection)
+        projections = (
+            *common_projections,
+            *reservation_projections,
             risk_reservation.projection,
             risk.projection,
             valuation_projection,
         )
-        intents = (
+        common_intents = (
             order.event_intents
             + position.event_intents
             + settlement.event_intents
@@ -275,23 +321,31 @@ class OnlyTradeExecutionTransactionPlanner:
             + fee.event_intents
             + account.event_intents
             + ledger.event_intents
-            + account_reservation.event_intents[:1]
-            + strategy_reservation.event_intents[:1]
-            + account_reservation.event_intents[1:]
-            + strategy_reservation.event_intents[1:]
-            + risk.event_intents
         )
+        if closing:
+            assert position_reservation is not None
+            reservation_intents = position_reservation.event_intents
+        else:
+            assert account_reservation is not None and strategy_reservation is not None
+            reservation_intents = (
+                account_reservation.event_intents[:1]
+                + strategy_reservation.event_intents[:1]
+                + account_reservation.event_intents[1:]
+                + strategy_reservation.event_intents[1:]
+            )
+        intents = common_intents + reservation_intents + risk.event_intents
         fact = self._fact(
             context,
             trade,
             incremental_fee_instruction,
             order.after,
-            position.after,
-            allocation.after,
+            position,
+            allocation,
             settlement.after,
             fee_accrual,
             account_reservation,
             strategy_reservation,
+            position_reservation,
             risk_reservation,
             account,
             ledger,
@@ -350,38 +404,47 @@ class OnlyTradeExecutionTransactionPlanner:
         trade: OnlyPlannedTrade,
         fee: object,
         order_after: object,
-        position_after: object,
-        allocation_after: object,
+        position: object,
+        allocation: object,
         settlement_after: object,
         fee_accrual: object,
         account_reservation: object,
         strategy_reservation: object,
+        position_reservation: object,
         risk_reservation: object,
         account: object,
         ledger: object,
     ) -> OnlyCommittedExecutionFactDraft:
         from onlyalpha.fee.models import OnlyFeeInstruction
 
-        from .execution_state import OnlyAllocationExecutionState, OnlyOrderExecutionState, OnlyPositionExecutionState
+        from .execution_state import OnlyOrderExecutionState
         from .projection import OnlySettlementExecutionState
         from .reducers.trade_accounting import OnlyAccountTradeReduction, OnlyStrategyLedgerTradeReduction
         from .reducers.trade_fee_accrual import OnlyOrderFeeAccrualTradeReduction
         from .reducers.trade_reservations import (
             OnlyAccountCashReservationTradeReduction,
+            OnlyPositionReservationTradeReduction,
             OnlyRiskReservationTradeReduction,
             OnlyStrategyCashReservationTradeReduction,
         )
 
         assert isinstance(order_after, OnlyOrderExecutionState)
-        assert isinstance(position_after, OnlyPositionExecutionState)
-        assert isinstance(allocation_after, OnlyAllocationExecutionState)
+        from .reducers.trade_state import OnlyAllocationTradeReduction, OnlyPositionTradeReduction
+
+        assert isinstance(position, OnlyPositionTradeReduction)
+        assert isinstance(allocation, OnlyAllocationTradeReduction)
+        position_after = position.after
+        allocation_after = allocation.after
         assert isinstance(settlement_after, OnlySettlementExecutionState)
         assert isinstance(account, OnlyAccountTradeReduction)
         assert isinstance(ledger, OnlyStrategyLedgerTradeReduction)
         assert isinstance(fee, OnlyFeeInstruction)
         assert isinstance(fee_accrual, OnlyOrderFeeAccrualTradeReduction)
-        assert isinstance(account_reservation, OnlyAccountCashReservationTradeReduction)
-        assert isinstance(strategy_reservation, OnlyStrategyCashReservationTradeReduction)
+        assert account_reservation is None or isinstance(account_reservation, OnlyAccountCashReservationTradeReduction)
+        assert strategy_reservation is None or isinstance(
+            strategy_reservation, OnlyStrategyCashReservationTradeReduction
+        )
+        assert position_reservation is None or isinstance(position_reservation, OnlyPositionReservationTradeReduction)
         assert isinstance(risk_reservation, OnlyRiskReservationTradeReduction)
         update = context.update
         components = fee.fee_breakdown.components
@@ -396,7 +459,7 @@ class OnlyTradeExecutionTransactionPlanner:
             currency, tuple(item for item in components if item.fee_type is OnlyFeeType.BROKER_COMMISSION)
         )
         other = _money(fee.fee_breakdown.total.amount - tax.amount - commission.amount, currency)
-        direction = Decimal(1)
+        direction = Decimal(1) if trade.side is OnlyOrderSide.BUY else Decimal(-1)
         slippage = None
         if trade.fill.reference_price is not None:
             slippage = _money(
@@ -469,7 +532,7 @@ class OnlyTradeExecutionTransactionPlanner:
             fee_reporting_mode=trade.fill.fee_reporting_mode,
             reference_price=trade.fill.reference_price,
             slippage=slippage,
-            realized_pnl_delta=zero,
+            realized_pnl_delta=position.realized_pnl_delta,
             cash_delta=account.cash_delta,
             fee_instruction_id=fee.instruction_id,
             fee_authority="+".join(sorted({item.authority.value for item in components})) or "NONE",
@@ -498,24 +561,63 @@ class OnlyTradeExecutionTransactionPlanner:
             released_margin_delta=None,
             maintenance_margin_after=None,
             position_quantity_delta=position_after.total_quantity.value - position_before_quantity,
-            position_realized_pnl_delta=zero,
+            position_realized_pnl_delta=position.realized_pnl_delta,
             allocation_quantity_delta=allocation_after.total_quantity.value - allocation_before_quantity,
             account_cash_delta=account.cash_delta,
             account_fee_delta=account.fee_delta,
-            account_realized_pnl_delta=zero,
+            account_realized_pnl_delta=position.realized_pnl_delta,
             ledger_cash_delta=ledger.cash_delta,
             ledger_fee_delta=ledger.fee_delta,
-            ledger_realized_pnl_delta=zero,
+            ledger_realized_pnl_delta=position.realized_pnl_delta,
             incremental_fee_total=fee_accrual.incremental_total,
             order_cumulative_fee_after=fee_accrual.after.cumulative_charged_fee,
-            account_reservation_consumed_delta=account_reservation.consumed_delta,
-            account_reservation_released_delta=account_reservation.released_delta,
-            strategy_reservation_consumed_delta=strategy_reservation.consumed_delta,
-            strategy_reservation_released_delta=strategy_reservation.released_delta,
+            account_reservation_consumed_delta=(
+                zero if account_reservation is None else account_reservation.consumed_delta
+            ),
+            account_reservation_released_delta=(
+                zero if account_reservation is None else account_reservation.released_delta
+            ),
+            strategy_reservation_consumed_delta=(
+                zero if strategy_reservation is None else strategy_reservation.consumed_delta
+            ),
+            strategy_reservation_released_delta=(
+                zero if strategy_reservation is None else strategy_reservation.released_delta
+            ),
             risk_reservation_quantity_consumed_delta=risk_reservation.consumed_quantity_delta,
             risk_reservation_notional_consumed_delta=risk_reservation.consumed_notional_delta,
             position_cumulative_open_price_quantity_after=position_after.cumulative_open_price_quantity,
             allocation_cumulative_open_price_quantity_after=allocation_after.cumulative_open_price_quantity,
+            position_quantity_before=position_before_quantity,
+            position_quantity_after=position_after.total_quantity.value,
+            allocation_quantity_before=allocation_before_quantity,
+            allocation_quantity_after=allocation_after.total_quantity.value,
+            position_cumulative_open_price_quantity_before=(
+                Decimal(0)
+                if context.position_before is None
+                else context.position_before.cumulative_open_price_quantity
+            ),
+            allocation_cumulative_open_price_quantity_before=(
+                Decimal(0)
+                if context.allocation_before is None
+                else context.allocation_before.cumulative_open_price_quantity
+            ),
+            released_open_price_quantity=(
+                Decimal(0)
+                if context.position_before is None or context.position_before.average_open_price is None
+                else context.position_before.average_open_price.value * trade.quantity.value
+                if trade.position_effect is OnlyPositionEffect.CLOSE
+                else Decimal(0)
+            ),
+            gross_cash_inflow=(trade.gross_notional if trade.side is OnlyOrderSide.SELL else zero),
+            net_cash_inflow=(account.cash_delta if trade.side is OnlyOrderSide.SELL else zero),
+            allocation_realized_pnl_delta=allocation.realized_pnl_delta,
+            position_reservation_consumed_delta=(
+                OnlyQuantity(Decimal(0), trade.quantity.precision)
+                if position_reservation is None
+                else position_reservation.consumed_quantity_delta
+            ),
+            position_closed=position_after.total_quantity.value == 0,
+            allocation_closed=allocation_after.total_quantity.value == 0,
         )
 
     @staticmethod
@@ -548,8 +650,6 @@ class OnlyTradeExecutionTransactionPlanner:
             context.order_before,
             context.account_before,
             context.strategy_ledger_before,
-            context.account_cash_reservation_before,
-            context.strategy_cash_reservation_before,
             context.risk_reservation_before,
             context.risk_before,
             context.valuation_before,
@@ -564,6 +664,7 @@ class OnlyTradeExecutionTransactionPlanner:
         scope = context.position_scope
         instruction = context.trade_instruction
         fee = context.fee_instruction
+        closing = scope.position_effect is OnlyPositionEffect.CLOSE
         if instruction.compiled_identity.profile_id != _PROFILE_ID:
             _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE, "only GENERIC_T0_CASH is supported")
         if context.account_before.account_type is not OnlyAccountType.CASH:
@@ -573,21 +674,53 @@ class OnlyTradeExecutionTransactionPlanner:
             )
         if order.order_type is not OnlyOrderType.LIMIT:
             _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_TYPE, "only LIMIT is supported")
-        if order.side is not OnlyOrderSide.BUY:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_SIDE, "only BUY is supported")
-        if order.offset is not OnlyOffset.OPEN:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_OFFSET, "only OPEN is supported")
+        expected_side = OnlyOrderSide.SELL if closing else OnlyOrderSide.BUY
+        expected_offset = OnlyOffset.CLOSE if closing else OnlyOffset.OPEN
+        if order.side is not expected_side:
+            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_SIDE, "unsupported Order side")
+        if order.offset is not expected_offset:
+            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_OFFSET, "unsupported Order offset")
+        supported_open = not closing
+        supported_close = closing
         if scope.position_side is not OnlyPositionSide.LONG:
             _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_SIDE, "only LONG is supported")
         if scope.position_mode is not OnlyPositionMode.NETTING:
             _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_MODE, "only NETTING is supported")
         if instruction.margin_instruction is not None or context.margin_reservation_before is not None:
             _fail(OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, "Margin is not supported")
-        if context.position_reservation_before is not None:
+        if supported_open and context.position_reservation_before is not None:
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN,
                 "BUY OPEN cannot carry a Position Reservation",
             )
+        if supported_open and (
+            context.account_cash_reservation_before is None or context.strategy_cash_reservation_before is None
+        ):
+            _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "BUY OPEN requires cash Reservations")
+        if supported_close:
+            if (
+                context.account_cash_reservation_before is not None
+                or context.strategy_cash_reservation_before is not None
+            ):
+                _fail(
+                    OnlyTradeExecutionPlanningErrorCode.CLOSE_CASH_RESERVATION_FORBIDDEN,
+                    "SELL CLOSE cannot carry cash Reservations",
+                )
+            if context.position_reservation_before is None:
+                _fail(
+                    OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_RESERVATION_REQUIRED,
+                    "SELL CLOSE requires Position Reservation",
+                )
+            if order.filled_quantity.value != 0 or order.fill_count != 0:
+                _fail(
+                    OnlyTradeExecutionPlanningErrorCode.PARTIAL_CLOSE_NOT_READY,
+                    "a Close Order with prior Fills is not supported",
+                )
+            if update.fill.quantity.value != order.remaining_quantity.value:
+                _fail(
+                    OnlyTradeExecutionPlanningErrorCode.PARTIAL_CLOSE_NOT_READY,
+                    "Close Fill must consume the complete Order remainder",
+                )
         if update.fill.quantity.value > order.remaining_quantity.value:
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.FILL_EXCEEDS_REMAINING_QUANTITY,
@@ -646,7 +779,7 @@ class OnlyTradeExecutionTransactionPlanner:
             or position_instruction.source_order_id != str(order.order_id)
             or position_instruction.source_trade_id != str(update.fill.trade_id)
             or position_instruction.position_side != scope.position_side.value
-            or position_instruction.position_effect is not OnlyPositionEffect.OPEN
+            or position_instruction.position_effect is not scope.position_effect
             or position_instruction.quantity != update.fill.quantity.value
             or position_instruction.price != update.fill.price.value
             or settlement.account_id != str(order.account_id)
@@ -666,14 +799,16 @@ class OnlyTradeExecutionTransactionPlanner:
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Fee instruction scope disagrees")
         currency = fee.fee_breakdown.currency
-        monies = (
+        monies: list[OnlyMoney | None] = [
             context.account_before.cash_balance,
             context.strategy_ledger_before.cash_balance,
-            context.account_cash_reservation_before.reserved_amount,
-            context.strategy_cash_reservation_before.reserved_amount,
             context.risk_reservation_before.reserved_notional,
             context.valuation_before.cash,
-        )
+        ]
+        if context.account_cash_reservation_before is not None:
+            monies.append(context.account_cash_reservation_before.reserved_amount)
+        if context.strategy_cash_reservation_before is not None:
+            monies.append(context.strategy_cash_reservation_before.reserved_amount)
         if any(item is None or item.currency != currency for item in monies):
             _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Planning authority requires one Currency")
         optional_risk_money = (
@@ -695,9 +830,10 @@ class OnlyTradeExecutionTransactionPlanner:
             )
         if instruction.cash_instruction.currency != currency.code:
             _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Cash instruction Currency disagrees")
+        expected_cash = expected_notional.amount if closing else -expected_notional.amount
         if (
             not instruction.cash_instruction.settle_notional
-            or instruction.cash_instruction.amount != -expected_notional.amount
+            or instruction.cash_instruction.amount != expected_cash
             or instruction.cash_instruction.available_on != settlement.cash_trade_available_on
         ):
             _fail(
@@ -727,14 +863,17 @@ class OnlyTradeExecutionTransactionPlanner:
             OnlyStrategyLedgerStatus.RECONCILING,
         }:
             _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Strategy Ledger is not processable")
-        if (
-            context.account_cash_reservation_before.state
-            not in {OnlyAccountReservationState.ACTIVE, OnlyAccountReservationState.PARTIALLY_CONSUMED}
-            or context.strategy_cash_reservation_before.state
-            not in {OnlyStrategyCashReservationState.ACTIVE, OnlyStrategyCashReservationState.PARTIALLY_CONSUMED}
-            or context.risk_reservation_before.state is not OnlyRiskReservationState.ACTIVE
-        ):
+        if context.risk_reservation_before.state is not OnlyRiskReservationState.ACTIVE:
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Reservation is not ACTIVE")
+        if supported_open and (
+            _require_account_reservation(context).state
+            not in {OnlyAccountReservationState.ACTIVE, OnlyAccountReservationState.PARTIALLY_CONSUMED}
+            or _require_strategy_reservation(context).state
+            not in {OnlyStrategyCashReservationState.ACTIVE, OnlyStrategyCashReservationState.PARTIALLY_CONSUMED}
+        ):
+            _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Cash Reservation is not ACTIVE")
+        if supported_close:
+            _validate_close_authority(context)
         stable_order = (update.source_sequence, update.ts_event.unix_nanos, str(update.fill.trade_id))
         if any(
             previous is not None and stable_order <= previous
@@ -749,7 +888,13 @@ class OnlyTradeExecutionTransactionPlanner:
                 "Trade stable order must advance all before states",
             )
         _validate_reservation_scope(context)
-        _validate_creation(context)
+        if supported_open:
+            _validate_creation(context)
+        elif context.position_creation is not None or context.allocation_creation is not None:
+            _fail(
+                OnlyTradeExecutionPlanningErrorCode.UNEXPECTED_CREATION_AUTHORITY,
+                "SELL CLOSE cannot carry creation authority",
+            )
 
 
 def _validate_creation(context: OnlyTradeExecutionPlanningContext) -> None:
@@ -797,12 +942,7 @@ def _validate_reservation_scope(context: OnlyTradeExecutionPlanningContext) -> N
     strategy = context.strategy_cash_reservation_before
     risk = context.risk_reservation_before
     if (
-        account.runtime_id != update.runtime_id
-        or account.account_id != update.account_id
-        or account.order_id != update.order_id
-        or strategy.key != context.strategy_ledger_before.key
-        or strategy.order_id != update.order_id
-        or risk.runtime_id != update.runtime_id
+        risk.runtime_id != update.runtime_id
         or risk.account_id != update.account_id
         or risk.cluster_id != order.cluster_id
         or risk.instrument_id != order.instrument_id
@@ -813,6 +953,89 @@ def _validate_reservation_scope(context: OnlyTradeExecutionPlanningContext) -> N
         or context.valuation_before.account_id != order.account_id
     ):
         _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Reservation/Risk/Valuation scope disagrees")
+    if account is not None and (
+        account.runtime_id != update.runtime_id
+        or account.account_id != update.account_id
+        or account.order_id != update.order_id
+    ):
+        _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Account Reservation scope disagrees")
+    if strategy is not None and (
+        strategy.key != context.strategy_ledger_before.key or strategy.order_id != update.order_id
+    ):
+        _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Strategy Reservation scope disagrees")
+
+
+def _validate_close_authority(context: OnlyTradeExecutionPlanningContext) -> None:
+    position = context.position_before
+    allocation = context.allocation_before
+    reservation = _require_position_reservation(context)
+    quantity = context.update.fill.quantity.value
+    if position is None:
+        _fail(OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_REQUIRED, "active Position is required")
+    if allocation is None:
+        _fail(OnlyTradeExecutionPlanningErrorCode.CLOSE_ALLOCATION_REQUIRED, "Cluster Allocation is required")
+    if position.status is not OnlyPositionStatus.OPEN or position.average_open_price is None:
+        _fail(OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_REQUIRED, "Position must be OPEN")
+    if position.total_quantity.value < quantity:
+        _fail(OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_INSUFFICIENT, "Position quantity is insufficient")
+    if allocation.total_quantity.value < quantity:
+        _fail(OnlyTradeExecutionPlanningErrorCode.CLOSE_ALLOCATION_INSUFFICIENT, "Allocation quantity is insufficient")
+    if reservation.remaining_quantity.value < quantity:
+        _fail(
+            OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_RESERVATION_INSUFFICIENT,
+            "Position Reservation quantity is insufficient",
+        )
+    if reservation.state not in {
+        OnlyPositionReservationState.ACTIVE,
+        OnlyPositionReservationState.PARTIALLY_CONSUMED,
+    }:
+        _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Position Reservation is terminal")
+    scope = context.position_scope
+    if (
+        reservation.runtime_id != context.update.runtime_id
+        or reservation.account_id != context.update.account_id
+        or reservation.cluster_id != context.order_before.cluster_id
+        or reservation.instrument_id != context.order_before.instrument_id
+        or reservation.order_id != context.order_before.order_id
+        or reservation.position_side is not scope.position_side
+        or reservation.position_mode is not scope.position_mode
+        or position.key != scope.position_key
+        or allocation.key != scope.allocation_key
+    ):
+        _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Close Position authority scope disagrees")
+
+
+def _require_account_reservation(
+    context: OnlyTradeExecutionPlanningContext,
+) -> OnlyAccountCashReservationExecutionState:
+    value = context.account_cash_reservation_before
+    if value is None:
+        _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Account cash Reservation is required")
+    assert isinstance(value, OnlyAccountCashReservationExecutionState)
+    return value
+
+
+def _require_strategy_reservation(
+    context: OnlyTradeExecutionPlanningContext,
+) -> OnlyStrategyCashReservationExecutionState:
+    value = context.strategy_cash_reservation_before
+    if value is None:
+        _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Strategy cash Reservation is required")
+    assert isinstance(value, OnlyStrategyCashReservationExecutionState)
+    return value
+
+
+def _require_position_reservation(
+    context: OnlyTradeExecutionPlanningContext,
+) -> OnlyPositionReservationExecutionState:
+    value = context.position_reservation_before
+    if value is None:
+        _fail(
+            OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_RESERVATION_REQUIRED,
+            "Position Reservation is required",
+        )
+    assert isinstance(value, OnlyPositionReservationExecutionState)
+    return value
 
 
 def _position_key(context: OnlyTradeExecutionPlanningContext) -> OnlyPositionKey:

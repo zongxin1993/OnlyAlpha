@@ -8,7 +8,7 @@ from decimal import Decimal
 from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerTradeUpdate, OnlyBrokerUpdateId
 from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.execution import OnlyOrderFill
-from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId, OnlyTradeId, OnlyVenueTradeId
+from onlyalpha.domain.identifiers import OnlyEngineId, OnlyOrderId, OnlyPositionId, OnlyTradeId, OnlyVenueTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from onlyalpha.execution import (
@@ -32,6 +32,7 @@ from onlyalpha.execution import (
     only_capture_execution_fill_authority,
     only_order_execution_state,
     only_position_execution_state,
+    only_position_reservation_execution_state,
     only_risk_execution_state,
     only_risk_reservation_execution_state,
     only_strategy_cash_reservation_execution_state,
@@ -135,6 +136,34 @@ def only_test_generic_t0_trade_update(
     return _trade_update(environment, scenario, suffix=suffix, fill_price=fill_price)
 
 
+def only_test_generic_t0_long_close_context(
+    *,
+    open_quantity: str = "100",
+    close_quantity: str = "100",
+    fill_price: str = "12.00",
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+    scenario = OnlyTestGenericT0Scenario("long-close", fill_price=fill_price)
+    environment = _environment(scenario)
+    environment.start()
+    for minute in range(3):
+        environment.process_bar(DAY_ONE, minute, "10.00")
+    environment.submit_buy(request_id="long-close-open", quantity=open_quantity)
+    result = environment.fill_buy()
+    assert result.status.value == "APPLIED"
+    environment.settle_next_day()
+    sell = environment.submit_sell(request_id="long-close", quantity=close_quantity)
+    assert sell.order_id is not None
+    update = _trade_update_for_order(
+        environment,
+        sell.order_id,
+        scenario,
+        suffix="close",
+        fill_price=fill_price,
+    )
+    context = only_test_real_trade_planning_context(environment, update)
+    return environment, context, OnlyTradeExecutionTransactionPlanner().prepare(context)
+
+
 def only_test_real_trade_planning_context(
     env: OnlyIntegrationEnvironment,
     update: OnlyBrokerTradeUpdate,
@@ -174,14 +203,21 @@ def only_test_real_trade_planning_context(
     )
     account_snapshot = runtime.account_manager.get_snapshot(order.account_id)
     assert account_snapshot is not None
-    account_reservation = next(item for item in account_snapshot.reservations if item.order_id == order.order_id)
+    account_reservation = next(
+        (item for item in account_snapshot.reservations if item.order_id == order.order_id),
+        None,
+    )
     ledger_snapshot = runtime.strategy_ledger_locator.require_snapshot(
         runtime_id=order.runtime_id,
         account_id=order.account_id,
         cluster_id=order.cluster_id,
         currency=account_snapshot.base_currency,
     )
-    strategy_reservation = next(item for item in ledger_snapshot.reservations if item.order_id == order.order_id)
+    strategy_reservation = next(
+        (item for item in ledger_snapshot.reservations if item.order_id == order.order_id),
+        None,
+    )
+    position_reservation = runtime.position_reservation_manager.get(order.order_id)
     risk_reservation = runtime.risk_service.reservations.get_for_order(order.order_id)
     assert risk_reservation is not None
     position_creation = None
@@ -234,8 +270,17 @@ def only_test_real_trade_planning_context(
         order_fee_accrual_before=runtime.order_fee_accrual_manager.get(order.order_id),
         account_before=only_account_execution_state(account_snapshot),
         strategy_ledger_before=only_strategy_ledger_execution_state(ledger_snapshot),
-        account_cash_reservation_before=only_account_cash_reservation_execution_state(account_reservation),
-        strategy_cash_reservation_before=only_strategy_cash_reservation_execution_state(strategy_reservation),
+        account_cash_reservation_before=(
+            None if account_reservation is None else only_account_cash_reservation_execution_state(account_reservation)
+        ),
+        strategy_cash_reservation_before=(
+            None
+            if strategy_reservation is None
+            else only_strategy_cash_reservation_execution_state(strategy_reservation)
+        ),
+        position_reservation_before=(
+            None if position_reservation is None else only_position_reservation_execution_state(position_reservation)
+        ),
         risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
         risk_before=only_risk_execution_state(runtime.risk_service.get_snapshot(order.cluster_id)),
         valuation_before=OnlyValuationExecutionState(
@@ -443,7 +488,24 @@ def _trade_update(
     fill_price: str | None = None,
 ) -> OnlyBrokerTradeUpdate:
     assert env.buy_order is not None and env.buy_order.order_id is not None
-    order = env.runtime.order_manager.require_snapshot(env.buy_order.order_id)
+    return _trade_update_for_order(
+        env,
+        env.buy_order.order_id,
+        scenario,
+        suffix=suffix,
+        fill_price=fill_price,
+    )
+
+
+def _trade_update_for_order(
+    env: OnlyIntegrationEnvironment,
+    order_id: OnlyOrderId,
+    scenario: OnlyTestGenericT0Scenario,
+    *,
+    suffix: str | None = None,
+    fill_price: str | None = None,
+) -> OnlyBrokerTradeUpdate:
+    order = env.runtime.order_manager.require_snapshot(order_id)
     timestamp = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
     env.runtime.clock.advance_by(7_000_000_000)
     initialized_at = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())

@@ -23,6 +23,10 @@ Order 创建后，Runtime 同时协调 Risk Reservation、Account Cash Reservati
 Trade Cash Flow 的 fee 必须来自 Runtime 唯一 `OnlyFeeResolver` 生成的 `OnlyFeeInstruction`；AccountManager 不读取
 Market Profile、Broker Schedule 或 Fill reported fee，也不计算佣金。Strategy Ledger 与 FeeManager 应用同一指令投影。
 
+受支持的 whole-fill Long Close 使用 `gross_cash_inflow = sale notional`、`net_cash_inflow = sale notional - authoritative
+fee`。Account 不建立或消费现金 Reservation，frozen cash 保持不变；它只消费 Position 给出的 realized-PnL delta，并与
+Strategy Ledger 的 cash、fee、realized PnL 和 valuation authority 在 Prepared Transaction 不变量中交叉校验。
+
 第一版不支持多币种换汇、保证金、融资融券、负债、期货/期权账户和 corporate action 现金流。
 
 所有 Broker Account Update 由 ExecutionProcessor 分派到 `OnlyAccountReconciliationService`；Trade cash flow 位于 Ledger 后、

@@ -96,7 +96,7 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。
 ## PR4.2 Runtime Checkpoint 与连续 Engine Restart
 
-已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、完整 Bar completion 后原子 checkpoint、checkpointable Result Progress、完整 Participant Registry、精确 MarketData cursor、Broker Update 因果点 Ready rehydration/未投影 Coordinator recovery、Stored Prepared 全量验证、Open Order/Virtual Broker/Strategy/Factor/Indicator 恢复，以及独立 Engine 连续重启和 canonical business projection 基线等价测试。PR4.2.2a 分离 persisted tail resolved 与 exact MarketData boundary completed，并支持正式 continuation transaction。PR4.2.2b 已增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator、fail-closed Finalizer、checkpoint durable read-back 以及 Engine A→B→C after-commit 故障矩阵。PR4.2.2c Unified Recovery Event Gate 已完成：Direct、Durable Outbox 与 Lifecycle 统一经 Runtime Router，恢复历史 Direct Event 被抑制，fresh bootstrap 有界暂存，recovery bootstrap 丢弃，continuation Outbox 仅在 OPEN 后交付，Runtime EventBus 对外只读。Paper/Live recovery、Partial/Multi Fill、SELL/CLOSE、Futures/Margin、Non-Trade Transaction、exactly-once Outbox、Direct Durable Journal、Delivery Watermark、Subscriber ACK、schema migration 与分布式 checkpoint 仍未完成。
+已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、完整 Bar completion 后原子 checkpoint、checkpointable Result Progress、完整 Participant Registry、精确 MarketData cursor、Broker Update 因果点 Ready rehydration/未投影 Coordinator recovery、Stored Prepared 全量验证、Open Order/Virtual Broker/Strategy/Factor/Indicator 恢复，以及独立 Engine 连续重启和 canonical business projection 基线等价测试。PR4.2.2a 分离 persisted tail resolved 与 exact MarketData boundary completed，并支持正式 continuation transaction。PR4.2.2b 已增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator、fail-closed Finalizer、checkpoint durable read-back 以及 Engine A→B→C after-commit 故障矩阵。PR4.2.2c Unified Recovery Event Gate 已完成：Direct、Durable Outbox 与 Lifecycle 统一经 Runtime Router，恢复历史 Direct Event 被抑制，fresh bootstrap 有界暂存，recovery bootstrap 丢弃，continuation Outbox 仅在 OPEN 后交付，Runtime EventBus 对外只读。Paper/Live recovery、Partial/Multi-Close、Futures/Margin、Non-Trade Transaction、exactly-once Outbox、Direct Durable Journal、Delivery Watermark、Subscriber ACK、schema migration 与分布式 checkpoint 仍未完成。
 
 ## PR4.1 Projection Ready Query 与 Runtime Recovery（Historical）
 
@@ -130,4 +130,12 @@ identity fail closed。Virtual Broker Partial Fill Schedule 与完整 Multi-Fill
 Plan Store/Cursor、确定性 Order/Trade 排序、部分成交后撤单，以及 Gateway checkpoint/participant schema version 2。
 正式 Engine 已证明跨 Bar与同 Bar多 Fill 每笔形成独立 transaction，并覆盖 Broker execute/publish、Commit、Projection、
 Outbox、部分 Plan checkpoint 和 A→B→C restart 等价性。没有新增 Recovery Phase，Commit Coordinator、Event Gate、
-Fill Identity/Index 与 PR4.3.2 accounting 保持不变。下一阶段为 PR4.4 SELL/CLOSE Durable Transaction。
+Fill Identity/Index 与 PR4.3.2 accounting 保持不变。
+
+## PR4.4.1 Generic T0 Cash Long Close Durable Transaction（完成）
+
+`LIMIT SELL CLOSE LONG NETTING` 的首个 whole Fill 已复用统一 Planner、Transaction Store、Projection Targets、Recovery 与
+durable Outbox。Position 可部分保留或完全关闭；Position 是 Realized PnL 唯一权威，Allocation、Account、Strategy Ledger
+和 Committed Fact 消费同一增量；Position Reservation 在同一事务内消费。未修改 Fill Identity/Index、Commit Coordinator、
+Recovery Phase、Event Gate 或 Outbox 语义。Partial/Multi-Close、Short、Hedging、CloseToday/CloseYesterday、Futures/Margin
+与 Paper/Live 仍未实现；下一阶段 PR4.4.2 为 Partial / Multi-Fill CLOSE Incremental Accounting。

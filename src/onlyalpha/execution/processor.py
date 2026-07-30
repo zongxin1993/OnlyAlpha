@@ -32,7 +32,7 @@ from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.margin.manager import OnlyMarginManager
-from onlyalpha.market.models import OnlyMarketPositionMode
+from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
 from onlyalpha.market.runtime_rules import (
     OnlyTradeApplicationInstruction,
     OnlyTradeApplicationRequest,
@@ -53,6 +53,7 @@ from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import (
     OnlyPositionMode,
     OnlyPositionMutationStatus,
+    OnlyPositionSide,
     OnlySettlementBucket,
 )
 from onlyalpha.position.identifiers import OnlyGatewayId
@@ -359,7 +360,7 @@ class OnlyExecutionProcessor:
                 quality_flags=("OUT_OF_ORDER",),
                 position_scope=position_scope,
             )
-        if isinstance(update, OnlyBrokerTradeUpdate) and self._uses_prepared_trade_path(update):
+        if isinstance(update, OnlyBrokerTradeUpdate) and self._uses_prepared_trade_path(update, position_scope):
             if position_scope is None:
                 failure = OnlyExecutionFailure(
                     OnlyExecutionFailureCode.INVALID_UPDATE,
@@ -1543,7 +1544,11 @@ class OnlyExecutionProcessor:
             values.append(f"venue_trade:{update.fill.venue_trade_id}")
         return tuple(values)
 
-    def _uses_prepared_trade_path(self, update: OnlyBrokerTradeUpdate) -> bool:
+    def _uses_prepared_trade_path(
+        self,
+        update: OnlyBrokerTradeUpdate,
+        position_scope: OnlyExecutionPositionScope | None = None,
+    ) -> bool:
         instruction = self._trade_instructions.get(str(update.fill.trade_id))
         order = self._orders.get(update.order_id)
         account = None if order is None else self._accounts.get_snapshot(order.account_id)
@@ -1557,6 +1562,26 @@ class OnlyExecutionProcessor:
                 currency=account.base_currency,
             )
         )
+        supported_open = (
+            order is not None
+            and position_scope is not None
+            and order.order_type is OnlyOrderType.LIMIT
+            and order.side is OnlyOrderSide.BUY
+            and order.offset is OnlyOffset.OPEN
+            and position_scope.position_effect is OnlyPositionEffect.OPEN
+            and position_scope.position_side is OnlyPositionSide.LONG
+            and position_scope.position_mode is OnlyPositionMode.NETTING
+        )
+        supported_close = (
+            order is not None
+            and position_scope is not None
+            and order.order_type is OnlyOrderType.LIMIT
+            and order.side is OnlyOrderSide.SELL
+            and order.offset is OnlyOffset.CLOSE
+            and position_scope.position_effect is OnlyPositionEffect.CLOSE
+            and position_scope.position_side is OnlyPositionSide.LONG
+            and position_scope.position_mode is OnlyPositionMode.NETTING
+        )
         return (
             instruction is not None
             and instruction.compiled_identity.profile_id == "GENERIC_T0_CASH"
@@ -1565,9 +1590,7 @@ class OnlyExecutionProcessor:
             and ledger is not None
             and account.cash.cash_balance == ledger.cash.cash_balance
             and account.position_market_value == ledger.equity.position_market_value
-            and order.order_type is OnlyOrderType.LIMIT
-            and order.side is OnlyOrderSide.BUY
-            and order.offset is OnlyOffset.OPEN
+            and (supported_open or supported_close)
         )
 
     def _resolve_position_scope(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionPositionScope | None:

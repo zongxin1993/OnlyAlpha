@@ -143,6 +143,19 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     risk_reservation_notional_consumed_delta: OnlyMoney
     position_cumulative_open_price_quantity_after: Decimal
     allocation_cumulative_open_price_quantity_after: Decimal
+    position_quantity_before: Decimal
+    position_quantity_after: Decimal
+    allocation_quantity_before: Decimal
+    allocation_quantity_after: Decimal
+    position_cumulative_open_price_quantity_before: Decimal
+    allocation_cumulative_open_price_quantity_before: Decimal
+    released_open_price_quantity: Decimal
+    gross_cash_inflow: OnlyMoney
+    net_cash_inflow: OnlyMoney
+    allocation_realized_pnl_delta: OnlyMoney
+    position_reservation_consumed_delta: OnlyQuantity
+    position_closed: bool
+    allocation_closed: bool
 
     def __post_init__(self) -> None:
         if not self.execution_id or self.execution_sequence < 1:
@@ -193,11 +206,19 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             self.account_reservation_released_delta.amount or self.strategy_reservation_released_delta.amount
         ):
             raise ValueError("non-terminal committed execution cannot release cash Reservation")
+        if (
+            self.position_quantity_after - self.position_quantity_before != self.position_quantity_delta
+            or self.allocation_quantity_after - self.allocation_quantity_before != self.allocation_quantity_delta
+            or self.allocation_realized_pnl_delta != self.realized_pnl_delta
+            or self.position_closed != (self.position_quantity_after == 0)
+            or self.allocation_closed != (self.allocation_quantity_after == 0)
+        ):
+            raise ValueError("committed execution Close authority is inconsistent")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
         if "fill_identity" in payload and "incremental_fee_total" in payload:
-            return super(OnlyCommittedExecutionFact, cls).from_dict(payload)
+            return super(OnlyCommittedExecutionFact, cls).from_dict(_close_fact_compatible(payload))
         compatible = dict(payload)
         fill_quantity = _nested_decimal(payload, "cumulative_filled_quantity")
         fill_price = _nested_decimal(payload, "fill_price")
@@ -234,7 +255,7 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             position_cumulative_open_price_quantity_after=str(fill_price * fill_quantity),
             allocation_cumulative_open_price_quantity_after=str(fill_price * fill_quantity),
         )
-        return super(OnlyCommittedExecutionFact, cls).from_dict(compatible)
+        return super(OnlyCommittedExecutionFact, cls).from_dict(_close_fact_compatible(compatible))
 
     @property
     def stable_order(self) -> tuple[int, int, int, str]:
@@ -259,6 +280,39 @@ def _nested_decimal(payload: Mapping[str, object], key: str) -> Decimal:
 
 def _identifier_text(value: object) -> str:
     return str(value["value"]) if isinstance(value, Mapping) else str(value)
+
+
+def _close_fact_compatible(payload: Mapping[str, object]) -> Mapping[str, object]:
+    if "position_quantity_before" in payload:
+        return payload
+    compatible = dict(payload)
+    position_delta = Decimal(str(payload["position_quantity_delta"]))
+    allocation_delta = Decimal(str(payload["allocation_quantity_delta"]))
+    fill_quantity = _nested_decimal(payload, "fill_quantity")
+    quantity_payload = payload["fill_quantity"]
+    if not isinstance(quantity_payload, Mapping):
+        raise ValueError("legacy committed execution fill quantity is invalid")
+    zero_money = {"schema_version": 1, "amount": "0", "currency": payload["currency"]}
+    compatible.update(
+        position_quantity_before=str(fill_quantity - position_delta),
+        position_quantity_after=str(fill_quantity),
+        allocation_quantity_before=str(fill_quantity - allocation_delta),
+        allocation_quantity_after=str(fill_quantity),
+        position_cumulative_open_price_quantity_before=payload["position_cumulative_open_price_quantity_after"],
+        allocation_cumulative_open_price_quantity_before=payload["allocation_cumulative_open_price_quantity_after"],
+        released_open_price_quantity="0",
+        gross_cash_inflow=zero_money,
+        net_cash_inflow=zero_money,
+        allocation_realized_pnl_delta=payload["realized_pnl_delta"],
+        position_reservation_consumed_delta={
+            "schema_version": 1,
+            "value": "0",
+            "precision": int(quantity_payload["precision"]),
+        },
+        position_closed=False,
+        allocation_closed=False,
+    )
+    return compatible
 
 
 __all__ = ["OnlyCommittedExecutionFact"]

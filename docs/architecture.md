@@ -40,6 +40,12 @@ Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量�
 `Broker Update → Prepared Transaction → Durable Commit → Projection Ready Query → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
 Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
+Generic T0 Cash 的 `LIMIT SELL CLOSE LONG NETTING` whole Fill 现与 BUY OPEN 共用该唯一链路，不再进入
+`_unmigrated_trade()`。Close 的固定 Projection 顺序为 Order → Position → Allocation → Settlement → Order Fee Accrual →
+Fee → Account → Strategy Ledger → Position Reservation → Risk Reservation → Risk → Valuation。Position Reservation 是正式
+Projection Target 和 checkpoint participant；Transaction Identity、Fill Identity/Index、Coordinator、Recovery Phase、Event
+Gate 与 Outbox 均未增加 Close 专用分支或第二套权威。详细决策见 ADR 0052。
+
 PR4.3.2 在 ADR 0049 的 Fill identity 与 Order terminal authority 上完成正式增量记账。Position/Allocation 保存精确累计
 开仓价值；Account/Strategy/Risk Reservation 按 Fill 消费且仅终态释放；Risk Active Count 仅最终 Fill 减少一次；每个 Fill
 仍是独立不可变 Transaction。固定投影新增 `ORDER_FEE_ACCRUAL`，完整顺序见 ADR 0050。PR4.3.3 已在独立 Virtual Broker

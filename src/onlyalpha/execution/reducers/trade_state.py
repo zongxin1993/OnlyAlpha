@@ -10,11 +10,21 @@ from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
-from onlyalpha.position.enums import OnlyPositionStatus, OnlySettlementBucket
+from onlyalpha.position.enums import (
+    OnlyPositionReservationStage,
+    OnlyPositionStatus,
+    OnlySettlementBucket,
+)
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 
-from ..execution_state import OnlyAllocationExecutionState, OnlyOrderExecutionState, OnlyPositionExecutionState
+from ..execution_state import (
+    OnlyAllocationExecutionState,
+    OnlyOrderExecutionState,
+    OnlyPositionExecutionState,
+    OnlyPositionReservationExecutionState,
+)
 from ..planned_trade import OnlyPlannedTrade
 from ..planning_context import OnlyAllocationCreationAuthority, OnlyPositionCreationAuthority
 from ..planning_results import OnlyExecutionEventIntent
@@ -170,10 +180,99 @@ class OnlyPositionTradeReducer:
         before: OnlyPositionExecutionState | None,
         trade: OnlyPlannedTrade,
         creation: OnlyPositionCreationAuthority | None,
+        position_reservation: OnlyPositionReservationExecutionState | None = None,
         *,
         cycle: int,
         projection_sequence: int,
     ) -> OnlyPositionTradeReduction:
+        if trade.position_effect is OnlyPositionEffect.CLOSE:
+            if before is None or position_reservation is None:
+                raise ValueError("CLOSE_POSITION_REQUIRED")
+            if before.status is not OnlyPositionStatus.OPEN or before.average_open_price is None:
+                raise ValueError("CLOSE_POSITION_REQUIRED")
+            account_hold = (
+                trade.quantity.value
+                if position_reservation.stage
+                in {OnlyPositionReservationStage.LOCAL_ONLY, OnlyPositionReservationStage.SENT_TO_BROKER}
+                else Decimal(0)
+            )
+            local_available = max(
+                before.settled_quantity.value
+                - before.order_frozen_quantity.value
+                - before.risk_reserved_quantity.value
+                - before.restricted_quantity.value,
+                Decimal(0),
+            )
+            if before.broker_available_quantity is not None:
+                local_available = min(local_available, before.broker_available_quantity.value)
+            if (
+                trade.quantity.value > before.total_quantity.value
+                or trade.quantity.value > local_available + account_hold
+                or account_hold > before.risk_reserved_quantity.value
+            ):
+                raise ValueError("CLOSE_POSITION_INSUFFICIENT")
+            quantity_after = before.total_quantity.value - trade.quantity.value
+            released_cost = before.average_open_price.value * trade.quantity.value
+            cumulative_after = before.cumulative_open_price_quantity - released_cost
+            if cumulative_after < 0:
+                raise ValueError("Close would create negative Position cumulative cost")
+            if quantity_after == 0:
+                cumulative_after = Decimal(0)
+            currency = trade.authoritative_fee.currency
+            realized = _money(
+                (trade.price.value - before.average_open_price.value) * trade.quantity.value * trade.multiplier.value,
+                currency,
+            )
+            after = replace(
+                before,
+                status=(OnlyPositionStatus.CLOSED if quantity_after == 0 else OnlyPositionStatus.OPEN),
+                total_quantity=OnlyQuantity(quantity_after, before.total_quantity.precision),
+                settled_quantity=OnlyQuantity(
+                    before.settled_quantity.value - trade.quantity.value,
+                    before.settled_quantity.precision,
+                ),
+                risk_reserved_quantity=OnlyQuantity(
+                    before.risk_reserved_quantity.value - account_hold,
+                    before.risk_reserved_quantity.precision,
+                ),
+                average_open_price=None if quantity_after == 0 else before.average_open_price,
+                realized_pnl=before.realized_pnl + realized,
+                fees=before.fees + trade.authoritative_fee,
+                updated_at=trade.ts_event,
+                closed_at=trade.ts_event if quantity_after == 0 else None,
+                version=before.version + 1,
+                last_trade_sequence=trade.source_sequence,
+                last_trade_order=trade.stable_order,
+                cumulative_open_price_quantity=cumulative_after,
+            )
+            builder = OnlyExecutionProjectionBuilder()
+            projection = OnlyPositionExecutionProjection(
+                builder.identity(
+                    component=OnlyExecutionProjectionComponent.POSITION,
+                    entity_key=str(after.position_id),
+                    before=before,
+                    after=after,
+                    projection_sequence=projection_sequence,
+                ),
+                before,
+                after,
+                realized,
+                OnlyPositionExecutionReplayMetadata(cycle),
+            )
+            projection = builder.finalize(projection)
+            assert isinstance(projection, OnlyPositionExecutionProjection)
+            return OnlyPositionTradeReduction(
+                after,
+                projection,
+                realized,
+                (
+                    _intent(
+                        OnlyExecutionProjectionComponent.POSITION,
+                        "POSITION_CLOSED" if quantity_after == 0 else "POSITION_DECREASED",
+                        after.to_dict(),
+                    ),
+                ),
+            )
         zero_quantity = OnlyQuantity(Decimal(0), trade.quantity.precision)
         zero_money = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
         if before is None:
@@ -275,10 +374,76 @@ class OnlyAllocationTradeReducer:
         before: OnlyAllocationExecutionState | None,
         trade: OnlyPlannedTrade,
         creation: OnlyAllocationCreationAuthority | None,
+        position_reservation: OnlyPositionReservationExecutionState | None = None,
+        realized_pnl_delta: OnlyMoney | None = None,
         *,
         cycle: int,
         projection_sequence: int,
     ) -> OnlyAllocationTradeReduction:
+        if trade.position_effect is OnlyPositionEffect.CLOSE:
+            if before is None or position_reservation is None or before.average_open_price is None:
+                raise ValueError("CLOSE_ALLOCATION_REQUIRED")
+            own_hold = min(position_reservation.remaining_quantity.value, before.risk_reserved_quantity.value)
+            available = max(
+                before.settled_quantity.value
+                - before.order_frozen_quantity.value
+                - before.risk_reserved_quantity.value
+                - before.restricted_quantity.value,
+                Decimal(0),
+            )
+            if (
+                trade.quantity.value > before.total_quantity.value
+                or trade.quantity.value > available + own_hold
+                or own_hold < trade.quantity.value
+            ):
+                raise ValueError("CLOSE_ALLOCATION_INSUFFICIENT")
+            if realized_pnl_delta is None:
+                raise ValueError("CLOSE_REALIZED_PNL_AUTHORITY_CONFLICT")
+            quantity_after = before.total_quantity.value - trade.quantity.value
+            released_cost = before.average_open_price.value * trade.quantity.value
+            cumulative_after = before.cumulative_open_price_quantity - released_cost
+            if cumulative_after < 0:
+                raise ValueError("Close would create negative Allocation cumulative cost")
+            if quantity_after == 0:
+                cumulative_after = Decimal(0)
+            after = replace(
+                before,
+                total_quantity=OnlyQuantity(quantity_after, before.total_quantity.precision),
+                settled_quantity=OnlyQuantity(
+                    before.settled_quantity.value - trade.quantity.value,
+                    before.settled_quantity.precision,
+                ),
+                risk_reserved_quantity=OnlyQuantity(
+                    before.risk_reserved_quantity.value - trade.quantity.value,
+                    before.risk_reserved_quantity.precision,
+                ),
+                average_open_price=None if quantity_after == 0 else before.average_open_price,
+                realized_pnl=before.realized_pnl + realized_pnl_delta,
+                fees=before.fees + trade.authoritative_fee,
+                updated_at=trade.ts_event,
+                closed_at=trade.ts_event if quantity_after == 0 else None,
+                version=before.version + 1,
+                last_trade_sequence=trade.source_sequence,
+                last_trade_order=trade.stable_order,
+                cumulative_open_price_quantity=cumulative_after,
+            )
+            builder = OnlyExecutionProjectionBuilder()
+            projection = OnlyAllocationExecutionProjection(
+                builder.identity(
+                    component=OnlyExecutionProjectionComponent.ALLOCATION,
+                    entity_key=str(after.allocation_id),
+                    before=before,
+                    after=after,
+                    projection_sequence=projection_sequence,
+                ),
+                before,
+                after,
+                realized_pnl_delta,
+                OnlyAllocationExecutionReplayMetadata(cycle),
+            )
+            projection = builder.finalize(projection)
+            assert isinstance(projection, OnlyAllocationExecutionProjection)
+            return OnlyAllocationTradeReduction(after, projection, realized_pnl_delta)
         zero_quantity = OnlyQuantity(Decimal(0), trade.quantity.precision)
         zero_money = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
         if before is None:

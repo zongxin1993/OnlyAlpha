@@ -70,6 +70,10 @@ Broker 数据必须先标准化为 `OnlyBrokerInboundUpdate` 子类并进入 Run
 再投递到 Runtime EventBus；Event handler 不驱动订单状态机。事件保留 Runtime/Cluster Scope、纳秒时间、
 稳定序列和变更后的 Snapshot。
 
+Generic T0 Cash 的 LIMIT BUY OPEN 与首个 LIMIT SELL CLOSE LONG NETTING whole Fill 均由统一 Planner 生成不可变
+Prepared Transaction。Close whole Fill 要求 Order 的 prior filled quantity 与 fill count 为零，且 Fill quantity 等于完整
+remaining quantity；因此 Order 在一次 Projection 中进入 FILLED。Partial/Multi-Close 不在本阶段伪装支持。
+
 ## 6. Execution 与 Gateway Port
 
 `OnlyExecutionService` 是 Order Service 的窄执行端口；`OnlyTradeGateway` 定义连接、提交、撤单和标准化查询
@@ -88,9 +92,9 @@ SDK callback 标准化后排入 Runtime 单写线程，不能从 SDK 线程直�
 ## 8. Demo 与已知限制
 
 `examples/order_demo` 覆盖创建提交、显式 Accepted/部分成交、撤单、重复成交、乱序和 Context Scope。
-当前已有 Pre-Trade Risk Pipeline、Risk Reservation 与独立 Position/Allocation 组件，但尚未由完整
-ExecutionProcessor 原子编排；也没有 ExecutionSimulator、AccountManager、真实成交或恢复持久化；
-Repository 仅定义接口和内存占位，Live/Paper Gateway 装配留待后续 ADR。
+当前已有 Pre-Trade Risk Pipeline、Risk Reservation、Position/Allocation、Account 与持久化 ExecutionProcessor；受支持
+的 Generic T0 Cash BUY OPEN 和 whole-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。真实成交、
+Live/Paper Gateway 装配以及 Partial/Multi-Close 仍留待后续 ADR。
 
 ## 9. Position 归属衔接
 
@@ -99,8 +103,8 @@ OrderService 通过窄 Position Reservation Port 在卖单 Risk ACCEPT、Order �
 阶段；标准化 Fill、拒单、撤单和过期回报消费或释放预占。OrderManager 本身不直接依赖或修改 Position；账户 Position、
 Allocation、Account 与 Risk 的完整成交编排由当前 Runtime 单写入者完成；未来 ExecutionProcessor 只能抽取该顺序，不能改语义。
 
-M1 补充：Backtest Runtime 已通过同步 `process_trade()` 把标准化 Fill 编排到 Position、Allocation、Strategy Ledger 和
-Account。Virtual Broker Matching Engine 负责最小撮合；Placeholder 仍不生成成交，持久化事务恢复仍未实现。
+Backtest Runtime 通过 ExecutionProcessor 把标准化 Fill 编排到 Position、Allocation、Strategy Ledger 和 Account。
+Virtual Broker Matching Engine 负责撮合；Placeholder 仍不生成成交。
 
 ExecutionProcessor 阶段替代上述 Runtime 直接编排：所有 Broker Update 必须经 Queue 调用 Processor。Processor 调用
 `OnlyOrderUpdateProcessor` 时关闭其旧的 Event/Reservation side effects，先取得有效 Order Mutation，再在完整链成功后提交

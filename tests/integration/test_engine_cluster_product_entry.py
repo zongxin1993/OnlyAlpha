@@ -42,7 +42,7 @@ def test_cli_equivalent_single_cluster_full_backtest(tmp_path: Path) -> None:
     assert result.status == "COMPLETED"
     projection = result.cluster_results[0]
     assert projection["data"]["processed_bar_count"] == 720  # type: ignore[index]
-    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 1}
+    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 2}
     assert result.manifest_path is not None and result.manifest_path.is_file()
 
 

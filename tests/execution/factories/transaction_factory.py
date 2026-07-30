@@ -234,8 +234,21 @@ def only_test_execution_fact_draft(
         strategy_reservation_released_delta=zero,
         risk_reservation_quantity_consumed_delta=_quantity("2"),
         risk_reservation_notional_consumed_delta=_money("20.00"),
-        position_cumulative_open_price_quantity_after=Decimal("20.00"),
-        allocation_cumulative_open_price_quantity_after=Decimal("20.00"),
+        position_cumulative_open_price_quantity_after=Decimal("0"),
+        allocation_cumulative_open_price_quantity_after=Decimal("0"),
+        position_quantity_before=Decimal("0"),
+        position_quantity_after=Decimal("2"),
+        allocation_quantity_before=Decimal("0"),
+        allocation_quantity_after=Decimal("2"),
+        position_cumulative_open_price_quantity_before=Decimal("0"),
+        allocation_cumulative_open_price_quantity_before=Decimal("0"),
+        released_open_price_quantity=Decimal("0"),
+        gross_cash_inflow=zero,
+        net_cash_inflow=zero,
+        allocation_realized_pnl_delta=zero,
+        position_reservation_consumed_delta=_quantity("0"),
+        position_closed=False,
+        allocation_closed=False,
     )
 
 

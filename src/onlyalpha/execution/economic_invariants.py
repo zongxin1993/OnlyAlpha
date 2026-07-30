@@ -80,6 +80,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             raise ValueError("Position projection realized PnL contradicts execution fact")
         if allocation.realized_pnl_delta != fact.realized_pnl_delta:
             raise ValueError("Allocation projection realized PnL contradicts execution fact")
+        if allocation.realized_pnl_delta != fact.allocation_realized_pnl_delta:
+            raise ValueError("Allocation projection realized PnL authority contradicts execution fact")
         position_fee_before = Decimal(0) if position.before is None else position.before.fees.amount
         allocation_fee_before = Decimal(0) if allocation.before is None else allocation.before.fees.amount
         if position.after.fees.amount - position_fee_before != fact.authoritative_fee_total.amount:
@@ -126,6 +128,31 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         )
         if fact.cash_delta.amount != expected_cash_delta:
             raise ValueError("execution Fact cash delta contradicts authoritative trade cost")
+        if fact.order_side is OnlyOrderSide.SELL and (
+            fact.gross_cash_inflow != fact.gross_notional
+            or fact.net_cash_inflow.amount != fact.gross_notional.amount - fact.incremental_fee_total.amount
+            or fact.net_cash_inflow != fact.account_cash_delta
+        ):
+            raise ValueError("SELL execution cash inflow authority is inconsistent")
+        if (
+            fact.position_quantity_before != position_before
+            or fact.position_quantity_after != position.after.total_quantity.value
+        ):
+            raise ValueError("Position before/after quantity authority contradicts Projection")
+        if (
+            fact.allocation_quantity_before != allocation_before
+            or fact.allocation_quantity_after != allocation.after.total_quantity.value
+        ):
+            raise ValueError("Allocation before/after quantity authority contradicts Projection")
+        if (
+            fact.position_cumulative_open_price_quantity_before
+            != (Decimal(0) if position.before is None else position.before.cumulative_open_price_quantity)
+            or fact.position_cumulative_open_price_quantity_after != position.after.cumulative_open_price_quantity
+            or fact.allocation_cumulative_open_price_quantity_before
+            != (Decimal(0) if allocation.before is None else allocation.before.cumulative_open_price_quantity)
+            or fact.allocation_cumulative_open_price_quantity_after != allocation.after.cumulative_open_price_quantity
+        ):
+            raise ValueError("exact cumulative Position cost contradicts Projection")
 
         state = settlement.after
         if (
@@ -194,43 +221,44 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         fact = prepared.fact_draft
         accounts = _all(prepared.projections, OnlyAccountCashReservationExecutionProjection)
         strategies = _all(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
-        if not accounts and not strategies:
-            return
-        account = accounts[0]
-        strategy = strategies[0]
-        actual_consumption = fact.settled_notional.amount + fact.authoritative_fee_total.amount
-        for label, projection in (("Account", account), ("Strategy", strategy)):
-            before_consumed = Decimal(0) if projection.before is None else projection.before.consumed_amount.amount
-            consumed_delta = projection.after.consumed_amount.amount - before_consumed
-            expected_consumed = (
-                fact.account_reservation_consumed_delta.amount
-                if label == "Account"
-                else fact.strategy_reservation_consumed_delta.amount
-            )
-            before_remaining = Decimal(0) if projection.before is None else projection.before.remaining_amount.amount
-            released_delta = before_remaining - projection.after.remaining_amount.amount - consumed_delta
-            expected_released = (
-                fact.account_reservation_released_delta.amount
-                if label == "Account"
-                else fact.strategy_reservation_released_delta.amount
-            )
+        if accounts or strategies:
+            account = accounts[0]
+            strategy = strategies[0]
+            actual_consumption = fact.settled_notional.amount + fact.authoritative_fee_total.amount
+            for label, projection in (("Account", account), ("Strategy", strategy)):
+                before_consumed = Decimal(0) if projection.before is None else projection.before.consumed_amount.amount
+                consumed_delta = projection.after.consumed_amount.amount - before_consumed
+                expected_consumed = (
+                    fact.account_reservation_consumed_delta.amount
+                    if label == "Account"
+                    else fact.strategy_reservation_consumed_delta.amount
+                )
+                before_remaining = (
+                    Decimal(0) if projection.before is None else projection.before.remaining_amount.amount
+                )
+                released_delta = before_remaining - projection.after.remaining_amount.amount - consumed_delta
+                expected_released = (
+                    fact.account_reservation_released_delta.amount
+                    if label == "Account"
+                    else fact.strategy_reservation_released_delta.amount
+                )
+                if (
+                    projection.after.order_id != fact.order_id
+                    or consumed_delta != actual_consumption
+                    or consumed_delta != expected_consumed
+                    or released_delta != expected_released
+                ):
+                    raise ValueError(f"{label} cash Reservation consumption contradicts execution fact")
             if (
-                projection.after.order_id != fact.order_id
-                or consumed_delta != actual_consumption
-                or consumed_delta != expected_consumed
-                or released_delta != expected_released
+                account.after.runtime_id != fact.runtime_id
+                or account.after.account_id != fact.account_id
+                or account.after.reserved_amount.currency != fact.currency
+                or strategy.after.key.runtime_id != fact.runtime_id
+                or strategy.after.key.account_id != fact.account_id
+                or strategy.after.key.cluster_id != fact.cluster_id
+                or strategy.after.key.base_currency != fact.currency
             ):
-                raise ValueError(f"{label} cash Reservation consumption contradicts execution fact")
-        if (
-            account.after.runtime_id != fact.runtime_id
-            or account.after.account_id != fact.account_id
-            or account.after.reserved_amount.currency != fact.currency
-            or strategy.after.key.runtime_id != fact.runtime_id
-            or strategy.after.key.account_id != fact.account_id
-            or strategy.after.key.cluster_id != fact.cluster_id
-            or strategy.after.key.base_currency != fact.currency
-        ):
-            raise ValueError("cash Reservation scope contradicts execution fact")
+                raise ValueError("cash Reservation scope contradicts execution fact")
         position_reservations = _all(prepared.projections, OnlyPositionReservationExecutionProjection)
         for position_projection in position_reservations:
             before_remaining = (
@@ -248,6 +276,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 or position_projection.after.position_side != fact.position_side
                 or position_projection.after.position_mode != fact.position_mode
                 or consumed != fact.fill_quantity.value
+                or consumed != fact.position_reservation_consumed_delta.value
             ):
                 raise ValueError("Position Reservation consumption contradicts execution fact")
 

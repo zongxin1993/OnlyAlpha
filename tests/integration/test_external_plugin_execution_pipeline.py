@@ -10,7 +10,7 @@ def test_external_broker_updates_flow_through_execution_processor(tmp_path: Path
     result = engine.run()
     assert result.status == "COMPLETED"
     projection = result.cluster_results[0]
-    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 1}
+    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 2}
     runtime = engine.runtime_sessions[0].runtime
     assert runtime.execution_audit_store.records()
     assert runtime.broker_results

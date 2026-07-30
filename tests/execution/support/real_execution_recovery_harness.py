@@ -45,8 +45,9 @@ class OnlyRealExecutionRecoveryHarness:
         scenario: OnlyTestGenericT0Scenario | None = None,
         target_fault: tuple[OnlyExecutionProjectionComponent, str] | None = None,
         ledger_fault: OnlyExecutionProjectionComponent | None = None,
+        long_close: bool = False,
     ) -> OnlyRealExecutionRecoveryHarness:
-        bundle = only_test_projection_target_bundle(scenario, store)
+        bundle = only_test_projection_target_bundle(scenario, store, long_close=long_close)
         ledger = OnlyInMemoryAppliedProjectionLedger()
         target_ledger = ledger if ledger_fault is None else OnlyFailOnceAppliedProjectionLedger(ledger, ledger_fault)
         targets = bundle.create_targets(target_ledger)

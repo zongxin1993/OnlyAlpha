@@ -269,6 +269,16 @@ class OnlyPositionReservationManager:
     def snapshots(self) -> tuple[OnlyPositionReservation, ...]:
         return tuple(self._by_order[key] for key in sorted(self._by_order, key=str))
 
+    def restore_execution_authority(self, reservation: OnlyPositionReservation) -> None:
+        """Install one committed Reservation state without repeating Position/Allocation mutations."""
+
+        if reservation.runtime_id != self.runtime_id:
+            raise ValueError("Position Reservation execution authority belongs to another Runtime")
+        current = self._by_order.get(reservation.order_id)
+        if current is not None and reservation.version < current.version:
+            raise ValueError("Position Reservation execution authority cannot regress")
+        self._by_order[reservation.order_id] = reservation
+
     def capture_checkpoint(self) -> object:
         return [item.to_json() for item in sorted(self._by_order.values(), key=lambda item: str(item.order_id))]
 

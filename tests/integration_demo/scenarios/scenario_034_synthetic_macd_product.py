@@ -14,7 +14,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
         result = engine.run()
     assert result.status == "COMPLETED"
     projection = result.cluster_results[0]
-    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 1}
+    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 2}
     cluster_results = projection["cluster_results"]
     assert isinstance(cluster_results, list)
     signals = cluster_results[0]["strategy_result_extension"]["signals"]

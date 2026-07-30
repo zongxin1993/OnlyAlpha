@@ -8,11 +8,13 @@ from decimal import Decimal
 from onlyalpha.account.enums import OnlyAccountReservationState
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
+from onlyalpha.position.enums import OnlyPositionReservationState
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationStage, OnlyStrategyCashReservationState
 
 from ..execution_state import (
     OnlyAccountCashReservationExecutionState,
+    OnlyPositionReservationExecutionState,
     OnlyRiskExecutionState,
     OnlyRiskReservationExecutionState,
     OnlyStrategyCashReservationExecutionState,
@@ -22,6 +24,7 @@ from ..planning_results import OnlyExecutionEventIntent
 from ..projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyExecutionProjectionComponent,
+    OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
     OnlyStrategyCashReservationExecutionProjection,
@@ -60,6 +63,70 @@ class OnlyRiskTradeReduction:
     after: OnlyRiskExecutionState
     projection: OnlyRiskExecutionProjection
     event_intents: tuple[OnlyExecutionEventIntent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyPositionReservationTradeReduction:
+    after: OnlyPositionReservationExecutionState
+    projection: OnlyPositionReservationExecutionProjection
+    consumed_quantity_delta: OnlyQuantity
+    event_intents: tuple[OnlyExecutionEventIntent, ...]
+
+
+class OnlyPositionReservationTradeReducer:
+    def reduce(
+        self,
+        before: OnlyPositionReservationExecutionState,
+        trade: OnlyPlannedTrade,
+        terminal_fill: bool,
+        *,
+        projection_sequence: int,
+    ) -> OnlyPositionReservationTradeReduction:
+        if before.remaining_quantity.value < trade.quantity.value:
+            raise ValueError("CLOSE_POSITION_RESERVATION_INSUFFICIENT")
+        remaining = OnlyQuantity(
+            before.remaining_quantity.value - trade.quantity.value,
+            before.remaining_quantity.precision,
+        )
+        if terminal_fill and remaining.value != 0:
+            raise ValueError("CLOSE_POSITION_RESERVATION_INSUFFICIENT")
+        after = replace(
+            before,
+            remaining_quantity=remaining,
+            state=(
+                OnlyPositionReservationState.CONSUMED
+                if remaining.value == 0
+                else OnlyPositionReservationState.PARTIALLY_CONSUMED
+            ),
+            updated_at=trade.ts_init,
+            version=before.version + 1,
+        )
+        builder = OnlyExecutionProjectionBuilder()
+        projection = OnlyPositionReservationExecutionProjection(
+            builder.identity(
+                component=OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                entity_key=str(after.reservation_id),
+                before=before,
+                after=after,
+                projection_sequence=projection_sequence,
+            ),
+            before,
+            after,
+        )
+        projection = builder.finalize(projection)
+        assert isinstance(projection, OnlyPositionReservationExecutionProjection)
+        return OnlyPositionReservationTradeReduction(
+            after,
+            projection,
+            trade.quantity,
+            (
+                _intent(
+                    OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                    "POSITION_RESERVATION_CONSUMED",
+                    after,
+                ),
+            ),
+        )
 
 
 class OnlyAccountCashReservationTradeReducer:

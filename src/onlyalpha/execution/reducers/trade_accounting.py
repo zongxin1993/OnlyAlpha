@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
+from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashEntryType, OnlyStrategyFeeType
@@ -52,37 +53,56 @@ class OnlyAccountTradeReducer:
     def reduce(
         self,
         before: OnlyAccountExecutionState,
-        reservation_reduction: OnlyAccountCashReservationTradeReduction,
+        reservation_reduction: OnlyAccountCashReservationTradeReduction | None,
         trade: OnlyPlannedTrade,
         position_market_value_delta: OnlyMoney,
         position_unrealized_pnl: OnlyMoney,
+        realized_pnl_delta: OnlyMoney | None = None,
+        cash_available: bool = True,
         *,
         projection_sequence: int,
     ) -> OnlyAccountTradeReduction:
-        cash_delta = OnlyMoney(-(trade.settled_notional.amount + trade.authoritative_fee.amount), before.base_currency)
+        closing = trade.side is OnlyOrderSide.SELL
+        if closing and realized_pnl_delta is None:
+            raise ValueError("CLOSE_REALIZED_PNL_AUTHORITY_CONFLICT")
+        if not closing and reservation_reduction is None:
+            raise ValueError("BUY OPEN requires Account cash Reservation reduction")
+        realized = realized_pnl_delta or OnlyMoney(Decimal(0), before.base_currency)
+        cash_delta = OnlyMoney(
+            (
+                trade.settled_notional.amount - trade.authoritative_fee.amount
+                if closing
+                else -(trade.settled_notional.amount + trade.authoritative_fee.amount)
+            ),
+            before.base_currency,
+        )
         cash = before.cash_balance + cash_delta
         if cash.amount < 0:
             raise ValueError("Trade would create negative Account cash")
+        reservation_consumed = (
+            Decimal(0) if reservation_reduction is None else reservation_reduction.consumed_delta.amount
+        )
+        reservation_released = (
+            Decimal(0) if reservation_reduction is None else reservation_reduction.released_delta.amount
+        )
         frozen = OnlyMoney(
-            before.frozen_cash.amount
-            - reservation_reduction.consumed_delta.amount
-            - reservation_reduction.released_delta.amount,
-            before.base_currency,
+            before.frozen_cash.amount - reservation_consumed - reservation_released, before.base_currency
         )
         if frozen.amount < 0:
             raise ValueError("Account frozen cash is smaller than Reservation")
         market_value = before.position_market_value + position_market_value_delta
-        available = OnlyMoney(cash.amount - frozen.amount - before.unsettled_cash.amount, before.base_currency)
+        unsettled = OnlyMoney(
+            before.unsettled_cash.amount
+            + (trade.settled_notional.amount if closing and not cash_available else Decimal(0)),
+            before.base_currency,
+        )
+        available = OnlyMoney(cash.amount - frozen.amount - unsettled.amount, before.base_currency)
         reserved_margin = before.reserved_margin
         occupied_margin = before.occupied_margin
         available_margin = None
         if reserved_margin is not None and occupied_margin is not None:
             available_margin = OnlyMoney(
-                cash.amount
-                - frozen.amount
-                - before.unsettled_cash.amount
-                - reserved_margin.amount
-                - occupied_margin.amount,
+                cash.amount - frozen.amount - unsettled.amount - reserved_margin.amount - occupied_margin.amount,
                 before.base_currency,
             )
         after = replace(
@@ -90,8 +110,9 @@ class OnlyAccountTradeReducer:
             cash_balance=cash,
             available_cash=available,
             frozen_cash=frozen,
+            unsettled_cash=unsettled,
             position_market_value=market_value,
-            realized_pnl=before.realized_pnl,
+            realized_pnl=before.realized_pnl + realized,
             unrealized_pnl=position_unrealized_pnl,
             fees=before.fees + trade.authoritative_fee,
             equity=cash + market_value,
@@ -131,16 +152,30 @@ class OnlyStrategyLedgerTradeReducer:
     def reduce(
         self,
         before: OnlyStrategyLedgerExecutionState,
-        reservation_reduction: OnlyStrategyCashReservationTradeReduction,
+        reservation_reduction: OnlyStrategyCashReservationTradeReduction | None,
         allocation_before: OnlyAllocationExecutionState | None,
         allocation_after: OnlyAllocationExecutionState,
         trade: OnlyPlannedTrade,
         valuation_price: OnlyPrice,
+        realized_pnl_delta: OnlyMoney | None = None,
         *,
         projection_sequence: int,
     ) -> OnlyStrategyLedgerTradeReduction:
         currency = before.key.base_currency
-        cash_delta = OnlyMoney(-(trade.settled_notional.amount + trade.authoritative_fee.amount), currency)
+        closing = trade.side is OnlyOrderSide.SELL
+        if closing and realized_pnl_delta is None:
+            raise ValueError("CLOSE_REALIZED_PNL_AUTHORITY_CONFLICT")
+        if not closing and reservation_reduction is None:
+            raise ValueError("BUY OPEN requires Strategy cash Reservation reduction")
+        realized = realized_pnl_delta or OnlyMoney(Decimal(0), currency)
+        cash_delta = OnlyMoney(
+            (
+                trade.settled_notional.amount - trade.authoritative_fee.amount
+                if closing
+                else -(trade.settled_notional.amount + trade.authoritative_fee.amount)
+            ),
+            currency,
+        )
         cash = before.cash_balance + cash_delta
         if cash.amount < 0:
             raise ValueError("Trade would create negative Strategy Ledger cash")
@@ -152,12 +187,13 @@ class OnlyStrategyLedgerTradeReducer:
         del allocation_before
         after_market = allocation_after.total_quantity.value * valuation_price.value * trade.multiplier.value
         market_value = OnlyMoney(after_market.quantize(quantum), currency)
-        cash_reserved = OnlyMoney(
-            before.cash_reserved.amount
-            - reservation_reduction.consumed_delta.amount
-            - reservation_reduction.released_delta.amount,
-            currency,
+        reservation_consumed = (
+            Decimal(0) if reservation_reduction is None else reservation_reduction.consumed_delta.amount
         )
+        reservation_released = (
+            Decimal(0) if reservation_reduction is None else reservation_reduction.released_delta.amount
+        )
+        cash_reserved = OnlyMoney(before.cash_reserved.amount - reservation_consumed - reservation_released, currency)
         if cash_reserved.amount < 0:
             raise ValueError("Strategy Ledger reserved cash is smaller than Reservation")
         entry_sequence = max((entry.sequence for entry in before.cash_entries), default=0)
@@ -167,8 +203,11 @@ class OnlyStrategyLedgerTradeReducer:
             before.key.account_id,
             before.key.cluster_id,
             currency,
-            OnlyMoney(-trade.settled_notional.amount, currency),
-            OnlyStrategyCashEntryType.BUY_SETTLEMENT,
+            OnlyMoney(
+                trade.settled_notional.amount if closing else -trade.settled_notional.amount,
+                currency,
+            ),
+            OnlyStrategyCashEntryType.SELL_SETTLEMENT if closing else OnlyStrategyCashEntryType.BUY_SETTLEMENT,
             trade.order_id,
             trade.trade_id,
             None,
@@ -197,7 +236,7 @@ class OnlyStrategyLedgerTradeReducer:
                     entry_sequence + 2,
                 ),
             )
-        if reservation_reduction.released_delta.amount:
+        if reservation_reduction is not None and reservation_reduction.released_delta.amount:
             release_sequence = max((entry.sequence for entry in cash_entries), default=0) + 1
             cash_entries += (
                 OnlyStrategyCashEntry(
@@ -217,7 +256,7 @@ class OnlyStrategyLedgerTradeReducer:
                     release_sequence,
                 ),
             )
-        if allocation_after.average_open_price is None:
+        if allocation_after.average_open_price is None and allocation_after.total_quantity.value:
             raise ValueError("open Allocation requires average price")
         fee_entries = before.fee_entries
         if trade.authoritative_fee.amount:
@@ -235,7 +274,9 @@ class OnlyStrategyLedgerTradeReducer:
                 ),
             )
         unrealized = OnlyMoney(
-            (
+            Decimal(0)
+            if allocation_after.average_open_price is None
+            else (
                 (valuation_price.value - allocation_after.average_open_price.value)
                 * allocation_after.total_quantity.value
                 * trade.multiplier.value
@@ -249,7 +290,7 @@ class OnlyStrategyLedgerTradeReducer:
             cash_available=OnlyMoney(cash.amount - cash_reserved.amount, currency),
             position_cost=position_cost,
             position_market_value=market_value,
-            realized_pnl=before.realized_pnl,
+            realized_pnl=before.realized_pnl + realized,
             unrealized_pnl=unrealized,
             fees=before.fees + trade.authoritative_fee,
             equity=cash + market_value,

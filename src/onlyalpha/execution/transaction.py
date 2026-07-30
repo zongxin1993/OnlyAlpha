@@ -146,6 +146,19 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     risk_reservation_notional_consumed_delta: OnlyMoney
     position_cumulative_open_price_quantity_after: Decimal
     allocation_cumulative_open_price_quantity_after: Decimal
+    position_quantity_before: Decimal
+    position_quantity_after: Decimal
+    allocation_quantity_before: Decimal
+    allocation_quantity_after: Decimal
+    position_cumulative_open_price_quantity_before: Decimal
+    allocation_cumulative_open_price_quantity_before: Decimal
+    released_open_price_quantity: Decimal
+    gross_cash_inflow: OnlyMoney
+    net_cash_inflow: OnlyMoney
+    allocation_realized_pnl_delta: OnlyMoney
+    position_reservation_consumed_delta: OnlyQuantity
+    position_closed: bool
+    allocation_closed: bool
 
     def __post_init__(self) -> None:
         if not self.execution_id or self.source_sequence < 0 or self.processing_sequence < 0:
@@ -186,11 +199,18 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
             self.account_reservation_released_delta.amount or self.strategy_reservation_released_delta.amount
         ):
             raise ValueError("non-terminal execution fact cannot release cash Reservation")
+        if self.order_side is OnlyOrderSide.SELL and (
+            self.position_quantity_after - self.position_quantity_before != self.position_quantity_delta
+            or self.allocation_quantity_after - self.allocation_quantity_before != self.allocation_quantity_delta
+            or self.position_closed != (self.position_quantity_after == 0)
+            or self.allocation_closed != (self.allocation_quantity_after == 0)
+        ):
+            raise ValueError("execution fact draft Close authority is inconsistent")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
         if "fill_identity" in payload and "incremental_fee_total" in payload:
-            return super(OnlyCommittedExecutionFactDraft, cls).from_dict(payload)
+            return super(OnlyCommittedExecutionFactDraft, cls).from_dict(_close_fact_compatible(payload))
         compatible = dict(payload)
         identity = OnlyExecutionFillIdentity(
             OnlyRuntimeId(_identifier_text(payload["runtime_id"])),
@@ -231,7 +251,7 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
                 _nested_decimal(payload, "fill_price") * _nested_decimal(payload, "cumulative_filled_quantity")
             ),
         )
-        return super(OnlyCommittedExecutionFactDraft, cls).from_dict(compatible)
+        return super(OnlyCommittedExecutionFactDraft, cls).from_dict(_close_fact_compatible(compatible))
 
     @classmethod
     def from_committed(cls, fact: OnlyCommittedExecutionFact) -> OnlyCommittedExecutionFactDraft:
@@ -379,6 +399,45 @@ def _nested_decimal(payload: Mapping[str, object], key: str) -> Decimal:
 
 def _identifier_text(value: object) -> str:
     return str(value["value"]) if isinstance(value, Mapping) else str(value)
+
+
+def _close_fact_compatible(payload: Mapping[str, object]) -> Mapping[str, object]:
+    if "position_quantity_before" in payload:
+        return payload
+    compatible = dict(payload)
+    position_delta = Decimal(str(payload["position_quantity_delta"]))
+    allocation_delta = Decimal(str(payload["allocation_quantity_delta"]))
+    position_after = Decimal(str(payload["position_cumulative_open_price_quantity_after"]))
+    allocation_after = Decimal(str(payload["allocation_cumulative_open_price_quantity_after"]))
+    fill_quantity = _nested_decimal(payload, "fill_quantity")
+    zero_money = {"schema_version": 1, "amount": "0", "currency": payload["currency"]}
+    compatible.update(
+        position_quantity_before=str(fill_quantity - position_delta),
+        position_quantity_after=str(fill_quantity),
+        allocation_quantity_before=str(fill_quantity - allocation_delta),
+        allocation_quantity_after=str(fill_quantity),
+        position_cumulative_open_price_quantity_before=str(position_after),
+        allocation_cumulative_open_price_quantity_before=str(allocation_after),
+        released_open_price_quantity="0",
+        gross_cash_inflow=zero_money,
+        net_cash_inflow=zero_money,
+        allocation_realized_pnl_delta=payload["realized_pnl_delta"],
+        position_reservation_consumed_delta={
+            "schema_version": 1,
+            "value": "0",
+            "precision": _nested_precision(payload, "fill_quantity"),
+        },
+        position_closed=False,
+        allocation_closed=False,
+    )
+    return compatible
+
+
+def _nested_precision(payload: Mapping[str, object], key: str) -> int:
+    value = payload[key]
+    if not isinstance(value, Mapping):
+        raise ValueError(f"legacy execution fact draft {key} is invalid")
+    return int(value["precision"])
 
 
 @dataclass(frozen=True, slots=True)

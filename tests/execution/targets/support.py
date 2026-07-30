@@ -21,6 +21,7 @@ from onlyalpha.execution import (
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStorePort
 from tests.execution.support.generic_t0_trade_harness import (
     OnlyTestGenericT0Scenario,
+    only_test_generic_t0_long_close_context,
     only_test_generic_t0_projection_environment,
 )
 from tests.execution.support.manager_authority_digest import only_test_runtime_authority_digest
@@ -48,6 +49,7 @@ class OnlyTestProjectionTargetBundle:
                 order_manager=runtime.order_manager,
                 position_manager=runtime.position_manager,
                 allocation_manager=runtime.allocation_manager,
+                position_reservation_manager=runtime.position_reservation_manager,
                 settlement_manager=runtime.settlement_manager,
                 fee_manager=runtime.fee_manager,
                 order_fee_accrual_manager=runtime.order_fee_accrual_manager,
@@ -63,9 +65,15 @@ class OnlyTestProjectionTargetBundle:
 def only_test_projection_target_bundle(
     scenario: OnlyTestGenericT0Scenario | None = None,
     transaction_store: OnlyRuntimePersistenceStorePort | None = None,
+    *,
+    long_close: bool = False,
 ) -> OnlyTestProjectionTargetBundle:
     selected = scenario or OnlyTestGenericT0Scenario("real-target")
-    environment, context, prepared = only_test_generic_t0_projection_environment(selected)
+    environment, context, prepared = (
+        only_test_generic_t0_long_close_context()
+        if long_close
+        else only_test_generic_t0_projection_environment(selected)
+    )
     store = transaction_store or OnlyInMemoryRuntimePersistenceStore()
     committed = store.commit(prepared, committed_at=context.prepared_at).transaction
     runtime = environment.runtime

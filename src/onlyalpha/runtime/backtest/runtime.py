@@ -96,6 +96,7 @@ from onlyalpha.execution.execution_state import (
     only_allocation_execution_state,
     only_order_execution_state,
     only_position_execution_state,
+    only_position_reservation_execution_state,
     only_risk_execution_state,
     only_risk_reservation_execution_state,
     only_strategy_cash_reservation_execution_state,
@@ -132,7 +133,7 @@ from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
-from onlyalpha.market.models import OnlyMarketPositionMode
+from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
 from onlyalpha.market_data.cache import OnlyMarketDataCache
@@ -509,6 +510,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_manager=order_manager,
             position_manager=position_manager,
             allocation_manager=allocation_manager,
+            position_reservation_manager=position_reservations,
             settlement_manager=self._settlement_manager,
             fee_manager=self._fee_manager,
             order_fee_accrual_manager=self._order_fee_accrual_manager,
@@ -1778,7 +1780,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             (item for item in account_snapshot.reservations if item.order_id == order.order_id),
             None,
         )
-        if account_reservation is None:
+        closing = position_scope.position_effect is OnlyPositionEffect.CLOSE
+        if account_reservation is None and not closing:
             raise ValueError("prepared Trade planning requires Account cash Reservation")
         ledger_snapshot = self._strategy_ledger_locator.require_snapshot(
             runtime_id=order.runtime_id,
@@ -1790,8 +1793,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             (item for item in ledger_snapshot.reservations if item.order_id == order.order_id),
             None,
         )
-        if strategy_reservation is None:
+        if strategy_reservation is None and not closing:
             raise ValueError("prepared Trade planning requires Strategy cash Reservation")
+        position_reservation = self._position_reservation_manager.get(order.order_id)
+        if position_reservation is None and closing:
+            raise ValueError("prepared Close planning requires Position Reservation")
         risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
         if risk_reservation is None:
             raise ValueError("prepared Trade planning requires Risk Reservation")
@@ -1806,7 +1812,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 ),
                 position_cycle + 1,
             )
-            if position_before_snapshot is None
+            if position_before_snapshot is None and not closing
             else None
         )
         allocation_creation = (
@@ -1817,7 +1823,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 ),
                 allocation_cycle + 1,
             )
-            if allocation_before_snapshot is None
+            if allocation_before_snapshot is None and not closing
             else None
         )
         account_timeline = self._account_performance_projector.timeline(order.account_id)
@@ -1860,8 +1866,16 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_fee_accrual_before=self._order_fee_accrual_manager.get(order.order_id),
             account_before=only_account_execution_state(account_snapshot),
             strategy_ledger_before=only_strategy_ledger_execution_state(ledger_snapshot),
-            account_cash_reservation_before=only_account_cash_reservation_execution_state(account_reservation),
-            strategy_cash_reservation_before=only_strategy_cash_reservation_execution_state(strategy_reservation),
+            account_cash_reservation_before=(
+                None
+                if account_reservation is None
+                else only_account_cash_reservation_execution_state(account_reservation)
+            ),
+            strategy_cash_reservation_before=(
+                None
+                if strategy_reservation is None
+                else only_strategy_cash_reservation_execution_state(strategy_reservation)
+            ),
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
             valuation_before=valuation_state,
@@ -1886,6 +1900,11 @@ class OnlyBacktestRuntime(OnlyRuntime):
             ledger_high_water_mark=ledger_snapshot.equity.high_water_mark,
             account_equity_before=account_timeline,
             strategy_equity_before=ledger_timeline,
+            position_reservation_before=(
+                None
+                if position_reservation is None
+                else only_position_reservation_execution_state(position_reservation)
+            ),
         )
 
     def _execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:

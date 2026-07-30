@@ -84,8 +84,8 @@ class OnlyTradeExecutionPlanningContext:
     fee_before: OnlyFeeExecutionState | None
     account_before: OnlyAccountExecutionState
     strategy_ledger_before: OnlyStrategyLedgerExecutionState
-    account_cash_reservation_before: OnlyAccountCashReservationExecutionState
-    strategy_cash_reservation_before: OnlyStrategyCashReservationExecutionState
+    account_cash_reservation_before: OnlyAccountCashReservationExecutionState | None
+    strategy_cash_reservation_before: OnlyStrategyCashReservationExecutionState | None
     risk_reservation_before: OnlyRiskReservationExecutionState
     risk_before: OnlyRiskExecutionState
     valuation_before: OnlyValuationExecutionState

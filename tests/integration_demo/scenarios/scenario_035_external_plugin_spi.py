@@ -16,7 +16,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert result.cluster_results[0]["execution"] == {
         "order_count": 2,
         "rejected_order_count": 0,
-        "trade_count": 1,
+        "trade_count": 2,
     }
     resources = engine.runtime_sessions[0].runtime.plugin_resource_snapshots
     assert [item.plugin_id for item in resources] == ["test-external-data", "test-external-broker"]

@@ -15,7 +15,7 @@ def test_synthetic_macd_full_product_vertical_slice() -> None:
     assert result.data.generated_bar_count == 720
     assert result.data.processed_bar_count == 720
     assert result.execution.order_count == 2
-    assert result.execution.trade_count == 1
+    assert result.execution.trade_count == 2
     assert [item.side for item in result.orders] == [OnlyOrderSide.BUY, OnlyOrderSide.SELL]
     assert all(item.status is OnlyOrderStatus.FILLED for item in result.orders)
     assert not result.final_positions

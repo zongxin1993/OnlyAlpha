@@ -112,6 +112,10 @@ Position 处于 RECONCILING 时可用量为零，关键券商冲突必须阻断�
 
 ExecutionProcessor 现按每个有效 Fill 部分消费 Risk Reservation 的 quantity/notional exposure；Reservation 保留原始值与累计
 consumed 值，Risk Snapshot 只统计 remaining exposure。完全成交才进入 CONSUMED，Rejected/Cancelled 只释放剩余 exposure。
+
+Generic T0 Cash whole-fill Long Close 在同一 Prepared Transaction 中消费 Position Reservation 与 Risk Reservation，且只在
+Order 终态将 active order count 减少一次。Close 不复用现金 Reservation；Position/Allocation、Reservation 与 Risk 的
+before/after version、quantity 和 notional 由经济不变量交叉校验。Partial/Multi-Close 仍由后续阶段处理。
 ## Account Risk View
 
 Risk 通过 `OnlyAccountManagerRiskView` 读取 immutable Account Snapshot。BUY 使用 Limit Price 或当前 MarketData Snapshot

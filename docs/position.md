@@ -68,6 +68,10 @@ BROKER_ACKNOWLEDGED、RELEASE_PENDING、RELEASED；成交可部分或全部 CONS
 Cluster 再次卖出。撤单已确认但券商尚未恢复可用量时保持 RELEASE_PENDING，不乐观释放归因预占。创建、推进、消费和
 释放均幂等。
 
+Generic T0 Cash whole-fill Long Close 中，Position 与 Allocation 的 before/after、精确累计开仓价数量和 Position
+Reservation 消费都进入同一 Prepared Transaction。减仓按原平均成本释放精确成本，剩余均价不变；归零时清空平均价和
+累计成本并进入 CLOSED。Realized PnL 只由 Position reducer 计算一次，Allocation 使用同一 delta，禁止重复推导。
+
 ## 7. Broker Snapshot、Authority 与 Reconciliation
 
 `OnlyBrokerPositionSnapshot` 是强类型、不可变、可序列化的 Gateway 标准 DTO。它保存总量、可用、冻结、结算/未结算、
@@ -103,8 +107,8 @@ Restriction/Broker/Difference/Reconciliation/Unallocated 均以 Decimal 字符�
 
 - 业务执行仅实现 NETTING Long-only、Average Cost、Linear PnL 和 T+1。
 - HEDGING、Short、FIFO/LIFO、Inverse/Quanto、公司行动和今昨仓平仓尚未实现。
-- 尚无真实 Gateway、数据库 Position Repository、完整 AccountManager 或持久化 ExecutionProcessor；Backtest Runtime 已有
-  Runtime-owned 内存 ExecutionProcessor 和标准化成交同步纵切面编排；数据库事务/恢复仍未实现。
+- 尚无真实 Gateway 或数据库 Position Repository；Backtest Runtime 对受支持的 Generic T0 Cash BUY OPEN 与 whole-fill
+  Long CLOSE 已使用 Runtime Persistence Store、ordered Projection 和 Recovery。Paper/Live 恢复仍未实现。
 - Live/Paper 的完整资源装配仍按 Runtime 路线图推进，但每种 Runtime 从构造起已独占 Position/Allocation 状态域。
 ## Virtual Broker Position Snapshot
 
