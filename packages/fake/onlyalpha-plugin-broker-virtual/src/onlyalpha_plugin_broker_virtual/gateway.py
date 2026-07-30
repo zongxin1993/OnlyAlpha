@@ -46,6 +46,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
 from onlyalpha.plugin.lifecycle import (
     OnlyPluginHealth,
@@ -54,6 +55,14 @@ from onlyalpha.plugin.lifecycle import (
 )
 from onlyalpha_plugin_broker_virtual.config import OnlyVirtualBrokerConfig
 from onlyalpha_plugin_broker_virtual.descriptor import ONLY_VIRTUAL_PLUGIN_DESCRIPTOR
+from onlyalpha_plugin_broker_virtual.fill_plan import (
+    OnlyVirtualFillDispatchMode,
+    OnlyVirtualFillPlanStatus,
+    OnlyVirtualFillPlanStep,
+    OnlyVirtualOrderFillPlan,
+    only_create_virtual_order_fill_plan,
+)
+from onlyalpha_plugin_broker_virtual.fill_plan_store import OnlyVirtualFillPlanStore
 from onlyalpha_plugin_broker_virtual.latency import OnlyLatencyModel, OnlyZeroLatencyModel
 from onlyalpha_plugin_broker_virtual.matching import OnlyMatchingEngine, OnlyNextBarMatchingEngine
 from onlyalpha_plugin_broker_virtual.scheduler import OnlyVirtualBrokerScheduler
@@ -84,7 +93,8 @@ class OnlyVirtualBrokerGateway:
         self.runtime_id = runtime_id
         self._clock = clock
         self._inbound = inbound
-        self._matching = matching_engine or OnlyNextBarMatchingEngine(config.maximum_fill_quantity)
+        # Fill quantity authority is always the normalized order Fill Plan. Matching owns price eligibility only.
+        self._matching = matching_engine or OnlyNextBarMatchingEngine()
         self._slippage = slippage_model or config.slippage_model or OnlyNoSlippageModel()
         self._latency = latency_model or config.latency_model or OnlyZeroLatencyModel()
         self.scheduler = scheduler or OnlyVirtualBrokerScheduler()
@@ -96,6 +106,7 @@ class OnlyVirtualBrokerGateway:
         )
         self.order_store = OnlyVirtualBrokerOrderStore()
         self.trade_store = OnlyVirtualBrokerTradeStore()
+        self.fill_plan_store = OnlyVirtualFillPlanStore()
         self._state = OnlyBrokerConnectionState.DISCONNECTED
         self._state_time = self._now()
         self._source_sequence = 0
@@ -302,9 +313,22 @@ class OnlyVirtualBrokerGateway:
                 continue
             if self._accepted_bar.get(order.order_id, self._bar_sequence) >= self._bar_sequence:
                 continue
+            plan = self.fill_plan_store.require(order.order_id)
+            if plan.status is not OnlyVirtualFillPlanStatus.ACTIVE:
+                continue
             result = self._matching.match(order, bar)
-            if result.matched and result.price is not None and result.quantity is not None:
-                self._execute(order, result.price, result.quantity, timestamp)
+            if not result.matched or result.price is None:
+                continue
+            while True:
+                current = self.fill_plan_store.require(order.order_id)
+                step = current.next_step
+                elapsed_bar_offset = self._bar_sequence - current.accepted_bar_sequence
+                if step is None or step.bar_offset > elapsed_bar_offset:
+                    break
+                latest_order = self.order_store.require(order.order_id)
+                self._execute_plan_step(latest_order, current, step, result.price, timestamp)
+                if current.dispatch_mode is OnlyVirtualFillDispatchMode.ONE_PER_BAR:
+                    break
         self._latest_bars[bar.instrument_id] = bar
         self.run_due()
 
@@ -366,6 +390,22 @@ class OnlyVirtualBrokerGateway:
             self._reject(current, causation_id, "MARKET order requires a reference Bar before acceptance")
             return
         required = price.value * current.remaining_quantity.value
+        try:
+            plan = only_create_virtual_order_fill_plan(
+                gateway_id=str(self.config.gateway_id),
+                account_id=current.account_id,
+                order_id=current.order_id,
+                venue_order_id=current.venue_order_id,
+                original_quantity=current.quantity,
+                accepted_bar_sequence=self._bar_sequence,
+                mode=self.config.effective_fill_schedule_mode,
+                dispatch_mode=self.config.fill_dispatch_mode,
+                schedule_steps=self.config.fill_schedule_steps,
+                maximum_fill_quantity=self.config.maximum_fill_quantity,
+            )
+        except ValueError as exc:
+            self._reject(current, causation_id, str(exc))
+            return
         closes = current.offset in {OnlyOffset.CLOSE, OnlyOffset.CLOSE_TODAY, OnlyOffset.CLOSE_YESTERDAY}
         reservable = (
             True
@@ -378,35 +418,38 @@ class OnlyVirtualBrokerGateway:
             self._reject(current, causation_id, "insufficient Broker cash or settled Position")
             return
         now = self._now()
+        accepted_sequence = self._next_sequence()
         accepted = replace(
             current,
             price=price,
             status=OnlyOrderStatus.ACCEPTED,
             updated_at=now,
-            source_sequence=self._next_sequence(),
+            source_sequence=accepted_sequence,
         )
         self.order_store.save(accepted)
+        self.fill_plan_store.save(plan)
         self._accepted_bar[accepted.order_id] = self._bar_sequence
         self._emit(
             OnlyBrokerOrderAcceptedUpdate,
             now,
             str(accepted.order_id),
             causation_id,
+            emitted_sequence=accepted_sequence,
             order_id=accepted.order_id,
             venue_order_id=accepted.venue_order_id,
         )
 
     def _reject(self, order: OnlyBrokerOrderSnapshot, causation_id: str, message: str) -> None:
         now = self._now()
-        rejected = replace(
-            order, status=OnlyOrderStatus.REJECTED, updated_at=now, source_sequence=self._next_sequence()
-        )
+        rejected_sequence = self._next_sequence()
+        rejected = replace(order, status=OnlyOrderStatus.REJECTED, updated_at=now, source_sequence=rejected_sequence)
         self.order_store.save(rejected)
         self._emit(
             OnlyBrokerOrderRejectedUpdate,
             now,
             str(order.order_id),
             causation_id,
+            emitted_sequence=rejected_sequence,
             order_id=order.order_id,
             rejection=OnlyOrderRejection("BROKER_REJECTED", message),
         )
@@ -415,26 +458,53 @@ class OnlyVirtualBrokerGateway:
         order = self.order_store.require(order_id)  # type: ignore[arg-type]
         if order.status not in {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED}:
             return
+        plan = self.fill_plan_store.require(order.order_id)
+        if plan.status is not OnlyVirtualFillPlanStatus.ACTIVE:
+            raise RuntimeError("VIRTUAL_FILL_PLAN_ORDER_STATUS_CONFLICT")
         self.account_store.release_order(order)
         now = self._now()
-        cancelled = replace(
-            order, status=OnlyOrderStatus.CANCELLED, updated_at=now, source_sequence=self._next_sequence()
-        )
+        cancelled_sequence = self._next_sequence()
+        cancelled = replace(order, status=OnlyOrderStatus.CANCELLED, updated_at=now, source_sequence=cancelled_sequence)
         self.order_store.save(cancelled)
+        self.fill_plan_store.cancel(order.order_id)
         self._emit(
             OnlyBrokerOrderCancelledUpdate,
             now,
             str(order.order_id),
             causation_id,
+            emitted_sequence=cancelled_sequence,
             order_id=order.order_id,
         )
 
     def _execute(
         self, order: OnlyBrokerOrderSnapshot, raw_price: object, quantity: object, timestamp: OnlyTimestamp
     ) -> None:
-        from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-
         assert isinstance(raw_price, OnlyPrice) and isinstance(quantity, OnlyQuantity)
+        plan = self.fill_plan_store.require(order.order_id)
+        step = plan.next_step
+        if step is None or step.quantity != quantity:
+            raise ValueError("VIRTUAL_FILL_PLAN_STEP_QUANTITY_CONFLICT")
+        self._execute_plan_step(order, plan, step, raw_price, timestamp)
+
+    def _execute_plan_step(
+        self,
+        order: OnlyBrokerOrderSnapshot,
+        plan: OnlyVirtualOrderFillPlan,
+        step: OnlyVirtualFillPlanStep,
+        raw_price: OnlyPrice,
+        timestamp: OnlyTimestamp,
+    ) -> None:
+        order = self.order_store.require(order.order_id)
+        plan = self.fill_plan_store.require(order.order_id)
+        if order.status not in {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED}:
+            raise ValueError("VIRTUAL_FILL_ORDER_NOT_OPEN")
+        if plan.status is not OnlyVirtualFillPlanStatus.ACTIVE or plan.next_step != step:
+            raise ValueError("VIRTUAL_FILL_PLAN_CURSOR_CONFLICT")
+        quantity = step.quantity
+        if quantity.value > order.remaining_quantity.value:
+            raise ValueError("VIRTUAL_FILL_PLAN_OVERFILL")
+        if plan.executed_quantity != order.filled_quantity or plan.remaining_quantity != order.remaining_quantity:
+            raise ValueError("VIRTUAL_FILL_PLAN_ORDER_AUTHORITY_CONFLICT")
         price = self._slippage.apply(order.side, raw_price)
         if order.order_type is OnlyOrderType.LIMIT and order.price is not None:
             price = OnlyPrice(
@@ -511,6 +581,9 @@ class OnlyVirtualBrokerGateway:
         self.order_store.save(updated)
         trade = OnlyBrokerTradeSnapshot(self.config.gateway_id, self.config.account_id, trade_id, fill, fill_sequence)
         self.trade_store.save(trade)
+        updated_plan = self.fill_plan_store.advance(order.order_id)
+        if (status is OnlyOrderStatus.FILLED) != (updated_plan.status is OnlyVirtualFillPlanStatus.COMPLETED):
+            raise RuntimeError("VIRTUAL_FILL_PLAN_ORDER_TERMINAL_CONFLICT")
 
         def publish() -> None:
             self._emit(
@@ -526,6 +599,8 @@ class OnlyVirtualBrokerGateway:
         action_payload = {
             "fill": fill.to_json(),
             "order_id": str(order.order_id),
+            "plan_id": plan.plan_id,
+            "plan_step_index": step.step_index,
             "sequence": fill_sequence,
             "timestamp_ns": timestamp.unix_nanos,
             "type": "PUBLISH_FILL",
@@ -538,6 +613,7 @@ class OnlyVirtualBrokerGateway:
 
     def capture_checkpoint(self) -> object:
         return {
+            "schema_version": 2,
             "accepted_bar": [
                 [str(order_id), sequence]
                 for order_id, sequence in sorted(self._accepted_bar.items(), key=lambda item: str(item[0]))
@@ -546,6 +622,7 @@ class OnlyVirtualBrokerGateway:
             "bar_sequence": self._bar_sequence,
             "connection_state": self._state.value,
             "current_day": None if self._current_day is None else self._current_day.isoformat(),
+            "fill_plans": self.fill_plan_store.capture_checkpoint(),
             "latest_bars": [
                 [instrument_id.to_json(), bar.to_json()]
                 for instrument_id, bar in sorted(self._latest_bars.items(), key=lambda item: str(item[0]))
@@ -563,26 +640,96 @@ class OnlyVirtualBrokerGateway:
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict):
             raise ValueError("Virtual Broker checkpoint must be an object")
-        self.account_store.restore_checkpoint(payload["account"])
-        self.order_store.restore_checkpoint(payload["orders"])
-        self.trade_store.restore_checkpoint(payload["trades"])
-        self._accepted_bar = {
-            OnlyOrderId(str(order_id)): int(sequence) for order_id, sequence in payload["accepted_bar"]
+        if payload.get("schema_version") != 2:
+            raise ValueError("VIRTUAL_BROKER_CHECKPOINT_SCHEMA_UNSUPPORTED")
+        try:
+            self.account_store.restore_checkpoint(payload["account"])
+            self.order_store.restore_checkpoint(payload["orders"])
+            self.trade_store.restore_checkpoint(payload["trades"])
+            self.fill_plan_store.restore_checkpoint(payload["fill_plans"])
+            self._accepted_bar = {
+                OnlyOrderId(str(order_id)): int(sequence) for order_id, sequence in payload["accepted_bar"]
+            }
+            self._bar_sequence = int(payload["bar_sequence"])
+            self._state = OnlyBrokerConnectionState(str(payload["connection_state"]))
+            self._state_time = OnlyTimestamp.from_unix_nanos(int(payload["state_time_ns"]))
+            current_day = payload["current_day"]
+            self._current_day = None if current_day is None else date.fromisoformat(str(current_day))
+            self._latest_bars = {
+                OnlyInstrumentId.from_json(str(instrument_id)): OnlyBar.from_json(str(bar))
+                for instrument_id, bar in payload["latest_bars"]
+            }
+            self._plugin_state = OnlyPluginLifecycleState(str(payload["plugin_state"]))
+            self._source_sequence = int(payload["source_sequence"])
+            self._venue_order_sequence = int(payload["venue_order_sequence"])
+            self._trade_sequence = int(payload["trade_sequence"])
+            self.scheduler.restore_checkpoint(payload["scheduler"], self._resolve_scheduled_action)
+            self._validate_checkpoint_authority()
+        except Exception:
+            self._state = OnlyBrokerConnectionState.FAILED
+            self._plugin_state = OnlyPluginLifecycleState.FAILED
+            raise
+
+    def _validate_checkpoint_authority(self) -> None:
+        orders = {item.order_id: item for item in self.order_store.list(self.config.account_id)}
+        trades = self.trade_store.all()
+        trades_by_order: dict[OnlyOrderId, list[OnlyBrokerTradeSnapshot]] = {}
+        for trade in trades:
+            trades_by_order.setdefault(trade.fill.order_id, []).append(trade)
+        for plan in self.fill_plan_store.list():
+            order = orders.get(plan.order_id)
+            if order is None or plan.venue_order_id != order.venue_order_id or plan.original_quantity != order.quantity:
+                raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
+            if plan.executed_quantity != order.filled_quantity or plan.remaining_quantity != order.remaining_quantity:
+                raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
+            expected_statuses = {
+                OnlyVirtualFillPlanStatus.ACTIVE: {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED},
+                OnlyVirtualFillPlanStatus.COMPLETED: {OnlyOrderStatus.FILLED},
+                OnlyVirtualFillPlanStatus.CANCELLED: {OnlyOrderStatus.CANCELLED},
+            }
+            if order.status not in expected_statuses[plan.status]:
+                raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
+            order_trades = trades_by_order.get(plan.order_id, [])
+            if len(order_trades) != plan.next_step_index:
+                raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
+            if any(
+                trade.fill.quantity != step.quantity
+                for trade, step in zip(order_trades, plan.steps[: plan.next_step_index], strict=True)
+            ):
+                raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
+        planned_statuses = {
+            OnlyOrderStatus.ACCEPTED,
+            OnlyOrderStatus.PARTIALLY_FILLED,
+            OnlyOrderStatus.FILLED,
+            OnlyOrderStatus.CANCELLED,
         }
-        self._bar_sequence = int(payload["bar_sequence"])
-        self._state = OnlyBrokerConnectionState(str(payload["connection_state"]))
-        self._state_time = OnlyTimestamp.from_unix_nanos(int(payload["state_time_ns"]))
-        current_day = payload["current_day"]
-        self._current_day = None if current_day is None else date.fromisoformat(str(current_day))
-        self._latest_bars = {
-            OnlyInstrumentId.from_json(str(instrument_id)): OnlyBar.from_json(str(bar))
-            for instrument_id, bar in payload["latest_bars"]
-        }
-        self._plugin_state = OnlyPluginLifecycleState(str(payload["plugin_state"]))
-        self._source_sequence = int(payload["source_sequence"])
-        self._venue_order_sequence = int(payload["venue_order_sequence"])
-        self._trade_sequence = int(payload["trade_sequence"])
-        self.scheduler.restore_checkpoint(payload["scheduler"], self._resolve_scheduled_action)
+        if any(
+            order.status in planned_statuses and self.fill_plan_store.get(order.order_id) is None
+            for order in orders.values()
+        ):
+            raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
+        trades_by_id = {trade.trade_id: trade for trade in trades}
+        for raw in self.scheduler.pending_payloads:
+            if not isinstance(raw, dict) or raw.get("type") != "PUBLISH_FILL":
+                continue
+            fill = OnlyOrderFill.from_json(str(raw["fill"]))
+            plan = self.fill_plan_store.require(OnlyOrderId(str(raw["order_id"])))
+            step_index = int(raw["plan_step_index"])
+            pending_trade = trades_by_id.get(fill.trade_id)
+            if (
+                raw.get("plan_id") != plan.plan_id
+                or not 1 <= step_index <= plan.next_step_index
+                or pending_trade is None
+                or pending_trade.fill != fill
+                or int(raw["sequence"]) > self._source_sequence
+            ):
+                raise ValueError("VIRTUAL_BROKER_SCHEDULED_FILL_AUTHORITY_CONFLICT")
+        sequence_heads = [
+            *(item.source_sequence for item in orders.values()),
+            *(item.source_sequence for item in trades),
+        ]
+        if sequence_heads and max(sequence_heads) > self._source_sequence:
+            raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
 
     def _resolve_scheduled_action(self, payload: object) -> Callable[[], None]:
         if not isinstance(payload, dict):

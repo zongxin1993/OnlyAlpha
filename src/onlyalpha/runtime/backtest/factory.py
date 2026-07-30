@@ -342,8 +342,13 @@ class OnlyBacktestRuntimeFactory:
             broker_checkpoint = self._require_checkpoint_capability(broker_factory.descriptor.capabilities, "Broker")
             if broker_checkpoint is not OnlyCheckpointCapability.CHECKPOINTABLE:
                 raise ValueError("checkpoint-enabled Backtest Broker must be CHECKPOINTABLE")
-            if getattr(broker_factory.descriptor.capabilities, "checkpoint_schema_version", None) != 1:
-                raise ValueError("Backtest Broker checkpoint schema version must be 1")
+            broker_checkpoint_version = getattr(
+                broker_factory.descriptor.capabilities,
+                "checkpoint_schema_version",
+                None,
+            )
+            if not isinstance(broker_checkpoint_version, int) or broker_checkpoint_version < 1:
+                raise ValueError("Backtest Broker checkpoint schema version must be positive")
         broker_plugin_config = broker_factory.parse_config(broker_common.extensions)
         broker_request = OnlyBrokerCreateRequest(
             broker_common.gateway_id,

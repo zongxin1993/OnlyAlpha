@@ -86,6 +86,7 @@ from onlyalpha.execution.delivery import (
     OnlyExecutionOutboxPublisher,
     OnlyRoutedDirectExecutionPublisher,
 )
+from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.execution_state import (
     OnlyAccountExecutionState,
@@ -619,6 +620,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         market_data_gap_detector = OnlyMarketDataGapDetector(self._market_calendars)
         market_data_event_publisher = OnlyMarketDataEventPublisher()
         self._last_market_trading_day: OnlyTradingDay | None = None
+        self._execution_checkpoint_blocked = False
 
         def drain_execution_updates() -> None:
             for update in broker_inbound.drain():
@@ -635,6 +637,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
                     )
                     self._record_execution_delivery(processing.sequence, delivery)
                 self._broker_results.append(processing)
+                if processing.status is OnlyExecutionProcessingStatus.FAILED or (
+                    processing.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
+                    and processing.failure is not None
+                ):
+                    self._execution_checkpoint_blocked = True
+                    break
 
         self._drain_execution_updates_for_checkpoint = drain_execution_updates
 
@@ -662,12 +670,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch),
             )
             self._record_execution_delivery(None, delivery)
-            if deterministic_broker_driver is not None:
+            if deterministic_broker_driver is not None and not self._execution_checkpoint_blocked:
                 deterministic_broker_driver.on_bar(result.base_bar)
                 drain_execution_updates()
 
         def after_market_dispatch(update: OnlyMarketDataInboundUpdate) -> None:
-            if deterministic_broker_driver is not None:
+            if deterministic_broker_driver is not None and not self._execution_checkpoint_blocked:
                 deterministic_broker_driver.run_due()
                 drain_execution_updates()
 
@@ -1000,7 +1008,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._checkpoint_registry.register(
                 OnlyJsonRuntimeCheckpointParticipant(
                     "broker.virtual",
-                    1,
+                    2,
                     deterministic_broker_driver.capture_checkpoint,
                     deterministic_broker_driver.restore_checkpoint,
                 )
@@ -1284,6 +1292,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._cluster_checkpoint_participants_registered = True
 
     def _checkpoint_barrier(self, completion: OnlyBacktestBarCompletion) -> None:
+        if self._execution_checkpoint_blocked:
+            return
         if self._persistence_config.checkpoint.enabled and (
             len(self._services.broker_inbound) or len(self._services.market_data_inbound)
         ):

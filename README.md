@@ -515,8 +515,10 @@ scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 
 PR4.3.2 已完成 Incremental Reservation and Accounting for Multi-Fill：一个 Fill 始终对应一个不可变 Transaction；
 Position/Allocation 使用精确累计成本；FILL/ORDER_CUMULATIVE Fee 经独立订单级 Accrual 转为本次增量；Account、Strategy
 Ledger 与 Risk 使用显式 reservation delta。中间 Fill 不释放现金 Reservation、不减少 Risk Active Count，最终 Fill 才消费
-或释放剩余 authority。SELL/CLOSE、Virtual Broker Partial Fill Schedule、Multi-Fill Recovery、Futures/Margin 与多 Cluster
-固定资金归约仍未开放，其中前两项由 PR4.3.3 继续完成。
+或释放剩余 authority。PR4.3.3 已完成 Virtual Broker deterministic Fill Plan 与 Multi-Fill Recovery：WHOLE、旧
+MAX_PER_BAR 和显式 SCHEDULE 共用单一执行链，支持 ONE_PER_BAR/ALL_DUE，Plan cursor 与 pending publish 使用 checkpoint
+schema/participant version 2，并通过 Commit、Projection、Outbox、checkpoint 和 A→B→C restart 等价测试。SELL/CLOSE、
+Futures/Margin 与多 Cluster 固定资金归约仍未开放。
 正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在
 `RECOVERING` 阶段恢复最新完整 checkpoint，并在精确行情游标重放期间逐点处理 Ready/未投影 tail；独立 Backtest Recovery
 Session 以 source ID、data version、update ID、source sequence 和 event time 验证完整 boundary，不会重复 Strategy/Factor
@@ -537,7 +539,7 @@ runtime:
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`，与随机 Run Artifact 目录分离。SQLite 会校验
 schema version 2、engine/runtime、mode、配置指纹、Participant Registry 指纹、币种、Account 和 Market Profile；不匹配、Version 1 或 checkpoint 损坏时 fail fast，不会迁移、删除旧库或降级 Memory。Checkpoint 在首次 Cluster start 后以及每个 Processing Result、Audit、Result Progress、Event drain 均完成的 Bar barrier 原子写入，并与 transaction/outbox 使用同一数据库。PR4.2.2b 在 Exact Boundary 与 Continuation Transaction 之后增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator 和 fail-closed Finalizer；PR4.2.2c 增加唯一 Runtime Event Router 与 Recovery Event Gate。Fresh bootstrap direct facts 在 OPEN 后 FIFO flush，恢复 bootstrap 被丢弃，历史 direct facts 在 replay/finalization 中被抑制且不补发，continuation Outbox 只在 durable finalization 成功并 OPEN 后交付。Runtime 对外只暴露 EventBus 订阅视图。Direct Event 仍可能因故障丢失，Outbox 仍为 at-least-once；Runtime Product Partial-Fill Accounting、未事务化 SELL/CLOSE、Futures/Margin、Non-Trade Transaction、Paper/Live Recovery、Exactly-once、Direct Durable Journal、Delivery Watermark、Subscriber ACK、Schema Migration、Distributed Checkpoint、Full Broker Reconciliation、Remote Store 与 Web Recovery 仍未完成。
 
-Checkpoint 模式还要求 DataSource、Broker、Strategy、Factor 和 Indicator 显式声明 `CHECKPOINTABLE` 或 `STATELESS`；未声明能力、Checkpointable 缺少 schema version、或把有状态 Broker 声明为 Stateless 都会在装配期失败。内建历史 DataSource 明确 Stateless，官方 Virtual Broker 明确 Checkpointable schema 1。
+Checkpoint 模式还要求 DataSource、Broker、Strategy、Factor 和 Indicator 显式声明 `CHECKPOINTABLE` 或 `STATELESS`；未声明能力、Checkpointable 缺少 schema version、或把有状态 Broker 声明为 Stateless 都会在装配期失败。内建历史 DataSource 明确 Stateless，官方 Virtual Broker 明确 Checkpointable schema 2。
 
 ---
 

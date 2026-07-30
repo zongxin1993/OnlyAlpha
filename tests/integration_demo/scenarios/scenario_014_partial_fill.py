@@ -3,12 +3,16 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.value import OnlyQuantity
+from onlyalpha.market.models import OnlyMarketProfileId
 
 from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
-    partial = OnlyIntegrationEnvironment(maximum_fill_quantity=OnlyQuantity(Decimal("40"), 0))
+    partial = OnlyIntegrationEnvironment(
+        maximum_fill_quantity=OnlyQuantity(Decimal("40"), 0),
+        market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
+    )
     partial.start()
     for minute in range(3):
         partial.process_bar(DAY_ONE, minute, "10.00")
@@ -19,18 +23,18 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
 
     assert snapshot.status is OnlyOrderStatus.PARTIALLY_FILLED
     assert snapshot.filled_quantity.value == Decimal("40")
-    assert account.cash.frozen_cash.amount == Decimal("600.01")
+    assert account.cash.frozen_cash.amount == Decimal("600.60")
     risk_reservation = partial.runtime.risk_service.reservations.get_for_order(snapshot.order_id)
     assert risk_reservation is not None
     assert risk_reservation.consumed_quantity.value == Decimal("40")
     assert risk_reservation.remaining_quantity.value == Decimal("60")
     assert risk_reservation.remaining_notional.amount == Decimal("600.00")
     committed = partial.runtime.ready_execution_query.ready_records(partial.runtime.config.runtime_id)
-    # Partial/Multi Fill is an explicit post-PR4 migration boundary.  Its
-    # existing accounting path must not masquerade as a formal transaction.
-    assert committed == ()
+    assert len(committed) == 1
+    assert committed[0].projection_ready
+    assert committed[0].fact.fill_index == 1
     assert partial.runtime.broker_gateway is not None
     assert partial.runtime.broker_gateway.query_account(snapshot.account_id).frozen_cash.amount == Decimal("600.00")
     return env.report_builder.scenario(
-        "014", "Virtual Broker 部分成交", "40/100 成交后 Local 与 Broker Reservation 保持一致"
+        "014", "Virtual Broker 部分成交", "40/100 成交形成独立 Transaction，Local 与 Broker Reservation 保持一致"
     )

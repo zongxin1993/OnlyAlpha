@@ -271,7 +271,14 @@ class OnlyVirtualBrokerOrderStore:
         return self._orders[order_id]
 
     def list(self, account_id: OnlyAccountId) -> tuple[OnlyBrokerOrderSnapshot, ...]:
-        return tuple(value for value in self._orders.values() if value.account_id == account_id)
+        return tuple(
+            value
+            for value in sorted(
+                self._orders.values(),
+                key=lambda item: (str(item.venue_order_id), str(item.order_id)),
+            )
+            if value.account_id == account_id
+        )
 
     def open(self, account_id: OnlyAccountId) -> tuple[OnlyBrokerOrderSnapshot, ...]:
         terminal = {OnlyOrderStatus.CANCELLED, OnlyOrderStatus.FILLED, OnlyOrderStatus.REJECTED, OnlyOrderStatus.FAILED}
@@ -296,7 +303,17 @@ class OnlyVirtualBrokerTradeStore:
         self._trades.setdefault(trade.trade_id, trade)
 
     def list(self, account_id: OnlyAccountId) -> tuple[OnlyBrokerTradeSnapshot, ...]:
-        return tuple(value for value in self._trades.values() if value.account_id == account_id)
+        return tuple(
+            value
+            for value in sorted(
+                self._trades.values(),
+                key=lambda item: (item.source_sequence, str(item.trade_id)),
+            )
+            if value.account_id == account_id
+        )
+
+    def all(self) -> tuple[OnlyBrokerTradeSnapshot, ...]:
+        return tuple(sorted(self._trades.values(), key=lambda item: (item.source_sequence, str(item.trade_id))))
 
     def capture_checkpoint(self) -> object:
         return [item.to_json() for item in sorted(self._trades.values(), key=lambda item: str(item.trade_id))]

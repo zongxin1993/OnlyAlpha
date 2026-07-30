@@ -27,7 +27,7 @@ class OnlyBrokerRecoveryOrderSnapshot:
 
 
 class OnlyBrokerRecoveryAuthorityView(Protocol):
-    def open_orders(self) -> tuple[OnlyBrokerRecoveryOrderSnapshot, ...]: ...
+    def orders(self) -> tuple[OnlyBrokerRecoveryOrderSnapshot, ...]: ...
 
 
 class OnlyGatewayBrokerRecoveryAuthorityView:
@@ -35,10 +35,8 @@ class OnlyGatewayBrokerRecoveryAuthorityView:
         self._gateway = gateway
         self._account_ids = account_ids
 
-    def open_orders(self) -> tuple[OnlyBrokerRecoveryOrderSnapshot, ...]:
-        snapshots = tuple(
-            item for account_id in self._account_ids for item in self._gateway.query_open_orders(account_id)
-        )
+    def orders(self) -> tuple[OnlyBrokerRecoveryOrderSnapshot, ...]:
+        snapshots = tuple(item for account_id in self._account_ids for item in self._gateway.query_orders(account_id))
         return tuple(
             OnlyBrokerRecoveryOrderSnapshot(
                 item.order_id,

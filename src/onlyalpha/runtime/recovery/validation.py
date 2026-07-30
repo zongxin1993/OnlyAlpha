@@ -821,30 +821,39 @@ class OnlyBrokerLocalParityCheck:
                     "broker recovery query is not applicable",
                 ),
             )
-        terminal = {
-            OnlyOrderStatus.CANCELLED,
-            OnlyOrderStatus.EXPIRED,
-            OnlyOrderStatus.FILLED,
-            OnlyOrderStatus.REJECTED,
-            OnlyOrderStatus.FAILED,
-        }
-        local_orders = {str(item.order_id): item for item in context.orders if item.status not in terminal}
-        broker_orders = {str(item.order_id): item for item in context.broker_view.open_orders()}
+        local_orders = {str(item.order_id): item for item in context.orders}
+        broker_orders = {str(item.order_id): item for item in context.broker_view.orders()}
         local = set(local_orders)
         broker = set(broker_orders)
-        mismatched = tuple(
-            order_id
-            for order_id in sorted(local & broker)
-            if (
-                broker_orders[order_id].account_id != local_orders[order_id].account_id
-                or broker_orders[order_id].instrument_id != str(local_orders[order_id].instrument_id)
-                or broker_orders[order_id].side != local_orders[order_id].side.value
-                or broker_orders[order_id].status != local_orders[order_id].status.value
-                or broker_orders[order_id].filled_quantity != local_orders[order_id].filled_quantity
-                or broker_orders[order_id].remaining_quantity != local_orders[order_id].remaining_quantity
-                or broker_orders[order_id].limit_price != local_orders[order_id].price
+
+        def broker_order_matches(order_id: str) -> bool:
+            broker_order = broker_orders[order_id]
+            local_order = local_orders[order_id]
+            scope_matches = (
+                broker_order.account_id == local_order.account_id
+                and broker_order.instrument_id == str(local_order.instrument_id)
+                and broker_order.side == local_order.side.value
+                and broker_order.quantity == local_order.quantity
+                and broker_order.limit_price == local_order.price
             )
-        )
+            exact = (
+                broker_order.status == local_order.status.value
+                and broker_order.filled_quantity == local_order.filled_quantity
+                and broker_order.remaining_quantity == local_order.remaining_quantity
+            )
+            # A checkpointable deterministic Broker may have executed a Fill whose durable
+            # PUBLISH_FILL action is still pending. Its own restore validator proves that
+            # Trade/Plan/Scheduler authority; local Runtime authority is therefore allowed
+            # to trail, but must never be ahead or disagree on immutable order scope.
+            broker_ahead = (
+                local_order.status in {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED}
+                and broker_order.status in {OnlyOrderStatus.PARTIALLY_FILLED.value, OnlyOrderStatus.FILLED.value}
+                and broker_order.filled_quantity.value >= local_order.filled_quantity.value
+                and broker_order.remaining_quantity.value <= local_order.remaining_quantity.value
+            )
+            return scope_matches and (exact or broker_ahead)
+
+        mismatched = tuple(order_id for order_id in sorted(local & broker) if not broker_order_matches(order_id))
         behind_items: list[str] = []
         for order_id in sorted(local & broker):
             broker_sequence = broker_orders[order_id].broker_sequence
@@ -859,7 +868,7 @@ class OnlyBrokerLocalParityCheck:
                 local == broker and not mismatched,
                 tuple(sorted(local)),
                 (tuple(sorted(broker)), mismatched),
-                "broker and local open order ids must agree",
+                "broker and local order authority must agree",
             ),
             _check(
                 "POST_RECOVERY_BROKER_ORDER_SEQUENCE_BEHIND",

@@ -42,8 +42,9 @@ Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
 PR4.3.2 在 ADR 0049 的 Fill identity 与 Order terminal authority 上完成正式增量记账。Position/Allocation 保存精确累计
 开仓价值；Account/Strategy/Risk Reservation 按 Fill 消费且仅终态释放；Risk Active Count 仅最终 Fill 减少一次；每个 Fill
-仍是独立不可变 Transaction。固定投影新增 `ORDER_FEE_ACCRUAL`，完整顺序见 ADR 0050。Virtual Broker Partial Fill Schedule
-与 Multi-Fill Recovery 留给 PR4.3.3。
+仍是独立不可变 Transaction。固定投影新增 `ORDER_FEE_ACCRUAL`，完整顺序见 ADR 0050。PR4.3.3 已在独立 Virtual Broker
+插件增加 deterministic Fill Plan：WHOLE/MAX_PER_BAR/SCHEDULE 与 ONE_PER_BAR/ALL_DUE 共享单一执行链，Plan cursor、
+Trade 和 pending publish 进入 checkpoint V2，并通过现有 Runtime Recovery 完成多 Fill restart；详见 ADR 0051。
 
 Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
 复用 Domain Bar/Tick，来源元数据保存在 Update Envelope；历史数据只有 ReplayService 能推进 Backtest Clock。详见

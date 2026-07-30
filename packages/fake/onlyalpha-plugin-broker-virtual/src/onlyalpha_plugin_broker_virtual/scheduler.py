@@ -42,6 +42,10 @@ class OnlyVirtualBrokerScheduler:
     def __len__(self) -> int:
         return len(self._actions)
 
+    @property
+    def pending_payloads(self) -> tuple[object, ...]:
+        return tuple(item.checkpoint_payload for item in sorted(self._actions))
+
     def capture_checkpoint(self) -> object:
         return {
             "actions": [
@@ -74,3 +78,5 @@ class OnlyVirtualBrokerScheduler:
         self._actions = actions
         heapq.heapify(self._actions)
         self._sequence = int(payload["sequence"])
+        if self._sequence < max((item.sequence for item in actions), default=0):
+            raise ValueError("Virtual Broker scheduler sequence trails pending action")

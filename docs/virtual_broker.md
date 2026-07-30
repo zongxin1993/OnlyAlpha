@@ -20,13 +20,20 @@ brokers:
     extensions:
       matching:
         type: NEXT_BAR
+        partial_fill:
+          mode: SCHEDULE
+          dispatch_mode: ONE_PER_BAR
+          steps:
+            - {bar_offset: 1, quantity: "300"}
+            - {bar_offset: 2, quantity: "400"}
+            - {bar_offset: 3, quantity: "300"}
       latency:
         submit_ns: 0
         acceptance_ns: 0
         fill_ns: 0
       slippage:
         type: NONE
-      maximum_fill_quantity: null
+      maximum_fill_quantity: null  # legacy: null → WHOLE, positive → MAX_PER_BAR
 ```
 
 Core Parser 只保留 `extensions`；具体 Matching、Latency、Slippage 和最大成交量由插件 Factory 解析和拒绝未知字段。
@@ -48,3 +55,10 @@ T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 
 
 确定性约束：Matching 只读取当前及已经到达的历史 Bar；Scheduler 按 `(due_ns, sequence)` 稳定排序；不读取系统时间、
 不 sleep、不使用随机隐式状态。同一输入应产生相同 Order/Trade/Update 顺序与结果指纹。
+
+PR4.3.3 将 WHOLE、旧 `maximum_fill_quantity` 的 MAX_PER_BAR 和显式 SCHEDULE 统一归一化为订单级 immutable Fill
+Plan。ONE_PER_BAR 每 Bar执行一个到期 Step；ALL_DUE 可按 Step Index 同 Bar执行多个 Step。Ratio schedule 以前 N-1
+项向下量化、最后一项接收 remainder，严格保持订单总量。Plan 使用 canonical JSON + SHA-256 identity，cursor 与
+Order/Trade/Scheduler 一起进入 Gateway checkpoint schema 2；`broker.virtual` participant 与插件 capability 同为 version 2。
+Version 1 checkpoint fail fast。Broker execute 先推进 Account/Order/Trade/Plan，`PUBLISH_FILL` 后续才进入 Runtime，因此
+execute-before-publish checkpoint 只恢复发布，不重复 Broker 成交。详见 ADR 0051。

@@ -1,15 +1,22 @@
 from decimal import Decimal
 
+from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerGateway
+from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus
+
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyCancelOrderRequest
 from onlyalpha.domain.identifiers import OnlyOrderRequestId
 from onlyalpha.domain.value import OnlyQuantity
+from onlyalpha.market.models import OnlyMarketProfileId
 
 from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
 
 
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
-    partial = OnlyIntegrationEnvironment(maximum_fill_quantity=OnlyQuantity(Decimal("40"), 0))
+    partial = OnlyIntegrationEnvironment(
+        maximum_fill_quantity=OnlyQuantity(Decimal("40"), 0),
+        market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
+    )
     partial.start()
     for minute in range(3):
         partial.process_bar(DAY_ONE, minute, "10.00")
@@ -34,6 +41,12 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert order.filled_quantity.value == Decimal("40")
     assert account.cash.frozen_cash.amount == Decimal("0.00")
     assert risk is not None and risk.state.value == "RELEASED"
+    assert isinstance(partial.runtime.broker_gateway, OnlyVirtualBrokerGateway)
+    assert partial.runtime.broker_gateway.fill_plan_store.require(submitted.order_id).status is (
+        OnlyVirtualFillPlanStatus.CANCELLED
+    )
+    partial.process_bar(DAY_ONE, 5, "10.00")
+    assert len(partial.runtime.broker_gateway.query_trades(order.account_id)) == 1
     return env.report_builder.scenario(
         "023",
         "部分成交后撤单",

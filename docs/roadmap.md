@@ -123,3 +123,11 @@ Fingerprint、durable per-Order Fill Index、Committed Fact 审计字段以及 M
 Account/Strategy/Risk Reservation 分段消费，以及 Account/Ledger/Risk 的显式增量记账。Generic T0 Cash LIMIT BUY OPEN
 的外部 Partial Fill 现按一个 Fill 一个 Projection Ready Transaction 正式提交；duplicate/conflict 仍由 durable Fill
 identity fail closed。Virtual Broker Partial Fill Schedule 与完整 Multi-Fill Recovery 仍由 PR4.3.3 完成。
+
+## PR4.3.3 Virtual Broker Partial Fill Plan 与 End-to-End Multi-Fill Recovery（完成）
+
+已完成 WHOLE/MAX_PER_BAR/SCHEDULE、ONE_PER_BAR/ALL_DUE、quantity/ratio 精确归一化、稳定 Plan ID/Fingerprint、
+Plan Store/Cursor、确定性 Order/Trade 排序、部分成交后撤单，以及 Gateway checkpoint/participant schema version 2。
+正式 Engine 已证明跨 Bar与同 Bar多 Fill 每笔形成独立 transaction，并覆盖 Broker execute/publish、Commit、Projection、
+Outbox、部分 Plan checkpoint 和 A→B→C restart 等价性。没有新增 Recovery Phase，Commit Coordinator、Event Gate、
+Fill Identity/Index 与 PR4.3.2 accounting 保持不变。下一阶段为 PR4.4 SELL/CLOSE Durable Transaction。

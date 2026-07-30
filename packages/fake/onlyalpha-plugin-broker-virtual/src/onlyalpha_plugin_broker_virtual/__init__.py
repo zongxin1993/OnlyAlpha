@@ -2,6 +2,8 @@
 
 from onlyalpha_plugin_broker_virtual.config import *  # noqa: F403
 from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory  # noqa: F401
+from onlyalpha_plugin_broker_virtual.fill_plan import *  # noqa: F403
+from onlyalpha_plugin_broker_virtual.fill_plan_store import *  # noqa: F403
 from onlyalpha_plugin_broker_virtual.gateway import OnlyVirtualBrokerGateway  # noqa: F401
 from onlyalpha_plugin_broker_virtual.latency import *  # noqa: F403
 from onlyalpha_plugin_broker_virtual.matching import *  # noqa: F403
