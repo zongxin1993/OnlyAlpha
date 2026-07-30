@@ -1,6 +1,7 @@
 """Pure Trade reducer implementations."""
 
 from .trade_accounting import OnlyAccountTradeReducer, OnlyStrategyLedgerTradeReducer
+from .trade_fee_accrual import OnlyOrderFeeAccrualTradeReducer
 from .trade_reservations import (
     OnlyAccountCashReservationTradeReducer,
     OnlyRiskReservationTradeReducer,
@@ -22,6 +23,7 @@ __all__ = [
     "OnlyAllocationTradeReducer",
     "OnlyFeeTradeReducer",
     "OnlyOrderTradeReducer",
+    "OnlyOrderFeeAccrualTradeReducer",
     "OnlyPositionTradeReducer",
     "OnlyRiskReservationTradeReducer",
     "OnlyRiskTradeReducer",

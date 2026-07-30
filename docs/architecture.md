@@ -14,8 +14,8 @@ OnlyMarketRuleEngine → restricted Runtime Ports`。Profile 不得进入 Risk�
 Margin、Account 或 Collector。Backtest/Paper/Live/Shadow 共用该语义，详见 ADR 0026。
 
 费用依赖链为 `market/broker fee config → versioned schedule registries → Runtime Assembly → OnlyFeeResolver →
-OnlyFeeInstruction → ExecutionProcessor`。Market Rule 只提供 Profile schedule identity，Broker 只提供外部报告证据；两者都不
-直接修改 Account、Ledger 或 FeeManager。详见 ADR 0031。
+OnlyFeeInstruction → Order Fee Accrual Reducer → FeeManager`。FILL 与 ORDER_CUMULATIVE Scope 显式区分；订单累计费用由独立
+Runtime-owned Authority 和 Projection 保存，FeeManager 仍只追加已确定事实。详见 ADR 0031 与 ADR 0050。
 
 正式运行入口通过 `CLI → OnlyEngine → OnlyClusterRunConfig[] → OnlyRuntimePlanner → OnlyRuntimeSession → OnlyRuntime.run()`
 组合既有组件。一个配置文件定义一个 Cluster；Engine 持有 Cluster Definition、Cluster Session 和 Runtime Session，负责
@@ -40,10 +40,10 @@ Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量�
 `Broker Update → Prepared Transaction → Durable Commit → Projection Ready Query → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
 Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
-PR4.3.1 将一个 Fill 固定为一个不可变 Transaction，并将 Order 定义为累计成交 Authority。Fill 使用独立于 ETX 的
-`EFILL-<sha256>` 业务身份、canonical payload fingerprint 和 per-Order durable fill index；Memory/SQLite Store 可按 Fill
-Identity 与 Order 查询。纯 Order Reducer 支持 `PARTIALLY_FILLED`，但完整 Runtime partial-fill accounting 仍 fail closed，
-直到 PR4.3.2 完成 Reservation/Risk/Fee/Account/Ledger 增量记账。详见 ADR 0049。
+PR4.3.2 在 ADR 0049 的 Fill identity 与 Order terminal authority 上完成正式增量记账。Position/Allocation 保存精确累计
+开仓价值；Account/Strategy/Risk Reservation 按 Fill 消费且仅终态释放；Risk Active Count 仅最终 Fill 减少一次；每个 Fill
+仍是独立不可变 Transaction。固定投影新增 `ORDER_FEE_ACCRUAL`，完整顺序见 ADR 0050。Virtual Broker Partial Fill Schedule
+与 Multi-Fill Recovery 留给 PR4.3.3。
 
 Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
 复用 Domain Bar/Tick，来源元数据保存在 Update Envelope；历史数据只有 ReplayService 能推进 Backtest Clock。详见

@@ -10,7 +10,13 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeComponent, OnlyFeeStatus, OnlyFeeType
+from onlyalpha.fee.models import (
+    OnlyFeeAuthority,
+    OnlyFeeCalculationScope,
+    OnlyFeeComponent,
+    OnlyFeeStatus,
+    OnlyFeeType,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +30,7 @@ class OnlyFeeRateRule:
     side: str | None = None
     offset: str | None = None
     liquidity_role: str | None = None
+    calculation_scope: OnlyFeeCalculationScope = OnlyFeeCalculationScope.FILL
 
     def calculate(
         self, *, notional: Decimal, quantity: Decimal, side: str, offset: str, liquidity_role: str | None
@@ -32,8 +39,11 @@ class OnlyFeeRateRule:
             return Decimal(0)
         if self.liquidity_role is not None and self.liquidity_role != liquidity_role:
             return Decimal(0)
-        amount = max(notional * self.percent_rate + quantity * self.per_unit, self.minimum)
+        amount = max(self.raw_amount(notional=notional, quantity=quantity), self.minimum)
         return min(amount, self.maximum) if self.maximum is not None else amount
+
+    def raw_amount(self, *, notional: Decimal, quantity: Decimal) -> Decimal:
+        return notional * self.percent_rate + quantity * self.per_unit
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,14 +80,29 @@ class _OnlyBaseFeeSchedule:
         liquidity_role: str | None,
         status: OnlyFeeStatus,
         currency: OnlyCurrency | None = None,
+        cumulative_notional: Decimal | None = None,
+        cumulative_quantity: Decimal | None = None,
     ) -> tuple[OnlyFeeComponent, ...]:
         resolved_currency = self.currency if currency is None else currency
         quantum = Decimal(1).scaleb(-resolved_currency.precision)
         components = []
         for rule in self.rules:
+            rule_notional = notional
+            rule_quantity = quantity
+            if rule.calculation_scope is OnlyFeeCalculationScope.ORDER_CUMULATIVE:
+                if cumulative_notional is None or cumulative_quantity is None:
+                    raise ValueError("ORDER_CUMULATIVE fee rule requires cumulative Order authority")
+                rule_notional = cumulative_notional
+                rule_quantity = cumulative_quantity
+            raw_amount = rule.raw_amount(notional=rule_notional, quantity=rule_quantity)
             amount = rule.calculate(
-                notional=notional, quantity=quantity, side=side, offset=offset, liquidity_role=liquidity_role
+                notional=rule_notional,
+                quantity=rule_quantity,
+                side=side,
+                offset=offset,
+                liquidity_role=liquidity_role,
             )
+            raw_amount = raw_amount.quantize(quantum, rounding=ROUND_HALF_EVEN)
             amount = amount.quantize(quantum, rounding=ROUND_HALF_EVEN)
             if amount:
                 components.append(
@@ -90,7 +115,11 @@ class _OnlyBaseFeeSchedule:
                         self.schedule_id,
                         self.version,
                         self.effective_from,
-                        {"schedule_fingerprint": self.fingerprint},
+                        {
+                            "schedule_fingerprint": self.fingerprint,
+                            "raw_amount": str(raw_amount),
+                        },
+                        rule.calculation_scope,
                     )
                 )
         return tuple(components)

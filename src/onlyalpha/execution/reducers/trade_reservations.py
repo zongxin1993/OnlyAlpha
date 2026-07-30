@@ -33,8 +33,8 @@ from ..projection_builder import OnlyExecutionProjectionBuilder
 class OnlyAccountCashReservationTradeReduction:
     after: OnlyAccountCashReservationExecutionState
     projection: OnlyAccountCashReservationExecutionProjection
-    consumed: OnlyMoney
-    released: OnlyMoney
+    consumed_delta: OnlyMoney
+    released_delta: OnlyMoney
     event_intents: tuple[OnlyExecutionEventIntent, ...]
 
 
@@ -42,8 +42,8 @@ class OnlyAccountCashReservationTradeReduction:
 class OnlyStrategyCashReservationTradeReduction:
     after: OnlyStrategyCashReservationExecutionState
     projection: OnlyStrategyCashReservationExecutionProjection
-    consumed: OnlyMoney
-    released: OnlyMoney
+    consumed_delta: OnlyMoney
+    released_delta: OnlyMoney
     event_intents: tuple[OnlyExecutionEventIntent, ...]
 
 
@@ -51,6 +51,8 @@ class OnlyStrategyCashReservationTradeReduction:
 class OnlyRiskReservationTradeReduction:
     after: OnlyRiskReservationExecutionState
     projection: OnlyRiskReservationExecutionProjection
+    consumed_quantity_delta: OnlyQuantity
+    consumed_notional_delta: OnlyMoney
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,7 @@ class OnlyAccountCashReservationTradeReducer:
         self,
         before: OnlyAccountCashReservationExecutionState,
         trade: OnlyPlannedTrade,
+        terminal_fill: bool = True,
         *,
         projection_sequence: int,
     ) -> OnlyAccountCashReservationTradeReduction:
@@ -72,15 +75,27 @@ class OnlyAccountCashReservationTradeReducer:
         available = before.remaining_amount.amount
         if cost.amount > available:
             raise ValueError("Account cash Reservation is smaller than authoritative Trade cost")
-        remaining = available - cost.amount
-        released = OnlyMoney(remaining, cost.currency)
+        remaining_after_cost = available - cost.amount
+        released = OnlyMoney(remaining_after_cost if terminal_fill else Decimal(0), cost.currency)
+        remaining = OnlyMoney(Decimal(0) if terminal_fill else remaining_after_cost, cost.currency)
+        if not terminal_fill and remaining.amount <= 0:
+            raise ValueError("ACCOUNT_RESERVATION_INSUFFICIENT")
+        state = (
+            OnlyAccountReservationState.RELEASED
+            if released.amount
+            else (
+                OnlyAccountReservationState.CONSUMED
+                if terminal_fill
+                else OnlyAccountReservationState.PARTIALLY_CONSUMED
+            )
+        )
         after = replace(
             before,
             consumed_amount=OnlyMoney(before.consumed_amount.amount + cost.amount, cost.currency),
-            remaining_amount=OnlyMoney(Decimal(0), cost.currency),
-            state=OnlyAccountReservationState.RELEASED,
+            remaining_amount=remaining,
+            state=state,
             updated_at=trade.ts_init,
-            version=before.version + 2,
+            version=before.version + 1 + int(released.amount > 0),
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyAccountCashReservationExecutionProjection(
@@ -101,13 +116,14 @@ class OnlyAccountCashReservationTradeReducer:
                 OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION, "ACCOUNT_CASH_RESERVATION_CONSUMED", after
             )
         ]
-        intents.append(
-            _intent(
-                OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
-                "ACCOUNT_CASH_RESERVATION_RELEASED",
-                after,
+        if released.amount:
+            intents.append(
+                _intent(
+                    OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                    "ACCOUNT_CASH_RESERVATION_RELEASED",
+                    after,
+                )
             )
-        )
         return OnlyAccountCashReservationTradeReduction(after, projection, cost, released, tuple(intents))
 
 
@@ -116,6 +132,7 @@ class OnlyStrategyCashReservationTradeReducer:
         self,
         before: OnlyStrategyCashReservationExecutionState,
         trade: OnlyPlannedTrade,
+        terminal_fill: bool = True,
         *,
         projection_sequence: int,
     ) -> OnlyStrategyCashReservationTradeReduction:
@@ -123,16 +140,28 @@ class OnlyStrategyCashReservationTradeReducer:
         available = before.remaining_amount.amount
         if cost.amount > available:
             raise ValueError("Strategy cash Reservation is smaller than authoritative Trade cost")
-        remaining = available - cost.amount
-        released = OnlyMoney(remaining, cost.currency)
+        remaining_after_cost = available - cost.amount
+        released = OnlyMoney(remaining_after_cost if terminal_fill else Decimal(0), cost.currency)
+        remaining = OnlyMoney(Decimal(0) if terminal_fill else remaining_after_cost, cost.currency)
+        if not terminal_fill and remaining.amount <= 0:
+            raise ValueError("STRATEGY_RESERVATION_INSUFFICIENT")
+        state = (
+            OnlyStrategyCashReservationState.RELEASED
+            if released.amount
+            else (
+                OnlyStrategyCashReservationState.CONSUMED
+                if terminal_fill
+                else OnlyStrategyCashReservationState.PARTIALLY_CONSUMED
+            )
+        )
         after = replace(
             before,
             consumed_amount=OnlyMoney(before.consumed_amount.amount + cost.amount, cost.currency),
-            remaining_amount=OnlyMoney(Decimal(0), cost.currency),
-            state=OnlyStrategyCashReservationState.RELEASED,
-            stage=OnlyStrategyCashReservationStage.RELEASED,
+            remaining_amount=remaining,
+            state=state,
+            stage=(OnlyStrategyCashReservationStage.RELEASED if released.amount else before.stage),
             updated_at=trade.ts_init,
-            version=before.version + 2,
+            version=before.version + 1 + int(released.amount > 0),
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyStrategyCashReservationExecutionProjection(
@@ -153,13 +182,14 @@ class OnlyStrategyCashReservationTradeReducer:
                 OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION, "STRATEGY_CASH_RESERVATION_CONSUMED", after
             )
         ]
-        intents.append(
-            _intent(
-                OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
-                "STRATEGY_CASH_RESERVATION_RELEASED",
-                after,
+        if released.amount:
+            intents.append(
+                _intent(
+                    OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+                    "STRATEGY_CASH_RESERVATION_RELEASED",
+                    after,
+                )
             )
-        )
         return OnlyStrategyCashReservationTradeReduction(after, projection, cost, released, tuple(intents))
 
 
@@ -168,6 +198,7 @@ class OnlyRiskReservationTradeReducer:
         self,
         before: OnlyRiskReservationExecutionState,
         trade: OnlyPlannedTrade,
+        terminal_fill: bool = True,
         *,
         projection_sequence: int,
     ) -> OnlyRiskReservationTradeReduction:
@@ -195,9 +226,7 @@ class OnlyRiskReservationTradeReducer:
             ),
             remaining_quantity=remaining_quantity,
             remaining_notional=remaining_notional,
-            state=(
-                OnlyRiskReservationState.CONSUMED if remaining_quantity.value == 0 else OnlyRiskReservationState.ACTIVE
-            ),
+            state=(OnlyRiskReservationState.CONSUMED if terminal_fill else OnlyRiskReservationState.ACTIVE),
             updated_at=trade.ts_init,
             version=before.version + 1,
         )
@@ -215,44 +244,50 @@ class OnlyRiskReservationTradeReducer:
         )
         projection = builder.finalize(projection)
         assert isinstance(projection, OnlyRiskReservationExecutionProjection)
-        return OnlyRiskReservationTradeReduction(after, projection)
+        if terminal_fill and remaining_quantity.value != 0:
+            raise ValueError("RISK_RESERVATION_INSUFFICIENT")
+        return OnlyRiskReservationTradeReduction(after, projection, trade.quantity, trade.gross_notional)
 
 
 class OnlyRiskTradeReducer:
     def reduce(
         self,
         before: OnlyRiskExecutionState,
-        reservation_after: OnlyRiskReservationExecutionState,
+        reservation_reduction: OnlyRiskReservationTradeReduction,
         trade: OnlyPlannedTrade,
+        terminal_fill: bool,
         *,
         projection_sequence: int,
     ) -> OnlyRiskTradeReduction:
-        if reservation_after.remaining_notional is None:
-            raise ValueError("Generic cash Risk state requires notional exposure")
-        reserved_quantity = max(Decimal(0), before.reserved_quantity - reservation_after.reserved_quantity.value)
+        reserved_quantity = before.reserved_quantity - reservation_reduction.consumed_quantity_delta.value
+        if reserved_quantity < 0:
+            raise ValueError("Risk reserved quantity underflow")
         reserved_notional = before.reserved_notional
         remaining_order_notional = before.remaining_order_notional
         if reserved_notional is not None:
-            if (
-                reservation_after.reserved_notional is None
-                or reservation_after.reserved_notional.currency != reserved_notional.currency
-            ):
+            if reservation_reduction.consumed_notional_delta.currency != reserved_notional.currency:
                 raise ValueError("Risk Snapshot and Reservation notional currencies disagree")
             reserved_notional = OnlyMoney(
-                max(Decimal(0), reserved_notional.amount - reservation_after.reserved_notional.amount),
+                reserved_notional.amount - reservation_reduction.consumed_notional_delta.amount,
                 reserved_notional.currency,
             )
+            if reserved_notional.amount < 0:
+                raise ValueError("RISK_RESERVATION_INSUFFICIENT")
             if remaining_order_notional is not None:
                 remaining_order_notional = OnlyMoney(
-                    remaining_order_notional.amount + reservation_after.reserved_notional.amount,
+                    remaining_order_notional.amount - reservation_reduction.consumed_notional_delta.amount,
                     remaining_order_notional.currency,
                 )
+                if remaining_order_notional.amount < 0:
+                    raise ValueError("RISK_REMAINING_NOTIONAL_UNDERFLOW")
+        if before.active_order_count < int(terminal_fill) or before.cluster_active_order_count < int(terminal_fill):
+            raise ValueError("Risk active Order count underflow")
         after = replace(
             before,
             ts_event=trade.ts_init,
             ts_init=trade.ts_init,
-            active_order_count=max(0, before.active_order_count - 1),
-            cluster_active_order_count=max(0, before.cluster_active_order_count - 1),
+            active_order_count=before.active_order_count - int(terminal_fill),
+            cluster_active_order_count=before.cluster_active_order_count - int(terminal_fill),
             reserved_quantity=reserved_quantity,
             reserved_notional=reserved_notional,
             remaining_order_notional=remaining_order_notional,

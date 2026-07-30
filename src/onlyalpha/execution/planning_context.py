@@ -9,6 +9,7 @@ from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState
 from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
@@ -91,6 +92,7 @@ class OnlyTradeExecutionPlanningContext:
     fill_authority: OnlyExecutionFillAuthority
     position_creation: OnlyPositionCreationAuthority | None
     allocation_creation: OnlyAllocationCreationAuthority | None
+    order_fee_accrual_before: OnlyOrderFeeAccrualExecutionState | None = None
     position_cycle: int = 0
     allocation_cycle: int = 0
     settlement_record_sequence: int = 0

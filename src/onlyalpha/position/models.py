@@ -154,6 +154,7 @@ class OnlyPositionSnapshot(OnlyDomainModel):
     last_trade_order: tuple[int, int, str] | None
     quality_flags: tuple[str, ...] = ()
     broker_available_quantity: OnlyQuantity | None = None
+    cumulative_open_price_quantity: Decimal = Decimal(0)
 
     def __post_init__(self) -> None:
         quantities = (
@@ -170,6 +171,19 @@ class OnlyPositionSnapshot(OnlyDomainModel):
             raise ValueError("settled plus unsettled must equal total")
         if self.version < 1:
             raise ValueError("Position Snapshot version must be positive")
+        if self.cumulative_open_price_quantity < 0:
+            raise ValueError("Position cumulative open price quantity cannot be negative")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPositionSnapshot:
+        compatible = dict(payload)
+        if "cumulative_open_price_quantity" not in compatible:
+            average = compatible.get("average_open_price")
+            quantity = compatible.get("total_quantity")
+            average_value = Decimal(0) if not isinstance(average, Mapping) else Decimal(str(average["value"]))
+            quantity_value = Decimal(0) if not isinstance(quantity, Mapping) else Decimal(str(quantity["value"]))
+            compatible["cumulative_open_price_quantity"] = str(average_value * quantity_value)
+        return super(OnlyPositionSnapshot, cls).from_dict(compatible)
 
     @property
     def position_side(self) -> OnlyPositionSide:
@@ -218,6 +232,22 @@ class OnlyPositionAllocationSnapshot(OnlyDomainModel):
     version: int
     last_trade_sequence: int | None
     last_trade_order: tuple[int, int, str] | None
+    cumulative_open_price_quantity: Decimal = Decimal(0)
+
+    def __post_init__(self) -> None:
+        if self.cumulative_open_price_quantity < 0:
+            raise ValueError("Allocation cumulative open price quantity cannot be negative")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPositionAllocationSnapshot:
+        compatible = dict(payload)
+        if "cumulative_open_price_quantity" not in compatible:
+            average = compatible.get("average_open_price")
+            quantity = compatible.get("total_quantity")
+            average_value = Decimal(0) if not isinstance(average, Mapping) else Decimal(str(average["value"]))
+            quantity_value = Decimal(0) if not isinstance(quantity, Mapping) else Decimal(str(quantity["value"]))
+            compatible["cumulative_open_price_quantity"] = str(average_value * quantity_value)
+        return super(OnlyPositionAllocationSnapshot, cls).from_dict(compatible)
 
     @property
     def available_quantity(self) -> OnlyQuantity:

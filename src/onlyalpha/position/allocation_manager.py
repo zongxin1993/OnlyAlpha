@@ -43,6 +43,7 @@ class _OnlyAllocationState:
     version: int = 0
     last_sequence: int | None = None
     last_order: tuple[int, int, str] | None = None
+    cumulative_open_price_quantity: Decimal = Decimal(0)
 
     def snapshot(self) -> OnlyPositionAllocationSnapshot:
         return OnlyPositionAllocationSnapshot(
@@ -63,6 +64,7 @@ class _OnlyAllocationState:
             self.version,
             self.last_sequence,
             self.last_order,
+            self.cumulative_open_price_quantity,
         )
 
     @classmethod
@@ -85,6 +87,7 @@ class _OnlyAllocationState:
             snapshot.version,
             snapshot.last_trade_sequence,
             snapshot.last_trade_order,
+            snapshot.cumulative_open_price_quantity,
         )
 
 
@@ -382,11 +385,8 @@ class OnlyPositionAllocationManager:
         if trade.opens_position:
             old = state.total.value
             new = old + trade.quantity.value
-            raw_average = (
-                trade.price.value
-                if state.average is None
-                else (state.average.value * old + trade.price.value * trade.quantity.value) / new
-            )
+            state.cumulative_open_price_quantity += trade.price.value * trade.quantity.value
+            raw_average = state.cumulative_open_price_quantity / new
             precision = max(trade.price.precision, state.average.precision if state.average else 0)
             state.average = OnlyPrice(raw_average.quantize(Decimal(1).scaleb(-precision), ROUND_HALF_EVEN), precision)
             state.total = OnlyQuantity(new, trade.quantity.precision)
@@ -419,6 +419,7 @@ class OnlyPositionAllocationManager:
             state.total = OnlyQuantity(state.total.value - trade.quantity.value, state.total.precision)
             if state.total.value == 0:
                 state.average = None
+                state.cumulative_open_price_quantity = Decimal(0)
                 state.closed_at = trade.ts_event
         state.fees = state.fees + trade.fee
         state.updated_at = trade.ts_event

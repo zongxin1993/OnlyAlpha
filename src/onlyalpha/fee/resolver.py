@@ -100,6 +100,8 @@ class OnlyFeeResolver:
         created_at: datetime,
         reported_fee: OnlyMoney | None = None,
         reporting_mode: OnlyBrokerFeeReportingMode | None = None,
+        cumulative_quantity: Decimal | None = None,
+        cumulative_notional: OnlyMoney | None = None,
     ) -> OnlyFeeInstruction:
         request, market_schedule, broker_schedule = self._request(
             order,
@@ -110,6 +112,8 @@ class OnlyFeeResolver:
             liquidity_role,
             reported_fee,
             reporting_mode,
+            cumulative_quantity,
+            cumulative_notional,
         )
         if self._market_rules is None:
             return self._engine.instruction(
@@ -139,6 +143,8 @@ class OnlyFeeResolver:
         liquidity_role: str | None,
         reported_fee: OnlyMoney | None = None,
         reporting_mode: OnlyBrokerFeeReportingMode | None = None,
+        cumulative_quantity: Decimal | None = None,
+        cumulative_notional: OnlyMoney | None = None,
     ) -> tuple[OnlyFeeCalculationRequest, OnlyMarketFeeSchedule | None, OnlyBrokerFeeSchedule | None]:
         instrument = self._instruments[order.instrument_id]
         trading_day = self._trading_day(timestamp)
@@ -174,6 +180,9 @@ class OnlyFeeResolver:
             self._config.broker_id,
             reporting_mode or self._config.broker_reporting_mode,
             reported_fee,
+            None,
+            cumulative_quantity,
+            cumulative_notional,
         )
         market_schedule_id = self._config.market_schedule_id
         if self._config.market_mode is OnlyFeeConfigurationMode.DEFAULT and compiled is not None:

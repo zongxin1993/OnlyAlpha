@@ -10,6 +10,7 @@ def test_generic_t0_buy_open_builds_complete_prepared_transaction() -> None:
         OnlyExecutionProjectionComponent.POSITION,
         OnlyExecutionProjectionComponent.ALLOCATION,
         OnlyExecutionProjectionComponent.SETTLEMENT,
+        OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
         OnlyExecutionProjectionComponent.FEE,
         OnlyExecutionProjectionComponent.ACCOUNT,
         OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
@@ -20,7 +21,7 @@ def test_generic_t0_buy_open_builds_complete_prepared_transaction() -> None:
         OnlyExecutionProjectionComponent.VALUATION,
     )
     assert len(prepared.preconditions) == len(prepared.projections)
-    assert tuple(item.projection_sequence for item in (p.identity for p in prepared.projections)) == tuple(range(1, 13))
+    assert tuple(item.projection_sequence for item in (p.identity for p in prepared.projections)) == tuple(range(1, 14))
 
 
 def test_planner_does_not_mutate_context_authority() -> None:

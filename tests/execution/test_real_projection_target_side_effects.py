@@ -16,4 +16,4 @@ def test_projection_targets_do_not_publish_or_write_non_projection_authorities()
     assert after.deduplication == before.deduplication
     assert after.sequences == before.sequences
     assert _stable((runtime.risk_service._requests, runtime.risk_service._audits)) == risk_side_effects
-    assert len(bundle.applied_ledger.records()) == 12
+    assert len(bundle.applied_ledger.records()) == 13

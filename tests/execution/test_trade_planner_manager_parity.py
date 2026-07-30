@@ -80,8 +80,9 @@ def test_real_manager_parity_covers_complete_economic_and_lifecycle_authority(
     assert strategy_reservation.after.consumed_amount.amount == cost
     assert account_reservation.after.remaining_amount.amount == 0
     assert strategy_reservation.after.remaining_amount.amount == 0
-    assert account_reservation.after.state.value == "RELEASED"
-    assert strategy_reservation.after.state.value == "RELEASED"
+    expected_reservation_state = "RELEASED" if account_reservation.before.remaining_amount.amount > cost else "CONSUMED"
+    assert account_reservation.after.state.value == expected_reservation_state
+    assert strategy_reservation.after.state.value == expected_reservation_state
     assert risk_reservation.after.state.value == "CONSUMED"
     assert risk.after.reserved_quantity == 0
     assert settlement.records[-1].sequence == result.context.settlement_record_sequence + 1

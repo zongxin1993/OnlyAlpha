@@ -114,5 +114,12 @@ PR4.3 Partial / Multi-Fill Durable Transaction，不新增 4.2.2d 架构阶段�
 
 已完成纯 Order Partial-Fill Authority、精确累计成交价值、Fill Count/Last Trade ID、canonical Fill Identity、稳定 Payload
 Fingerprint、durable per-Order Fill Index、Committed Fact 审计字段以及 Memory/SQLite Fill/Order Query。旧 whole-fill Snapshot
-和 committed payload 可兼容读取，不新增表或 Checkpoint schema migration。Runtime Product Partial Fill 仍未开放并以
-`PARTIAL_FILL_ACCOUNTING_NOT_READY` fail closed；PR4.3.2 Reservation 与 Incremental Accounting 待完成。
+和 committed payload 可兼容读取，不新增表或 Checkpoint schema migration。该阶段的 Runtime Product Partial Fill gate
+已由后续 PR4.3.2 在完整增量记账接线后移除。
+
+## PR4.3.2 Incremental Reservation and Accounting for Multi-Fill（完成）
+
+已完成 Position/Allocation 精确累计开仓价值、FILL/ORDER_CUMULATIVE Fee Scope、独立 Order Fee Accrual Authority、
+Account/Strategy/Risk Reservation 分段消费，以及 Account/Ledger/Risk 的显式增量记账。Generic T0 Cash LIMIT BUY OPEN
+的外部 Partial Fill 现按一个 Fill 一个 Projection Ready Transaction 正式提交；duplicate/conflict 仍由 durable Fill
+identity fail closed。Virtual Broker Partial Fill Schedule 与完整 Multi-Fill Recovery 仍由 PR4.3.3 完成。

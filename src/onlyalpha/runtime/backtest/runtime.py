@@ -126,6 +126,7 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
+from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
@@ -254,6 +255,10 @@ _LOGGER = logging.getLogger(__name__)
 class OnlyBacktestRuntime(OnlyRuntime):
     """Synchronous, single-threaded and deterministically Bar-driven Runtime."""
 
+    @property
+    def order_fee_accrual_manager(self) -> OnlyOrderFeeAccrualManager:
+        return self._order_fee_accrual_manager
+
     def __init__(
         self,
         config: OnlyRuntimeAssemblyConfig,
@@ -286,6 +291,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         clock = owned_clock or OnlyBacktestClock(initial_time_or_event_bus)
         event_bus = owned_event_bus
         super().__init__(runtime_config)
+        self._order_fee_accrual_manager = OnlyOrderFeeAccrualManager()
         self._bind_runtime_persistence_store(runtime_persistence_store)
         self._selected_calendar = selected_calendar
         scope = OnlyEventScope(runtime_config.engine_id, runtime_config.runtime_id)  # type: ignore[arg-type]
@@ -504,6 +510,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             allocation_manager=allocation_manager,
             settlement_manager=self._settlement_manager,
             fee_manager=self._fee_manager,
+            order_fee_accrual_manager=self._order_fee_accrual_manager,
             account_manager=self._account_manager,
             ledger_manager=self._strategy_ledger_manager,
             risk_service=risk_service,
@@ -913,6 +920,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 1,
                 self._fee_manager.capture_checkpoint,
                 self._fee_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "order_fee_accrual.authority",
+                1,
+                self._order_fee_accrual_manager.capture_checkpoint,
+                self._order_fee_accrual_manager.restore_checkpoint,
             )
         )
         self._checkpoint_registry.register(
@@ -1691,12 +1706,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
         snapshot: OnlyPositionAllocationSnapshot | None,
         trade: OnlyPositionTrade,
     ) -> OnlyMoney:
-        if snapshot is None or snapshot.average_open_price is None:
+        if snapshot is None:
             return OnlyMoney(Decimal(0), self.config.strategy_base_currency)
         quantum = Decimal(1).scaleb(-self.config.strategy_base_currency.precision)
-        amount = (snapshot.average_open_price.value * snapshot.total_quantity.value * trade.multiplier.value).quantize(
-            quantum
-        )
+        amount = (snapshot.cumulative_open_price_quantity * trade.multiplier.value).quantize(quantum)
         return OnlyMoney(amount, self.config.strategy_base_currency)
 
     def _build_trade_execution_planning_context(
@@ -1734,6 +1747,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
             created_at=update.ts_init.to_datetime(),
             reported_fee=update.fill.reported_fee,
             reporting_mode=update.fill.fee_reporting_mode,
+            cumulative_quantity=order.filled_quantity.value + update.fill.quantity.value,
+            cumulative_notional=OnlyMoney(
+                (
+                    (order.cumulative_price_quantity + update.fill.price.value * update.fill.quantity.value)
+                    * self._instruments[order.instrument_id].contract_multiplier.value
+                ).quantize(Decimal(1).scaleb(-self.config.strategy_base_currency.precision)),
+                self.config.strategy_base_currency,
+            ),
         )
         position_before_snapshot = self._services.position_manager.get_snapshot(position_scope.position_key)
         allocation_key = position_scope.allocation_key
@@ -1826,6 +1847,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             ),
             settlement_before=None,
             fee_before=None,
+            order_fee_accrual_before=self._order_fee_accrual_manager.get(order.order_id),
             account_before=only_account_execution_state(account_snapshot),
             strategy_ledger_before=only_strategy_ledger_execution_state(ledger_snapshot),
             account_cash_reservation_before=only_account_cash_reservation_execution_state(account_reservation),

@@ -62,6 +62,7 @@ from onlyalpha.execution import (
     OnlyMarginReservationExecutionStatus,
     OnlyOrderExecutionProjection,
     OnlyOrderExecutionState,
+    OnlyOrderFeeAccrualExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionExecutionReplayMetadata,
     OnlyPositionExecutionState,
@@ -84,7 +85,12 @@ from onlyalpha.execution import (
     only_execution_transaction_id,
     only_with_execution_projection_hash,
 )
-from onlyalpha.fee import OnlyBrokerFeeReportingMode, OnlyFeeBreakdown, OnlyFeeStatus
+from onlyalpha.fee import (
+    OnlyBrokerFeeReportingMode,
+    OnlyFeeBreakdown,
+    OnlyFeeStatus,
+    OnlyOrderFeeAccrualExecutionState,
+)
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
     OnlyPositionMode,
@@ -220,6 +226,16 @@ def only_test_execution_fact_draft(
         ledger_cash_delta=_money("-20.00"),
         ledger_fee_delta=zero,
         ledger_realized_pnl_delta=zero,
+        incremental_fee_total=zero,
+        order_cumulative_fee_after=zero,
+        account_reservation_consumed_delta=_money("20.00"),
+        account_reservation_released_delta=zero,
+        strategy_reservation_consumed_delta=_money("20.00"),
+        strategy_reservation_released_delta=zero,
+        risk_reservation_quantity_consumed_delta=_quantity("2"),
+        risk_reservation_notional_consumed_delta=_money("20.00"),
+        position_cumulative_open_price_quantity_after=Decimal("20.00"),
+        allocation_cumulative_open_price_quantity_after=Decimal("20.00"),
     )
 
 
@@ -369,6 +385,21 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         1,
         0,
     )
+    fee_accrual = OnlyOrderFeeAccrualExecutionState(
+        _TEST_RUNTIME_ID,
+        OnlyAccountId("account"),
+        OnlyClusterId("cluster"),
+        order_id,
+        _currency(),
+        _quantity("2"),
+        _money("20.00"),
+        _money("0.00"),
+        (),
+        1,
+        _TEST_TRADE_ID,
+        timestamp,
+        1,
+    )
     account_before = _account_state(cash="100.00", market_value="0.00", version=1, sequence=6)
     account_after = _account_state(cash="80.00", market_value="20.00", version=2, sequence=7)
     ledger_before = _ledger_state(cash="100.00", position_cost="0.00", market_value="0.00", version=1)
@@ -475,7 +506,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         cluster_active_order_count=0,
         reserved_notional=_money("0.00"),
         reserved_quantity=Decimal(0),
-        remaining_order_notional=_money("100.00"),
+        remaining_order_notional=_money("60.00"),
     )
 
     projections: tuple[OnlyExecutionProjection, ...] = (
@@ -506,20 +537,25 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
             settlement,
             (),
         ),
+        OnlyOrderFeeAccrualExecutionProjection(
+            _identity(OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL, 5, str(order_id), None, fee_accrual),
+            None,
+            fee_accrual,
+        ),
         OnlyFeeExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.FEE, 5, "fee-instruction", None, fee),
+            _identity(OnlyExecutionProjectionComponent.FEE, 6, "fee-instruction", None, fee),
             None,
             fee,
         ),
         OnlyAccountExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.ACCOUNT, 6, "account", account_before, account_after),
+            _identity(OnlyExecutionProjectionComponent.ACCOUNT, 7, "account", account_before, account_after),
             account_before,
             account_after,
         ),
         OnlyStrategyLedgerExecutionProjection(
             _identity(
                 OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
-                7,
+                8,
                 "ledger",
                 ledger_before,
                 ledger_after,
@@ -530,7 +566,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         OnlyAccountCashReservationExecutionProjection(
             _identity(
                 OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
-                8,
+                9,
                 "account-reservation",
                 account_reservation_before,
                 account_reservation_after,
@@ -541,7 +577,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         OnlyStrategyCashReservationExecutionProjection(
             _identity(
                 OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
-                9,
+                10,
                 "strategy-reservation",
                 strategy_reservation_before,
                 strategy_reservation_after,
@@ -552,7 +588,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         OnlyRiskReservationExecutionProjection(
             _identity(
                 OnlyExecutionProjectionComponent.RISK_RESERVATION,
-                10,
+                11,
                 "risk-reservation",
                 risk_reservation_before,
                 risk_reservation_after,
@@ -561,7 +597,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
             risk_reservation_after,
         ),
         OnlyRiskExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.RISK, 11, "risk", risk_before, risk_after),
+            _identity(OnlyExecutionProjectionComponent.RISK, 12, "risk", risk_before, risk_after),
             risk_before,
             risk_after,
         ),

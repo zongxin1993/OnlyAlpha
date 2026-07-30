@@ -15,6 +15,7 @@ from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState
 from onlyalpha.fee.models import OnlyFeeBreakdown
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
@@ -43,6 +44,7 @@ class OnlyExecutionProjectionComponent(StrEnum):
     ALLOCATION = "ALLOCATION"
     SETTLEMENT = "SETTLEMENT"
     MARGIN = "MARGIN"
+    ORDER_FEE_ACCRUAL = "ORDER_FEE_ACCRUAL"
     FEE = "FEE"
     ACCOUNT = "ACCOUNT"
     STRATEGY_LEDGER = "STRATEGY_LEDGER"
@@ -61,16 +63,17 @@ class OnlyExecutionProjectionOrder(IntEnum):
     ALLOCATION = 3
     SETTLEMENT = 4
     MARGIN = 5
-    FEE = 6
-    ACCOUNT = 7
-    STRATEGY_LEDGER = 8
-    ACCOUNT_CASH_RESERVATION = 9
-    STRATEGY_CASH_RESERVATION = 10
-    POSITION_RESERVATION = 11
-    MARGIN_RESERVATION = 12
-    RISK_RESERVATION = 13
-    RISK = 14
-    VALUATION = 15
+    ORDER_FEE_ACCRUAL = 6
+    FEE = 7
+    ACCOUNT = 8
+    STRATEGY_LEDGER = 9
+    ACCOUNT_CASH_RESERVATION = 10
+    STRATEGY_CASH_RESERVATION = 11
+    RISK_RESERVATION = 12
+    RISK = 13
+    VALUATION = 14
+    POSITION_RESERVATION = 15
+    MARGIN_RESERVATION = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +401,25 @@ class OnlyFeeExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyOrderFeeAccrualExecutionProjection(OnlyDomainModel):
+    identity: OnlyExecutionProjectionIdentity
+    before: OnlyOrderFeeAccrualExecutionState | None
+    after: OnlyOrderFeeAccrualExecutionState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != str(self.after.order_id):
+            raise ValueError("Order fee accrual projection entity key mismatch")
+        if self.before is not None and (
+            self.before.order_id != self.after.order_id
+            or self.after.fill_count != self.before.fill_count + 1
+            or self.after.version != self.before.version + 1
+        ):
+            raise ValueError("Order fee accrual projection authority changed")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyAccountExecutionProjection(OnlyDomainModel):
     identity: OnlyExecutionProjectionIdentity
     before: OnlyAccountExecutionState
@@ -553,6 +575,7 @@ type OnlyExecutionProjection = (
     | OnlySettlementExecutionProjection
     | OnlyMarginExecutionProjection
     | OnlyFeeExecutionProjection
+    | OnlyOrderFeeAccrualExecutionProjection
     | OnlyAccountExecutionProjection
     | OnlyStrategyLedgerExecutionProjection
     | OnlyAccountCashReservationExecutionProjection
@@ -640,7 +663,7 @@ def _require_account_cash_reservation_transition(
         != (after.runtime_id, after.account_id, after.order_id, after.reserved_amount)
         or after.consumed_amount.amount < before.consumed_amount.amount
         or after.remaining_amount.amount > before.remaining_amount.amount
-        or after.version != before.version + 2
+        or after.version != before.version + 1 + int(after.state.value == "RELEASED")
     ):
         raise ValueError("Account cash Reservation authority changed")
     _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
@@ -655,7 +678,7 @@ def _require_strategy_cash_reservation_transition(
         != (after.key, after.order_id, after.estimated_notional, after.estimated_fee, after.reserved_amount)
         or after.consumed_amount.amount < before.consumed_amount.amount
         or after.remaining_amount.amount > before.remaining_amount.amount
-        or after.version != before.version + 2
+        or after.version != before.version + 1 + int(after.state.value == "RELEASED")
     ):
         raise ValueError("Strategy cash Reservation authority changed")
     _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)

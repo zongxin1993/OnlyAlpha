@@ -159,7 +159,6 @@ CASES: tuple[tuple[OnlyTradeExecutionPlanningErrorCode, Mutation], ...] = (
     (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_OFFSET, _offset),
     (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_SIDE, _position_side),
     (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_MODE, _position_mode),
-    (OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_ACCOUNTING_NOT_READY, _partial_fill),
     (OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, _margin),
     (OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN, _position_reservation),
     (OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, _scope_mismatch),

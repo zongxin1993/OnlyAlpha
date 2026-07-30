@@ -73,6 +73,12 @@ class OnlyBrokerFeeReportingMode(StrEnum):
     DETAILED = "DETAILED"
     ALL_IN = "ALL_IN"
     DEFERRED_STATEMENT = "DEFERRED_STATEMENT"
+    ORDER_CUMULATIVE = "ORDER_CUMULATIVE"
+
+
+class OnlyFeeCalculationScope(StrEnum):
+    FILL = "FILL"
+    ORDER_CUMULATIVE = "ORDER_CUMULATIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +92,7 @@ class OnlyFeeComponent(OnlyDomainModel):
     schedule_version: str | None = None
     effective_date: date | None = None
     metadata: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    calculation_scope: OnlyFeeCalculationScope = OnlyFeeCalculationScope.FILL
 
     def __post_init__(self) -> None:
         if not self.source_id:
@@ -97,8 +104,15 @@ class OnlyFeeComponent(OnlyDomainModel):
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     @property
-    def unique_key(self) -> tuple[OnlyFeeType, OnlyFeeAuthority, str, str | None, str | None]:
-        return self.fee_type, self.authority, self.source_id, self.schedule_id, self.schedule_version
+    def unique_key(self) -> tuple[OnlyFeeType, OnlyFeeAuthority, str, str | None, str | None, OnlyFeeCalculationScope]:
+        return (
+            self.fee_type,
+            self.authority,
+            self.source_id,
+            self.schedule_id,
+            self.schedule_version,
+            self.calculation_scope,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +163,8 @@ class OnlyFeeCalculationRequest:
     broker_fee_reporting_mode: OnlyBrokerFeeReportingMode
     reported_fee: OnlyMoney | None = None
     reported_breakdown: OnlyFeeBreakdown | None = None
+    cumulative_quantity: Decimal | None = None
+    cumulative_notional: OnlyMoney | None = None
 
     def __post_init__(self) -> None:
         if not all(
@@ -163,6 +179,10 @@ class OnlyFeeCalculationRequest:
             raise ValueError("reported fee currency mismatch")
         if self.reported_breakdown is not None and self.reported_breakdown.currency != self.currency:
             raise ValueError("reported fee breakdown currency mismatch")
+        if self.cumulative_quantity is not None and self.cumulative_quantity < self.quantity:
+            raise ValueError("cumulative fee quantity cannot be smaller than Fill quantity")
+        if self.cumulative_notional is not None and self.cumulative_notional.currency != self.currency:
+            raise ValueError("cumulative fee notional currency mismatch")
 
 
 @dataclass(frozen=True, slots=True)

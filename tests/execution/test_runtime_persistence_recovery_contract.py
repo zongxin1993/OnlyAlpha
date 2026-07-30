@@ -78,7 +78,7 @@ def test_mark_ready_failure_retries_all_real_targets_idempotently(
     manager_after_projection = harness.manager_digest()
 
     assert failed.status is OnlyExecutionRecoveryStatus.STORE_FAILURE
-    assert len(harness.applied_ledger.records()) == 12
+    assert len(harness.applied_ledger.records()) == 13
     assert store.ready_count(harness.bundle.transaction.runtime_id) == 0
     assert store.pending(harness.bundle.transaction.runtime_id, limit=100) == ()
 

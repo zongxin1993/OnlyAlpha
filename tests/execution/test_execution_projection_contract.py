@@ -39,7 +39,7 @@ def test_canonical_state_hash_covers_authority_and_normalizes_mapping_order() ->
 
 def test_projection_union_cases_round_trip_independently_and_schema_v2_is_rejected() -> None:
     projections = only_test_projection_codec_cases()
-    assert len(projections) == len(OnlyExecutionProjectionComponent) == 15
+    assert len(projections) == len(OnlyExecutionProjectionComponent) == 16
     for projection in projections:
         payload = only_encode_execution_projection(projection)
         assert only_decode_execution_projection(payload) == projection
@@ -106,8 +106,8 @@ def test_projection_applier_replay_is_idempotent_and_does_not_mark_store_ready()
     applier = OnlyExecutionProjectionApplier(targets)
     first = applier.apply(transaction)
     replay = applier.apply(transaction)
-    assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(first.applied) == 11
-    assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(replay.idempotent) == 11
+    assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(first.applied) == 12
+    assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(replay.idempotent) == 12
     assert store.unprojected(prepared.runtime_id) == (transaction,)
 
 

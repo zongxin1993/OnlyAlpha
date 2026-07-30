@@ -16,6 +16,7 @@ from .projection import (
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
+    OnlyOrderFeeAccrualExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
@@ -40,6 +41,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         allocation = _one(prepared.projections, OnlyAllocationExecutionProjection)
         settlement = _one(prepared.projections, OnlySettlementExecutionProjection)
         fee = _one(prepared.projections, OnlyFeeExecutionProjection)
+        fee_accrual = _one(prepared.projections, OnlyOrderFeeAccrualExecutionProjection)
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
         ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
         presence = only_expected_execution_reservations(
@@ -93,6 +95,11 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or fee.after.fee_breakdown.status.value != fact.fee_status
         ):
             raise ValueError("Fee projection contradicts execution fact")
+        if (
+            fee_accrual.after.cumulative_charged_fee != fact.order_cumulative_fee_after
+            or fee.after.authoritative_total != fact.incremental_fee_total
+        ):
+            raise ValueError("Order fee accrual projection contradicts execution fact")
 
         if account.after.cash_balance.amount - account.before.cash_balance.amount != fact.account_cash_delta.amount:
             raise ValueError("Account projection cash delta contradicts execution fact")
@@ -195,7 +202,24 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         for label, projection in (("Account", account), ("Strategy", strategy)):
             before_consumed = Decimal(0) if projection.before is None else projection.before.consumed_amount.amount
             consumed_delta = projection.after.consumed_amount.amount - before_consumed
-            if projection.after.order_id != fact.order_id or consumed_delta != actual_consumption:
+            expected_consumed = (
+                fact.account_reservation_consumed_delta.amount
+                if label == "Account"
+                else fact.strategy_reservation_consumed_delta.amount
+            )
+            before_remaining = Decimal(0) if projection.before is None else projection.before.remaining_amount.amount
+            released_delta = before_remaining - projection.after.remaining_amount.amount - consumed_delta
+            expected_released = (
+                fact.account_reservation_released_delta.amount
+                if label == "Account"
+                else fact.strategy_reservation_released_delta.amount
+            )
+            if (
+                projection.after.order_id != fact.order_id
+                or consumed_delta != actual_consumption
+                or consumed_delta != expected_consumed
+                or released_delta != expected_released
+            ):
                 raise ValueError(f"{label} cash Reservation consumption contradicts execution fact")
         if (
             account.after.runtime_id != fact.runtime_id
@@ -254,13 +278,17 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 or projection.after.cluster_id != fact.cluster_id
                 or projection.after.account_id != fact.account_id
                 or projection.after.instrument_id != fact.instrument_id
-                or projection.after.reserved_quantity.value < fact.cumulative_filled_quantity.value
+                or projection.after.reserved_quantity.value < projection.after.consumed_quantity.value
                 or projection.after.reserved_notional is None
                 or projection.after.reserved_notional.currency != fact.currency
                 or consumed_quantity != fact.fill_quantity.value
                 or consumed_notional != fact.gross_notional.amount
-                or risk.reserved_quantity
-                != max(Decimal(0), risk_projection.before.reserved_quantity - projection.after.reserved_quantity.value)
+                or consumed_quantity != fact.risk_reservation_quantity_consumed_delta.value
+                or consumed_notional != fact.risk_reservation_notional_consumed_delta.amount
+                or risk.reserved_quantity != risk_projection.before.reserved_quantity - consumed_quantity
+                or risk.active_order_count != risk_projection.before.active_order_count - int(fact.terminal_fill)
+                or risk.cluster_active_order_count
+                != risk_projection.before.cluster_active_order_count - int(fact.terminal_fill)
             ):
                 raise ValueError("Risk Reservation consumption contradicts execution fact")
 

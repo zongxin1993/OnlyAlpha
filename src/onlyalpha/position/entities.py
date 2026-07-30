@@ -39,6 +39,7 @@ class OnlyPosition:
         self.order_frozen_quantity = zero
         self.risk_reserved_quantity = zero
         self.average_open_price: OnlyPrice | None = None
+        self.cumulative_open_price_quantity = Decimal(0)
         self.realized_pnl = OnlyMoney(Decimal(0), trade.fee.currency)
         self.fees = OnlyMoney(Decimal(0), trade.fee.currency)
         self.opened_at = trade.ts_event
@@ -67,6 +68,7 @@ class OnlyPosition:
         entity.order_frozen_quantity = snapshot.order_frozen_quantity
         entity.risk_reserved_quantity = snapshot.risk_reserved_quantity
         entity.average_open_price = snapshot.average_open_price
+        entity.cumulative_open_price_quantity = snapshot.cumulative_open_price_quantity
         entity.realized_pnl = snapshot.realized_pnl
         entity.fees = snapshot.fees
         entity.opened_at = snapshot.opened_at
@@ -109,6 +111,7 @@ class OnlyPosition:
             self.last_trade_order,
             self.quality_flags,
             self.broker_available_quantity,
+            self.cumulative_open_price_quantity,
         )
 
     def apply_trade(
@@ -164,6 +167,7 @@ class OnlyPosition:
         if self.total_quantity.value == 0:
             self.status = OnlyPositionStatus.CLOSED
             self.average_open_price = None
+            self.cumulative_open_price_quantity = Decimal(0)
             self.closed_at = trade.ts_event
         elif before_quantity.value == 0:
             self.status = OnlyPositionStatus.OPEN
@@ -173,10 +177,8 @@ class OnlyPosition:
     def _increase(self, trade: OnlyPositionTrade) -> None:
         old_value = self.total_quantity.value
         new_value = old_value + trade.quantity.value
-        if self.average_open_price is None:
-            average = trade.price.value
-        else:
-            average = (self.average_open_price.value * old_value + trade.price.value * trade.quantity.value) / new_value
+        self.cumulative_open_price_quantity += trade.price.value * trade.quantity.value
+        average = self.cumulative_open_price_quantity / new_value
         precision = max(trade.price.precision, self.average_open_price.precision if self.average_open_price else 0)
         quantum = Decimal(1).scaleb(-precision)
         self.average_open_price = OnlyPrice(average.quantize(quantum, rounding=ROUND_HALF_EVEN), precision)

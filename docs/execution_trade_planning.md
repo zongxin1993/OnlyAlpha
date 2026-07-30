@@ -1,8 +1,8 @@
 # Execution Trade Planning
 
-Planner 输出的 v4 Projection 已可由 12 个真实 Manager Target 直接安装。Planner 仍保持纯函数边界；Target 只消费 committed fact/After Authority，不重新执行 reducer 或市场、费用、结算、风险规则。连续 replay 与 forward recovery 见 [Real Manager Projection Targets](execution_projection_targets.md)。
+Planner 输出的 v4 Projection 已可由 13 个真实经济 Target 直接安装。Planner 仍保持纯函数边界；Target 只消费 committed fact/After Authority，不重新执行 reducer 或市场、费用、结算、风险规则。连续 replay 与 forward recovery 见 [Real Manager Projection Targets](execution_projection_targets.md)。
 
-`OnlyTradeExecutionTransactionPlanner` 是 Generic T0 Cash `LIMIT BUY OPEN` 整单成交的纯事务编译器。它只接收
+`OnlyTradeExecutionTransactionPlanner` 是 Generic T0 Cash `LIMIT BUY OPEN` 每个 Fill 的纯事务编译器。它只接收
 `OnlyTradeExecutionPlanningContext`，不读取 Manager、Runtime、Clock、Broker、Store 或 EventBus，也不分配 Store
 execution sequence。
 
@@ -43,7 +43,7 @@ Risk 增加显式 durable state fact；Legacy `EXECUTION_UPDATE_APPLIED` 是处�
 当前明确不支持 SELL、CLOSE、部分成交、多次成交累计、最低佣金跨 Fill 累计、Short、Hedging、Margin、Futures、FX 与多币种。
 这些输入以稳定 `OnlyTradeExecutionPlanningErrorCode` 拒绝。
 
-本 Planner 已接入 `OnlyExecutionProcessor` 的 Generic T0 Cash、LIMIT BUY OPEN、整单成交产品路径。Prepared Transaction 由 Coordinator 先写入 Transaction Store，再经过 Runtime sequence gate 和 12 个真实 Manager Projection Target；Planner 仍保持纯函数边界，不导入 Runtime、Manager、Store 或 EventBus。
+本 Planner 已接入 `OnlyExecutionProcessor` 的 Generic T0 Cash、LIMIT BUY OPEN whole/partial Fill 产品路径。Prepared Transaction 由 Coordinator 先写入 Transaction Store，再经过 Runtime sequence gate 和 13 个真实经济 Projection Target；Planner 仍保持纯函数边界，不导入 Runtime、Manager、Store 或 EventBus。
 
 ## Runtime Recovery 边界
 

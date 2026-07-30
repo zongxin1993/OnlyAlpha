@@ -1,14 +1,12 @@
 from dataclasses import replace
 from decimal import Decimal
 
-import pytest
-
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.execution import (
-    OnlyTradeExecutionPlanningError,
-    OnlyTradeExecutionPlanningErrorCode,
     OnlyTradeExecutionTransactionPlanner,
     only_capture_execution_fill_authority,
+    only_decode_prepared_execution_transaction,
+    only_encode_prepared_execution_transaction,
 )
 from tests.execution.support.generic_t0_trade_harness import (
     OnlyTestGenericT0Scenario,
@@ -20,7 +18,7 @@ from tests.execution.support.generic_t0_trade_harness import (
 from tests.execution.support.manager_authority_digest import only_test_runtime_authority_digest
 
 
-def test_product_partial_fill_fails_closed_before_commit_or_manager_mutation() -> None:
+def test_product_partial_fill_commits_and_reaches_projection_ready() -> None:
     scenario = OnlyTestGenericT0Scenario("partial-product-gate")
     env = _environment(scenario)
     _prepare_environment(env, scenario)
@@ -33,11 +31,16 @@ def test_product_partial_fill_fails_closed_before_commit_or_manager_mutation() -
         fill_authority=only_capture_execution_fill_authority(env.runtime.execution_transaction_query, partial),
     )
     before = only_test_runtime_authority_digest(env)
-    with pytest.raises(OnlyTradeExecutionPlanningError) as raised:
-        OnlyTradeExecutionTransactionPlanner().prepare(context)
-    assert raised.value.code is OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_ACCOUNTING_NOT_READY
+    prepared = OnlyTradeExecutionTransactionPlanner().prepare(context)
+    assert not prepared.fact_draft.terminal_fill
+    assert only_decode_prepared_execution_transaction(only_encode_prepared_execution_transaction(prepared)) == prepared
     assert only_test_runtime_authority_digest(env) == before
-    assert env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id) == ()
+    result = env.runtime.execution_processor.process(partial)
+    assert result.status.value == "APPLIED", result.failure
+    records = env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id)
+    assert len(records) == 1
+    assert records[0].projection_ready
+    assert not records[0].fact.terminal_fill
 
 
 def test_product_whole_fill_still_builds_complete_transaction() -> None:

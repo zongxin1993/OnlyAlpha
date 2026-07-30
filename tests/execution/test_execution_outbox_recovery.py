@@ -91,7 +91,7 @@ def test_mark_published_failure_retries_same_event_without_reprojecting() -> Non
         *(event.event_id for event in events),
     )
     assert harness.manager_digest() == manager_before
-    assert len(harness.applied_ledger.records()) == 12
+    assert len(harness.applied_ledger.records()) == 13
 
 
 def test_recovered_outbox_events_are_dispatched_before_runtime_started() -> None:

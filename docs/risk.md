@@ -73,8 +73,8 @@ Snapshot 是带版本、时间、Scope、活动订单数、预占金额/数量�
 的 frozen 值。`ctx.risk` 不暴露 evaluate、reserve、release、disable rule、Cache 或 Gateway 能力。
 
 Reservation 由 Runtime 单写管理，ID 和遍历顺序确定；创建按 OrderId 幂等，释放校验 Runtime/Cluster Scope 且
-幂等。订单 Cancelled、Rejected、Failed、Expired、Execution 拒收或 Cluster 停止时释放。首版不实现部分成交
-消耗和 Position 转换。
+幂等。订单 Cancelled、Rejected、Failed、Expired、Execution 拒收或 Cluster 停止时释放。有效 Fill 按数量和实际
+名义金额分段消费，只有 Order 判定的最终 Fill 才进入 `CONSUMED` 并减少 Active Order Count。
 
 买单现金 Reservation 的 estimated fee 来自与成交共用的 Runtime `OnlyFeeResolver`；Risk 不读取 Schedule、不实现费用公式。
 无法解释且超过阈值的外部费用差异必须进入 Reconciliation/Trading Block 状态，不能用零费用或 `OTHER` 项目强行抹平。
@@ -106,7 +106,9 @@ Fail Closed 和 Snapshot。
 Position 处于 RECONCILING 时可用量为零，关键券商冲突必须阻断相关 Instrument。
 
 完整成交终态由 Runtime 在 Position、Allocation 和 Ledger 全部成功后把 Risk Order Reservation 从 ACTIVE 推进为既有
-`CONSUMED` 状态。部分成交仍保守保留活动预占；取消、拒绝、失败和过期继续使用 RELEASED 生命周期。
+`CONSUMED` 状态。部分成交保持 ACTIVE，但 remaining quantity/notional 按当前 Fill 减少；取消、拒绝、失败和过期继续
+使用 RELEASED 生命周期。`remaining_order_notional` 表示扣除实际 Fill 名义金额后的订单预算，价格改善时可在数量归零后
+保留预算余量；它不等于活动订单数量。
 
 ExecutionProcessor 现按每个有效 Fill 部分消费 Risk Reservation 的 quantity/notional exposure；Reservation 保留原始值与累计
 consumed 值，Risk Snapshot 只统计 remaining exposure。完全成交才进入 CONSUMED，Rejected/Cancelled 只释放剩余 exposure。

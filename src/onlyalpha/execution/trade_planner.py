@@ -38,6 +38,7 @@ from .reducers import (
     OnlyAccountTradeReducer,
     OnlyAllocationTradeReducer,
     OnlyFeeTradeReducer,
+    OnlyOrderFeeAccrualTradeReducer,
     OnlyOrderTradeReducer,
     OnlyPositionTradeReducer,
     OnlyRiskReservationTradeReducer,
@@ -101,14 +102,34 @@ class OnlyTradeExecutionTransactionPlanner:
         except OnlyTradeExecutionPlanningError:
             raise
         except (AssertionError, TypeError, ValueError) as exc:
+            for code in (
+                OnlyTradeExecutionPlanningErrorCode.ACCOUNT_RESERVATION_INSUFFICIENT,
+                OnlyTradeExecutionPlanningErrorCode.STRATEGY_RESERVATION_INSUFFICIENT,
+                OnlyTradeExecutionPlanningErrorCode.RISK_RESERVATION_INSUFFICIENT,
+                OnlyTradeExecutionPlanningErrorCode.FEE_ACCRUAL_NEGATIVE_INCREMENT,
+                OnlyTradeExecutionPlanningErrorCode.RISK_REMAINING_NOTIONAL_UNDERFLOW,
+            ):
+                if code.value in str(exc):
+                    raise OnlyTradeExecutionPlanningError(code, str(exc)) from exc
             raise OnlyTradeExecutionPlanningError(
                 OnlyTradeExecutionPlanningErrorCode.REDUCTION_INVARIANT_FAILED,
                 str(exc),
             ) from exc
 
     def _reduce(self, context: OnlyTradeExecutionPlanningContext) -> _OnlyTradePlan:
-        trade = self._planned_trade(context)
-        order = OnlyOrderTradeReducer().reduce(context.order_before, trade, projection_sequence=1)
+        trade_without_fee = replace(
+            self._planned_trade(context),
+            authoritative_fee=_money(Decimal(0), context.fee_instruction.fee_breakdown.currency),
+        )
+        order = OnlyOrderTradeReducer().reduce(context.order_before, trade_without_fee, projection_sequence=1)
+        fee_accrual = OnlyOrderFeeAccrualTradeReducer().reduce(
+            context.order_fee_accrual_before,
+            context.fee_instruction,
+            trade_without_fee,
+            projection_sequence=5,
+        )
+        trade = replace(trade_without_fee, authoritative_fee=fee_accrual.incremental_total)
+        incremental_fee_instruction = replace(context.fee_instruction, fee_breakdown=fee_accrual.incremental_breakdown)
         position = OnlyPositionTradeReducer().reduce(
             context.position_before,
             trade,
@@ -133,10 +154,28 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         fee = OnlyFeeTradeReducer().reduce(
             context.fee_before,
-            context.fee_instruction,
+            incremental_fee_instruction,
             trade.instrument_id,
             record_sequence=context.fee_record_sequence,
-            projection_sequence=5,
+            projection_sequence=6,
+        )
+        account_reservation = OnlyAccountCashReservationTradeReducer().reduce(
+            context.account_cash_reservation_before,
+            trade,
+            order.terminal_fill,
+            projection_sequence=9,
+        )
+        strategy_reservation = OnlyStrategyCashReservationTradeReducer().reduce(
+            context.strategy_cash_reservation_before,
+            trade,
+            order.terminal_fill,
+            projection_sequence=10,
+        )
+        risk_reservation = OnlyRiskReservationTradeReducer().reduce(
+            context.risk_reservation_before,
+            trade,
+            order.terminal_fill,
+            projection_sequence=11,
         )
         currency = trade.authoritative_fee.currency
         quantum = Decimal(1).scaleb(-currency.precision)
@@ -159,38 +198,35 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         account = OnlyAccountTradeReducer().reduce(
             context.account_before,
-            context.account_cash_reservation_before,
+            account_reservation,
             trade,
             position_market_delta,
             position_unrealized,
-            projection_sequence=6,
+            projection_sequence=7,
         )
         ledger = OnlyStrategyLedgerTradeReducer().reduce(
             context.strategy_ledger_before,
-            context.strategy_cash_reservation_before,
+            strategy_reservation,
             context.allocation_before,
             allocation.after,
             trade,
             context.valuation_price,
-            projection_sequence=7,
+            projection_sequence=8,
         )
-        account_reservation = OnlyAccountCashReservationTradeReducer().reduce(
-            context.account_cash_reservation_before, trade, projection_sequence=8
+        risk = OnlyRiskTradeReducer().reduce(
+            context.risk_before,
+            risk_reservation,
+            trade,
+            order.terminal_fill,
+            projection_sequence=12,
         )
-        strategy_reservation = OnlyStrategyCashReservationTradeReducer().reduce(
-            context.strategy_cash_reservation_before, trade, projection_sequence=9
-        )
-        risk_reservation = OnlyRiskReservationTradeReducer().reduce(
-            context.risk_reservation_before, trade, projection_sequence=10
-        )
-        risk = OnlyRiskTradeReducer().reduce(context.risk_before, risk_reservation.after, trade, projection_sequence=11)
         valuation = OnlyValuationTradeReducer().reduce(
             context.valuation_before,
             trade,
             account.after.cash_balance,
             account.after.position_market_value,
             account.after.unrealized_pnl,
-            projection_sequence=12,
+            projection_sequence=13,
         )
         ledger_projection = replace(
             ledger.projection,
@@ -221,6 +257,7 @@ class OnlyTradeExecutionTransactionPlanner:
             position.projection,
             allocation.projection,
             settlement.projection,
+            fee_accrual.projection,
             fee.projection,
             account.projection,
             ledger_projection,
@@ -234,6 +271,7 @@ class OnlyTradeExecutionTransactionPlanner:
             order.event_intents
             + position.event_intents
             + settlement.event_intents
+            + fee_accrual.event_intents
             + fee.event_intents
             + account.event_intents
             + ledger.event_intents
@@ -244,7 +282,19 @@ class OnlyTradeExecutionTransactionPlanner:
             + risk.event_intents
         )
         fact = self._fact(
-            context, trade, order.after, position.after, allocation.after, settlement.after, account, ledger
+            context,
+            trade,
+            incremental_fee_instruction,
+            order.after,
+            position.after,
+            allocation.after,
+            settlement.after,
+            fee_accrual,
+            account_reservation,
+            strategy_reservation,
+            risk_reservation,
+            account,
+            ledger,
         )
         return _OnlyTradePlan(trade, projections, intents, fact)
 
@@ -298,16 +348,29 @@ class OnlyTradeExecutionTransactionPlanner:
     def _fact(
         context: OnlyTradeExecutionPlanningContext,
         trade: OnlyPlannedTrade,
+        fee: object,
         order_after: object,
         position_after: object,
         allocation_after: object,
         settlement_after: object,
+        fee_accrual: object,
+        account_reservation: object,
+        strategy_reservation: object,
+        risk_reservation: object,
         account: object,
         ledger: object,
     ) -> OnlyCommittedExecutionFactDraft:
+        from onlyalpha.fee.models import OnlyFeeInstruction
+
         from .execution_state import OnlyAllocationExecutionState, OnlyOrderExecutionState, OnlyPositionExecutionState
         from .projection import OnlySettlementExecutionState
         from .reducers.trade_accounting import OnlyAccountTradeReduction, OnlyStrategyLedgerTradeReduction
+        from .reducers.trade_fee_accrual import OnlyOrderFeeAccrualTradeReduction
+        from .reducers.trade_reservations import (
+            OnlyAccountCashReservationTradeReduction,
+            OnlyRiskReservationTradeReduction,
+            OnlyStrategyCashReservationTradeReduction,
+        )
 
         assert isinstance(order_after, OnlyOrderExecutionState)
         assert isinstance(position_after, OnlyPositionExecutionState)
@@ -315,8 +378,12 @@ class OnlyTradeExecutionTransactionPlanner:
         assert isinstance(settlement_after, OnlySettlementExecutionState)
         assert isinstance(account, OnlyAccountTradeReduction)
         assert isinstance(ledger, OnlyStrategyLedgerTradeReduction)
+        assert isinstance(fee, OnlyFeeInstruction)
+        assert isinstance(fee_accrual, OnlyOrderFeeAccrualTradeReduction)
+        assert isinstance(account_reservation, OnlyAccountCashReservationTradeReduction)
+        assert isinstance(strategy_reservation, OnlyStrategyCashReservationTradeReduction)
+        assert isinstance(risk_reservation, OnlyRiskReservationTradeReduction)
         update = context.update
-        fee = context.fee_instruction
         components = fee.fee_breakdown.components
         currency = fee.fee_breakdown.currency
         zero = _money(Decimal(0), currency)
@@ -439,6 +506,16 @@ class OnlyTradeExecutionTransactionPlanner:
             ledger_cash_delta=ledger.cash_delta,
             ledger_fee_delta=ledger.fee_delta,
             ledger_realized_pnl_delta=zero,
+            incremental_fee_total=fee_accrual.incremental_total,
+            order_cumulative_fee_after=fee_accrual.after.cumulative_charged_fee,
+            account_reservation_consumed_delta=account_reservation.consumed_delta,
+            account_reservation_released_delta=account_reservation.released_delta,
+            strategy_reservation_consumed_delta=strategy_reservation.consumed_delta,
+            strategy_reservation_released_delta=strategy_reservation.released_delta,
+            risk_reservation_quantity_consumed_delta=risk_reservation.consumed_quantity_delta,
+            risk_reservation_notional_consumed_delta=risk_reservation.consumed_notional_delta,
+            position_cumulative_open_price_quantity_after=position_after.cumulative_open_price_quantity,
+            allocation_cumulative_open_price_quantity_after=allocation_after.cumulative_open_price_quantity,
         )
 
     @staticmethod
@@ -540,11 +617,6 @@ class OnlyTradeExecutionTransactionPlanner:
             update
         ) or context.fill_authority.payload_fingerprint != only_execution_fill_payload_fingerprint(update):
             _fail(OnlyTradeExecutionPlanningErrorCode.FILL_IDENTITY_CONFLICT, "Captured Fill authority disagrees")
-        if update.fill.quantity.value < order.remaining_quantity.value or order.filled_quantity.value != 0:
-            _fail(
-                OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_ACCOUNTING_NOT_READY,
-                "Order authority supports partial Fill but incremental accounting is not ready",
-            )
         if order.last_external_sequence is not None and update.source_sequence <= order.last_external_sequence:
             _fail(OnlyTradeExecutionPlanningErrorCode.STALE_EXTERNAL_SEQUENCE, "Broker sequence must advance")
         if context.prepared_at < update.ts_event:
@@ -656,8 +728,10 @@ class OnlyTradeExecutionTransactionPlanner:
         }:
             _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Strategy Ledger is not processable")
         if (
-            context.account_cash_reservation_before.state is not OnlyAccountReservationState.ACTIVE
-            or context.strategy_cash_reservation_before.state is not OnlyStrategyCashReservationState.ACTIVE
+            context.account_cash_reservation_before.state
+            not in {OnlyAccountReservationState.ACTIVE, OnlyAccountReservationState.PARTIALLY_CONSUMED}
+            or context.strategy_cash_reservation_before.state
+            not in {OnlyStrategyCashReservationState.ACTIVE, OnlyStrategyCashReservationState.PARTIALLY_CONSUMED}
             or context.risk_reservation_before.state is not OnlyRiskReservationState.ACTIVE
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Reservation is not ACTIVE")

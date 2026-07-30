@@ -12,10 +12,8 @@ from onlyalpha.strategy_ledger.identifiers import OnlyStrategyCashEntryId, OnlyS
 from onlyalpha.strategy_ledger.models import OnlyStrategyCashEntry, OnlyStrategyFeeEntry
 
 from ..execution_state import (
-    OnlyAccountCashReservationExecutionState,
     OnlyAccountExecutionState,
     OnlyAllocationExecutionState,
-    OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionState,
 )
 from ..planned_trade import OnlyPlannedTrade
@@ -26,6 +24,10 @@ from ..projection import (
     OnlyStrategyLedgerExecutionProjection,
 )
 from ..projection_builder import OnlyExecutionProjectionBuilder
+from .trade_reservations import (
+    OnlyAccountCashReservationTradeReduction,
+    OnlyStrategyCashReservationTradeReduction,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +52,7 @@ class OnlyAccountTradeReducer:
     def reduce(
         self,
         before: OnlyAccountExecutionState,
-        reservation_before: OnlyAccountCashReservationExecutionState,
+        reservation_reduction: OnlyAccountCashReservationTradeReduction,
         trade: OnlyPlannedTrade,
         position_market_value_delta: OnlyMoney,
         position_unrealized_pnl: OnlyMoney,
@@ -61,7 +63,12 @@ class OnlyAccountTradeReducer:
         cash = before.cash_balance + cash_delta
         if cash.amount < 0:
             raise ValueError("Trade would create negative Account cash")
-        frozen = OnlyMoney(before.frozen_cash.amount - reservation_before.remaining_amount.amount, before.base_currency)
+        frozen = OnlyMoney(
+            before.frozen_cash.amount
+            - reservation_reduction.consumed_delta.amount
+            - reservation_reduction.released_delta.amount,
+            before.base_currency,
+        )
         if frozen.amount < 0:
             raise ValueError("Account frozen cash is smaller than Reservation")
         market_value = before.position_market_value + position_market_value_delta
@@ -124,7 +131,7 @@ class OnlyStrategyLedgerTradeReducer:
     def reduce(
         self,
         before: OnlyStrategyLedgerExecutionState,
-        reservation_before: OnlyStrategyCashReservationExecutionState,
+        reservation_reduction: OnlyStrategyCashReservationTradeReduction,
         allocation_before: OnlyAllocationExecutionState | None,
         allocation_after: OnlyAllocationExecutionState,
         trade: OnlyPlannedTrade,
@@ -138,20 +145,19 @@ class OnlyStrategyLedgerTradeReducer:
         if cash.amount < 0:
             raise ValueError("Trade would create negative Strategy Ledger cash")
         quantum = Decimal(1).scaleb(-currency.precision)
-        if allocation_after.average_open_price is None:
-            raise ValueError("open Allocation requires average price")
         position_cost = OnlyMoney(
-            (
-                allocation_after.average_open_price.value
-                * allocation_after.total_quantity.value
-                * trade.multiplier.value
-            ).quantize(quantum),
+            (allocation_after.cumulative_open_price_quantity * trade.multiplier.value).quantize(quantum),
             currency,
         )
         del allocation_before
         after_market = allocation_after.total_quantity.value * valuation_price.value * trade.multiplier.value
         market_value = OnlyMoney(after_market.quantize(quantum), currency)
-        cash_reserved = OnlyMoney(before.cash_reserved.amount - reservation_before.remaining_amount.amount, currency)
+        cash_reserved = OnlyMoney(
+            before.cash_reserved.amount
+            - reservation_reduction.consumed_delta.amount
+            - reservation_reduction.released_delta.amount,
+            currency,
+        )
         if cash_reserved.amount < 0:
             raise ValueError("Strategy Ledger reserved cash is smaller than Reservation")
         entry_sequence = max((entry.sequence for entry in before.cash_entries), default=0)
@@ -191,40 +197,43 @@ class OnlyStrategyLedgerTradeReducer:
                     entry_sequence + 2,
                 ),
             )
-        release_sequence = max((entry.sequence for entry in cash_entries), default=0) + 1
-        released = OnlyMoney(
-            reservation_before.remaining_amount.amount - trade.settled_notional.amount - trade.authoritative_fee.amount,
-            currency,
-        )
-        cash_entries += (
-            OnlyStrategyCashEntry(
-                OnlyStrategyCashEntryId(f"SCASH-{before.ledger_id}-{release_sequence:010d}"),
-                before.key.runtime_id,
-                before.key.account_id,
-                before.key.cluster_id,
-                currency,
-                released,
-                OnlyStrategyCashEntryType.ORDER_RESERVATION_RELEASE,
-                trade.order_id,
-                None,
-                reservation_before.reservation_id,
-                None,
-                trade.ts_init,
-                trade.ts_init,
-                release_sequence,
-            ),
-        )
-        fee_entry = OnlyStrategyFeeEntry(
-            OnlyStrategyFeeEntryId(f"SFEE-{trade.runtime_id}-{trade.trade_id}"),
-            before.key,
-            trade.authoritative_fee,
-            OnlyStrategyFeeType.COMMISSION,
-            trade.trade_id,
-            trade.order_id,
-            trade.ts_event,
-            trade.ts_init,
-            trade.source_sequence,
-        )
+        if reservation_reduction.released_delta.amount:
+            release_sequence = max((entry.sequence for entry in cash_entries), default=0) + 1
+            cash_entries += (
+                OnlyStrategyCashEntry(
+                    OnlyStrategyCashEntryId(f"SCASH-{before.ledger_id}-{release_sequence:010d}"),
+                    before.key.runtime_id,
+                    before.key.account_id,
+                    before.key.cluster_id,
+                    currency,
+                    reservation_reduction.released_delta,
+                    OnlyStrategyCashEntryType.ORDER_RESERVATION_RELEASE,
+                    trade.order_id,
+                    None,
+                    reservation_reduction.after.reservation_id,
+                    None,
+                    trade.ts_init,
+                    trade.ts_init,
+                    release_sequence,
+                ),
+            )
+        if allocation_after.average_open_price is None:
+            raise ValueError("open Allocation requires average price")
+        fee_entries = before.fee_entries
+        if trade.authoritative_fee.amount:
+            fee_entries += (
+                OnlyStrategyFeeEntry(
+                    OnlyStrategyFeeEntryId(f"SFEE-{trade.runtime_id}-{trade.trade_id}"),
+                    before.key,
+                    trade.authoritative_fee,
+                    OnlyStrategyFeeType.COMMISSION,
+                    trade.trade_id,
+                    trade.order_id,
+                    trade.ts_event,
+                    trade.ts_init,
+                    trade.source_sequence,
+                ),
+            )
         unrealized = OnlyMoney(
             (
                 (valuation_price.value - allocation_after.average_open_price.value)
@@ -245,7 +254,7 @@ class OnlyStrategyLedgerTradeReducer:
             fees=before.fees + trade.authoritative_fee,
             equity=cash + market_value,
             cash_entries=cash_entries,
-            fee_entries=before.fee_entries + (fee_entry,),
+            fee_entries=fee_entries,
             updated_at=trade.ts_init,
             valuation_time=trade.ts_event,
             trading_day=trade.trading_day,

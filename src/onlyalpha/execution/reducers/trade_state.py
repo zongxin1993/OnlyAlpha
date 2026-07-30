@@ -43,6 +43,7 @@ class OnlyOrderTradeReduction:
     after: OnlyOrderExecutionState
     projection: OnlyOrderExecutionProjection
     event_intents: tuple[OnlyExecutionEventIntent, ...]
+    terminal_fill: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +160,7 @@ class OnlyOrderTradeReducer:
                     after.to_dict(),
                 ),
             ),
+            terminal,
         )
 
 
@@ -189,6 +191,7 @@ class OnlyPositionTradeReducer:
             quality_flags: tuple[str, ...] = ()
             broker_available = None
             version = 1
+            cumulative_before = Decimal(0)
         else:
             total_before = before.total_quantity
             settled_before = before.settled_quantity
@@ -203,8 +206,10 @@ class OnlyPositionTradeReducer:
             quality_flags = before.quality_flags
             broker_available = before.broker_available_quantity
             version = before.version + 1
+            cumulative_before = before.cumulative_open_price_quantity
         total_value = total_before.value + trade.quantity.value
-        average = _average_open_price(average_before, total_before, trade.price, trade.quantity)
+        cumulative = cumulative_before + trade.price.value * trade.quantity.value
+        average = _average_open_price(cumulative, total_value, trade.price.precision, average_before)
         settled = (
             settled_before + trade.quantity
             if trade.settlement_bucket is OnlySettlementBucket.SETTLED
@@ -236,6 +241,7 @@ class OnlyPositionTradeReducer:
             trade.stable_order,
             quality_flags,
             broker_available,
+            cumulative,
         )
         zero = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
         builder = OnlyExecutionProjectionBuilder()
@@ -283,6 +289,7 @@ class OnlyAllocationTradeReducer:
             opened_at = trade.ts_event
             order_frozen = risk_reserved = restricted = zero_quantity
             version = 1
+            cumulative_before = Decimal(0)
         else:
             total_before = before.total_quantity
             settled_before = before.settled_quantity
@@ -295,6 +302,7 @@ class OnlyAllocationTradeReducer:
             risk_reserved = before.risk_reserved_quantity
             restricted = before.restricted_quantity
             version = before.version + 1
+            cumulative_before = before.cumulative_open_price_quantity
         settled = (
             settled_before + trade.quantity
             if trade.settlement_bucket is OnlySettlementBucket.SETTLED
@@ -316,7 +324,12 @@ class OnlyAllocationTradeReducer:
             order_frozen,
             risk_reserved,
             restricted,
-            _average_open_price(average_before, total_before, trade.price, trade.quantity),
+            _average_open_price(
+                cumulative_before + trade.price.value * trade.quantity.value,
+                total_before.value + trade.quantity.value,
+                trade.price.precision,
+                average_before,
+            ),
             realized_before,
             fees_before + trade.authoritative_fee,
             opened_at,
@@ -325,6 +338,7 @@ class OnlyAllocationTradeReducer:
             version,
             trade.source_sequence,
             trade.stable_order,
+            cumulative_before + trade.price.value * trade.quantity.value,
         )
         builder = OnlyExecutionProjectionBuilder()
         projection = OnlyAllocationExecutionProjection(
@@ -541,18 +555,10 @@ def trade_allocation_key(trade: OnlyPlannedTrade) -> OnlyPositionAllocationKey:
 
 
 def _average_open_price(
-    before_price: OnlyPrice | None,
-    before_quantity: OnlyQuantity,
-    fill_price: OnlyPrice,
-    fill_quantity: OnlyQuantity,
+    cumulative: Decimal, total_quantity: Decimal, fill_precision: int, before_price: OnlyPrice | None
 ) -> OnlyPrice:
-    new_quantity = before_quantity.value + fill_quantity.value
-    raw = (
-        fill_price.value
-        if before_price is None
-        else (before_price.value * before_quantity.value + fill_price.value * fill_quantity.value) / new_quantity
-    )
-    precision = max(fill_price.precision, 0 if before_price is None else before_price.precision)
+    raw = cumulative / total_quantity
+    precision = max(fill_precision, 0 if before_price is None else before_price.precision)
     return OnlyPrice(raw.quantize(Decimal(1).scaleb(-precision), rounding=ROUND_HALF_EVEN), precision)
 
 

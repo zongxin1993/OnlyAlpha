@@ -50,6 +50,7 @@ class OnlyTestProjectionTargetBundle:
                 allocation_manager=runtime.allocation_manager,
                 settlement_manager=runtime.settlement_manager,
                 fee_manager=runtime.fee_manager,
+                order_fee_accrual_manager=runtime.order_fee_accrual_manager,
                 account_manager=runtime.account_manager,
                 ledger_manager=runtime.strategy_ledger_manager,
                 risk_service=runtime.risk_service,
@@ -156,10 +157,10 @@ def only_test_assert_component_applies(component: OnlyExecutionProjectionCompone
 def only_test_assert_all_apply(bundle: OnlyTestProjectionTargetBundle) -> None:
     first = bundle.apply_all()
     assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED
-    assert len(first.applied) == 12
+    assert len(first.applied) == 13
     replay = bundle.apply_all()
     assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED
-    assert len(replay.idempotent) == 12
+    assert len(replay.idempotent) == 13
 
 
 def only_test_projection_context(

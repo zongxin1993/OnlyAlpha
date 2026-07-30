@@ -589,6 +589,7 @@ class OnlyExecutionProcessor:
                 OnlyExecutionProjectionComponent.SETTLEMENT: OnlyExecutionMutationStep.SETTLEMENT,
                 OnlyExecutionProjectionComponent.MARGIN: OnlyExecutionMutationStep.MARGIN,
                 OnlyExecutionProjectionComponent.FEE: OnlyExecutionMutationStep.FEE,
+                OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL: OnlyExecutionMutationStep.FEE,
                 OnlyExecutionProjectionComponent.ACCOUNT: OnlyExecutionMutationStep.ACCOUNT,
                 OnlyExecutionProjectionComponent.STRATEGY_LEDGER: OnlyExecutionMutationStep.STRATEGY_LEDGER,
                 OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION: OnlyExecutionMutationStep.RESERVATION,

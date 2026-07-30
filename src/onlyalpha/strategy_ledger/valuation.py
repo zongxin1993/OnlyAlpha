@@ -42,9 +42,9 @@ class OnlyStrategyValuationService:
             multiplier = multipliers.get(allocation.key.instrument_id)
             if mark is None or multiplier is None:
                 raise ValueError(f"missing Mark/Multiplier for {allocation.key.instrument_id}")
-            cost_amount = (
-                allocation.average_open_price.value * allocation.total_quantity.value * multiplier.value
-            ).quantize(quantum, ROUND_HALF_EVEN)
+            cost_amount = (allocation.cumulative_open_price_quantity * multiplier.value).quantize(
+                quantum, ROUND_HALF_EVEN
+            )
             market_amount = (mark.mark_price.value * allocation.total_quantity.value * multiplier.value).quantize(
                 quantum, ROUND_HALF_EVEN
             )

@@ -15,6 +15,7 @@ from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
+from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
@@ -68,6 +69,7 @@ from .projection import (
     OnlyExecutionProjectionTarget,
     OnlyFeeExecutionProjection,
     OnlyOrderExecutionProjection,
+    OnlyOrderFeeAccrualExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyProjectionApplyResult,
     OnlyProjectionApplyStatus,
@@ -438,6 +440,25 @@ class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
         if installed_authority is None:
             raise RuntimeError("Fee Projection installation lost its instruction")
         return self._complete(context, current, only_fee_execution_state(installed_authority), prepared)
+
+
+class OnlyOrderFeeAccrualExecutionProjectionTarget(_OnlyProjectionTargetBase):
+    def __init__(self, manager: OnlyOrderFeeAccrualManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
+        super().__init__(OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL, applied_ledger)
+        self._manager = manager
+
+    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+        projection = context.projection
+        current = self._manager.get(context.fact.order_id)
+        prepared = self._prepare(context, current)
+        if isinstance(prepared, OnlyProjectionApplyResult):
+            return prepared
+        assert isinstance(projection, OnlyOrderFeeAccrualExecutionProjection)
+        self._manager.restore(projection.after)
+        installed = self._manager.get(projection.after.order_id)
+        if installed is None:
+            raise RuntimeError("Order fee accrual Projection installation lost its authority")
+        return self._complete(context, current, installed, prepared)
 
 
 def _account_snapshot(state: OnlyAccountExecutionState, current: OnlyAccountSnapshot) -> OnlyAccountSnapshot:
@@ -859,6 +880,7 @@ def only_create_generic_t0_execution_projection_targets(
     allocation_manager: OnlyPositionAllocationManager,
     settlement_manager: OnlySettlementManager,
     fee_manager: OnlyFeeManager,
+    order_fee_accrual_manager: OnlyOrderFeeAccrualManager,
     account_manager: OnlyAccountManager,
     ledger_manager: OnlyStrategyLedgerManager,
     risk_service: OnlyRiskService,
@@ -871,6 +893,7 @@ def only_create_generic_t0_execution_projection_targets(
         OnlyAllocationExecutionProjectionTarget(allocation_manager, applied_ledger),
         OnlySettlementExecutionProjectionTarget(settlement_manager, applied_ledger),
         OnlyFeeExecutionProjectionTarget(fee_manager, applied_ledger),
+        OnlyOrderFeeAccrualExecutionProjectionTarget(order_fee_accrual_manager, applied_ledger),
         OnlyAccountExecutionProjectionTarget(account_manager, applied_ledger),
         OnlyStrategyLedgerExecutionProjectionTarget(ledger_manager, applied_ledger),
         OnlyAccountCashReservationExecutionProjectionTarget(account_manager, applied_ledger),
@@ -885,7 +908,7 @@ def only_create_generic_t0_execution_projection_targets(
         ),
     )
     result = {target.component: target for target in targets}
-    if len(result) != 12:
+    if len(result) != 13:
         raise RuntimeError("Generic T0 Projection Target registry is incomplete or duplicated")
     return result
 

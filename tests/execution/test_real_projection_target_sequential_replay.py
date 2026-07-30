@@ -43,5 +43,5 @@ def test_three_sequential_buy_open_transactions_match_legacy_authority() -> None
         assert committed.execution_sequence == number
         assert applier.apply(committed).status is OnlyExecutionProjectionBatchStatus.COMPLETED
 
-    assert len(replay.applied_ledger.records()) == 36
+    assert len(replay.applied_ledger.records()) == 39
     assert _projection_authority(replay.environment) == _projection_authority(legacy)

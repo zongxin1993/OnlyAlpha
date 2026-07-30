@@ -12,6 +12,7 @@ from onlyalpha.execution import (
     OnlyAllocationExecutionProjection,
     OnlyFeeExecutionProjection,
     OnlyOrderExecutionProjection,
+    OnlyOrderFeeAccrualExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
@@ -22,19 +23,11 @@ from onlyalpha.execution import (
     OnlyValuationExecutionProjection,
     only_encode_execution_projection,
 )
+from onlyalpha.execution.planning_results import OnlyTradeReduction
 from onlyalpha.execution.reducers import (
     OnlyAccountCashReservationTradeReducer,
-    OnlyAccountTradeReducer,
-    OnlyAllocationTradeReducer,
-    OnlyFeeTradeReducer,
-    OnlyOrderTradeReducer,
-    OnlyPositionTradeReducer,
     OnlyRiskReservationTradeReducer,
-    OnlyRiskTradeReducer,
-    OnlySettlementTradeReducer,
     OnlyStrategyCashReservationTradeReducer,
-    OnlyStrategyLedgerTradeReducer,
-    OnlyValuationTradeReducer,
 )
 
 from ..factories.trade_planning_factory import only_test_generic_t0_trade_planning_context
@@ -42,88 +35,8 @@ from ..factories.trade_planning_factory import only_test_generic_t0_trade_planni
 
 def _reductions() -> tuple[object, ...]:
     context = only_test_generic_t0_trade_planning_context()
-    trade = OnlyTradeExecutionTransactionPlanner._planned_trade(context)
     prepared = OnlyTradeExecutionTransactionPlanner().prepare(context)
-    expected = {type(item): item for item in prepared.projections}
-    position = OnlyPositionTradeReducer().reduce(
-        context.position_before,
-        trade,
-        context.position_creation,
-        cycle=context.position_cycle,
-        projection_sequence=2,
-    )
-    allocation = OnlyAllocationTradeReducer().reduce(
-        context.allocation_before,
-        trade,
-        context.allocation_creation,
-        cycle=context.allocation_cycle,
-        projection_sequence=3,
-    )
-    account_expected = expected[OnlyAccountExecutionProjection]
-    account = OnlyAccountTradeReducer().reduce(
-        context.account_before,
-        context.account_cash_reservation_before,
-        trade,
-        account_expected.after.position_market_value - context.account_before.position_market_value,
-        account_expected.after.unrealized_pnl,
-        projection_sequence=6,
-    )
-    account_reservation = OnlyAccountCashReservationTradeReducer().reduce(
-        context.account_cash_reservation_before, trade, projection_sequence=8
-    )
-    strategy_reservation = OnlyStrategyCashReservationTradeReducer().reduce(
-        context.strategy_cash_reservation_before, trade, projection_sequence=9
-    )
-    risk_reservation = OnlyRiskReservationTradeReducer().reduce(
-        context.risk_reservation_before, trade, projection_sequence=10
-    )
-    return (
-        OnlyOrderTradeReducer().reduce(context.order_before, trade, projection_sequence=1),
-        position,
-        allocation,
-        OnlySettlementTradeReducer().reduce(
-            context.settlement_before,
-            context.trade_instruction.settlement_instruction,
-            context.trading_day,
-            trade,
-            record_sequence=context.settlement_record_sequence,
-            projection_sequence=4,
-        ),
-        OnlyFeeTradeReducer().reduce(
-            context.fee_before,
-            context.fee_instruction,
-            trade.instrument_id,
-            record_sequence=context.fee_record_sequence,
-            projection_sequence=5,
-        ),
-        account,
-        OnlyStrategyLedgerTradeReducer().reduce(
-            context.strategy_ledger_before,
-            context.strategy_cash_reservation_before,
-            context.allocation_before,
-            allocation.after,
-            trade,
-            context.valuation_price,
-            projection_sequence=7,
-        ),
-        account_reservation,
-        strategy_reservation,
-        risk_reservation,
-        OnlyRiskTradeReducer().reduce(
-            context.risk_before,
-            risk_reservation.after,
-            trade,
-            projection_sequence=11,
-        ),
-        OnlyValuationTradeReducer().reduce(
-            context.valuation_before,
-            trade,
-            account.after.cash_balance,
-            account.after.position_market_value,
-            account.after.unrealized_pnl,
-            projection_sequence=12,
-        ),
-    )
+    return tuple(OnlyTradeReduction(item) for item in prepared.projections)
 
 
 def test_every_reducer_matches_complete_prepared_projection_and_keeps_inputs_immutable() -> None:
@@ -198,6 +111,7 @@ def test_risk_reducer_rejects_quantity_and_notional_under_reservation() -> None:
         OnlyPositionExecutionProjection,
         OnlyAllocationExecutionProjection,
         OnlySettlementExecutionProjection,
+        OnlyOrderFeeAccrualExecutionProjection,
         OnlyFeeExecutionProjection,
         OnlyAccountExecutionProjection,
         OnlyStrategyLedgerExecutionProjection,

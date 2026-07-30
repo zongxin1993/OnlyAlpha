@@ -166,6 +166,7 @@ class OnlyPositionExecutionState(OnlyDomainModel):
     last_trade_order: tuple[int, int, str] | None
     quality_flags: tuple[str, ...] = ()
     broker_available_quantity: OnlyQuantity | None = None
+    cumulative_open_price_quantity: Decimal = Decimal(0)
 
     def __post_init__(self) -> None:
         quantities = (
@@ -182,7 +183,20 @@ class OnlyPositionExecutionState(OnlyDomainModel):
             raise ValueError("Position execution buckets must equal total quantity")
         if self.version < 1 or (self.status is OnlyPositionStatus.CLOSED) != (self.total_quantity.value == 0):
             raise ValueError("Position execution status/version is invalid")
+        if self.cumulative_open_price_quantity < 0:
+            raise ValueError("Position execution cumulative cost cannot be negative")
         object.__setattr__(self, "quality_flags", tuple(self.quality_flags))
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        compatible = dict(payload)
+        if "cumulative_open_price_quantity" not in compatible:
+            average = compatible.get("average_open_price")
+            quantity = compatible.get("total_quantity")
+            average_value = Decimal(0) if not isinstance(average, Mapping) else Decimal(str(average["value"]))
+            quantity_value = Decimal(0) if not isinstance(quantity, Mapping) else Decimal(str(quantity["value"]))
+            compatible["cumulative_open_price_quantity"] = str(average_value * quantity_value)
+        return super(OnlyPositionExecutionState, cls).from_dict(compatible)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +218,7 @@ class OnlyAllocationExecutionState(OnlyDomainModel):
     version: int
     last_trade_sequence: int | None
     last_trade_order: tuple[int, int, str] | None
+    cumulative_open_price_quantity: Decimal = Decimal(0)
 
     def __post_init__(self) -> None:
         quantities = (
@@ -220,6 +235,19 @@ class OnlyAllocationExecutionState(OnlyDomainModel):
             raise ValueError("Allocation execution buckets must equal total quantity")
         if self.version < 1 or (self.closed_at is not None and self.total_quantity.value != 0):
             raise ValueError("Allocation execution status/version is invalid")
+        if self.cumulative_open_price_quantity < 0:
+            raise ValueError("Allocation execution cumulative cost cannot be negative")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        compatible = dict(payload)
+        if "cumulative_open_price_quantity" not in compatible:
+            average = compatible.get("average_open_price")
+            quantity = compatible.get("total_quantity")
+            average_value = Decimal(0) if not isinstance(average, Mapping) else Decimal(str(average["value"]))
+            quantity_value = Decimal(0) if not isinstance(quantity, Mapping) else Decimal(str(quantity["value"]))
+            compatible["cumulative_open_price_quantity"] = str(average_value * quantity_value)
+        return super(OnlyAllocationExecutionState, cls).from_dict(compatible)
 
 
 @dataclass(frozen=True, slots=True)

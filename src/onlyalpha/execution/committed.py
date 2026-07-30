@@ -133,6 +133,16 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     ledger_cash_delta: OnlyMoney
     ledger_fee_delta: OnlyMoney
     ledger_realized_pnl_delta: OnlyMoney
+    incremental_fee_total: OnlyMoney
+    order_cumulative_fee_after: OnlyMoney
+    account_reservation_consumed_delta: OnlyMoney
+    account_reservation_released_delta: OnlyMoney
+    strategy_reservation_consumed_delta: OnlyMoney
+    strategy_reservation_released_delta: OnlyMoney
+    risk_reservation_quantity_consumed_delta: OnlyQuantity
+    risk_reservation_notional_consumed_delta: OnlyMoney
+    position_cumulative_open_price_quantity_after: Decimal
+    allocation_cumulative_open_price_quantity_after: Decimal
 
     def __post_init__(self) -> None:
         if not self.execution_id or self.execution_sequence < 1:
@@ -166,10 +176,27 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             raise ValueError("committed execution requires positive cumulative price quantity")
         if not self.fill_identity.startswith("EFILL-") or len(self.fill_payload_fingerprint) != 64:
             raise ValueError("committed execution requires durable Fill identity authority")
+        if (
+            min(
+                self.incremental_fee_total.amount,
+                self.account_reservation_consumed_delta.amount,
+                self.account_reservation_released_delta.amount,
+                self.strategy_reservation_consumed_delta.amount,
+                self.strategy_reservation_released_delta.amount,
+                self.risk_reservation_quantity_consumed_delta.value,
+                self.risk_reservation_notional_consumed_delta.amount,
+            )
+            < 0
+        ):
+            raise ValueError("committed execution incremental accounting deltas cannot be negative")
+        if not self.terminal_fill and (
+            self.account_reservation_released_delta.amount or self.strategy_reservation_released_delta.amount
+        ):
+            raise ValueError("non-terminal committed execution cannot release cash Reservation")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
-        if "fill_identity" in payload:
+        if "fill_identity" in payload and "incremental_fee_total" in payload:
             return super(OnlyCommittedExecutionFact, cls).from_dict(payload)
         compatible = dict(payload)
         fill_quantity = _nested_decimal(payload, "cumulative_filled_quantity")
@@ -196,6 +223,16 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             fill_count_after=1,
             terminal_fill=remaining == 0,
             cumulative_price_quantity_after=str(fill_price * fill_quantity),
+            incremental_fee_total=payload["authoritative_fee_total"],
+            order_cumulative_fee_after=payload["authoritative_fee_total"],
+            account_reservation_consumed_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
+            account_reservation_released_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
+            strategy_reservation_consumed_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
+            strategy_reservation_released_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
+            risk_reservation_quantity_consumed_delta=payload["fill_quantity"],
+            risk_reservation_notional_consumed_delta=payload["gross_notional"],
+            position_cumulative_open_price_quantity_after=str(fill_price * fill_quantity),
+            allocation_cumulative_open_price_quantity_after=str(fill_price * fill_quantity),
         )
         return super(OnlyCommittedExecutionFact, cls).from_dict(compatible)
 

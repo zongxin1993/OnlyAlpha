@@ -1,5 +1,7 @@
 """Unified fee domain, schedules, resolution and reconciliation."""
 
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState, OnlyOrderFeeComponentAccrual
+from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.engine import OnlyFeeEngine, OnlyFeeEstimate
 from onlyalpha.fee.manager import OnlyFeeExecutionAuthoritySnapshot, OnlyFeeManager, OnlyFeeRecord
 from onlyalpha.fee.models import (
@@ -8,6 +10,7 @@ from onlyalpha.fee.models import (
     OnlyFeeAuthority,
     OnlyFeeBreakdown,
     OnlyFeeCalculationRequest,
+    OnlyFeeCalculationScope,
     OnlyFeeComponent,
     OnlyFeeConfigurationMode,
     OnlyFeeInstruction,
@@ -36,6 +39,7 @@ __all__ = [
     "OnlyFeeAuthority",
     "OnlyFeeBreakdown",
     "OnlyFeeCalculationRequest",
+    "OnlyFeeCalculationScope",
     "OnlyFeeComponent",
     "OnlyFeeConfigurationMode",
     "OnlyFeeDifferenceReason",
@@ -53,4 +57,7 @@ __all__ = [
     "OnlyFeeType",
     "OnlyMarketFeeSchedule",
     "OnlyMarketFeeScheduleRegistry",
+    "OnlyOrderFeeAccrualExecutionState",
+    "OnlyOrderFeeAccrualManager",
+    "OnlyOrderFeeComponentAccrual",
 ]

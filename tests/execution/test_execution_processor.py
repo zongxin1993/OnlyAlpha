@@ -71,6 +71,7 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
         OnlyExecutionMutationStep.ALLOCATION,
         OnlyExecutionMutationStep.SETTLEMENT,
         OnlyExecutionMutationStep.FEE,
+        OnlyExecutionMutationStep.FEE,
         OnlyExecutionMutationStep.ACCOUNT,
         OnlyExecutionMutationStep.STRATEGY_LEDGER,
         OnlyExecutionMutationStep.RESERVATION,
@@ -138,10 +139,10 @@ def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
     ledger_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
     assert account.cash.frozen_cash.amount == 0
     assert account_reservation.remaining_amount.amount == 0
-    assert account_reservation.state.value == "RELEASED"
+    assert account_reservation.state.value == "CONSUMED"
     assert ledger.cash.cash_reserved.amount == 0
     assert ledger_reservation.remaining_amount.amount == 0
-    assert ledger_reservation.state.value == "RELEASED"
+    assert ledger_reservation.state.value == "CONSUMED"
 
 
 def test_duplicate_update_and_conflicting_fill_identity_change_no_versions() -> None:

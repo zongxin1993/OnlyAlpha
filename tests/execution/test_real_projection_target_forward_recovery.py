@@ -61,6 +61,6 @@ def test_forward_recovery_resumes_from_applied_projection_ledger(
     resumed = applier.apply(recovered.transaction)
     assert resumed.status is OnlyExecutionProjectionBatchStatus.COMPLETED
     assert len(resumed.idempotent) == projection_sequence - 1
-    assert len(resumed.applied) == 13 - projection_sequence
-    assert len(recovered.applied_ledger.records()) == 12
+    assert len(resumed.applied) == 14 - projection_sequence
+    assert len(recovered.applied_ledger.records()) == 13
     assert _projection_authority(recovered.environment) == _projection_authority(control.environment)

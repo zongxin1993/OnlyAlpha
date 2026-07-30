@@ -508,14 +508,15 @@ engine.add_cluster(config)
 result = engine.run()
 ```
 
-正式成交结果来自 Runtime-owned Runtime Persistence Store 中的 Projection Ready transaction。当前 Generic T0 Cash 的 LIMIT BUY OPEN 整单成交先 durable commit Prepared Transaction，再按固定顺序应用 Order、Position、Allocation、Settlement、Fee、Account、Ledger、Reservation、Risk 与 Valuation Projection；全部完成并标记 Projection Ready 后才开放 durable Outbox。Recovery 以 Stored Prepared + Committed 构建严格 causal session，在原 Broker Update 点重跑 Planner 并逐笔 rehydrate/recover，使后续 Strategy 立即观察最新 authority。Persisted tail resolved 后当前 exact MarketData boundary 仍继续；同 Bar 后续 Trade 作为 continuation 使用相同 Planner 与 Coordinator 正式 commit，获得连续 Store sequence、Projection Ready 与 durable Outbox，且 recovery 中不即时投递。Broker `query_trades()` 仅表示
+正式成交结果来自 Runtime-owned Runtime Persistence Store 中的 Projection Ready transaction。当前 Generic T0 Cash 的 LIMIT BUY OPEN 每个 Fill 先 durable commit 独立 Prepared Transaction，再按固定顺序应用 Order、Position、Allocation、Settlement、Order Fee Accrual、Fee、Account、Ledger、Reservation、Risk 与 Valuation Projection；全部完成并标记 Projection Ready 后才开放 durable Outbox。Recovery 以 Stored Prepared + Committed 构建严格 causal session，在原 Broker Update 点重跑 Planner 并逐笔 rehydrate/recover，使后续 Strategy 立即观察最新 authority。Persisted tail resolved 后当前 exact MarketData boundary 仍继续；同 Bar 后续 Trade 作为 continuation 使用相同 Planner 与 Coordinator 正式 commit，获得连续 Store sequence、Projection Ready 与 durable Outbox，且 recovery 中不即时投递。Broker `query_trades()` 仅表示
 外部查询/对账 Projection。可使用 `python examples/committed_execution_report.py <config>` 查看公开 Result 中的 position
 scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 market profile。
 
-PR4.3.1 已建立纯 Order Partial-Fill Authority、Durable Fill Identity/Fingerprint、per-Order Fill Index 和多 Fill Committed
-Fact 基础；一个 Fill 始终对应一个不可变 Transaction。完整 Runtime Product Partial Fill 仍以
-`PARTIAL_FILL_ACCOUNTING_NOT_READY` fail closed，等待 PR4.3.2 的 Reservation/Risk/Fee/Account/Ledger 增量记账。
-SELL/CLOSE、Virtual Broker Partial Schedule、Multi-Fill Recovery、Futures/Margin 与多 Cluster 固定资金归约仍未开放。
+PR4.3.2 已完成 Incremental Reservation and Accounting for Multi-Fill：一个 Fill 始终对应一个不可变 Transaction；
+Position/Allocation 使用精确累计成本；FILL/ORDER_CUMULATIVE Fee 经独立订单级 Accrual 转为本次增量；Account、Strategy
+Ledger 与 Risk 使用显式 reservation delta。中间 Fill 不释放现金 Reservation、不减少 Risk Active Count，最终 Fill 才消费
+或释放剩余 authority。SELL/CLOSE、Virtual Broker Partial Fill Schedule、Multi-Fill Recovery、Futures/Margin 与多 Cluster
+固定资金归约仍未开放，其中前两项由 PR4.3.3 继续完成。
 正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在
 `RECOVERING` 阶段恢复最新完整 checkpoint，并在精确行情游标重放期间逐点处理 Ready/未投影 tail；独立 Backtest Recovery
 Session 以 source ID、data version、update ID、source sequence 和 event time 验证完整 boundary，不会重复 Strategy/Factor

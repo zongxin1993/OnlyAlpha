@@ -66,6 +66,8 @@ class OnlyFeeEngine:
             return self._model_breakdown(
                 request, market_schedule, broker_schedule, market_mode, broker_mode, OnlyFeeStatus.CONFIRMED
             )
+        if request.broker_fee_reporting_mode is OnlyBrokerFeeReportingMode.ORDER_CUMULATIVE:
+            raise ValueError("BROKER_CUMULATIVE_FEE_REPORT_UNSUPPORTED")
         if request.broker_fee_reporting_mode is OnlyBrokerFeeReportingMode.ALL_IN and request.reported_fee is not None:
             return self._reported_all_in(request, OnlyFeeStatus.CONFIRMED)
         if (
@@ -130,6 +132,10 @@ class OnlyFeeEngine:
                 liquidity_role=request.liquidity_role,
                 status=status,
                 currency=request.currency,
+                cumulative_notional=(
+                    None if request.cumulative_notional is None else request.cumulative_notional.amount
+                ),
+                cumulative_quantity=request.cumulative_quantity,
             )
         if broker_mode is not OnlyFeeConfigurationMode.NONE:
             if broker_mode is OnlyFeeConfigurationMode.REPORTED:
@@ -147,6 +153,10 @@ class OnlyFeeEngine:
                     liquidity_role=request.liquidity_role,
                     status=status,
                     currency=request.currency,
+                    cumulative_notional=(
+                        None if request.cumulative_notional is None else request.cumulative_notional.amount
+                    ),
+                    cumulative_quantity=request.cumulative_quantity,
                 )
         return self._breakdown(request, components, status)
 
@@ -188,6 +198,7 @@ class OnlyFeeEngine:
                 item.schedule_version,
                 item.effective_date,
                 item.metadata,
+                item.calculation_scope,
             )
             for item in breakdown.components
         )

@@ -231,6 +231,7 @@ def only_test_real_trade_planning_context(
         ),
         settlement_before=None,
         fee_before=None,
+        order_fee_accrual_before=runtime.order_fee_accrual_manager.get(order.order_id),
         account_before=only_account_execution_state(account_snapshot),
         strategy_ledger_before=only_strategy_ledger_execution_state(ledger_snapshot),
         account_cash_reservation_before=only_account_cash_reservation_execution_state(account_reservation),
@@ -366,6 +367,10 @@ def only_test_legacy_projection_states(
         (OnlyExecutionProjectionComponent.POSITION, only_position_execution_state(position)),
         (OnlyExecutionProjectionComponent.ALLOCATION, only_allocation_execution_state(allocation)),
         (OnlyExecutionProjectionComponent.SETTLEMENT, (settlement, settlement_records)),
+        (
+            OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
+            runtime.order_fee_accrual_manager.get(order.order_id),
+        ),
         (OnlyExecutionProjectionComponent.FEE, fee_state),
         (OnlyExecutionProjectionComponent.ACCOUNT, only_account_execution_state(account)),
         (OnlyExecutionProjectionComponent.STRATEGY_LEDGER, only_strategy_ledger_execution_state(ledger)),
