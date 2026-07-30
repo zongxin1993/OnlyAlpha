@@ -12,20 +12,21 @@ fails before authority mutation. See ADR 0049, ADR 0050 and `execution_trade_pla
 PR4.3.3 adds the plugin-owned deterministic Virtual Broker Fill Plan and complete Generic T0 Cash LIMIT BUY OPEN Multi-Fill
 Recovery. WHOLE, legacy MAX_PER_BAR and explicit SCHEDULE share one execution chain; ONE_PER_BAR and ALL_DUE produce one
 independent immutable Runtime transaction per Step. Broker execute-before-publish, Commit, Projection, Outbox and partial-plan
-checkpoint boundaries recover through the existing phases. Partial/Multi-Close and Futures/Margin remain outside this product
-path.
+checkpoint boundaries recover through the existing phases. The same Fill Plan is now also proven for Long Close.
 
-PR4.4.1 migrates one deliberately narrow Close slice into that same chain: `GENERIC_T0_CASH + LIMIT + SELL + CLOSE + LONG +
-NETTING`, cash account, one currency, Margin disabled, and a whole Fill that consumes an Order whose prior filled quantity and
-fill count are both zero. The Position itself may remain open or reach zero. The Planner captures existing Position, Allocation,
+PR4.4.2 completes the deliberately narrow Close slice in that same chain: `GENERIC_T0_CASH + LIMIT + SELL + CLOSE + LONG +
+NETTING`, cash account, one currency and Margin disabled. Every partial or final Fill is an independent transaction. The Planner captures existing Position, Allocation,
 Position Reservation, Risk Reservation, Account, Strategy Ledger, fee, settlement and valuation authority before producing one
 immutable transaction. Its projection order is Order, Position, Allocation, Settlement, Order Fee Accrual, Fee, Account,
 Strategy Ledger, Position Reservation, Risk Reservation, Risk and Valuation. SELL/CLOSE no longer enters `_unmigrated_trade()`.
 
-Position is the single realized-PnL authority: `(fill price - average open price) × quantity × multiplier`. Allocation, Account,
-Strategy Ledger and committed fact consume that exact delta. The exact released cost is `average open price × quantity`; a
-remaining Long keeps its average, while a zero remainder clears average and cumulative cost. Gross cash inflow is sale notional,
+Position is the single realized-PnL authority: `(fill price × fill quantity - exact released cost) × multiplier`. Position and
+Allocation use one cumulative-cost reducer; partial fills release `cumulative cost × fill quantity / quantity before`, while the
+final Fill releases every remaining cost unit and sets cumulative cost exactly to zero. Allocation, Account, Strategy Ledger and
+committed fact consume that exact delta. Gross cash inflow is sale notional,
 net cash inflow is notional less the authoritative Fee instruction. Close carries no cash Reservation; its Position Reservation
 is consumed inside the same ordered projection batch. Existing Fill identity/index, Coordinator, recovery phases, Event Gate and
-at-least-once Outbox semantics are unchanged. Partial/Multi-Close, Short, Hedging, CloseToday/CloseYesterday, Futures/Margin and
-Paper/Live remain outside PR4.4.1; PR4.4.2 owns incremental Partial/Multi-Close accounting. See ADR 0052.
+at-least-once Outbox semantics are unchanged. Partial Fill Cancel/Reject/Expire uses an `ORDER_TERMINAL` transaction with stable
+`ETERM-...` identity, no Trade ID and four ordered projections. Same identity/same payload is idempotent; a conflicting payload
+fails closed. Terminal Facts are excluded from Trade Results. Short, Hedging, CloseToday/CloseYesterday, Futures/Margin and
+Paper/Live remain outside this scope. See ADR 0053.

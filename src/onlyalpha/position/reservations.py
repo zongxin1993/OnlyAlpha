@@ -47,11 +47,39 @@ class OnlyPositionReservation(OnlyDomainModel):
     created_at: OnlyTimestamp
     updated_at: OnlyTimestamp
     version: int = 1
+    consumed_quantity: OnlyQuantity | None = None
+    released_quantity: OnlyQuantity | None = None
 
     def __post_init__(self) -> None:
+        consumed = self.consumed_quantity
+        released = self.released_quantity
+        if consumed is None:
+            consumed = OnlyQuantity(
+                self.quantity.value - self.remaining_quantity.value
+                if self.state is not OnlyPositionReservationState.RELEASED
+                else Decimal(0),
+                self.quantity.precision,
+            )
+            object.__setattr__(self, "consumed_quantity", consumed)
+        if released is None:
+            released = OnlyQuantity(
+                self.quantity.value - consumed.value - self.remaining_quantity.value,
+                self.quantity.precision,
+            )
+            object.__setattr__(self, "released_quantity", released)
         if (
-            self.quantity.precision != self.remaining_quantity.precision
+            len(
+                {
+                    self.quantity.precision,
+                    self.remaining_quantity.precision,
+                    consumed.precision,
+                    released.precision,
+                }
+            )
+            != 1
             or not 0 <= self.remaining_quantity.value <= self.quantity.value
+            or min(consumed.value, released.value) < 0
+            or consumed.value + released.value + self.remaining_quantity.value != self.quantity.value
             or self.version < 1
             or self.updated_at < self.created_at
         ):
@@ -194,6 +222,8 @@ class OnlyPositionReservationManager:
         consumed = min(quantity.value, reservation.remaining_quantity.value)
         if consumed == 0:
             return OnlyPositionReservationResult(reservation, False)
+        if reservation.consumed_quantity is None:
+            raise RuntimeError("Position Reservation consumed authority is unavailable")
         consumed_quantity = OnlyQuantity(consumed, reservation.quantity.precision)
         if reservation.stage in {
             OnlyPositionReservationStage.LOCAL_ONLY,
@@ -214,6 +244,10 @@ class OnlyPositionReservationManager:
         updated = replace(
             reservation,
             remaining_quantity=remaining,
+            consumed_quantity=OnlyQuantity(
+                reservation.consumed_quantity.value + consumed,
+                reservation.quantity.precision,
+            ),
             state=state,
             updated_at=timestamp,
             version=reservation.version + 1,
@@ -231,6 +265,8 @@ class OnlyPositionReservationManager:
         reservation = self._require(order_id)
         if reservation.state is OnlyPositionReservationState.RELEASED:
             return OnlyPositionReservationResult(reservation, False)
+        if reservation.released_quantity is None:
+            raise RuntimeError("Position Reservation released authority is unavailable")
         broker_holds = reservation.stage in {
             OnlyPositionReservationStage.BROKER_ACKNOWLEDGED,
             OnlyPositionReservationStage.RELEASE_PENDING,
@@ -255,6 +291,10 @@ class OnlyPositionReservationManager:
         updated = replace(
             reservation,
             remaining_quantity=OnlyQuantity(Decimal(0), reservation.quantity.precision),
+            released_quantity=OnlyQuantity(
+                reservation.released_quantity.value + reservation.remaining_quantity.value,
+                reservation.quantity.precision,
+            ),
             stage=OnlyPositionReservationStage.RELEASED,
             state=OnlyPositionReservationState.RELEASED,
             updated_at=timestamp,

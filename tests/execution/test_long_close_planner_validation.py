@@ -42,12 +42,14 @@ def test_long_close_forbids_cash_reservation_authority() -> None:
     )
 
 
-def test_long_close_rejects_fill_smaller_than_order_remainder() -> None:
-    _, context, _ = only_test_generic_t0_long_close_context()
-    smaller_fill = replace(
-        context.update.fill,
-        quantity=replace(context.update.fill.quantity, value=context.update.fill.quantity.value / 2),
+def test_long_close_accepts_fill_smaller_than_order_remainder() -> None:
+    _, context, prepared = only_test_generic_t0_long_close_context(
+        open_quantity="1000",
+        close_quantity="1000",
+        fill_quantity="300",
     )
-    changed = replace(context, update=replace(context.update, fill=smaller_fill))
 
-    _assert_code(changed, OnlyTradeExecutionPlanningErrorCode.PARTIAL_CLOSE_NOT_READY)
+    assert context.update.fill.quantity.value == 300
+    assert prepared.fact_draft.cumulative_filled_quantity.value == 300
+    assert prepared.fact_draft.remaining_quantity.value == 700
+    assert not prepared.fact_draft.terminal_fill

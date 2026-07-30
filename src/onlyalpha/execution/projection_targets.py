@@ -21,6 +21,7 @@ from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
+from onlyalpha.position.enums import OnlyPositionReservationState
 from onlyalpha.position.manager import OnlyPositionManager
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.position.reservations import OnlyPositionReservation, OnlyPositionReservationManager
@@ -46,6 +47,7 @@ from .authority_state import (
     only_settlement_execution_state,
     only_settlement_record_replay,
 )
+from .committed import OnlyCommittedExecutionFact
 from .execution_state import (
     OnlyAccountExecutionState,
     OnlyAllocationExecutionState,
@@ -73,6 +75,7 @@ from .projection import (
     OnlyFeeExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
     OnlyProjectionApplyResult,
@@ -90,6 +93,8 @@ from .state_hash import only_execution_state_hash
 
 def only_execution_trade_fingerprints(context: OnlyExecutionProjectionApplyContext) -> tuple[str, ...]:
     fact = context.fact
+    if not isinstance(fact, OnlyCommittedExecutionFact):
+        raise TypeError("Trade fingerprints require a committed Trade Fact")
     values = {f"trade:{fact.trade_id}", f"execution:{fact.broker_update_id}"}
     if fact.venue_trade_id is not None:
         values.add(f"venue:{fact.venue_trade_id}")
@@ -225,18 +230,26 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
         projection = context.projection
         current_snapshot = (
             self._manager.get_snapshot(projection.after.order_id)
-            if isinstance(projection, OnlyOrderExecutionProjection)
+            if isinstance(projection, OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection)
             else None
         )
         current = None if current_snapshot is None else only_order_execution_state(current_snapshot)
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
-        assert isinstance(projection, OnlyOrderExecutionProjection)
+        assert isinstance(projection, OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection)
         snapshot = _order_snapshot(projection.after)
         external_ids = frozenset({str(context.fact.broker_update_id)})
-        trade_ids = frozenset({str(context.fact.trade_id)})
-        venue_ids = frozenset(() if context.fact.venue_trade_id is None else {context.fact.venue_trade_id})
+        trade_ids = (
+            frozenset({str(context.fact.trade_id)})
+            if isinstance(context.fact, OnlyCommittedExecutionFact)
+            else frozenset()
+        )
+        venue_ids = (
+            frozenset(() if context.fact.venue_trade_id is None else {context.fact.venue_trade_id})
+            if isinstance(context.fact, OnlyCommittedExecutionFact)
+            else frozenset()
+        )
         self._manager.restore_execution_authority(
             snapshot,
             external_event_ids=external_ids,
@@ -511,6 +524,8 @@ class OnlyAccountExecutionProjectionTarget(_OnlyProjectionTargetBase):
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
         assert isinstance(projection, OnlyAccountExecutionProjection) and current_snapshot is not None
+        if not isinstance(context.fact, OnlyCommittedExecutionFact):
+            raise ValueError("Account execution projection requires a Trade Fact")
         self._manager.restore_execution_authority(
             _account_snapshot(projection.after, current_snapshot),
             trade_ids=(context.fact.trade_id,),
@@ -531,6 +546,8 @@ def _ledger_snapshot(
     context: OnlyExecutionProjectionApplyContext,
     projection: OnlyStrategyLedgerExecutionProjection,
 ) -> OnlyStrategyLedgerSnapshot:
+    if not isinstance(context.fact, OnlyCommittedExecutionFact):
+        raise ValueError("Strategy Ledger projection requires a Trade Fact")
     net = state.realized_pnl + state.unrealized_pnl - state.fees
     quantum = Decimal(1).scaleb(-state.key.base_currency.precision)
     stage_market_amount = sum(
@@ -755,6 +772,11 @@ class OnlyPositionReservationExecutionProjectionTarget(_OnlyProjectionTargetBase
             return prepared
         assert isinstance(projection, OnlyPositionReservationExecutionProjection)
         state: OnlyPositionReservationExecutionState = projection.after
+        if (
+            prepared.decision is _OnlyProjectionApplyDecision.APPLY
+            and state.state is OnlyPositionReservationState.RELEASED
+        ):
+            self._manager.release(state.order_id, state.updated_at, broker_confirmed=True)
         reservation = OnlyPositionReservation(
             **{name: getattr(state, name) for name in OnlyPositionReservation.__dataclass_fields__}
         )
@@ -797,6 +819,8 @@ class OnlyRiskReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
             state.release_reason,
             state.consumed_notional,
             state.consumed_quantity,
+            state.released_notional,
+            state.released_quantity,
         )
         sequence = max(self._service.reservations.sequence_head, 1)
         self._service.reservations.restore_execution_authority(reservation, sequence=sequence)

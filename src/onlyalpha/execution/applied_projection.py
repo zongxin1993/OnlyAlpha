@@ -9,6 +9,7 @@ from onlyalpha.domain.base import OnlyDomainModel
 
 from .committed import OnlyCommittedExecutionFact
 from .projection import OnlyExecutionProjection, OnlyExecutionProjectionComponent
+from .terminal_fact import OnlyCommittedTerminalExecutionFact
 
 
 def _require_digest(value: str, label: str) -> None:
@@ -20,7 +21,7 @@ def _require_digest(value: str, label: str) -> None:
 class OnlyExecutionProjectionApplyContext(OnlyDomainModel):
     transaction_id: str
     execution_sequence: int
-    fact: OnlyCommittedExecutionFact
+    fact: OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact
     projection: OnlyExecutionProjection
 
     def __post_init__(self) -> None:

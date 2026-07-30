@@ -137,6 +137,45 @@ class OnlyOrderExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyOrderTerminalExecutionProjection(OnlyDomainModel):
+    identity: OnlyExecutionProjectionIdentity
+    before: OnlyOrderExecutionState
+    after: OnlyOrderExecutionState
+    broker_update_id: OnlyBrokerUpdateId
+    terminal_identity: str
+    terminal_status: OnlyOrderStatus
+    terminal_reason: str
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyExecutionProjectionComponent.ORDER)
+        _require_state_contract(self.identity, self.before, self.after)
+        if _order_scope(self.before) != _order_scope(self.after) or self.identity.entity_key != str(
+            self.after.order_id
+        ):
+            raise ValueError("Order terminal projection before/after scope mismatch")
+        if not self.terminal_identity.startswith("ETERM-") or not str(self.broker_update_id).strip():
+            raise ValueError("Order terminal projection requires terminal/update identity")
+        if self.after.status is not self.terminal_status or self.terminal_status not in {
+            OnlyOrderStatus.CANCELLED,
+            OnlyOrderStatus.REJECTED,
+            OnlyOrderStatus.EXPIRED,
+        }:
+            raise ValueError("Order terminal projection status is invalid")
+        unchanged = (
+            self.before.quantity == self.after.quantity,
+            self.before.filled_quantity == self.after.filled_quantity,
+            self.before.remaining_quantity == self.after.remaining_quantity,
+            self.before.average_fill_price == self.after.average_fill_price,
+            self.before.fill_count == self.after.fill_count,
+            self.before.cumulative_price_quantity == self.after.cumulative_price_quantity,
+            self.before.last_trade_id == self.after.last_trade_id,
+        )
+        if not all(unchanged):
+            raise ValueError("Order terminal projection cannot create or alter Fill authority")
+        _require_external_sequence(self.before.last_external_sequence, self.after.last_external_sequence)
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyPositionExecutionReplayMetadata(OnlyDomainModel):
     cycle: int
 
@@ -570,6 +609,7 @@ class OnlyValuationExecutionProjection(OnlyDomainModel):
 
 type OnlyExecutionProjection = (
     OnlyOrderExecutionProjection
+    | OnlyOrderTerminalExecutionProjection
     | OnlyPositionExecutionProjection
     | OnlyAllocationExecutionProjection
     | OnlySettlementExecutionProjection

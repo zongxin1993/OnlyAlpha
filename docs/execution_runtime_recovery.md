@@ -51,15 +51,16 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
 
 ## Recovery order
 
-1. Open and validate the schema-version-2 Runtime store and stable Runtime identity.
+1. Open and validate the schema-version-3 Runtime store and stable Runtime identity. Schema 1/2 stores fail fast without
+   migration, deletion or Memory fallback.
 2. Load the latest complete checkpoint and verify aggregate/component hashes, schema versions, configuration fingerprint and
    Participant Registry fingerprint.
 3. Restore every required participant in registry order. Strategy, Factor, Indicator and deterministic Broker capabilities must
    be explicitly declared.
 4. Analyze the contiguous transaction tail. Projection Ready rows must form one prefix; unprojected rows form one suffix.
 5. Replay exact MarketData after the checkpoint cursor. Before each record, enter a boundary identified by source ID, data
-   version, update ID, source sequence and event time. Every Broker update enters ExecutionProcessor; each persisted Trade rebuilds
-   the same Prepared contract and resolves the next causal session entry at that update point.
+   version, update ID, source sequence and event time. Every Broker update enters ExecutionProcessor; each persisted Trade Fill or
+   Order Terminal operation rebuilds the same Prepared contract and resolves the next causal session entry at that update point.
 6. Rehydrate Ready entries through real Manager Projection Targets and recover unprojected entries through the formal Coordinator
    at their original causal points. Resolving the last persisted entry changes Execution phase to `TAIL_RESOLVED`; it does not end
    the Bar.
@@ -96,7 +97,9 @@ runtime:
 The single file is
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`. Checkpoint header, components, transactions and
 Outbox share the same connection and identity. Retention happens in the same transaction as insertion, so a failed new write
-does not delete the previous complete checkpoint. SQLite schema version 1 is unsupported and is never migrated automatically.
+does not delete the previous complete checkpoint. SQLite Runtime Persistence schema version 3 supports discriminated
+`TRADE_FILL` and `ORDER_TERMINAL` rows; versions 1 and 2 are unsupported and are never migrated automatically. Virtual Broker
+checkpoint schema remains version 2.
 
 `MEMORY` requires checkpoint to be disabled and is not restartable.
 
@@ -114,9 +117,11 @@ business fingerprints. Direct delivery remains best-effort and Outbox delivery r
 path supports incremental Generic T0 Cash LIMIT BUY OPEN Fill transactions. PR4.3.2 makes Reservation, Fee, Account, Ledger and
 Risk accounting incremental and checkpoints Order Fee Accrual authority. PR4.3.3 adds checkpointable Virtual Broker Fill Plans
 and proves restart recovery across execute-before-publish, Commit, Projection, Outbox, partial-plan checkpoint and A→B→C
-boundaries without a new Recovery Phase. SELL/CLOSE, Futures/Margin transactions, non-trade
-transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
-and remote stores remain outside this phase.
+boundaries without a new Recovery Phase. PR4.4.2 extends that exact recovery protocol to multi-fill Long Close and durable
+Cancel/Reject/Expire `ORDER_TERMINAL` operations. Close Fill 1/2 checkpoints, execute-before-publish, Commit, mid-Projection,
+Outbox and A→B→C failures are compared with a no-fault baseline. Short/Hedging, Futures/Margin transactions, Paper/Live recovery,
+exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing and remote stores remain outside
+this phase.
 
 ## Event delivery failure semantics
 

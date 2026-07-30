@@ -98,6 +98,7 @@ class OnlyBacktestResultCollector:
                     for transaction in runtime.ready_execution_query.ready_records(
                         OnlyRuntimeId(str(runtime.config.runtime_id))
                     )
+                    if isinstance(transaction.fact, OnlyCommittedExecutionFact)
                 ),
                 key=lambda item: item.stable_order,
             )

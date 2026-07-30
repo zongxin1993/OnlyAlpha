@@ -31,8 +31,9 @@ closed 历史，下一轮使用新 ID。状态为 OPEN、CLOSED、RECONCILING、
 Offset、PositionSide、Price、Quantity、Fee、UTC 纳秒时刻和 external sequence。Manager 拒绝其他 Runtime、裸 float、
 不明确的方向和 Long-only 反手。
 
-第一版 Average Cost：增仓按成交量加权，减仓不改变剩余均价。账户 Position 和每个 Cluster Allocation 分别计算成本。
-Linear PnL 由 `OnlyLinearPnLModel` 计算 `(exit-entry) × quantity × multiplier`；费用单独累计，不进入成交均价。
+第一版 Average Cost：增仓按成交量加权，减仓不改变剩余均价。账户 Position 和每个 Cluster Allocation 使用同一个 Exact
+Close Cost Reducer：中间 Fill 以 `cumulative cost × fill quantity / quantity before` 释放精确累计成本，最终 Fill 释放全部
+余量并严格归零。Realized PnL 等价于 `(fill price × fill quantity - released cost) × multiplier`；费用单独累计，不进入成交均价。
 市值和未实现 PnL 由 `OnlyPositionValuationService` 基于带时间和来源的 mark price 生成，不在每个 Tick 修改核心历史。
 
 Trade 按 execution_id、venue_trade_id、trade_id 优先级去重；重复输入不改数量、PnL、版本或 Event。稳定顺序为
@@ -68,9 +69,10 @@ BROKER_ACKNOWLEDGED、RELEASE_PENDING、RELEASED；成交可部分或全部 CONS
 Cluster 再次卖出。撤单已确认但券商尚未恢复可用量时保持 RELEASE_PENDING，不乐观释放归因预占。创建、推进、消费和
 释放均幂等。
 
-Generic T0 Cash whole-fill Long Close 中，Position 与 Allocation 的 before/after、精确累计开仓价数量和 Position
-Reservation 消费都进入同一 Prepared Transaction。减仓按原平均成本释放精确成本，剩余均价不变；归零时清空平均价和
-累计成本并进入 CLOSED。Realized PnL 只由 Position reducer 计算一次，Allocation 使用同一 delta，禁止重复推导。
+Generic T0 Cash multi-fill Long Close 中，Position 与 Allocation 的 before/after、精确累计开仓价数量和 Position
+Reservation consumed/released/remaining 都进入同一 Prepared Transaction。每个 Fill 分段消费 Reservation；Final Fill 进入
+`CONSUMED`。部分成交后 Cancel/Reject/Expire 通过 durable Terminal Transaction 释放剩余量并进入 `RELEASED`，不会覆盖已
+消费数量。Realized PnL 只由 Position reducer 计算一次，Allocation 使用同一 delta，禁止重复推导。
 
 ## 7. Broker Snapshot、Authority 与 Reconciliation
 
@@ -107,7 +109,7 @@ Restriction/Broker/Difference/Reconciliation/Unallocated 均以 Decimal 字符�
 
 - 业务执行仅实现 NETTING Long-only、Average Cost、Linear PnL 和 T+1。
 - HEDGING、Short、FIFO/LIFO、Inverse/Quanto、公司行动和今昨仓平仓尚未实现。
-- 尚无真实 Gateway 或数据库 Position Repository；Backtest Runtime 对受支持的 Generic T0 Cash BUY OPEN 与 whole-fill
+- 尚无真实 Gateway 或数据库 Position Repository；Backtest Runtime 对受支持的 Generic T0 Cash BUY OPEN 与 multi-fill
   Long CLOSE 已使用 Runtime Persistence Store、ordered Projection 和 Recovery。Paper/Live 恢复仍未实现。
 - Live/Paper 的完整资源装配仍按 Runtime 路线图推进，但每种 Runtime 从构造起已独占 Position/Allocation 状态域。
 ## Virtual Broker Position Snapshot

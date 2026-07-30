@@ -10,7 +10,7 @@ from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyOrderId, OnlyPositionId, OnlyTradeId, OnlyVenueTradeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney, OnlyPrice
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
     OnlyAllocationCreationAuthority,
     OnlyExecutionProjection,
@@ -136,10 +136,30 @@ def only_test_generic_t0_trade_update(
     return _trade_update(environment, scenario, suffix=suffix, fill_price=fill_price)
 
 
+def only_test_generic_t0_long_close_update(
+    environment: OnlyIntegrationEnvironment,
+    order_id: OnlyOrderId,
+    *,
+    suffix: str,
+    fill_quantity: str,
+    fill_price: str,
+) -> OnlyBrokerTradeUpdate:
+    scenario = OnlyTestGenericT0Scenario(f"long-close-{suffix}", fill_price=fill_price)
+    return _trade_update_for_order(
+        environment,
+        order_id,
+        scenario,
+        suffix=suffix,
+        fill_price=fill_price,
+        fill_quantity=fill_quantity,
+    )
+
+
 def only_test_generic_t0_long_close_context(
     *,
     open_quantity: str = "100",
     close_quantity: str = "100",
+    fill_quantity: str | None = None,
     fill_price: str = "12.00",
 ) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
     scenario = OnlyTestGenericT0Scenario("long-close", fill_price=fill_price)
@@ -159,6 +179,7 @@ def only_test_generic_t0_long_close_context(
         scenario,
         suffix="close",
         fill_price=fill_price,
+        fill_quantity=fill_quantity,
     )
     context = only_test_real_trade_planning_context(environment, update)
     return environment, context, OnlyTradeExecutionTransactionPlanner().prepare(context)
@@ -504,6 +525,7 @@ def _trade_update_for_order(
     *,
     suffix: str | None = None,
     fill_price: str | None = None,
+    fill_quantity: str | None = None,
 ) -> OnlyBrokerTradeUpdate:
     order = env.runtime.order_manager.require_snapshot(order_id)
     timestamp = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
@@ -517,7 +539,7 @@ def _trade_update_for_order(
         OnlyTradeId(f"parity-trade-{name}"),
         order.order_id,
         OnlyPrice(Decimal(price), 2),
-        order.quantity,
+        (order.quantity if fill_quantity is None else OnlyQuantity(Decimal(fill_quantity), order.quantity.precision)),
         timestamp,
         initialized_at,
         OnlyVenueTradeId(f"parity-venue-trade-{name}"),

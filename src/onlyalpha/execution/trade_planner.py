@@ -27,6 +27,8 @@ from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState, OnlyStrategyLedgerStatus
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
+from .capability import OnlyExecutionCapability, only_resolve_execution_capability
+from .enums import OnlyExecutionOperationKind
 from .event_identity import OnlyExecutionTransactionEventFactory
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -603,10 +605,9 @@ class OnlyTradeExecutionTransactionPlanner:
             ),
             released_open_price_quantity=(
                 Decimal(0)
-                if context.position_before is None or context.position_before.average_open_price is None
-                else context.position_before.average_open_price.value * trade.quantity.value
-                if trade.position_effect is OnlyPositionEffect.CLOSE
-                else Decimal(0)
+                if context.position_before is None or trade.position_effect is not OnlyPositionEffect.CLOSE
+                else context.position_before.cumulative_open_price_quantity
+                - position_after.cumulative_open_price_quantity
             ),
             gross_cash_inflow=(trade.gross_notional if trade.side is OnlyOrderSide.SELL else zero),
             net_cash_inflow=(account.cash_delta if trade.side is OnlyOrderSide.SELL else zero),
@@ -688,6 +689,23 @@ class OnlyTradeExecutionTransactionPlanner:
             _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_MODE, "only NETTING is supported")
         if instruction.margin_instruction is not None or context.margin_reservation_before is not None:
             _fail(OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, "Margin is not supported")
+        capability = only_resolve_execution_capability(
+            operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
+            market_profile_id=instruction.compiled_identity.profile_id,
+            account_type=context.account_before.account_type,
+            order_type=order.order_type,
+            order_side=order.side,
+            offset=order.offset,
+            position_side=scope.position_side,
+            position_effect=scope.position_effect,
+            position_mode=scope.position_mode,
+            has_margin=False,
+        )
+        if capability is not OnlyExecutionCapability.DURABLE_TRADE:
+            _fail(
+                OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE,
+                f"execution capability is {capability.value}",
+            )
         if supported_open and context.position_reservation_before is not None:
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN,
@@ -710,16 +728,6 @@ class OnlyTradeExecutionTransactionPlanner:
                 _fail(
                     OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_RESERVATION_REQUIRED,
                     "SELL CLOSE requires Position Reservation",
-                )
-            if order.filled_quantity.value != 0 or order.fill_count != 0:
-                _fail(
-                    OnlyTradeExecutionPlanningErrorCode.PARTIAL_CLOSE_NOT_READY,
-                    "a Close Order with prior Fills is not supported",
-                )
-            if update.fill.quantity.value != order.remaining_quantity.value:
-                _fail(
-                    OnlyTradeExecutionPlanningErrorCode.PARTIAL_CLOSE_NOT_READY,
-                    "Close Fill must consume the complete Order remainder",
                 )
         if update.fill.quantity.value > order.remaining_quantity.value:
             _fail(

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 
+from .enums import OnlyExecutionOperationKind
 from .projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
@@ -17,6 +18,7 @@ from .projection import (
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
@@ -26,6 +28,7 @@ from .projection import (
     OnlyStrategyLedgerExecutionProjection,
 )
 from .reservation_presence import OnlyExecutionReservationPresence, only_expected_execution_reservations
+from .transaction import OnlyCommittedExecutionFactDraft
 
 if TYPE_CHECKING:
     from .transaction import OnlyPreparedExecutionTransaction
@@ -35,7 +38,10 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
     """Reject a prepared transaction whose facts and authority states disagree."""
 
     def validate(self, prepared: OnlyPreparedExecutionTransaction) -> None:
-        fact = prepared.fact_draft
+        if prepared.operation_kind is OnlyExecutionOperationKind.ORDER_TERMINAL:
+            self._validate_terminal(prepared)
+            return
+        fact = _trade_fact(prepared)
         order = _one(prepared.projections, OnlyOrderExecutionProjection)
         position = _one(prepared.projections, OnlyPositionExecutionProjection)
         allocation = _one(prepared.projections, OnlyAllocationExecutionProjection)
@@ -217,8 +223,76 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         self._validate_risk_reservations(prepared)
 
     @staticmethod
-    def _validate_cash_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
+    def _validate_terminal(prepared: OnlyPreparedExecutionTransaction) -> None:
+        from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft
+
         fact = prepared.fact_draft
+        if not isinstance(fact, OnlyCommittedTerminalExecutionFactDraft):
+            raise ValueError("terminal transaction requires Terminal Fact")
+        if len(prepared.projections) != 4:
+            raise ValueError("terminal transaction requires exactly four projections")
+        order = _one(prepared.projections, OnlyOrderTerminalExecutionProjection)
+        position = _one(prepared.projections, OnlyPositionReservationExecutionProjection)
+        risk_reservation = _one(prepared.projections, OnlyRiskReservationExecutionProjection)
+        risk = _one(prepared.projections, OnlyRiskExecutionProjection)
+        if position.before is None or risk_reservation.before is None:
+            raise ValueError("terminal transaction requires existing Reservation authority")
+        position_before_consumed = position.before.consumed_quantity
+        position_after_consumed = position.after.consumed_quantity
+        if position_before_consumed is None or position_after_consumed is None:
+            raise ValueError("terminal Position Reservation lacks consumed authority")
+        position_before_released = position.before.released_quantity
+        position_after_released = position.after.released_quantity
+        if position_before_released is None or position_after_released is None:
+            raise ValueError("terminal Position Reservation lacks released authority")
+        risk_before_released = risk_reservation.before.released_quantity
+        risk_after_released = risk_reservation.after.released_quantity
+        if risk_before_released is None or risk_after_released is None:
+            raise ValueError("terminal Risk Reservation lacks released authority")
+        released_notional = (
+            Decimal(0)
+            if risk_reservation.after.released_notional is None
+            else risk_reservation.after.released_notional.amount
+        ) - (
+            Decimal(0)
+            if risk_reservation.before.released_notional is None
+            else risk_reservation.before.released_notional.amount
+        )
+        expected_released_notional = (
+            Decimal(0)
+            if fact.risk_reservation_released_notional_delta is None
+            else fact.risk_reservation_released_notional_delta.amount
+        )
+        if (
+            order.terminal_identity != fact.terminal_identity
+            or order.broker_update_id != fact.broker_update_id
+            or order.after.status is not fact.terminal_status
+            or order.after.filled_quantity != fact.filled_quantity_before
+            or order.after.remaining_quantity != fact.order_remaining_quantity
+            or position.after.order_id != fact.order_id
+            or position_before_consumed != fact.position_reservation_consumed_before
+            or position_after_consumed != position_before_consumed
+            or position_after_released.value - position_before_released.value
+            != fact.position_reservation_released_delta.value
+            or position.after.remaining_quantity != fact.position_reservation_remaining_after
+            or risk_reservation.after.order_id != fact.order_id
+            or risk_reservation.before.consumed_quantity != fact.risk_reservation_consumed_quantity_before
+            or risk_reservation.after.consumed_quantity != risk_reservation.before.consumed_quantity
+            or risk_after_released.value - risk_before_released.value
+            != fact.risk_reservation_released_quantity_delta.value
+            or released_notional != expected_released_notional
+            or risk_reservation.after.remaining_quantity != fact.risk_reservation_remaining_quantity_after
+            or risk.after.active_order_count - risk.before.active_order_count != fact.active_order_count_delta
+            or risk.after.cluster_active_order_count - risk.before.cluster_active_order_count
+            != fact.cluster_active_order_count_delta
+            or risk.after.reserved_quantity
+            != risk.before.reserved_quantity - fact.risk_reservation_released_quantity_delta.value
+        ):
+            raise ValueError("terminal projections contradict Terminal Fact")
+
+    @staticmethod
+    def _validate_cash_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
+        fact = _trade_fact(prepared)
         accounts = _all(prepared.projections, OnlyAccountCashReservationExecutionProjection)
         strategies = _all(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
         if accounts or strategies:
@@ -282,7 +356,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
 
     @staticmethod
     def _validate_risk_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
-        fact = prepared.fact_draft
+        fact = _trade_fact(prepared)
         risk_projection = _one(prepared.projections, OnlyRiskExecutionProjection)
         risk = risk_projection.after
         reservations = tuple(
@@ -301,6 +375,16 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 if projection.after.consumed_notional is None
                 else projection.after.consumed_notional.amount - before_notional
             )
+            released_notional_before = (
+                Decimal(0)
+                if projection.before is None or projection.before.released_notional is None
+                else projection.before.released_notional.amount
+            )
+            released_notional = (
+                Decimal(0)
+                if projection.after.released_notional is None
+                else projection.after.released_notional.amount - released_notional_before
+            )
             if (
                 projection.after.order_id != fact.order_id
                 or projection.after.runtime_id != fact.runtime_id
@@ -315,6 +399,12 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 or consumed_quantity != fact.risk_reservation_quantity_consumed_delta.value
                 or consumed_notional != fact.risk_reservation_notional_consumed_delta.amount
                 or risk.reserved_quantity != risk_projection.before.reserved_quantity - consumed_quantity
+                or (
+                    risk.reserved_notional is not None
+                    and risk_projection.before.reserved_notional is not None
+                    and risk.reserved_notional.amount
+                    != risk_projection.before.reserved_notional.amount - consumed_notional - released_notional
+                )
                 or risk.active_order_count != risk_projection.before.active_order_count - int(fact.terminal_fill)
                 or risk.cluster_active_order_count
                 != risk_projection.before.cluster_active_order_count - int(fact.terminal_fill)
@@ -323,7 +413,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
 
     @staticmethod
     def _validate_scope(prepared: OnlyPreparedExecutionTransaction) -> None:
-        fact = prepared.fact_draft
+        fact = _trade_fact(prepared)
         order = _one(prepared.projections, OnlyOrderExecutionProjection).after
         position = _one(prepared.projections, OnlyPositionExecutionProjection).after
         allocation = _one(prepared.projections, OnlyAllocationExecutionProjection).after
@@ -393,7 +483,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
 
     @staticmethod
     def _validate_margin_account(prepared: OnlyPreparedExecutionTransaction) -> None:
-        fact = prepared.fact_draft
+        fact = _trade_fact(prepared)
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
         margin = _one(prepared.projections, OnlyMarginExecutionProjection).after
         reservation = _one(prepared.projections, OnlyMarginReservationExecutionProjection).after
@@ -432,6 +522,13 @@ def _one[ProjectionT: OnlyExecutionProjection](
     if len(matches) != 1:
         raise ValueError(f"prepared execution requires exactly one {projection_type.__name__}")
     return matches[0]
+
+
+def _trade_fact(prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionFactDraft:
+    fact = prepared.fact_draft
+    if not isinstance(fact, OnlyCommittedExecutionFactDraft):
+        raise ValueError("Trade execution requires a Trade Fact")
+    return fact
 
 
 def _all[ProjectionT: OnlyExecutionProjection](

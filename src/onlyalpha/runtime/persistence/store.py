@@ -22,6 +22,8 @@ from onlyalpha.execution.codec import (
     only_encode_committed_execution_transaction,
     only_encode_prepared_execution_transaction,
 )
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
+from onlyalpha.execution.enums import OnlyExecutionOperationKind
 from onlyalpha.execution.persistence_ports import (
     OnlyExecutionProjectionStatePort,
     OnlyExecutionTransactionCommitPort,
@@ -35,6 +37,7 @@ from onlyalpha.execution.persistence_ports import (
     OnlyRuntimePersistenceStoreError,
 )
 from onlyalpha.execution.transaction import (
+    OnlyCommittedExecutionFactDraft,
     OnlyCommittedExecutionTransaction,
     OnlyExecutionTransactionCommitResult,
     OnlyPreparedExecutionTransaction,
@@ -51,7 +54,7 @@ from onlyalpha.runtime.checkpoint.model import (
     OnlyRuntimeCheckpointHeader,
 )
 
-ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "2"
+ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "3"
 
 
 class OnlyRuntimePersistenceIdentityMismatch(OnlyRuntimePersistenceStoreError):
@@ -110,6 +113,9 @@ def _finalize(
         prepared_authority_hash=prepared.authority_hash,
         prepared_payload_hash=prepared.payload_hash,
         committed_payload_hash="",
+        operation_kind=prepared.operation_kind,
+        trade_id=prepared.trade_id,
+        terminal_identity=prepared.terminal_identity,
     )
     return replace(
         transaction,
@@ -149,6 +155,7 @@ class OnlyInMemoryRuntimePersistenceStore:
         self._by_update: dict[
             tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyAccountId, OnlyBrokerUpdateId], tuple[OnlyRuntimeId, int]
         ] = {}
+        self._by_terminal: dict[str, tuple[OnlyRuntimeId, int]] = {}
         self._outbox: dict[tuple[OnlyRuntimeId, int, int], OnlyExecutionTransactionOutboxRecord] = {}
         self._checkpoints: dict[tuple[OnlyRuntimeId, int], OnlyRuntimeCheckpoint] = {}
         self._participant_registry_fingerprint: str | None = None
@@ -163,6 +170,7 @@ class OnlyInMemoryRuntimePersistenceStore:
                 dict(self._by_transaction),
                 dict(self._by_trade),
                 dict(self._by_update),
+                dict(self._by_terminal),
                 dict(self._outbox),
             )
             try:
@@ -209,7 +217,10 @@ class OnlyInMemoryRuntimePersistenceStore:
                 self._records[key] = transaction
                 self._prepared_records[key] = prepared
                 self._by_transaction[prepared.transaction_id] = key
-                self._by_trade[self._trade_key(prepared)] = key
+                if prepared.trade_id is not None:
+                    self._by_trade[self._trade_key(prepared)] = key
+                if prepared.terminal_identity is not None:
+                    self._by_terminal[prepared.terminal_identity] = key
                 self._by_update[self._update_key(prepared)] = key
                 self._outbox.update(outbox_records)
                 return OnlyExecutionTransactionCommitResult(transaction, True)
@@ -222,6 +233,7 @@ class OnlyInMemoryRuntimePersistenceStore:
                     self._by_transaction,
                     self._by_trade,
                     self._by_update,
+                    self._by_terminal,
                     self._outbox,
                 ) = snapshots
                 raise OnlyRuntimePersistenceStoreError("in-memory execution transaction commit failed") from exc
@@ -267,10 +279,21 @@ class OnlyInMemoryRuntimePersistenceStore:
                 (
                     item
                     for item in self._records.values()
-                    if item.runtime_id == runtime_id and item.fact.fill_identity == fill_identity
+                    if item.runtime_id == runtime_id
+                    and isinstance(item.fact, OnlyCommittedExecutionFact)
+                    and item.fact.fill_identity == fill_identity
                 ),
                 None,
             )
+
+    def get_by_terminal_identity(
+        self, runtime_id: OnlyRuntimeId, terminal_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None:
+        with self._lock:
+            key = self._by_terminal.get(terminal_identity)
+            if key is None or key[0] != runtime_id:
+                return None
+            return self._records[key]
 
     def transactions_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
@@ -283,14 +306,18 @@ class OnlyInMemoryRuntimePersistenceStore:
                         for item in self._records.values()
                         if item.runtime_id == runtime_id and item.fact.order_id == order_id
                     ),
-                    key=lambda item: (item.fact.fill_index, item.execution_sequence),
+                    key=lambda item: item.execution_sequence,
                 )
             )
 
     def latest_fill_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
     ) -> OnlyCommittedExecutionTransaction | None:
-        records = self.transactions_for_order(runtime_id, order_id)
+        records = tuple(
+            item
+            for item in self.transactions_for_order(runtime_id, order_id)
+            if isinstance(item.fact, OnlyCommittedExecutionFact)
+        )
         return None if not records else records[-1]
 
     def records(
@@ -489,19 +516,28 @@ class OnlyInMemoryRuntimePersistenceStore:
             )
 
     def _find_idempotent(self, prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionTransaction | None:
+        operation_key = (
+            self._by_trade.get(self._trade_key(prepared))
+            if prepared.operation_kind is OnlyExecutionOperationKind.TRADE_FILL
+            else self._by_terminal.get(prepared.terminal_identity or "")
+        )
         keys = (
             self._by_transaction.get(prepared.transaction_id),
-            self._by_trade.get(self._trade_key(prepared)),
+            operation_key,
             self._by_update.get(self._update_key(prepared)),
         )
         existing_keys = {key for key in keys if key is not None}
         if not existing_keys:
-            fill_existing = self.get_by_fill_identity(prepared.runtime_id, prepared.fact_draft.fill_identity)
-            if fill_existing is None:
-                return None
-            if fill_existing.fact.fill_payload_fingerprint != prepared.fact_draft.fill_payload_fingerprint:
-                raise OnlyExecutionTransactionConflict("Fill identity conflicts with another payload fingerprint")
-            return fill_existing
+            if prepared.operation_kind is OnlyExecutionOperationKind.TRADE_FILL:
+                assert isinstance(prepared.fact_draft, OnlyCommittedExecutionFactDraft)
+                fill_existing = self.get_by_fill_identity(prepared.runtime_id, prepared.fact_draft.fill_identity)
+                if fill_existing is None:
+                    return None
+                assert isinstance(fill_existing.fact, OnlyCommittedExecutionFact)
+                if fill_existing.fact.fill_payload_fingerprint != prepared.fact_draft.fill_payload_fingerprint:
+                    raise OnlyExecutionTransactionConflict("Fill identity conflicts with another payload fingerprint")
+                return fill_existing
+            return None
         if len(existing_keys) != 1:
             raise OnlyExecutionTransactionConflict("execution idempotency indexes refer to different transactions")
         existing = self._records[existing_keys.pop()]
@@ -509,18 +545,31 @@ class OnlyInMemoryRuntimePersistenceStore:
             existing.prepared_authority_hash != prepared.authority_hash
             or existing.prepared_payload_hash != prepared.payload_hash
         ):
-            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared payload")
+            message = (
+                "TERMINAL_IDENTITY_CONFLICT: terminal identity has another payload"
+                if prepared.operation_kind is OnlyExecutionOperationKind.ORDER_TERMINAL
+                else "execution idempotency key conflicts with another prepared payload"
+            )
+            raise OnlyExecutionTransactionConflict(message)
         return existing
 
     def _validate_fill_index(self, prepared: OnlyPreparedExecutionTransaction) -> None:
+        if prepared.operation_kind is not OnlyExecutionOperationKind.TRADE_FILL:
+            return
+        assert isinstance(prepared.fact_draft, OnlyCommittedExecutionFactDraft)
         for existing in self.transactions_for_order(prepared.runtime_id, prepared.fact_draft.order_id):
-            if existing.fact.fill_index == prepared.fact_draft.fill_index:
+            if (
+                isinstance(existing.fact, OnlyCommittedExecutionFact)
+                and existing.fact.fill_index == prepared.fact_draft.fill_index
+            ):
                 raise OnlyExecutionTransactionConflict("Fill index conflicts with another durable Order Fill")
 
     @staticmethod
     def _trade_key(
         prepared: OnlyPreparedExecutionTransaction,
     ) -> tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyAccountId, OnlyTradeId]:
+        if prepared.trade_id is None:
+            raise ValueError("Trade key requires Trade ID")
         return prepared.runtime_id, prepared.gateway_id, prepared.account_id, prepared.trade_id
 
     @staticmethod
@@ -570,7 +619,9 @@ class OnlySqliteRuntimePersistenceStore:
                     transaction_id TEXT NOT NULL UNIQUE,
                     gateway_id TEXT NOT NULL,
                     account_id TEXT NOT NULL,
-                    trade_id TEXT NOT NULL,
+                    operation_kind TEXT NOT NULL,
+                    trade_id TEXT,
+                    terminal_identity TEXT,
                     broker_update_id TEXT NOT NULL,
                     source_sequence INTEGER NOT NULL,
                     prepared_payload TEXT NOT NULL,
@@ -585,6 +636,7 @@ class OnlySqliteRuntimePersistenceStore:
                     projection_failed_at INTEGER,
                     PRIMARY KEY(runtime_id, execution_sequence),
                     UNIQUE(runtime_id, gateway_id, account_id, trade_id),
+                    UNIQUE(runtime_id, terminal_identity),
                     UNIQUE(runtime_id, gateway_id, account_id, broker_update_id)
                 );
                 CREATE TABLE IF NOT EXISTS execution_transaction_outbox (
@@ -669,14 +721,21 @@ class OnlySqliteRuntimePersistenceStore:
                 transaction = _finalize(prepared, sequence, committed_at)
                 committed_payload = only_encode_committed_execution_transaction(transaction)
                 self._connection.execute(
-                    "INSERT INTO execution_transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
+                    "INSERT INTO execution_transactions("
+                    "runtime_id, execution_sequence, transaction_id, gateway_id, account_id, operation_kind, "
+                    "trade_id, terminal_identity, broker_update_id, source_sequence, prepared_payload, "
+                    "prepared_authority_hash, prepared_payload_hash, committed_payload, committed_payload_hash, "
+                    "committed_at, projection_ready, projected_at, projection_error, projection_failed_at"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
                     (
                         str(prepared.runtime_id),
                         sequence,
                         prepared.transaction_id,
                         str(prepared.gateway_id),
                         str(prepared.account_id),
-                        str(prepared.trade_id),
+                        prepared.operation_kind.value,
+                        None if prepared.trade_id is None else str(prepared.trade_id),
+                        prepared.terminal_identity,
                         str(prepared.broker_update_id),
                         prepared.source_sequence,
                         prepared_payload,
@@ -754,8 +813,20 @@ class OnlySqliteRuntimePersistenceStore:
         self, runtime_id: OnlyRuntimeId, fill_identity: str
     ) -> OnlyCommittedExecutionTransaction | None:
         return next(
-            (item for item in self.records(runtime_id) if item.fact.fill_identity == fill_identity),
+            (
+                item
+                for item in self.records(runtime_id)
+                if isinstance(item.fact, OnlyCommittedExecutionFact) and item.fact.fill_identity == fill_identity
+            ),
             None,
+        )
+
+    def get_by_terminal_identity(
+        self, runtime_id: OnlyRuntimeId, terminal_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None:
+        return self._find(
+            "runtime_id=? AND terminal_identity=?",
+            (str(runtime_id), terminal_identity),
         )
 
     def transactions_for_order(
@@ -764,14 +835,18 @@ class OnlySqliteRuntimePersistenceStore:
         return tuple(
             sorted(
                 (item for item in self.records(runtime_id) if item.fact.order_id == order_id),
-                key=lambda item: (item.fact.fill_index, item.execution_sequence),
+                key=lambda item: item.execution_sequence,
             )
         )
 
     def latest_fill_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
     ) -> OnlyCommittedExecutionTransaction | None:
-        records = self.transactions_for_order(runtime_id, order_id)
+        records = tuple(
+            item
+            for item in self.transactions_for_order(runtime_id, order_id)
+            if isinstance(item.fact, OnlyCommittedExecutionFact)
+        )
         return None if not records else records[-1]
 
     def records(
@@ -1085,7 +1160,10 @@ class OnlySqliteRuntimePersistenceStore:
             raise OnlyRuntimePersistenceMetadataCorrupt("RUNTIME_PERSISTENCE_METADATA_CORRUPT") from exc
         schema_version = metadata.get("schema_version")
         if schema_version != ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION:
-            raise OnlyRuntimePersistenceSchemaUnsupported(f"RUNTIME_PERSISTENCE_SCHEMA_UNSUPPORTED: {schema_version!r}")
+            raise OnlyRuntimePersistenceSchemaUnsupported(
+                "RUNTIME_PERSISTENCE_SCHEMA_UNSUPPORTED: "
+                f"expected={ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION!r}, actual={schema_version!r}"
+            )
         if identity is None:
             return
         missing = sorted(set(identity) - set(metadata))
@@ -1107,35 +1185,53 @@ class OnlySqliteRuntimePersistenceStore:
     def _find_idempotent(self, prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionTransaction | None:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM execution_transactions WHERE transaction_id=? OR (runtime_id=? AND gateway_id=? AND account_id=? AND (trade_id=? OR broker_update_id=?))",
+                "SELECT * FROM execution_transactions WHERE transaction_id=? OR "
+                "(runtime_id=? AND gateway_id=? AND account_id=? AND "
+                "(trade_id=? OR terminal_identity=? OR broker_update_id=?))",
                 (
                     prepared.transaction_id,
                     str(prepared.runtime_id),
                     str(prepared.gateway_id),
                     str(prepared.account_id),
-                    str(prepared.trade_id),
+                    None if prepared.trade_id is None else str(prepared.trade_id),
+                    prepared.terminal_identity,
                     str(prepared.broker_update_id),
                 ),
             ).fetchall()
         if not rows:
-            fill_existing = self.get_by_fill_identity(prepared.runtime_id, prepared.fact_draft.fill_identity)
-            if fill_existing is None:
-                return None
-            if fill_existing.fact.fill_payload_fingerprint != prepared.fact_draft.fill_payload_fingerprint:
-                raise OnlyExecutionTransactionConflict("Fill identity conflicts with another payload fingerprint")
-            return fill_existing
+            if prepared.operation_kind is OnlyExecutionOperationKind.TRADE_FILL:
+                assert isinstance(prepared.fact_draft, OnlyCommittedExecutionFactDraft)
+                fill_existing = self.get_by_fill_identity(prepared.runtime_id, prepared.fact_draft.fill_identity)
+                if fill_existing is None:
+                    return None
+                assert isinstance(fill_existing.fact, OnlyCommittedExecutionFact)
+                if fill_existing.fact.fill_payload_fingerprint != prepared.fact_draft.fill_payload_fingerprint:
+                    raise OnlyExecutionTransactionConflict("Fill identity conflicts with another payload fingerprint")
+                return fill_existing
+            return None
         transactions = tuple(self._decode_row(row) for row in rows)
         if (
             len({(item.prepared_authority_hash, item.prepared_payload_hash) for item in transactions}) != 1
             or transactions[0].prepared_authority_hash != prepared.authority_hash
             or transactions[0].prepared_payload_hash != prepared.payload_hash
         ):
-            raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared payload")
+            message = (
+                "TERMINAL_IDENTITY_CONFLICT: terminal identity has another payload"
+                if prepared.operation_kind is OnlyExecutionOperationKind.ORDER_TERMINAL
+                else "execution idempotency key conflicts with another prepared payload"
+            )
+            raise OnlyExecutionTransactionConflict(message)
         return transactions[0]
 
     def _validate_fill_index(self, prepared: OnlyPreparedExecutionTransaction) -> None:
+        if prepared.operation_kind is not OnlyExecutionOperationKind.TRADE_FILL:
+            return
+        assert isinstance(prepared.fact_draft, OnlyCommittedExecutionFactDraft)
         for existing in self.transactions_for_order(prepared.runtime_id, prepared.fact_draft.order_id):
-            if existing.fact.fill_index == prepared.fact_draft.fill_index:
+            if (
+                isinstance(existing.fact, OnlyCommittedExecutionFact)
+                and existing.fact.fill_index == prepared.fact_draft.fill_index
+            ):
                 raise OnlyExecutionTransactionConflict("Fill index conflicts with another durable Order Fill")
 
     def _mark_projection(
@@ -1211,7 +1307,10 @@ class OnlySqliteRuntimePersistenceStore:
             payload = str(row["committed_payload"])
             value = json.loads(payload)
             historical_fill_authority = (
-                isinstance(value, dict) and isinstance(value.get("fact"), dict) and "fill_identity" not in value["fact"]
+                isinstance(value, dict)
+                and value.get("operation_kind", "TRADE_FILL") == "TRADE_FILL"
+                and isinstance(value.get("fact"), dict)
+                and "fill_identity" not in value["fact"]
             )
             transaction = only_decode_committed_execution_transaction(payload)
             if not historical_fill_authority and transaction.committed_payload_hash != str(
@@ -1230,6 +1329,7 @@ class OnlySqliteRuntimePersistenceStore:
             prepared_json = json.loads(prepared_payload)
             historical_fill_authority = (
                 isinstance(prepared_json, dict)
+                and prepared_json.get("operation_kind", "TRADE_FILL") == "TRADE_FILL"
                 and isinstance(prepared_json.get("fact_draft"), dict)
                 and "fill_identity" not in prepared_json["fact_draft"]
             )

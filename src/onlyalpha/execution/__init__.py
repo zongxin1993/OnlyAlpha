@@ -11,6 +11,7 @@ from .authority_state import (
     only_settlement_execution_state,
     only_settlement_record_replay,
 )
+from .capability import OnlyExecutionCapability, only_resolve_execution_capability
 from .causal_recovery import (
     OnlyExecutionRecoveryContinuation,
     OnlyExecutionRecoveryDecision,
@@ -63,6 +64,7 @@ from .enums import (
     OnlyExecutionFailureCode,
     OnlyExecutionMutationStatus,
     OnlyExecutionMutationStep,
+    OnlyExecutionOperationKind,
     OnlyExecutionProcessingStatus,
 )
 from .event_buffer import OnlyExecutionEventBatch, OnlyExecutionEventBuffer
@@ -136,6 +138,7 @@ from .planned_trade import OnlyPlannedTrade
 from .planning_context import (
     OnlyAllocationCreationAuthority,
     OnlyPositionCreationAuthority,
+    OnlyTerminalExecutionPlanningContext,
     OnlyTradeExecutionPlanningContext,
 )
 from .planning_results import (
@@ -164,6 +167,7 @@ from .projection import (
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionExecutionReplayMetadata,
     OnlyPositionReservationExecutionProjection,
@@ -220,6 +224,14 @@ from .state import (
     OnlyInMemoryExecutionReconciliationQueue,
 )
 from .state_hash import only_execution_state_hash
+from .terminal_fact import OnlyCommittedTerminalExecutionFact, OnlyCommittedTerminalExecutionFactDraft
+from .terminal_identity import (
+    OnlyBrokerOrderTerminalUpdate,
+    OnlyExecutionTerminalAuthority,
+    only_capture_execution_terminal_authority,
+    only_execution_terminal_status,
+)
+from .terminal_planner import OnlyTerminalExecutionTransactionPlanner
 from .trade_planner import OnlyTradeExecutionTransactionPlanner
 from .transaction import (
     OnlyCommittedExecutionFactDraft,
@@ -370,6 +382,15 @@ __all__ = [
     "OnlySettlementExecutionProjection",
     "OnlyStrategyLedgerExecutionProjection",
     "OnlyValuationExecutionProjection",
+    "OnlyExecutionCapability",
+    "OnlyExecutionOperationKind",
+    "OnlyBrokerOrderTerminalUpdate",
+    "OnlyCommittedTerminalExecutionFact",
+    "OnlyCommittedTerminalExecutionFactDraft",
+    "OnlyExecutionTerminalAuthority",
+    "OnlyOrderTerminalExecutionProjection",
+    "OnlyTerminalExecutionPlanningContext",
+    "OnlyTerminalExecutionTransactionPlanner",
     "OnlyTradeExecutionPlanningContext",
     "OnlyTradeExecutionPlanningError",
     "OnlyTradeExecutionPlanningErrorCode",
@@ -428,4 +449,7 @@ __all__ = [
     "only_strategy_cash_reservation_execution_state",
     "only_strategy_ledger_execution_state",
     "only_expected_execution_reservations",
+    "only_resolve_execution_capability",
+    "only_capture_execution_terminal_authority",
+    "only_execution_terminal_status",
 ]

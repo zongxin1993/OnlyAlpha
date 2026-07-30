@@ -78,7 +78,9 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
 from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
+from onlyalpha.execution.capability import OnlyExecutionCapability, only_resolve_execution_capability
 from onlyalpha.execution.commit_coordinator import OnlyExecutionCommitCoordinator
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.delivery import (
     OnlyExecutionEventDeliveryCoordinator,
     OnlyExecutionEventDeliveryIntent,
@@ -86,7 +88,7 @@ from onlyalpha.execution.delivery import (
     OnlyExecutionOutboxPublisher,
     OnlyRoutedDirectExecutionPublisher,
 )
-from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
+from onlyalpha.execution.enums import OnlyExecutionOperationKind, OnlyExecutionProcessingStatus
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.execution_state import (
     OnlyAccountExecutionState,
@@ -108,6 +110,7 @@ from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecut
 from onlyalpha.execution.planning_context import (
     OnlyAllocationCreationAuthority,
     OnlyPositionCreationAuthority,
+    OnlyTerminalExecutionPlanningContext,
     OnlyTradeExecutionPlanningContext,
 )
 from onlyalpha.execution.processor import OnlyExecutionProcessor
@@ -127,6 +130,11 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
+from onlyalpha.execution.terminal_identity import (
+    OnlyBrokerOrderTerminalUpdate,
+    only_capture_execution_terminal_authority,
+)
+from onlyalpha.execution.terminal_planner import OnlyTerminalExecutionTransactionPlanner
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.engine import OnlyFeeEngine
@@ -577,6 +585,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_audit_store,
             self._build_trade_execution_planning_context,
             OnlyTradeExecutionTransactionPlanner(),
+            self._build_terminal_execution_planning_context,
+            OnlyTerminalExecutionTransactionPlanner(),
             execution_commit_coordinator,
             persistence_store,
             execution_reconciliation_queue,
@@ -1141,7 +1151,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                         item.fact.trade_id, item.fact.cluster_id, item.fact.authoritative_fee_total
                     )
                     for item in ready
-                    if item.fact.account_id == account.account_id
+                    if isinstance(item.fact, OnlyCommittedExecutionFact) and item.fact.account_id == account.account_id
                 ),
                 ts_event=OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
             )
@@ -1776,6 +1786,20 @@ class OnlyBacktestRuntime(OnlyRuntime):
         account_snapshot = self._services.account_manager.get_snapshot(order.account_id)
         if account_snapshot is None:
             raise KeyError(f"Account not found: {order.account_id}")
+        capability = only_resolve_execution_capability(
+            operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
+            market_profile_id=instruction.compiled_identity.profile_id,
+            account_type=account_snapshot.account_type,
+            order_type=order.order_type,
+            order_side=order.side,
+            offset=order.offset,
+            position_side=position_scope.position_side,
+            position_effect=position_scope.position_effect,
+            position_mode=position_scope.position_mode,
+            has_margin=instruction.margin_instruction is not None,
+        )
+        if capability is not OnlyExecutionCapability.DURABLE_TRADE:
+            raise ValueError(f"prepared Trade capability is {capability.value}")
         account_reservation = next(
             (item for item in account_snapshot.reservations if item.order_id == order.order_id),
             None,
@@ -1905,6 +1929,73 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if position_reservation is None
                 else only_position_reservation_execution_state(position_reservation)
             ),
+        )
+
+    def _build_terminal_execution_planning_context(
+        self,
+        update: OnlyBrokerOrderTerminalUpdate,
+        processing_sequence: int,
+        position_scope: OnlyExecutionPositionScope,
+    ) -> OnlyTerminalExecutionPlanningContext:
+        order = self._services.order_manager.require_snapshot(update.order_id)
+        account = self._services.account_manager.get_snapshot(order.account_id)
+        if account is None:
+            raise KeyError(f"Account not found: {order.account_id}")
+        trading_day = self._selected_calendar.trading_day_at(update.ts_event)
+        market_rules = self.config.market_rule_engine
+        if market_rules is None:
+            raise ValueError("prepared Terminal planning requires compiled market rules")
+        compiled = market_rules.compiled_rules(str(order.instrument_id), trading_day)
+        capability = only_resolve_execution_capability(
+            operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
+            market_profile_id=compiled.identity.profile_id,
+            account_type=account.account_type,
+            order_type=order.order_type,
+            order_side=order.side,
+            offset=order.offset,
+            position_side=position_scope.position_side,
+            position_effect=position_scope.position_effect,
+            position_mode=position_scope.position_mode,
+            has_margin=compiled.margin_policy is not None,
+        )
+        if capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
+            raise ValueError(f"prepared Terminal capability is {capability.value}")
+        position_reservation = self._position_reservation_manager.get(order.order_id)
+        if position_reservation is None:
+            raise ValueError("prepared Terminal planning requires Position Reservation")
+        risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
+        if risk_reservation is None:
+            raise ValueError("prepared Terminal planning requires Risk Reservation")
+        account_reservation = next(
+            (item for item in account.reservations if item.order_id == order.order_id),
+            None,
+        )
+        ledger = self._strategy_ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account.base_currency,
+        )
+        strategy_reservation = next(
+            (item for item in ledger.reservations if item.order_id == order.order_id),
+            None,
+        )
+        return OnlyTerminalExecutionPlanningContext(
+            update=update,
+            prepared_at=update.ts_init,
+            engine_id=OnlyEngineId(str(self.config.engine_id)),
+            processing_sequence=processing_sequence,
+            market_profile_id=compiled.identity.profile_id,
+            account_type=account.account_type,
+            position_scope=position_scope,
+            terminal_authority=only_capture_execution_terminal_authority(update),
+            order_before=only_order_execution_state(order),
+            position_reservation_before=only_position_reservation_execution_state(position_reservation),
+            risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
+            risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
+            account_cash_reservation_present=account_reservation is not None,
+            strategy_cash_reservation_present=strategy_reservation is not None,
+            margin_reservation_present=self._margin_manager.get(str(order.order_id)) is not None,
         )
 
     def _execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:

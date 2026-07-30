@@ -14,6 +14,7 @@ from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.models import OnlyExecutionProcessingResult
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
@@ -173,6 +174,7 @@ class OnlyBacktestRunPlan:
             for transaction in runtime.ready_execution_query.ready_records(
                 OnlyRuntimeId(str(runtime.config.runtime_id))
             )
+            if isinstance(transaction.fact, OnlyCommittedExecutionFact)
         )
         result_time = account.valuation_time or OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns())
         reconciliation = OnlyRuntimeLedgerReconciliationService().reconcile(

@@ -30,6 +30,7 @@ from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 
 from .committed import OnlyCommittedExecutionFact
+from .enums import OnlyExecutionOperationKind
 from .fill_identity import OnlyExecutionFillIdentity, only_execution_fill_identity
 from .identity import only_execution_transaction_id
 from .projection import (
@@ -37,6 +38,10 @@ from .projection import (
     OnlyExecutionProjectionComponent,
     OnlyExecutionProjectionOrder,
 )
+from .terminal_fact import OnlyCommittedTerminalExecutionFact, OnlyCommittedTerminalExecutionFactDraft
+
+type OnlyExecutionFactDraft = OnlyCommittedExecutionFactDraft | OnlyCommittedTerminalExecutionFactDraft
+type OnlyCommittedExecutionOperationFact = OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -292,33 +297,50 @@ class OnlyPreparedExecutionTransaction:
     gateway_id: OnlyBrokerGatewayId
     account_id: OnlyAccountId
     broker_update_id: OnlyBrokerUpdateId
-    trade_id: OnlyTradeId
+    trade_id: OnlyTradeId | None
     source_sequence: int
     prepared_at: OnlyTimestamp
-    fact_draft: OnlyCommittedExecutionFactDraft
+    fact_draft: OnlyExecutionFactDraft
     projections: tuple[OnlyExecutionProjection, ...]
     outbox_events: tuple[OnlyEvent, ...]
     preconditions: tuple[OnlyExecutionPrecondition, ...]
     authority_hash: str = ""
     payload_hash: str = ""
+    operation_kind: OnlyExecutionOperationKind = OnlyExecutionOperationKind.TRADE_FILL
+    terminal_identity: str | None = None
 
     def __post_init__(self) -> None:
-        expected_transaction_id = only_execution_transaction_id(
-            runtime_id=self.runtime_id,
-            gateway_id=self.gateway_id,
-            account_id=self.account_id,
-            broker_update_id=self.broker_update_id,
-            trade_id=self.trade_id,
-        )
-        if self.transaction_id != expected_transaction_id or self.source_sequence < 0:
+        if self.source_sequence < 0:
             raise ValueError("prepared transaction requires identity and non-negative source sequence")
         scope = self.fact_draft
+        if self.operation_kind is OnlyExecutionOperationKind.TRADE_FILL:
+            if not isinstance(scope, OnlyCommittedExecutionFactDraft) or self.trade_id is None:
+                raise ValueError("Trade transaction requires Trade fact and Trade ID")
+            expected_transaction_id = only_execution_transaction_id(
+                runtime_id=self.runtime_id,
+                gateway_id=self.gateway_id,
+                account_id=self.account_id,
+                broker_update_id=self.broker_update_id,
+                trade_id=self.trade_id,
+            )
+            if self.transaction_id != expected_transaction_id or self.terminal_identity is not None:
+                raise ValueError("prepared Trade transaction requires identity derived from its Trade authority")
+            if scope.trade_id != self.trade_id:
+                raise ValueError("prepared Trade transaction and fact Trade IDs disagree")
+        else:
+            if not isinstance(scope, OnlyCommittedTerminalExecutionFactDraft) or self.trade_id is not None:
+                raise ValueError("terminal transaction requires Terminal fact without Trade ID")
+            if (
+                self.terminal_identity is None
+                or self.terminal_identity != scope.terminal_identity
+                or self.transaction_id != self.terminal_identity
+            ):
+                raise ValueError("prepared terminal transaction identity is invalid")
         if (
             scope.runtime_id != self.runtime_id
             or scope.gateway_id != self.gateway_id
             or scope.account_id != self.account_id
             or scope.broker_update_id != self.broker_update_id
-            or scope.trade_id != self.trade_id
             or scope.source_sequence != self.source_sequence
         ):
             raise ValueError("prepared transaction and fact draft scopes disagree")
@@ -447,7 +469,7 @@ class OnlyCommittedExecutionTransaction:
     runtime_id: OnlyRuntimeId
     execution_sequence: int
     transaction_id: str
-    fact: OnlyCommittedExecutionFact
+    fact: OnlyCommittedExecutionOperationFact
     projections: tuple[OnlyExecutionProjection, ...]
     outbox_events: tuple[OnlyEvent, ...]
     committed_at: OnlyTimestamp
@@ -458,6 +480,9 @@ class OnlyCommittedExecutionTransaction:
     projected_at: OnlyTimestamp | None = None
     projection_error: str | None = None
     projection_failed_at: OnlyTimestamp | None = None
+    operation_kind: OnlyExecutionOperationKind = OnlyExecutionOperationKind.TRADE_FILL
+    trade_id: OnlyTradeId | None = None
+    terminal_identity: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -468,6 +493,18 @@ class OnlyCommittedExecutionTransaction:
             raise ValueError("committed transaction and fact sequence must agree and be positive")
         if self.fact.runtime_id != self.runtime_id or self.fact.ts_committed != self.committed_at:
             raise ValueError("committed transaction and fact scope/time disagree")
+        if self.operation_kind is OnlyExecutionOperationKind.TRADE_FILL:
+            if not isinstance(self.fact, OnlyCommittedExecutionFact) or self.trade_id != self.fact.trade_id:
+                raise ValueError("committed Trade transaction authority disagrees")
+            if self.terminal_identity is not None:
+                raise ValueError("committed Trade transaction cannot carry terminal identity")
+        elif (
+            not isinstance(self.fact, OnlyCommittedTerminalExecutionFact)
+            or self.trade_id is not None
+            or self.terminal_identity != self.fact.terminal_identity
+            or self.transaction_id != self.fact.terminal_identity
+        ):
+            raise ValueError("committed terminal transaction authority disagrees")
         if self.projection_ready and (self.projected_at is None or self.projection_error is not None):
             raise ValueError("projection-ready transaction requires projected_at and no error")
         if self.projection_ready and self.projection_failed_at is not None:

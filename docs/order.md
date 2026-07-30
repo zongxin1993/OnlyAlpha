@@ -70,9 +70,10 @@ Broker 数据必须先标准化为 `OnlyBrokerInboundUpdate` 子类并进入 Run
 再投递到 Runtime EventBus；Event handler 不驱动订单状态机。事件保留 Runtime/Cluster Scope、纳秒时间、
 稳定序列和变更后的 Snapshot。
 
-Generic T0 Cash 的 LIMIT BUY OPEN 与首个 LIMIT SELL CLOSE LONG NETTING whole Fill 均由统一 Planner 生成不可变
-Prepared Transaction。Close whole Fill 要求 Order 的 prior filled quantity 与 fill count 为零，且 Fill quantity 等于完整
-remaining quantity；因此 Order 在一次 Projection 中进入 FILLED。Partial/Multi-Close 不在本阶段伪装支持。
+Generic T0 Cash 的 LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING 每个 Fill 均由统一 Planner 生成不可变 Prepared
+Transaction。Close Order 在每次 Projection 中累计 filled quantity、remaining quantity、price quantity 与 fill count；中间
+Fill 保持 `PARTIALLY_FILLED`（在撤单等待期间保持 `PENDING_CANCEL`），最终 Fill 才进入 `FILLED`。部分成交后的
+Cancelled/Rejected/Expired 使用独立 `ORDER_TERMINAL` Projection，保留已有 Fill 并且不伪造 Trade ID。
 
 ## 6. Execution 与 Gateway Port
 
@@ -93,8 +94,8 @@ SDK callback 标准化后排入 Runtime 单写线程，不能从 SDK 线程直�
 
 `examples/order_demo` 覆盖创建提交、显式 Accepted/部分成交、撤单、重复成交、乱序和 Context Scope。
 当前已有 Pre-Trade Risk Pipeline、Risk Reservation、Position/Allocation、Account 与持久化 ExecutionProcessor；受支持
-的 Generic T0 Cash BUY OPEN 和 whole-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。真实成交、
-Live/Paper Gateway 装配以及 Partial/Multi-Close 仍留待后续 ADR。
+的 Generic T0 Cash BUY OPEN 和 multi-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。真实 Broker、
+Live/Paper Gateway 装配、Short/Hedging 与 Futures/Margin 仍留待后续 ADR。
 
 ## 9. Position 归属衔接
 

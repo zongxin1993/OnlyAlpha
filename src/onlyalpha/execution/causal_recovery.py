@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import NoReturn
 
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
-from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
+from onlyalpha.broker.updates import OnlyBrokerInboundUpdate
 from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
 
 from .codec import (
@@ -89,7 +89,7 @@ class OnlyExecutionRecoveryContinuation:
     execution_sequence: int
     transaction_id: str
     broker_update_id: OnlyBrokerUpdateId
-    trade_id: OnlyTradeId
+    trade_id: OnlyTradeId | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,26 +179,22 @@ class OnlyExecutionRecoverySession:
 
     def decide(
         self,
-        update: OnlyBrokerTradeUpdate,
+        update: OnlyBrokerInboundUpdate,
         prepared: OnlyPreparedExecutionTransaction,
     ) -> OnlyExecutionRecoveryDecision:
         self._require_usable()
         if self._phase is OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
-            if prepared.broker_update_id != update.update_id or prepared.trade_id != update.fill.trade_id:
+            if prepared.broker_update_id != update.update_id:
                 self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
             return OnlyExecutionRecoveryDecision(OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION, None)
         entry = self.next_entry
         if entry is None:
             self._fail("RECOVERY_TRANSACTION_MISSING")
         expected = entry.stored.prepared
-        if (
-            expected.broker_update_id != update.update_id
-            or expected.trade_id != update.fill.trade_id
-            or expected.transaction_id != prepared.transaction_id
-        ):
+        if expected.broker_update_id != update.update_id or expected.transaction_id != prepared.transaction_id:
             later = any(
                 candidate.stored.prepared.broker_update_id == update.update_id
-                or candidate.stored.prepared.trade_id == update.fill.trade_id
+                or candidate.stored.prepared.transaction_id == prepared.transaction_id
                 for candidate in self._plan.entries[self._index + 1 :]
             )
             code = "RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH" if later else "RECOVERY_TRANSACTION_MISSING"
@@ -276,12 +272,12 @@ class OnlyExecutionRecoverySession:
             transaction.execution_sequence,
             transaction.transaction_id,
             transaction.fact.broker_update_id,
-            transaction.fact.trade_id,
+            transaction.trade_id,
         )
         if any(
             item.transaction_id == continuation.transaction_id
             or item.broker_update_id == continuation.broker_update_id
-            or item.trade_id == continuation.trade_id
+            or (continuation.trade_id is not None and item.trade_id == continuation.trade_id)
             for item in self._continuations
         ):
             self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")

@@ -27,11 +27,12 @@ HistoricalDataSource → HistoricalReplayService → BacktestClock → MarketDat
 → Broker queue → ExecutionProcessor → Position → Allocation → StrategyLedger → Account → Result
 ```
 
-其中受支持的 Generic T0 Cash LIMIT BUY OPEN 每个 whole/partial Fill，以及 LIMIT SELL CLOSE LONG NETTING 的首个 whole
-Fill，均细化为 `Pure Planner → Prepared Transaction → durable Transaction Store commit → ordered incremental Projection
-Targets → Projection Ready → at-least-once Outbox`。Close 在同一批次消费 Position/Risk Reservation，不携带现金
-Reservation，并支持仓位部分保留或完全归零。Virtual Broker BUY Partial Fill Schedule 与完整 Multi-Fill Recovery 已完成；
-Partial/Multi-Close、Short、Hedging、Futures/Margin 和多 Cluster 固定资金归约仍是明确的后续边界。
+其中受支持的 Generic T0 Cash LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING 每个 whole/partial Fill，均细化为
+`Pure Planner → Prepared Transaction → durable Transaction Store commit → ordered incremental Projection Targets →
+Projection Ready → at-least-once Outbox`。Close 在同一批次分段消费 Position/Risk Reservation，不携带现金 Reservation，并
+支持仓位部分保留或完全归零。Virtual Broker 对 BUY OPEN 与 SELL CLOSE 共用 Partial Fill Schedule；Long Close 的同 Bar/
+跨 Bar Multi-Fill、Fill Plan checkpoint、完整 Recovery 以及部分成交后 durable Terminal Operation 已完成。Short、Hedging、
+Futures/Margin 和多 Cluster 固定资金归约仍是明确的后续边界。
 
 Backtest Runtime 在 `INITIALIZING → RECOVERING → RECOVERY_FINALIZING → READY` 中自动恢复最新完整 checkpoint，并以严格 Execution Recovery Session 在原 Broker Update 因果点逐笔处理 Ready 与未投影 transaction；每笔都重跑正式 Planner 并完整比较 Stored Prepared。最后一个 persisted entry 只把 Execution phase 推进为 `TAIL_RESOLVED`，独立 Backtest Recovery Session 仍保持当前 exact boundary open。该 Bar 后续 Strategy/Broker 产生的新 Trade 作为 continuation 走正式 Coordinator commit，Outbox 在 recovery 中不即时交付。只有 Processing Result、Audit、Result Progress 和 Event drain 完成且 `after_market_processing()` 确认完整 source/data-version/update/sequence identity 后 replay 才停止。随后只读 Validator 验证 Runtime authority，post-recovery checkpoint 经 capture/write/read-back 完整比较后 Cluster 才进入 `RECOVERED`；任一步失败都会阻止 READY、Outbox 投递和 resume。Collector/RunPlan 的统计前缀来自 checkpointable Result Progress，fingerprint 与 restart equality 使用唯一 canonical business projection。
 
@@ -55,7 +56,9 @@ runtime:
 
 未配置时为 `MEMORY`，不会创建 state 目录。SQLite 默认路径为
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`。绝对路径、空路径和 `..` 逃逸被拒绝；Store
-identity、Participant Registry、schema 或 checkpoint hash 不匹配不会覆盖旧库或 fallback。SQLite 使用 schema version 2，明确拒绝 version 1 且不迁移。初始稳定边界和每个完整 Bar 都写 checkpoint；写入失败阻止后续 Bar。
+identity、Participant Registry、schema 或 checkpoint hash 不匹配不会覆盖旧库或 fallback。SQLite Runtime Persistence 使用
+schema version 3，明确拒绝旧 version 1/2 且不迁移；Virtual Broker participant checkpoint schema 仍为 2。初始稳定边界和
+每个完整 Bar 都写 checkpoint；写入失败阻止后续 Bar。
 
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker

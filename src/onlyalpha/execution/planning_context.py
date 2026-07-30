@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.account.performance import OnlyAccountEquityPoint
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
@@ -36,6 +37,7 @@ from .projection import (
     OnlyValuationExecutionState,
 )
 from .scope import OnlyExecutionPositionScope
+from .terminal_identity import OnlyBrokerOrderTerminalUpdate, OnlyExecutionTerminalAuthority
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,8 +122,36 @@ class OnlyTradeExecutionPlanningContext:
             raise ValueError("Trade planning sequences cannot be negative")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyTerminalExecutionPlanningContext:
+    """Complete immutable before-authority for one terminal Broker update."""
+
+    update: OnlyBrokerOrderTerminalUpdate
+    prepared_at: OnlyTimestamp
+    engine_id: OnlyEngineId
+    processing_sequence: int
+    market_profile_id: str
+    account_type: OnlyAccountType
+    position_scope: OnlyExecutionPositionScope
+    terminal_authority: OnlyExecutionTerminalAuthority
+    order_before: OnlyOrderExecutionState
+    position_reservation_before: OnlyPositionReservationExecutionState
+    risk_reservation_before: OnlyRiskReservationExecutionState
+    risk_before: OnlyRiskExecutionState
+    account_cash_reservation_present: bool = False
+    strategy_cash_reservation_present: bool = False
+    margin_reservation_present: bool = False
+
+    def __post_init__(self) -> None:
+        if self.processing_sequence < 0:
+            raise ValueError("Terminal planning sequence cannot be negative")
+        if self.prepared_at < self.update.ts_event:
+            raise ValueError("Terminal prepared_at precedes Broker event")
+
+
 __all__ = [
     "OnlyAllocationCreationAuthority",
     "OnlyPositionCreationAuthority",
+    "OnlyTerminalExecutionPlanningContext",
     "OnlyTradeExecutionPlanningContext",
 ]

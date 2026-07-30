@@ -34,3 +34,6 @@ __all__ = [
     "OnlyStrategyLedgerTradeReducer",
     "OnlyValuationTradeReducer",
 ]
+from .close_cost import OnlyCloseCostBasisReduction, only_reduce_average_cost_close
+
+__all__ = ["OnlyCloseCostBasisReduction", "only_reduce_average_cost_close"]

@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
@@ -18,7 +18,10 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueTradeId,
 )
 
+from .enums import OnlyExecutionOperationKind
+
 if TYPE_CHECKING:
+    from .committed import OnlyCommittedExecutionFact
     from .persistence_ports import OnlyExecutionTransactionQueryPort
 
 ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION = 1
@@ -167,11 +170,19 @@ def only_capture_execution_fill_authority(
     fingerprint = only_execution_fill_payload_fingerprint(update)
     existing = query.get_by_fill_identity(update.runtime_id, identity)
     if existing is not None:
-        if existing.fact.fill_payload_fingerprint != fingerprint:
+        if existing.operation_kind is not OnlyExecutionOperationKind.TRADE_FILL:
+            raise ValueError("FILL_IDENTITY_CONFLICT: durable Fill identity resolved to a non-Trade operation")
+        existing_fact = cast("OnlyCommittedExecutionFact", existing.fact)
+        if existing_fact.fill_payload_fingerprint != fingerprint:
             raise ValueError("FILL_IDENTITY_CONFLICT: durable Fill identity has a different payload")
-        return OnlyExecutionFillAuthority(identity, fingerprint, existing.fact.fill_index)
+        return OnlyExecutionFillAuthority(identity, fingerprint, existing_fact.fill_index)
     latest = query.latest_fill_for_order(update.runtime_id, update.order_id)
-    fill_index = 1 if latest is None else latest.fact.fill_index + 1
+    if latest is None:
+        fill_index = 1
+    elif latest.operation_kind is not OnlyExecutionOperationKind.TRADE_FILL:
+        raise ValueError("FILL_IDENTITY_CONFLICT: latest Fill query returned a non-Trade operation")
+    else:
+        fill_index = cast("OnlyCommittedExecutionFact", latest.fact).fill_index + 1
     return OnlyExecutionFillAuthority(identity, fingerprint, fill_index)
 
 

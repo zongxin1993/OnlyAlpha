@@ -57,6 +57,11 @@ class OnlyBrokerOrderCancelledUpdate(OnlyBrokerInboundUpdate):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyBrokerOrderExpiredUpdate(OnlyBrokerInboundUpdate):
+    order_id: OnlyOrderId
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyBrokerTradeUpdate(OnlyBrokerInboundUpdate):
     order_id: OnlyOrderId
     fill: OnlyOrderFill

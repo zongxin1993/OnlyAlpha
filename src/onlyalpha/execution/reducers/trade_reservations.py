@@ -56,6 +56,7 @@ class OnlyRiskReservationTradeReduction:
     projection: OnlyRiskReservationExecutionProjection
     consumed_quantity_delta: OnlyQuantity
     consumed_notional_delta: OnlyMoney
+    released_notional_delta: OnlyMoney
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +83,8 @@ class OnlyPositionReservationTradeReducer:
         *,
         projection_sequence: int,
     ) -> OnlyPositionReservationTradeReduction:
+        if before.consumed_quantity is None:
+            raise ValueError("Position Reservation consumed authority is missing")
         if before.remaining_quantity.value < trade.quantity.value:
             raise ValueError("CLOSE_POSITION_RESERVATION_INSUFFICIENT")
         remaining = OnlyQuantity(
@@ -93,6 +96,10 @@ class OnlyPositionReservationTradeReducer:
         after = replace(
             before,
             remaining_quantity=remaining,
+            consumed_quantity=OnlyQuantity(
+                before.consumed_quantity.value + trade.quantity.value,
+                before.quantity.precision,
+            ),
             state=(
                 OnlyPositionReservationState.CONSUMED
                 if remaining.value == 0
@@ -278,10 +285,21 @@ class OnlyRiskReservationTradeReducer:
         remaining_quantity = OnlyQuantity(
             before.remaining_quantity.value - trade.quantity.value, before.remaining_quantity.precision
         )
-        remaining_notional = OnlyMoney(
+        remaining_notional_after_consumption = OnlyMoney(
             before.remaining_notional.amount - trade.gross_notional.amount,
             before.remaining_notional.currency,
         )
+        released_notional = OnlyMoney(
+            remaining_notional_after_consumption.amount if terminal_fill else Decimal(0),
+            before.remaining_notional.currency,
+        )
+        remaining_notional = OnlyMoney(
+            remaining_notional_after_consumption.amount - released_notional.amount,
+            before.remaining_notional.currency,
+        )
+        released_notional_before = before.released_notional
+        if released_notional_before is None:
+            released_notional_before = OnlyMoney(Decimal(0), before.remaining_notional.currency)
         after = replace(
             before,
             consumed_quantity=OnlyQuantity(
@@ -293,6 +311,10 @@ class OnlyRiskReservationTradeReducer:
             ),
             remaining_quantity=remaining_quantity,
             remaining_notional=remaining_notional,
+            released_notional=OnlyMoney(
+                released_notional_before.amount + released_notional.amount,
+                released_notional_before.currency,
+            ),
             state=(OnlyRiskReservationState.CONSUMED if terminal_fill else OnlyRiskReservationState.ACTIVE),
             updated_at=trade.ts_init,
             version=before.version + 1,
@@ -313,7 +335,13 @@ class OnlyRiskReservationTradeReducer:
         assert isinstance(projection, OnlyRiskReservationExecutionProjection)
         if terminal_fill and remaining_quantity.value != 0:
             raise ValueError("RISK_RESERVATION_INSUFFICIENT")
-        return OnlyRiskReservationTradeReduction(after, projection, trade.quantity, trade.gross_notional)
+        return OnlyRiskReservationTradeReduction(
+            after,
+            projection,
+            trade.quantity,
+            trade.gross_notional,
+            released_notional,
+        )
 
 
 class OnlyRiskTradeReducer:
@@ -335,14 +363,18 @@ class OnlyRiskTradeReducer:
             if reservation_reduction.consumed_notional_delta.currency != reserved_notional.currency:
                 raise ValueError("Risk Snapshot and Reservation notional currencies disagree")
             reserved_notional = OnlyMoney(
-                reserved_notional.amount - reservation_reduction.consumed_notional_delta.amount,
+                reserved_notional.amount
+                - reservation_reduction.consumed_notional_delta.amount
+                - reservation_reduction.released_notional_delta.amount,
                 reserved_notional.currency,
             )
             if reserved_notional.amount < 0:
                 raise ValueError("RISK_RESERVATION_INSUFFICIENT")
             if remaining_order_notional is not None:
                 remaining_order_notional = OnlyMoney(
-                    remaining_order_notional.amount - reservation_reduction.consumed_notional_delta.amount,
+                    remaining_order_notional.amount
+                    - reservation_reduction.consumed_notional_delta.amount
+                    - reservation_reduction.released_notional_delta.amount,
                     remaining_order_notional.currency,
                 )
                 if remaining_order_notional.amount < 0:

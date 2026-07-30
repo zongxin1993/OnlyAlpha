@@ -2,7 +2,9 @@
 
 当前 canonical transaction schema 为 v4。相较 v3，Projection payload 增加真实 Manager replay 所需的 cycle、record sequence、Strategy valuation line 和 valuation timeline metadata；旧 schema 不隐式解码。真实安装语义见 [Real Manager Projection Targets](execution_projection_targets.md)。
 
-`OnlyPreparedExecutionTransaction` 是 Broker Trade Update 与 durable commit 之间的不可变权威输入，schema version 为 4；旧 schema 不兼容且不隐式迁移。事务 ID 由 Runtime、Gateway、Account、Broker Update 与 Trade ID 的稳定身份确定。
+`OnlyPreparedExecutionTransaction` 是 Broker execution Update 与 durable commit 之间的不可变权威输入，schema version 为
+4；旧 schema 不兼容且不隐式迁移。`TRADE_FILL` 的事务 ID 继续由 Runtime、Gateway、Account、Broker Update 与 Trade ID
+确定；`ORDER_TERMINAL` 使用独立 `ETERM-...` Terminal Identity、nullable Trade ID 和强类型 Terminal Fact。
 
 Generic T0 Cash `LIMIT BUY OPEN` 的正式纯构造入口是 `OnlyTradeExecutionTransactionPlanner.prepare(context)`。Planner 从完整
 immutable before authority 生成 Fact Draft、12 项 ordered Projection、逐项 Precondition 和 deterministic durable Events；相同
@@ -29,7 +31,12 @@ Planner 的 deterministic event 顺序按业务语义构造，而不是依赖字
 transaction ID、authority/payload/projection/state hash、event count/order/ID/payload；改变 Mapping 插入顺序不改变结果，只有
 `prepared_at` 改变时 business authority 不变而 envelope payload hash 改变。
 
-Pure Reducers、Generic T0 Transaction Planner、Real Manager Targets、Commit Coordinator 与 Runtime 产品装配已经完成。对 Generic T0 Cash 的 LIMIT BUY OPEN，每个 whole/partial Fill 都先规划并 durable commit 独立 Transaction，再应用增量 Projection；LIMIT SELL CLOSE LONG NETTING 的首个 whole Fill 也使用同一链路，并在同一批次消费 Position Reservation。Transaction Store 是唯一 durable authority。当前不支持 Partial/Multi-Close、Short、Hedging、Futures/Margin、Paper/Live Recovery 或多 Cluster 固定资金归约。
+Pure Reducers、Generic T0 Trade/Terminal Planner、Real Manager Targets、Commit Coordinator 与 Runtime 产品装配已经完成。
+对 Generic T0 Cash 的 LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING，每个 whole/partial Fill 都先规划并 durable commit
+独立 `TRADE_FILL` Transaction，再应用增量 Projection。Long Close 的 Position/Allocation 共用 Exact Close Cost Reducer，
+Position/Risk Reservation 分段消费。部分成交后的 Cancel/Reject/Expire 生成 `ORDER_TERMINAL` Transaction，只投影 Order、
+Position Reservation、Risk Reservation 与 Risk。Transaction Store 是唯一 durable authority。当前不支持 Short、Hedging、
+Futures/Margin、Paper/Live Recovery 或多 Cluster 固定资金归约。
 
 Prepared/Committed 不等于可供业务读取。只有 Store 持久标记 Projection Ready 后，Transaction 才进入独立的 Business Query；未 Ready
 记录只能由 Coordinator、Recovery、Admin 与 Diagnostic 查询。Runtime startup recovery 重放 committed projection payload，不重新生成

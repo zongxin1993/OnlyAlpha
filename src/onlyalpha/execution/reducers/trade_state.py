@@ -46,6 +46,7 @@ from ..projection import (
     OnlyValuationExecutionState,
 )
 from ..projection_builder import OnlyExecutionProjectionBuilder
+from .close_cost import only_reduce_average_cost_close
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,16 +212,17 @@ class OnlyPositionTradeReducer:
                 or account_hold > before.risk_reserved_quantity.value
             ):
                 raise ValueError("CLOSE_POSITION_INSUFFICIENT")
-            quantity_after = before.total_quantity.value - trade.quantity.value
-            released_cost = before.average_open_price.value * trade.quantity.value
-            cumulative_after = before.cumulative_open_price_quantity - released_cost
-            if cumulative_after < 0:
-                raise ValueError("Close would create negative Position cumulative cost")
-            if quantity_after == 0:
-                cumulative_after = Decimal(0)
+            cost_reduction = only_reduce_average_cost_close(
+                cumulative_open_price_quantity_before=before.cumulative_open_price_quantity,
+                quantity_before=before.total_quantity,
+                fill_quantity=trade.quantity,
+            )
+            quantity_after = cost_reduction.quantity_after.value
+            cumulative_after = cost_reduction.cumulative_open_price_quantity_after
             currency = trade.authoritative_fee.currency
             realized = _money(
-                (trade.price.value - before.average_open_price.value) * trade.quantity.value * trade.multiplier.value,
+                (trade.price.value * trade.quantity.value - cost_reduction.released_open_price_quantity)
+                * trade.multiplier.value,
                 currency,
             )
             after = replace(
@@ -399,13 +401,13 @@ class OnlyAllocationTradeReducer:
                 raise ValueError("CLOSE_ALLOCATION_INSUFFICIENT")
             if realized_pnl_delta is None:
                 raise ValueError("CLOSE_REALIZED_PNL_AUTHORITY_CONFLICT")
-            quantity_after = before.total_quantity.value - trade.quantity.value
-            released_cost = before.average_open_price.value * trade.quantity.value
-            cumulative_after = before.cumulative_open_price_quantity - released_cost
-            if cumulative_after < 0:
-                raise ValueError("Close would create negative Allocation cumulative cost")
-            if quantity_after == 0:
-                cumulative_after = Decimal(0)
+            cost_reduction = only_reduce_average_cost_close(
+                cumulative_open_price_quantity_before=before.cumulative_open_price_quantity,
+                quantity_before=before.total_quantity,
+                fill_quantity=trade.quantity,
+            )
+            quantity_after = cost_reduction.quantity_after.value
+            cumulative_after = cost_reduction.cumulative_open_price_quantity_after
             after = replace(
                 before,
                 total_quantity=OnlyQuantity(quantity_after, before.total_quantity.precision),

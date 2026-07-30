@@ -37,7 +37,43 @@ class OnlyFirstBarBuyStrategy(OnlyTestMacdStrategy):
         self._has_entered = True
 
 
-def only_virtual_multi_fill_config(*, same_bar: bool = False, fill_latency_ns: int = 0) -> OnlyClusterRunConfig:
+class OnlyRoundTripLongCloseStrategy(OnlyTestMacdStrategy):
+    """Open once, then close the settled Generic-T0 long through the same Broker Fill Plan."""
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        self._callback_count += 1
+        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
+        assert self.config.instrument_id is not None
+        assert self.config.trade_quantity is not None
+        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
+        has_open_order = bool(context.strategy.orders.list_open())
+        if self._callback_count == 1:
+            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "ROUND_TRIP_OPEN")
+            self._has_entered = True
+            return
+        if (
+            allocation is not None
+            and allocation.total_quantity.value > 0
+            and allocation.available_quantity.value > 0
+            and not has_open_order
+            and not self._exit_pending
+        ):
+            self._submit(
+                context,
+                OnlyOrderSide.SELL,
+                allocation.available_quantity,
+                factor,
+                "ROUND_TRIP_LONG_CLOSE",
+            )
+            self._exit_pending = True
+
+
+def only_virtual_multi_fill_config(
+    *,
+    same_bar: bool = False,
+    fill_latency_ns: int = 0,
+    long_close: bool = False,
+) -> OnlyClusterRunConfig:
     baseline = _sqlite_config()
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["end_time"] = "2026-01-05T02:00:00Z"
@@ -51,7 +87,11 @@ def only_virtual_multi_fill_config(*, same_bar: bool = False, fill_latency_ns: i
         ],
     }
     payload["brokers"][0]["extensions"]["latency"] = {"fill_ns": fill_latency_ns}
-    payload["strategy"]["class_path"] = "tests.integration.virtual_multi_fill_support:OnlyFirstBarBuyStrategy"
+    payload["strategy"]["class_path"] = (
+        "tests.integration.virtual_multi_fill_support:OnlyRoundTripLongCloseStrategy"
+        if long_close
+        else "tests.integration.virtual_multi_fill_support:OnlyFirstBarBuyStrategy"
+    )
     return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
 
 
@@ -73,9 +113,10 @@ class OnlyMultiFillFaultStoreFactory:
 
 
 class OnlyPlanCursorCheckpointFailureStore:
-    def __init__(self, delegate: OnlyRuntimePersistenceStorePort, target_cursor: int) -> None:
+    def __init__(self, delegate: OnlyRuntimePersistenceStorePort, target_cursor: int, plan_index: int = 0) -> None:
         self._delegate = delegate
         self._target_cursor = target_cursor
+        self._plan_index = plan_index
         self._failed = False
 
     def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
@@ -83,7 +124,11 @@ class OnlyPlanCursorCheckpointFailureStore:
         broker = next(item for item in checkpoint.components if item.component_id == "broker.virtual")
         payload = json.loads(broker.payload)
         plans = payload.get("fill_plans", [])
-        if plans and plans[0]["next_step_index"] == self._target_cursor and not self._failed:
+        if (
+            len(plans) > self._plan_index
+            and plans[self._plan_index]["next_step_index"] == self._target_cursor
+            and not self._failed
+        ):
             self._failed = True
             raise RuntimeError("TEST_MULTI_FILL_CHECKPOINT_CURSOR_FAILURE")
 
@@ -92,9 +137,10 @@ class OnlyPlanCursorCheckpointFailureStore:
 
 
 class OnlyPlanCursorCheckpointFailureStoreFactory:
-    def __init__(self, target_cursor: int) -> None:
+    def __init__(self, target_cursor: int, *, plan_index: int = 0) -> None:
         self._delegate = OnlyDefaultRuntimePersistenceStoreFactory()
         self._target_cursor = target_cursor
+        self._plan_index = plan_index
 
     def validate(self, config: OnlyRuntimePersistenceConfig) -> None:
         self._delegate.validate(config)
@@ -103,19 +149,25 @@ class OnlyPlanCursorCheckpointFailureStoreFactory:
         return OnlyPlanCursorCheckpointFailureStore(  # type: ignore[return-value]
             self._delegate.create(request),
             self._target_cursor,
+            self._plan_index,
         )
 
 
 class OnlyOutboxCheckpointFailureStore:
-    def __init__(self, delegate: OnlyRuntimePersistenceStorePort) -> None:
+    def __init__(self, delegate: OnlyRuntimePersistenceStorePort, minimum_execution_sequence: int = 1) -> None:
         self._delegate = delegate
+        self._minimum_execution_sequence = minimum_execution_sequence
 
     def mark_published(self, key: OnlyExecutionTransactionOutboxKey, published_at: OnlyTimestamp) -> None:
-        del key, published_at
-        raise RuntimeError("TEST_MULTI_FILL_OUTBOX_PUBLICATION_FAILURE")
+        if key.execution_sequence >= self._minimum_execution_sequence:
+            raise RuntimeError("TEST_MULTI_FILL_OUTBOX_PUBLICATION_FAILURE")
+        self._delegate.mark_published(key, published_at)
 
     def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
-        if checkpoint.header.pending_outbox_count > 0:
+        if (
+            checkpoint.header.pending_outbox_count > 0
+            and checkpoint.header.covered_execution_sequence >= self._minimum_execution_sequence
+        ):
             raise RuntimeError("TEST_MULTI_FILL_OUTBOX_CHECKPOINT_FAILURE")
         self._delegate.write_checkpoint(checkpoint, retain_last=retain_last)
 
@@ -124,14 +176,18 @@ class OnlyOutboxCheckpointFailureStore:
 
 
 class OnlyOutboxCheckpointFailureStoreFactory:
-    def __init__(self) -> None:
+    def __init__(self, *, minimum_execution_sequence: int = 1) -> None:
         self._delegate = OnlyDefaultRuntimePersistenceStoreFactory()
+        self._minimum_execution_sequence = minimum_execution_sequence
 
     def validate(self, config: OnlyRuntimePersistenceConfig) -> None:
         self._delegate.validate(config)
 
     def create(self, request: OnlyRuntimePersistenceStoreCreateRequest) -> OnlyRuntimePersistenceStorePort:
-        return OnlyOutboxCheckpointFailureStore(self._delegate.create(request))  # type: ignore[return-value]
+        return OnlyOutboxCheckpointFailureStore(  # type: ignore[return-value]
+            self._delegate.create(request),
+            self._minimum_execution_sequence,
+        )
 
 
 def only_assert_multi_fill_recovery_equivalence(
@@ -185,6 +241,7 @@ def only_assert_multi_fill_recovery_equivalence(
 
 __all__ = [
     "OnlyFirstBarBuyStrategy",
+    "OnlyRoundTripLongCloseStrategy",
     "OnlyMultiFillFaultStoreFactory",
     "OnlyOutboxCheckpointFailureStoreFactory",
     "OnlyPlanCursorCheckpointFailureStoreFactory",

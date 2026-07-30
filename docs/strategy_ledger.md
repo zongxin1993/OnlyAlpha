@@ -30,9 +30,10 @@ Fee Entry 按稳定 ID、类型、Trade/Order 和 UTC 时间独立记录，费�
 PnL 和 Position Market Value 由 `OnlyStrategyValuationService` 使用该 Cluster 的 Allocation、Mark Price 和 Multiplier
 生成。无法归因的 Position 仍属于 Position `Unallocated`，不会进入普通策略 Ledger。
 
-Generic T0 Cash whole-fill Long Close 的 Ledger Projection 与 Account Projection 位于同一 durable transaction。Ledger
-追加一笔 SELL_SETTLEMENT cash entry 和一笔 FEE cash/fee entry，不创建现金 Reservation；其 realized-PnL delta 直接使用
-Position reducer 的唯一结果，并与 Allocation/Account/Committed Fact 保持相等。
+Generic T0 Cash multi-fill Long Close 的每个 Ledger Projection 与 Account Projection 位于同一 durable transaction。Ledger
+追加一笔 SELL_SETTLEMENT cash entry 和一笔增量 FEE cash/fee entry，不创建现金 Reservation；其 realized-PnL delta 直接
+使用 Position reducer 的唯一结果，并与 Allocation/Account/Committed Fact 保持相等。Terminal Cancel/Reject/Expire 不生成
+Ledger Projection，已成交 Fill 的账务事实保持不变。
 
 ## 4. Equity、Return 与 Drawdown
 

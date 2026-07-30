@@ -645,6 +645,7 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
     position_reservation_after = replace(
         position_reservation_before,
         remaining_quantity=_quantity("0"),
+        consumed_quantity=_quantity("2"),
         state=OnlyPositionReservationState.CONSUMED,
         version=2,
     )

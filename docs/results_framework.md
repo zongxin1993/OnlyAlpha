@@ -1,6 +1,7 @@
 # Backtest Results Framework
 
-成交结果的唯一权威来源是 Runtime-owned `OnlyCommittedExecutionJournal`，不是 Broker 的 `query_trades()` Projection。
+成交结果的唯一权威来源是 Runtime Persistence Store 的 Projection Ready `TRADE_FILL` Transaction，不是 Broker 的
+`query_trades()` Projection。
 因此结果框架不依赖 Virtual Broker 类型，也不要求 Broker 实现查询接口才能表达已成功应用的本地成交。
 
 OnlyAlpha 的正式结果链是：
@@ -15,7 +16,8 @@ Runtime facts → Result Collector → immutable Result → Analytics → Artifa
 
 `onlyalpha.result` 定义 provider-neutral、不可变且以 `Decimal` 表示数值的 Signal、Order Request、Order、Execution、Position、Account 和 Equity 记录。`OnlyBacktestResult` schema v3 直接提供 Account-authoritative `runtime_performance`、按 Cluster 的 Ledger-authoritative performance、两级权益时间线、最终对账、`facts`、`diagnostics` 与 `result_fingerprint`；不保留旧模糊 performance schema。
 
-Collector 只从 Committed Journal 投影逐笔 Execution；不得查询 Order/Position/Account/Ledger Manager 补成交字段，也不得
+Collector 只从 Projection Ready Query 中的 `OnlyCommittedExecutionFact` 投影逐笔 Execution；`ORDER_TERMINAL` Fact 不计入
+Execution/Trade、Fee 或 Analytics。Collector 不得查询 Order/Position/Account/Ledger Manager 补成交字段，也不得
 重新执行 Fee Resolver 或 Market Rule。最终状态表仍读取各 Manager 的 immutable Snapshot。Execution Schema v2 保存明确的
 position scope、multiplier/notional、权威费用与报告费用、slippage、规则指纹、settlement/margin identity 和结果增量。
 

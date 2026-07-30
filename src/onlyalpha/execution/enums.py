@@ -13,6 +13,11 @@ class OnlyExecutionProcessingStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class OnlyExecutionOperationKind(StrEnum):
+    TRADE_FILL = "TRADE_FILL"
+    ORDER_TERMINAL = "ORDER_TERMINAL"
+
+
 class OnlyExecutionFailureCode(StrEnum):
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
     UNKNOWN_GATEWAY = "UNKNOWN_GATEWAY"

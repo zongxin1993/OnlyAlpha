@@ -14,6 +14,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
 
 from .committed import OnlyCommittedExecutionFact
+from .enums import OnlyExecutionOperationKind
 from .projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
@@ -24,6 +25,7 @@ from .projection import (
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
@@ -33,6 +35,7 @@ from .projection import (
     OnlyStrategyLedgerExecutionProjection,
     OnlyValuationExecutionProjection,
 )
+from .terminal_fact import OnlyCommittedTerminalExecutionFact, OnlyCommittedTerminalExecutionFactDraft
 from .transaction import (
     OnlyCommittedExecutionFactDraft,
     OnlyCommittedExecutionTransaction,
@@ -44,6 +47,7 @@ _PROJECTION_TYPES = {
     projection_type.__name__: projection_type
     for projection_type in (
         OnlyOrderExecutionProjection,
+        OnlyOrderTerminalExecutionProjection,
         OnlyPositionExecutionProjection,
         OnlyAllocationExecutionProjection,
         OnlySettlementExecutionProjection,
@@ -144,7 +148,9 @@ def only_execution_transaction_authority_payload(prepared: OnlyPreparedExecution
         "gateway_id": str(prepared.gateway_id),
         "account_id": str(prepared.account_id),
         "broker_update_id": str(prepared.broker_update_id),
-        "trade_id": str(prepared.trade_id),
+        "operation_kind": prepared.operation_kind.value,
+        "trade_id": None if prepared.trade_id is None else str(prepared.trade_id),
+        "terminal_identity": prepared.terminal_identity,
         "source_sequence": prepared.source_sequence,
         "fact_draft": fact,
         "projections": [_encode_projection(item) for item in prepared.projections],
@@ -170,7 +176,9 @@ def _prepared_payload(prepared: OnlyPreparedExecutionTransaction) -> dict[str, o
         "gateway_id": str(prepared.gateway_id),
         "account_id": str(prepared.account_id),
         "broker_update_id": str(prepared.broker_update_id),
-        "trade_id": str(prepared.trade_id),
+        "operation_kind": prepared.operation_kind.value,
+        "trade_id": None if prepared.trade_id is None else str(prepared.trade_id),
+        "terminal_identity": prepared.terminal_identity,
         "source_sequence": prepared.source_sequence,
         "prepared_at_ns": prepared.prepared_at.unix_nanos,
         "fact_draft": prepared.fact_draft.to_dict(),
@@ -202,7 +210,10 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExec
     value = _load_object(payload)
     _require_schema(value)
     fact_payload = _mapping(value, "fact_draft")
-    historical_fill_authority = "fill_identity" not in fact_payload
+    operation_kind = OnlyExecutionOperationKind(str(value.get("operation_kind", "TRADE_FILL")))
+    historical_fill_authority = (
+        operation_kind is OnlyExecutionOperationKind.TRADE_FILL and "fill_identity" not in fact_payload
+    )
     if historical_fill_authority:
         original = dict(value)
         stored_payload_hash = str(original.pop("payload_hash"))
@@ -214,10 +225,20 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExec
         gateway_id=OnlyBrokerGatewayId(str(value["gateway_id"])),
         account_id=OnlyAccountId(str(value["account_id"])),
         broker_update_id=OnlyBrokerUpdateId(str(value["broker_update_id"])),
-        trade_id=OnlyTradeId(str(value["trade_id"])),
+        trade_id=(
+            OnlyTradeId(_identifier_text(fact_payload["trade_id"]))
+            if operation_kind is OnlyExecutionOperationKind.TRADE_FILL and value.get("trade_id") is None
+            else None
+            if value.get("trade_id") is None
+            else OnlyTradeId(str(value["trade_id"]))
+        ),
         source_sequence=int(str(value["source_sequence"])),
         prepared_at=OnlyTimestamp.from_unix_nanos(int(str(value["prepared_at_ns"]))),
-        fact_draft=OnlyCommittedExecutionFactDraft.from_dict(fact_payload),
+        fact_draft=(
+            OnlyCommittedExecutionFactDraft.from_dict(fact_payload)
+            if operation_kind is OnlyExecutionOperationKind.TRADE_FILL
+            else OnlyCommittedTerminalExecutionFactDraft.from_dict(fact_payload)
+        ),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
         outbox_events=tuple(OnlyEvent.from_dict(_as_mapping(item)) for item in _list(value, "outbox_events")),
         preconditions=tuple(
@@ -225,6 +246,8 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExec
         ),
         authority_hash="" if historical_fill_authority else str(value["authority_hash"]),
         payload_hash="" if historical_fill_authority else str(value["payload_hash"]),
+        operation_kind=operation_kind,
+        terminal_identity=(None if value.get("terminal_identity") is None else str(value["terminal_identity"])),
     )
     return prepared
 
@@ -235,6 +258,9 @@ def _committed_payload(transaction: OnlyCommittedExecutionTransaction) -> dict[s
         "runtime_id": str(transaction.runtime_id),
         "execution_sequence": transaction.execution_sequence,
         "transaction_id": transaction.transaction_id,
+        "operation_kind": transaction.operation_kind.value,
+        "trade_id": None if transaction.trade_id is None else str(transaction.trade_id),
+        "terminal_identity": transaction.terminal_identity,
         "fact": transaction.fact.to_dict(),
         "projections": [_encode_projection(item) for item in transaction.projections],
         "outbox_events": [item.to_dict() for item in transaction.outbox_events],
@@ -266,7 +292,10 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedEx
     value = _load_object(payload)
     _require_schema(value)
     fact_payload = _mapping(value, "fact")
-    historical_fill_authority = "fill_identity" not in fact_payload
+    operation_kind = OnlyExecutionOperationKind(str(value.get("operation_kind", "TRADE_FILL")))
+    historical_fill_authority = (
+        operation_kind is OnlyExecutionOperationKind.TRADE_FILL and "fill_identity" not in fact_payload
+    )
     if historical_fill_authority:
         original = dict(value)
         stored_payload_hash = str(original.pop("committed_payload_hash"))
@@ -276,7 +305,11 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedEx
         runtime_id=OnlyRuntimeId(str(value["runtime_id"])),
         execution_sequence=int(str(value["execution_sequence"])),
         transaction_id=str(value["transaction_id"]),
-        fact=OnlyCommittedExecutionFact.from_dict(fact_payload),
+        fact=(
+            OnlyCommittedExecutionFact.from_dict(fact_payload)
+            if operation_kind is OnlyExecutionOperationKind.TRADE_FILL
+            else OnlyCommittedTerminalExecutionFact.from_dict(fact_payload)
+        ),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
         outbox_events=tuple(OnlyEvent.from_dict(_as_mapping(item)) for item in _list(value, "outbox_events")),
         committed_at=OnlyTimestamp.from_unix_nanos(int(str(value["committed_at_ns"]))),
@@ -287,6 +320,15 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedEx
         projected_at=_optional_timestamp(value.get("projected_at_ns")),
         projection_error=None if value.get("projection_error") is None else str(value["projection_error"]),
         projection_failed_at=_optional_timestamp(value.get("projection_failed_at_ns")),
+        operation_kind=operation_kind,
+        trade_id=(
+            OnlyTradeId(_identifier_text(fact_payload["trade_id"]))
+            if operation_kind is OnlyExecutionOperationKind.TRADE_FILL and value.get("trade_id") is None
+            else None
+            if value.get("trade_id") is None
+            else OnlyTradeId(str(value["trade_id"]))
+        ),
+        terminal_identity=(None if value.get("terminal_identity") is None else str(value["terminal_identity"])),
     )
     if historical_fill_authority:
         transaction = replace(
@@ -336,6 +378,10 @@ def _list(value: Mapping[str, object], key: str) -> list[object]:
 
 def _optional_timestamp(value: object) -> OnlyTimestamp | None:
     return None if value is None else OnlyTimestamp.from_unix_nanos(int(str(value)))
+
+
+def _identifier_text(value: object) -> str:
+    return str(value["value"]) if isinstance(value, Mapping) else str(value)
 
 
 __all__ = [name for name in globals() if name.startswith("Only") or name.startswith("only_")]

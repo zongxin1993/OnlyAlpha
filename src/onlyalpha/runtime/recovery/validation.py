@@ -14,6 +14,7 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.applied_projection import OnlyAppliedProjectionLedger
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.persistence_ports import (
     OnlyExecutionTransactionOutboxPort,
     OnlyExecutionTransactionQueryPort,
@@ -142,7 +143,7 @@ class OnlyTransactionAuthorityCheck:
         expected = tuple(range(1, len(records) + 1))
         ids = tuple(item.transaction_id for item in records)
         updates = tuple(str(item.fact.broker_update_id) for item in records)
-        trades = tuple(str(item.fact.trade_id) for item in records)
+        trades = tuple(str(item.fact.trade_id) for item in records if isinstance(item.fact, OnlyCommittedExecutionFact))
         ready_expected = tuple(item for item in records if item.projection_ready)
         return (
             _check(
@@ -608,13 +609,18 @@ class OnlyAccountLedgerAuthorityCheck:
 class OnlyFeeSettlementMarginAuthorityCheck:
     def evaluate(self, context: OnlyPostRecoveryValidationContext) -> tuple[OnlyPostRecoveryValidationCheck, ...]:
         records = context.transaction_query.records(context.runtime_id)
+        trade_records = tuple(
+            (item.execution_sequence, item.fact)
+            for item in records
+            if isinstance(item.fact, OnlyCommittedExecutionFact)
+        )
         fee_keys = {item.instruction_id for item in context.fee_records}
         settlement_keys = {item.instruction_id for item in context.settlement_records}
-        fact_by_fee = {item.fact.fee_instruction_id: item.fact for item in records}
-        fact_by_settlement = {item.fact.settlement_instruction_id: item.fact for item in records}
-        missing_fee = tuple(item.execution_sequence for item in records if item.fact.fee_instruction_id not in fee_keys)
+        fact_by_fee = {fact.fee_instruction_id: fact for _, fact in trade_records}
+        fact_by_settlement = {fact.settlement_instruction_id: fact for _, fact in trade_records}
+        missing_fee = tuple(sequence for sequence, fact in trade_records if fact.fee_instruction_id not in fee_keys)
         missing_settlement = tuple(
-            item.execution_sequence for item in records if item.fact.settlement_instruction_id not in settlement_keys
+            sequence for sequence, fact in trade_records if fact.settlement_instruction_id not in settlement_keys
         )
         invalid_margin = tuple(
             item.sequence
@@ -628,9 +634,9 @@ class OnlyFeeSettlementMarginAuthorityCheck:
             for instruction_id in fee_keys
         }
         fee_mismatch = tuple(
-            item.execution_sequence
-            for item in records
-            if fee_totals.get(item.fact.fee_instruction_id, Decimal(0)) != item.fact.authoritative_fee_total.amount
+            sequence
+            for sequence, fact in trade_records
+            if fee_totals.get(fact.fee_instruction_id, Decimal(0)) != fact.authoritative_fee_total.amount
         )
         fee_scope = tuple(
             item.fee_record_id
@@ -667,7 +673,7 @@ class OnlyFeeSettlementMarginAuthorityCheck:
             or (not item.legal_settled and item.status not in {"BOOKED", "PENDING"})
             or (item.status == "SETTLED" and not item.legal_settled)
         )
-        margin_applicable = any(item.fact.margin_instruction_id is not None for item in records)
+        margin_applicable = any(fact.margin_instruction_id is not None for _, fact in trade_records)
         active_margin = tuple(item for item in context.margin_reservations if item.reserved or item.occupied)
         margin_applicable = (
             margin_applicable

@@ -1,6 +1,6 @@
 # OnlyAlpha 路线图
 
-## 当前状态（2026-07-19）
+## 当前状态（2026-07-30）
 
 OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
 
@@ -139,3 +139,13 @@ durable Outbox。Position 可部分保留或完全关闭；Position 是 Realized
 和 Committed Fact 消费同一增量；Position Reservation 在同一事务内消费。未修改 Fill Identity/Index、Commit Coordinator、
 Recovery Phase、Event Gate 或 Outbox 语义。Partial/Multi-Close、Short、Hedging、CloseToday/CloseYesterday、Futures/Margin
 与 Paper/Live 仍未实现；下一阶段 PR4.4.2 为 Partial / Multi-Fill CLOSE Incremental Accounting。
+
+## PR4.4.2 Complete Durable Long Close Lifecycle（完成）
+
+Generic T0 Cash `LIMIT SELL CLOSE LONG NETTING` 已支持任意合法多 Fill，每个 Fill 独立 durable commit。Position 与
+Allocation 共用 Exact Close Cost Reducer，最终成本严格归零；Position/Risk Reservation 分段消费，Risk Active Count 只在
+Final Fill 减少。Virtual Broker 已验证同 Bar和跨 Bar `300 → 400 → 300`、execute-before-publish、Commit、Projection、
+Outbox、Fill 1/2 checkpoint 与 A→B→C 等价恢复。Partial Fill 后 Cancel/Reject/Expire 使用无伪 Trade ID 的
+`ORDER_TERMINAL` Transaction。Runtime Persistence schema 升至 3 并明确拒绝旧 schema 2；Commit Coordinator、Recovery
+Phase、Event Gate、Fill Identity/Index 与 Virtual Broker checkpoint schema 2 保持不变。下一阶段为 PR4.5 CN A-share Cash
+Product Closure；Short、Hedging、CloseToday/CloseYesterday、Futures/Margin 和 Paper/Live 仍未实现。

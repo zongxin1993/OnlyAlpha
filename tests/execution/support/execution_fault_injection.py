@@ -153,6 +153,12 @@ class OnlyFailOnceRuntimePersistenceStore:
         self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_fill_identity(runtime_id, fill_identity)
 
+    def get_by_terminal_identity(
+        self, runtime_id: OnlyRuntimeId, terminal_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None:
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
+        return self._delegate.get_by_terminal_identity(runtime_id, terminal_identity)
+
     def transactions_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
@@ -170,6 +176,20 @@ class OnlyFailOnceRuntimePersistenceStore:
     ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
         self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.records(runtime_id, after_sequence=after_sequence)
+
+    def recovery_records(self, runtime_id: OnlyRuntimeId, *, after_sequence: int) -> tuple[object, ...]:
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
+        return self._delegate.recovery_records(runtime_id, after_sequence=after_sequence)
+
+    def get_recovery_record_by_update(
+        self,
+        runtime_id: OnlyRuntimeId,
+        gateway_id: OnlyBrokerGatewayId,
+        account_id: OnlyAccountId,
+        update_id: OnlyBrokerUpdateId,
+    ) -> object | None:
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
+        return self._delegate.get_recovery_record_by_update(runtime_id, gateway_id, account_id, update_id)
 
     def ready_records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0

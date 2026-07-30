@@ -40,24 +40,47 @@ class OnlyRiskReservation(OnlyDomainModel):
     release_reason: OnlyRiskReleaseReason | None = None
     consumed_notional: OnlyMoney | None = None
     consumed_quantity: OnlyQuantity | None = None
+    released_notional: OnlyMoney | None = None
+    released_quantity: OnlyQuantity | None = None
 
     def __post_init__(self) -> None:
         consumed_quantity = Decimal(0) if self.consumed_quantity is None else self.consumed_quantity.value
+        released_quantity = Decimal(0) if self.released_quantity is None else self.released_quantity.value
+        if self.consumed_quantity is None:
+            object.__setattr__(
+                self,
+                "consumed_quantity",
+                OnlyQuantity(Decimal(0), self.reserved_quantity.precision),
+            )
+        if self.released_quantity is None:
+            object.__setattr__(
+                self,
+                "released_quantity",
+                OnlyQuantity(Decimal(0), self.reserved_quantity.precision),
+            )
         if (
             self.version < 1
             or self.updated_at < self.created_at
             or self.reserved_quantity.value < 0
-            or not 0 <= consumed_quantity <= self.reserved_quantity.value
+            or min(consumed_quantity, released_quantity) < 0
+            or consumed_quantity + released_quantity > self.reserved_quantity.value
         ):
             raise ValueError("Risk Reservation quantity/lifecycle is invalid")
         if self.reserved_notional is None:
-            if self.consumed_notional is not None:
+            if self.consumed_notional is not None or self.released_notional is not None:
                 raise ValueError("Risk Reservation optional notionals disagree")
-        elif self.consumed_notional is not None and (
-            self.consumed_notional.currency != self.reserved_notional.currency
-            or not 0 <= self.consumed_notional.amount <= self.reserved_notional.amount
-        ):
-            raise ValueError("Risk Reservation consumed notional is invalid")
+        else:
+            consumed_notional = self.consumed_notional or OnlyMoney(Decimal(0), self.reserved_notional.currency)
+            released_notional = self.released_notional or OnlyMoney(Decimal(0), self.reserved_notional.currency)
+            object.__setattr__(self, "consumed_notional", consumed_notional)
+            object.__setattr__(self, "released_notional", released_notional)
+            if (
+                consumed_notional.currency != self.reserved_notional.currency
+                or released_notional.currency != self.reserved_notional.currency
+                or min(consumed_notional.amount, released_notional.amount) < 0
+                or consumed_notional.amount + released_notional.amount > self.reserved_notional.amount
+            ):
+                raise ValueError("Risk Reservation consumed/released notional is invalid")
         if (self.state is OnlyRiskReservationState.RELEASED) != (self.release_reason is not None):
             raise ValueError("Risk Reservation release reason disagrees with state")
         if self.state is OnlyRiskReservationState.CONSUMED and consumed_quantity != self.reserved_quantity.value:
@@ -68,12 +91,14 @@ class OnlyRiskReservation(OnlyDomainModel):
         if self.reserved_notional is None:
             return None
         consumed = Decimal(0) if self.consumed_notional is None else self.consumed_notional.amount
-        return OnlyMoney(self.reserved_notional.amount - consumed, self.reserved_notional.currency)
+        released = Decimal(0) if self.released_notional is None else self.released_notional.amount
+        return OnlyMoney(self.reserved_notional.amount - consumed - released, self.reserved_notional.currency)
 
     @property
     def remaining_quantity(self) -> OnlyQuantity:
         consumed = Decimal(0) if self.consumed_quantity is None else self.consumed_quantity.value
-        return OnlyQuantity(self.reserved_quantity.value - consumed, self.reserved_quantity.precision)
+        released = Decimal(0) if self.released_quantity is None else self.released_quantity.value
+        return OnlyQuantity(self.reserved_quantity.value - consumed - released, self.reserved_quantity.precision)
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +190,8 @@ class OnlyRiskReservationManager:
             reservation,
             state=OnlyRiskReservationState.RELEASED,
             release_reason=reason,
+            released_notional=reservation.remaining_notional,
+            released_quantity=reservation.remaining_quantity,
             updated_at=timestamp,
             version=reservation.version + 1,
         )

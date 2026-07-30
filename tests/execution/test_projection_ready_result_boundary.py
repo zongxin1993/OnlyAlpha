@@ -1,5 +1,7 @@
 from onlyalpha.collector import OnlyBacktestResultCollector
+from onlyalpha.execution import OnlyExecutionProcessingStatus
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
+from tests.execution.test_long_close_terminal_planner import _terminal_update
 
 
 def test_committed_but_unprojected_transaction_is_hidden_from_formal_result_facts() -> None:
@@ -30,3 +32,16 @@ def test_projection_ready_transaction_enters_formal_result_exactly_once() -> Non
 
     assert len(collected.facts.executions) == 1
     assert collected.facts.executions[0].execution_id == harness.bundle.transaction.fact.execution_id
+
+
+def test_projection_ready_terminal_fact_does_not_enter_trade_result() -> None:
+    environment, _, update = _terminal_update("CANCELLED")
+    terminal = environment.runtime.execution_processor.process(update)
+    assert terminal.status is not OnlyExecutionProcessingStatus.FAILED
+    collector = OnlyBacktestResultCollector()
+    collector.start()
+
+    collected = collector.seal(environment.runtime, environment.runtime.clusters)
+
+    assert len(environment.runtime.ready_execution_query.ready_records(update.runtime_id)) == 3
+    assert len(collected.facts.executions) == 2

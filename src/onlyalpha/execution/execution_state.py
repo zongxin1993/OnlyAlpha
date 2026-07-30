@@ -499,12 +499,42 @@ class OnlyPositionReservationExecutionState(OnlyDomainModel):
     created_at: OnlyTimestamp
     updated_at: OnlyTimestamp
     version: int
+    consumed_quantity: OnlyQuantity | None = None
+    released_quantity: OnlyQuantity | None = None
 
     def __post_init__(self) -> None:
-        if self.quantity.precision != self.remaining_quantity.precision:
+        consumed = self.consumed_quantity
+        released = self.released_quantity
+        if consumed is None:
+            consumed = OnlyQuantity(
+                self.quantity.value - self.remaining_quantity.value
+                if self.state is not OnlyPositionReservationState.RELEASED
+                else Decimal(0),
+                self.quantity.precision,
+            )
+            object.__setattr__(self, "consumed_quantity", consumed)
+        if released is None:
+            released = OnlyQuantity(
+                self.quantity.value - consumed.value - self.remaining_quantity.value,
+                self.quantity.precision,
+            )
+            object.__setattr__(self, "released_quantity", released)
+        if (
+            len(
+                {
+                    self.quantity.precision,
+                    self.remaining_quantity.precision,
+                    consumed.precision,
+                    released.precision,
+                }
+            )
+            != 1
+        ):
             raise ValueError("Position reservation quantity precision mismatch")
         if (
             not 0 <= self.remaining_quantity.value <= self.quantity.value
+            or min(consumed.value, released.value) < 0
+            or consumed.value + released.value + self.remaining_quantity.value != self.quantity.value
             or (self.state is OnlyPositionReservationState.CONSUMED and self.remaining_quantity.value != 0)
             or (self.state is OnlyPositionReservationState.ACTIVE and self.remaining_quantity != self.quantity)
             or (
@@ -604,30 +634,52 @@ class OnlyRiskReservationExecutionState(OnlyDomainModel):
     created_at: OnlyTimestamp
     updated_at: OnlyTimestamp
     version: int
+    released_quantity: OnlyQuantity | None = None
+    released_notional: OnlyMoney | None = None
 
     def __post_init__(self) -> None:
+        released_quantity = self.released_quantity
+        if released_quantity is None:
+            released_quantity = OnlyQuantity(Decimal(0), self.reserved_quantity.precision)
+            object.__setattr__(self, "released_quantity", released_quantity)
         if (
             len(
                 {
                     self.reserved_quantity.precision,
                     self.consumed_quantity.precision,
                     self.remaining_quantity.precision,
+                    released_quantity.precision,
                 }
             )
             != 1
         ):
             raise ValueError("Risk reservation quantity precision mismatch")
-        if self.consumed_quantity.value + self.remaining_quantity.value != self.reserved_quantity.value:
+        if (
+            self.consumed_quantity.value + released_quantity.value + self.remaining_quantity.value
+            != self.reserved_quantity.value
+        ):
             raise ValueError("Risk reservation quantity authority is invalid")
         if self.reserved_notional is None:
-            if self.consumed_notional is not None or self.remaining_notional is not None:
+            if (
+                self.consumed_notional is not None
+                or self.remaining_notional is not None
+                or self.released_notional is not None
+            ):
                 raise ValueError("Risk reservation optional notionals disagree")
-        elif (
-            self.consumed_notional is None
-            or self.remaining_notional is None
-            or (self.consumed_notional.amount + self.remaining_notional.amount != self.reserved_notional.amount)
-        ):
-            raise ValueError("Risk reservation notional authority is invalid")
+        else:
+            released_notional = self.released_notional
+            if released_notional is None:
+                released_notional = OnlyMoney(Decimal(0), self.reserved_notional.currency)
+                object.__setattr__(self, "released_notional", released_notional)
+            if (
+                self.consumed_notional is None
+                or self.remaining_notional is None
+                or (
+                    self.consumed_notional.amount + released_notional.amount + self.remaining_notional.amount
+                    != self.reserved_notional.amount
+                )
+            ):
+                raise ValueError("Risk reservation notional authority is invalid")
         if (
             self.version < 1
             or self.updated_at < self.created_at
@@ -840,6 +892,8 @@ def only_risk_reservation_execution_state(
         reservation.created_at,
         reservation.updated_at,
         reservation.version,
+        reservation.released_quantity,
+        reservation.released_notional,
     )
 
 

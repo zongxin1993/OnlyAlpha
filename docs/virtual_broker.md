@@ -46,8 +46,8 @@ Backtest 装配要求 Broker 声明 `simulated_execution` 且 `OnlyBrokerCompone
 
 Runtime 独占 Order、Committed Execution、Position、Allocation、Account、Strategy Ledger、Fee、Settlement、Margin、Risk、
 Audit、Reconciliation 和 Result。Broker Update 只能进入 Runtime-owned `OnlyBrokerInboundQueue`，再由
-`OnlyExecutionProcessor` 应用。成功成交在完整事务提交后写入 `OnlyCommittedExecutionJournal`；Collector、Analytics、Artifact
-和 Backtest Result 都从 Journal 读取，`query_trades()` 仅用于 Broker 查询和对账。
+`OnlyExecutionProcessor` 应用。成功成交在完整事务提交后进入 Runtime Persistence Store 的 Projection Ready Query；
+Collector、Analytics、Artifact 和 Backtest Result 只读取该权威，`query_trades()` 仅用于 Broker 查询和对账。
 
 Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、
 T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 未收到外部费用时使用
@@ -62,3 +62,8 @@ Plan。ONE_PER_BAR 每 Bar执行一个到期 Step；ALL_DUE 可按 Step Index �
 Order/Trade/Scheduler 一起进入 Gateway checkpoint schema 2；`broker.virtual` participant 与插件 capability 同为 version 2。
 Version 1 checkpoint fail fast。Broker execute 先推进 Account/Order/Trade/Plan，`PUBLISH_FILL` 后续才进入 Runtime，因此
 execute-before-publish checkpoint 只恢复发布，不重复 Broker 成交。详见 ADR 0051。
+
+PR4.4.2 不修改 Fill Plan 或 Gateway 的 BUY/SELL 中立设计。同一 SCHEDULE 已通过 OnlyEngine 正式产品链验证 Long Close
+`300 → 400 → 300`：ONE_PER_BAR 跨三个 Bar，ALL_DUE 可在同 Bar按 Step Index 连续发布；每个 Step 进入 Runtime 后形成
+独立 durable Trade Transaction。Close Fill 1/2 后的 Plan cursor checkpoint、延迟 publish、Commit、Projection、Outbox 与
+A→B→C 恢复均与无故障基线一致。Virtual Broker 不计算 Runtime realized PnL、Fee、Reservation 或 Risk。

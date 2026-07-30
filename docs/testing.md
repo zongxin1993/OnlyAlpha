@@ -152,6 +152,13 @@ Reservation、重复 Update、重复 Trade、迟到 Accepted、乱序 Trade、�
 Audit/Snapshot 序列化、Runtime 隔离和 100 次完整重放。中途失败断言不得出现 Order/Position/Ledger/Account 完整成功事实。
 所有正常成交必须由 Virtual Broker 产生并通过 Queue；Fault/Test Adapter 也只能注入标准 Broker Update。
 
+PR4.4.2 Long Close 验收还必须覆盖共享 Exact Cost Reducer、非整数/高精度 Decimal、`1000 → 700 → 300 → 0`、
+`1000 → 750 → 500 → 250 → 0`、不同 Fill Price/Fee、正负零 realized PnL、订单累计费用、`PENDING_CANCEL` 下成交、
+Partial Fill 后 Cancel/Reject/Expire、Fill/Terminal duplicate 与 conflict、Overfill/Reservation 不足，以及最终累计成本严格
+归零。正式 OnlyEngine + Virtual Broker 必须分别覆盖 ONE_PER_BAR 跨 Bar和 ALL_DUE 同 Bar Close Fill Plan；Recovery 必须
+覆盖 execute-before-publish、Commit 前后、mid-Projection、Outbox、Fill 1/2 checkpoint 与 A→B→C，并与无故障业务投影、
+Broker checkpoint 和 result fingerprint 比较。Terminal Fact 不得进入 Trade Result。
+
 ## Market Data Source 门禁
 
 必须覆盖 Source Capability、Envelope 序列化、UTC 半开范围、InMemory/CSV/Parquet、下推过滤、Queue 背压、Processor Scope、
