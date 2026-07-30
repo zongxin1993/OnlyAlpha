@@ -931,10 +931,12 @@ class OnlyRuntime:
                 )
             if self._clusters_recovered:
                 self._services.cluster_manager.resume_recovered_all()
+                self._require_all_clusters_running("resume recovered")
                 self._clusters_started = True
                 self._clusters_recovered = False
             elif not self._clusters_started:
                 self._services.cluster_manager.start_all()
+                self._require_all_clusters_running("start")
                 self._clusters_started = True
             self._after_clusters_started()
             self._state = OnlyRuntimeState.RUNNING
@@ -959,6 +961,19 @@ class OnlyRuntime:
 
     def _after_clusters_started(self) -> None:
         """Concrete Runtime hook for a stable post-start boundary."""
+
+    def _require_all_clusters_running(self, operation: str) -> None:
+        failed = tuple(
+            item for item in self._services.cluster_manager.status() if item.state is not OnlyClusterState.RUNNING
+        )
+        if not failed:
+            return
+        details = ", ".join(
+            f"{item.cluster_id}:{item.state.value}"
+            + ("" if item.last_failure is None else f":{item.last_failure.error_type}: {item.last_failure.message}")
+            for item in failed
+        )
+        raise OnlyRuntimeError(f"Cluster {operation} failed: {details}")
 
     def pause(self) -> None:
         if self._state is not OnlyRuntimeState.RUNNING:

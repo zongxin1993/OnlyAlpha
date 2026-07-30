@@ -113,3 +113,19 @@ business fingerprints. Direct delivery remains best-effort and Outbox delivery r
 path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE, Futures/Margin transactions, non-trade
 transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
 and remote stores remain outside this phase.
+
+## Event delivery failure semantics
+
+PR4.2.2c failure hardening freezes two distinct boundaries. Before Runtime Event Router OPEN, failure is completely silent:
+staged bootstrap events are discarded, EventBus has no queued or dispatched work, pending Outbox is untouched, Cluster
+start/resume is not attempted and `RUNTIME_STARTED` is absent. Bootstrap flush is one atomic EventBus batch, so capacity or scope
+failure cannot enqueue a prefix.
+
+After OPEN, an accepted bootstrap event or successful Outbox prefix retains its publication status and may be drained once during
+stop/close cleanup. Later failure still sets Runtime and Gate to FAILED, prevents `RUNTIME_STARTED`, and must not leave a Cluster
+incorrectly RUNNING. Cleanup is idempotent and does not retry the failed or untouched Outbox suffix.
+
+Outbox `published` means only that EventBus accepted the event and the local Store completed `mark_published`; there is no
+Subscriber ACK or delivery watermark. Consequently Outbox is at-least-once, while Direct delivery is best-effort. Historical
+Direct events produced during recovery/finalization are suppressed permanently. Exactly-once, Direct Durable Journal and remote
+EventBus remain outside the implemented contract.

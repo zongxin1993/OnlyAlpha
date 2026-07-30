@@ -52,20 +52,16 @@ class OnlyRuntimeEventRouter:
     def open(self) -> OnlyRuntimeEventPublicationResult:
         staged = self._gate.open()
         try:
-            for event in staged:
-                if not self._event_bus.publish(event):
-                    raise OnlyRuntimeEventRouteError(
-                        "RUNTIME_EVENT_BUS_REJECTED", "EventBus rejected a staged direct event"
-                    )
+            published = self._event_bus.publish_many_atomic(staged)
         except Exception:
             self._gate.fail()
             raise
-        self._gate.record_published(OnlyRuntimeEventRoute.EXTERNAL_DIRECT, len(staged))
+        self._gate.record_published(OnlyRuntimeEventRoute.EXTERNAL_DIRECT, published)
         return OnlyRuntimeEventPublicationResult(
             OnlyRuntimeEventRoute.EXTERNAL_DIRECT,
             OnlyRuntimeEventDisposition.PUBLISHED,
             len(staged),
-            len(staged),
+            published,
             0,
             0,
             0,

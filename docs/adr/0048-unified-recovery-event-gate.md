@@ -57,3 +57,24 @@ subscriber ACK, exactly-once delivery, a new persistence table/schema, another E
 SELL/CLOSE, formal Futures/Margin transactions or non-trade transactions. Recovery Outcome, causal session, exact boundary,
 Finalizer phase, authority validation, checkpoint schema, transaction authority, canonical business projection and result
 fingerprint are unchanged.
+
+## Failure boundaries
+
+Failure before Router `OPEN` is completely silent: the Gate and Runtime fail closed, bootstrap staging is discarded, EventBus
+queue and dispatch results remain empty, pending Outbox is not attempted, Clusters are not started/resumed, and
+`RUNTIME_STARTED` is not published. Historical Direct events suppressed in `RECOVERING` or `FINALIZING` are permanently
+discarded and are never compensated after OPEN.
+
+Router bootstrap flush uses EventBus atomic batch enqueue. The transport first verifies that it is accepting, validates every
+scope and checks aggregate capacity, then appends the whole batch. REJECT and FAIL_RUNTIME policies support this operation;
+DROP_LOW_PRIORITY rejects it because replacement would not have an unambiguous atomic contract. Thus a failed Router open leaves
+no partial bootstrap prefix in the queue.
+
+Failure after Router `OPEN` is different. Bootstrap events or a successful Durable Outbox prefix may already have been accepted
+by EventBus and can be drained once during cleanup. They must not be described as never published, removed retroactively, or
+dispatched twice. The Runtime still becomes FAILED, no Cluster may be reported RUNNING after a failed start/resume, and
+`RUNTIME_STARTED` is not published.
+
+An Outbox record's `published` flag means EventBus accepted the event and local `mark_published()` completed. It does not mean a
+subscriber acknowledged or processed it. Outbox remains at-least-once. Direct events remain best-effort and can be lost in a
+failure window. Subscriber ACK, delivery watermark, Direct durable journal, exactly-once and remote EventBus are not implemented.

@@ -102,3 +102,10 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 
 本节记录此前只覆盖 transaction-tail forward recovery 的历史阶段；其单笔 bootstrap、旧 Store 命名与 schema 已由 PR4.2/ADR 0044
 整体替代，不再是当前产品边界。
+
+## PR4.2.2c Failure Semantics Test Hardening
+
+PR4.2.2c 已通过 Failure Semantics Test Hardening 冻结：OPEN 前失败完全静默，OPEN 后保留 EventBus 已接受事件
+并允许 cleanup 单次 drain；Bootstrap flush 使用原子批量入队；Outbox 保持 at-least-once，Direct Event 保持
+best-effort。没有实现 Subscriber ACK、Delivery Watermark、Direct Durable Journal 或 exactly-once。下一阶段直接进入
+PR4.3 Partial / Multi-Fill Durable Transaction，不新增 4.2.2d 架构阶段。

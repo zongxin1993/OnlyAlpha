@@ -195,6 +195,23 @@ class OnlyEventBus:
             published += int(self.publish(event))
         return published
 
+    def publish_many_atomic(self, events: tuple[OnlyEvent, ...]) -> int:
+        """Enqueue one validated batch in full or leave the queue unchanged."""
+
+        with self._lock:
+            if not self._accepting:
+                raise OnlyEventBusError("event bus is closed")
+            if self._queue_policy is OnlyEventQueuePolicy.DROP_LOW_PRIORITY:
+                raise OnlyEventBusError("atomic batch is unsupported with DROP_LOW_PRIORITY policy")
+            for event in events:
+                self._require_scope(event)
+            if len(self._queue) + len(events) > self._capacity:
+                if self._queue_policy is OnlyEventQueuePolicy.FAIL_RUNTIME:
+                    raise OnlyEventRuntimeFailure("event bus capacity exceeded")
+                raise OnlyEventCapacityError("event bus capacity exceeded")
+            self._queue.extend(events)
+            return len(events)
+
     def dispatch(self) -> OnlyEventDispatchResult | None:
         with self._lock:
             if not self._queue:

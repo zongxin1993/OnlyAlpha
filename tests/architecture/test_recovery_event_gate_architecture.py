@@ -19,6 +19,7 @@ def test_event_bus_remains_runtime_and_recovery_agnostic() -> None:
     assert not any(name.startswith("onlyalpha.runtime") for name in imports)
     assert "recovery" not in source.lower()
     assert "GatePhase" not in source
+    assert "def publish_many_atomic(" in source
 
 
 def test_business_publishers_do_not_own_event_bus_or_runtime_router() -> None:
@@ -79,3 +80,30 @@ def test_gate_is_operational_only_and_finalizer_does_not_deliver_outbox() -> Non
     assert "publish_pending" not in finalizer_source
     assert "execution_outbox_publisher" not in finalizer_source
     assert "execution_outbox_publisher" in runtime_source
+
+
+def test_hardening_support_remains_test_only_and_adds_no_delivery_authority() -> None:
+    assert not any(path.name == "recovery_event_gate_hardening_support.py" for path in Path("src").rglob("*.py"))
+    sources = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha").rglob("*.py"))
+    for forbidden in (
+        "SubscriberAck",
+        "DeliveryWatermark",
+        "ExactlyOnce",
+        "DirectDurableJournal",
+    ):
+        assert forbidden not in sources
+
+
+def test_atomic_batch_is_transport_only_and_router_owns_bootstrap_flush() -> None:
+    bus_source = Path("src/onlyalpha/event/bus.py").read_text(encoding="utf-8")
+    router_source = Path("src/onlyalpha/runtime/events/router.py").read_text(encoding="utf-8")
+    assert "publish_many_atomic" in bus_source
+    assert "onlyalpha.runtime" not in bus_source
+    assert "GatePhase" not in bus_source
+    assert "self._event_bus.publish_many_atomic(staged)" in router_source
+
+
+def test_gate_diagnostics_do_not_enter_result_projection_or_fingerprint() -> None:
+    result_sources = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha/result").rglob("*.py"))
+    assert "event_gate_snapshot" not in result_sources
+    assert "suppressed_direct_count" not in result_sources

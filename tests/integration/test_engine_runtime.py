@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, time
 from decimal import Decimal
 
+import pytest
+
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
@@ -9,6 +11,7 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyClusterId, OnlyVenu
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeState
 from onlyalpha.strategy.base import OnlyStrategy
@@ -71,8 +74,13 @@ def test_engine_manages_multiple_runtimes_and_isolates_clusters() -> None:
     runtimes[0].add_cluster("engine", healthy)
     for runtime in runtimes:
         runtime.initialize()
-        runtime.start()
-    assert all(runtime.state is OnlyRuntimeState.RUNNING for runtime in runtimes)
+    with pytest.raises(Exception, match="expected isolated failure"):
+        runtimes[0].start()
+    runtimes[1].start()
+    assert runtimes[0].state is OnlyRuntimeState.FAILED
+    assert runtimes[0].event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
+    assert all(item.event.event_type.value != "RUNTIME_STARTED" for item in runtimes[0].event_bus.dispatch_results)
+    assert runtimes[1].state is OnlyRuntimeState.RUNNING
     assert healthy.started
     for runtime in runtimes:
         runtime.close()
