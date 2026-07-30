@@ -101,6 +101,10 @@ from .enums import (
     OnlyExecutionProcessingStatus,
 )
 from .event_buffer import OnlyExecutionEventBatch, OnlyExecutionEventBuffer
+from .fill_identity import (
+    only_execution_fill_identity_from_update,
+    only_execution_fill_payload_fingerprint,
+)
 from .invariants import OnlyExecutionInvariantChecker
 from .models import (
     OnlyExecutionAuditRecord,
@@ -114,6 +118,7 @@ from .models import (
     OnlyExecutionReconciliationRequest,
     OnlyExecutionSnapshotBundle,
 )
+from .persistence_ports import OnlyExecutionTransactionQueryPort
 from .planning_context import OnlyTradeExecutionPlanningContext
 from .planning_results import OnlyTradeExecutionPlanningError
 from .projection import OnlyExecutionProjectionComponent
@@ -181,6 +186,7 @@ class OnlyExecutionProcessor:
         trade_planning_context_builder: OnlyTradePlanningContextBuilder,
         trade_planner: OnlyTradeExecutionTransactionPlanner,
         execution_commit_coordinator: OnlyExecutionCommitCoordinator,
+        execution_transaction_query: OnlyExecutionTransactionQueryPort,
         reconciliation: OnlyExecutionReconciliationPort,
         deduplicator: OnlyExecutionUpdateDeduplicator,
         sequence_tracker: OnlyExecutionSequenceTracker,
@@ -219,6 +225,7 @@ class OnlyExecutionProcessor:
         self._trade_planning_context_builder = trade_planning_context_builder
         self._trade_planner = trade_planner
         self._execution_commit_coordinator = execution_commit_coordinator
+        self._execution_transaction_query = execution_transaction_query
         self._reconciliation = reconciliation
         self._deduplicator = deduplicator
         self._sequences = sequence_tracker
@@ -296,6 +303,30 @@ class OnlyExecutionProcessor:
         if validation is not None:
             return self._terminal(update, context, OnlyExecutionProcessingStatus.REJECTED, failure=validation)
         position_scope = self._resolve_position_scope(update)
+        if isinstance(update, OnlyBrokerTradeUpdate) and mode is OnlyExecutionProcessingMode.NORMAL:
+            fill_identity = only_execution_fill_identity_from_update(update)
+            fill_fingerprint = only_execution_fill_payload_fingerprint(update)
+            existing_fill = self._execution_transaction_query.get_by_fill_identity(update.runtime_id, fill_identity)
+            if existing_fill is not None and existing_fill.fact.fill_payload_fingerprint != fill_fingerprint:
+                failure = OnlyExecutionFailure(
+                    OnlyExecutionFailureCode.INVALID_UPDATE,
+                    "FILL_IDENTITY_CONFLICT: durable Fill identity has a different payload",
+                    OnlyExecutionMutationStep.VALIDATION,
+                )
+                return self._terminal(
+                    update,
+                    context,
+                    OnlyExecutionProcessingStatus.REJECTED,
+                    failure=failure,
+                    position_scope=position_scope,
+                )
+            if existing_fill is not None and existing_fill.projection_ready:
+                return self._terminal(
+                    update,
+                    context,
+                    OnlyExecutionProcessingStatus.DUPLICATE,
+                    position_scope=position_scope,
+                )
         if self._deduplicator.contains_update(update.update_id):
             return self._terminal(
                 update, context, OnlyExecutionProcessingStatus.DUPLICATE, position_scope=position_scope
@@ -1536,8 +1567,6 @@ class OnlyExecutionProcessor:
             and order.order_type is OnlyOrderType.LIMIT
             and order.side is OnlyOrderSide.BUY
             and order.offset is OnlyOffset.OPEN
-            and order.filled_quantity.value == 0
-            and update.fill.quantity == order.remaining_quantity
         )
 
     def _resolve_position_scope(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionPositionScope | None:

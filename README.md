@@ -512,7 +512,14 @@ result = engine.run()
 外部查询/对账 Projection。可使用 `python examples/committed_execution_report.py <config>` 查看公开 Result 中的 position
 scope、multiplier/notional、费用、slippage、PnL、settlement、margin 和 market profile。
 
-SELL/CLOSE、Partial/Multi Fill、Futures/Margin 与多 Cluster 固定资金归约尚未迁入 Coordinator；这些路径不会伪装为 committed execution。正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在 `RECOVERING` 阶段恢复最新完整 checkpoint，并在精确行情游标重放期间逐点处理 Ready/未投影 tail；独立 Backtest Recovery Session 以 source ID、data version、update ID、source sequence 和 event time 验证完整 boundary，不会重复 Strategy/Factor `on_start()`。Outbox 语义是 at-least-once。
+PR4.3.1 已建立纯 Order Partial-Fill Authority、Durable Fill Identity/Fingerprint、per-Order Fill Index 和多 Fill Committed
+Fact 基础；一个 Fill 始终对应一个不可变 Transaction。完整 Runtime Product Partial Fill 仍以
+`PARTIAL_FILL_ACCOUNTING_NOT_READY` fail closed，等待 PR4.3.2 的 Reservation/Risk/Fee/Account/Ledger 增量记账。
+SELL/CLOSE、Virtual Broker Partial Schedule、Multi-Fill Recovery、Futures/Margin 与多 Cluster 固定资金归约仍未开放。
+正式业务结果只通过 Projection Ready Query 读取；Admin Query 才能查看全部 committed transaction。Backtest Runtime 在
+`RECOVERING` 阶段恢复最新完整 checkpoint，并在精确行情游标重放期间逐点处理 Ready/未投影 tail；独立 Backtest Recovery
+Session 以 source ID、data version、update ID、source sequence 和 event time 验证完整 boundary，不会重复 Strategy/Factor
+`on_start()`。Outbox 语义是 at-least-once。
 
 普通 Backtest 使用进程内 `MEMORY` 且关闭 checkpoint。需要连续重启恢复时必须显式配置：
 
@@ -527,7 +534,7 @@ runtime:
 
 正式 Factory 将数据库放在
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`，与随机 Run Artifact 目录分离。SQLite 会校验
-schema version 2、engine/runtime、mode、配置指纹、Participant Registry 指纹、币种、Account 和 Market Profile；不匹配、Version 1 或 checkpoint 损坏时 fail fast，不会迁移、删除旧库或降级 Memory。Checkpoint 在首次 Cluster start 后以及每个 Processing Result、Audit、Result Progress、Event drain 均完成的 Bar barrier 原子写入，并与 transaction/outbox 使用同一数据库。PR4.2.2b 在 Exact Boundary 与 Continuation Transaction 之后增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator 和 fail-closed Finalizer；PR4.2.2c 增加唯一 Runtime Event Router 与 Recovery Event Gate。Fresh bootstrap direct facts 在 OPEN 后 FIFO flush，恢复 bootstrap 被丢弃，历史 direct facts 在 replay/finalization 中被抑制且不补发，continuation Outbox 只在 durable finalization 成功并 OPEN 后交付。Runtime 对外只暴露 EventBus 订阅视图。Direct Event 仍可能因故障丢失，Outbox 仍为 at-least-once；Partial/Multi-Fill、未事务化 SELL/CLOSE、Futures/Margin、Non-Trade Transaction、Paper/Live Recovery、Exactly-once、Direct Durable Journal、Delivery Watermark、Subscriber ACK、Schema Migration、Distributed Checkpoint、Full Broker Reconciliation、Remote Store 与 Web Recovery 仍未完成。
+schema version 2、engine/runtime、mode、配置指纹、Participant Registry 指纹、币种、Account 和 Market Profile；不匹配、Version 1 或 checkpoint 损坏时 fail fast，不会迁移、删除旧库或降级 Memory。Checkpoint 在首次 Cluster start 后以及每个 Processing Result、Audit、Result Progress、Event drain 均完成的 Bar barrier 原子写入，并与 transaction/outbox 使用同一数据库。PR4.2.2b 在 Exact Boundary 与 Continuation Transaction 之后增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator 和 fail-closed Finalizer；PR4.2.2c 增加唯一 Runtime Event Router 与 Recovery Event Gate。Fresh bootstrap direct facts 在 OPEN 后 FIFO flush，恢复 bootstrap 被丢弃，历史 direct facts 在 replay/finalization 中被抑制且不补发，continuation Outbox 只在 durable finalization 成功并 OPEN 后交付。Runtime 对外只暴露 EventBus 订阅视图。Direct Event 仍可能因故障丢失，Outbox 仍为 at-least-once；Runtime Product Partial-Fill Accounting、未事务化 SELL/CLOSE、Futures/Margin、Non-Trade Transaction、Paper/Live Recovery、Exactly-once、Direct Durable Journal、Delivery Watermark、Subscriber ACK、Schema Migration、Distributed Checkpoint、Full Broker Reconciliation、Remote Store 与 Web Recovery 仍未完成。
 
 Checkpoint 模式还要求 DataSource、Broker、Strategy、Factor 和 Indicator 显式声明 `CHECKPOINTABLE` 或 `STATELESS`；未声明能力、Checkpointable 缺少 schema version、或把有状态 Broker 声明为 Stateless 都会在装配期失败。内建历史 DataSource 明确 Stateless，官方 Virtual Broker 明确 Checkpointable schema 1。
 

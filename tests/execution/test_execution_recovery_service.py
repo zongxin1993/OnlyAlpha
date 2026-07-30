@@ -110,6 +110,7 @@ def test_recovery_does_not_skip_an_unready_predecessor() -> None:
     second = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-2"),
         update_id=type(first.broker_update_id)("update-2"),
+        fill_index=2,
     )
     store.commit(first, committed_at=_NOW)
     store.commit(second, committed_at=OnlyTimestamp(_NOW.unix_nanos + 1))

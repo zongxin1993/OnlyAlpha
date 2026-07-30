@@ -21,6 +21,7 @@ from onlyalpha.domain.identifiers import (
     OnlyOrderId,
     OnlyOrderRequestId,
     OnlyRuntimeId,
+    OnlyTradeId,
     OnlyVenueOrderId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
@@ -81,6 +82,10 @@ class OnlyOrder:
         self._status = OnlyOrderStatus.CREATED
         self._filled_quantity = OnlyQuantity(Decimal("0"), request.quantity.precision)
         self._average_fill_price: OnlyPrice | None = None
+        self._fill_count = 0
+        self._cumulative_price_quantity = Decimal(0)
+        self._last_trade_id: OnlyTradeId | None = None
+        self._historical_fill_identity_missing = False
         self._created_at = created_at
         self._updated_at = created_at
         self._submitted_at: OnlyTimestamp | None = None
@@ -139,6 +144,10 @@ class OnlyOrder:
         entity._status = snapshot.status
         entity._filled_quantity = snapshot.filled_quantity
         entity._average_fill_price = snapshot.average_fill_price
+        entity._fill_count = snapshot.fill_count
+        entity._cumulative_price_quantity = snapshot.cumulative_price_quantity
+        entity._last_trade_id = snapshot.last_trade_id
+        entity._historical_fill_identity_missing = snapshot.historical_fill_identity_missing
         entity._updated_at = snapshot.updated_at
         entity._submitted_at = snapshot.submitted_at
         entity._accepted_at = snapshot.accepted_at
@@ -197,7 +206,7 @@ class OnlyOrder:
 
     def snapshot(self) -> OnlyOrderSnapshot:
         remaining = self._request.quantity - self._filled_quantity
-        if self._status in {OnlyOrderStatus.CANCELLED, OnlyOrderStatus.FILLED}:
+        if self._status is OnlyOrderStatus.FILLED:
             remaining = OnlyQuantity(Decimal("0"), self._request.quantity.precision)
         return OnlyOrderSnapshot(
             self._order_id,
@@ -236,6 +245,10 @@ class OnlyOrder:
             self._failure,
             self._request.tags,
             self._request.metadata,
+            self._fill_count,
+            self._cumulative_price_quantity,
+            self._last_trade_id,
+            self._historical_fill_identity_missing,
         )
 
     def mark_submitted(self, timestamp: OnlyTimestamp) -> OnlyOrderEntityResult:
@@ -308,8 +321,12 @@ class OnlyOrder:
         if new_quantity.value > self._request.quantity.value:
             return self._invalid(OnlyOrderMutationType.FILLED, "Fill exceeds Order quantity")
         previous = self._status
+        self._cumulative_price_quantity += fill.price.value * fill.quantity.value
         self._average_fill_price = self._weighted_average(fill, new_quantity)
         self._filled_quantity = new_quantity
+        self._fill_count += 1
+        self._last_trade_id = fill.trade_id
+        self._historical_fill_identity_missing = False
         if previous is not OnlyOrderStatus.CANCELLED:
             self._status = (
                 OnlyOrderStatus.FILLED if new_quantity == self._request.quantity else OnlyOrderStatus.PARTIALLY_FILLED
@@ -494,12 +511,12 @@ class OnlyOrder:
         return None
 
     def _weighted_average(self, fill: OnlyOrderFill, new_quantity: OnlyQuantity) -> OnlyPrice:
-        previous_notional = Decimal("0")
         precision = fill.price.precision
         if self._average_fill_price is not None:
-            previous_notional = self._average_fill_price.value * self._filled_quantity.value
             precision = max(precision, self._average_fill_price.precision)
-        value = (previous_notional + fill.price.value * fill.quantity.value) / new_quantity.value
+        if self._request.price is not None:
+            precision = max(precision, self._request.price.precision)
+        value = self._cumulative_price_quantity / new_quantity.value
         quantum = Decimal(1).scaleb(-precision)
         return OnlyPrice(value.quantize(quantum, rounding=ROUND_HALF_EVEN), precision)
 

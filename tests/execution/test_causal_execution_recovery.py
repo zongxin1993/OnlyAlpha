@@ -65,6 +65,7 @@ def test_session_resolves_ready_then_unprojected_in_strict_causal_order(
     second = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-2"),
         update_id=OnlyBrokerUpdateId("update-2"),
+        fill_index=2,
     )
     first_committed = store.commit(first, committed_at=first.prepared_at).transaction
     store.mark_projection_ready(first.runtime_id, 1, projected_at=first.prepared_at)
@@ -101,6 +102,7 @@ def test_session_rejects_missing_conflicting_and_out_of_order_transactions(
     second = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-2"),
         update_id=OnlyBrokerUpdateId("update-2"),
+        fill_index=2,
     )
     store.commit(first, committed_at=first.prepared_at)
     store.commit(second, committed_at=second.prepared_at)
@@ -135,6 +137,7 @@ def test_session_resolves_three_ready_and_multiple_unprojected_entries_strictly(
         only_test_generic_t0_cash_buy_open_transaction(
             trade_id=OnlyTradeId(f"long-tail-trade-{index}"),
             update_id=OnlyBrokerUpdateId(f"long-tail-update-{index}"),
+            fill_index=index,
         )
         for index in range(1, 6)
     )

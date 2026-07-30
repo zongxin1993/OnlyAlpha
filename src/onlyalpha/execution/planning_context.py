@@ -28,6 +28,7 @@ from .execution_state import (
     OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionState,
 )
+from .fill_identity import OnlyExecutionFillAuthority
 from .projection import (
     OnlyFeeExecutionState,
     OnlySettlementExecutionState,
@@ -87,6 +88,7 @@ class OnlyTradeExecutionPlanningContext:
     risk_reservation_before: OnlyRiskReservationExecutionState
     risk_before: OnlyRiskExecutionState
     valuation_before: OnlyValuationExecutionState
+    fill_authority: OnlyExecutionFillAuthority
     position_creation: OnlyPositionCreationAuthority | None
     allocation_creation: OnlyAllocationCreationAuthority | None
     position_cycle: int = 0

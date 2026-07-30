@@ -131,6 +131,7 @@ def test_sequence_gate_requires_the_immediate_predecessor_to_be_ready() -> None:
     second = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-2"),
         update_id=type(first.broker_update_id)("update-2"),
+        fill_index=2,
     )
     store = OnlyInMemoryRuntimePersistenceStore()
     store.commit(first, committed_at=_COMMITTED_AT)

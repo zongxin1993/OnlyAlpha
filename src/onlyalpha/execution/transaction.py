@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from decimal import Decimal
-from typing import cast
+from typing import Self, cast
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.base import OnlyDomainModel
@@ -16,6 +19,7 @@ from onlyalpha.domain.identifiers import (
     OnlyOrderId,
     OnlyRuntimeId,
     OnlyTradeId,
+    OnlyVenueTradeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
@@ -26,6 +30,7 @@ from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 
 from .committed import OnlyCommittedExecutionFact
+from .fill_identity import OnlyExecutionFillIdentity, only_execution_fill_identity
 from .identity import only_execution_transaction_id
 from .projection import (
     OnlyExecutionProjection,
@@ -74,6 +79,12 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     cumulative_filled_quantity: OnlyQuantity
     remaining_quantity: OnlyQuantity
     order_status_after: OnlyOrderStatus
+    fill_identity: str
+    fill_payload_fingerprint: str
+    fill_index: int
+    fill_count_after: int
+    terminal_fill: bool
+    cumulative_price_quantity_after: Decimal
     currency: OnlyCurrency
     contract_multiplier: OnlyMultiplier
     gross_notional: OnlyMoney
@@ -135,6 +146,51 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
             raise ValueError("execution fact draft timestamps violate causal ordering")
         if self.authoritative_fee_total != self.fee_breakdown.total:
             raise ValueError("execution fact draft fee total must equal authoritative breakdown")
+        if self.fill_index < 1 or self.fill_count_after != self.fill_index:
+            raise ValueError("execution fact draft requires a contiguous per-Order fill index")
+        if self.terminal_fill != (self.remaining_quantity.value == 0):
+            raise ValueError("execution fact draft terminal flag disagrees with remaining quantity")
+        if self.terminal_fill and self.order_status_after is not OnlyOrderStatus.FILLED:
+            raise ValueError("terminal execution fact draft requires FILLED status")
+        if not self.terminal_fill and self.order_status_after not in {
+            OnlyOrderStatus.PARTIALLY_FILLED,
+            OnlyOrderStatus.PENDING_CANCEL,
+        }:
+            raise ValueError("non-terminal execution fact draft requires a partial status")
+        if self.cumulative_price_quantity_after <= 0:
+            raise ValueError("execution fact draft cumulative price quantity must be positive")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        if "fill_identity" in payload:
+            return super(OnlyCommittedExecutionFactDraft, cls).from_dict(payload)
+        compatible = dict(payload)
+        identity = OnlyExecutionFillIdentity(
+            OnlyRuntimeId(_identifier_text(payload["runtime_id"])),
+            OnlyBrokerGatewayId(_identifier_text(payload["gateway_id"])),
+            OnlyAccountId(_identifier_text(payload["account_id"])),
+            OnlyOrderId(_identifier_text(payload["order_id"])),
+            OnlyTradeId(_identifier_text(payload["trade_id"])),
+            None
+            if payload.get("venue_trade_id") is None
+            else OnlyVenueTradeId(_identifier_text(payload["venue_trade_id"])),
+            None if payload.get("external_event_id") is None else str(payload["external_event_id"]),
+        )
+        fingerprint = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        remaining = _nested_decimal(payload, "remaining_quantity")
+        compatible.update(
+            fill_identity=only_execution_fill_identity(identity),
+            fill_payload_fingerprint=fingerprint,
+            fill_index=1,
+            fill_count_after=1,
+            terminal_fill=remaining == 0,
+            cumulative_price_quantity_after=str(
+                _nested_decimal(payload, "fill_price") * _nested_decimal(payload, "cumulative_filled_quantity")
+            ),
+        )
+        return super(OnlyCommittedExecutionFactDraft, cls).from_dict(compatible)
 
     @classmethod
     def from_committed(cls, fact: OnlyCommittedExecutionFact) -> OnlyCommittedExecutionFactDraft:
@@ -271,6 +327,17 @@ class OnlyPreparedExecutionTransaction:
             event_ids.append(event.event_id)
         if len(event_ids) != len(set(event_ids)):
             raise ValueError("prepared transaction contains duplicate event identity")
+
+
+def _nested_decimal(payload: Mapping[str, object], key: str) -> Decimal:
+    value = payload[key]
+    if not isinstance(value, Mapping):
+        raise ValueError(f"legacy execution fact draft {key} is invalid")
+    return Decimal(str(value["value"]))
+
+
+def _identifier_text(value: object) -> str:
+    return str(value["value"]) if isinstance(value, Mapping) else str(value)
 
 
 @dataclass(frozen=True, slots=True)

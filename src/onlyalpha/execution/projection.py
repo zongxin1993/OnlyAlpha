@@ -117,6 +117,15 @@ class OnlyOrderExecutionProjection(OnlyDomainModel):
             raise ValueError("Order projection fill/update identity mismatch")
         if self.after.filled_quantity.value - self.before.filled_quantity.value != self.fill.quantity.value:
             raise ValueError("Order projection fill delta mismatch")
+        if self.after.fill_count != self.before.fill_count + 1:
+            raise ValueError("Order projection fill count must advance once")
+        if self.after.last_trade_id != self.fill.trade_id:
+            raise ValueError("Order projection last Trade identity mismatch")
+        if (
+            self.after.cumulative_price_quantity - self.before.cumulative_price_quantity
+            != self.fill.price.value * self.fill.quantity.value
+        ):
+            raise ValueError("Order projection cumulative price quantity delta mismatch")
         if self.after.remaining_quantity.value == 0 and self.after.status is not OnlyOrderStatus.FILLED:
             raise ValueError("fully filled Order projection requires FILLED status")
         if self.after.last_external_sequence is not None and self.before.last_external_sequence is not None:

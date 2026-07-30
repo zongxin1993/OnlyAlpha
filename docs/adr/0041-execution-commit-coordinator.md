@@ -32,7 +32,9 @@ Outbox 记录与事务一起 durable commit，但 `pending()` 只返回 Projecti
 
 ## Supported scope
 
-产品主链当前覆盖 Generic T0 Cash、LIMIT、BUY/SELL、OPEN/CLOSE 与多笔连续 Fill。Futures/Margin 与多 Cluster 固定资金归约仍受各自产品能力边界约束；不受支持的路径不得写入 Runtime Persistence Store 或生成正式 committed execution 结果。
+产品主链当前覆盖 Generic T0 Cash、LIMIT、BUY、OPEN 的 whole fill。PR4.3.1 已建立多 Fill Order Authority 与 durable Fill
+identity/index，但完整 partial-fill accounting 仍 fail closed；SELL/CLOSE、Futures/Margin 与多 Cluster 固定资金归约仍受各自
+产品能力边界约束。不受支持的路径不得写入 Runtime Persistence Store 或生成正式 committed execution 结果。
 
 ## Recovery boundary
 

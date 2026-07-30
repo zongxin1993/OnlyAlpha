@@ -22,6 +22,7 @@ from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState, On
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
 from .event_identity import OnlyExecutionTransactionEventFactory
+from .fill_identity import only_execution_fill_identity_from_update, only_execution_fill_payload_fingerprint
 from .identity import only_execution_transaction_id
 from .planned_trade import OnlyPlannedTrade
 from .planning_context import OnlyTradeExecutionPlanningContext
@@ -381,6 +382,12 @@ class OnlyTradeExecutionTransactionPlanner:
             cumulative_filled_quantity=order_after.filled_quantity,
             remaining_quantity=order_after.remaining_quantity,
             order_status_after=order_after.status,
+            fill_identity=context.fill_authority.identity,
+            fill_payload_fingerprint=context.fill_authority.payload_fingerprint,
+            fill_index=context.fill_authority.fill_index,
+            fill_count_after=order_after.fill_count,
+            terminal_fill=order_after.remaining_quantity.value == 0,
+            cumulative_price_quantity_after=order_after.cumulative_price_quantity,
             currency=currency,
             contract_multiplier=trade.multiplier,
             gross_notional=trade.gross_notional,
@@ -504,8 +511,11 @@ class OnlyTradeExecutionTransactionPlanner:
                 OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN,
                 "BUY OPEN cannot carry a Position Reservation",
             )
-        if update.fill.quantity != order.remaining_quantity or order.filled_quantity.value != 0:
-            _fail(OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_UNSUPPORTED, "Fill must complete an unfilled Order")
+        if update.fill.quantity.value > order.remaining_quantity.value:
+            _fail(
+                OnlyTradeExecutionPlanningErrorCode.FILL_EXCEEDS_REMAINING_QUANTITY,
+                "Fill exceeds Order remaining quantity",
+            )
         if (
             update.fill.ts_event != update.ts_event
             or update.fill.ts_init != update.ts_init
@@ -517,8 +527,24 @@ class OnlyTradeExecutionTransactionPlanner:
                 OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH,
                 "Fill precision, time, or external sequence disagrees",
             )
-        if order.status not in {OnlyOrderStatus.SUBMITTED, OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PENDING_CANCEL}:
+        if order.status not in {
+            OnlyOrderStatus.SUBMITTED,
+            OnlyOrderStatus.ACCEPTED,
+            OnlyOrderStatus.PARTIALLY_FILLED,
+            OnlyOrderStatus.PENDING_CANCEL,
+        }:
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_ORDER_STATE, "Order does not accept a Fill")
+        if context.fill_authority.fill_index != order.fill_count + 1:
+            _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_FILL_INDEX, "Fill index does not follow Order authority")
+        if context.fill_authority.identity != only_execution_fill_identity_from_update(
+            update
+        ) or context.fill_authority.payload_fingerprint != only_execution_fill_payload_fingerprint(update):
+            _fail(OnlyTradeExecutionPlanningErrorCode.FILL_IDENTITY_CONFLICT, "Captured Fill authority disagrees")
+        if update.fill.quantity.value < order.remaining_quantity.value or order.filled_quantity.value != 0:
+            _fail(
+                OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_ACCOUNTING_NOT_READY,
+                "Order authority supports partial Fill but incremental accounting is not ready",
+            )
         if order.last_external_sequence is not None and update.source_sequence <= order.last_external_sequence:
             _fail(OnlyTradeExecutionPlanningErrorCode.STALE_EXTERNAL_SEQUENCE, "Broker sequence must advance")
         if context.prepared_at < update.ts_event:

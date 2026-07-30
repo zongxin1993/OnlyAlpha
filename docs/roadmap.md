@@ -109,3 +109,10 @@ PR4.2.2c 已通过 Failure Semantics Test Hardening 冻结：OPEN 前失败完�
 并允许 cleanup 单次 drain；Bootstrap flush 使用原子批量入队；Outbox 保持 at-least-once，Direct Event 保持
 best-effort。没有实现 Subscriber ACK、Delivery Watermark、Direct Durable Journal 或 exactly-once。下一阶段直接进入
 PR4.3 Partial / Multi-Fill Durable Transaction，不新增 4.2.2d 架构阶段。
+
+## PR4.3.1 Partial-Fill Order Authority 与 Durable Fill Identity（完成）
+
+已完成纯 Order Partial-Fill Authority、精确累计成交价值、Fill Count/Last Trade ID、canonical Fill Identity、稳定 Payload
+Fingerprint、durable per-Order Fill Index、Committed Fact 审计字段以及 Memory/SQLite Fill/Order Query。旧 whole-fill Snapshot
+和 committed payload 可兼容读取，不新增表或 Checkpoint schema migration。Runtime Product Partial Fill 仍未开放并以
+`PARTIAL_FILL_ACCOUNTING_NOT_READY` fail closed；PR4.3.2 Reservation 与 Incremental Accounting 待完成。

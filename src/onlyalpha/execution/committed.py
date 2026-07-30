@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Self
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.base import OnlyDomainModel
@@ -16,6 +19,7 @@ from onlyalpha.domain.identifiers import (
     OnlyOrderId,
     OnlyRuntimeId,
     OnlyTradeId,
+    OnlyVenueTradeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
@@ -26,6 +30,8 @@ from onlyalpha.fee.models import (
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
+
+from .fill_identity import OnlyExecutionFillIdentity, only_execution_fill_identity
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -70,6 +76,12 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     cumulative_filled_quantity: OnlyQuantity
     remaining_quantity: OnlyQuantity
     order_status_after: OnlyOrderStatus
+    fill_identity: str
+    fill_payload_fingerprint: str
+    fill_index: int
+    fill_count_after: int
+    terminal_fill: bool
+    cumulative_price_quantity_after: Decimal
     currency: OnlyCurrency
     contract_multiplier: OnlyMultiplier
     gross_notional: OnlyMoney
@@ -139,6 +151,53 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             raise ValueError("committed execution timestamps violate causal ordering")
         if self.position_realized_pnl_delta != self.realized_pnl_delta:
             raise ValueError("position and execution realized PnL deltas disagree")
+        if self.fill_index < 1 or self.fill_count_after != self.fill_index:
+            raise ValueError("committed execution requires a contiguous per-Order fill index")
+        if self.terminal_fill != (self.remaining_quantity.value == 0):
+            raise ValueError("terminal fill must agree with remaining quantity")
+        if self.terminal_fill and self.order_status_after is not OnlyOrderStatus.FILLED:
+            raise ValueError("terminal fill requires FILLED Order status")
+        if not self.terminal_fill and self.order_status_after not in {
+            OnlyOrderStatus.PARTIALLY_FILLED,
+            OnlyOrderStatus.PENDING_CANCEL,
+        }:
+            raise ValueError("non-terminal fill requires an open partial Order status")
+        if self.cumulative_price_quantity_after <= 0:
+            raise ValueError("committed execution requires positive cumulative price quantity")
+        if not self.fill_identity.startswith("EFILL-") or len(self.fill_payload_fingerprint) != 64:
+            raise ValueError("committed execution requires durable Fill identity authority")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        if "fill_identity" in payload:
+            return super(OnlyCommittedExecutionFact, cls).from_dict(payload)
+        compatible = dict(payload)
+        fill_quantity = _nested_decimal(payload, "cumulative_filled_quantity")
+        fill_price = _nested_decimal(payload, "fill_price")
+        remaining = _nested_decimal(payload, "remaining_quantity")
+        identity = OnlyExecutionFillIdentity(
+            OnlyRuntimeId(_identifier_text(payload["runtime_id"])),
+            OnlyBrokerGatewayId(_identifier_text(payload["gateway_id"])),
+            OnlyAccountId(_identifier_text(payload["account_id"])),
+            OnlyOrderId(_identifier_text(payload["order_id"])),
+            OnlyTradeId(_identifier_text(payload["trade_id"])),
+            None
+            if payload.get("venue_trade_id") is None
+            else OnlyVenueTradeId(_identifier_text(payload["venue_trade_id"])),
+            None if payload.get("external_event_id") is None else str(payload["external_event_id"]),
+        )
+        historical_fingerprint = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        compatible.update(
+            fill_identity=only_execution_fill_identity(identity),
+            fill_payload_fingerprint=historical_fingerprint,
+            fill_index=1,
+            fill_count_after=1,
+            terminal_fill=remaining == 0,
+            cumulative_price_quantity_after=str(fill_price * fill_quantity),
+        )
+        return super(OnlyCommittedExecutionFact, cls).from_dict(compatible)
 
     @property
     def stable_order(self) -> tuple[int, int, int, str]:
@@ -152,6 +211,17 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
 def _money(amount: Decimal, currency: OnlyCurrency) -> OnlyMoney:
     quantum = Decimal(1).scaleb(-currency.precision)
     return OnlyMoney(amount.quantize(quantum), currency)
+
+
+def _nested_decimal(payload: Mapping[str, object], key: str) -> Decimal:
+    value = payload[key]
+    if not isinstance(value, Mapping):
+        raise ValueError(f"legacy committed execution {key} is invalid")
+    return Decimal(str(value["value"]))
+
+
+def _identifier_text(value: object) -> str:
+    return str(value["value"]) if isinstance(value, Mapping) else str(value)
 
 
 __all__ = ["OnlyCommittedExecutionFact"]

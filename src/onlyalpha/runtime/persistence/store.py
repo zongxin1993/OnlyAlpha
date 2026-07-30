@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
@@ -11,7 +12,7 @@ from threading import RLock
 from typing import Protocol
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution.codec import (
@@ -171,6 +172,7 @@ class OnlyInMemoryRuntimePersistenceStore:
                 existing = self._find_idempotent(prepared)
                 if existing is not None:
                     return OnlyExecutionTransactionCommitResult(existing, False)
+                self._validate_fill_index(prepared)
                 sequence = 1 + max(
                     (
                         item.execution_sequence
@@ -256,6 +258,40 @@ class OnlyInMemoryRuntimePersistenceStore:
         with self._lock:
             key = self._by_update.get((runtime_id, gateway_id, account_id, update_id))
             return None if key is None else self._records[key]
+
+    def get_by_fill_identity(
+        self, runtime_id: OnlyRuntimeId, fill_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None:
+        with self._lock:
+            return next(
+                (
+                    item
+                    for item in self._records.values()
+                    if item.runtime_id == runtime_id and item.fact.fill_identity == fill_identity
+                ),
+                None,
+            )
+
+    def transactions_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
+        with self._lock:
+            return tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._records.values()
+                        if item.runtime_id == runtime_id and item.fact.order_id == order_id
+                    ),
+                    key=lambda item: (item.fact.fill_index, item.execution_sequence),
+                )
+            )
+
+    def latest_fill_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> OnlyCommittedExecutionTransaction | None:
+        records = self.transactions_for_order(runtime_id, order_id)
+        return None if not records else records[-1]
 
     def records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
@@ -460,7 +496,12 @@ class OnlyInMemoryRuntimePersistenceStore:
         )
         existing_keys = {key for key in keys if key is not None}
         if not existing_keys:
-            return None
+            fill_existing = self.get_by_fill_identity(prepared.runtime_id, prepared.fact_draft.fill_identity)
+            if fill_existing is None:
+                return None
+            if fill_existing.fact.fill_payload_fingerprint != prepared.fact_draft.fill_payload_fingerprint:
+                raise OnlyExecutionTransactionConflict("Fill identity conflicts with another payload fingerprint")
+            return fill_existing
         if len(existing_keys) != 1:
             raise OnlyExecutionTransactionConflict("execution idempotency indexes refer to different transactions")
         existing = self._records[existing_keys.pop()]
@@ -470,6 +511,11 @@ class OnlyInMemoryRuntimePersistenceStore:
         ):
             raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared payload")
         return existing
+
+    def _validate_fill_index(self, prepared: OnlyPreparedExecutionTransaction) -> None:
+        for existing in self.transactions_for_order(prepared.runtime_id, prepared.fact_draft.order_id):
+            if existing.fact.fill_index == prepared.fact_draft.fill_index:
+                raise OnlyExecutionTransactionConflict("Fill index conflicts with another durable Order Fill")
 
     @staticmethod
     def _trade_key(
@@ -610,6 +656,11 @@ class OnlySqliteRuntimePersistenceStore:
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
+                existing = self._find_idempotent(prepared)
+                if existing is not None:
+                    self._connection.execute("ROLLBACK")
+                    return OnlyExecutionTransactionCommitResult(existing, False)
+                self._validate_fill_index(prepared)
                 row = self._connection.execute(
                     "SELECT COALESCE(MAX(execution_sequence), 0) AS value FROM execution_transactions WHERE runtime_id=?",
                     (str(prepared.runtime_id),),
@@ -698,6 +749,30 @@ class OnlySqliteRuntimePersistenceStore:
             "runtime_id=? AND gateway_id=? AND account_id=? AND broker_update_id=?",
             (str(runtime_id), str(gateway_id), str(account_id), str(update_id)),
         )
+
+    def get_by_fill_identity(
+        self, runtime_id: OnlyRuntimeId, fill_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None:
+        return next(
+            (item for item in self.records(runtime_id) if item.fact.fill_identity == fill_identity),
+            None,
+        )
+
+    def transactions_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
+        return tuple(
+            sorted(
+                (item for item in self.records(runtime_id) if item.fact.order_id == order_id),
+                key=lambda item: (item.fact.fill_index, item.execution_sequence),
+            )
+        )
+
+    def latest_fill_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> OnlyCommittedExecutionTransaction | None:
+        records = self.transactions_for_order(runtime_id, order_id)
+        return None if not records else records[-1]
 
     def records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0
@@ -1043,7 +1118,12 @@ class OnlySqliteRuntimePersistenceStore:
                 ),
             ).fetchall()
         if not rows:
-            return None
+            fill_existing = self.get_by_fill_identity(prepared.runtime_id, prepared.fact_draft.fill_identity)
+            if fill_existing is None:
+                return None
+            if fill_existing.fact.fill_payload_fingerprint != prepared.fact_draft.fill_payload_fingerprint:
+                raise OnlyExecutionTransactionConflict("Fill identity conflicts with another payload fingerprint")
+            return fill_existing
         transactions = tuple(self._decode_row(row) for row in rows)
         if (
             len({(item.prepared_authority_hash, item.prepared_payload_hash) for item in transactions}) != 1
@@ -1052,6 +1132,11 @@ class OnlySqliteRuntimePersistenceStore:
         ):
             raise OnlyExecutionTransactionConflict("execution idempotency key conflicts with another prepared payload")
         return transactions[0]
+
+    def _validate_fill_index(self, prepared: OnlyPreparedExecutionTransaction) -> None:
+        for existing in self.transactions_for_order(prepared.runtime_id, prepared.fact_draft.order_id):
+            if existing.fact.fill_index == prepared.fact_draft.fill_index:
+                raise OnlyExecutionTransactionConflict("Fill index conflicts with another durable Order Fill")
 
     def _mark_projection(
         self,
@@ -1103,22 +1188,64 @@ class OnlySqliteRuntimePersistenceStore:
                 raise
 
     def _decode_row(self, row: sqlite3.Row) -> OnlyCommittedExecutionTransaction:
-        return self._decode_recovery_row(row).committed
+        try:
+            prepared_payload = str(row["prepared_payload"])
+            prepared_value = json.loads(prepared_payload)
+            if not isinstance(prepared_value, dict):
+                raise ValueError("stored prepared execution payload is not an object")
+            prepared_without_hash = dict(prepared_value)
+            embedded_payload_digest = str(prepared_without_hash.pop("payload_hash"))
+            calculated_payload_digest = hashlib.sha256(
+                json.dumps(
+                    prepared_without_hash,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if (
+                embedded_payload_digest != str(row["prepared_payload_hash"])
+                or calculated_payload_digest != embedded_payload_digest
+            ):
+                raise ValueError("prepared execution transaction stored payload hash mismatch")
+            payload = str(row["committed_payload"])
+            value = json.loads(payload)
+            historical_fill_authority = (
+                isinstance(value, dict) and isinstance(value.get("fact"), dict) and "fill_identity" not in value["fact"]
+            )
+            transaction = only_decode_committed_execution_transaction(payload)
+            if not historical_fill_authority and transaction.committed_payload_hash != str(
+                row["committed_payload_hash"]
+            ):
+                raise ValueError("committed execution transaction stored payload hash mismatch")
+            return transaction
+        except OnlyRuntimePersistenceStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyRuntimePersistenceStoreError("stored committed execution transaction is malformed") from exc
 
     def _decode_recovery_row(self, row: sqlite3.Row) -> OnlyStoredExecutionTransaction:
         try:
             prepared_payload = str(row["prepared_payload"])
+            prepared_json = json.loads(prepared_payload)
+            historical_fill_authority = (
+                isinstance(prepared_json, dict)
+                and isinstance(prepared_json.get("fact_draft"), dict)
+                and "fill_identity" not in prepared_json["fact_draft"]
+            )
             prepared = only_decode_prepared_execution_transaction(prepared_payload)
-            if prepared.authority_hash != str(row["prepared_authority_hash"]):
+            if not historical_fill_authority and prepared.authority_hash != str(row["prepared_authority_hash"]):
                 raise ValueError("prepared execution transaction stored authority hash mismatch")
-            if prepared.payload_hash != str(row["prepared_payload_hash"]):
+            if not historical_fill_authority and prepared.payload_hash != str(row["prepared_payload_hash"]):
                 raise ValueError("prepared execution transaction stored payload hash mismatch")
             transaction = only_decode_committed_execution_transaction(str(row["committed_payload"]))
-            if transaction.committed_payload_hash != str(row["committed_payload_hash"]):
+            if not historical_fill_authority and transaction.committed_payload_hash != str(
+                row["committed_payload_hash"]
+            ):
                 raise ValueError("committed execution transaction stored payload hash mismatch")
-            if transaction.prepared_authority_hash != prepared.authority_hash:
+            if not historical_fill_authority and transaction.prepared_authority_hash != prepared.authority_hash:
                 raise ValueError("prepared and committed authority hashes disagree")
-            if transaction.prepared_payload_hash != prepared.payload_hash:
+            if not historical_fill_authority and transaction.prepared_payload_hash != prepared.payload_hash:
                 raise ValueError("prepared and committed payload hashes disagree")
             return OnlyStoredExecutionTransaction(prepared, transaction)
         except OnlyRuntimePersistenceStoreError:

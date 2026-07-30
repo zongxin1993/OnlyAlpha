@@ -60,7 +60,8 @@ def test_cancel_after_partial_fill_retains_fill_history(order_manager: OnlyOrder
     assert pending.current_status is OnlyOrderStatus.PENDING_CANCEL
     assert cancelled.current_status is OnlyOrderStatus.CANCELLED
     assert cancelled.snapshot.filled_quantity.value == 1
-    assert cancelled.snapshot.remaining_quantity.value == 0
+    assert cancelled.snapshot.remaining_quantity.value == 3
+    assert cancelled.snapshot.filled_quantity + cancelled.snapshot.remaining_quantity == cancelled.snapshot.quantity
 
 
 def test_expired_and_failed_are_explicit_terminal_states(

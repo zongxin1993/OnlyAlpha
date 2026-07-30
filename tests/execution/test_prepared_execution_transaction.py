@@ -105,7 +105,11 @@ def test_memory_and_sqlite_conflict_and_contiguous_sequence_contract(transaction
     conflict = replace(first, fact_draft=changed_fact, authority_hash="", payload_hash="")
     with pytest.raises(OnlyExecutionTransactionConflict):
         transaction_store.commit(conflict, committed_at=timestamp)
-    second = _prepared(trade_id=type(first.trade_id)("trade-2"), update_id=type(first.broker_update_id)("update-2"))
+    second = _prepared(
+        trade_id=type(first.trade_id)("trade-2"),
+        update_id=type(first.broker_update_id)("update-2"),
+        fill_index=2,
+    )
     assert transaction_store.commit(second, committed_at=timestamp).transaction.execution_sequence == 2
 
 

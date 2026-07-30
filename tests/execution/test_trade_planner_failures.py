@@ -19,6 +19,7 @@ from onlyalpha.execution import (
     OnlyTradeExecutionPlanningError,
     OnlyTradeExecutionPlanningErrorCode,
     OnlyTradeExecutionTransactionPlanner,
+    only_capture_execution_fill_authority,
 )
 from onlyalpha.fee import OnlyFeeBreakdown, OnlyFeeStatus
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
@@ -158,7 +159,7 @@ CASES: tuple[tuple[OnlyTradeExecutionPlanningErrorCode, Mutation], ...] = (
     (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_OFFSET, _offset),
     (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_SIDE, _position_side),
     (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_MODE, _position_mode),
-    (OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_UNSUPPORTED, _partial_fill),
+    (OnlyTradeExecutionPlanningErrorCode.PARTIAL_FILL_ACCOUNTING_NOT_READY, _partial_fill),
     (OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, _margin),
     (OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN, _position_reservation),
     (OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, _scope_mismatch),
@@ -181,8 +182,17 @@ def test_every_stable_planner_error_is_atomic(code: OnlyTradeExecutionPlanningEr
     context = only_test_real_trade_planning_context(env, _trade_update(env, scenario))
     before = only_test_runtime_authority_digest(env)
 
+    mutated = mutate(context)
+    if mutated.update != context.update:
+        mutated = replace(
+            mutated,
+            fill_authority=only_capture_execution_fill_authority(
+                env.runtime.execution_transaction_query,
+                mutated.update,
+            ),
+        )
     with pytest.raises(OnlyTradeExecutionPlanningError) as raised:
-        OnlyTradeExecutionTransactionPlanner().prepare(mutate(context))
+        OnlyTradeExecutionTransactionPlanner().prepare(mutated)
 
     assert raised.value.code is code
     assert only_test_runtime_authority_digest(env) == before

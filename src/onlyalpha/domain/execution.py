@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from types import MappingProxyType
+from typing import Self
 
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
@@ -177,18 +179,74 @@ class OnlyOrderSnapshot(OnlyDomainModel):
     failure: OnlyOrderFailure | None
     tags: tuple[str, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict)
+    fill_count: int = 0
+    cumulative_price_quantity: Decimal = Decimal(0)
+    last_trade_id: OnlyTradeId | None = None
+    historical_fill_identity_missing: bool = False
 
     def __post_init__(self) -> None:
         if self.version < 1:
             raise OnlyValidationError("order snapshot version must be positive")
-        if self.filled_quantity.value > self.quantity.value:
-            raise OnlyValidationError("filled quantity exceeds order quantity")
-        if self.filled_quantity.value > 0 and self.average_fill_price is None:
-            raise OnlyValidationError("filled quantity requires average_fill_price")
-        if self.status is OnlyOrderStatus.FILLED and self.filled_quantity != self.quantity:
-            raise OnlyValidationError("FILLED order requires full quantity")
+        if self.quantity.value != self.filled_quantity.value + self.remaining_quantity.value:
+            raise OnlyValidationError("order quantity authority is not conserved")
+        if self.fill_count < 0:
+            raise OnlyValidationError("fill_count cannot be negative")
+        if self.filled_quantity.value == 0 and self.fill_count != 0:
+            raise OnlyValidationError("unfilled order cannot have fills")
+        if self.filled_quantity.value > 0 and (
+            self.fill_count == 0 or self.average_fill_price is None or self.cumulative_price_quantity <= 0
+        ):
+            raise OnlyValidationError("filled quantity requires complete cumulative fill authority")
+        if self.fill_count == 0 and (self.average_fill_price is not None or self.cumulative_price_quantity != 0):
+            raise OnlyValidationError("zero fills require empty price authority")
+        if self.status is OnlyOrderStatus.PARTIALLY_FILLED and not (
+            0 < self.filled_quantity.value < self.quantity.value
+        ):
+            raise OnlyValidationError("PARTIALLY_FILLED order requires a partial quantity")
+        if self.status is OnlyOrderStatus.FILLED and (
+            self.filled_quantity != self.quantity or self.remaining_quantity.value != 0 or self.filled_at is None
+        ):
+            raise OnlyValidationError("FILLED order requires complete quantity and filled_at")
+        if self.remaining_quantity.value > 0 and self.status is OnlyOrderStatus.FILLED:
+            raise OnlyValidationError("FILLED order cannot have remaining quantity")
+        if self.historical_fill_identity_missing:
+            if self.last_trade_id is not None or self.fill_count != 1 or self.status is not OnlyOrderStatus.FILLED:
+                raise OnlyValidationError("legacy missing fill identity requires one completed whole fill")
+        elif (self.last_trade_id is None) != (self.fill_count == 0):
+            raise OnlyValidationError("last_trade_id presence must agree with fill_count")
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        """Read pre-PR4.3.1 whole-fill snapshots without rewriting history."""
+
+        if "fill_count" in payload:
+            return super(OnlyOrderSnapshot, cls).from_dict(payload)
+        compatible = dict(payload)
+        filled_payload = payload.get("filled_quantity")
+        average_payload = payload.get("average_fill_price")
+        if not isinstance(filled_payload, Mapping):
+            return super(OnlyOrderSnapshot, cls).from_dict(payload)
+        filled_value = Decimal(str(filled_payload.get("value", "0")))
+        if filled_value == 0:
+            compatible.update(
+                fill_count=0,
+                cumulative_price_quantity="0",
+                last_trade_id=None,
+                historical_fill_identity_missing=False,
+            )
+        else:
+            if not isinstance(average_payload, Mapping):
+                return super(OnlyOrderSnapshot, cls).from_dict(payload)
+            average_value = Decimal(str(average_payload.get("value")))
+            compatible.update(
+                fill_count=1,
+                cumulative_price_quantity=str(average_value * filled_value),
+                last_trade_id=None,
+                historical_fill_identity_missing=True,
+            )
+        return super(OnlyOrderSnapshot, cls).from_dict(compatible)
 
 
 @dataclass(frozen=True, slots=True)

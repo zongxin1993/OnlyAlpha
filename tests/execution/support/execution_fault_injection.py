@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import (
     OnlyAppliedProjectionLedger,
@@ -146,6 +146,24 @@ class OnlyFailOnceRuntimePersistenceStore:
     ) -> OnlyCommittedExecutionTransaction | None:
         self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_update(runtime_id, gateway_id, account_id, update_id)
+
+    def get_by_fill_identity(
+        self, runtime_id: OnlyRuntimeId, fill_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None:
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
+        return self._delegate.get_by_fill_identity(runtime_id, fill_identity)
+
+    def transactions_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]:
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
+        return self._delegate.transactions_for_order(runtime_id, order_id)
+
+    def latest_fill_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> OnlyCommittedExecutionTransaction | None:
+        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
+        return self._delegate.latest_fill_for_order(runtime_id, order_id)
 
     def records(
         self, runtime_id: OnlyRuntimeId | None = None, *, after_sequence: int = 0

@@ -110,7 +110,8 @@ the unified Runtime Event Router and Recovery Event Gate. Recovery bootstrap Dir
 events are suppressed during replay/finalization and never replayed; continuation transaction events remain pending in the
 durable Outbox until finalization succeeds and Runtime is OPEN. The Gate is operational-only and is excluded from checkpoint and
 business fingerprints. Direct delivery remains best-effort and Outbox delivery remains at-least-once. The formal committed transaction
-path remains Generic T0 Cash LIMIT BUY OPEN whole fills. Partial/Multi Fill, SELL/CLOSE, Futures/Margin transactions, non-trade
+path remains Generic T0 Cash LIMIT BUY OPEN whole fills. PR4.3.1 makes Fill identity/index and Order cumulative authority durable,
+but product partial fills still fail closed and multi-fill recovery is intentionally not implemented. SELL/CLOSE, Futures/Margin transactions, non-trade
 transactions, Paper/Live recovery, exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing
 and remote stores remain outside this phase.
 

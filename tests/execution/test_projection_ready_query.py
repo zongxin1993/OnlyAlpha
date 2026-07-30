@@ -38,6 +38,7 @@ def _populate(store: OnlyRuntimePersistenceStorePort, runtime_id: OnlyRuntimeId)
             update_id=type(only_test_generic_t0_cash_buy_open_transaction().broker_update_id)(
                 f"update-{runtime_id}-{sequence}"
             ),
+            fill_index=sequence,
         )
         store.commit(prepared, committed_at=_timestamp(sequence))
     store.mark_projection_ready(runtime_id, 1, projected_at=_timestamp(11))

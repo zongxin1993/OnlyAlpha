@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
 
@@ -72,6 +72,18 @@ class OnlyExecutionTransactionQueryPort(Protocol):
         gateway_id: OnlyBrokerGatewayId,
         account_id: OnlyAccountId,
         update_id: OnlyBrokerUpdateId,
+    ) -> OnlyCommittedExecutionTransaction | None: ...
+
+    def get_by_fill_identity(
+        self, runtime_id: OnlyRuntimeId, fill_identity: str
+    ) -> OnlyCommittedExecutionTransaction | None: ...
+
+    def transactions_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
+    ) -> tuple[OnlyCommittedExecutionTransaction, ...]: ...
+
+    def latest_fill_for_order(
+        self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
     ) -> OnlyCommittedExecutionTransaction | None: ...
 
     def records(

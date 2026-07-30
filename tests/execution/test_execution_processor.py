@@ -144,7 +144,7 @@ def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
     assert ledger_reservation.state.value == "RELEASED"
 
 
-def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
+def test_duplicate_update_and_conflicting_fill_identity_change_no_versions() -> None:
     env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
     applied = _complete_buy(env)
     assert applied.order_snapshot is not None
@@ -196,7 +196,9 @@ def test_duplicate_update_and_duplicate_trade_change_no_versions() -> None:
     env.runtime.receive_broker_update(repeated_trade)
     trade_result = env.runtime.drain_broker_inbound()[0]
     assert isinstance(trade_result, OnlyExecutionProcessingResult)
-    assert trade_result.status is OnlyExecutionProcessingStatus.DUPLICATE
+    assert trade_result.status is OnlyExecutionProcessingStatus.REJECTED
+    assert trade_result.failure is not None
+    assert "FILL_IDENTITY_CONFLICT" in trade_result.failure.message
     assert env.runtime.order_manager.require_snapshot(order_before.order_id).version == order_before.version
     assert env.runtime.account_manager.list_accounts()[0].version == account_before.version
     assert len(env.runtime.execution_transaction_query.records()) == 1

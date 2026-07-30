@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -122,6 +123,7 @@ def only_test_execution_fact_draft(
     runtime_id: OnlyRuntimeId = _TEST_RUNTIME_ID,
     trade_id: OnlyTradeId = _TEST_TRADE_ID,
     update_id: OnlyBrokerUpdateId = _TEST_UPDATE_ID,
+    fill_index: int = 1,
 ) -> OnlyCommittedExecutionFactDraft:
     timestamp = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, tzinfo=UTC))
     currency = _currency()
@@ -161,6 +163,12 @@ def only_test_execution_fact_draft(
         cumulative_filled_quantity=_quantity("2"),
         remaining_quantity=_quantity("0"),
         order_status_after=OnlyOrderStatus.FILLED,
+        fill_identity=f"EFILL-{hashlib.sha256(f'{runtime_id}|{trade_id}'.encode()).hexdigest()}",
+        fill_payload_fingerprint=hashlib.sha256(f"{runtime_id}|{trade_id}|{update_id}".encode()).hexdigest(),
+        fill_index=fill_index,
+        fill_count_after=fill_index,
+        terminal_fill=True,
+        cumulative_price_quantity_after=Decimal("20.00"),
         currency=currency,
         contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
         gross_notional=_money("20.00"),
@@ -262,6 +270,9 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         filled_quantity=_quantity("2"),
         remaining_quantity=_quantity("0"),
         average_fill_price=_price("10.00"),
+        fill_count=1,
+        cumulative_price_quantity=Decimal("20.00"),
+        last_trade_id=_TEST_TRADE_ID,
         filled_at=timestamp,
         version=2,
         last_external_sequence=7,
@@ -763,8 +774,14 @@ def only_test_generic_t0_cash_buy_open_transaction(
     runtime_id: OnlyRuntimeId = _TEST_RUNTIME_ID,
     trade_id: OnlyTradeId = _TEST_TRADE_ID,
     update_id: OnlyBrokerUpdateId = _TEST_UPDATE_ID,
+    fill_index: int = 1,
 ) -> OnlyPreparedExecutionTransaction:
-    fact = only_test_execution_fact_draft(runtime_id=runtime_id, trade_id=trade_id, update_id=update_id)
+    fact = only_test_execution_fact_draft(
+        runtime_id=runtime_id,
+        trade_id=trade_id,
+        update_id=update_id,
+        fill_index=fill_index,
+    )
     projections = only_test_generic_t0_cash_buy_open_projections()
     if runtime_id != _TEST_RUNTIME_ID or trade_id != _TEST_TRADE_ID or update_id != _TEST_UPDATE_ID:
         projections = _rescope_projections(projections, runtime_id, trade_id, update_id)
@@ -956,7 +973,19 @@ def _rescope_projections(
     for projection in projections:
         updated: OnlyExecutionProjection = projection
         if isinstance(projection, OnlyOrderExecutionProjection):
-            updated = replace(projection, fill=replace(projection.fill, trade_id=trade_id), broker_update_id=update_id)
+            after = replace(projection.after, last_trade_id=trade_id)
+            identity = replace(
+                projection.identity,
+                result_state_hash=only_execution_state_hash(after),
+                payload_hash="0" * 64,
+            )
+            updated = replace(
+                projection,
+                identity=identity,
+                after=after,
+                fill=replace(projection.fill, trade_id=trade_id),
+                broker_update_id=update_id,
+            )
         elif isinstance(projection, OnlySettlementExecutionProjection):
             after = replace(projection.after, source_trade_id=str(trade_id))
             updated = _replace_projection_after(projection, after)

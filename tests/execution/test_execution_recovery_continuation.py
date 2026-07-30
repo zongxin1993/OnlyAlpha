@@ -43,6 +43,7 @@ def test_tail_resolved_returns_commit_continuation_and_records_contiguous_sequen
         prepared = only_test_generic_t0_cash_buy_open_transaction(
             trade_id=OnlyTradeId(f"continuation-trade-{sequence}"),
             update_id=OnlyBrokerUpdateId(f"continuation-update-{sequence}"),
+            fill_index=sequence,
         )
         decision = session.decide(_update(prepared), prepared)
         assert decision.kind is OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION
@@ -63,6 +64,7 @@ def test_continuation_rejects_non_contiguous_sequence(invalid_sequence: int) -> 
     prepared = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("invalid-sequence-trade"),
         update_id=OnlyBrokerUpdateId("invalid-sequence-update"),
+        fill_index=2,
     )
     store.commit(prepared, committed_at=prepared.prepared_at)
     store.mark_projection_ready(prepared.runtime_id, 2, projected_at=prepared.prepared_at)
@@ -86,6 +88,7 @@ def test_continuation_rejects_not_ready_and_wrong_runtime() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("not-ready-trade"),
         update_id=OnlyBrokerUpdateId("not-ready-update"),
+        fill_index=2,
     )
     not_ready = store.commit(prepared, committed_at=prepared.prepared_at).transaction
     with pytest.raises(OnlyExecutionRecoveryError, match="RECOVERY_CONTINUATION_TRANSACTION_NOT_READY"):
@@ -95,6 +98,7 @@ def test_continuation_rejects_not_ready_and_wrong_runtime() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("wrong-scope-trade"),
         update_id=OnlyBrokerUpdateId("wrong-scope-update"),
+        fill_index=2,
     )
     store.commit(prepared, committed_at=prepared.prepared_at)
     store.mark_projection_ready(prepared.runtime_id, 2, projected_at=prepared.prepared_at)
@@ -112,6 +116,7 @@ def test_failed_session_rejects_all_later_decisions_and_records() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("failed-trade"),
         update_id=OnlyBrokerUpdateId("failed-update"),
+        fill_index=2,
     )
     committed = store.commit(prepared, committed_at=prepared.prepared_at).transaction
     with pytest.raises(OnlyExecutionRecoveryError):

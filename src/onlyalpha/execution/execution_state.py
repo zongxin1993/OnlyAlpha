@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
+from typing import Self
 
 from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus, OnlyAccountType
 from onlyalpha.account.models import OnlyAccountReservation, OnlyAccountSnapshot
@@ -22,6 +23,7 @@ from onlyalpha.domain.identifiers import (
     OnlyOrderRequestId,
     OnlyPositionId,
     OnlyRuntimeId,
+    OnlyTradeId,
     OnlyVenueOrderId,
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
@@ -100,14 +102,46 @@ class OnlyOrderExecutionState(OnlyDomainModel):
     failure: OnlyOrderFailure | None
     tags: tuple[str, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict)
+    fill_count: int = 0
+    cumulative_price_quantity: Decimal = Decimal(0)
+    last_trade_id: OnlyTradeId | None = None
+    historical_fill_identity_missing: bool = False
 
     def __post_init__(self) -> None:
         if self.version < 1 or self.quantity.value != self.filled_quantity.value + self.remaining_quantity.value:
             raise ValueError("Order execution state has invalid version or quantity authority")
-        if self.filled_quantity.value > 0 and self.average_fill_price is None:
-            raise ValueError("filled Order execution state requires average price")
+        if self.fill_count < 0:
+            raise ValueError("Order execution fill_count cannot be negative")
+        if self.filled_quantity.value == 0 and self.fill_count != 0:
+            raise ValueError("unfilled Order execution state cannot have fills")
+        if self.fill_count == 0 and (self.average_fill_price is not None or self.cumulative_price_quantity != 0):
+            raise ValueError("zero fills require empty Order price authority")
+        if self.filled_quantity.value > 0 and (
+            self.fill_count == 0 or self.average_fill_price is None or self.cumulative_price_quantity <= 0
+        ):
+            raise ValueError("filled Order execution state requires cumulative price authority")
+        if self.status is OnlyOrderStatus.PARTIALLY_FILLED and not (
+            0 < self.filled_quantity.value < self.quantity.value
+        ):
+            raise ValueError("PARTIALLY_FILLED execution state requires a partial quantity")
+        if self.status is OnlyOrderStatus.FILLED and (
+            self.filled_quantity != self.quantity or self.remaining_quantity.value != 0 or self.filled_at is None
+        ):
+            raise ValueError("FILLED execution state requires complete quantity and filled_at")
+        if self.remaining_quantity.value > 0 and self.status is OnlyOrderStatus.FILLED:
+            raise ValueError("FILLED execution state cannot have remaining quantity")
+        if self.historical_fill_identity_missing:
+            if self.last_trade_id is not None or self.fill_count != 1 or self.status is not OnlyOrderStatus.FILLED:
+                raise ValueError("legacy fill identity exception requires one completed whole fill")
+        elif (self.last_trade_id is None) != (self.fill_count == 0):
+            raise ValueError("last_trade_id presence must agree with fill_count")
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _metadata(self.metadata))
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        snapshot = OnlyOrderSnapshot.from_dict(payload)
+        return cls(**{name: getattr(snapshot, name) for name in cls.__dataclass_fields__})
 
 
 @dataclass(frozen=True, slots=True)

@@ -199,6 +199,13 @@ def only_encode_prepared_execution_transaction(prepared: OnlyPreparedExecutionTr
 def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExecutionTransaction:
     value = _load_object(payload)
     _require_schema(value)
+    fact_payload = _mapping(value, "fact_draft")
+    historical_fill_authority = "fill_identity" not in fact_payload
+    if historical_fill_authority:
+        original = dict(value)
+        stored_payload_hash = str(original.pop("payload_hash"))
+        if stored_payload_hash != only_execution_payload_hash(_canonical(original)):
+            raise ValueError("legacy prepared execution transaction payload hash mismatch")
     prepared = OnlyPreparedExecutionTransaction(
         transaction_id=str(value["transaction_id"]),
         runtime_id=OnlyRuntimeId(str(value["runtime_id"])),
@@ -208,14 +215,14 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedExec
         trade_id=OnlyTradeId(str(value["trade_id"])),
         source_sequence=int(str(value["source_sequence"])),
         prepared_at=OnlyTimestamp.from_unix_nanos(int(str(value["prepared_at_ns"]))),
-        fact_draft=OnlyCommittedExecutionFactDraft.from_dict(_mapping(value, "fact_draft")),
+        fact_draft=OnlyCommittedExecutionFactDraft.from_dict(fact_payload),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
         outbox_events=tuple(OnlyEvent.from_dict(_as_mapping(item)) for item in _list(value, "outbox_events")),
         preconditions=tuple(
             OnlyExecutionPrecondition.from_dict(_as_mapping(item)) for item in _list(value, "preconditions")
         ),
-        authority_hash=str(value["authority_hash"]),
-        payload_hash=str(value["payload_hash"]),
+        authority_hash="" if historical_fill_authority else str(value["authority_hash"]),
+        payload_hash="" if historical_fill_authority else str(value["payload_hash"]),
     )
     return prepared
 
@@ -256,23 +263,35 @@ def only_encode_committed_execution_transaction(transaction: OnlyCommittedExecut
 def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedExecutionTransaction:
     value = _load_object(payload)
     _require_schema(value)
+    fact_payload = _mapping(value, "fact")
+    historical_fill_authority = "fill_identity" not in fact_payload
+    if historical_fill_authority:
+        original = dict(value)
+        stored_payload_hash = str(original.pop("committed_payload_hash"))
+        if stored_payload_hash != only_execution_payload_hash(_canonical(original)):
+            raise ValueError("legacy committed execution transaction payload hash mismatch")
     transaction = OnlyCommittedExecutionTransaction(
         runtime_id=OnlyRuntimeId(str(value["runtime_id"])),
         execution_sequence=int(str(value["execution_sequence"])),
         transaction_id=str(value["transaction_id"]),
-        fact=OnlyCommittedExecutionFact.from_dict(_mapping(value, "fact")),
+        fact=OnlyCommittedExecutionFact.from_dict(fact_payload),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
         outbox_events=tuple(OnlyEvent.from_dict(_as_mapping(item)) for item in _list(value, "outbox_events")),
         committed_at=OnlyTimestamp.from_unix_nanos(int(str(value["committed_at_ns"]))),
         prepared_authority_hash=str(value["prepared_authority_hash"]),
         prepared_payload_hash=str(value["prepared_payload_hash"]),
-        committed_payload_hash=str(value["committed_payload_hash"]),
+        committed_payload_hash="" if historical_fill_authority else str(value["committed_payload_hash"]),
         projection_ready=bool(value["projection_ready"]),
         projected_at=_optional_timestamp(value.get("projected_at_ns")),
         projection_error=None if value.get("projection_error") is None else str(value["projection_error"]),
         projection_failed_at=_optional_timestamp(value.get("projection_failed_at_ns")),
     )
-    if transaction.committed_payload_hash != only_committed_execution_transaction_payload_hash(transaction):
+    if historical_fill_authority:
+        transaction = replace(
+            transaction,
+            committed_payload_hash=only_committed_execution_transaction_payload_hash(transaction),
+        )
+    elif transaction.committed_payload_hash != only_committed_execution_transaction_payload_hash(transaction):
         raise ValueError("committed execution transaction payload hash mismatch")
     return transaction
 

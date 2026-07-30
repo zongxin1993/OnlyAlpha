@@ -40,6 +40,11 @@ Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量�
 `Broker Update → Prepared Transaction → Durable Commit → Projection Ready Query → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
 Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
+PR4.3.1 将一个 Fill 固定为一个不可变 Transaction，并将 Order 定义为累计成交 Authority。Fill 使用独立于 ETX 的
+`EFILL-<sha256>` 业务身份、canonical payload fingerprint 和 per-Order durable fill index；Memory/SQLite Store 可按 Fill
+Identity 与 Order 查询。纯 Order Reducer 支持 `PARTIALLY_FILLED`，但完整 Runtime partial-fill accounting 仍 fail closed，
+直到 PR4.3.2 完成 Reservation/Risk/Fee/Account/Ledger 增量记账。详见 ADR 0049。
+
 Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
 复用 Domain Bar/Tick，来源元数据保存在 Update Envelope；历史数据只有 ReplayService 能推进 Backtest Clock。详见
 `docs/market_data_source.md`、`docs/historical_replay.md` 与 ADR 0017。

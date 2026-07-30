@@ -84,26 +84,52 @@ class OnlyOrderTradeReducer:
     def reduce(
         self, before: OnlyOrderExecutionState, trade: OnlyPlannedTrade, *, projection_sequence: int
     ) -> OnlyOrderTradeReduction:
-        previous_notional = Decimal(0)
-        precision = trade.price.precision
-        if before.average_fill_price is not None:
-            previous_notional = before.average_fill_price.value * before.filled_quantity.value
-            precision = max(precision, before.average_fill_price.precision)
-        total = before.filled_quantity.value + trade.quantity.value
+        allowed = {
+            OnlyOrderStatus.SUBMITTED,
+            OnlyOrderStatus.ACCEPTED,
+            OnlyOrderStatus.PARTIALLY_FILLED,
+            OnlyOrderStatus.PENDING_CANCEL,
+        }
+        if before.status not in allowed:
+            raise ValueError("Order state does not accept a Fill")
+        if trade.quantity.precision != before.remaining_quantity.precision:
+            raise ValueError("Fill quantity precision disagrees with Order")
+        if trade.quantity.value > before.remaining_quantity.value:
+            raise ValueError("Fill exceeds Order remaining quantity")
+        new_filled_value = before.filled_quantity.value + trade.quantity.value
+        new_remaining_value = before.quantity.value - new_filled_value
+        cumulative = before.cumulative_price_quantity + trade.price.value * trade.quantity.value
+        precision = max(
+            trade.price.precision,
+            0 if before.price is None else before.price.precision,
+            0 if before.average_fill_price is None else before.average_fill_price.precision,
+        )
         average = OnlyPrice(
-            ((previous_notional + trade.price.value * trade.quantity.value) / total).quantize(
-                Decimal(1).scaleb(-precision), rounding=ROUND_HALF_EVEN
-            ),
+            (cumulative / new_filled_value).quantize(Decimal(1).scaleb(-precision), rounding=ROUND_HALF_EVEN),
             precision,
+        )
+        terminal = new_remaining_value == 0
+        status = (
+            OnlyOrderStatus.FILLED
+            if terminal
+            else (
+                OnlyOrderStatus.PENDING_CANCEL
+                if before.status is OnlyOrderStatus.PENDING_CANCEL
+                else OnlyOrderStatus.PARTIALLY_FILLED
+            )
         )
         after = replace(
             before,
-            status=OnlyOrderStatus.FILLED,
-            filled_quantity=before.quantity,
-            remaining_quantity=OnlyQuantity(Decimal(0), before.quantity.precision),
+            status=status,
+            filled_quantity=OnlyQuantity(new_filled_value, before.quantity.precision),
+            remaining_quantity=OnlyQuantity(new_remaining_value, before.quantity.precision),
             average_fill_price=average,
+            fill_count=before.fill_count + 1,
+            cumulative_price_quantity=cumulative,
+            last_trade_id=trade.trade_id,
+            historical_fill_identity_missing=False,
             updated_at=trade.ts_init,
-            filled_at=trade.ts_event,
+            filled_at=trade.ts_event if terminal else None,
             version=before.version + 1,
             last_external_sequence=trade.source_sequence,
         )
@@ -126,7 +152,13 @@ class OnlyOrderTradeReducer:
         return OnlyOrderTradeReduction(
             after,
             projection,
-            (_intent(OnlyExecutionProjectionComponent.ORDER, "ORDER_FILLED", after.to_dict()),),
+            (
+                _intent(
+                    OnlyExecutionProjectionComponent.ORDER,
+                    "ORDER_FILLED" if terminal else "ORDER_PARTIALLY_FILLED",
+                    after.to_dict(),
+                ),
+            ),
         )
 
 

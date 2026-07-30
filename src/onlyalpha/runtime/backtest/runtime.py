@@ -100,6 +100,7 @@ from onlyalpha.execution.execution_state import (
     only_strategy_cash_reservation_execution_state,
     only_strategy_ledger_execution_state,
 )
+from onlyalpha.execution.fill_identity import only_capture_execution_fill_authority
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.planning_context import (
@@ -567,6 +568,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._build_trade_execution_planning_context,
             OnlyTradeExecutionTransactionPlanner(),
             execution_commit_coordinator,
+            persistence_store,
             execution_reconciliation_queue,
             execution_update_deduplicator,
             execution_sequence_tracker,
@@ -1831,6 +1833,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
             valuation_before=valuation_state,
+            fill_authority=only_capture_execution_fill_authority(
+                self._services.execution_transaction_query,
+                update,
+            ),
             position_creation=position_creation,
             allocation_creation=allocation_creation,
             position_cycle=position_cycle,
