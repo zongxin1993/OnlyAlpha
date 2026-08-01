@@ -6,12 +6,12 @@ from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.integration.test_engine_continuous_restart import (
     OnlyFaultInjectingRuntimePersistenceStoreFactory,
-    _sqlite_config,
 )
+from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill_config
 
 
 def test_engine_a_b_c_restarts_preserve_complete_business_result(tmp_path: Path) -> None:
-    config = _sqlite_config()
+    config = only_virtual_multi_fill_config(long_close=True)
     engine_id = OnlyEngineId("three-causal-restarts")
 
     engine_a = OnlyEngine(

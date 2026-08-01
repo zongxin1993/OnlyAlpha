@@ -273,6 +273,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             position_effect=scope.position_effect,
             position_mode=scope.position_mode,
             has_margin=context.margin_reservation_present,
+            account_ledger_parity=context.account_ledger_parity,
         )
         if capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
             raise ValueError(f"terminal execution capability is {capability.value}")

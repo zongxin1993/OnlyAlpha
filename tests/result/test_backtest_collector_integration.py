@@ -25,10 +25,10 @@ def test_collector_reads_runtime_facts_without_changing_business_result(tmp_path
         "signals": 0,
         "order_requests": 2,
         "orders": 2,
-        "executions": 1,
+        "executions": 2,
         "positions": 0,
         "accounts": 1,
-        "equity": 729,
+        "equity": 731,
     }
     assert first_projection["result_fingerprint"] == second_projection["result_fingerprint"]
     assert first_projection["execution"] == second_projection["execution"]

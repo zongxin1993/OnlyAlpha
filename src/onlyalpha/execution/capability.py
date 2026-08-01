@@ -31,6 +31,7 @@ def only_resolve_execution_capability(
     position_effect: OnlyPositionEffect,
     position_mode: OnlyPositionMode,
     has_margin: bool,
+    account_ledger_parity: bool,
 ) -> OnlyExecutionCapability:
     """Resolve one explicit support outcome without inspecting mutable Managers."""
 
@@ -47,6 +48,9 @@ def only_resolve_execution_capability(
     sell_close = (
         order_side is OnlyOrderSide.SELL and offset is OnlyOffset.CLOSE and position_effect is OnlyPositionEffect.CLOSE
     )
+
+    if generic_cash and not account_ledger_parity:
+        return OnlyExecutionCapability.LEGACY_UNMIGRATED
 
     if generic_cash:
         if operation_kind is OnlyExecutionOperationKind.TRADE_FILL and long_netting_limit and (buy_open or sell_close):

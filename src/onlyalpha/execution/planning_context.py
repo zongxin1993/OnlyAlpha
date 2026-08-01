@@ -138,6 +138,7 @@ class OnlyTerminalExecutionPlanningContext:
     position_reservation_before: OnlyPositionReservationExecutionState
     risk_reservation_before: OnlyRiskReservationExecutionState
     risk_before: OnlyRiskExecutionState
+    account_ledger_parity: bool
     account_cash_reservation_present: bool = False
     strategy_cash_reservation_present: bool = False
     margin_reservation_present: bool = False

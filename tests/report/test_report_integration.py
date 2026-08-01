@@ -18,8 +18,8 @@ def test_engine_publishes_concise_reports_without_recalculating(tmp_path: Path) 
     assert len(result.backtest_reports) == len(result.console_reports) == len(result.report_paths) == 1
     projection = result.backtest_reports[0]
     assert projection["order_count"] == 2
-    assert projection["execution_count"] == 1
-    assert projection["trade_count"] == 0
+    assert projection["execution_count"] == 2
+    assert projection["trade_count"] == 1
     assert projection["result_fingerprint"]
     assert "orders" not in projection
     report = result.report_paths[0].read_text(encoding="utf-8")
@@ -48,7 +48,7 @@ def test_cli_keeps_single_json_line_and_adds_report_fields(tmp_path: Path, capsy
     payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
     assert payload["status"] == "COMPLETED"
     assert payload["cluster_count"] == 1
-    assert payload["trade_count"] == 0
+    assert payload["trade_count"] == 1
     assert Path(payload["report_path"]).is_file()
     assert Path(payload["manifest_path"]).is_file()
 

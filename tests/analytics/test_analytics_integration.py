@@ -20,8 +20,8 @@ def test_analytics_consumes_formal_result_without_changing_it() -> None:
     assert first.analysis_fingerprint == second.analysis_fingerprint
     assert first.orders.submitted_count == 2
     assert first.orders.filled_count == 2
-    assert first.executions.execution_count == 1
-    assert first.trades.trade_count == 0
+    assert first.executions.execution_count == 2
+    assert first.trades.trade_count == 1
     assert first.performance.ending_equity == result.runtime_performance.final_equity.amount
     assert len(first.cluster_analyses) == 1
     assert first.cluster_analyses[0].cluster_id == str(result.cluster_results[0].cluster_id)

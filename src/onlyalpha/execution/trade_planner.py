@@ -700,6 +700,10 @@ class OnlyTradeExecutionTransactionPlanner:
             position_effect=scope.position_effect,
             position_mode=scope.position_mode,
             has_margin=False,
+            account_ledger_parity=(
+                context.account_before.cash_balance == context.strategy_ledger_before.cash_balance
+                and context.account_before.position_market_value == context.strategy_ledger_before.position_market_value
+            ),
         )
         if capability is not OnlyExecutionCapability.DURABLE_TRADE:
             _fail(

@@ -8,7 +8,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.account.manager import OnlyAccountManager
-from onlyalpha.account.models import OnlyAccountMutationResult, OnlyAccountTradeCashFlow
+from onlyalpha.account.models import OnlyAccountMutationResult, OnlyAccountSnapshot, OnlyAccountTradeCashFlow
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.broker.updates import (
     OnlyBrokerAccountUpdate,
@@ -1105,6 +1105,7 @@ class OnlyExecutionProcessor:
                 position_effect=position_scope.position_effect,
                 position_mode=position_scope.position_mode,
                 has_margin=instruction.margin_instruction is not None,
+                account_ledger_parity=self._has_account_ledger_parity(order, account),
             )
             if capability is OnlyExecutionCapability.DURABLE_TRADE:
                 raise RuntimeError("DURABLE_TRADE_REQUIRED: formal Generic T0 Trade cannot use legacy mutation")
@@ -1767,6 +1768,7 @@ class OnlyExecutionProcessor:
                 position_effect=position_scope.position_effect,
                 position_mode=position_scope.position_mode,
                 has_margin=instruction.margin_instruction is not None,
+                account_ledger_parity=self._has_account_ledger_parity(order, account),
             )
         )
         return capability is OnlyExecutionCapability.DURABLE_TRADE
@@ -1797,8 +1799,21 @@ class OnlyExecutionProcessor:
             position_effect=position_scope.position_effect,
             position_mode=position_scope.position_mode,
             has_margin=compiled.margin_policy is not None,
+            account_ledger_parity=self._has_account_ledger_parity(order, account),
         )
         return capability is OnlyExecutionCapability.DURABLE_TERMINAL
+
+    def _has_account_ledger_parity(self, order: OnlyOrderSnapshot, account: OnlyAccountSnapshot) -> bool:
+        ledger = self._ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account.base_currency,
+        )
+        return (
+            account.cash.cash_balance == ledger.cash.cash_balance
+            and account.position_market_value == ledger.equity.position_market_value
+        )
 
     def _resolve_position_scope(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionPositionScope | None:
         if isinstance(update, OnlyBrokerPositionUpdate):

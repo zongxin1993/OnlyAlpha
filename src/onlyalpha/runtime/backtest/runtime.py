@@ -1786,6 +1786,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
         account_snapshot = self._services.account_manager.get_snapshot(order.account_id)
         if account_snapshot is None:
             raise KeyError(f"Account not found: {order.account_id}")
+        ledger_snapshot = self._strategy_ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account_snapshot.base_currency,
+        )
         capability = only_resolve_execution_capability(
             operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
             market_profile_id=instruction.compiled_identity.profile_id,
@@ -1797,6 +1803,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_effect=position_scope.position_effect,
             position_mode=position_scope.position_mode,
             has_margin=instruction.margin_instruction is not None,
+            account_ledger_parity=(
+                account_snapshot.cash.cash_balance == ledger_snapshot.cash.cash_balance
+                and account_snapshot.position_market_value == ledger_snapshot.equity.position_market_value
+            ),
         )
         if capability is not OnlyExecutionCapability.DURABLE_TRADE:
             raise ValueError(f"prepared Trade capability is {capability.value}")
@@ -1807,12 +1817,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         closing = position_scope.position_effect is OnlyPositionEffect.CLOSE
         if account_reservation is None and not closing:
             raise ValueError("prepared Trade planning requires Account cash Reservation")
-        ledger_snapshot = self._strategy_ledger_locator.require_snapshot(
-            runtime_id=order.runtime_id,
-            account_id=order.account_id,
-            cluster_id=order.cluster_id,
-            currency=account_snapshot.base_currency,
-        )
         strategy_reservation = next(
             (item for item in ledger_snapshot.reservations if item.order_id == order.order_id),
             None,
@@ -1946,6 +1950,12 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if market_rules is None:
             raise ValueError("prepared Terminal planning requires compiled market rules")
         compiled = market_rules.compiled_rules(str(order.instrument_id), trading_day)
+        ledger = self._strategy_ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account.base_currency,
+        )
         capability = only_resolve_execution_capability(
             operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
             market_profile_id=compiled.identity.profile_id,
@@ -1957,6 +1967,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_effect=position_scope.position_effect,
             position_mode=position_scope.position_mode,
             has_margin=compiled.margin_policy is not None,
+            account_ledger_parity=(
+                account.cash.cash_balance == ledger.cash.cash_balance
+                and account.position_market_value == ledger.equity.position_market_value
+            ),
         )
         if capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
             raise ValueError(f"prepared Terminal capability is {capability.value}")
@@ -1969,12 +1983,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
         account_reservation = next(
             (item for item in account.reservations if item.order_id == order.order_id),
             None,
-        )
-        ledger = self._strategy_ledger_locator.require_snapshot(
-            runtime_id=order.runtime_id,
-            account_id=order.account_id,
-            cluster_id=order.cluster_id,
-            currency=account.base_currency,
         )
         strategy_reservation = next(
             (item for item in ledger.reservations if item.order_id == order.order_id),
@@ -1993,6 +2001,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservation_before=only_position_reservation_execution_state(position_reservation),
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
+            account_ledger_parity=(
+                account.cash.cash_balance == ledger.cash.cash_balance
+                and account.position_market_value == ledger.equity.position_market_value
+            ),
             account_cash_reservation_present=account_reservation is not None,
             strategy_cash_reservation_present=strategy_reservation is not None,
             margin_reservation_present=self._margin_manager.get(str(order.order_id)) is not None,
