@@ -1804,15 +1804,18 @@ class OnlyExecutionProcessor:
         return capability is OnlyExecutionCapability.DURABLE_TERMINAL
 
     def _has_account_ledger_parity(self, order: OnlyOrderSnapshot, account: OnlyAccountSnapshot) -> bool:
-        ledger = self._ledger_locator.require_snapshot(
-            runtime_id=order.runtime_id,
-            account_id=order.account_id,
-            cluster_id=order.cluster_id,
-            currency=account.base_currency,
+        ledgers = tuple(
+            item
+            for item in self._ledgers.list_ledgers()
+            if item.key.runtime_id == order.runtime_id
+            and item.key.account_id == order.account_id
+            and item.key.base_currency == account.base_currency
         )
         return (
-            account.cash.cash_balance == ledger.cash.cash_balance
-            and account.position_market_value == ledger.equity.position_market_value
+            bool(ledgers)
+            and account.cash.cash_balance.amount == sum((item.cash.cash_balance.amount for item in ledgers), Decimal(0))
+            and account.position_market_value.amount
+            == sum((item.equity.position_market_value.amount for item in ledgers), Decimal(0))
         )
 
     def _resolve_position_scope(self, update: OnlyBrokerInboundUpdate) -> OnlyExecutionPositionScope | None:

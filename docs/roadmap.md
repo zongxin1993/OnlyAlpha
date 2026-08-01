@@ -149,3 +149,6 @@ Outbox、Fill 1/2 checkpoint 与 A→B→C 等价恢复。Partial Fill 后 Cance
 `ORDER_TERMINAL` Transaction。Runtime Persistence schema 升至 3 并明确拒绝旧 schema 2；Commit Coordinator、Recovery
 Phase、Event Gate、Fill Identity/Index 与 Virtual Broker checkpoint schema 2 保持不变。下一阶段为 PR4.5 CN A-share Cash
 Product Closure；Short、Hedging、CloseToday/CloseYesterday、Futures/Margin 和 Paper/Live 仍未实现。
+# 已完成：Multi-Cluster Close Cost Authority
+
+Generic T0 Cash 的不同成本 Multi-Cluster Long Close 已进入正式 durable transaction 路径，覆盖 whole/partial/multi-fill、注册顺序确定性与 checkpoint/restart。Unallocated Close、Cross-Cluster Close、FIFO/LIFO、Short、Hedging、Futures、Margin 和 FX 仍不在支持范围。

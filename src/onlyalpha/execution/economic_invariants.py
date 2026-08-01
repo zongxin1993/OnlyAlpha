@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
@@ -159,6 +159,42 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or fact.allocation_cumulative_open_price_quantity_after != allocation.after.cumulative_open_price_quantity
         ):
             raise ValueError("exact cumulative Position cost contradicts Projection")
+        if fact.position_effect.value == "CLOSE":
+            if position.before is None or allocation.before is None:
+                raise ValueError("Close cost authority requires Position and Allocation before states")
+            position_released = (
+                position.before.cumulative_open_price_quantity - position.after.cumulative_open_price_quantity
+            )
+            allocation_released = (
+                allocation.before.cumulative_open_price_quantity - allocation.after.cumulative_open_price_quantity
+            )
+            if not (position_released == allocation_released == fact.released_open_price_quantity):
+                raise ValueError("attributed close cost contradicts Position or Allocation Projection")
+            _validate_close_average(
+                "Position",
+                position.after.total_quantity.value,
+                position.after.cumulative_open_price_quantity,
+                position.after.average_open_price,
+            )
+            _validate_close_average(
+                "Allocation",
+                allocation.after.total_quantity.value,
+                allocation.after.cumulative_open_price_quantity,
+                allocation.after.average_open_price,
+            )
+            quantum = Decimal(1).scaleb(-fact.currency.precision)
+            expected_realized = (
+                (fact.fill_price.value * fact.fill_quantity.value - fact.released_open_price_quantity)
+                * fact.contract_multiplier.value
+            ).quantize(quantum, rounding=ROUND_HALF_EVEN)
+            if (
+                fact.realized_pnl_delta.amount != expected_realized
+                or fact.position_realized_pnl_delta != fact.realized_pnl_delta
+                or fact.allocation_realized_pnl_delta != fact.realized_pnl_delta
+                or fact.account_realized_pnl_delta != fact.realized_pnl_delta
+                or fact.ledger_realized_pnl_delta != fact.realized_pnl_delta
+            ):
+                raise ValueError("attributed close realized PnL authority is inconsistent")
 
         state = settlement.after
         if (
@@ -522,6 +558,28 @@ def _one[ProjectionT: OnlyExecutionProjection](
     if len(matches) != 1:
         raise ValueError(f"prepared execution requires exactly one {projection_type.__name__}")
     return matches[0]
+
+
+def _validate_close_average(
+    component: str,
+    quantity: Decimal,
+    cumulative_cost: Decimal,
+    average: object,
+) -> None:
+    from onlyalpha.domain.value import OnlyPrice
+
+    if quantity == 0:
+        if cumulative_cost != 0 or average is not None:
+            raise ValueError(f"{component} terminal close cost authority is not zero")
+        return
+    if not isinstance(average, OnlyPrice):
+        raise ValueError(f"{component} remaining close average is missing")
+    expected = (cumulative_cost / quantity).quantize(
+        Decimal(1).scaleb(-average.precision),
+        rounding=ROUND_HALF_EVEN,
+    )
+    if average.value != expected:
+        raise ValueError(f"{component} remaining close average contradicts exact cost")
 
 
 def _trade_fact(prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionFactDraft:

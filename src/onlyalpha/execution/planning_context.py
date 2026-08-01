@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.account.performance import OnlyAccountEquityPoint
@@ -82,6 +83,9 @@ class OnlyTradeExecutionPlanningContext:
     order_before: OnlyOrderExecutionState
     position_before: OnlyPositionExecutionState | None
     allocation_before: OnlyAllocationExecutionState | None
+    aggregate_allocation_quantity_before: Decimal
+    aggregate_allocation_cumulative_cost_before: Decimal
+    account_ledger_parity: bool
     settlement_before: OnlySettlementExecutionState | None
     fee_before: OnlyFeeExecutionState | None
     account_before: OnlyAccountExecutionState

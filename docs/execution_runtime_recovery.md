@@ -138,3 +138,6 @@ Outbox `published` means only that EventBus accepted the event and the local Sto
 Subscriber ACK or delivery watermark. Consequently Outbox is at-least-once, while Direct delivery is best-effort. Historical
 Direct events produced during recovery/finalization are suppressed permanently. Exactly-once, Direct Durable Journal and remote
 EventBus remain outside the implemented contract.
+# Multi-Cluster Close 恢复
+
+恢复不重新选择成本。Attributed Close 结论已经冻结在 Projection Before/After、Committed Fact、authority hash 和 payload hash 中。Post-recovery validation 同时校验 Position/Allocation 的数量与精确累计成本聚合；Strategy Ledger timeline checkpoint 按 Runtime 全局 sequence 恢复。

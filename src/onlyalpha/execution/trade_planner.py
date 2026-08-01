@@ -28,6 +28,10 @@ from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState, On
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 
 from .capability import OnlyExecutionCapability, only_resolve_execution_capability
+from .close_cost_authority import (
+    OnlyAttributedCloseCostAuthority,
+    only_build_attributed_close_cost_authority,
+)
 from .enums import OnlyExecutionOperationKind
 from .event_identity import OnlyExecutionTransactionEventFactory
 from .execution_state import (
@@ -145,11 +149,13 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         trade = replace(trade_without_fee, authoritative_fee=fee_accrual.incremental_total)
         incremental_fee_instruction = replace(context.fee_instruction, fee_breakdown=fee_accrual.incremental_breakdown)
+        close_authority = _close_cost_authority(context, trade) if closing else None
         position = OnlyPositionTradeReducer().reduce(
             context.position_before,
             trade,
             context.position_creation,
             context.position_reservation_before,
+            close_authority,
             cycle=context.position_cycle,
             projection_sequence=2,
         )
@@ -158,7 +164,7 @@ class OnlyTradeExecutionTransactionPlanner:
             trade,
             context.allocation_creation,
             context.position_reservation_before,
-            position.realized_pnl_delta if closing else None,
+            close_authority,
             cycle=context.allocation_cycle,
             projection_sequence=3,
         )
@@ -351,6 +357,7 @@ class OnlyTradeExecutionTransactionPlanner:
             risk_reservation,
             account,
             ledger,
+            close_authority,
         )
         return _OnlyTradePlan(trade, projections, intents, fact)
 
@@ -416,6 +423,7 @@ class OnlyTradeExecutionTransactionPlanner:
         risk_reservation: object,
         account: object,
         ledger: object,
+        close_authority: OnlyAttributedCloseCostAuthority | None,
     ) -> OnlyCommittedExecutionFactDraft:
         from onlyalpha.fee.models import OnlyFeeInstruction
 
@@ -604,10 +612,7 @@ class OnlyTradeExecutionTransactionPlanner:
                 else context.allocation_before.cumulative_open_price_quantity
             ),
             released_open_price_quantity=(
-                Decimal(0)
-                if context.position_before is None or trade.position_effect is not OnlyPositionEffect.CLOSE
-                else context.position_before.cumulative_open_price_quantity
-                - position_after.cumulative_open_price_quantity
+                Decimal(0) if close_authority is None else close_authority.released_open_price_quantity
             ),
             gross_cash_inflow=(trade.gross_notional if trade.side is OnlyOrderSide.SELL else zero),
             net_cash_inflow=(account.cash_delta if trade.side is OnlyOrderSide.SELL else zero),
@@ -700,10 +705,7 @@ class OnlyTradeExecutionTransactionPlanner:
             position_effect=scope.position_effect,
             position_mode=scope.position_mode,
             has_margin=False,
-            account_ledger_parity=(
-                context.account_before.cash_balance == context.strategy_ledger_before.cash_balance
-                and context.account_before.position_market_value == context.strategy_ledger_before.position_market_value
-            ),
+            account_ledger_parity=context.account_ledger_parity,
         )
         if capability is not OnlyExecutionCapability.DURABLE_TRADE:
             _fail(
@@ -830,8 +832,7 @@ class OnlyTradeExecutionTransactionPlanner:
         if any(item is not None and item.currency != currency for item in optional_risk_money):
             _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Risk authority Currency disagrees")
         if (
-            context.account_before.cash_balance != context.strategy_ledger_before.cash_balance
-            or context.account_before.position_market_value != context.strategy_ledger_before.position_market_value
+            not context.account_ledger_parity
             or context.valuation_before.cash != context.account_before.cash_balance
             or context.valuation_before.position_market_value != context.account_before.position_market_value
             or context.valuation_before.unrealized_pnl != context.account_before.unrealized_pnl
@@ -1015,6 +1016,37 @@ def _validate_close_authority(context: OnlyTradeExecutionPlanningContext) -> Non
         or allocation.key != scope.allocation_key
     ):
         _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Close Position authority scope disagrees")
+
+
+def _close_cost_authority(
+    context: OnlyTradeExecutionPlanningContext,
+    trade: OnlyPlannedTrade,
+) -> OnlyAttributedCloseCostAuthority:
+    position = context.position_before
+    allocation = context.allocation_before
+    reservation = context.position_reservation_before
+    if position is None or allocation is None or reservation is None:
+        _fail(
+            OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE,
+            "Close cost attribution requires Position, Allocation and Reservation authority",
+        )
+    assert position is not None and allocation is not None and reservation is not None
+    try:
+        return only_build_attributed_close_cost_authority(
+            position_before=position,
+            allocation_before=allocation,
+            position_reservation=reservation,
+            aggregate_allocation_quantity_before=context.aggregate_allocation_quantity_before,
+            aggregate_allocation_cumulative_cost_before=(context.aggregate_allocation_cumulative_cost_before),
+            trade=trade,
+        )
+    except ValueError as exc:
+        if "MULTI_CLUSTER_CLOSE_UNALLOCATED_COST_UNSUPPORTED" in str(exc):
+            _fail(
+                OnlyTradeExecutionPlanningErrorCode.MULTI_CLUSTER_CLOSE_UNALLOCATED_COST_UNSUPPORTED,
+                str(exc),
+            )
+        raise
 
 
 def _require_account_reservation(

@@ -25,6 +25,10 @@ from .causal_recovery import (
     OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
 )
+from .close_cost_authority import (
+    OnlyAttributedCloseCostAuthority,
+    only_build_attributed_close_cost_authority,
+)
 from .codec import (
     OnlyExecutionTransactionCodec,
     only_committed_execution_transaction_payload_hash,
@@ -243,6 +247,7 @@ from .transaction import (
 )
 
 __all__ = [
+    "OnlyAttributedCloseCostAuthority",
     "OnlyAllocationCreationAuthority",
     "OnlyAccountCashReservationExecutionState",
     "OnlyAccountExecutionState",
@@ -450,6 +455,7 @@ __all__ = [
     "only_strategy_ledger_execution_state",
     "only_expected_execution_reservations",
     "only_resolve_execution_capability",
+    "only_build_attributed_close_cost_authority",
     "only_capture_execution_terminal_authority",
     "only_execution_terminal_status",
 ]

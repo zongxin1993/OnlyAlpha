@@ -68,6 +68,77 @@ class OnlyRoundTripLongCloseStrategy(OnlyTestMacdStrategy):
             self._exit_pending = True
 
 
+class OnlyDelayedRoundTripLongCloseStrategy(OnlyTestMacdStrategy):
+    """Enter one Bar after the peer Cluster, then close only its own Allocation."""
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        self._callback_count += 1
+        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
+        assert self.config.instrument_id is not None
+        assert self.config.trade_quantity is not None
+        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
+        has_open_order = bool(context.strategy.orders.list_open())
+        if self._callback_count == 2 and not self._has_entered:
+            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "DELAYED_ROUND_TRIP_OPEN")
+            self._has_entered = True
+            return
+        if (
+            allocation is not None
+            and allocation.total_quantity.value > 0
+            and allocation.available_quantity.value > 0
+            and not has_open_order
+            and not self._exit_pending
+        ):
+            self._submit(
+                context,
+                OnlyOrderSide.SELL,
+                allocation.available_quantity,
+                factor,
+                "DELAYED_ROUND_TRIP_LONG_CLOSE",
+            )
+            self._exit_pending = True
+
+
+class OnlyEarlyScheduledCloseStrategy(OnlyTestMacdStrategy):
+    """Open at the first callback and wait for the peer Allocation before closing."""
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        self._scheduled_round_trip(context, entry_callback=1, exit_callback=18, reason="EARLY")
+
+    def _scheduled_round_trip(
+        self,
+        context: OnlyStrategyBarContext,
+        *,
+        entry_callback: int,
+        exit_callback: int,
+        reason: str,
+    ) -> None:
+        self._callback_count += 1
+        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
+        assert self.config.instrument_id is not None
+        assert self.config.trade_quantity is not None
+        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
+        if self._callback_count == entry_callback:
+            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, f"{reason}_OPEN")
+            self._has_entered = True
+        elif (
+            self._callback_count >= exit_callback
+            and allocation is not None
+            and allocation.available_quantity.value > 0
+            and not context.strategy.orders.list_open()
+            and not self._exit_pending
+        ):
+            self._submit(context, OnlyOrderSide.SELL, allocation.available_quantity, factor, f"{reason}_CLOSE")
+            self._exit_pending = True
+
+
+class OnlyLateScheduledCloseStrategy(OnlyEarlyScheduledCloseStrategy):
+    """Open during the uptrend so its cost differs from the peer Cluster."""
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        self._scheduled_round_trip(context, entry_callback=15, exit_callback=20, reason="LATE")
+
+
 def only_virtual_multi_fill_config(
     *,
     same_bar: bool = False,
@@ -242,6 +313,9 @@ def only_assert_multi_fill_recovery_equivalence(
 __all__ = [
     "OnlyFirstBarBuyStrategy",
     "OnlyRoundTripLongCloseStrategy",
+    "OnlyDelayedRoundTripLongCloseStrategy",
+    "OnlyEarlyScheduledCloseStrategy",
+    "OnlyLateScheduledCloseStrategy",
     "OnlyMultiFillFaultStoreFactory",
     "OnlyOutboxCheckpointFailureStoreFactory",
     "OnlyPlanCursorCheckpointFailureStoreFactory",

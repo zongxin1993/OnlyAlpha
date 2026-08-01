@@ -393,6 +393,12 @@ class OnlyStrategyLedgerManager:
             raise ValueError("Strategy Ledger equity sequence cannot regress")
         self._equity_sequence = sequence
 
+    @property
+    def equity_sequence_head(self) -> int:
+        """Return the Runtime-global deterministic Strategy Ledger equity sequence."""
+
+        return self._equity_sequence
+
     def validate_execution_equity_points(self, points: tuple[OnlyStrategyLedgerEquityPoint, ...]) -> None:
         installed = {point.sequence: point for values in self._equity_timelines.values() for point in values}
         next_sequence = self._equity_sequence + 1
@@ -480,8 +486,10 @@ class OnlyStrategyLedgerManager:
             "ledgers": [item.to_json() for item in self.list_ledgers()],
             "timelines": [
                 point.to_json()
-                for key in sorted(self._equity_timelines, key=lambda item: item.to_json())
-                for point in self._equity_timelines[key]
+                for point in sorted(
+                    (point for values in self._equity_timelines.values() for point in values),
+                    key=lambda item: item.sequence,
+                )
             ],
             "trade_fingerprints": sorted(self._trade_fingerprints),
             "valuation_lines": [
@@ -513,9 +521,27 @@ class OnlyStrategyLedgerManager:
             )
             for reservation in snapshot.reservations:
                 self.restore_cash_reservation_execution_authority(reservation)
-        points = tuple(OnlyStrategyLedgerEquityPoint.from_json(str(item)) for item in payload["timelines"])
-        self.restore_execution_equity_points(points)
-        self.restore_execution_equity_sequence_head(int(payload["equity_sequence"]))
+        points = tuple(
+            sorted(
+                (OnlyStrategyLedgerEquityPoint.from_json(str(item)) for item in payload["timelines"]),
+                key=lambda item: item.sequence,
+            )
+        )
+        equity_sequence = int(payload["equity_sequence"])
+        sequences = tuple(item.sequence for item in points)
+        if (
+            len(sequences) != len(set(sequences))
+            or (sequences and max(sequences) != equity_sequence)
+            or any(item.key not in self._ledgers or item.key.runtime_id != self.runtime_id for item in points)
+        ):
+            raise ValueError("Strategy Ledger checkpoint equity authority is inconsistent")
+        restored_timelines: dict[OnlyStrategyLedgerKey, list[OnlyStrategyLedgerEquityPoint]] = {
+            key: [] for key in self._ledgers
+        }
+        for point in points:
+            restored_timelines[point.key].append(point)
+        self._equity_timelines = restored_timelines
+        self._equity_sequence = equity_sequence
         for key, version in payload["valuation_versions"]:
             self.restore_valuation_version(OnlyStrategyLedgerKey.from_json(str(key)), int(version))
         self._cash_flow_ids.update(OnlyStrategyCashFlowId(str(item)) for item in payload["cash_flow_ids"])

@@ -86,3 +86,6 @@ Strategy Ledger 继续按 Cluster 记录固定初始资金、Allocation 成本�
 回测结束时 `OnlyRuntimeLedgerReconciliationService` 验证初始资本、现金、持仓市值、已实现/未实现 PnL、费用和权益的
 Account 值等于所有 Cluster Ledger 加总，并用 Committed Execution 核对逐 Trade fee 的 Cluster 归属。差异形成结构化结果，
 Backtest 标记失败，服务不会修改 Account 或任一 Ledger。当前只正式执行最终 barrier 对账；逐估值 barrier 对账尚未实现。
+# Close PnL 与全局序列
+
+Strategy Ledger 不重算 Close PnL，只消费 attributed delta。各 Ledger 的 equity timeline 使用 Runtime 全局 sequence；checkpoint 按该 sequence 排序并完整恢复，避免多 Cluster 分组序列化造成冲突。

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerTradeUpdate, OnlyBrokerUpdateId
@@ -162,6 +162,22 @@ def only_test_generic_t0_long_close_context(
     fill_quantity: str | None = None,
     fill_price: str = "12.00",
 ) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+    environment, context = _only_test_generic_t0_long_close_before(
+        open_quantity=open_quantity,
+        close_quantity=close_quantity,
+        fill_quantity=fill_quantity,
+        fill_price=fill_price,
+    )
+    return environment, context, OnlyTradeExecutionTransactionPlanner().prepare(context)
+
+
+def _only_test_generic_t0_long_close_before(
+    *,
+    open_quantity: str,
+    close_quantity: str,
+    fill_quantity: str | None,
+    fill_price: str,
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext]:
     scenario = OnlyTestGenericT0Scenario("long-close", fill_price=fill_price)
     environment = _environment(scenario)
     environment.start()
@@ -182,6 +198,54 @@ def only_test_generic_t0_long_close_context(
         fill_quantity=fill_quantity,
     )
     context = only_test_real_trade_planning_context(environment, update)
+    return environment, context
+
+
+def only_test_multi_cluster_close_context(
+    *,
+    close_quantity: str = "1000",
+    fill_quantity: str | None = None,
+    fill_price: str = "13.00",
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+    """Model A@10 plus B@12 while the order belongs to Allocation A."""
+
+    environment, context = _only_test_generic_t0_long_close_before(
+        open_quantity="1000",
+        close_quantity=close_quantity,
+        fill_quantity=fill_quantity,
+        fill_price=fill_price,
+    )
+    assert context.position_before is not None
+    assert context.allocation_before is not None
+    position_before = replace(
+        context.position_before,
+        total_quantity=OnlyQuantity(Decimal("2000"), context.position_before.total_quantity.precision),
+        settled_quantity=OnlyQuantity(Decimal("2000"), context.position_before.settled_quantity.precision),
+        average_open_price=OnlyPrice(Decimal("11.00"), 2),
+        cumulative_open_price_quantity=Decimal("22000.00"),
+    )
+    assert context.risk_reservation_before.reserved_notional is not None
+    assert context.risk_reservation_before.consumed_notional is not None
+    risk_currency = context.risk_reservation_before.reserved_notional.currency
+    reserved_notional = OnlyMoney(
+        (Decimal(fill_price) * Decimal(close_quantity)).quantize(Decimal("0.01")),
+        risk_currency,
+    )
+    zero_notional = OnlyMoney(Decimal("0.00"), risk_currency)
+    risk_reservation_before = replace(
+        context.risk_reservation_before,
+        reserved_notional=reserved_notional,
+        consumed_notional=zero_notional,
+        remaining_notional=reserved_notional,
+        released_notional=zero_notional,
+    )
+    context = replace(
+        context,
+        position_before=position_before,
+        risk_reservation_before=risk_reservation_before,
+        aggregate_allocation_quantity_before=Decimal("2000"),
+        aggregate_allocation_cumulative_cost_before=Decimal("22000.00"),
+    )
     return environment, context, OnlyTradeExecutionTransactionPlanner().prepare(context)
 
 
@@ -221,6 +285,13 @@ def only_test_real_trade_planning_context(
     position_before_snapshot = runtime.position_manager.get_snapshot(scope.position_key)
     allocation_before_snapshot = (
         None if scope.allocation_key is None else runtime.allocation_manager.get_snapshot(scope.allocation_key)
+    )
+    scoped_allocations = tuple(
+        item
+        for item in runtime.allocation_manager.list_by_instrument(order.instrument_id)
+        if item.key.runtime_id == order.runtime_id
+        and item.key.account_id == order.account_id
+        and item.key.position_side is scope.position_side
     )
     account_snapshot = runtime.account_manager.get_snapshot(order.account_id)
     assert account_snapshot is not None
@@ -286,6 +357,16 @@ def only_test_real_trade_planning_context(
         allocation_before=(
             None if allocation_before_snapshot is None else only_allocation_execution_state(allocation_before_snapshot)
         ),
+        aggregate_allocation_quantity_before=sum(
+            (item.total_quantity.value for item in scoped_allocations), Decimal(0)
+        ),
+        aggregate_allocation_cumulative_cost_before=sum(
+            (item.cumulative_open_price_quantity for item in scoped_allocations), Decimal(0)
+        ),
+        account_ledger_parity=(
+            account_snapshot.cash.cash_balance == ledger_snapshot.cash.cash_balance
+            and account_snapshot.position_market_value == ledger_snapshot.equity.position_market_value
+        ),
         settlement_before=None,
         fee_before=None,
         order_fee_accrual_before=runtime.order_fee_accrual_manager.get(order.order_id),
@@ -323,7 +404,7 @@ def only_test_real_trade_planning_context(
         settlement_record_sequence=runtime.settlement_manager.sequence_head,
         fee_record_sequence=runtime.fee_manager.sequence_head,
         account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
-        ledger_equity_sequence=0 if not ledger_timeline else ledger_timeline[-1].sequence,
+        ledger_equity_sequence=runtime.strategy_ledger_manager.equity_sequence_head,
         account_external_cash_flow=(
             OnlyMoney(Decimal(0), account_snapshot.base_currency)
             if not account_timeline

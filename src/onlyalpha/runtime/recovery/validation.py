@@ -369,6 +369,7 @@ class OnlyPositionAllocationAuthorityCheck:
 
         positions = {position_scope(item): item for item in context.positions}
         allocation_totals: dict[tuple[str, str, str], Decimal] = {}
+        allocation_cost_totals: dict[tuple[str, str, str], Decimal] = {}
         orphan: list[str] = []
         for allocation in context.allocations:
             scope = (
@@ -379,8 +380,16 @@ class OnlyPositionAllocationAuthorityCheck:
             if scope not in positions:
                 orphan.append(str(allocation.key))
             allocation_totals[scope] = allocation_totals.get(scope, Decimal(0)) + allocation.total_quantity.value
+            allocation_cost_totals[scope] = (
+                allocation_cost_totals.get(scope, Decimal(0)) + allocation.cumulative_open_price_quantity
+            )
         mismatches = tuple(
             scope for scope, item in positions.items() if allocation_totals.get(scope, 0) != item.total_quantity.value
+        )
+        cost_mismatches = tuple(
+            scope
+            for scope, item in positions.items()
+            if allocation_cost_totals.get(scope, Decimal(0)) != item.cumulative_open_price_quantity
         )
         invalid = tuple(
             str(item.key)
@@ -406,6 +415,14 @@ class OnlyPositionAllocationAuthorityCheck:
                 (),
                 invalid,
                 "position quantities must remain non-negative and bounded",
+            ),
+            _check(
+                "POST_RECOVERY_POSITION_ALLOCATION_COST_MISMATCH",
+                "positions",
+                not cost_mismatches,
+                (),
+                cost_mismatches,
+                "position exact cost must equal allocations",
             ),
             _check(
                 "POST_RECOVERY_ORPHAN_ALLOCATION",

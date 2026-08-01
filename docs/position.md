@@ -120,3 +120,6 @@ Broker 独立 Settlement 各自推进并对账。
 
 卖出 Trade 由 Processor 明确携带本 Order 的 Allocation Reservation 授权量。Allocation 在核心 Mutation 中解除对应 hold，
 随后 Reservation Manager 只推进生命周期，避免把自己的冻结误判为超卖或重复释放。
+# Multi-Cluster 成本归因
+
+Allocation 的 `cumulative_open_price_quantity` 决定所属 Cluster Close 的 released cost。Position 用同一 released cost 减少聚合精确成本，并从剩余成本/数量重派生 `average_open_price`。当前正式范围要求 Position 数量与成本严格等于活跃 Allocation 汇总，不支持主动卖出 Unallocated Position。

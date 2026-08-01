@@ -30,3 +30,6 @@ at-least-once Outbox semantics are unchanged. Partial Fill Cancel/Reject/Expire 
 `ETERM-...` identity, no Trade ID and four ordered projections. Same identity/same payload is idempotent; a conflicting payload
 fails closed. Terminal Facts are excluded from Trade Results. Short, Hedging, CloseToday/CloseYesterday, Futures/Margin and
 Paper/Live remain outside this scope. See ADR 0053.
+# Attributed Close Cost
+
+`OnlyTradeExecutionTransactionPlanner` 在 reducer 前创建 `OnlyAttributedCloseCostAuthority`。只有 builder 调用平均成本归约函数；Position 和 Allocation reducer 安装 Authority 给出的 after state，不再独立计算 released cost 或 PnL。缺失 Allocation、scope 冲突、数量不足或 Position 成本无法由 Allocation 聚合解释时，在 commit 前 fail closed。

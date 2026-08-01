@@ -19,6 +19,7 @@ from onlyalpha.position.enums import (
 )
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 
+from ..close_cost_authority import OnlyAttributedCloseCostAuthority
 from ..execution_state import (
     OnlyAllocationExecutionState,
     OnlyOrderExecutionState,
@@ -46,7 +47,6 @@ from ..projection import (
     OnlyValuationExecutionState,
 )
 from ..projection_builder import OnlyExecutionProjectionBuilder
-from .close_cost import only_reduce_average_cost_close
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +182,7 @@ class OnlyPositionTradeReducer:
         trade: OnlyPlannedTrade,
         creation: OnlyPositionCreationAuthority | None,
         position_reservation: OnlyPositionReservationExecutionState | None = None,
+        close_authority: OnlyAttributedCloseCostAuthority | None = None,
         *,
         cycle: int,
         projection_sequence: int,
@@ -212,19 +213,20 @@ class OnlyPositionTradeReducer:
                 or account_hold > before.risk_reserved_quantity.value
             ):
                 raise ValueError("CLOSE_POSITION_INSUFFICIENT")
-            cost_reduction = only_reduce_average_cost_close(
-                cumulative_open_price_quantity_before=before.cumulative_open_price_quantity,
-                quantity_before=before.total_quantity,
-                fill_quantity=trade.quantity,
-            )
-            quantity_after = cost_reduction.quantity_after.value
-            cumulative_after = cost_reduction.cumulative_open_price_quantity_after
+            if (
+                close_authority is None
+                or close_authority.position_id != before.position_id
+                or close_authority.position_quantity_before != before.total_quantity
+                or close_authority.position_cumulative_cost_before != before.cumulative_open_price_quantity
+                or close_authority.fill_quantity != trade.quantity
+            ):
+                raise ValueError("CLOSE_COST_AUTHORITY_POSITION_CONFLICT")
+            quantity_after = close_authority.position_quantity_after.value
+            cumulative_after = close_authority.position_cumulative_cost_after
             currency = trade.authoritative_fee.currency
-            realized = _money(
-                (trade.price.value * trade.quantity.value - cost_reduction.released_open_price_quantity)
-                * trade.multiplier.value,
-                currency,
-            )
+            realized = close_authority.realized_pnl_delta
+            if realized.currency != currency:
+                raise ValueError("CLOSE_COST_AUTHORITY_CURRENCY_CONFLICT")
             after = replace(
                 before,
                 status=(OnlyPositionStatus.CLOSED if quantity_after == 0 else OnlyPositionStatus.OPEN),
@@ -237,7 +239,7 @@ class OnlyPositionTradeReducer:
                     before.risk_reserved_quantity.value - account_hold,
                     before.risk_reserved_quantity.precision,
                 ),
-                average_open_price=None if quantity_after == 0 else before.average_open_price,
+                average_open_price=close_authority.position_average_open_price_after,
                 realized_pnl=before.realized_pnl + realized,
                 fees=before.fees + trade.authoritative_fee,
                 updated_at=trade.ts_event,
@@ -377,7 +379,7 @@ class OnlyAllocationTradeReducer:
         trade: OnlyPlannedTrade,
         creation: OnlyAllocationCreationAuthority | None,
         position_reservation: OnlyPositionReservationExecutionState | None = None,
-        realized_pnl_delta: OnlyMoney | None = None,
+        close_authority: OnlyAttributedCloseCostAuthority | None = None,
         *,
         cycle: int,
         projection_sequence: int,
@@ -399,15 +401,17 @@ class OnlyAllocationTradeReducer:
                 or own_hold < trade.quantity.value
             ):
                 raise ValueError("CLOSE_ALLOCATION_INSUFFICIENT")
-            if realized_pnl_delta is None:
-                raise ValueError("CLOSE_REALIZED_PNL_AUTHORITY_CONFLICT")
-            cost_reduction = only_reduce_average_cost_close(
-                cumulative_open_price_quantity_before=before.cumulative_open_price_quantity,
-                quantity_before=before.total_quantity,
-                fill_quantity=trade.quantity,
-            )
-            quantity_after = cost_reduction.quantity_after.value
-            cumulative_after = cost_reduction.cumulative_open_price_quantity_after
+            if (
+                close_authority is None
+                or close_authority.allocation_id != before.allocation_id
+                or close_authority.allocation_quantity_before != before.total_quantity
+                or close_authority.allocation_cumulative_cost_before != before.cumulative_open_price_quantity
+                or close_authority.fill_quantity != trade.quantity
+            ):
+                raise ValueError("CLOSE_COST_AUTHORITY_ALLOCATION_CONFLICT")
+            quantity_after = close_authority.allocation_quantity_after.value
+            cumulative_after = close_authority.allocation_cumulative_cost_after
+            realized_pnl_delta = close_authority.realized_pnl_delta
             after = replace(
                 before,
                 total_quantity=OnlyQuantity(quantity_after, before.total_quantity.precision),
@@ -419,7 +423,7 @@ class OnlyAllocationTradeReducer:
                     before.risk_reserved_quantity.value - trade.quantity.value,
                     before.risk_reserved_quantity.precision,
                 ),
-                average_open_price=None if quantity_after == 0 else before.average_open_price,
+                average_open_price=close_authority.allocation_average_open_price_after,
                 realized_pnl=before.realized_pnl + realized_pnl_delta,
                 fees=before.fees + trade.authoritative_fee,
                 updated_at=trade.ts_event,

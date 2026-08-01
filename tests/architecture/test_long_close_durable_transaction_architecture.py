@@ -32,7 +32,10 @@ def test_formal_long_close_legacy_methods_are_guarded_and_terminal_has_no_fake_t
 def test_position_and_allocation_share_the_exact_close_cost_authority() -> None:
     state = Path("src/onlyalpha/execution/reducers/trade_state.py").read_text(encoding="utf-8")
     reducer = Path("src/onlyalpha/execution/reducers/close_cost.py").read_text(encoding="utf-8")
-    assert state.count("only_reduce_average_cost_close(") == 2
+    authority = Path("src/onlyalpha/execution/close_cost_authority.py").read_text(encoding="utf-8")
+    assert "only_reduce_average_cost_close(" not in state
+    assert authority.count("only_reduce_average_cost_close(") == 1
+    assert state.count("close_authority: OnlyAttributedCloseCostAuthority | None") == 2
     assert "localcontext()" in reducer
     assert "ROUND_HALF_EVEN" in reducer
     assert "fill_quantity.value == quantity_before.value" in reducer

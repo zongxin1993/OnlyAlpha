@@ -32,3 +32,6 @@ realized-PnL delta，并与 Strategy Ledger 的 cash、fee、realized PnL 和 va
 
 所有 Broker Account Update 由 ExecutionProcessor 分派到 `OnlyAccountReconciliationService`；Trade cash flow 位于 Ledger 后、
 Reservation 前。Account Manager 事实经 Processor 缓冲，不会在后续 Reservation/Risk/Invariant 失败时形成完整成功事件。
+# Close PnL 输入
+
+Account 不计算平仓 PnL。它只消费 Planner 已由 Cluster Allocation 成本归因得到的 `realized_pnl_delta`；Runtime 对账比较 Account 与所有 Strategy Ledger 的聚合值。

@@ -864,3 +864,6 @@ Pull Request 应说明：
 OnlyAlpha 使用 MIT License。
 
 本项目及其示例不构成投资建议、收益承诺或交易授权。使用者应自行承担数据、策略、软件故障、市场波动、券商接口和真实交易产生的全部风险。
+# Multi-Cluster Close Cost Authority
+
+共享 Account 下的 Cluster Close 由订单所属 Allocation 唯一归因成本。Planner 计算一次精确 released cost 与 realized PnL，Position、Allocation、Account、Strategy Ledger 和 Committed Fact 消费同一结论；不同成本 Cluster、Partial/Multi-Fill、checkpoint/restart 与注册顺序变化均保持经济守恒和确定性。

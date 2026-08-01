@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from onlyalpha.config import OnlyClusterCapitalConfig, OnlyClusterCapitalMode, OnlyClusterRunConfig
+from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
@@ -70,7 +71,8 @@ def test_two_clusters_are_isolated_and_share_registry_resources(tmp_path: Path) 
     assert sum(item.performance.final_equity.amount for item in runtime_result.cluster_results) == (  # type: ignore[attr-defined]
         runtime_result.runtime_performance.final_equity.amount  # type: ignore[attr-defined]
     )
-    assert runtime_result.trades == ()  # type: ignore[attr-defined]
+    assert len(runtime_result.trades) == 3  # type: ignore[attr-defined]
+    assert sum(item.order_side is OnlyOrderSide.SELL for item in runtime_result.trades) == 1  # type: ignore[attr-defined]
 
 
 def test_multi_cluster_registration_order_does_not_change_result(tmp_path: Path) -> None:

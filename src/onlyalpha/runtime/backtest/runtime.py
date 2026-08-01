@@ -1713,6 +1713,21 @@ class OnlyBacktestRuntime(OnlyRuntime):
             None,
         )
 
+    def _has_account_ledger_parity(self, account: OnlyAccountSnapshot) -> bool:
+        ledgers = tuple(
+            item
+            for item in self._strategy_ledger_manager.list_ledgers()
+            if item.key.runtime_id == account.runtime_id
+            and item.key.account_id == account.account_id
+            and item.key.base_currency == account.base_currency
+        )
+        return (
+            bool(ledgers)
+            and account.cash.cash_balance.amount == sum((item.cash.cash_balance.amount for item in ledgers), Decimal(0))
+            and account.position_market_value.amount
+            == sum((item.equity.position_market_value.amount for item in ledgers), Decimal(0))
+        )
+
     def _allocation_money(
         self,
         snapshot: OnlyPositionAllocationSnapshot | None,
@@ -1783,6 +1798,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if allocation_key is None:
             raise ValueError("prepared Trade planning requires Cluster Allocation scope")
         allocation_before_snapshot = self._services.allocation_manager.get_snapshot(allocation_key)
+        scoped_allocations = tuple(
+            item
+            for item in self._services.allocation_manager.list_by_instrument(order.instrument_id)
+            if item.key.runtime_id == order.runtime_id
+            and item.key.account_id == order.account_id
+            and item.key.position_side is position_scope.position_side
+        )
         account_snapshot = self._services.account_manager.get_snapshot(order.account_id)
         if account_snapshot is None:
             raise KeyError(f"Account not found: {order.account_id}")
@@ -1803,10 +1825,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_effect=position_scope.position_effect,
             position_mode=position_scope.position_mode,
             has_margin=instruction.margin_instruction is not None,
-            account_ledger_parity=(
-                account_snapshot.cash.cash_balance == ledger_snapshot.cash.cash_balance
-                and account_snapshot.position_market_value == ledger_snapshot.equity.position_market_value
-            ),
+            account_ledger_parity=self._has_account_ledger_parity(account_snapshot),
         )
         if capability is not OnlyExecutionCapability.DURABLE_TRADE:
             raise ValueError(f"prepared Trade capability is {capability.value}")
@@ -1889,6 +1908,13 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if allocation_before_snapshot is None
                 else only_allocation_execution_state(allocation_before_snapshot)
             ),
+            aggregate_allocation_quantity_before=sum(
+                (item.total_quantity.value for item in scoped_allocations), Decimal(0)
+            ),
+            aggregate_allocation_cumulative_cost_before=sum(
+                (item.cumulative_open_price_quantity for item in scoped_allocations), Decimal(0)
+            ),
+            account_ledger_parity=self._has_account_ledger_parity(account_snapshot),
             settlement_before=None,
             fee_before=None,
             order_fee_accrual_before=self._order_fee_accrual_manager.get(order.order_id),
@@ -1918,7 +1944,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             settlement_record_sequence=self._services.settlement_manager.sequence_head,
             fee_record_sequence=self._services.fee_manager.sequence_head,
             account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
-            ledger_equity_sequence=0 if not ledger_timeline else ledger_timeline[-1].sequence,
+            ledger_equity_sequence=self._strategy_ledger_manager.equity_sequence_head,
             account_external_cash_flow=(
                 OnlyMoney(Decimal(0), account_snapshot.base_currency)
                 if not account_timeline
@@ -1967,10 +1993,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_effect=position_scope.position_effect,
             position_mode=position_scope.position_mode,
             has_margin=compiled.margin_policy is not None,
-            account_ledger_parity=(
-                account.cash.cash_balance == ledger.cash.cash_balance
-                and account.position_market_value == ledger.equity.position_market_value
-            ),
+            account_ledger_parity=self._has_account_ledger_parity(account),
         )
         if capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
             raise ValueError(f"prepared Terminal capability is {capability.value}")
@@ -2001,10 +2024,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_reservation_before=only_position_reservation_execution_state(position_reservation),
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
-            account_ledger_parity=(
-                account.cash.cash_balance == ledger.cash.cash_balance
-                and account.position_market_value == ledger.equity.position_market_value
-            ),
+            account_ledger_parity=self._has_account_ledger_parity(account),
             account_cash_reservation_present=account_reservation is not None,
             strategy_cash_reservation_present=strategy_reservation is not None,
             margin_reservation_present=self._margin_manager.get(str(order.order_id)) is not None,

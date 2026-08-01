@@ -227,3 +227,6 @@ Runtime Persistence Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.persi
 模式使用 schema version 2，并把 checkpoint、transaction、Projection state 和 Outbox 放在稳定的
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`；它不依赖 Artifact Run ID。Store 是 Runtime-owned
 resource，schema/identity/registry/hash 不匹配即停止装配。Factory 的 validate 阶段不创建目录或数据库。详见 ADR 0044。
+# Multi-Cluster Close 成本权威
+
+Account Position 是所有 Cluster Allocation 的聚合，不是某次 Cluster Close 的成本批次权威。正式链路为 `Allocation Before → Attributed Close Cost Authority → Position/Allocation/Account/Ledger/Fact`。共享 Account 与 Ledger 的兼容性按所有 Ledger 聚合判断，禁止以当前单 Ledger 与 Account 直接比较后降级到 legacy mutation。

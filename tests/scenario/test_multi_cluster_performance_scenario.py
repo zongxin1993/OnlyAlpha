@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import cast
 
 from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 
@@ -32,7 +33,8 @@ def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) ->
     assert clusters["macd-demo"].net_pnl.amount > 0
     assert clusters["macd-fast-demo"].net_pnl.amount < 0
     assert clusters["macd-demo"].fees.amount != clusters["macd-fast-demo"].fees.amount
-    assert result.trades == ()  # type: ignore[attr-defined]
+    assert len(result.trades) == 3  # type: ignore[attr-defined]
+    assert sum(item.order_side is OnlyOrderSide.SELL for item in result.trades) == 1  # type: ignore[attr-defined]
     assert result.runtime_performance.net_pnl.amount == sum(  # type: ignore[attr-defined]
         (item.net_pnl.amount for item in clusters.values()), Decimal(0)
     )
