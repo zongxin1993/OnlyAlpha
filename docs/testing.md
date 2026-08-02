@@ -1,5 +1,45 @@
 # 测试规范
 
+## 正式测试分层与统一入口
+
+测试按 `unit`、`contract`、`architecture`、`integration`、`scenario`、`conformance`、`recovery`、
+`external`、`performance` 九个主层级组织；`slow`、`miniqmt`、`requires_network`、`requires_tushare`、
+`requires_local_qmt`、`requires_broker_account`、`windows` 是附加属性。根 `conftest.py` 根据明确目录和文件语义
+补充缺失的主 Marker，并在收集期拒绝不完整的 External/Broker Account 标记。显式 Marker 始终优先。
+
+统一入口如下：
+
+```powershell
+uv run python scripts/test_suite.py fast
+uv run python scripts/test_suite.py integration
+uv run python scripts/test_suite.py ashare
+uv run python scripts/test_suite.py recovery
+uv run python scripts/test_suite.py miniqmt-contract
+uv run python scripts/test_suite.py miniqmt-local
+uv run python scripts/test_suite.py full
+uv run python scripts/test_suite.py release
+```
+
+所有通道打印实际 pytest 参数、返回真实退出码，并将计数、耗时、最慢测试、Marker 和路径分布写入
+`.test-metrics/<lane>.json`。可用 `--workers N`、`--dist worksteal`、`--durations N` 或 `--no-parallel`
+覆盖并行策略；定位进程级、SQLite 锁、顺序敏感或调试器问题时关闭 xdist。
+
+`fast` 证明纯组件、公共合同和架构边界；`integration` 证明最短离线纵切面与 scenario smoke；`ashare` 只运行
+离线 A 股 conformance；`recovery` 独立运行 checkpoint/restart/fault 覆盖；`full` 覆盖全部 Workspace 离线测试。
+长测试必须标记 `slow` 或 `recovery`。产品纵切面必须经过 `OnlyEngine`；Analytics、Report、Artifact、Collector
+应优先复用固定 Result/Snapshot fixture。
+
+MiniQMT Contract 使用 Fake XtData/XtTrader，验证原始 SDK 形状到领域对象的转换，不导入真实 `xtquant`；
+Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 Windows、`userdata_mini_path`（或
+`ONLYALPHA_MINIQMT_PATH`）和可导入的 `xtquant`。真实查询必须显式 opt-in；真实下单还必须具有
+`requires_broker_account`，且永不进入普通 pytest、离线或 `miniqmt-local` 通道。
+
+`release` 依次运行 Ruff、Ruff format check、Core mypy、版本一致性、Full Offline、Recovery、A-share 和包构建。
+日常修改运行最窄的正确通道；执行交易/恢复变更时必须运行 Recovery；发布前运行 Release。外部环境不满足时应记录
+“未执行”，不得记为通过。当前人工基线见 `docs/reports/test_suite_performance_baseline.md`。
+
+以下旧章节保留为具体组件覆盖要求；如命令或层级描述冲突，以本节为准。
+
 ## Product-style backtest acceptance
 
 成品式 Demo 还必须覆盖配置加载、正式 Runtime API、Calendar-aware synthetic source、指标精确值、Warmup、Context 权限、

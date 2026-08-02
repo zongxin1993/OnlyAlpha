@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
 dependencies = [
     "pyarrow>=21.0.0",
-    "pytest-xdist>=3.8.0",
     "pyyaml>=6.0.2",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]
@@ -19,6 +18,7 @@ dev = [
     "pre-commit>=4.6",
     "pytest>=8.4",
     "pytest-cov>=6",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.11",
     "tomlkit>=0.13",
     "twine>=6",
@@ -74,13 +74,18 @@ testpaths = [
 markers = [
     "unit: isolated unit test",
     "contract: public API or plugin contract test",
+    "architecture: dependency, ownership, authority, and forbidden-pattern gate",
     "integration: local integration test",
     "scenario: Engine scenario test",
     "conformance: market conformance test",
+    "recovery: checkpoint, restart, fault injection, or projection recovery test",
     "external: external service integration test",
+    "performance: explicit performance or scale test",
+    "miniqmt: MiniQMT adapter or environment test",
     "requires_network: requires network access",
     "requires_tushare: requires Tushare token",
     "requires_local_qmt: requires local MiniQMT client",
+    "requires_broker_account: may access or submit to a real broker account",
     "windows: Windows-only test",
     "slow: slow test",
 ]

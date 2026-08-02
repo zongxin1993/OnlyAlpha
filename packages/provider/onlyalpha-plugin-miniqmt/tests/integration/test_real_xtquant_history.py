@@ -18,10 +18,16 @@ from onlyalpha.domain.enums import (
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("ONLYALPHA_MINIQMT_REAL_HISTORY") != "1",
-    reason="requires a running, read-only MiniQMT data service",
-)
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.miniqmt,
+    pytest.mark.requires_local_qmt,
+    pytest.mark.windows,
+    pytest.mark.skipif(
+        os.environ.get("ONLYALPHA_MINIQMT_REAL_HISTORY") != "1",
+        reason="requires a running, read-only MiniQMT data service",
+    ),
+]
 
 
 def test_real_history_converts_to_onlyalpha_bars() -> None:
