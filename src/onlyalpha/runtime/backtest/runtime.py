@@ -60,7 +60,7 @@ from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode
-from onlyalpha.domain.execution import OnlyOrderSnapshot
+from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyCalendarId,
@@ -161,6 +161,7 @@ from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, Onl
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.publisher import OnlyRuntimeOrderEventPublisherAdapter
 from onlyalpha.order.query import OnlyOrderQueryService
+from onlyalpha.order.results import OnlyOrderSubmitResult
 from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.order.views import OnlyOrderServiceView
 from onlyalpha.plugin.broker import OnlyDeterministicBrokerDriver
@@ -2284,6 +2285,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 lambda: self._order_commands_enabled(cluster_id),
                 self._begin_direct_execution_events,
                 self._complete_direct_execution_events,
+                self._intercept_order_submit,
             ),
             OnlyPositionContextView(
                 self.config.default_account_id,  # type: ignore[arg-type]
@@ -2312,6 +2314,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._services.cluster_manager.state_of(cluster_id)
             in {OnlyClusterState.RECOVERING, OnlyClusterState.STARTING, OnlyClusterState.RUNNING}
         )
+
+    def _intercept_order_submit(self, request: OnlyOrderRequest) -> OnlyOrderSubmitResult | None:
+        del request
+        return None
 
     def _begin_direct_execution_events(self) -> None:
         self._services.execution_event_buffer.begin()

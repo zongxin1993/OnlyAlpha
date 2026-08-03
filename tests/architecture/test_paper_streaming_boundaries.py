@@ -28,12 +28,14 @@ def test_paper_runtime_has_no_parallel_business_loop() -> None:
         assert forbidden not in source
 
 
-def test_streaming_runtime_requires_formal_historical_warmup_before_subscription() -> None:
+def test_streaming_runtime_buffers_live_input_before_required_historical_warmup() -> None:
     source = Path("src/onlyalpha/runtime/streaming/runtime.py").read_text(encoding="utf-8")
 
     warmup = source.index("self._bootstrap()")
     subscribe = source.index("result = subscribe(self._streaming_subscription)")
-    assert warmup < subscribe
+    assert subscribe < warmup
+    assert "OnlyStreamingPhase.CATCH_UP" in source
+    assert "_accept_streaming_update" in source
     assert "set_subscription_bootstrap_count" not in source
     assert "load_warmup" in source
     assert "load_bars" not in source

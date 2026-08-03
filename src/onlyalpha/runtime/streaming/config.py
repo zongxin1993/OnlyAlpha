@@ -14,6 +14,7 @@ class OnlyStreamingRuntimeConfig:
     stale_after_seconds: int = 10
     historical_compatibility_profile: str = "miniqmt-history-v1"
     historical_timeout_seconds: int = 30
+    observation_queue_capacity: int = 1024
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "OnlyStreamingRuntimeConfig":
@@ -30,13 +31,22 @@ class OnlyStreamingRuntimeConfig:
             int(str(raw_streaming.get("stale_after_seconds", 10))),
             str(raw_streaming.get("historical_compatibility_profile", "miniqmt-history-v1")),
             int(str(raw_streaming.get("historical_timeout_seconds", 30))),
+            cls._observation_capacity(value),
         )
         if (
             result.bootstrap_bars <= 0
             or result.inbound_queue_capacity <= 0
             or result.stale_after_seconds <= 0
             or result.historical_timeout_seconds <= 0
+            or result.observation_queue_capacity <= 0
             or not result.historical_compatibility_profile.strip()
         ):
             raise ValueError("streaming capacities and stale threshold must be positive")
         return result
+
+    @staticmethod
+    def _observation_capacity(value: Mapping[str, object]) -> int:
+        raw = value.get("observation", {})
+        if not isinstance(raw, Mapping):
+            raise ValueError("runtime.extensions.observation must be an object")
+        return int(str(raw.get("queue_capacity", 1024)))

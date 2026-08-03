@@ -138,7 +138,9 @@ class OnlyTradingCalendar(OnlyDomainModel):
                 session.anchor_date(local) + timedelta(days=session.belongs_to_trading_day_offset)
             )
             configured = self.sessions_for_trading_day(trading_day)
-            return next((item for item in configured if item == session), None)
+            matched = next((item for item in configured if item == session), None)
+            if matched is not None:
+                return matched
         return None
 
     def trading_day_at(self, timestamp_utc: datetime | OnlyTimestamp) -> OnlyTradingDay:

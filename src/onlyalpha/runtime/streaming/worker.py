@@ -22,6 +22,8 @@ class OnlyStreamingMarketDataWorker:
         *,
         maximum_future_wait_seconds: float = 10.0,
         on_result: Callable[[OnlyMarketDataProcessingResult], None] | None = None,
+        accept_update: Callable[[OnlyMarketDataInboundUpdate], bool] | None = None,
+        accept_finalized: Callable[[OnlyMarketDataInboundUpdate], bool] | None = None,
     ) -> None:
         self._queue = queue
         self._processor = processor
@@ -29,6 +31,8 @@ class OnlyStreamingMarketDataWorker:
         self._clock = clock
         self._maximum_future_wait_seconds = maximum_future_wait_seconds
         self._on_result = on_result or (lambda result: None)
+        self._accept_update = accept_update or (lambda update: True)
+        self._accept_finalized = accept_finalized or (lambda update: True)
         self._stop = Event()
         self._thread: Thread | None = None
         self._failure: BaseException | None = None
@@ -62,12 +66,20 @@ class OnlyStreamingMarketDataWorker:
                 update = self._queue.get()
                 if update is None:
                     continue
+                if not self._accept_update(update):
+                    continue
                 for finalized in self._finalizer.accept(update):
+                    if not self._accept_finalized(finalized):
+                        continue
                     if not self._await_event_time(finalized):
                         continue
                     self._on_result(self._processor.process(finalized))
             while (update := self._queue.get()) is not None:
+                if not self._accept_update(update):
+                    continue
                 for finalized in self._finalizer.accept(update):
+                    if not self._accept_finalized(finalized):
+                        continue
                     if not self._await_event_time(finalized):
                         continue
                     self._on_result(self._processor.process(finalized))

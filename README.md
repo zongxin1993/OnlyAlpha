@@ -105,7 +105,7 @@ Distributed Backtest
 | OnlyEngine                  | 当前范围完成    | 唯一产品入口和生命周期已形成                                | 多进程和远程执行                        |
 | Runtime Planner / Assembler | 稳定        | Runtime 分组、装配和兼容性判断清晰                         | 非 Backtest 产品装配                 |
 | Backtest Runtime            | 当前范围完成    | 确定性回放、交易和恢复闭环                                 | 大规模性能基线                         |
-| Paper Runtime               | 部分完成      | 只读实时行情、Shadow Execution、隔离 Historical Warmup 边界 | 真实 Warmup 兼容性、Catch-up、恢复和完整产品验收 |
+| Paper Runtime               | 部分完成      | 任意时间装配、订阅/Bootstrap/Catch-up、Shadow Execution、Observation | 真实 Warmup 兼容性、Gap Recovery、恢复和完整产品验收 |
 | Live Runtime                | 未完成       | 类型和接口基础存在                                     | Gateway、重连、同步、对账                |
 | Shadow Runtime              | 未完成       | 仅有概念边界                                        | 完整产品循环                          |
 | Research Runtime            | 部分完成      | Factor/Indicator 基础可复用                        | 实验、统计、批量任务、绘图                   |

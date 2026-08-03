@@ -21,6 +21,7 @@ class OnlyOrderServiceView:
         "__enabled",
         "__query",
         "__service",
+        "__submit_interceptor",
     )
 
     def __init__(
@@ -32,6 +33,7 @@ class OnlyOrderServiceView:
         enabled: Callable[[], bool],
         begin_events: Callable[[], None],
         complete_events: Callable[[bool], None],
+        submit_interceptor: Callable[[OnlyOrderRequest], OnlyOrderSubmitResult | None] | None = None,
     ) -> None:
         self.__cluster_id = cluster_id
         self.__account_id = default_account_id
@@ -40,9 +42,14 @@ class OnlyOrderServiceView:
         self.__enabled = enabled
         self.__begin_events = begin_events
         self.__complete_events = complete_events
+        self.__submit_interceptor = submit_interceptor
 
     def submit(self, request: OnlyOrderRequest) -> OnlyOrderSubmitResult:
         self.__require_enabled()
+        if self.__submit_interceptor is not None:
+            intercepted = self.__submit_interceptor(request)
+            if intercepted is not None:
+                return intercepted
         self.__begin_events()
         try:
             result = self.__service.submit(request, self.__cluster_id, self.__account_id)

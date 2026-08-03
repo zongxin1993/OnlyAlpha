@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import tempfile
+from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 
@@ -22,6 +23,12 @@ from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.fee.models import OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
+from onlyalpha.market.session_clock import OnlyMarketSessionResolver
+from onlyalpha.observation import (
+    OnlyConsoleObservationSink,
+    OnlyJsonLinesObservationSink,
+    OnlyObservationSink,
+)
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSource, OnlyDataSourceCreateRequest
@@ -185,6 +192,9 @@ class OnlyPaperRuntimeFactory:
                     for item in all_bar_types
                     if item.aggregation_source is OnlyAggregationSource.INTERNAL
                 ),
+                stale_after_seconds=streaming.stale_after_seconds,
+                observation_sinks=self._observation_sinks(config, request.user_data_root),
+                observation_queue_capacity=streaming.observation_queue_capacity,
             )
             for instrument in config.reference_data.instruments:
                 runtime.register_instrument(instrument)
@@ -206,6 +216,24 @@ class OnlyPaperRuntimeFactory:
             if clock is not None:
                 clock.close()
             return self._failure(exc)
+
+    @staticmethod
+    def _observation_sinks(
+        config: OnlyRuntimeAssemblyPlan, user_data_root: Path | None
+    ) -> tuple[OnlyObservationSink, ...]:
+        raw = config.runtime.extensions.get("observation", {})
+        if not isinstance(raw, Mapping):
+            raise ValueError("runtime.extensions.observation must be an object")
+        sinks: list[OnlyObservationSink] = []
+        if bool(raw.get("console", False)):
+            sinks.append(OnlyConsoleObservationSink())
+        if bool(raw.get("jsonl", False)):
+            selected = Path(str(raw.get("jsonl_path", "observations/latest.jsonl")))
+            if not selected.is_absolute():
+                root = user_data_root or config.source_path.parent
+                selected = root / selected
+            sinks.append(OnlyJsonLinesObservationSink(selected))
+        return tuple(sinks)
 
     @staticmethod
     def _validate(
@@ -260,10 +288,12 @@ class OnlyPaperRuntimeFactory:
             references=references,
             advance_trading_day=advance,
         )
+        startup = OnlyMarketSessionResolver(calendar).resolve(OnlyTimestamp.from_datetime(clock.now_utc()))
+        validation_day = startup.current_trading_day or startup.next_trading_day
         for instrument in config.reference_data.instruments:
             engine.compiled_rules(
                 str(instrument.instrument_id),
-                calendar.trading_day_at(OnlyTimestamp.from_datetime(clock.now_utc())),
+                validation_day,
             )
         return engine
 

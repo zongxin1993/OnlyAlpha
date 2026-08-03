@@ -70,9 +70,12 @@ Cluster 不接触具体 Gateway、撮合器、EventBus、可变 Cache、Aggregat
 
 ## 5. Paper
 
-实时行情 + 模拟成交。
+Paper 是长生命周期 Runtime，CLI 使用 `initialize → start → wait → stop`，不调用只适用于有限 Backtest 的
+`OnlyEngine.run()`。它允许在盘前、盘中、午休、收盘后、周末和节假日启动；市场 Session 状态不进入 Runtime Lifecycle。
 
-用于策略验证和 Web 操作演示。
+启动按 `SUBSCRIBING → BOOTSTRAP → CATCH_UP → LIVE` 推进。Calendar 负责 Session，Completed Boundary 负责历史截止，
+Historical Watermark 负责 Catch-up 重叠去重，Latest Observation Store 负责 CLI/Console/JSONL/未来 Web 的统一只读节点。
+Required Historical Warmup 失败仍然 Fail Closed。当前只支持 Shadow Execution，尚未通过完整 Paper 产品验收。
 
 ## 6. Backtest
 

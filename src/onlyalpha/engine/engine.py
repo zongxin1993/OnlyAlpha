@@ -281,6 +281,9 @@ class OnlyEngine:
 
     def run(self) -> OnlyEngineRunResult:
         self._require_not_terminated("run")
+        runtime_types = {config.runtime.runtime_type for config in self.cluster_definitions}
+        if runtime_types != {"BACKTEST"}:
+            raise OnlyLifecycleError("OnlyEngine.run() is restricted to finite BACKTEST execution")
         validation = self.validate()
         if not validation.valid:
             return OnlyEngineRunResult(

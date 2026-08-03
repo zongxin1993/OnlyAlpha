@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from onlyalpha.application.engine_runner import OnlyEngineApplicationRunner
 from onlyalpha.cli import main, only_parse_args, only_resolve_config_paths, only_resolve_user_data_root
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
@@ -25,6 +26,18 @@ def test_user_data_precedence(tmp_path: Path, monkeypatch: object) -> None:
 def test_dry_run_does_not_create_run_output(tmp_path: Path) -> None:
     assert main(["run", "--config", CONFIG, "--user-data", str(tmp_path), "--dry-run"]) == 0
     assert not (tmp_path / "runs").exists()
+
+
+def test_snapshot_runtime_failure_is_reported_without_a_traceback(
+    tmp_path: Path, monkeypatch: object, capsys: object
+) -> None:
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        OnlyEngineApplicationRunner,
+        "snapshot",
+        lambda self, engine: (_ for _ in ()).throw(RuntimeError("warmup failed closed")),
+    )
+    assert main(["snapshot", "--config", CONFIG, "--user-data", str(tmp_path)]) == 2
+    assert "onlyalpha: warmup failed closed" in capsys.readouterr().out  # type: ignore[attr-defined]
 
 
 def test_scenario_validate_run_and_market_query_cli(tmp_path: Path, capsys: object) -> None:

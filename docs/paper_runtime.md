@@ -6,18 +6,22 @@ Paper Runtime 当前是部分完成状态，不是已验收产品。
 
 ```text
 INITIALIZING
-→ BOOTSTRAPPING
+→ SUBSCRIBING（实时 Callback 进入有界 Inbound Queue）
+→ BOOTSTRAP
 → REQUIRED Historical Warmup
 → validated Historical Bars
 → MarketData Pipeline / Indicator / Factor / Strategy
 → Historical Watermark
-→ live subscription
+→ CATCH_UP（按 Watermark 删除历史重叠）
+→ LIVE
 → RUNNING
 ```
 
-MiniQMT Historical Warmup 必须经过独立 Worker 进程，不能使用 `subscribe_quote(count=...)` 作为历史回放旁路。Worker 成功后，Bar 按稳定顺序进入正式 MarketData Processor，并建立 `last_historical_bar_end`；失败时 Runtime 在订阅实时行情前 Fail Closed。
+MiniQMT Historical Warmup 必须经过独立 Worker 进程，不能使用 `subscribe_quote(count=...)` 作为历史回放旁路。Runtime 先建立实时订阅以封闭历史查询期间的丢数窗口，但 Callback 只写入有界队列；Required Warmup 失败仍会取消订阅并 Fail Closed。Worker 成功后，Bar 按稳定顺序进入正式 MarketData Processor，建立逐 Instrument/BarType Historical Watermark，再处理 Catch-up Buffer。
 
-当前已形成的边界包括只读实时 Bar、Live Bar Finalizer、内部聚合、Indicator/Factor/Strategy、Shadow Execution 和 Historical Worker 隔离。完整 CATCH_UP Buffer、实时 Gap Recovery、重连、Paper checkpoint/recovery、Health/DEGRADED 以及产品级真实环境验收仍未完成。
+Runtime 生命周期与市场 Session 已分离。PRE_OPEN、BREAK、POST_CLOSE 和 CLOSED_DAY 均允许装配和启动；Historical 截止由 Calendar-aware Completed Bar Boundary 决定。Historical Bootstrap 与 Catch-up 会重建 Indicator、Factor 和 Strategy 状态，但订单副作用在进入 Risk/Order 前被明确抑制；只有 LIVE 阶段保留 Paper Shadow Execution 语义。
+
+最新完成节点统一写入 `OnlyLatestObservationStore`，Console、JSONL、CLI `snapshot` 和未来 Web 只消费同一不可变 Read Model。Health 将非 OPEN 无数据表达为 IDLE，只有 OPEN 且超过下一预期 Bar 加宽限时才表达为 STALE。实时 Gap Recovery、重连、Paper checkpoint/recovery、DEGRADED 状态机以及产品级真实环境验收仍未完成。
 
 状态必须区分：
 
@@ -26,6 +30,8 @@ Paper Runtime              : PARTIAL
 Live Data Path             : PARTIAL PASS
 Shadow Execution           : PASS
 Historical Isolation       : IMPLEMENTED
+Any-Time Assembly          : PASS（自动化）
+Observation Infrastructure: PASS（自动化）
 Historical Compatibility   : BLOCKED（本机 13/13 Case native abort）
 Paper Product Acceptance   : FAILED
 ```

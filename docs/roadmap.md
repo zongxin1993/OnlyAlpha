@@ -75,6 +75,11 @@ fingerprint。Runtime Committed Execution 已成为 Result/Analytics/Artifact �
 
 PR5.1.1 已建立 MiniQMT Historical Warmup 的短生命周期进程隔离、版本化原子协议、双层校验、显式 Compatibility Profile、Cache 维度和 fail-closed 启动边界。该实现只解决主进程安全性；真实 MiniQMT Compatibility、完整 CATCH_UP、恢复与 Paper 产品验收仍未完成。
 
+PR5.1.2 已建立任意市场时间装配、Calendar Session/Completed Boundary Authority、订阅先于 Required Warmup、Historical
+Watermark/Catch-up 重叠去重、Bootstrap/Catch-up 订单副作用抑制、Latest Observation Store、异步 Console/JSONL、
+Session-aware Health、长生命周期 CLI Runner 与一次性 `snapshot` 命令。真实 MiniQMT Historical Compatibility、实时 Gap
+Recovery、重连、Streaming Checkpoint/Recovery 与 Paper 产品验收仍未完成。
+
 ## Phase 4：Live 产品循环（未完成）
 
 真实行情/交易 Gateway、重连、同步和生产级对账尚未闭环。本阶段开始前继续保持真实交易禁用。

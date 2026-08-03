@@ -9,6 +9,7 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
+from onlyalpha.core.errors import OnlyError
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.runtime.defaults import only_default_engine_services
@@ -62,6 +63,14 @@ def only_parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument("--fail-fast", action=argparse.BooleanOptionalAction, default=True)
     run_parser.add_argument("--console-report", action="store_true")
+    snapshot_parser = subparsers.add_parser("snapshot")
+    snapshot_parser.add_argument("--config", action="append", default=[], metavar="PATH")
+    snapshot_parser.add_argument("--config-dir", metavar="DIRECTORY")
+    snapshot_parser.add_argument("--config-glob", metavar="PATTERN")
+    snapshot_parser.add_argument("--user-data", metavar="DIRECTORY")
+    snapshot_parser.add_argument("--engine-id", default="onlyalpha-snapshot")
+    snapshot_parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+    snapshot_parser.add_argument("--fail-fast", action=argparse.BooleanOptionalAction, default=True)
     scenario_parser = subparsers.add_parser("scenario")
     scenario_commands = scenario_parser.add_subparsers(dest="scenario_command", required=True)
     scenario_validate = scenario_commands.add_parser("validate")
@@ -137,6 +146,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             normalized = [asdict(item) for item in value] if isinstance(value, tuple) else asdict(value)
             print(json.dumps(normalized, sort_keys=True) if args.format == "json" else json.dumps(normalized, indent=2))
             return 0
+        from onlyalpha.application.engine_runner import (
+            OnlyEngineApplicationRunner,
+            OnlyRuntimeLifecycleKind,
+            only_engine_lifecycle_kind,
+        )
+
         engine = OnlyEngine(
             OnlyEngineConfig(
                 OnlyEngineId(args.engine_id),
@@ -153,10 +168,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.fail_fast:
                     raise
                 print(f"onlyalpha: skipped {config_path}: {exc}")
-        if args.dry_run:
+        if getattr(args, "dry_run", False):
             validation = engine.validate()
             print(validation.render())
             return validation.exit_code
+        if args.command == "snapshot":
+            snapshots = OnlyEngineApplicationRunner().snapshot(engine)
+            print(json.dumps({"snapshots": snapshots}, ensure_ascii=False, sort_keys=True))
+            return 0
+        if only_engine_lifecycle_kind(engine) is OnlyRuntimeLifecycleKind.LONG_LIVED:
+            exit_code = OnlyEngineApplicationRunner().execute(engine)
+            print(
+                json.dumps(
+                    {
+                        "engine_id": str(engine.config.engine_id),
+                        "status": engine.state.value,
+                        "lifecycle": OnlyRuntimeLifecycleKind.LONG_LIVED.value,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            return exit_code
         engine_result = engine.run()
         if args.console_report:
             for index, console_report in enumerate(engine_result.console_reports):
@@ -187,7 +220,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return engine_result.exit_code
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError, OnlyError) as exc:
         print(f"onlyalpha: {exc}")
         return 2
 
