@@ -435,6 +435,11 @@ class OnlyEngine:
             self.storage.close()
         self.state = OnlyEngineState.STOPPED
 
+    def close(self) -> None:
+        """Idempotently close all Engine-owned resources after an operational run."""
+
+        self.stop()
+
     def snapshot(self) -> OnlyEngineSnapshot:
         reference_counts = dict(self._infrastructure.reference_counts)
         plugin_resources = tuple(

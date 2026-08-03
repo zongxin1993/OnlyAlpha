@@ -1,0 +1,16 @@
+plan_id: paper-real-product-v2
+runtime_config_path: ../configs/miniqmt_paper_acceptance.yaml
+output_root: ../../user_data/acceptance/paper
+expected_instrument_id: 000001.XSHE
+expected_provider_symbol: 000001.SZ
+external_bar_step_minutes: 1
+derived_bar_step_minutes: 3
+minimum_historical_bars: 50
+target_live_closed_bars: 6
+target_live_derived_bars: 2
+require_indicator_ready: true
+require_factor_snapshot: true
+require_live_shadow_intent: true
+live_grace_seconds: 10
+startup_timeout_seconds: 60
+shutdown_timeout_seconds: 15

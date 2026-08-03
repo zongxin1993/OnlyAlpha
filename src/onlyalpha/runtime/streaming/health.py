@@ -21,6 +21,7 @@ class OnlyStreamingRuntimeHealth:
     last_closed_bar_end: OnlyTimestamp | None
     next_expected_bar_end: OnlyTimestamp | None
     next_market_open: OnlyTimestamp
+    next_market_close: OnlyTimestamp
     inbound_queue_size: int
     observation_queue_size: int
     duplicate_count: int

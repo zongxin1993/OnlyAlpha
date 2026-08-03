@@ -81,6 +81,8 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         data_version: OnlyDataVersion,
         bootstrap_bars: int = 0,
         historical_compatibility_profile: str = "miniqmt-history-v2",
+        historical_protocol_version: int = 2,
+        historical_time_semantics_version: int = 2,
         historical_timeout_seconds: int = 30,
         warmup_alignment_steps: tuple[int, ...] = (),
         stale_after_seconds: int = 10,
@@ -107,6 +109,8 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         self._bootstrap_bars = bootstrap_bars
         self._streaming_data_version = data_version
         self._historical_compatibility_profile = historical_compatibility_profile
+        self._historical_protocol_version = historical_protocol_version
+        self._historical_time_semantics_version = historical_time_semantics_version
         self._historical_timeout_seconds = historical_timeout_seconds
         self._warmup_alignment_steps = tuple(sorted(set(warmup_alignment_steps)))
         self._stale_after_seconds = stale_after_seconds
@@ -117,6 +121,15 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         self._duplicate_count = 0
         self._sequence_gap_count = 0
         self._stale_count = 0
+        self._received_update_count = 0
+        self._closed_external_bar_count = 0
+        self._derived_internal_bar_count = 0
+        self._historical_observation_count = 0
+        self._historical_processed_bar_count = 0
+        self._live_observation_count = 0
+        self._out_of_order_count = 0
+        self._bootstrap_suppressed_intent_count = 0
+        self._catch_up_suppressed_intent_count = 0
         self._last_received_at: OnlyTimestamp | None = None
         self._last_closed_bar_end: OnlyTimestamp | None = None
         self._latest_bars: dict[tuple[str, OnlyBarType], OnlyBar] = {}
@@ -178,6 +191,66 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             result.last_bar_end for result in self._historical_warmup_results if result.last_bar_end is not None
         )
         return max(values, default=None)
+
+    @property
+    def inspection_timestamp(self) -> OnlyTimestamp:
+        return OnlyTimestamp.from_datetime(self._services.clock.now_utc())
+
+    @property
+    def inspection_run_id(self) -> str:
+        return f"paper-{self.runtime_id}"
+
+    @property
+    def streaming_subscription(self) -> OnlyMarketDataSubscriptionRequest:
+        return self._streaming_subscription
+
+    @property
+    def subscription_active(self) -> bool:
+        return self._streaming_subscription_id is not None
+
+    @property
+    def received_update_count(self) -> int:
+        return self._received_update_count
+
+    @property
+    def closed_external_bar_count(self) -> int:
+        return self._closed_external_bar_count
+
+    @property
+    def derived_internal_bar_count(self) -> int:
+        return self._derived_internal_bar_count
+
+    @property
+    def historical_observation_count(self) -> int:
+        return self._historical_observation_count
+
+    @property
+    def historical_protocol_version(self) -> int:
+        return self._historical_protocol_version
+
+    @property
+    def historical_time_semantics_version(self) -> int:
+        return self._historical_time_semantics_version
+
+    @property
+    def historical_processed_bar_count(self) -> int:
+        return self._historical_processed_bar_count
+
+    @property
+    def live_observation_count(self) -> int:
+        return self._live_observation_count
+
+    @property
+    def out_of_order_count(self) -> int:
+        return self._out_of_order_count
+
+    @property
+    def bootstrap_suppressed_intent_count(self) -> int:
+        return self._bootstrap_suppressed_intent_count
+
+    @property
+    def catch_up_suppressed_intent_count(self) -> int:
+        return self._catch_up_suppressed_intent_count
 
     def _recover_runtime(self) -> None:
         # Streaming checkpoint/restart is deliberately outside PR5.1.
@@ -370,6 +443,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             self._sequence_gap_count += 1
         pipeline = result.pipeline_result
         if isinstance(pipeline, OnlyMarketDataUpdateResult):
+            self._closed_external_bar_count += 1
+            if self._streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
+                self._historical_processed_bar_count += 1
+            self._derived_internal_bar_count += len(pipeline.derived_bars)
             bar = pipeline.base_bar
             key = (str(bar.instrument_id), bar.bar_type)
             self._latest_bars[key] = bar
@@ -404,6 +481,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
                     self._record_processing_result(self._services.market_data_processor.process(finalized))
 
     def _accept_streaming_update(self, update: OnlyMarketDataInboundUpdate) -> bool:
+        self._received_update_count += 1
         self._last_received_at = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
         if not isinstance(update.payload, OnlyBarUpdate):
             return True
@@ -431,10 +509,12 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
     def _intercept_order_submit(self, request: OnlyOrderRequest) -> OnlyOrderSubmitResult | None:
         del request
         if self._streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
+            self._bootstrap_suppressed_intent_count += 1
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_BOOTSTRAP"
             )
         if self._streaming_phase is OnlyStreamingPhase.CATCH_UP:
+            self._catch_up_suppressed_intent_count += 1
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_CATCH_UP"
             )
@@ -489,6 +569,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             )
             self._observation_store.put(snapshot)
             self._observation_publisher.publish(snapshot)
+            if source is OnlyObservationSource.HISTORICAL_BOOTSTRAP:
+                self._historical_observation_count += 1
+            elif source is OnlyObservationSource.LIVE:
+                self._live_observation_count += 1
 
     def health(self) -> OnlyStreamingRuntimeHealth:
         observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
@@ -513,6 +597,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             self._last_closed_bar_end,
             next_expected,
             session.next_market_open,
+            session.next_market_close,
             len(self._services.market_data_inbound),
             self._observation_publisher.queue_size,
             self._duplicate_count,
