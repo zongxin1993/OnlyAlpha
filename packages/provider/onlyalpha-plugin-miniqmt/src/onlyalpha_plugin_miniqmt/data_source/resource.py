@@ -1,3 +1,6 @@
+import hashlib
+import json
+from datetime import timedelta
 from typing import Any
 
 from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
@@ -26,6 +29,12 @@ from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataSubscriptionResult,
     OnlyMarketDataUnsubscriptionRequest,
+)
+from onlyalpha.data.warmup import (
+    OnlyHistoricalWarmupDiagnostic,
+    OnlyHistoricalWarmupRequest,
+    OnlyHistoricalWarmupResult,
+    OnlyHistoricalWarmupStatus,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId
@@ -168,6 +177,111 @@ class OnlyMiniQmtDataSource:
 
         return OnlyHistoricalDataStream(load_bars(self._xtdata, self._request, request), request.batch_size)
 
+    def load_warmup(self, request: OnlyHistoricalWarmupRequest) -> OnlyHistoricalWarmupResult:
+        from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
+        from onlyalpha.core.ranges import OnlyTimeRange
+
+        from ..historical_worker.cache import (
+            OnlyMiniQmtIsolatedWarmupCacheProvider,
+            OnlyMiniQmtWarmupFetchError,
+        )
+        from ..historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
+
+        if self._request.runtime_state_root is None:
+            raise RuntimeError("MiniQMT isolated warmup requires a Runtime state root")
+        client = OnlyMiniQmtHistoricalIsolatedClient(
+            self._request,
+            self._config.require_path(),
+            self._request.runtime_state_root / "warmup",
+        )
+        cache = self._request.historical_cache_service
+        if cache is None:
+            return client.load_warmup(request)
+        end = request.end_time.to_datetime()
+        cache_request = OnlyHistoricalDataRequest(
+            request.instrument_id,
+            request.bar_type,
+            OnlyTimeRange(end - timedelta(days=10), end + timedelta(microseconds=1)),
+            request.adjustment_type,
+            metadata={
+                "data_version": str(request.data_version),
+                "compatibility_profile_id": request.compatibility_profile_id,
+            },
+        )
+        provider = OnlyMiniQmtIsolatedWarmupCacheProvider(client, request, str(self.source_id))
+        try:
+            loaded = cache.load(cache_request, provider, self._config.cache_policy)
+        except OnlyMiniQmtWarmupFetchError as exc:
+            if isinstance(exc.result, OnlyHistoricalWarmupResult):
+                return exc.result
+            raise
+        except Exception as exc:
+            request_fingerprint = _warmup_request_fingerprint(request)
+            return OnlyHistoricalWarmupResult(
+                OnlyHistoricalWarmupStatus.PROTOCOL_ERROR,
+                (),
+                request_fingerprint,
+                None,
+                None,
+                None,
+                "miniqmt",
+                None,
+                request.compatibility_profile_id,
+                OnlyHistoricalWarmupDiagnostic(
+                    "MINIQMT_HISTORICAL_CACHE_FAILED",
+                    str(exc),
+                    None,
+                    None,
+                    None,
+                    request_fingerprint,
+                    None,
+                    None,
+                    request.compatibility_profile_id,
+                    str(self._config.userdata_mini_path.resolve()),
+                ),
+            )
+        bars = tuple(loaded.records[-request.required_bars :])
+        if len(bars) < request.required_bars:
+            request_fingerprint = _warmup_request_fingerprint(request)
+            return OnlyHistoricalWarmupResult(
+                OnlyHistoricalWarmupStatus.INVALID_DATA,
+                (),
+                request_fingerprint,
+                None,
+                None,
+                None,
+                "miniqmt",
+                None,
+                request.compatibility_profile_id,
+                OnlyHistoricalWarmupDiagnostic(
+                    "MINIQMT_HISTORICAL_CACHE_INSUFFICIENT",
+                    "validated historical cache does not contain the required warmup Bars",
+                    None,
+                    None,
+                    None,
+                    request_fingerprint,
+                    None,
+                    None,
+                    request.compatibility_profile_id,
+                    str(self._config.userdata_mini_path.resolve()),
+                ),
+            )
+        request_fingerprint = _warmup_request_fingerprint(request)
+        content_fingerprint = hashlib.sha256("\n".join(bar.to_json() for bar in bars).encode()).hexdigest()
+        metadata = loaded.manifest.metadata
+        return OnlyHistoricalWarmupResult(
+            OnlyHistoricalWarmupStatus.SUCCESS,
+            bars,
+            request_fingerprint,
+            content_fingerprint,
+            OnlyTimestamp.from_datetime(bars[0].bar_end),
+            OnlyTimestamp.from_datetime(bars[-1].bar_end),
+            "miniqmt",
+            None if metadata.get("provider_version") is None else str(metadata["provider_version"]),
+            request.compatibility_profile_id,
+            None,
+        )
+
     def load_quotes(self, request: OnlyHistoricalQuoteRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         return OnlyHistoricalDataStream((), request.batch_size)
 
@@ -243,3 +357,19 @@ class OnlyMiniQmtDataSource:
             status,
             OnlyMarketDataConnectionSnapshot(OnlyMarketDataGatewayId(str(self.source_id)), state),
         )
+
+
+def _warmup_request_fingerprint(request: OnlyHistoricalWarmupRequest) -> str:
+    payload = {
+        "request_id": request.request_id,
+        "runtime_id": str(request.runtime_id),
+        "instrument_id": str(request.instrument_id),
+        "bar_type": request.bar_type.to_dict(),
+        "required_bars": request.required_bars,
+        "end_time_ns": request.end_time.unix_nanos,
+        "data_version": str(request.data_version),
+        "adjustment_type": request.adjustment_type.value,
+        "timeout_seconds": request.timeout_seconds,
+        "compatibility_profile_id": request.compatibility_profile_id,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

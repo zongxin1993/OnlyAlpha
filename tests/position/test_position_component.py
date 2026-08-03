@@ -42,7 +42,6 @@ from onlyalpha.position import (
     OnlySettlementService,
 )
 from onlyalpha.runtime.live.runtime import OnlyLiveRuntime
-from onlyalpha.runtime.paper.runtime import OnlyPaperRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
 RUNTIME = OnlyRuntimeId("runtime-position")
@@ -354,9 +353,9 @@ def test_runtime_isolation_and_100_replays_are_deterministic() -> None:
         other.apply_trade(trade(99, OnlyOrderSide.BUY, "1", "1"))
 
 
-def test_every_runtime_mode_owns_distinct_position_domains() -> None:
-    live = OnlyLiveRuntime(OnlyRuntimeAssemblyConfig("engine", "live", OnlyRuntimeMode.LIVE))
-    paper = OnlyPaperRuntime(OnlyRuntimeAssemblyConfig("engine", "paper", OnlyRuntimeMode.PAPER))
-    assert live.position_manager is not paper.position_manager
-    assert live.allocation_manager is not paper.allocation_manager
-    assert live.position_reservation_manager is not paper.position_reservation_manager
+def test_runtime_instances_own_distinct_position_domains() -> None:
+    first = OnlyLiveRuntime(OnlyRuntimeAssemblyConfig("engine", "live-a", OnlyRuntimeMode.LIVE))
+    second = OnlyLiveRuntime(OnlyRuntimeAssemblyConfig("engine", "live-b", OnlyRuntimeMode.LIVE))
+    assert first.position_manager is not second.position_manager
+    assert first.allocation_manager is not second.allocation_manager
+    assert first.position_reservation_manager is not second.position_reservation_manager

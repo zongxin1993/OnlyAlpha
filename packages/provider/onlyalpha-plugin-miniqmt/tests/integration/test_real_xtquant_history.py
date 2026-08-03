@@ -1,22 +1,24 @@
-"""Opt-in, read-only validation against a running MiniQMT data service."""
+"""Opt-in acceptance against a running local MiniQMT historical service."""
 
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from onlyalpha_plugin_miniqmt.data_source.historical import load_bars
-from onlyalpha_plugin_miniqmt.sdk.loader import load_xtquant
+from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
 
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
-from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.data.identifiers import OnlyDataVersion
+from onlyalpha.data.warmup import OnlyHistoricalWarmupRequest, OnlyHistoricalWarmupStatus
 from onlyalpha.domain.enums import (
+    OnlyAdjustmentType,
     OnlyAggregationSource,
     OnlyBarAggregation,
     OnlyPriceType,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
+from onlyalpha.domain.time import OnlyTimestamp
 
 pytestmark = [
     pytest.mark.external,
@@ -30,31 +32,42 @@ pytestmark = [
 ]
 
 
-def test_real_history_converts_to_onlyalpha_bars() -> None:
+def test_real_history_is_isolated_and_returns_fifty_closed_bars(tmp_path: Path) -> None:
     instrument = OnlyInstrumentId.parse(os.environ.get("ONLYALPHA_MINIQMT_SYMBOL", "600000.XSHG"))
     bar_type = OnlyBarType(
         instrument,
         OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
         OnlyAggregationSource.EXTERNAL,
     )
-    start = datetime.fromisoformat(os.environ.get("ONLYALPHA_MINIQMT_START", "2026-07-17T01:30:00+00:00"))
-    end = datetime.fromisoformat(os.environ.get("ONLYALPHA_MINIQMT_END", "2026-07-17T02:01:00+00:00"))
-    request = OnlyHistoricalBarRequest(
+    end = datetime.fromisoformat(os.environ.get("ONLYALPHA_MINIQMT_END", "2026-08-03T02:00:00+00:00"))
+    request = OnlyHistoricalWarmupRequest(
         "real-history-read-only",
-        frozenset({instrument}),
-        frozenset({bar_type}),
-        OnlyHistoricalDataRange(start.astimezone(UTC), end.astimezone(UTC)),
+        OnlyRuntimeId("real-history-verification"),
+        instrument,
+        bar_type,
+        50,
+        OnlyTimestamp.from_datetime(end.astimezone(UTC)),
         OnlyDataVersion("miniqmt-real-read-only"),
+        OnlyAdjustmentType.RAW,
+        30,
+        "miniqmt-history-v1",
     )
-    create_request = SimpleNamespace(
-        runtime_id=OnlyRuntimeId("real-history-verification"),
-        source_id=OnlyMarketDataSourceId("miniqmt"),
+    userdata = Path(
+        os.environ.get("userdata_mini_path")
+        or os.environ.get("ONLYALPHA_MINIQMT_PATH")
+        or r"C:\国金证券QMT交易端\userdata_mini"
     )
+    create_request = SimpleNamespace(instruments={instrument: SimpleNamespace(price_precision=2, quantity_precision=0)})
 
-    records = load_bars(load_xtquant().xtdata, create_request, request)
+    result = OnlyMiniQmtHistoricalIsolatedClient(
+        create_request,
+        userdata,
+        tmp_path / "runtime_state" / "warmup",
+    ).load_warmup(request)
 
-    assert records
-    assert tuple(item.ts_event for item in records) == tuple(sorted(item.ts_event for item in records))
-    assert len({item.ts_event for item in records}) == len(records)
-    assert all(item.payload.bar.ts_event.tzinfo is UTC for item in records)
-    assert all(start <= item.payload.bar.ts_event < end for item in records)
+    assert result.status is OnlyHistoricalWarmupStatus.SUCCESS, result.diagnostic
+    assert len(result.bars) == 50
+    assert tuple(item.bar_end for item in result.bars) == tuple(sorted(item.bar_end for item in result.bars))
+    assert len({(item.instrument_id, item.bar_type, item.bar_start) for item in result.bars}) == 50
+    assert all(item.is_closed and item.bar_end <= end for item in result.bars)
+    assert result.last_bar_end == OnlyTimestamp.from_datetime(result.bars[-1].bar_end)

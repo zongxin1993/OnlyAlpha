@@ -41,6 +41,8 @@ class OnlyHistoricalCacheKey:
     adjustment_reference: str | None = None
     schema_version: int = 1
     time_semantics_version: int = 1
+    data_version: str | None = None
+    compatibility_profile_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

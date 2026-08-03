@@ -19,6 +19,8 @@ runtime:
     execution_capability: SHADOW
     streaming:
       bootstrap_bars: 50
+      historical_compatibility_profile: miniqmt-history-v1
+      historical_timeout_seconds: 30
       inbound_queue_capacity: 4096
       stale_after_seconds: 10
     observation:

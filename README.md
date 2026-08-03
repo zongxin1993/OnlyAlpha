@@ -105,7 +105,7 @@ Distributed Backtest
 | OnlyEngine                  | 当前范围完成    | 唯一产品入口和生命周期已形成                                | 多进程和远程执行                        |
 | Runtime Planner / Assembler | 稳定        | Runtime 分组、装配和兼容性判断清晰                         | 非 Backtest 产品装配                 |
 | Backtest Runtime            | 当前范围完成    | 确定性回放、交易和恢复闭环                                 | 大规模性能基线                         |
-| Paper Runtime               | 未完成       | 类型和边界存在                                       | 行情、成交、恢复、产品入口                   |
+| Paper Runtime               | 部分完成      | 只读实时行情、Shadow Execution、隔离 Historical Warmup 边界 | 真实 Warmup 兼容性、Catch-up、恢复和完整产品验收 |
 | Live Runtime                | 未完成       | 类型和接口基础存在                                     | Gateway、重连、同步、对账                |
 | Shadow Runtime              | 未完成       | 仅有概念边界                                        | 完整产品循环                          |
 | Research Runtime            | 部分完成      | Factor/Indicator 基础可复用                        | 实验、统计、批量任务、绘图                   |
@@ -116,7 +116,7 @@ Distributed Backtest
 | MarketData Pipeline         | 基础完成      | Bar Replay、Cache、Aggregation 可用               | Tick、OrderBook、大规模读取            |
 | Synthetic DataSource        | 当前范围完成    | 可用于确定性产品测试                                    | 不承担真实市场验证                       |
 | Tushare DataSource          | 部分完成      | 日线读取、校验和缓存基础存在                                | 复权、公司行为、Golden Dataset          |
-| MiniQMT DataSource          | 部分完成      | Adapter 基础存在                                  | 正式产品验收和恢复                       |
+| MiniQMT DataSource          | 部分完成      | 实时 Adapter 与进程隔离 Historical Worker 已实现          | 本地 SDK Profile 兼容性、正式产品验收和恢复       |
 | Market Profile              | 基础完成      | Registry、Compiler、Rule Engine 已建立             | 完整市场 Conformance Pack           |
 | Generic T0 Cash             | 当前范围完成    | Durable Long 生命周期闭环                           | 非 Long、非 Cash 场景                |
 | CN A-share Cash             | 部分完成      | T+1、涨跌幅、整手、费用基础存在                             | 正式 Runtime 纵切面                  |
@@ -204,7 +204,7 @@ Recovery
 
 ```text
 BACKTEST  : 当前范围完成
-PAPER     : 未完成
+PAPER     : 部分完成（产品验收仍未通过）
 LIVE      : 未完成
 SHADOW    : 未完成
 RESEARCH  : 部分完成

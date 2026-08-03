@@ -48,6 +48,7 @@ class OnlyDataSourceCreateRequest:
     logger: Logger
     market_data_sink: OnlyMarketDataUpdateSink | None = None
     historical_cache_service: OnlyHistoricalCacheService | None = None
+    runtime_state_root: Path | None = None
 
 
 class OnlyDataSource(

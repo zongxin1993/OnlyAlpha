@@ -12,6 +12,8 @@ class OnlyStreamingRuntimeConfig:
     bootstrap_bars: int = 50
     inbound_queue_capacity: int = 4096
     stale_after_seconds: int = 10
+    historical_compatibility_profile: str = "miniqmt-history-v1"
+    historical_timeout_seconds: int = 30
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "OnlyStreamingRuntimeConfig":
@@ -26,7 +28,15 @@ class OnlyStreamingRuntimeConfig:
             bootstrap,
             int(str(raw_streaming.get("inbound_queue_capacity", 4096))),
             int(str(raw_streaming.get("stale_after_seconds", 10))),
+            str(raw_streaming.get("historical_compatibility_profile", "miniqmt-history-v1")),
+            int(str(raw_streaming.get("historical_timeout_seconds", 30))),
         )
-        if result.bootstrap_bars < 0 or result.inbound_queue_capacity <= 0 or result.stale_after_seconds <= 0:
+        if (
+            result.bootstrap_bars <= 0
+            or result.inbound_queue_capacity <= 0
+            or result.stale_after_seconds <= 0
+            or result.historical_timeout_seconds <= 0
+            or not result.historical_compatibility_profile.strip()
+        ):
             raise ValueError("streaming capacities and stale threshold must be positive")
         return result

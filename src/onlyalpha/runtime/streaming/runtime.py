@@ -2,26 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import timedelta
+from math import lcm
 from threading import Event
 
 from onlyalpha.core.clock import OnlyLiveClock
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
-from onlyalpha.data.identifiers import OnlyDataVersion
+from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataUpdateId
 from onlyalpha.data.models import (
-    OnlyHistoricalBarRequest,
-    OnlyHistoricalDataRange,
+    OnlyBarUpdate,
+    OnlyMarketDataInboundUpdate,
     OnlyMarketDataProcessingResult,
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataUnsubscriptionRequest,
 )
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
+from onlyalpha.data.warmup import (
+    OnlyHistoricalWarmupRequest,
+    OnlyHistoricalWarmupResult,
+    OnlyHistoricalWarmupStatus,
+)
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyRuntimeMode
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyRuntimeMode
 from onlyalpha.domain.execution import OnlyOrderSnapshot
-from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.domain.market import OnlyBar
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
@@ -52,6 +59,9 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         subscription: OnlyMarketDataSubscriptionRequest,
         data_version: OnlyDataVersion,
         bootstrap_bars: int = 0,
+        historical_compatibility_profile: str = "miniqmt-history-v1",
+        historical_timeout_seconds: int = 30,
+        warmup_alignment_steps: tuple[int, ...] = (),
     ) -> None:
         super().__init__(
             config,
@@ -71,6 +81,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         self._streaming_subscription_id: str | None = None
         self._bootstrap_bars = bootstrap_bars
         self._streaming_data_version = data_version
+        self._historical_compatibility_profile = historical_compatibility_profile
+        self._historical_timeout_seconds = historical_timeout_seconds
+        self._warmup_alignment_steps = tuple(sorted(set(warmup_alignment_steps)))
+        self._historical_warmup_results: list[OnlyHistoricalWarmupResult] = []
         self._stop_requested = Event()
         self._processing_results: list[OnlyMarketDataProcessingResult] = []
         self._live_finalizer = OnlyLiveBarFinalizer()
@@ -99,6 +113,17 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
     @property
     def order_snapshots(self) -> tuple[OnlyOrderSnapshot, ...]:
         return self._services.order_manager.snapshot_all()
+
+    @property
+    def historical_warmup_results(self) -> tuple[OnlyHistoricalWarmupResult, ...]:
+        return tuple(self._historical_warmup_results)
+
+    @property
+    def last_historical_bar_end(self) -> OnlyTimestamp | None:
+        values = tuple(
+            result.last_bar_end for result in self._historical_warmup_results if result.last_bar_end is not None
+        )
+        return max(values, default=None)
 
     def _recover_runtime(self) -> None:
         # Streaming checkpoint/restart is deliberately outside PR5.1.
@@ -146,28 +171,50 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         super().stop()
 
     def _bootstrap(self) -> None:
-        if self._bootstrap_bars <= 0:
-            return
-        load_bars = getattr(self._streaming_source, "load_bars", None)
-        if not callable(load_bars):
-            raise OnlyRuntimeError("streaming DataSource does not provide historical Bar warmup")
+        load_warmup = getattr(self._streaming_source, "load_warmup", None)
+        if not callable(load_warmup):
+            raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
         now = self._services.clock.now_utc()
         closed_cutoff = now.replace(second=0, microsecond=0)
-        request = OnlyHistoricalBarRequest(
-            f"bootstrap-{self.runtime_id}",
-            self._streaming_subscription.instrument_ids,
-            self._streaming_subscription.bar_types,
-            OnlyHistoricalDataRange(
-                closed_cutoff - timedelta(minutes=max(self._bootstrap_bars * 3, 10)),
-                closed_cutoff,
-            ),
-            self._streaming_data_version,
-            batch_size=self._bootstrap_bars,
-        )
-        loaded = tuple(load_bars(request))[-self._bootstrap_bars :]
+        bars: list[OnlyBar] = []
+        alignment = lcm(*self._warmup_alignment_steps) if self._warmup_alignment_steps else 1
+        for bar_type in sorted(self._streaming_subscription.bar_types, key=str):
+            request = OnlyHistoricalWarmupRequest(
+                f"bootstrap-{self.runtime_id}-{bar_type.instrument_id}-{bar_type.specification.step}",
+                OnlyRuntimeId(self.runtime_id),
+                bar_type.instrument_id,
+                bar_type,
+                self._bootstrap_bars + alignment,
+                OnlyTimestamp.from_datetime(closed_cutoff),
+                self._streaming_data_version,
+                OnlyAdjustmentType.RAW,
+                self._historical_timeout_seconds,
+                self._historical_compatibility_profile,
+            )
+            result = load_warmup(request)
+            self._historical_warmup_results.append(result)
+            if result.status is not OnlyHistoricalWarmupStatus.SUCCESS:
+                diagnostic = result.diagnostic
+                detail = result.status.value if diagnostic is None else f"{result.status.value}: {diagnostic.code}"
+                raise OnlyRuntimeError(f"historical warmup failed closed: {detail}")
+            bars.extend(self._align_warmup_bars(result.bars))
+        ordered = sorted(bars, key=lambda bar: (bar.bar_end, str(bar.bar_type)))
+        source_id = self._streaming_source.source_id  # type: ignore[union-attr]
         records = tuple(
-            replace(update, source_sequence=type(update.source_sequence)(sequence))
-            for sequence, update in enumerate(loaded, start=1)
+            OnlyMarketDataInboundUpdate(
+                OnlyMarketDataUpdateId(f"warmup-{self.runtime_id}-{sequence}"),
+                OnlyRuntimeId(self.runtime_id),
+                source_id,
+                OnlyDataSequence(sequence),
+                self._streaming_data_version,
+                bar.instrument_id,
+                OnlyMarketDataType.BAR,
+                OnlyBarUpdate(bar),
+                OnlyTimestamp.from_datetime(bar.ts_event),
+                OnlyTimestamp.from_datetime(bar.ts_init),
+                metadata=(("warmup", "historical"),),
+            )
+            for sequence, bar in enumerate(ordered, start=1)
         )
         for update in records:
             result = self._services.market_data_processor.process(update)
@@ -182,6 +229,26 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         set_floor = getattr(self._streaming_source, "set_live_sequence_floor", None)
         if callable(set_floor) and records:
             set_floor(max(int(item.source_sequence) for item in records))
+
+    def _align_warmup_bars(self, bars: tuple[OnlyBar, ...]) -> tuple[OnlyBar, ...]:
+        if not self._warmup_alignment_steps:
+            return bars[-self._bootstrap_bars :]
+        maximum_start = len(bars) - self._bootstrap_bars
+        for index, value in enumerate(bars):
+            if index > maximum_start:
+                break
+            bar = value
+            intervals = self._selected_calendar.session_intervals_for_trading_day(OnlyTradingDay(bar.trading_day))
+            session = next(
+                ((start, end) for start, end in intervals if start <= bar.bar_start < end),
+                None,
+            )
+            if session is None:
+                continue
+            elapsed_minutes = int((bar.bar_start - session[0]).total_seconds() // 60)
+            if all(elapsed_minutes % step == 0 for step in self._warmup_alignment_steps):
+                return bars[index:]
+        raise OnlyRuntimeError("historical warmup cannot establish an aligned aggregation boundary")
 
     def _record_processing_result(self, result: OnlyMarketDataProcessingResult) -> None:
         self._processing_results.append(result)

@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import tempfile
 from datetime import timedelta
 from pathlib import Path
 
+from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.core.clock import OnlyLiveClock
 from onlyalpha.data.enums import OnlyMarketDataType
@@ -80,6 +82,11 @@ class OnlyPaperRuntimeFactory:
             )
             if not base_bar_types:
                 raise ValueError("Paper Runtime requires an external base Bar subscription")
+            state_root = (
+                OnlyUserDataLayout(request.user_data_root).runtime_state_root(config.engine_id, config.runtime_id)
+                if request.user_data_root is not None
+                else Path(tempfile.gettempdir()) / "onlyalpha" / "runtime_state" / str(config.runtime_id)
+            )
             by_instrument = {item.instrument_id: item for item in base_bar_types}
             data_factory = components.data_sources.resolve(source_common.plugin_id)
             data_request = OnlyDataSourceCreateRequest(
@@ -100,6 +107,16 @@ class OnlyPaperRuntimeFactory:
                 config.source_path.parent,
                 _LOGGER,
                 market_data_sink=inbound.put,
+                historical_cache_service=(
+                    OnlyHistoricalCacheService(
+                        OnlyParquetHistoricalCacheStore(
+                            OnlyUserDataLayout(request.user_data_root).historical_market_data_cache_root
+                        )
+                    )
+                    if request.user_data_root is not None
+                    else None
+                ),
+                runtime_state_root=state_root,
             )
             issues = tuple(data_factory.validate_request(data_request))
             if issues:
@@ -127,11 +144,6 @@ class OnlyPaperRuntimeFactory:
                 ),
                 market_fee_schedules=components.market_fee_schedules,
                 broker_fee_schedules=components.broker_fee_schedules,
-            )
-            state_root = (
-                OnlyUserDataLayout(request.user_data_root).runtime_state_root(config.engine_id, config.runtime_id)
-                if request.user_data_root is not None
-                else Path(".")
             )
             persistence = components.runtime_persistence_stores.create(
                 OnlyRuntimePersistenceStoreCreateRequest(
@@ -166,6 +178,13 @@ class OnlyPaperRuntimeFactory:
                 subscription=subscription,
                 data_version=source_common.data_version,
                 bootstrap_bars=streaming.bootstrap_bars,
+                historical_compatibility_profile=streaming.historical_compatibility_profile,
+                historical_timeout_seconds=streaming.historical_timeout_seconds,
+                warmup_alignment_steps=tuple(
+                    item.specification.step
+                    for item in all_bar_types
+                    if item.aggregation_source is OnlyAggregationSource.INTERNAL
+                ),
             )
             for instrument in config.reference_data.instruments:
                 runtime.register_instrument(instrument)

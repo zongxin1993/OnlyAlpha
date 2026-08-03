@@ -16,6 +16,8 @@ def only_cache_key_payload(key: OnlyHistoricalCacheKey) -> dict[str, object]:
         "adjustment_reference": key.adjustment_reference,
         "schema_version": key.schema_version,
         "time_semantics_version": key.time_semantics_version,
+        "data_version": key.data_version,
+        "compatibility_profile_id": key.compatibility_profile_id,
     }
 
 
