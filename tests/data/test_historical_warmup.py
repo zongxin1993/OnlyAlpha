@@ -34,7 +34,7 @@ def _request() -> OnlyHistoricalWarmupRequest:
         OnlyDataVersion("miniqmt-v1"),
         OnlyAdjustmentType.RAW,
         30,
-        "miniqmt-history-v1",
+        "miniqmt-history-v2",
     )
 
 

@@ -37,6 +37,7 @@ class OnlyMiniQmtHistoricalDataProvider:
             request.bar_type,
             request.price_adjustment,
             request.adjustment_reference,
+            time_semantics_version=2,
         )
 
     def fetch(self, request: OnlyHistoricalDataRequest, time_range: OnlyTimeRange) -> OnlyHistoricalFetchResult:

@@ -28,8 +28,8 @@ class OnlyMiniQmtHistoricalCompatibilityProfile:
             raise ValueError("MiniQMT historical warmup currently supports adjustment=none only")
 
 
-MINIQMT_HISTORY_V1 = OnlyMiniQmtHistoricalCompatibilityProfile(
-    profile_id="miniqmt-history-v1",
+MINIQMT_HISTORY_V2 = OnlyMiniQmtHistoricalCompatibilityProfile(
+    profile_id="miniqmt-history-v2",
     download_before_query=True,
     query_mode=OnlyMiniQmtHistoricalQueryMode.END_TIME_WITH_COUNT,
     explicit_fields=("time", "open", "high", "low", "close", "volume"),
@@ -39,7 +39,7 @@ MINIQMT_HISTORY_V1 = OnlyMiniQmtHistoricalCompatibilityProfile(
     maximum_count=2_000,
 )
 
-_PROFILES = {MINIQMT_HISTORY_V1.profile_id: MINIQMT_HISTORY_V1}
+_PROFILES = {MINIQMT_HISTORY_V2.profile_id: MINIQMT_HISTORY_V2}
 
 
 def resolve_profile(profile_id: str) -> OnlyMiniQmtHistoricalCompatibilityProfile:

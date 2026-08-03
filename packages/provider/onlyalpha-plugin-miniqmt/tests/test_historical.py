@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -118,6 +118,8 @@ def test_history_is_sorted_deduplicated_and_utc() -> None:
     assert len(result) == 2
     assert result[0].ts_event < result[1].ts_event
     assert all(item.payload.bar.ts_event.tzinfo is UTC for item in result)
+    assert result[0].payload.bar.bar_end == result[0].payload.bar.ts_event
+    assert result[0].payload.bar.bar_start == result[0].payload.bar.bar_end - timedelta(minutes=1)
     assert source.queries[0][0][0] == ["time", "open", "high", "low", "close", "volume"]
 
 
@@ -189,3 +191,4 @@ def test_cache_only_second_load_does_not_call_xtquant(tmp_path) -> None:
     assert len(source.downloads) == downloads
     assert first.records == second.records
     assert first.manifest.content_fingerprint == second.manifest.content_fingerprint
+    assert first.manifest.time_semantics_version == 2

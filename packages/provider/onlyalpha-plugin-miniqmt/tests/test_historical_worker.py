@@ -16,6 +16,7 @@ from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistori
 from onlyalpha_plugin_miniqmt.historical_worker.compatibility import resolve_profile
 from onlyalpha_plugin_miniqmt.historical_worker.models import OnlyMiniQmtWorkerRequest
 from onlyalpha_plugin_miniqmt.historical_worker.protocol import tail
+from onlyalpha_plugin_miniqmt.historical_worker.query import query_history
 from onlyalpha_plugin_miniqmt.historical_worker.validation import validate_records
 
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
@@ -55,7 +56,7 @@ def _request(*, timeout: int = 5) -> OnlyHistoricalWarmupRequest:
         OnlyDataVersion("test-v1"),
         OnlyAdjustmentType.RAW,
         timeout,
-        "miniqmt-history-v1",
+        "miniqmt-history-v2",
     )
 
 
@@ -102,9 +103,9 @@ def _worker_with_fake_xtquant(tmp_path: Path, *, query_error: bool) -> OnlyMiniQ
         "raise RuntimeError('fake query failure')"
         if query_error
         else f"return {{symbols[0]: ["
-        f"{{'time': {end_millis - 120_000}, 'open': '10.00', 'high': '10.10', 'low': '9.90', "
+        f"{{'time': {end_millis - 60_000}, 'open': '10.00', 'high': '10.10', 'low': '9.90', "
         "'close': '10.05', 'volume': '100'}, "
-        f"{{'time': {end_millis - 60_000}, 'open': '10.05', 'high': '10.20', 'low': '10.00', "
+        f"{{'time': {end_millis}, 'open': '10.05', 'high': '10.20', 'low': '10.00', "
         "'close': '10.10', 'volume': '200'}]}"
     )
     (package / "xtdata.py").write_text(
@@ -164,7 +165,7 @@ def test_native_abort_is_contained_and_reported_as_worker_aborted(tmp_path: Path
         ),
     )
 
-    result = client.load_warmup(_request())
+    result = client.load_warmup(_request(timeout=15))
 
     assert result.status is OnlyHistoricalWarmupStatus.WORKER_ABORTED
     assert result.diagnostic is not None
@@ -172,6 +173,34 @@ def test_native_abort_is_contained_and_reported_as_worker_aborted(tmp_path: Path
     assert "before-abort" in (result.diagnostic.stdout_tail or "")
     assert "native-assert" in (result.diagnostic.stderr_tail or "")
     assert not Path(result.diagnostic.working_directory or "missing", "result.json").exists()
+
+
+def test_native_bson_abort_is_classified_with_query_identity(tmp_path: Path) -> None:
+    userdata = tmp_path / "userdata_mini"
+    userdata.mkdir()
+    instrument_id = _request().instrument_id
+    create_request = SimpleNamespace(
+        instruments={instrument_id: SimpleNamespace(price_precision=2, quantity_precision=0)}
+    )
+    client = OnlyMiniQmtHistoricalIsolatedClient(
+        create_request,
+        userdata,
+        tmp_path / "state" / "warmup",
+        lambda _: (
+            sys.executable,
+            "-c",
+            "import os,sys; "
+            "sys.stderr.buffer.write('Assertion failed: u < 1000000, bsonobj.cpp'.encode('utf-16-le')); "
+            "sys.stderr.flush(); os.abort()",
+        ),
+    )
+
+    result = client.load_warmup(_request(timeout=15))
+
+    assert result.status is OnlyHistoricalWarmupStatus.WORKER_ABORTED
+    assert result.diagnostic is not None
+    assert result.diagnostic.code == "MINIQMT_HISTORICAL_NATIVE_BSON_ABORT"
+    assert "600000.SH 1m" in result.diagnostic.message
 
 
 def test_actual_worker_contract_normalizes_a_fake_xtquant_shape(tmp_path: Path) -> None:
@@ -216,8 +245,35 @@ def test_request_fingerprint_and_profile_are_stable(tmp_path: Path) -> None:
     second = client._transport_request(_request())  # noqa: SLF001 - transport contract assertion
 
     assert first.request_fingerprint == second.request_fingerprint
-    assert resolve_profile("miniqmt-history-v1").profile_id == "miniqmt-history-v1"
-    assert resolve_profile("miniqmt-history-v1").query_mode.value == "END_TIME_WITH_COUNT"
+    assert resolve_profile("miniqmt-history-v2").profile_id == "miniqmt-history-v2"
+    assert resolve_profile("miniqmt-history-v2").query_mode.value == "END_TIME_WITH_COUNT"
+
+    with pytest.raises(ValueError, match="unknown MiniQMT historical compatibility profile"):
+        resolve_profile("miniqmt-history-v1")
+
+
+def test_query_converts_utc_cutoff_to_xtquant_shanghai_wall_clock(tmp_path: Path) -> None:
+    transport = _client(tmp_path, "success")._transport_request(_request())  # noqa: SLF001
+
+    class CapturingXtData:
+        def __init__(self) -> None:
+            self.download: tuple[object, ...] | None = None
+            self.query: tuple[tuple[object, ...], dict[str, object]] | None = None
+
+        def download_history_data(self, *args: object) -> None:
+            self.download = args
+
+        def get_market_data_ex(self, *args: object, **kwargs: object) -> dict[str, object]:
+            self.query = (args, kwargs)
+            return {transport.xt_symbol: []}
+
+    xtdata = CapturingXtData()
+
+    query_history(xtdata, transport)
+
+    assert xtdata.download == (transport.xt_symbol, "1m", "20260724100000", "20260803100000")
+    assert xtdata.query is not None
+    assert xtdata.query[1]["end_time"] == "20260803100000"
 
 
 def test_parent_rejects_duplicate_or_out_of_order_transport_records(tmp_path: Path) -> None:
@@ -254,7 +310,7 @@ def test_transport_request_rejects_unknown_protocol_or_missing_userdata(tmp_path
         False,
         2,
         0,
-        "miniqmt-history-v1",
+        "miniqmt-history-v2",
         "END_TIME_WITH_COUNT",
         True,
         1,
@@ -294,7 +350,8 @@ def test_validated_cache_reuses_matching_profile_but_never_stale_coverage(tmp_pa
 
     assert first.records == second.records
     assert first.manifest.key.data_version == "test-v1"
-    assert first.manifest.key.compatibility_profile_id == "miniqmt-history-v1"
+    assert first.manifest.key.compatibility_profile_id == "miniqmt-history-v2"
+    assert first.manifest.time_semantics_version == 2
     stale_end = end + timedelta(minutes=1)
     stale_request = replace(cache_request, time_range=OnlyTimeRange(end - timedelta(days=10), stale_end))
     stale_warmup = replace(warmup, end_time=OnlyTimestamp.from_datetime(stale_end))

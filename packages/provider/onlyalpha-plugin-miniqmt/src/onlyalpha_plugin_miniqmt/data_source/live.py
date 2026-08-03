@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
@@ -18,6 +19,8 @@ from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from ..mapping.market_data import quantized_decimal, utc_from_xt, valid_ohlc
+
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class OnlyMiniQmtLiveNormalizer:
@@ -71,6 +74,8 @@ class OnlyMiniQmtLiveNormalizer:
         bar_type = self._request.bar_types[instrument_id]
         precision = self._request.instruments[instrument_id].price_precision
         minutes = bar_type.specification.step
+        # XtQuant labels minute K-lines by their end boundary. A 13:01
+        # callback therefore represents the evolving 13:00-13:01 Bar.
         bar = OnlyBar(
             bar_type=bar_type,
             open=OnlyPrice(quantized_decimal(row["open"], precision), precision),
@@ -82,8 +87,8 @@ class OnlyMiniQmtLiveNormalizer:
             turnover=None,
             trade_count=None,
             open_interest=None,
-            bar_start=event,
-            bar_end=event + timedelta(minutes=minutes),
+            bar_start=event - timedelta(minutes=minutes),
+            bar_end=event,
             ts_event=event,
             ts_init=event,
             # XtQuant may publish the same period repeatedly. The Runtime-owned
@@ -91,7 +96,7 @@ class OnlyMiniQmtLiveNormalizer:
             is_closed=False,
             revision=0,
             adjustment_type=OnlyAdjustmentType.RAW,
-            trading_day=event.date(),
+            trading_day=event.astimezone(_SHANGHAI).date(),
             session_type=OnlySessionType.REGULAR,
         )
         return self._envelope(instrument_id, event, OnlyMarketDataType.BAR, OnlyBarUpdate(bar))

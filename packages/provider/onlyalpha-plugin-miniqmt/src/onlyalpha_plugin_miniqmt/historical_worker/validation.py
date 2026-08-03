@@ -29,8 +29,11 @@ def normalize_rows(
             start = datetime.combine(trading_day, time(9, 30), _SHANGHAI).astimezone(UTC)
             end = datetime.combine(trading_day, time(15), _SHANGHAI).astimezone(UTC)
         else:
-            start = event
-            end = event + timedelta(minutes=minutes)
+            # XtQuant historical minute timestamps identify the closed Bar's
+            # end boundary (for example 13:01 is the 13:00-13:01 Bar).
+            # Live callbacks have separate, evolving-Bar semantics.
+            end = event
+            start = event - timedelta(minutes=minutes)
         record = {
             "instrument_id": request.instrument_id,
             "bar_type": request.period,

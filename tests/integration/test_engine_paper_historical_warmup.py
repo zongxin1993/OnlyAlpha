@@ -44,7 +44,7 @@ def _config(tmp_path: Path) -> OnlyClusterRunConfig:
     payload["runtime"]["extensions"]["streaming"].update(
         {
             "bootstrap_bars": 10,
-            "historical_compatibility_profile": "miniqmt-history-v1",
+            "historical_compatibility_profile": "miniqmt-history-v2",
             "historical_timeout_seconds": 5,
         }
     )

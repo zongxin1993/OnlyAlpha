@@ -80,7 +80,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         subscription: OnlyMarketDataSubscriptionRequest,
         data_version: OnlyDataVersion,
         bootstrap_bars: int = 0,
-        historical_compatibility_profile: str = "miniqmt-history-v1",
+        historical_compatibility_profile: str = "miniqmt-history-v2",
         historical_timeout_seconds: int = 30,
         warmup_alignment_steps: tuple[int, ...] = (),
         stale_after_seconds: int = 10,
@@ -279,7 +279,13 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             self._historical_warmup_results.append(result)
             if result.status is not OnlyHistoricalWarmupStatus.SUCCESS:
                 diagnostic = result.diagnostic
-                detail = result.status.value if diagnostic is None else f"{result.status.value}: {diagnostic.code}"
+                detail = result.status.value
+                if diagnostic is not None:
+                    detail = f"{detail}: {diagnostic.code}: {diagnostic.message}"
+                    if diagnostic.worker_exit_code is not None:
+                        detail += f" (worker_exit_code={diagnostic.worker_exit_code})"
+                    if diagnostic.working_directory is not None:
+                        detail += f" (diagnostics={diagnostic.working_directory})"
                 raise OnlyRuntimeError(f"historical warmup failed closed: {detail}")
             aligned = self._align_warmup_bars(result.bars)
             bars.extend(aligned)

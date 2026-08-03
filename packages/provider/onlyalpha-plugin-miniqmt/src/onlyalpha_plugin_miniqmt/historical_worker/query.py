@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .compatibility import OnlyMiniQmtHistoricalQueryMode
 from .models import OnlyMiniQmtWorkerRequest
+
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class OnlyMiniQmtDownloadError(RuntimeError):
@@ -18,10 +21,15 @@ class OnlyMiniQmtQueryError(RuntimeError):
 
 
 def query_history(xtdata: Any, request: OnlyMiniQmtWorkerRequest) -> object:
+    # XtQuant's string boundaries are exchange-local wall-clock values, while
+    # the worker protocol deliberately carries an unambiguous UTC instant.
+    # Convert at this provider boundary; formatting UTC directly silently
+    # shifts intraday coverage by eight hours.
     end = datetime.fromisoformat(request.end_time.replace("Z", "+00:00")).astimezone(UTC)
+    provider_end = end.astimezone(_SHANGHAI)
     lookback = max(10, request.required_bars // 48 + 5)
-    start_text = (end - timedelta(days=lookback)).strftime("%Y%m%d%H%M%S")
-    end_text = end.strftime("%Y%m%d%H%M%S")
+    start_text = (provider_end - timedelta(days=lookback)).strftime("%Y%m%d%H%M%S")
+    end_text = provider_end.strftime("%Y%m%d%H%M%S")
     if request.download_before_query:
         try:
             xtdata.download_history_data(request.xt_symbol, request.period, start_text, end_text)

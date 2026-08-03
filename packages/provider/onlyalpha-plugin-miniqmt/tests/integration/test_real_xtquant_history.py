@@ -33,7 +33,7 @@ pytestmark = [
 
 
 def test_real_history_is_isolated_and_returns_fifty_closed_bars(tmp_path: Path) -> None:
-    instrument = OnlyInstrumentId.parse(os.environ.get("ONLYALPHA_MINIQMT_SYMBOL", "600000.XSHG"))
+    instrument = OnlyInstrumentId.parse(os.environ.get("ONLYALPHA_MINIQMT_SYMBOL", "000001.XSHE"))
     bar_type = OnlyBarType(
         instrument,
         OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
@@ -50,7 +50,7 @@ def test_real_history_is_isolated_and_returns_fifty_closed_bars(tmp_path: Path) 
         OnlyDataVersion("miniqmt-real-read-only"),
         OnlyAdjustmentType.RAW,
         30,
-        "miniqmt-history-v1",
+        "miniqmt-history-v2",
     )
     userdata = Path(
         os.environ.get("userdata_mini_path")

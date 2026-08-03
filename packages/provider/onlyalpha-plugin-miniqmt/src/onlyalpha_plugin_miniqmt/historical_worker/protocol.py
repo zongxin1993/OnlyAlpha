@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_DIAGNOSTIC_CHARS = 16_384
 
 

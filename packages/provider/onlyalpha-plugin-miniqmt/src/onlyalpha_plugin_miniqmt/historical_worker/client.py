@@ -247,6 +247,21 @@ class OnlyMiniQmtHistoricalIsolatedClient:
                         )
             except Exception:
                 pass
+        stderr_tail = tail(workdir / "stderr.log")
+        if stderr_tail is not None and "bsonobj.cpp" in stderr_tail and "u < 1000000" in stderr_tail:
+            return self._failure(
+                OnlyHistoricalWarmupStatus.WORKER_ABORTED,
+                "MINIQMT_HISTORICAL_NATIVE_BSON_ABORT",
+                (
+                    "XtQuant aborted in its native BSON decoder while reading "
+                    f"{transport.xt_symbol} {transport.period}; the provider data path for this query "
+                    "is not readable by the current XtQuant service/SDK"
+                ),
+                transport,
+                workdir,
+                exit_code,
+                provider_version=self._installed_provider_version(),
+            )
         return self._failure(
             OnlyHistoricalWarmupStatus.WORKER_ABORTED,
             "MINIQMT_HISTORICAL_WORKER_ABORTED",

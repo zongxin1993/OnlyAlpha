@@ -340,10 +340,15 @@ class OnlyMiniQmtDataSource:
         from ..mapping.exchange import to_xt_symbol
 
         symbol = to_xt_symbol(instrument_id)
+        # XtQuant's minute-K callback is activated with count=-1. The callback
+        # may also deliver the current day's tail, which is intentionally
+        # buffered before Warmup and reconciled against the Runtime watermark.
+        count = 0 if period == "tick" else -1
         return int(
             self._xtdata.subscribe_quote(
                 symbol,
                 period=period,
+                count=count,
                 callback=lambda raw: self._normalizer.publish(raw, instrument_id, period),
             )
         )

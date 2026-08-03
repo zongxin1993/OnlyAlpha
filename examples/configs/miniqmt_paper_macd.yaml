@@ -19,7 +19,7 @@ runtime:
     execution_capability: SHADOW
     streaming:
       bootstrap_bars: 50
-      historical_compatibility_profile: miniqmt-history-v1
+      historical_compatibility_profile: miniqmt-history-v2
       historical_timeout_seconds: 30
       inbound_queue_capacity: 4096
       stale_after_seconds: 10
@@ -31,8 +31,8 @@ runtime:
 
 reference_data:
   calendars:
-    - calendar_id: CN_XSHG
-      venue: XSHG
+    - calendar_id: CN_XSHE
+      venue: XSHE
       timezone: Asia/Shanghai
       sessions:
         - name: morning
@@ -45,10 +45,10 @@ reference_data:
           session_type: CONTINUOUS
       holidays: []
   instruments:
-    - instrument_id: 600000.XSHG
+    - instrument_id: 000001.XSHE
       asset_class: EQUITY
       timezone: Asia/Shanghai
-      trading_calendar_id: CN_XSHG
+      trading_calendar_id: CN_XSHE
       price_precision: 2
       quantity_precision: 0
       price_increment: "0.01"
@@ -60,7 +60,7 @@ reference_data:
 universes:
   - universe_id: paper-observation-universe
     type: STATIC
-    instruments: [600000.XSHG]
+    instruments: [000001.XSHE]
 
 data_sources:
   - source_id: miniqmt-live
@@ -93,7 +93,7 @@ strategy:
   config_path: examples.strategy.observation.config:OnlyFirstBarIntentStrategyConfig
   extensions:
     strategy_id: paper-first-bar-intent
-    instrument_id: 600000.XSHG
+    instrument_id: 000001.XSHE
     quantity: "1000"
 
 factors:
@@ -104,14 +104,14 @@ factors:
     required: true
     subscriptions:
       instrument_bars:
-        - instrument_id: 600000.XSHG
+        - instrument_id: 000001.XSHE
           bar_specification:
             step: 1
             aggregation: TIME
             price_type: LAST
             source: EXTERNAL
           role: PRIMARY
-        - instrument_id: 600000.XSHG
+        - instrument_id: 000001.XSHE
           bar_specification:
             step: 3
             aggregation: TIME

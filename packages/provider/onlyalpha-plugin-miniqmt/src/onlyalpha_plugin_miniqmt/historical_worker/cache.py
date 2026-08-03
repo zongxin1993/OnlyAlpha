@@ -39,6 +39,7 @@ class OnlyMiniQmtIsolatedWarmupCacheProvider:
             request.bar_type,
             request.price_adjustment,
             request.adjustment_reference,
+            time_semantics_version=2,
             data_version=str(self._warmup_request.data_version),
             compatibility_profile_id=self._warmup_request.compatibility_profile_id,
         )

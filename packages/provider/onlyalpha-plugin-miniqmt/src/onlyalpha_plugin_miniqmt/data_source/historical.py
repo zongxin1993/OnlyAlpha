@@ -82,9 +82,9 @@ def load_bars(
                 bar_start=(
                     datetime.combine(local_trading_day, time(9, 30), _SHANGHAI).astimezone(raw_event.tzinfo)
                     if minutes == 1440
-                    else event
+                    else event - timedelta(minutes=minutes)
                 ),
-                bar_end=event if minutes == 1440 else event + timedelta(minutes=minutes),
+                bar_end=event,
                 ts_event=event,
                 ts_init=event,
                 is_closed=True,

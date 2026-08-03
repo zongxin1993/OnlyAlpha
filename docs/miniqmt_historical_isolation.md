@@ -17,7 +17,7 @@ OnlyEngine
 
 ## 协议
 
-协议版本固定为 `1`。请求使用 `request.json`，Bar 使用 `bars.jsonl`，成功清单使用 `result.json`，可捕获失败使用 `failure.json`。金额与数量均以字符串传输，时间使用 UTC ISO-8601 或 Unix ns，不传递 pandas、NumPy、XtQuant、Runtime 或 Callback 对象。
+协议版本固定为 `2`。请求使用 `request.json`，Bar 使用 `bars.jsonl`，成功清单使用 `result.json`，可捕获失败使用 `failure.json`。金额与数量均以字符串传输，时间使用 UTC ISO-8601 或 Unix ns，不传递 pandas、NumPy、XtQuant、Runtime 或 Callback 对象。版本 2 明确 XtQuant 历史分钟时间戳是闭合 Bar 的结束边界；旧版本的起始边界解释不再接受。
 
 Worker 先写 `.bars.jsonl.tmp`、`.result.json.tmp` 或 `.failure.json.tmp`，执行 flush/fsync 后原子替换。Parent 只有在 Worker 退出码为零、正式结果文件齐全、协议版本正确、Request Fingerprint、Content Fingerprint 和 Bars File Fingerprint 全部一致，并再次通过 Bar 校验时才接受成功。
 
@@ -27,7 +27,7 @@ Worker 先写 `.bars.jsonl.tmp`、`.result.json.tmp` 或 `.failure.json.tmp`，�
 
 Worker 和 Parent 均检查数量、严格递增、唯一键、OHLC、正价格、非负成交量、周期、Instrument、BarType、Instrument 价格精度和闭合边界。Content Fingerprint 只依赖规范化 Transport Records，不包含 PID、工作目录或日志路径。
 
-验证后的结果复用现有 Historical Cache。Cache Key 纳入 provider、data version、adjustment 和 compatibility profile；请求覆盖未达到当前闭合边界时必须启动新 Worker，失败后不会回退到过期 Cache。
+验证后的结果复用现有 Historical Cache。Cache Key 纳入 provider、data version、adjustment、compatibility profile 和 `time_semantics_version=2`；请求覆盖未达到当前闭合边界时必须启动新 Worker，失败后不会回退到旧时间语义或过期 Cache。
 
 ## 失败语义
 
@@ -38,8 +38,16 @@ Warmup 是 `REQUIRED`。`IMPORT_FAILED`、`QUERY_FAILED`、`WORKER_ABORTED`、`T
 ```powershell
 uv run python scripts/diagnose_miniqmt_historical.py `
   --userdata-mini "C:\国金证券QMT交易端\userdata_mini" `
-  --symbol 600000.SH `
+  --symbol 000001.SZ `
   --output C:\temp\onlyalpha-miniqmt-history
 ```
 
 工具不会修改正式 Runtime 配置。
+
+## Native BSON 故障诊断
+
+`bsonobj.cpp` 的 `u < 1000000` 断言是 XtQuant 服务/SDK 对具体历史查询返回的原生解码失败，不能由 Python 修复或捕获。Worker 仍保持 `WORKER_ABORTED` 的真实故障语义，但会使用 `MINIQMT_HISTORICAL_NATIVE_BSON_ABORT`，并在 Engine 错误中保留证券代码、周期、退出码和诊断目录。
+
+真实兼容性必须按 `SDK/服务版本 + 数据路径 + 证券 + 周期` 验收，不能用一个证券的成功或失败推断整个 MiniQMT。2026-08-03 本机验证中，`000001.SZ / 1m` 通过正式隔离 Worker，`600000.SH / 1m` 和 `600519.SH / 1m` 在同一服务上触发上述原生断言。因此示例配置使用已验证的 `000001.XSHE`；业务配置若改用其他证券，必须先运行本地只读 Gate。
+
+XtQuant 的字符串时间边界采用 Asia/Shanghai 本地墙钟语义。Worker 协议继续以 UTC Instant 作为唯一时间权威，只在 Provider Query 边界转换为上海本地字符串，避免盘中 Warmup 截止时间静默偏移八小时。

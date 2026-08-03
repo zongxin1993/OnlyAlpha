@@ -12,7 +12,7 @@ class OnlyStreamingRuntimeConfig:
     bootstrap_bars: int = 50
     inbound_queue_capacity: int = 4096
     stale_after_seconds: int = 10
-    historical_compatibility_profile: str = "miniqmt-history-v1"
+    historical_compatibility_profile: str = "miniqmt-history-v2"
     historical_timeout_seconds: int = 30
     observation_queue_capacity: int = 1024
 
@@ -29,7 +29,7 @@ class OnlyStreamingRuntimeConfig:
             bootstrap,
             int(str(raw_streaming.get("inbound_queue_capacity", 4096))),
             int(str(raw_streaming.get("stale_after_seconds", 10))),
-            str(raw_streaming.get("historical_compatibility_profile", "miniqmt-history-v1")),
+            str(raw_streaming.get("historical_compatibility_profile", "miniqmt-history-v2")),
             int(str(raw_streaming.get("historical_timeout_seconds", 30))),
             cls._observation_capacity(value),
         )

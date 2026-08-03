@@ -130,8 +130,8 @@ def _case_result(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--userdata-mini", type=Path, required=True)
-    parser.add_argument("--symbol", default="600000.SH")
-    parser.add_argument("--instrument", default="600000.XSHG")
+    parser.add_argument("--symbol", default="000001.SZ")
+    parser.add_argument("--instrument", default="000001.XSHE")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--end-time", default=datetime.now(UTC).replace(second=0, microsecond=0).isoformat())
     parser.add_argument("--timeout", type=int, default=30)
