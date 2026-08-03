@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from types import MappingProxyType
 
 from onlyalpha.domain.base import OnlyDomainModel
@@ -32,10 +33,17 @@ class OnlyExecutionCancelRequest(OnlyDomainModel):
     reason: str = ""
 
 
+class OnlyExecutionSubmissionOutcome(StrEnum):
+    SUBMITTED = "SUBMITTED"
+    SUPPRESSED = "SUPPRESSED"
+    REJECTED = "REJECTED"
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyExecutionSubmitResult(OnlyDomainModel):
     received: bool
     message: str
+    outcome: OnlyExecutionSubmissionOutcome = OnlyExecutionSubmissionOutcome.SUBMITTED
 
 
 @dataclass(frozen=True, slots=True)

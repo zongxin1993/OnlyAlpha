@@ -80,6 +80,7 @@ class OnlyRiskReleaseReason(StrEnum):
     ORDER_FAILED = "ORDER_FAILED"
     CLUSTER_STOPPED = "CLUSTER_STOPPED"
     EXECUTION_REJECTED = "EXECUTION_REJECTED"
+    EXECUTION_SUPPRESSED = "EXECUTION_SUPPRESSED"
 
 
 class OnlyRiskReservationApplyResult(StrEnum):

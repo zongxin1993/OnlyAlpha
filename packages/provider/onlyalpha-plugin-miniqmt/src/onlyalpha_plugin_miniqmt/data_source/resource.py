@@ -120,6 +120,9 @@ class OnlyMiniQmtDataSource:
     def health(self) -> OnlyPluginHealth:
         return self._life.health()
 
+    def set_live_sequence_floor(self, sequence: int) -> None:
+        self._normalizer.set_sequence_floor(sequence)
+
     def load_bars(self, request: OnlyHistoricalBarRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         from .historical import load_bars
 

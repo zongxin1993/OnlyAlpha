@@ -25,8 +25,16 @@ def test_backtest_factory_is_selected_through_runtime_assembler() -> None:
 
 def test_unimplemented_runtime_factories_return_structured_unsupported_results() -> None:
     services = only_default_engine_services()
-    for runtime_type in ("PAPER", "LIVE", "SHADOW", "RESEARCH"):
+    for runtime_type in ("LIVE", "SHADOW", "RESEARCH"):
         build = services.assembler.build(_plan(runtime_type))
         assert build.runtime is None
         assert build.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
         assert build.failure_message == f"{runtime_type} Runtime is registered but not implemented in phase one"
+
+
+def test_paper_factory_is_selected_and_fails_closed_on_an_enabled_broker() -> None:
+    build = only_default_engine_services().assembler.build(_plan("PAPER"))
+
+    assert build.runtime is None
+    assert build.failure_code == "RUNTIME_ASSEMBLY_FAILED"
+    assert "forbids enabled Broker adapters" in str(build.failure_message)

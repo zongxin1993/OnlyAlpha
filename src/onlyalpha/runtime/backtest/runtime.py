@@ -24,7 +24,7 @@ from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpd
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
 from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
-from onlyalpha.core.clock import OnlyBacktestClock, OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
+from onlyalpha.core.clock import OnlyBacktestClock, OnlyClock, OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.data.audit import OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataQualityFlag, OnlyMarketDataType
@@ -265,6 +265,8 @@ _LOGGER = logging.getLogger(__name__)
 class OnlyBacktestRuntime(OnlyRuntime):
     """Synchronous, single-threaded and deterministically Bar-driven Runtime."""
 
+    _supported_modes = frozenset({OnlyRuntimeMode.BACKTEST})
+
     @property
     def order_fee_accrual_manager(self) -> OnlyOrderFeeAccrualManager:
         return self._order_fee_accrual_manager
@@ -276,11 +278,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
         initial_time_or_event_bus: datetime | int,
         *,
         run_plan: OnlyBacktestRunPlanPort | None = None,
-        owned_clock: OnlyBacktestClock | None = None,
+        owned_clock: OnlyClock | None = None,
         owned_event_bus: OnlyEventBus | None = None,
+        account_created_at: OnlyTimestamp | None = None,
         broker_gateway: OnlyBrokerGateway | None = None,
+        execution_service: OnlyExecutionService | None = None,
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
+        market_data_inbound_queue: OnlyMarketDataInboundQueue | None = None,
         runtime_persistence_store: OnlyRuntimePersistenceStorePort,
         persistence_config: OnlyRuntimePersistenceConfig | None = None,
         config_fingerprint: str = "",
@@ -290,8 +295,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
         recovery_request: OnlyHistoricalBarRequest | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
-        if config.mode is not OnlyRuntimeMode.BACKTEST:
-            raise ValueError("OnlyBacktestRuntime requires BACKTEST mode")
+        if config.mode not in self._supported_modes:
+            raise ValueError(f"{type(self).__name__} does not support {config.mode.value} mode")
         if isinstance(initial_time_or_event_bus, bool):
             raise TypeError("Backtest Runtime requires an initial UTC time")
         runtime_config = config
@@ -347,7 +352,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 runtime_config.strategy_base_currency,
                 account_initial_cash,
             ),
-            OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+            account_created_at or OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
         direct_execution_event_publisher.publish(execution_event_buffer.seal())
         market_cache = OnlyMarketDataCache(runtime_config.history_limit)
@@ -473,14 +478,16 @@ class OnlyBacktestRuntime(OnlyRuntime):
             else OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
         )
         selected_broker_gateway = broker_gateway
-        execution_service: OnlyExecutionService = (
-            OnlyBrokerExecutionService(selected_broker_gateway, clock)
+        selected_execution_service: OnlyExecutionService = (
+            execution_service
+            if execution_service is not None
+            else OnlyBrokerExecutionService(selected_broker_gateway, clock)
             if selected_broker_gateway is not None
             else OnlyPlaceholderExecutionService()
         )
         order_service = OnlyOrderService(
             order_manager,
-            execution_service,
+            selected_execution_service,
             order_publisher,
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
             risk_service,
@@ -610,7 +617,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         market_data_source_registry = OnlyMarketDataSourceRegistry()
         historical_data_source = OnlyInMemoryHistoricalDataSource(historical_source_id)
         market_data_source_registry.register(historical_data_source, priority=0)
-        market_data_inbound = OnlyMarketDataInboundQueue(runtime_config.event_capacity)
+        market_data_inbound = market_data_inbound_queue or OnlyMarketDataInboundQueue(runtime_config.event_capacity)
         market_data_gateway = OnlyInMemoryMarketDataGateway(
             OnlyMarketDataGatewayId(f"{runtime_config.runtime_id}-market-data"),
             realtime_source_id,
@@ -722,7 +729,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             after_market_dispatch,
             after_market_processing,
         )
-        historical_replay_service = OnlyHistoricalReplayService(clock, market_data_processor)
+        historical_replay_service = OnlyHistoricalReplayService(cast(OnlyBacktestClock, clock), market_data_processor)
         self._services = OnlyRuntimeServices(
             clock,
             owned_bus,
@@ -738,7 +745,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_query,
             order_service,
             order_update_processor,
-            execution_service,
+            selected_execution_service,
             risk_service,
             position_manager,
             allocation_manager,
@@ -1326,7 +1333,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
 
     def _capture_runtime_progress_checkpoint(self) -> object:
-        clock_snapshot = self._services.clock.snapshot()
+        clock_snapshot = cast(OnlyBacktestClock, self._services.clock).snapshot()
         return {
             "account_valuation_version": self._account_valuation_version,
             "clock_sequence": clock_snapshot.sequence,
@@ -1403,7 +1410,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                     MappingProxyType({str(key): str(value) for key, value in metadata.items()}),
                 )
             )
-        self._services.clock.restore_with_registered_callbacks(
+        cast(OnlyBacktestClock, self._services.clock).restore_with_registered_callbacks(
             OnlyClockSnapshot(
                 int(payload["clock_timestamp_ns"]),
                 int(payload["clock_sequence"]),

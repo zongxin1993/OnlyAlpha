@@ -39,8 +39,11 @@ def load_bars(
             start_time,
             end_time,
         )
+        # Request only the canonical Bar fields. Some XtQuant builds abort in
+        # native BSON serialization when an empty field list expands to every
+        # local field for intraday history.
         raw = xtdata.get_market_data_ex(
-            [],
+            ["time", "open", "high", "low", "close", "volume"],
             [symbol],
             period,
             start_time=start_time,
@@ -64,7 +67,7 @@ def load_bars(
             if not valid_ohlc(row):
                 raise ValueError(f"invalid OHLC for {symbol} at {event.isoformat()}")
             sequence += 1
-            precision = 4
+            precision = create_request.instruments[bar_type.instrument_id].price_precision
             bar = OnlyBar(
                 bar_type=bar_type,
                 open=OnlyPrice(quantized_decimal(row["open"], precision), precision),

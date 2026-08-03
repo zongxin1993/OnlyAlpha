@@ -25,6 +25,11 @@ class OnlyMiniQmtLiveNormalizer:
         self._request = request
         self._sequence = 0
 
+    def set_sequence_floor(self, sequence: int) -> None:
+        if sequence < self._sequence:
+            raise ValueError("live sequence floor cannot move backwards")
+        self._sequence = sequence
+
     @staticmethod
     def period(bar_type: OnlyBarType) -> str:
         from .historical import PERIODS
@@ -64,13 +69,14 @@ class OnlyMiniQmtLiveNormalizer:
             raise ValueError("invalid live MiniQMT OHLC")
         event = utc_from_xt(row["time"])
         bar_type = self._request.bar_types[instrument_id]
+        precision = self._request.instruments[instrument_id].price_precision
         minutes = bar_type.specification.step
         bar = OnlyBar(
             bar_type=bar_type,
-            open=OnlyPrice(quantized_decimal(row["open"], 4), 4),
-            high=OnlyPrice(quantized_decimal(row["high"], 4), 4),
-            low=OnlyPrice(quantized_decimal(row["low"], 4), 4),
-            close=OnlyPrice(quantized_decimal(row["close"], 4), 4),
+            open=OnlyPrice(quantized_decimal(row["open"], precision), precision),
+            high=OnlyPrice(quantized_decimal(row["high"], precision), precision),
+            low=OnlyPrice(quantized_decimal(row["low"], precision), precision),
+            close=OnlyPrice(quantized_decimal(row["close"], precision), precision),
             volume=OnlyQuantity(quantized_decimal(row.get("volume", 0), 0), 0),
             quote_volume=None,
             turnover=None,
@@ -80,7 +86,9 @@ class OnlyMiniQmtLiveNormalizer:
             bar_end=event + timedelta(minutes=minutes),
             ts_event=event,
             ts_init=event,
-            is_closed=True,
+            # XtQuant may publish the same period repeatedly. The Runtime-owned
+            # live finalizer is the sole authority that closes it on T+1.
+            is_closed=False,
             revision=0,
             adjustment_type=OnlyAdjustmentType.RAW,
             trading_day=event.date(),

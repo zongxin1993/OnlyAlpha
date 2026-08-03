@@ -268,6 +268,17 @@ class OnlyEngine:
                 self._handles[cluster_id] = replace(self._handles[cluster_id], status=OnlyEngineClusterStatus.RUNNING)
         self.state = OnlyEngineState.RUNNING
 
+    def wait(self, timeout: float | None = None) -> None:
+        """Wait for all long-lived Runtime sessions through the sole product entry."""
+
+        if self.state is not OnlyEngineState.RUNNING:
+            raise OnlyLifecycleError("engine can only wait while RUNNING")
+        for session in self.runtime_sessions:
+            wait = getattr(session.runtime, "wait", None)
+            if not callable(wait):
+                raise OnlyLifecycleError(f"{session.runtime.runtime_type} Runtime is finite and cannot wait")
+            wait(timeout)
+
     def run(self) -> OnlyEngineRunResult:
         self._require_not_terminated("run")
         validation = self.validate()

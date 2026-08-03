@@ -12,7 +12,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.enums import OnlyOrderFailureCode
-from onlyalpha.order.execution.models import OnlyExecutionCancelRequest
+from onlyalpha.order.execution.models import OnlyExecutionCancelRequest, OnlyExecutionSubmissionOutcome
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.margin_port import OnlyOrderMarginReservationPort
@@ -207,6 +207,40 @@ class OnlyOrderService:
                 )
         self._publisher.publish_many(created.events)
         execution_result = self._execution.submit_order(created.snapshot)
+        if execution_result.outcome is OnlyExecutionSubmissionOutcome.SUPPRESSED:
+            failed = self._manager.apply_failed(
+                created.order_id,
+                self._now(),
+                OnlyOrderFailure(
+                    OnlyOrderFailureCode.EXECUTION.value,
+                    "EXECUTION_SUPPRESSED_BY_RUNTIME",
+                ),
+            )
+            self._publisher.publish_many(failed.events)
+            self._risk_service.release_order(
+                created.order_id,
+                cluster_id,
+                account_id,
+                OnlyRiskReleaseReason.EXECUTION_SUPPRESSED,
+                self._now(),
+            )
+            if self._position_reservations is not None and uses_position_reservation:
+                self._position_reservations.release(created.order_id, self._now(), broker_confirmed=True)
+            if self._cash_reservations is not None:
+                self._cash_reservations.release(created.order_id, self._now())
+            if self._margin_reservations is not None:
+                self._margin_reservations.release(created.order_id, self._now())
+            return OnlyOrderSubmitResult(
+                True,
+                False,
+                None,
+                created.order_id,
+                created.snapshot.client_order_id,
+                failed.snapshot,
+                created.events + failed.events,
+                execution_result.message,
+                risk_decision,
+            )
         if execution_result.received:
             if self._position_reservations is not None and uses_position_reservation:
                 self._position_reservations.sent(created.order_id, self._now())

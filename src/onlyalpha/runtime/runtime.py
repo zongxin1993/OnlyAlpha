@@ -28,10 +28,7 @@ from onlyalpha.cluster.manager import (
     OnlyClusterManager,
     OnlyClusterStatus,
 )
-from onlyalpha.core.clock import (
-    OnlyBacktestClock,
-    OnlyTimeAdvanceResult,
-)
+from onlyalpha.core.clock import OnlyClock, OnlyTimeAdvanceResult
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.data.audit import OnlyMarketDataAuditStore
 from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
@@ -267,7 +264,7 @@ class OnlyRuntimeBarResult:
 class OnlyRuntimeServices:
     """Runtime-private mutable service container; never exposed through Context."""
 
-    clock: OnlyBacktestClock
+    clock: OnlyClock
     event_bus: OnlyEventBus
     event_bus_view: OnlyEventBusSubscriptionView
     event_router: OnlyRuntimeEventRouter
@@ -649,7 +646,7 @@ class OnlyRuntime:
         return self._fee_manager
 
     @property
-    def clock(self) -> OnlyBacktestClock:
+    def clock(self) -> OnlyClock:
         """Runtime management clock; Cluster receives only ``OnlyClockView``."""
 
         return self._services.clock

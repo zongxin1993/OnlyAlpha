@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from onlyalpha_plugin_miniqmt.data_source.live import OnlyMiniQmtLiveNormalizer
 from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
 
 from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
@@ -8,7 +9,9 @@ from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataUnsubscriptionRequest,
 )
+from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
+from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 
 
 class OnlyFakeXtData:
@@ -69,3 +72,43 @@ def test_standard_live_port_normalizes_into_runtime_sink() -> None:
     result = source.unsubscribe(OnlyMarketDataUnsubscriptionRequest("unsubscribe-1", subscription.subscription_id))
     assert result.status is OnlyMarketDataRequestStatus.ACCEPTED
     assert xtdata.unsubscribed == [7]
+
+
+def test_live_bar_uses_instrument_price_precision_and_remains_open() -> None:
+    updates: list[object] = []
+    instrument = OnlyInstrumentId.parse("600000.XSHG")
+    bar_type = OnlyBarType(
+        instrument,
+        OnlyBarSpecification(1, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.EXTERNAL,
+    )
+    request = SimpleNamespace(
+        source_id=OnlyMarketDataSourceId("miniqmt"),
+        runtime_id=OnlyRuntimeId("runtime"),
+        data_version=OnlyDataVersion("live-v1"),
+        market_data_sink=updates.append,
+        bar_types={instrument: bar_type},
+        instruments={instrument: SimpleNamespace(price_precision=2)},
+    )
+
+    OnlyMiniQmtLiveNormalizer(request).publish(
+        {
+            "600000.SH": [
+                {
+                    "time": 1_767_576_600_000,
+                    "open": 8.879999999999999,
+                    "high": 8.9,
+                    "low": 8.87,
+                    "close": 8.89,
+                    "volume": 100,
+                }
+            ]
+        },
+        instrument,
+        "1m",
+    )
+
+    bar = updates[0].payload.bar
+    assert bar.close.precision == 2
+    assert str(bar.open.value) == "8.88"
+    assert not bar.is_closed

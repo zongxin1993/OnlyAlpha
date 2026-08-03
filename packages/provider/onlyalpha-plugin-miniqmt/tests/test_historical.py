@@ -28,11 +28,13 @@ class OnlyFakeXtData:
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self.rows = rows
         self.downloads: list[tuple[object, ...]] = []
+        self.queries: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     def download_history_data(self, *args: object) -> None:
         self.downloads.append(args)
 
     def get_market_data_ex(self, *args: object, **kwargs: object) -> dict[str, object]:
+        self.queries.append((args, kwargs))
         return {"600000.SH": self.rows}
 
 
@@ -74,6 +76,15 @@ def _daily_request() -> OnlyHistoricalBarRequest:
     )
 
 
+def _create_request(request: OnlyHistoricalBarRequest) -> SimpleNamespace:
+    instrument_id = next(iter(request.instrument_ids))
+    return SimpleNamespace(
+        runtime_id=OnlyRuntimeId("runtime"),
+        source_id=OnlyMarketDataSourceId("miniqmt"),
+        instruments={instrument_id: SimpleNamespace(price_precision=2)},
+    )
+
+
 def test_history_is_sorted_deduplicated_and_utc() -> None:
     rows = [
         {
@@ -102,11 +113,12 @@ def test_history_is_sorted_deduplicated_and_utc() -> None:
         },
     ]
     source = OnlyFakeXtData(rows)
-    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
-    result = load_bars(source, create, _request())
+    request = _request()
+    result = load_bars(source, _create_request(request), request)
     assert len(result) == 2
     assert result[0].ts_event < result[1].ts_event
     assert all(item.payload.bar.ts_event.tzinfo is UTC for item in result)
+    assert source.queries[0][0][0] == ["time", "open", "high", "low", "close", "volume"]
 
 
 def test_invalid_ohlc_is_rejected() -> None:
@@ -122,9 +134,9 @@ def test_invalid_ohlc_is_rejected() -> None:
             }
         ]
     )
-    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
+    request = _request()
     with pytest.raises(ValueError, match="invalid OHLC"):
-        load_bars(source, create, _request())
+        load_bars(source, _create_request(request), request)
 
 
 def test_daily_bar_uses_shanghai_session_boundaries_in_utc() -> None:
@@ -140,9 +152,8 @@ def test_daily_bar_uses_shanghai_session_boundaries_in_utc() -> None:
             }
         ]
     )
-    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
-
-    update = load_bars(source, create, _daily_request())[0]
+    request = _daily_request()
+    update = load_bars(source, _create_request(request), request)[0]
     bar = update.payload.bar
 
     assert bar.bar_start == datetime(2025, 1, 2, 1, 30, tzinfo=UTC)
@@ -162,8 +173,8 @@ def test_cache_only_second_load_does_not_call_xtquant(tmp_path) -> None:
             }
         ]
     )
-    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
     request = _request()
+    create = _create_request(request)
     bar_type = next(iter(request.bar_types))
     cache_request = OnlyHistoricalDataRequest(
         bar_type.instrument_id,
