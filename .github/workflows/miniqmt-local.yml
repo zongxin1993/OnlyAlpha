@@ -1,0 +1,32 @@
+name: MiniQMT Local Read-only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: miniqmt-local-read-only
+  cancel-in-progress: false
+
+jobs:
+  local-read-only:
+    runs-on: [self-hosted, Windows, miniqmt]
+    timeout-minutes: 30
+    env:
+      userdata_mini_path: ${{ secrets.MINIQMT_USERDATA_PATH }}
+      ONLYALPHA_MINIQMT_ACCOUNT_ID: ${{ secrets.MINIQMT_ACCOUNT_ID }}
+      ONLYALPHA_MINIQMT_REAL_HISTORY: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Offline SDK shape and cache round trip
+        run: uv run python scripts/test_suite.py miniqmt-contract
+      - name: Doctor, SDK, history, cache and account queries
+        run: uv run python scripts/verify_miniqmt_local.py
+      - name: Local marked tests (serial, never orders)
+        run: uv run python scripts/test_suite.py miniqmt-local

@@ -1,0 +1,36 @@
+name: MiniQMT Manual Order Boundary
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type I_UNDERSTAND to acknowledge the dedicated test-account boundary
+        required: true
+        type: string
+      instrument:
+        description: Explicit test instrument
+        required: true
+        type: string
+      limit_price:
+        description: Explicit LIMIT price
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: miniqmt-manual-order
+  cancel-in-progress: false
+
+jobs:
+  boundary-only:
+    runs-on: [self-hosted, Windows, miniqmt-order]
+    environment: miniqmt-dedicated-test-account
+    steps:
+      - name: Enforce explicit human confirmation
+        shell: pwsh
+        run: |
+          if ('${{ inputs.confirmation }}' -ne 'I_UNDERSTAND') { throw 'explicit confirmation is required' }
+          Write-Output 'Order execution is intentionally not enabled in P0.'
+          Write-Output 'A future requires_broker_account test must submit the minimum LIMIT order and cancel it.'

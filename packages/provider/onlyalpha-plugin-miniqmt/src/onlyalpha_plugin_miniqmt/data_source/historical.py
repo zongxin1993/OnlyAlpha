@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -51,7 +51,13 @@ def load_bars(
         rows = _rows(raw.get(symbol, ()))
         seen: set[datetime] = set()
         for row in sorted(rows, key=lambda item: int(item["time"])):
-            event = utc_from_xt(row["time"])
+            raw_event = utc_from_xt(row["time"])
+            local_trading_day = raw_event.astimezone(_SHANGHAI).date()
+            event = (
+                datetime.combine(local_trading_day, time(15), _SHANGHAI).astimezone(raw_event.tzinfo)
+                if minutes == 1440
+                else raw_event
+            )
             if event in seen or not (request.data_range.start_time <= event < request.data_range.end_time):
                 continue
             seen.add(event)
@@ -70,14 +76,18 @@ def load_bars(
                 turnover=None,
                 trade_count=None,
                 open_interest=None,
-                bar_start=event,
-                bar_end=event + timedelta(minutes=minutes),
+                bar_start=(
+                    datetime.combine(local_trading_day, time(9, 30), _SHANGHAI).astimezone(raw_event.tzinfo)
+                    if minutes == 1440
+                    else event
+                ),
+                bar_end=event if minutes == 1440 else event + timedelta(minutes=minutes),
                 ts_event=event,
                 ts_init=event,
                 is_closed=True,
                 revision=0,
                 adjustment_type=OnlyAdjustmentType.RAW,
-                trading_day=event.date(),
+                trading_day=local_trading_day if minutes == 1440 else event.date(),
                 session_type=OnlySessionType.REGULAR,
             )
             records.append(

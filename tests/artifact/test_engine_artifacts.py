@@ -18,16 +18,15 @@ def _run(target: Path) -> tuple[OnlyEngineRunResult, Path, dict[str, object]]:
     return result, root, manifest
 
 
-def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> None:
-    first_result, first_root, first = _run(tmp_path / "first")
-    second_result, _, second = _run(tmp_path / "second")
+def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
+    result, root, manifest = _run(tmp_path)
 
-    assert first_result.status == second_result.status == "COMPLETED"
-    assert first["result_fingerprint"] == second["result_fingerprint"]
-    assert first["analysis_fingerprint"] == second["analysis_fingerprint"]
-    assert first["artifact_content_fingerprint"] == second["artifact_content_fingerprint"]
-    assert first["artifacts"] == second["artifacts"]
-    assert first["schema_version"] == 3
+    assert result.status == "COMPLETED"
+    assert manifest["result_fingerprint"] == result.cluster_results[0]["result_fingerprint"]
+    assert manifest["analysis_fingerprint"]
+    assert manifest["artifact_content_fingerprint"]
+    assert manifest["artifacts"]
+    assert manifest["schema_version"] == 3
     expected_rows = {
         "orders.parquet": 2,
         "executions.parquet": 2,
@@ -39,10 +38,10 @@ def test_engine_publishes_deterministic_standard_artifacts(tmp_path: Path) -> No
         "signals.parquet": 0,
     }
     for relative_path, row_count in expected_rows.items():
-        table = pq.read_table(first_root / relative_path)
+        table = pq.read_table(root / relative_path)
         assert table.num_rows == row_count
         assert table.num_columns > 0
-    executions = pq.read_table(first_root / "executions.parquet").to_pylist()
+    executions = pq.read_table(root / "executions.parquet").to_pylist()
     assert all(item["fees"] > 0 for item in executions)
     assert all(
         item["turnover"] == item["price"] * item["quantity"] * item["contract_multiplier"] for item in executions

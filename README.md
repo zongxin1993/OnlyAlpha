@@ -394,7 +394,7 @@ Profile 正式驱动完整 Runtime
 涨跌停订单与撮合差异
 完整申报规则
 跨 Fill 最低佣金
-真实 Golden Dataset
+完整 effective reference、历史 ST 与停牌数据
 Checkpoint/Restart 验收
 ```
 
@@ -406,24 +406,25 @@ Checkpoint/Restart 验收
 `recovery`、`miniqmt-contract`、`miniqmt-local`、`full` 或 `release`。默认离线通道不会访问网络、本地 MiniQMT 或真实账户；
 具体 Marker、前置条件和性能报告见 [测试规范](docs/testing.md)。
 
-当前测试覆盖较强，但执行效率不足。
+测试已形成 Fast、Integration、A-share、Recovery、MiniQMT Contract、Full 和 Release 分层，并建立固定 Result Fixture、
+只读 Recovery SQLite Baseline 与真实 MiniQMT 冻结 Bar。默认离线通道不依赖 Windows、`xtquant` 或 QMT 客户端。
 
-主要问题：
+当前边界：
 
 ```text
-大量下游测试重复运行完整 Engine
-长时间 Synthetic Fixture 被多个模块重复使用
-Artifact 测试重复写 Parquet
-Recovery 测试重复运行 Baseline
-Integration、Scenario、Recovery 分层不够明确
+下游纯组件优先复用不可变 Result Fixture
+Recovery 故障用例复制独立只读模板，不共享可写 SQLite
+MiniQMT Golden v1 只包含未复权历史 Bar
+历史 ST、停牌与 effective reference 尚未形成正式 Authority
+MiniQMT 真实查询与真实订单分别由本地串行 Gate 和手动 Order Gate 管理
 ```
 
-建议建立：
+当前正式分层：
 
 ```text
 Fast
 Integration Smoke
-Full Integration
+Full Offline
 Recovery / Exhaustive
 External
 ```
@@ -444,13 +445,13 @@ External
 
 ### P0：Test Suite Performance and Layering
 
-目标：
+已完成：
 
 ```text
-建立测试分层
-缩短日常反馈
-复用 Result 和 Baseline Fixture
-为 PR4.5 控制测试增长
+统一 Runner、Metrics 与 CI Lane
+不可变 Result Fixture 与 Recovery Baseline 复用
+MiniQMT Golden Dataset 离线纵切面
+Worker Matrix 与性能软回归比较
 ```
 
 ### P1：PR4.5 CN A-share Cash Product Closure

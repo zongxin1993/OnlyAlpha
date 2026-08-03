@@ -1,0 +1,96 @@
+name: Layered Quality
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      recovery_exhaustive:
+        description: Run the complete Recovery lane
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: layered-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONUTF8: "1"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run ruff check src tests examples packages scripts
+      - run: uv run ruff format --check src tests examples packages scripts
+      - run: uv run mypy src/onlyalpha
+      - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
+      - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+      - run: uv run python scripts/version_sync.py check
+
+  pr-lanes:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [fast, integration, miniqmt-contract]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: pr-${{ matrix.lane }}-metrics
+          path: .test-metrics/*.json
+
+  recovery-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.recovery_exhaustive
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run python scripts/test_suite.py recovery
+
+  main-gate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run python scripts/test_suite.py full
+      - run: uv run python scripts/test_suite.py recovery
+      - run: uv run python scripts/test_suite.py ashare
+      - run: uv build --all-packages
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: main-offline-metrics
+          path: .test-metrics/*.json

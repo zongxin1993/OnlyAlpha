@@ -1182,6 +1182,16 @@ Roadmap 应表达产品状态，不应堆叠历史提交日志。
 保持覆盖不下降
 ```
 
+当前测试基础设施事实：
+
+```text
+Result Fixture       : tests/fixtures/results/，仅由显式维护脚本重生成
+Recovery Baseline    : 提交只读压缩源，运行时物化到忽略的 .test-cache 并复制到独立 tmp_path
+MiniQMT Golden v1    : 真实未复权历史 Bar；不代表 ST、停牌或 Effective Reference 已完成
+Performance Metrics  : .test-metrics/，基线目标由人工确认，不由 CI 自动覆盖
+External Boundary    : MiniQMT Local 串行只读；真实订单使用独立手动 Gate
+```
+
 ### P1：CN A-share Cash Product Closure
 
 目标：

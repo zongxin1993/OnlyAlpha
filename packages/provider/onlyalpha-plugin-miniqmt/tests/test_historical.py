@@ -55,6 +55,25 @@ def _request() -> OnlyHistoricalBarRequest:
     )
 
 
+def _daily_request() -> OnlyHistoricalBarRequest:
+    instrument = OnlyInstrumentId.parse("600000.XSHG")
+    bar_type = OnlyBarType(
+        instrument,
+        OnlyBarSpecification(1440, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
+        OnlyAggregationSource.EXTERNAL,
+    )
+    return OnlyHistoricalBarRequest(
+        "daily-history-1",
+        frozenset({instrument}),
+        frozenset({bar_type}),
+        OnlyHistoricalDataRange(
+            datetime(2025, 1, 2, tzinfo=UTC),
+            datetime(2025, 1, 3, tzinfo=UTC),
+        ),
+        OnlyDataVersion("test-v1"),
+    )
+
+
 def test_history_is_sorted_deduplicated_and_utc() -> None:
     rows = [
         {
@@ -106,6 +125,28 @@ def test_invalid_ohlc_is_rejected() -> None:
     create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
     with pytest.raises(ValueError, match="invalid OHLC"):
         load_bars(source, create, _request())
+
+
+def test_daily_bar_uses_shanghai_session_boundaries_in_utc() -> None:
+    source = OnlyFakeXtData(
+        [
+            {
+                "time": 1_735_747_200_000,
+                "open": "10.30",
+                "high": "10.42",
+                "low": "10.04",
+                "close": "10.13",
+                "volume": 100,
+            }
+        ]
+    )
+    create = SimpleNamespace(runtime_id=OnlyRuntimeId("runtime"), source_id=OnlyMarketDataSourceId("miniqmt"))
+
+    update = load_bars(source, create, _daily_request())[0]
+    bar = update.payload.bar
+
+    assert bar.bar_start == datetime(2025, 1, 2, 1, 30, tzinfo=UTC)
+    assert bar.bar_end == bar.ts_event == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
 
 
 def test_cache_only_second_load_does_not_call_xtquant(tmp_path) -> None:

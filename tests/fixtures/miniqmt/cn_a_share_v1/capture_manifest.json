@@ -1,0 +1,32 @@
+{
+  "adjustment": "none",
+  "available_resources": [
+    "bars"
+  ],
+  "bar_types": [
+    "1d"
+  ],
+  "capture_timestamp": "2026-08-02T13:17:45.006772Z",
+  "content_fingerprint": "881b50956b818e1bf74a86a8194d10a893afcb6673b84befc116b730df897391",
+  "data_version": "miniqmt-cn-a-share-v1",
+  "dataset_id": "cn_a_share_v1",
+  "dataset_schema_version": 1,
+  "end": "2025-01-10",
+  "file_fingerprints": {
+    "bars.parquet": "af0d8dcb7a38056ec32da5594c29adca1f47512f49d8424630b84f7d843f28f2"
+  },
+  "instrument_ids": [
+    "600000.XSHG"
+  ],
+  "missing_resources": [
+    "historical_st_status",
+    "historical_suspension",
+    "effective_reference"
+  ],
+  "plugin_version": "0.1.0",
+  "provider": "MiniQMT",
+  "record_count": 7,
+  "start": "2025-01-02",
+  "timezone": "Asia/Shanghai",
+  "xtquant_version": "250807.1.2"
+}

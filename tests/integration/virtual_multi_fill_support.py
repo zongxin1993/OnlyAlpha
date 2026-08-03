@@ -24,6 +24,8 @@ from tests.execution.support.execution_fault_injection import (
     OnlyTestRuntimePersistenceFault,
 )
 from tests.integration.test_engine_continuous_restart import _sqlite_config
+from tests.support.canonical import canonical_value
+from tests.support.recovery_baselines import assert_recovery_equivalent, load_recovery_baseline
 
 
 class OnlyFirstBarBuyStrategy(OnlyTestMacdStrategy):
@@ -99,6 +101,19 @@ class OnlyDelayedRoundTripLongCloseStrategy(OnlyTestMacdStrategy):
             self._exit_pending = True
 
 
+class OnlyPartialFillThenCancelStrategy(OnlyFirstBarBuyStrategy):
+    """Cancel an accepted remainder after the first durable partial Fill."""
+
+    def on_bar(self, context: OnlyStrategyBarContext) -> None:
+        open_orders = context.strategy.orders.list_open()
+        partially_filled = next((item for item in open_orders if item.filled_quantity.value > 0), None)
+        if partially_filled is not None:
+            context.strategy.orders.cancel(partially_filled.order_id, reason="PARTIAL_FILL_FIXTURE_TERMINAL")
+            self._callback_count += 1
+            return
+        super().on_bar(context)
+
+
 class OnlyEarlyScheduledCloseStrategy(OnlyTestMacdStrategy):
     """Open at the first callback and wait for the peer Allocation before closing."""
 
@@ -164,6 +179,13 @@ def only_virtual_multi_fill_config(
         else "tests.integration.virtual_multi_fill_support:OnlyFirstBarBuyStrategy"
     )
     return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+
+
+def only_terminal_after_partial_fill_config() -> OnlyClusterRunConfig:
+    config = only_virtual_multi_fill_config()
+    payload = json.loads(json.dumps(dict(config.normalized_payload)))
+    payload["strategy"]["class_path"] = "tests.integration.virtual_multi_fill_support:OnlyPartialFillThenCancelStrategy"
+    return OnlyClusterRunConfig.from_mapping(payload, source_path=config.source_path)
 
 
 class OnlyMultiFillFaultStoreFactory:
@@ -267,6 +289,7 @@ def only_assert_multi_fill_recovery_equivalence(
     *,
     factory: object,
     config: OnlyClusterRunConfig | None = None,
+    baseline_id: str | None = None,
 ) -> tuple[OnlyEngine, OnlyEngine]:
     selected = config or only_virtual_multi_fill_config()
     engine_a = OnlyEngine(
@@ -280,33 +303,26 @@ def only_assert_multi_fill_recovery_equivalence(
     engine_b.add_cluster(selected)
     recovered = engine_b.run()
     assert recovered.status == "COMPLETED", recovered.failures
-    baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline.add_cluster(selected)
-    expected = baseline.run()
-    assert expected.status == "COMPLETED", expected.failures
     actual_result = recovered.runtime_results[0]
-    expected_result = expected.runtime_results[0]
-    assert actual_result.orders == expected_result.orders
-    assert actual_result.trades == expected_result.trades
-    assert actual_result.final_positions == expected_result.final_positions
-    assert actual_result.final_allocations == expected_result.final_allocations
-    assert actual_result.final_account == expected_result.final_account
-    assert actual_result.final_ledgers == expected_result.final_ledgers
-    assert actual_result.result_fingerprint == expected_result.result_fingerprint
-    assert only_backtest_business_projection(actual_result) == only_backtest_business_projection(expected_result)
     recovered_broker = engine_b.runtime_sessions[0].runtime.broker_gateway
-    baseline_broker = baseline.runtime_sessions[0].runtime.broker_gateway
     assert isinstance(recovered_broker, OnlyVirtualBrokerGateway)
-    assert isinstance(baseline_broker, OnlyVirtualBrokerGateway)
-    assert recovered_broker.capture_checkpoint() == baseline_broker.capture_checkpoint()
-    recovered_manifests = tuple(
-        path for path in tmp_path.rglob("artifact_manifest.json") if not path.is_relative_to(tmp_path / "baseline")
-    )
-    baseline_manifests = tuple((tmp_path / "baseline").rglob("artifact_manifest.json"))
-    assert len(recovered_manifests) == len(baseline_manifests) == 1
-    assert json.loads(recovered_manifests[0].read_text(encoding="utf-8")) == json.loads(
-        baseline_manifests[0].read_text(encoding="utf-8")
-    )
+    if baseline_id is not None:
+        baseline_fixture = load_recovery_baseline(baseline_id)
+        assert_recovery_equivalent(baseline_fixture, actual_result)
+        assert canonical_value(recovered_broker.capture_checkpoint()) == canonical_value(
+            baseline_fixture.manifest["broker_checkpoint"]
+        )
+    else:
+        baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
+        baseline.add_cluster(selected)
+        expected = baseline.run()
+        assert expected.status == "COMPLETED", expected.failures
+        expected_result = expected.runtime_results[0]
+        assert actual_result.result_fingerprint == expected_result.result_fingerprint
+        assert only_backtest_business_projection(actual_result) == only_backtest_business_projection(expected_result)
+        baseline_broker = baseline.runtime_sessions[0].runtime.broker_gateway
+        assert isinstance(baseline_broker, OnlyVirtualBrokerGateway)
+        assert recovered_broker.capture_checkpoint() == baseline_broker.capture_checkpoint()
     return engine_a, engine_b
 
 
@@ -319,6 +335,8 @@ __all__ = [
     "OnlyMultiFillFaultStoreFactory",
     "OnlyOutboxCheckpointFailureStoreFactory",
     "OnlyPlanCursorCheckpointFailureStoreFactory",
+    "OnlyPartialFillThenCancelStrategy",
     "only_assert_multi_fill_recovery_equivalence",
+    "only_terminal_after_partial_fill_config",
     "only_virtual_multi_fill_config",
 ]

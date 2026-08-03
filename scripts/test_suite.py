@@ -42,8 +42,8 @@ LANES = {
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
         "(unit or contract or architecture) and not (external or slow or performance or recovery)",
-        "auto",
-        "load",
+        "8",
+        "worksteal",
     ),
     OnlyTestLane.INTEGRATION: Lane(
         ("tests",),
@@ -54,7 +54,7 @@ LANES = {
     OnlyTestLane.ASHARE: Lane(
         ("tests", "packages/provider/onlyalpha-plugin-miniqmt/tests"), "conformance and not external", "4", "worksteal"
     ),
-    OnlyTestLane.RECOVERY: Lane(("tests",), "recovery and not external", "4", "worksteal", 100),
+    OnlyTestLane.RECOVERY: Lane(("tests",), "recovery and not external", "8", "worksteal", 100),
     OnlyTestLane.MINIQMT_CONTRACT: Lane(
         ("packages/provider/onlyalpha-plugin-miniqmt/tests",),
         "contract and miniqmt and not external",
@@ -70,8 +70,8 @@ LANES = {
     OnlyTestLane.FULL: Lane(
         WORKSPACE_TESTS,
         "not (external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance)",
-        "auto",
-        "load",
+        "8",
+        "worksteal",
         100,
     ),
 }
@@ -84,8 +84,8 @@ def run(command: list[str], env: dict[str, str] | None = None) -> int:
 
 def release(args: argparse.Namespace) -> int:
     commands = [
-        ["uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts", "conftest.py"],
-        ["uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts", "conftest.py"],
+        ["uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts"],
+        ["uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts"],
         ["uv", "run", "mypy", "src/onlyalpha"],
         [
             "uv",
@@ -174,7 +174,20 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     payloads = [json.loads(path.read_text(encoding="utf-8")) for path in metric_paths]
     if payloads:
         merged = payloads[0]
-        for key in ("collected", "passed", "failed", "skipped", "total_seconds"):
+        for key in (
+            "collected",
+            "passed",
+            "failed",
+            "skipped",
+            "total_seconds",
+            "setup_seconds",
+            "call_seconds",
+            "teardown_seconds",
+            "cache_hit_count",
+            "engine_run_count",
+            "sqlite_database_count",
+            "parquet_write_count",
+        ):
             merged[key] = sum(payload[key] for payload in payloads)
         merged["slowest_tests"] = sorted(
             (test for payload in payloads for test in payload["slowest_tests"]),
@@ -186,6 +199,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 item: sum(payload[key].get(item, 0) for payload in payloads)
                 for item in sorted({item for payload in payloads for item in payload[key]})
             }
+        merged["tests"] = {
+            nodeid: seconds for payload in payloads for nodeid, seconds in payload.get("tests", {}).items()
+        }
         (ROOT / ".test-metrics" / f"{name.value}.json").write_text(
             json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )

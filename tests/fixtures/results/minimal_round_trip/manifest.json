@@ -1,0 +1,17 @@
+{
+  "configuration_fingerprint": "ff75f808019aadbd284ea19392bcbd145d23cdfcc565f187261e3f776b66f4c7",
+  "data_fingerprint": "d55f29e9a20a81c675c02f38ba35e21192193df7d309c6c4118dc8069f497b2a",
+  "expected_fill_count": 2,
+  "expected_terminal_count": 0,
+  "expected_trade_count": 2,
+  "fixture_schema_version": 1,
+  "generated_at": "2026-08-02T00:00:00Z",
+  "generation_command": "uv run python scripts/regenerate_result_fixtures.py --scenario minimal_round_trip",
+  "market_profile": [
+    "GENERIC_T0_CASH"
+  ],
+  "onlyalpha_version": "0.3.2",
+  "result_fingerprint": "d4827a049ff20842f9678a1e7583ed9e4cbda8e0fbce72bbe61df22e34c8ecfc",
+  "runtime_type": "BACKTEST",
+  "scenario": "minimal_round_trip"
+}

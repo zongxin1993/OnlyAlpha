@@ -1,0 +1,18 @@
+{
+  "configuration_fingerprint": "237e83d7c058349dbf4c9078ab27368d6ed970b26cd601061cec8e66933f69e3",
+  "data_fingerprint": "1b40360b09dcced38646be00229cb96c4bb42c06f14862413350addda94e0ad4",
+  "expected_fill_count": 4,
+  "expected_terminal_count": 0,
+  "expected_trade_count": 4,
+  "fixture_schema_version": 1,
+  "generated_at": "2026-08-02T00:00:00Z",
+  "generation_command": "uv run python scripts/regenerate_result_fixtures.py --scenario multi_cluster_close",
+  "market_profile": [
+    "GENERIC_T0_CASH",
+    "GENERIC_T0_CASH"
+  ],
+  "onlyalpha_version": "0.3.2",
+  "result_fingerprint": "4f65017dc4b8d93cfd737bed8b758f8594d4feeee9e6172d67ee65bd29d85e6e",
+  "runtime_type": "BACKTEST",
+  "scenario": "multi_cluster_close"
+}

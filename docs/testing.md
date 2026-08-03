@@ -38,6 +38,51 @@ Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 
 日常修改运行最窄的正确通道；执行交易/恢复变更时必须运行 Recovery；发布前运行 Release。外部环境不满足时应记录
 “未执行”，不得记为通过。当前人工基线见 `docs/reports/test_suite_performance_baseline.md`。
 
+### 固定测试数据与重生成
+
+标准 Result Fixture 位于 `tests/fixtures/results/`，由正式 `OnlyEngine` 场景生成；Analytics、Report、Artifact、
+Collector 等纯下游测试应读取该不可变结果，不应为了验证渲染或序列化而重复运行 Engine。正式结果合同变化后，先确认不是
+业务回归，再显式执行：
+
+```powershell
+uv run python scripts/regenerate_result_fixtures.py
+```
+
+Recovery Baseline 位于 `tests/fixtures/recovery/`。提交的是规范投影、Manifest 和内容寻址的只读 SQLite 压缩源；测试运行时
+在 `.test-cache/recovery/` 原子物化并校验完整性，再复制到各自的 `tmp_path`。不得提交 `.test-cache/`，也不得让 Worker
+共享可写数据库。需要维护基线时显式执行：
+
+```powershell
+uv run python scripts/regenerate_recovery_baselines.py
+```
+
+MiniQMT 冻结数据位于 `tests/fixtures/miniqmt/cn_a_share_v1/`。第一版只承诺未复权历史日 Bar；历史 ST、停牌和 effective
+reference 明确缺失。离线 Reader 校验文件指纹后，经标准 MarketData Inbound/Pipeline 进入 `OnlyEngine`，不导入
+`xtquant`、不访问网络。仅在本地 QMT 可用时重新采集：
+
+```powershell
+uv run python scripts/capture_miniqmt_golden.py --userdata-mini "C:\path\userdata_mini" `
+  --instrument 600000.XSHG --bar 1d --start 2025-01-02 --end 2025-01-10 `
+  --adjustment none --output tests/fixtures/miniqmt/cn_a_share_v1
+```
+
+### 性能测量与比较
+
+Lane metrics 写入 `.test-metrics/`，包括阶段耗时、Worker/分发模式、机器与 Git 信息，以及测试侧观测到的缓存命中、
+Engine Run、SQLite 创建和 Parquet 写入计数。完整 Worker 矩阵使用三次运行中位数：
+
+```powershell
+uv run python scripts/benchmark_test_lanes.py --lanes fast integration recovery full `
+  --workers 4 6 8 auto --dist load worksteal --repeat 3
+uv run python scripts/compare_test_metrics.py `
+  docs/reports/test_suite_performance_targets.json .test-metrics/recovery.json --lane recovery
+```
+
+性能阈值当前是软警告，不得自动覆盖人工确认的目标文件。PR 运行静态检查、Fast、Integration 和 MiniQMT Contract；Main
+增加 Full、Recovery 与 A-share；Nightly 运行完整离线、Recovery、确定性与指标采集。真实 MiniQMT 查询仅在自托管 Windows
+Runner 串行运行；真实订单属于独立手动工作流，P0 不自动提交订单。原跨平台 distribution/install Smoke 保留在
+`ci.yml`，但只允许手动触发，避免在 PR 重复运行三平台 Full/Recovery。
+
 以下旧章节保留为具体组件覆盖要求；如命令或层级描述冲突，以本节为准。
 
 ## Product-style backtest acceptance
