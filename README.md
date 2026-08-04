@@ -1,533 +1,542 @@
-﻿# OnlyAlpha 当前组件完成状态
+# OnlyAlpha
 
-## 1. 审计基线
+> 面向可验证策略研发的确定性量化交易系统
 
-```text
-Repository : zongxin1993/OnlyAlpha
-Branch     : master
-Commit     : 71892b10ff7748d097ef49cda1c06487f0b4bdb9
-Version    : 0.3.2
-Status     : Alpha
-```
+OnlyAlpha 是一个模块化、配置驱动的量化交易系统内核。它以统一的 `OnlyEngine` 为产品入口，将行情、指标、因子、策略、风控、订单、成交、持仓、账户、结果分析和恢复机制组织在同一条可审计运行链中。
 
-本报告中的“完成”只表示当前明确支持范围已经形成源码、测试和工程边界闭环，不代表已经达到生产级实盘标准。
+当前版本重点解决三个问题：
 
-状态定义：
+1. **同一份输入能否得到可重复的回测结果**
+2. **一笔成交能否形成可追踪、可恢复的账务事实**
+3. **多个策略能否共享运行环境和账户，同时保持独立归因**
 
-| 状态     | 含义                     |
-| ------ | ---------------------- |
-| 稳定     | 核心边界已经明确，近期不应结构性重构     |
-| 当前范围完成 | 明确支持范围已经形成产品纵切面        |
-| 基础完成   | 核心接口和主要实现存在，但产品覆盖仍不完整  |
-| 部分完成   | 已有实现，但缺正式纵切面、真实数据或完整验收 |
-| 未完成    | 尚未形成可用产品循环             |
-| 暂不支持   | 当前架构明确拒绝或 Fail Closed  |
+OnlyAlpha 当前处于 **Alpha** 阶段。确定性回测已经形成完整产品纵切面；Paper 模式已经完成真实 MiniQMT 行情下的历史启动、实时切换和只读观察验收，但仍不具备生产级模拟盘或实盘交易能力。
 
 ---
 
-## 2. 总体结论
+## 当前版本
 
-OnlyAlpha 当前已经完成三个核心闭环：
+| 项目 | 状态 |
+|---|---|
+| Version | `0.3.3` |
+| Python | `>=3.12, <3.13` |
+| Product stage | Alpha |
+| Architecture | 模块化单体 |
+| Primary runtime | Backtest |
+| License | MIT |
 
-```text
-确定性 Backtest 产品链
-+
-Generic T0 Cash Long Durable Execution
-+
-Multi-Cluster 共享账户成本与收益归因
-```
+---
 
-正式主链为：
+## 产品定位
+
+OnlyAlpha 面向需要长期演进量化系统的研发者和团队，而不是只运行单个脚本的回测工具。
+
+它适合用于：
+
+- 构建可重复、可审计的策略回测；
+- 验证订单、部分成交、费用、持仓和账户之间的经济不变量；
+- 在一个 Engine 中运行一个或多个隔离的策略 Cluster；
+- 使用统一市场规则描述不同市场的交易约束；
+- 验证 checkpoint、restart 和故障恢复后结果是否保持一致；
+- 接入历史数据插件和实时行情插件；
+- 为后续 Paper、Live、Research 和 Web 产品提供统一核心模型。
+
+它目前不适合用于：
+
+- 直接连接真实账户自动交易；
+- 生产级无人值守模拟盘或实盘；
+- 高频 Tick/OrderBook 撮合；
+- 完整期货、融资融券、做空或对冲交易；
+- 完整多币种和外汇换算；
+- 分布式大规模回测；
+- 开箱即用的 Web 交易终端。
+
+---
+
+## 当前可用能力
+
+### 1. 确定性回测
+
+Backtest Runtime 已经形成正式产品链：
 
 ```text
 Cluster Config
-→ OnlyEngine
-→ Runtime Planner
-→ Runtime Assembler
-→ Backtest Runtime
-→ Historical Replay
-→ Indicator
-→ Factor
-→ Strategy
-→ Risk
-→ Order
-→ Virtual Broker
-→ ExecutionProcessor
-→ Prepared Transaction
-→ Durable Commit
-→ Ordered Projection
-→ Result / Analytics
-→ Artifact / Report
-→ Checkpoint / Recovery
+    ↓
+OnlyEngine
+    ↓
+Runtime Planner / Assembler
+    ↓
+Historical Replay
+    ↓
+Indicator → Factor → Strategy
+    ↓
+Risk → Order → Virtual Broker
+    ↓
+Execution Processor
+    ↓
+Durable Commit → Ordered Projection
+    ↓
+Result → Analytics → Artifact → Report
 ```
 
-当前最成熟的产品范围：
+当前回测链支持：
+
+- 配置驱动的 Engine、Runtime 和 Cluster 装配；
+- 单 Cluster 和多 Cluster 运行；
+- 多 Cluster 共享 Runtime 和账户；
+- 策略级独立资金、费用和收益归因；
+- Calendar-aware Bar 回放和多周期聚合；
+- 指标 Warmup、因子快照和受限策略 Context；
+- Next-Bar 虚拟撮合；
+- 确定性结果指纹；
+- JSON、Parquet 和 Markdown 制品；
+- Memory 和 SQLite 持久化；
+- checkpoint、restart 和故障恢复测试。
+
+### 2. 可恢复成交与账务链
+
+当前正式 Durable Execution 范围为：
+
+| 维度 | 当前支持 |
+|---|---|
+| Market profile | `GENERIC_T0_CASH` |
+| Account | Cash |
+| Order type | Limit |
+| Position side | Long |
+| Position mode | Netting |
+| Open | Buy Open |
+| Close | Sell Close |
+| Fill | Whole / Partial / Multi-Fill |
+| Terminal | Cancel / Reject / Expire |
+| Persistence | Memory / SQLite |
+
+每个成交 Fill 都形成独立、不可变的事务事实：
 
 ```text
-Runtime         : BACKTEST
-Market Profile  : GENERIC_T0_CASH
-Account         : CASH
-Order Type      : LIMIT
-Position Side   : LONG
-Position Mode   : NETTING
-Open            : BUY OPEN
-Close           : SELL CLOSE
-Fill            : Whole / Partial / Multi-Fill
-Terminal        : Cancel / Reject / Expire
-Cluster         : Single / Multi-Cluster
-Persistence     : Memory / SQLite
-```
-
-当前不应把以下能力描述成正式完成：
-
-```text
-Paper
-Live
-Shadow
-Research Workflow
-Web
-Futures/Margin Durable Lifecycle
-Short/Hedging Durable Lifecycle
-Corporate Action
-Multi-Currency/FX
-OrderBook Matching
-Distributed Backtest
-```
-
----
-
-## 3. 组件状态总表
-
-| 组件                          | 当前状态      | 当前结论                                          | 主要缺口                            |
-| --------------------------- | --------- | --------------------------------------------- | ------------------------------- |
-| Domain Value Objects        | 稳定        | Money、Price、Quantity、Currency、Timestamp 等边界清晰 | 多币种和 FX 产品链                     |
-| Instrument / Calendar       | 基础完成      | Instrument、Session、Calendar 可用于回测             | 公司行为、完整参考数据                     |
-| OnlyEngine                  | 当前范围完成    | 唯一产品入口和生命周期已形成                                | 多进程和远程执行                        |
-| Runtime Planner / Assembler | 稳定        | Runtime 分组、装配和兼容性判断清晰                         | 非 Backtest 产品装配                 |
-| Backtest Runtime            | 当前范围完成    | 确定性回放、交易和恢复闭环                                 | 大规模性能基线                         |
-| Paper Runtime               | 部分完成      | OPEN Historical Bootstrap、Live Handoff、1m→3m、Shadow 隔离和有序停止已真实验收 | Reconnect、Gap Recovery、Streaming Recovery 和广泛兼容性 |
-| Live Runtime                | 未完成       | 类型和接口基础存在                                     | Gateway、重连、同步、对账                |
-| Shadow Runtime              | 未完成       | 仅有概念边界                                        | 完整产品循环                          |
-| Research Runtime            | 部分完成      | Factor/Indicator 基础可复用                        | 实验、统计、批量任务、绘图                   |
-| Cluster                     | 当前范围完成    | Strategy、Factor、Ledger Scope 隔离               | 动态资本分配                          |
-| Multi-Cluster               | 当前范围完成    | 共享 Runtime/Account 和成本归因已闭环                   | Unallocated、Cross-Cluster Close |
-| Clock                       | 稳定        | Backtest 时间推进和确定性调度完成                         | Live Clock 产品验证                 |
-| Event Bus                   | 基础完成      | Runtime 内事件路由和恢复门禁完成                          | ACK、Watermark、Exactly-once      |
-| MarketData Pipeline         | 基础完成      | Bar Replay、Cache、Aggregation 可用               | Tick、OrderBook、大规模读取            |
-| Synthetic DataSource        | 当前范围完成    | 可用于确定性产品测试                                    | 不承担真实市场验证                       |
-| Tushare DataSource          | 部分完成      | 日线读取、校验和缓存基础存在                                | 复权、公司行为、Golden Dataset          |
-| MiniQMT DataSource          | 部分完成      | 实时 Adapter 与进程隔离 Historical Worker 已实现          | 本地 SDK Profile 兼容性、正式产品验收和恢复       |
-| Market Profile              | 基础完成      | Registry、Compiler、Rule Engine 已建立             | 完整市场 Conformance Pack           |
-| Generic T0 Cash             | 当前范围完成    | Durable Long 生命周期闭环                           | 非 Long、非 Cash 场景                |
-| CN A-share Cash             | 部分完成      | T+1、涨跌幅、整手、费用基础存在                             | 正式 Runtime 纵切面                  |
-| Futures / Margin            | 部分完成      | 领域模型和部分旧路径存在                                  | 统一 Durable Transaction          |
-| Strategy API                | 基础完成      | 受限 Context 和订单接口可用                            | 生命周期和 Live 场景扩展                 |
-| Factor                      | 基础完成      | Time-Series 基础链路可用                            | IC、分组、横截面研究产品                   |
-| Indicator                   | 基础完成      | Registry、依赖和 Warmup 可用                        | 大规模向量化和研究缓存                     |
-| Risk                        | 基础完成      | Pre-Trade、Reservation、Active Count 可用         | Portfolio Risk、强平、动态限额          |
-| Order                       | 当前范围完成    | 状态机、Partial Fill、Terminal 完成                  | Replace、复杂 TIF                  |
-| ExecutionProcessor          | 当前范围完成    | Broker Update 到 Durable Transaction 完成        | 非当前 Capability 范围               |
-| Trade Planner               | 当前范围完成    | 纯规划和经济不变量完成                                   | 更多市场产品规则                        |
-| Durable Transaction         | 当前范围完成    | Fill 与 Terminal 独立持久化                         | 通用 Non-Trade Operation          |
-| Position                    | 当前范围完成    | 精确成本、增减仓、恢复完成                                 | Short、Hedging、Lot Selection     |
-| Allocation                  | 当前范围完成    | Cluster 归属和精确成本完成                             | Cross-Cluster 和 Unallocated     |
-| Close Cost Authority        | 当前范围完成    | Allocation 是归因权威，Position 是聚合权威               | 当前明确不支持无归属平仓                    |
-| Account                     | 当前范围完成    | Cash、Fee、PnL、Equity 可用                        | Margin、多币种、Broker 对账            |
-| Strategy Ledger             | 当前范围完成    | Cluster 级现金和收益归因可用                            | 动态资本池                           |
-| Fee                         | 基础完成      | FILL 和 ORDER_CUMULATIVE 支持                    | 完整 A 股费用版本治理                    |
-| Settlement                  | 基础完成      | Cash Settlement Instruction 可用                | 真实市场完整结算链                       |
-| Virtual Broker              | 当前范围完成    | Next-Bar、Fill Plan、Checkpoint 完成              | 订单簿和流动性模型                       |
-| Broker SPI                  | 稳定        | Core 与具体插件分离                                  | 更多正式 Adapter                    |
-| Persistence                 | 当前范围完成    | Memory、SQLite、Schema 3 可用                     | Schema Migration、远程 Store       |
-| Checkpoint                  | 当前范围完成    | Runtime Participant Checkpoint 可用             | Paper/Live Checkpoint           |
-| Recovery                    | 当前范围完成    | Commit、Projection、Outbox、Restart 覆盖           | 生产环境恢复和远程基础设施                   |
-| Scenario Framework          | 基础完成      | Parser、Runner、Assertion、Artifact 可用           | 完整市场 Pack                       |
-| Result Collector            | 基础完成      | Projection Ready Fact 为结果权威                   | 大规模结果压缩                         |
-| Analytics                   | 基础完成      | 收益、回撤、交易和 Exposure 基础统计                       | 高级风险和归因                         |
-| Artifact                    | 基础完成      | JSON、Parquet、Manifest 和 Fingerprint           | 大规模数据输出优化                       |
-| Report                      | 基础完成      | Console、JSON、Markdown 可用                      | 图表和交互报告                         |
-| CLI                         | 基础完成      | Engine 产品入口可调用                                | 应用服务和任务管理                       |
-| Web / API                   | 未完成       | 尚未形成产品                                        | REST、SSE、权限、控制台                 |
-| Test Suite                  | 覆盖强、性能待治理 | 单元、集成、恢复和架构测试较完整                              | 分层、Fixture 复用、执行速度              |
-| CI                          | 状态未确认     | 当前最新提交未发现关联 Workflow Run                      | 建立可验证的分层 CI                     |
-
----
-
-## 4. 核心架构状态
-
-### 4.1 Engine
-
-`OnlyEngine` 已经是唯一产品级入口，负责：
-
-```text
-Cluster 注册
-配置校验
-Runtime 分组
-Runtime 装配
-生命周期管理
-运行结果汇总
-Artifact 和 Report
-失败回滚
-```
-
-当前结论：
-
-```text
-状态：稳定
-建议：不再创建第二套 Engine 或 Market 专用入口
-```
-
----
-
-### 4.2 Runtime
-
-Runtime 是全部可变交易状态的所有者，包括：
-
-```text
-Clock
-Event Bus
-MarketData
-Order
-Position
-Allocation
-Account
-Strategy Ledger
-Risk
-ExecutionProcessor
-Settlement
-Persistence
-Checkpoint
-Recovery
-```
-
-当前只有 Backtest Runtime 完成产品闭环。
-
-```text
-BACKTEST  : 当前范围完成
-PAPER     : 部分完成（产品验收仍未通过）
-LIVE      : 未完成
-SHADOW    : 未完成
-RESEARCH  : 部分完成
-```
-
----
-
-### 4.3 Cluster
-
-Cluster 已实现：
-
-```text
-一个 Cluster 一个 Strategy
-独立 Factor/Indicator Scope
-独立 Ledger Scope
-受限 Runtime Context
-多 Cluster 确定性调度
-```
-
-Cluster 不持有 Runtime Manager，不直接访问 Broker、EventBus 或其他 Cluster 私有状态。
-
----
-
-## 5. Durable Execution 状态
-
-当前正式支持：
-
-```text
-GENERIC_T0_CASH
-LIMIT
-LONG
-NETTING
-BUY OPEN
-SELL CLOSE
-```
-
-已经完成：
-
-```text
-Partial Fill
-Multi-Fill
-Same-Bar Multi-Fill
-Cross-Bar Multi-Fill
-Durable Fill Identity
-Per-Order Fill Index
+Broker Update
+    ↓
 Prepared Transaction
-Committed Transaction
+    ↓
+Durable Commit
+    ↓
 Ordered Projection
+    ↓
 Projection Ready
-Durable Outbox
-Cancel / Reject / Expire Terminal Transaction
-Duplicate Idempotency
-Conflict Fail Closed
-Checkpoint / Restart
+    ↓
+Result / Analytics / Outbox
 ```
 
-不可破坏的合同：
+订单、持仓、Cluster Allocation、费用、账户和 Strategy Ledger 消费同一笔已提交事实。部分成交和跨 Bar 多次成交可在 checkpoint/restart 后继续恢复。
+
+### 3. 多策略 Cluster
+
+一个 Cluster 表示一个独立策略运行单元：
 
 ```text
-一个 Fill
-=
-一个不可变 Prepared Transaction
-=
-一个 Committed Transaction
+Cluster
+├── One Strategy
+├── Zero or more Factors
+├── Indicator scope
+├── Subscription scope
+└── Strategy Ledger scope
 ```
 
-Terminal Operation：
+Cluster 只获得受限 Context，不直接持有 Runtime Manager，也不能绕过风控访问 Broker、Event Bus 或其他 Cluster 的私有状态。
 
-```text
-ORDER_TERMINAL
-```
+多个兼容 Cluster 可以：
 
-不伪造 Trade ID，也不计入 Trade Result。
+- 共享同一 Runtime；
+- 共享真实账户级状态；
+- 保持独立虚拟资金和收益归因；
+- 按确定顺序处理同一行情时间片；
+- 独立生成策略结果。
+
+### 4. 市场规则
+
+OnlyAlpha 内置以下 Market Profile：
+
+- `GENERIC_T0_CASH`
+- `GENERIC_MARGIN_FUTURES`
+- `GENERIC_24X7_CRYPTO_SPOT`
+- `CN_A_SHARE_CASH@2025.1`
+
+这些 Profile 当前均属于 **Experimental**。Profile 存在不等于对应市场已经完成正式交易产品闭环。
+
+`CN_A_SHARE_CASH@2025.1` 已表达的主要规则包括：
+
+- Long-only；
+- 禁止裸卖空；
+- 证券 T+1；
+- 上午、午休和下午 Session；
+- 主板、ST、创业板和科创板涨跌幅；
+- 买入整手；
+- 零股仅允许清仓；
+- 基础佣金、印花税和过户费；
+- Bar 成交量参与率；
+- Next-Bar Open 撮合模型。
+
+尚未完整覆盖新股特殊阶段、退市整理、北交所、可转债、融资融券、集合竞价、盘中临停以及全部历史税费版本。
+
+### 5. Paper 行情观察
+
+Paper Runtime 当前已经完成以下真实 MiniQMT 验收范围：
+
+- 任意时间启动；
+- Historical Bootstrap；
+- 开市期间 Historical → Live Handoff；
+- Historical Watermark；
+- 1 分钟外部 Bar；
+- 1 分钟到 3 分钟内部聚合；
+- Indicator / Factor Warmup；
+- Observation 输出；
+- Strategy Intent 生成；
+- Shadow Execution 抑制；
+- Reservation 创建和释放；
+- 有序停止和资源关闭。
+
+当前 Paper 模式是 **只读行情观察 + Shadow Execution**：
+
+- 不启用 Broker；
+- 不发送外部订单；
+- 不产生真实成交；
+- 不修改真实账户和仓位。
+
+仍未完成：
+
+- Reconnect；
+- 实时 Gap Recovery；
+- Streaming Checkpoint/Recovery；
+- 真实 Broker；
+- Broker 账户、订单、成交和仓位同步；
+- 长时间无人值守运行；
+- 生产环境兼容性矩阵。
 
 ---
 
-## 6. Multi-Cluster Close Cost Authority
+## 产品状态
 
-当前正式模型：
-
-```text
-Allocation
-=
-某个 Cluster 对仓位数量和成本的归属权威
-
-Position
-=
-Account 对所有 Allocation 的聚合权威
-```
-
-某个 Cluster 平仓时：
-
-```text
-Order Cluster
-→ 定位 Allocation
-→ Allocation 计算唯一 released cost
-→ Position 消费相同 released cost
-→ 只计算一次 realized PnL
-→ Account、Ledger、Fact 消费同一结果
-```
-
-必须成立：
-
-```text
-Position Quantity
-=
-sum(Allocation Quantity)
-
-Position Cumulative Cost
-=
-sum(Allocation Cumulative Cost)
-
-Position Released Cost
-=
-Allocation Released Cost
-=
-Fact Released Cost
-
-Position PnL Delta
-=
-Allocation PnL Delta
-=
-Account PnL Delta
-=
-Ledger PnL Delta
-=
-Fact PnL Delta
-```
-
-当前明确不支持：
-
-```text
-Unallocated Position Close
-Cross-Cluster Close
-FIFO/LIFO Lot Selection
-Short/Hedging Cost Attribution
-Multi-Currency Cost Attribution
-```
+| 产品能力 | 状态 | 说明 |
+|---|---|---|
+| Deterministic Backtest | 当前范围完成 | 已形成配置、交易、结果、制品和恢复闭环 |
+| Multi-Cluster Backtest | 当前范围完成 | 共享 Runtime/Account，独立 Ledger 与归因 |
+| Generic T0 Cash Long Execution | 当前范围完成 | Limit、Long、Netting、Buy Open、Sell Close |
+| Partial / Multi-Fill | 当前范围完成 | 支持同 Bar、跨 Bar 和恢复 |
+| Result / Analytics / Report | 基础可用 | 已有基础收益、回撤、交易和 Exposure 统计 |
+| A-share Cash Profile | 部分完成 | 规则模型和离线验证存在，正式产品覆盖不足 |
+| Tushare Historical Data | 部分完成 | 日线、校验和缓存可用 |
+| MiniQMT Historical Data | 部分完成 | 历史 Worker、缓存和兼容性边界已建立 |
+| MiniQMT Paper Observation | 预览可用 | 当前验收范围通过，仍非生产级 Paper |
+| Live Trading | 不可用 | Runtime Factory 明确返回 Unsupported |
+| Standalone Shadow Runtime | 不可用 | Paper 内有 Shadow Execution，但独立 Runtime 未实现 |
+| Research Workflow | 不可用 | Factor/Indicator 基础存在，Research Runtime 未实现 |
+| Web / API Console | 不可用 | 尚未形成产品 |
+| Distributed Backtest | 不可用 | 当前不在产品范围 |
 
 ---
 
-## 7. 数据和市场规则状态
+## 安装
 
-### 数据
+### 环境要求
 
-当前已完成：
+- Python 3.12
+- Git
+- `uv`
 
-```text
-Synthetic Historical Data
-Bar Replay
-Exact Cursor
-基础 Cache
-Tushare 日线基础接入
+```bash
+git clone https://github.com/zongxin1993/OnlyAlpha.git
+cd OnlyAlpha
+
+uv sync --frozen --all-packages --all-groups
 ```
 
-当前未闭环：
+检查安装和内置 Market Profile：
 
-```text
-复权
-公司行为
-停牌数据
-历史证券状态
-参考数据版本
-大规模回放验收
-```
-
-### A 股规则
-
-当前已有基础：
-
-```text
-CN_A_SHARE_CASH@2025.1
-T+1 Instruction
-Long-only
-基础涨跌幅
-ST/板块差异
-整手
-零股清仓
-基础费用
-```
-
-仍需完成：
-
-```text
-Profile 正式驱动完整 Runtime
-停牌
-涨跌停订单与撮合差异
-完整申报规则
-跨 Fill 最低佣金
-完整 effective reference、历史 ST 与停牌数据
-Checkpoint/Restart 验收
+```bash
+uv run onlyalpha market profiles
 ```
 
 ---
 
-## 8. 测试体系状态
+## 快速开始
 
-统一测试入口为 `uv run python scripts/test_suite.py <lane>`，其中 lane 为 `fast`、`integration`、`ashare`、
-`recovery`、`miniqmt-contract`、`miniqmt-local`、`full` 或 `release`。默认离线通道不会访问网络、本地 MiniQMT 或真实账户；
-具体 Marker、前置条件和性能报告见 [测试规范](docs/testing.md)。
+### 1. 校验配置
 
-测试已形成 Fast、Integration、A-share、Recovery、MiniQMT Contract、Full 和 Release 分层，并建立固定 Result Fixture、
-只读 Recovery SQLite Baseline 与真实 MiniQMT 冻结 Bar。默认离线通道不依赖 Windows、`xtquant` 或 QMT 客户端。
+`--dry-run` 会执行配置 Schema、动态类型、插件、资源冲突、Runtime 分组和装配计划校验，但不会运行回测。
 
-当前边界：
-
-```text
-下游纯组件优先复用不可变 Result Fixture
-Recovery 故障用例复制独立只读模板，不共享可写 SQLite
-MiniQMT Golden v1 只包含未复权历史 Bar
-历史 ST、停牌与 effective reference 尚未形成正式 Authority
-MiniQMT 真实查询与真实订单分别由本地串行 Gate 和手动 Order Gate 管理
+```bash
+uv run onlyalpha run \
+  --config examples/configs/tushare_daily_backtest.yaml \
+  --dry-run
 ```
 
-当前正式分层：
+### 2. 运行 Tushare 日线回测
 
-```text
-Fast
-Integration Smoke
-Full Offline
-Recovery / Exhaustive
-External
+该示例需要 Tushare Token。
+
+Linux / macOS：
+
+```bash
+export ONLYALPHA_TUSHARE_TOKEN="<your-token>"
+
+uv run onlyalpha run \
+  --config examples/configs/tushare_daily_backtest.yaml \
+  --console-report
 ```
 
-测试优化必须遵守：
+Windows PowerShell：
 
-```text
-不删除业务覆盖
-不放宽经济不变量
-不添加生产 test_mode
-不隐藏 Close Execution
-不以 skip/xfail 代替修复
+```powershell
+$env:ONLYALPHA_TUSHARE_TOKEN = "<your-token>"
+
+uv run onlyalpha run `
+  --config examples/configs/tushare_daily_backtest.yaml `
+  --console-report
 ```
 
----
+### 3. 运行多个 Cluster
 
-## 9. 下一步推荐
+`--config` 可以重复使用。兼容配置会由 Runtime Planner 自动归入共享 Runtime。
 
-### P0：Test Suite Performance and Layering
-
-已完成：
-
-```text
-统一 Runner、Metrics 与 CI Lane
-不可变 Result Fixture 与 Recovery Baseline 复用
-MiniQMT Golden Dataset 离线纵切面
-Worker Matrix 与性能软回归比较
+```bash
+uv run onlyalpha run \
+  --config path/to/cluster-a/config.yaml \
+  --config path/to/cluster-b/config.yaml
 ```
 
-### P1：PR4.5 CN A-share Cash Product Closure
+也可以从目录或 Glob 收集配置：
 
-目标：
-
-```text
-T+1
-涨跌停
-停牌
-整手和零股
-A 股费用
-真实离线样本
-完整 Scenario Pack
-Checkpoint/Restart
+```bash
+uv run onlyalpha run --config-dir path/to/clusters
+uv run onlyalpha run --config-glob "path/to/clusters/**/config.yaml"
 ```
 
-### P2：真实数据与公司行为
+### 4. MiniQMT Paper 观察
 
-目标：
+运行前需要：
 
-```text
-Raw / Adjusted Price 分离
-分红
-送股
-拆并股
-证券状态
-参考数据版本
-大规模历史回放
+- Windows；
+- 本地 QMT / MiniQMT；
+- 可导入的 `xtquant`；
+- 正确配置的 `userdata_mini` 环境。
+
+```powershell
+uv run onlyalpha run `
+  --config examples/configs/miniqmt_paper_macd.yaml `
+  --user-data user_data
 ```
 
-### P3：Research Workflow
+该示例只观察行情并执行 Shadow Intent，不会连接交易 Broker 或发送真实订单。
 
-目标：
+### 5. 查看运行快照
 
-```text
-因子实验
-IC
-分组分析
-批量参数
-结果比较
-绘图
+```bash
+uv run onlyalpha snapshot \
+  --config path/to/config.yaml
 ```
 
-### P4：Paper / Live
+### 6. 市场场景验证
 
-只有在以下条件满足后进入：
-
-```text
-A 股 Cash 产品闭环
-真实数据闭环
-测试执行时间可控
-订单同步和对账模型冻结
+```bash
+uv run onlyalpha scenario validate path/to/scenario.yaml
+uv run onlyalpha scenario run path/to/scenario.yaml
 ```
 
 ---
 
-## 10. 最终判断
+## 输出
 
-当前 OnlyAlpha 可以准确描述为：
-
-```text
-一个以 OnlyEngine 为唯一入口、
-具备确定性 Backtest、
-Durable Cash Long Execution、
-Multi-Fill Recovery、
-Multi-Cluster 成本归因、
-标准结果和制品输出能力的 Alpha 阶段量化交易系统。
-```
-
-不能描述为：
+默认用户数据目录为：
 
 ```text
-生产级实盘平台
-完整多市场交易平台
-完整中国期货平台
-完整研究平台
-完整 Web 交易系统
+./user_data
 ```
+
+可以通过以下方式覆盖：
+
+```bash
+uv run onlyalpha run --user-data /path/to/user_data ...
+```
+
+或设置：
+
+```text
+ONLYALPHA_USER_DATA
+```
+
+回测运行会生成：
+
+- Engine manifest；
+- Runtime 和 Cluster 结果；
+- Order / Trade / Position / Account 投影；
+- JSON 制品；
+- Parquet 数据；
+- Markdown 报告；
+- Console 报告；
+- Determinism fingerprint；
+- checkpoint 和 Runtime state。
+
+Paper 模式可按配置输出 Console Observation 和 JSON Lines Observation。
+
+---
+
+## 核心概念
+
+### OnlyEngine
+
+`OnlyEngine` 是唯一产品级入口，负责：
+
+- 注册 Cluster；
+- 校验配置；
+- 规划和装配 Runtime；
+- 管理 Runtime 与 Cluster 生命周期；
+- 管理共享插件资源；
+- 汇总运行结果；
+- 输出 Artifact 和 Report；
+- 处理失败和资源释放。
+
+外部应用不应自行创建另一套 Engine 或绕过 Engine 直接拼装交易组件。
+
+### Runtime
+
+Runtime 是全部可变交易状态的所有者：
+
+- Clock；
+- Event Bus；
+- Market Data；
+- Risk；
+- Order；
+- Position；
+- Allocation；
+- Account；
+- Strategy Ledger；
+- Fee；
+- Settlement；
+- Execution；
+- Persistence；
+- Checkpoint；
+- Recovery。
+
+### Strategy、Factor 与 Indicator
+
+职责关系固定为：
+
+```text
+Indicator
+    ↓
+Factor
+    ↓
+Strategy
+    ↓
+Restricted Order Context
+```
+
+- Indicator 负责无交易副作用的滚动计算；
+- Factor 组合 Indicator 并形成 Snapshot / Score；
+- Strategy 读取行情和 Factor，产生交易意图；
+- Strategy 不能直接修改订单、持仓、账户或 Broker 状态。
+
+### Account 与 Strategy Ledger
+
+```text
+Account
+= Runtime 级账户真值
+
+Strategy Ledger
+= Cluster 级虚拟资金和收益归因
+```
+
+多个 Cluster 可以共享 Account，但每个 Cluster 只读取自己的 Ledger Scope。
+
+---
+
+## 插件
+
+Core 通过 Plugin SPI 与具体数据源和 Broker 解耦。
+
+当前 Workspace 包含：
+
+- Virtual Broker 插件；
+- Tushare DataSource 插件；
+- MiniQMT DataSource / Broker 插件。
+
+插件应只依赖公开的 `onlyalpha.plugin.api`、Domain 类型和 Port，不应依赖 Runtime 内部 Manager 或装配实现。
+
+---
+
+## 测试
+
+统一测试入口：
+
+```bash
+uv run python scripts/test_suite.py fast
+uv run python scripts/test_suite.py integration
+uv run python scripts/test_suite.py ashare
+uv run python scripts/test_suite.py recovery
+uv run python scripts/test_suite.py miniqmt-contract
+uv run python scripts/test_suite.py miniqmt-local
+uv run python scripts/test_suite.py full
+uv run python scripts/test_suite.py release
+```
+
+测试分层包括：
+
+- Unit
+- Contract
+- Architecture
+- Integration
+- Scenario
+- Conformance
+- Recovery
+- External
+- Performance
+
+`release` 会组合执行静态检查、类型检查、版本一致性、离线完整测试、Recovery、A-share 验证和包构建。
+
+真实 MiniQMT 和真实 Broker Account 测试必须显式启用，不进入默认离线测试通道。
+
+---
+
+## 开发约束
+
+OnlyAlpha 的关键工程约束包括：
+
+- Domain 使用强类型值对象和 UTC 时间；
+- Runtime 是可变状态唯一所有者；
+- Strategy 不能绕过 Context；
+- Broker Update 必须进入 Runtime Queue；
+- ExecutionProcessor 是成交更新的唯一业务入口；
+- Committed Transaction 是逐笔成交权威；
+- Collector 不从最终 Manager 状态反推成交；
+- Event 在状态成功改变后发布，不驱动核心状态迁移；
+- 不支持的市场能力必须 Fail Closed；
+- 不能用测试开关绕过正式产品链；
+- 同一输入必须产生稳定业务投影和结果指纹。
+
+---
+
+## 文档
+
+- [总体架构](docs/architecture.md)
+- [CLI](docs/cli.md)
+- [测试规范](docs/testing.md)
+- [路线图](docs/roadmap.md)
+- [A 股 Market Profile](docs/a_share_market_profile.md)
+- [Paper 产品验收](docs/acceptance/paper_real_product_acceptance.md)
+- [Backtest Runtime](docs/backtest.md)
+- [Runtime](docs/runtime.md)
+- [Virtual Broker](docs/virtual_broker.md)
+- [Market Conformance](docs/market_conformance_suite.md)
+
+---
+
+## 风险声明
+
+OnlyAlpha 当前为 Alpha 软件，仅用于研发、测试和验证。
+
+它不构成投资建议，也不保证任何策略的收益。Paper 验收不等于真实交易能力，Virtual Broker 的成交结果不代表真实市场成交。将系统连接真实账户前，必须独立完成权限控制、风控、恢复、对账、监控和人工接管机制。
+
+---
+
+## License
+
+MIT License

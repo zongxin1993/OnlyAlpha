@@ -1,128 +1,231 @@
-# OnlyAlpha 工程实施指南
+# OnlyAlpha Agent 工程指南
 
-本文档面向在 OnlyAlpha 仓库中工作的开发者、Codex、代码生成 Agent、审查 Agent 和自动化工具。
+本文档适用于在 OnlyAlpha Monorepo 中工作的开发者、Codex、代码生成 Agent、审查 Agent、测试 Agent 和自动化工具。
 
-它规定：
+它定义的是工程执行合同，而不是产品宣传材料。所有修改都必须服从当前源码、正式测试、未被替代的 ADR 和本文件规定的架构不变量。
 
-```text
-事实来源
-架构边界
-模块职责
-经济不变量
-实现流程
-接口清理要求
-测试分层
-质量门禁
-交付标准
-```
-
-本文档作用于整个 Monorepo。子目录中的 `AGENTS.md` 可以补充局部规则，但不得破坏本文件规定的顶层架构、依赖方向和业务不变量。
+子目录可以增加局部 `AGENTS.md`，但不得削弱本文件的顶层约束。
 
 ---
 
 ## 1. 项目身份
 
-OnlyAlpha 是一个独立、从零设计的量化交易系统。
+OnlyAlpha 是一个独立设计的模块化量化交易系统。
 
-必须遵守：
-
-* 从第一性原则分析问题；
-* 不把 OnlyAlpha 描述为其他项目的重构版本；
-* 不复制外部工程的内部实现形成隐式依赖；
-* 不因历史 Prompt、示例或测试保留错误架构；
-* 不以兼容旧代码为理由维持两套正式路径；
-* 当前源码、正式测试和未被替代的 ADR 是主要事实来源。
-
-OnlyAlpha 当前采用：
+当前工程形态：
 
 ```text
 Monorepo
 +
-模块化单体
+模块化单体 Core
 +
-插件化外部适配
+插件化 DataSource / Broker
++
+配置驱动 Engine / Runtime / Cluster
+```
+
+项目目标不是快速堆叠交易功能，而是建立：
+
+- 唯一、明确的状态权威；
+- 可重复的运行结果；
+- 可审计的交易事实；
+- 可恢复的执行和账务链；
+- 可扩展但不互相污染的市场与插件边界；
+- 回测、Paper、Live 和 Research 可复用的核心模型。
+
+禁止把 OnlyAlpha 描述为其他工程的重构版本，也禁止为了兼容历史实验代码而长期保留两套正式路径。
+
+---
+
+## 2. 当前产品边界
+
+修改任何功能前，必须先确认它属于哪一个产品范围。
+
+### 2.1 当前正式完成范围
+
+```text
+Runtime          : BACKTEST
+Market Profile   : GENERIC_T0_CASH
+Account Type     : CASH
+Order Type       : LIMIT
+Position Side    : LONG
+Position Mode    : NETTING
+Open             : BUY OPEN
+Close            : SELL CLOSE
+Fill             : Whole / Partial / Multi-Fill
+Terminal         : Cancel / Reject / Expire
+Cluster          : Single / Multi-Cluster
+Persistence      : Memory / SQLite
+Recovery         : Checkpoint / Restart / Forward Recovery
+```
+
+该范围已经形成：
+
+```text
+配置
+→ Engine
+→ Runtime
+→ 行情回放
+→ Indicator
+→ Factor
+→ Strategy
+→ Risk
+→ Order
+→ Virtual Broker
+→ Execution
+→ Durable Commit
+→ Ordered Projection
+→ Result
+→ Analytics
+→ Artifact / Report
+→ Checkpoint / Recovery
+```
+
+### 2.2 Paper 当前范围
+
+Paper Runtime 已实现并完成当前 Profile 下的真实 MiniQMT 验收：
+
+```text
+Historical Bootstrap
+Open-Market Bootstrap
+Historical → Live Handoff
+Historical Watermark
+1m External Bar
+1m → 3m Internal Aggregation
+Indicator / Factor Warmup
+Observation
+Strategy Intent
+Shadow Execution Suppression
+Reservation Create / Release
+Ordered Shutdown
+```
+
+Paper 当前仍是：
+
+```text
+Read-only Market Observation
++
+Shadow Execution
+```
+
+当前不得声称 Production Paper 已完成。以下能力仍未闭环：
+
+```text
+Reconnect
+Realtime Gap Recovery
+Streaming Checkpoint / Recovery
+Real Broker Submission
+Broker Account Synchronization
+Broker Order / Trade / Position Synchronization
+Long-running Production Operations
+Broad MiniQMT Compatibility Matrix
+```
+
+### 2.3 当前不可用产品
+
+以下 Runtime Factory 当前明确不可用：
+
+```text
+LIVE
+Standalone SHADOW
+RESEARCH
+```
+
+注意：
+
+```text
+Paper 内有 Shadow Execution
+≠
+Standalone Shadow Runtime 已实现
+```
+
+### 2.4 领域模型不等于产品能力
+
+以下对象即使存在，也不能据此声明产品已经支持：
+
+- 枚举；
+- Domain Model；
+- Manager；
+- Market Profile；
+- Legacy Execution Path；
+- 测试 Fixture；
+- Prompt；
+- 未接入 Engine 的示例；
+- 单组件单元测试。
+
+特别注意：
+
+```text
+GENERIC_MARGIN_FUTURES Profile 存在
+≠ Futures Durable Execution 已完成
+
+GENERIC_24X7_CRYPTO_SPOT Profile 存在
+≠ Crypto 产品已完成
+
+CN_A_SHARE_CASH Profile 存在
+≠ 完整 A 股产品已完成
 ```
 
 ---
 
-## 2. 事实来源优先级
+## 3. 事实来源优先级
 
-发生冲突时，按以下顺序判断：
+发现文档、测试和源码不一致时，按以下顺序判断：
 
 ```text
 1. 当前可执行源码和正式公共接口
-2. 当前自动化测试和架构门禁
-3. 已接受且未被替代的 ADR
+2. 当前自动化测试、架构门禁和产品验收
+3. 未被替代的 ADR
 4. 当前组件文档
-5. README.md 和 AGENTS.md
-6. HANDOFF.md
-7. docs/reports/
-8. prompts/
+5. AGENTS.md
+6. README.md
+7. docs/roadmap.md
+8. 带明确日期和提交基线的 docs/reports/
+9. HANDOFF.md
+10. prompts/
 ```
 
-`prompts/` 是历史实施材料，不是当前工程事实。
+`prompts/` 是历史实施输入，不是当前工程事实。
 
-修改组件前必须：
-
-1. 阅读目标源码；
-2. 阅读目标测试；
-3. 查找相关 ADR；
-4. 查找公共接口、Port、Factory 和 Registry；
-5. 确认是否已有同类能力；
-6. 明确当前支持范围和非目标；
-7. 再决定修改、替换或删除。
-
-禁止仅根据 Prompt 创建第二套实现。
+不得仅根据 Prompt、旧报告或类名推断当前行为。
 
 ---
 
-## 3. 当前产品边界
+## 4. Agent 开始工作前的固定流程
 
-当前正式完成的主要产品范围：
+任何非微小修改开始前，必须完成以下检查：
 
-```text
-Runtime         : BACKTEST
-Market Profile  : GENERIC_T0_CASH
-Account Type    : CASH
-Order Type      : LIMIT
-Position Side   : LONG
-Position Mode   : NETTING
-Open            : BUY OPEN
-Close           : SELL CLOSE
-Fill            : Whole / Partial / Multi-Fill
-Terminal        : Cancel / Reject / Expire
-Cluster         : Single / Multi-Cluster
-Persistence     : Memory / SQLite
-```
+1. 阅读目标模块当前源码；
+2. 阅读相关公共入口和 `__all__`；
+3. 阅读目标模块测试；
+4. 查找相关 ADR；
+5. 查找现有 Port、Protocol、Factory、Registry 和 Query；
+6. 确认唯一状态权威；
+7. 确认当前产品支持范围；
+8. 确认是否涉及持久化 Schema、Checkpoint 或 Result Schema；
+9. 选择最窄但足够的测试 Lane；
+10. 再实施修改。
 
-当前未形成正式产品闭环：
+必须先回答以下问题：
 
 ```text
-Paper
-Live
-Shadow
-Research Workflow
-Web
-Short/Hedging Durable Lifecycle
-Futures/Margin Durable Lifecycle
-Unallocated Close
-Cross-Cluster Close
-FIFO/LIFO Lot Selection
-Corporate Action
-Multi-Currency/FX
-OrderBook Matching
-Distributed Backtest
+谁拥有状态？
+谁可以修改状态？
+谁只能读取状态？
+哪个对象是 durable authority？
+失败发生在哪个边界？
+恢复后必须与什么结果等价？
 ```
 
-存在枚举、模型、Manager 或 Legacy 路径，不等于正式能力完成。
+无法回答时，不得直接新增 Manager、Service 或并行路径。
 
 ---
 
-## 4. 唯一产品入口
+## 5. 唯一产品入口
 
 `OnlyEngine` 是唯一产品级运行入口。
 
-正式产品链必须经过：
+正式产品调用链：
 
 ```text
 CLI / Application
@@ -134,133 +237,225 @@ CLI / Application
 → OnlyCluster
 ```
 
-禁止：
-
-* CLI 直接实例化 Manager；
-* CLI 直接执行 Backtest 内部循环；
-* Scenario Runner 绕过 Engine；
-* 示例手工装配 Manager 伪造产品运行；
-* 新建第二套 Engine Service；
-* 创建市场专用平行 Engine；
-* 创建仅供测试使用的生产产品入口。
-
-核心配置入口：
+允许的主要入口：
 
 ```python
 engine.add_cluster(config)
-```
-
-文件适配入口：
-
-```python
 engine.add_cluster_from_file(path)
+engine.validate()
+engine.initialize()
+engine.start()
+engine.wait()
+engine.run()
+engine.stop()
+engine.close()
+engine.snapshot()
 ```
 
-一个 Engine 实例只能完整运行一次。
+约束：
+
+- `OnlyEngine.run()` 只用于有限生命周期的 Backtest；
+- 长生命周期 Runtime 使用 `initialize/start/wait/stop/close`；
+- 一个 Engine 实例不得被重复完整运行；
+- Engine 终止后不得重新打开；
+- CLI 只负责参数、配置路径和 Application 调用。
+
+禁止：
+
+- CLI 直接实例化 Runtime Manager；
+- CLI 直接执行回测循环；
+- Scenario Runner 绕过 Engine；
+- 验收脚本直接驱动 Strategy、Factor 或 Manager；
+- 示例手工注入成交并宣称产品链通过；
+- 创建市场专用第二套 Engine；
+- 创建测试专用生产入口；
+- 为单个功能复制一套 Engine Service。
 
 ---
 
-## 5. Engine 职责
+## 6. Engine 职责
 
 Engine 负责：
 
-* Cluster Definition 注册；
-* 配置和扩展类型验证；
-* 配置指纹；
-* Runtime 兼容性规划；
-* Runtime/Cluster Session；
-* 共享基础设施引用计数；
-* 生命周期；
-* Runtime 执行；
-* 结果汇总；
-* `user_data` 输出；
-* Artifact 和 Report；
-* 失败回滚和资源释放。
+- Cluster Definition 注册；
+- 配置和扩展类型验证；
+- 配置指纹；
+- Runtime 兼容性规划；
+- Runtime Session；
+- Cluster Session；
+- 插件和共享基础设施引用计数；
+- Runtime 装配；
+- 生命周期；
+- 运行结果汇总；
+- `user_data` 布局；
+- Artifact 和 Report；
+- 失败回滚；
+- 有序资源释放。
 
 Engine 不负责：
 
-* 策略算法；
-* 指标计算；
-* 券商 SDK 细节；
-* 撮合算法细节；
-* 费用公式；
-* SQL 业务逻辑；
-* 市场规则硬编码；
-* Web 展示。
+- 策略算法；
+- 指标计算；
+- 市场数据标准化细节；
+- Broker SDK 回调细节；
+- 撮合算法；
+- 费用公式；
+- Position 成本计算；
+- SQL 业务决策；
+- 市场规则硬编码；
+- Web 展示。
+
+新增功能时，先判断它是 Engine 编排问题，还是 Runtime 内部业务问题。不得把业务计算塞入 Engine。
 
 ---
 
-## 6. Runtime 所有权
+## 7. Runtime 所有权
 
 Runtime 是全部可变交易状态的唯一所有者。
 
-每个 Runtime 必须拥有或独占：
+每个 Runtime 必须独占：
 
 ```text
 Clock
 Event Bus
+MarketData Registry
+MarketData Inbound Queue
+MarketData Processor
+MarketData Audit
 MarketData Pipeline
 MarketData Cache
 Bar Aggregation
-MarketData Inbound Queue
 Broker Inbound Queue
 Order Manager
 Position Manager
-Allocation Manager
-Strategy Ledger Manager
+Position Allocation Manager
+Position Reservation Manager
 Account Manager
+Strategy Ledger Manager
 Risk Service
+Risk Reservation
+Fee Authority
+Settlement / Margin Service
 ExecutionProcessor
-Settlement/Margin Service
+Execution Transaction Store
+Applied Projection Ledger
+Outbox
 Persistence Store
 Checkpoint Participants
 Recovery State
 Runtime Audit
 ```
 
-Cluster、Strategy、Factor、Plugin 和 Broker Gateway 不得持有 Runtime Manager。
+禁止：
 
-Manager 不得被多个 Runtime 共享。
+- Manager 被多个 Runtime 共享；
+- Cluster 持有 Manager；
+- Strategy 持有 Manager；
+- Factor 持有 Manager；
+- DataSource 或 Broker Gateway 持有 Manager；
+- 插件直接修改 Runtime 状态；
+- 通过全局单例保存 Runtime 交易状态。
+
+跨组件状态修改必须由 Runtime 内正式 Service 或 Processor 编排。
 
 ---
 
-## 7. Cluster 隔离
+## 8. Cluster、Strategy、Factor、Indicator
+
+### 8.1 Cluster
 
 一个 Cluster：
 
-* 只持有一个 Strategy；
-* 可以持有多个 Factor；
-* 每个 Factor 可以创建多个 Indicator；
-* 拥有独立 Strategy、Factor、Indicator 和 Ledger Scope；
-* 只能通过受限 Context 使用 Runtime 能力；
-* 不得读取其他 Cluster 的订单、Allocation、Ledger 或私有状态。
+```text
+One Strategy
++
+Zero or more Factors
++
+Indicator Scope
++
+Subscription Scope
++
+Strategy Ledger Scope
+```
 
-固定调度顺序：
+Cluster 是隔离容器，不是 Strategy 本身。
+
+Cluster 不得：
+
+- 访问其他 Cluster 私有订单；
+- 访问其他 Cluster Allocation；
+- 访问其他 Cluster Ledger；
+- 直接访问 Broker；
+- 直接访问 Runtime Event Bus；
+- 推进 Runtime Clock；
+- 修改账户级 Manager。
+
+### 8.2 固定计算顺序
+
+同一行情时间片的业务顺序必须显式确定：
 
 ```text
-MarketData
+MarketData Validate / Process
+→ Cache / Aggregation
 → Indicator
 → Time-Series Factor
 → Cross-Section Factor
 → Factor Snapshot / Score
 → Strategy
+→ Risk
 → Order
 ```
 
-结果不得依赖：
+不得依赖：
 
-* 字典插入顺序；
-* Cluster 注册顺序；
-* Python 导入顺序；
-* 对象创建顺序；
-* EventBus Handler 偶然顺序；
-* 外部 SDK 回调偶然顺序。
+- 字典插入顺序；
+- Set 顺序；
+- Python 导入顺序；
+- Cluster 注册顺序；
+- Handler 注册偶然顺序；
+- 外部 SDK 回调偶然顺序；
+- 线程调度偶然顺序。
+
+需要排序时，必须使用稳定、业务可解释的 Key。
+
+### 8.3 Indicator
+
+Indicator：
+
+- 只能消费已验证的行情；
+- 不具有交易权限；
+- 必须显式处理 Warmup；
+- 必须拒绝乱序输入或按正式合同去重；
+- Checkpoint 能力必须显式声明；
+- 恢复后输出必须与连续运行一致。
+
+### 8.4 Factor
+
+Factor：
+
+- 可以组合 Indicator；
+- 产生 Snapshot 和 Score；
+- 不具有下单权限；
+- 不直接访问 Account、Position 或 Broker；
+- Cross-Section 调度必须由正式 Runtime/Cluster 流程完成。
+
+### 8.5 Strategy
+
+Strategy：
+
+- 只能通过受限 Context 读取系统状态；
+- 只能通过正式订单接口表达交易意图；
+- 不得维护与 Runtime 真值并行的完整账户、订单或持仓副本；
+- 不得绕过 Risk；
+- 不得直接创建 Fill；
+- 不得自行模拟 Broker 回报；
+- Checkpoint 能力必须显式声明。
 
 ---
 
-## 8. Monorepo 包职责
+## 9. Monorepo 包职责
 
-### 8.1 Core
+### 9.1 Core
 
 路径：
 
@@ -268,21 +463,24 @@ MarketData
 src/onlyalpha/
 ```
 
-Core 承载：
+Core 包含：
 
-* 公共领域模型；
-* Engine、Runtime、Cluster；
-* 公共 Port 和 Protocol；
-* 配置；
-* Synthetic DataSource；
-* Scenario Exact DataSource；
-* Broker SPI 和 Inbound Queue；
-* Execution、Position、Account、Risk；
-* Result、Analytics、Artifact、Report；
-* Plugin SPI；
-* Market Profile 和规则基础设施。
+- Domain；
+- Engine；
+- Runtime；
+- Cluster；
+- Strategy / Factor / Indicator 公共边界；
+- DataSource / Broker Port；
+- Market Profile 和 Rule Engine；
+- Risk / Order / Execution；
+- Position / Allocation / Account / Ledger；
+- Fee / Settlement；
+- Persistence / Checkpoint / Recovery；
+- Result / Analytics / Artifact / Report；
+- Plugin SPI；
+- CLI 和 Application Service。
 
-Core 不得导入：
+Core 不得导入具体外部插件：
 
 ```text
 onlyalpha_plugin_broker_virtual
@@ -290,7 +488,9 @@ onlyalpha_plugin_tushare
 onlyalpha_plugin_miniqmt
 ```
 
-### 8.2 Virtual Broker
+Core 可以定义 Port、CreateRequest、Descriptor、Capability 和公共 DTO，但不能依赖插件实现。
+
+### 9.2 Virtual Broker
 
 路径：
 
@@ -300,24 +500,27 @@ packages/fake/onlyalpha-plugin-broker-virtual/
 
 职责：
 
-* 标准 Broker SPI；
-* Order Accept/Reject/Cancel；
-* Next-Bar Matching；
-* Slippage；
-* Fill Plan；
-* 确定性调度；
-* Broker Checkpoint；
-* 标准 Broker Update。
+- 实现 Broker SPI；
+- 订单接受、拒绝和撤销；
+- Next-Bar Matching；
+- Slippage；
+- Fill Plan；
+- Whole / Partial / Multi-Fill；
+- 确定性发布；
+- Broker Checkpoint；
+- 标准 Broker Update。
 
 不得：
 
-* 持有 Runtime Manager；
-* 修改 Account、Position 或 Risk；
-* 成为 Runtime Accounting Truth；
-* 硬编码完整 Market Rule；
-* 直接计算正式 Account Fee。
+- 修改 Account；
+- 修改 Position；
+- 修改 Risk；
+- 成为账务真值；
+- 直接决定正式 Account Fee；
+- 在插件中复制完整市场规则；
+- 绕过 Broker Inbound Queue。
 
-### 8.3 Tushare
+### 9.3 Tushare
 
 路径：
 
@@ -327,23 +530,25 @@ packages/provider/onlyalpha-plugin-tushare/
 
 职责：
 
-* SDK 加载；
-* 配置解析；
-* 历史行情请求；
-* 数据标准化；
-* Cache 协作；
-* DataSource Factory；
-* Entry Point；
-* Doctor。
+- 配置解析；
+- Token 读取；
+- SDK 调用；
+- 历史行情请求；
+- 数据标准化；
+- 严格校验；
+- Cache 协作；
+- Factory 和 Entry Point；
+- 环境诊断。
 
 不得：
 
-* 模块导入阶段访问网络；
-* 持有 Runtime Manager；
-* 修改交易状态；
-* 把复权价格自动当作撮合价格。
+- 导入模块时访问网络；
+- 修改 Runtime 交易状态；
+- 把复权价格隐式当作撮合价格；
+- 将 SDK 原始对象泄漏到 Core；
+- 持有 Runtime Manager。
 
-### 8.4 MiniQMT
+### 9.4 MiniQMT
 
 路径：
 
@@ -353,62 +558,253 @@ packages/provider/onlyalpha-plugin-miniqmt/
 
 职责：
 
-* MiniQMT DataSource Adapter；
-* Broker Adapter；
-* 标准 Update 转换；
-* 插件配置；
-* 平台能力检查。
+- Historical Worker；
+- DataSource Adapter；
+- Live Bar Adapter；
+- Broker Adapter；
+- SDK 数据到 Domain/Update 的转换；
+- 配置和环境能力检查；
+- 进程隔离；
+- 协议和兼容性诊断。
 
 不得：
 
-* 让 Core 依赖 MiniQMT；
-* 绕过 Broker Inbound Queue；
-* 直接修改 Manager；
-* 在未完成对账前开放真实资金。
+- 让 Core 依赖 `xtquant`；
+- 在 Core 导入 MiniQMT；
+- 绕过 MarketData 或 Broker Inbound Queue；
+- 直接修改 Manager；
+- 未完成对账和恢复前启用真实资金；
+- 把 Fake SDK 验收等同于真实产品验收。
 
 ---
 
-## 9. 市场规则
+## 10. 公共 API 与内部边界
 
-市场规则必须经过：
+外部用户和插件应优先使用：
 
 ```text
-Market Profile
-→ Registry
-→ Resolver
-→ Compiler
-→ Runtime Rule Engine
-→ Instruction
+onlyalpha.engine
+onlyalpha.config
+onlyalpha.domain.*
+onlyalpha.strategy
+onlyalpha.factor
+onlyalpha.indicator
+onlyalpha.plugin.api
 ```
 
-Planner、Risk、Virtual Broker、Settlement 和 Fee 应消费编译后的 Instruction。
+以下通常属于内部实现：
+
+- Runtime Planner；
+- Assembly Plan；
+- Runtime/Cluster Session；
+- Manager；
+- Registry 内部容器；
+- ExecutionProcessor 内部步骤；
+- Recovery Orchestrator 内部状态；
+- Persistence Store 具体 Schema；
+- Projection Applier；
+-内部 Audit Store。
+
+规则：
+
+- 公共 API 变更必须同步测试和文档；
+- 不得仅因为内部模块可导入，就将其当成稳定 API；
+- 插件不得依赖内部 Manager；
+- 新公共接口必须有类型、合同测试和版本考虑；
+- 删除旧公共接口前必须确认没有正式配置、示例或插件使用。
+
+---
+
+## 11. Market Profile 与规则
+
+市场规则链固定为：
+
+```text
+OnlyMarketConfig
+→ Market Profile Registry
+→ Version Resolver
+→ Rule Compiler
+→ Runtime Rule Engine
+→ Restricted Instruction / Decision
+```
+
+Profile 是版本化市场语义，不是业务 Manager。
+
+规则应由相应组件消费已编译的 Decision 或 Instruction。
 
 禁止：
 
-* Strategy 硬编码市场税率；
-* Planner 硬编码 Settlement Date；
-* Broker 硬编码 T+1；
-* Risk 和 Broker 各自实现不同涨跌幅规则；
-* 使用 Profile 名称后仍走 Generic 假设；
-* 在多个组件中复制同一市场规则。
+- Strategy 硬编码税率；
+- Strategy 硬编码 T+1；
+- Broker 硬编码完整市场规则；
+- Risk 和 Broker 分别实现不同涨跌幅；
+- Planner 直接猜测 Settlement Date；
+- 根据证券代码前缀猜 board，而忽略 Reference；
+- 在多个模块复制同一费用规则；
+- Profile 名称已配置但 Runtime 仍静默走 Generic 假设；
+- 未知市场状态自动放行。
+
+无法确定规则时必须 Fail Closed，并产生可诊断原因。
+
+所有内置 Profile 当前仍应视为 Experimental，除非正式 Conformance 和产品纵切面明确升级其状态。
 
 ---
 
-## 10. Durable Execution 合同
+## 12. MarketData 合同
 
-当前正式 Durable 范围：
+正式行情路径：
 
 ```text
-GENERIC_T0_CASH
-CASH
-LIMIT
-LONG
-NETTING
-BUY OPEN
-SELL CLOSE
+DataSource
+→ MarketData Inbound Queue
+→ Sequence / Dedup / Gap / Quality
+→ Audit
+→ Pipeline
+→ Cache / Aggregation
+→ Indicator / Factor / Strategy
 ```
 
-不可破坏：
+历史回放：
+
+```text
+Historical DataSource
+→ Replay Service
+→ Backtest Clock
+→ Same MarketData Pipeline
+```
+
+约束：
+
+- DataSource 不推进 Backtest Clock；
+- 只有 Historical Replay Service 可以推进 Backtest Clock；
+- Historical 和 Live 应复用同一 Domain Bar/Tick；
+- Bar 必须明确 `[start, end)`；
+- 只允许 Closed Bar 进入依赖 Closed Bar 的计算；
+- Session 外数据必须显式拒绝并记录原因；
+- Watermark 只能由成功进入正式 Pipeline 的数据推进；
+- Provider 原始尾部不能直接成为 Processed Watermark；
+- Catch-up、Dedup 和 Gap 必须有唯一 Authority；
+- 不能通过修改 Bar 时间制造验收通过。
+
+### 12.1 Paper Bootstrap
+
+Paper 启动必须遵循：
+
+```text
+Freeze Bootstrap Boundary
+→ Subscribe
+→ Historical Request
+→ Worker Validation
+→ Parent Validation
+→ Historical Replay
+→ Indicator / Factor Ready
+→ Historical Observation
+→ Watermark
+→ Live Handoff
+```
+
+必须区分：
+
+```text
+Provider Raw
+Accepted by Worker
+Replay Attempted
+Replay Processed
+Replay Rejected
+Pipeline Last Successful Bar
+Historical Watermark
+```
+
+这些计数和尾部不得互相替代。
+
+---
+
+## 13. Event 合同
+
+Event 用于通知已发生的事实，不作为核心状态迁移的唯一驱动力。
+
+规则：
+
+```text
+Command / Function Call
+→ Validate
+→ Mutate / Commit
+→ Publish Fact Event
+```
+
+禁止：
+
+- Event Handler 决定 Manager 核心状态迁移；
+- 依赖 EventBus priority 完成业务准备步骤；
+- 在状态提交前发布成功事件；
+- 失败后发布完整成功事实；
+- 用 Event 重建本应来自 Transaction Store 的成交权威。
+
+Recovery Event Gate 必须保证：
+
+- 恢复历史 Direct Event 不重复外发；
+- Bootstrap 事件有界；
+- Runtime Open 前不泄漏不完整状态；
+- Continuation Outbox 只在正式 Open 后交付；
+- 失败语义可预测。
+
+当前不得声称具备：
+
+```text
+Subscriber ACK
+Delivery Watermark
+Exactly-once Delivery
+Durable Direct Event Journal
+```
+
+---
+
+## 14. Broker 合同
+
+Broker Gateway 只负责外部交易适配。
+
+正式路径：
+
+```text
+Order Service
+→ Broker Execution Service
+→ Broker Gateway
+→ External System
+→ Broker Inbound Update
+→ Broker Inbound Queue
+→ ExecutionProcessor
+```
+
+禁止：
+
+- Gateway 直接修改 Order Manager；
+- Gateway 直接修改 Position；
+- Gateway 直接修改 Account；
+- SDK Callback 直接调用多个 Manager；
+- Broker Update 绕过 Runtime Queue；
+- Gateway 成为本地账务权威；
+- 用 Broker Snapshot 静默覆盖本地历史；
+- 用外部回报顺序作为业务确定性顺序。
+
+重复、乱序和迟到 Update 必须通过正式 Identity、Sequence、Dedup 和 Reconciliation 处理。
+
+---
+
+## 15. Durable Execution 合同
+
+当前正式 Durable Trade Capability：
+
+```text
+Market Profile : GENERIC_T0_CASH
+Account        : CASH
+Order Type     : LIMIT
+Position Side  : LONG
+Position Mode  : NETTING
+Open           : BUY OPEN
+Close          : SELL CLOSE
+```
+
+不可破坏的核心合同：
 
 ```text
 One Fill
@@ -418,11 +814,11 @@ One Immutable Prepared Transaction
 One Committed Transaction
 ```
 
-一个 Fill 必须具有：
+每个 Fill 必须具有：
 
 ```text
 Stable Fill Identity
-Payload Fingerprint
+Stable Payload Fingerprint
 Per-Order Fill Index
 Execution Sequence
 Prepared Transaction
@@ -432,33 +828,32 @@ Projection Ready
 Durable Outbox Intent
 ```
 
-不得：
+禁止：
 
-* 多个 Fill 合并成一个可变 Transaction；
-* 修改已有 Fill Identity 语义；
-* 使用 Source Sequence 代替 Fill Index；
-* Commit 后修改 Transaction；
-* 在 Projection 外直接修改多个 Manager；
-* 对正式 Durable Scope 回退到 Legacy Mutation。
+- 多个 Fill 合并成一个可变事务；
+- Commit 后修改 Transaction；
+- 使用外部 Source Sequence 代替 Fill Index；
+- 正式 Capability 回退到 Legacy Mutation；
+- Projection 外跨多个 Manager 手工更新；
+- 失败后补写伪事实使结果对齐；
+- 通过删除断言放宽经济不变量。
 
----
+### 15.1 Operation Kind
 
-## 11. Operation Kind
-
-正式 Operation：
+正式 Operation Kind：
 
 ```text
 TRADE_FILL
 ORDER_TERMINAL
 ```
 
-### TRADE_FILL
+`TRADE_FILL`：
 
-必须具有 Trade ID。
+- 必须有真实 Trade Identity；
+- 必须进入 Trade Result；
+- 必须包含经济事实。
 
-### ORDER_TERMINAL
-
-用于：
+`ORDER_TERMINAL`：
 
 ```text
 CANCELLED
@@ -466,76 +861,84 @@ REJECTED
 EXPIRED
 ```
 
-不得伪造 Trade ID。
+规则：
 
-Terminal Fact 不得计入：
-
-```text
-Trade Count
-Trade PnL
-Trade Fee
-Trade Settlement
-```
+- 不得伪造 Trade ID；
+- 不计入 Trade Count；
+- 不产生 Trade PnL；
+- 不产生 Trade Settlement；
+- 只投影终态需要的 Order/Reservation/Risk 变化。
 
 ---
 
-## 12. Projection 和 Authority
+## 16. Planner、Transaction 与 Projection
 
-Prepared Transaction 包含完整的：
+Planner 是纯经济决策边界。
+
+Prepared Transaction 应冻结：
 
 ```text
 Before State
 After State
 Economic Fact
+Cost Authority
+Fee Decision
+Settlement Instruction
+Reservation Delta
+Risk Delta
 Ordered Projection
-Authority Hash
 Payload Hash
+Authority Hash
 ```
 
-Projection 顺序是正式合同。
+Projection 应安装或验证 Planner 已决定的结果，不应重新做经济决策。
 
-任何组件不得在应用 Projection 时重新决策：
+禁止在 Projection 阶段重新计算：
 
-* 成本；
-* PnL；
-* Fee；
-* Settlement；
-* Reservation Delta；
-* Risk Delta。
+- Released Cost；
+- Realized PnL；
+- Fee；
+- Settlement；
+- Reservation Delta；
+- Risk Delta；
+- Allocation Attribution。
 
-Manager 应安装或验证 Planner 已决定的权威结果，而不是重新计算另一套答案。
+Projection 顺序属于正式合同。修改顺序时必须：
+
+1. 给出业务原因；
+2. 更新 Planner；
+3. 更新 Projection Targets；
+4. 更新 Recovery；
+5. 更新 Checkpoint；
+6. 更新 Result/Collector；
+7. 增加故障点测试；
+8. 更新 ADR。
 
 ---
 
-## 13. Close Cost Authority
+## 17. Position、Allocation 与 Close Cost Authority
 
-Multi-Cluster Close 使用：
+正式模型：
 
 ```text
-Allocation
-=
-Close Attribution Authority
-
 Position
 =
-Account Aggregate Authority
+Account 级聚合仓位权威
+
+Allocation
+=
+Cluster 级数量和成本归属权威
 ```
 
-Planner 在纯规划阶段创建一份不可变的：
-
-```text
-OnlyAttributedCloseCostAuthority
-```
-
-流程：
+Multi-Cluster Close：
 
 ```text
 Order Cluster
-→ 定位 Allocation
-→ 校验 Position/Allocation 聚合
-→ 计算一次 released cost
-→ 计算一次 realized PnL
-→ Position/Allocation/Account/Ledger/Fact 共同消费
+→ Locate Allocation
+→ Validate Position / Allocation Aggregate
+→ Calculate Released Cost Once
+→ Calculate Realized PnL Once
+→ Position / Allocation / Account / Ledger / Fact consume same result
 ```
 
 必须保持：
@@ -545,734 +948,818 @@ Position Quantity
 =
 sum(Allocation Quantity)
 
-Position Cost
+Position Cumulative Cost
 =
-sum(Allocation Cost)
+sum(Allocation Cumulative Cost)
 
 Position Released Cost
 =
 Allocation Released Cost
 =
-Fact Released Cost
+Committed Fact Released Cost
 
-Position PnL
+Position PnL Delta
 =
-Allocation PnL
+Allocation PnL Delta
 =
-Account PnL
+Account PnL Delta
 =
-Ledger PnL
+Strategy Ledger PnL Delta
 =
-Fact PnL
+Committed Fact PnL Delta
 ```
 
-Position 和 Allocation Reducer 不得分别调用成本释放函数。
+禁止：
 
-Account 和 Ledger 不得重新计算 Close PnL。
+- Position 和 Allocation 分别计算释放成本；
+- Account 重新计算 Close PnL；
+- Ledger 重新计算 Close PnL；
+- 无法归因时回退到账户平均成本；
+- Unallocated Close 静默成功；
+- Cross-Cluster Close 未定义时自动调拨；
+- 增加 `legacy_close_cost` 一类兼容开关。
 
-无法解释的 Unallocated Cost 必须在 Commit 前 Fail Closed。
-
-禁止添加：
-
-```text
-legacy_close_cost
-compatibility_close_cost
-use_position_average_cost
-fallback_to_account_average
-```
-
-之类的兼容开关。
+无法解释的成本必须在 Commit 前 Fail Closed。
 
 ---
 
-## 14. 精度规则
+## 18. 精度规则
 
-正式成本权威：
+交易、成本和费用计算必须使用 `Decimal`。
+
+正式成本权威优先保存：
 
 ```text
 cumulative_open_price_quantity
 ```
 
-平均开仓价：
+平均价格是派生值，不得反向成为精确成本权威。
+
+规则：
+
+- 使用局部 Decimal Context；
+- 明确 Precision；
+- 明确舍入模式；
+- 不修改全局 Decimal Context；
+- Money 按 Currency Precision 量化；
+- Price 按 Instrument Precision/Tick 量化；
+- Quantity 按 Quantity Increment 量化；
+- 最终完全平仓时数量和累计成本必须严格归零；
+- 不使用 Binary Float 参与正式账务计算；
+- 序列化 Decimal 使用字符串。
+
+任何精度修改都必须覆盖：
 
 ```text
-average_open_price
+Whole Fill
+Partial Fill
+Multi-Fill
+Different Fill Price
+Fee
+Positive PnL
+Negative PnL
+Zero PnL
+Full Close
+Checkpoint / Restart
 ```
-
-只是派生值。
-
-禁止使用量化后的平均价格反向决定精确累计成本。
-
-所有关键 Decimal 运算应：
-
-* 使用局部 Decimal Context；
-* 明确 Precision；
-* 明确 `ROUND_HALF_EVEN`；
-* 避免修改全局 Decimal Context；
-* 最终平仓强制数量和成本归零；
-* 金额按 Currency Precision 量化；
-* 价格按 Instrument Price Precision 量化。
 
 ---
 
-## 15. Account 和 Strategy Ledger
+## 19. Account 与 Strategy Ledger
 
-Account 是账户级权威。
+Account：
 
-Strategy Ledger 是 Cluster 级归因权威。
+```text
+Runtime 级账户权威
+```
 
-两者必须使用同一个 Planner 经济结论。
+Strategy Ledger：
+
+```text
+Cluster 级虚拟资金和收益归因权威
+```
+
+两者必须消费同一份 Committed Economic Fact。
 
 不得：
 
-* Account 重算 Realized PnL；
-* Ledger 重算 Realized PnL；
-* Account 用 Position Average 代替 Fact；
-* Ledger 用 Allocation Average 产生另一套 PnL；
-* 单独修正 Ledger 以通过对账。
+- Account 从 Position Average 重算 PnL；
+- Ledger 从 Allocation Average 重算 PnL；
+- 为通过对账只修正 Ledger；
+- 以某一个 Cluster Ledger 与共享 Account 直接比较；
+- Strategy 维护完整独立账户副本；
+- Broker Snapshot 静默替换本地 Account。
 
-Runtime 最终对账必须比较：
+Multi-Cluster 对账必须比较：
 
 ```text
 Account
 与
-所有 Strategy Ledger 的正式聚合
+所有正式 Strategy Ledger 的聚合
 ```
-
-不能用 Account 与当前单个 Ledger 比较 Multi-Cluster Capability。
 
 ---
 
-## 16. Risk 和 Reservation
+## 20. Risk 与 Reservation
+
+所有订单必须在创建前经过 Risk。
+
+正式顺序：
+
+```text
+Strategy Intent
+→ Market Rule Validation
+→ Risk Evaluation
+→ Reservation
+→ Order Creation
+→ Broker Submission
+```
 
 Reservation 是正式交易权威的一部分。
 
-支持：
+Partial/Multi-Fill 下必须：
 
-```text
-Cash Reservation
-Position Reservation
-Risk Reservation
-Incremental Consumption
-Terminal Release
-```
+- 按 Fill 增量消费；
+- 未完成部分继续保留；
+- 最终 Fill 完成后释放剩余；
+- Cancel/Reject/Expire 通过 Terminal Transaction 释放；
+- Duplicate Update 不重复消费；
+- Recovery 后与连续运行一致。
 
-Multi-Fill 中：
+禁止：
 
-```text
-中间 Fill
-→ 分段消费
-→ Active Order Count 保持
-
-最终 Fill
-→ Reservation Consumed
-→ Active Order Count 减少一次
-```
-
-Terminal Operation：
-
-```text
-保留已成交部分
-释放未成交部分
-Active Order Count 只减少一次
-```
-
-不得在 Transaction 外重复调用 Release 或 Consume。
+- OrderService 绕过 Risk；
+- Risk 只记录告警但继续创建订单；
+- Manager 之间直接互相释放 Reservation；
+- 失败后依赖 cleanup 猜测占用；
+- 使用生产 `test_mode` 关闭风控；
+- Strategy 直接修改 Risk State。
 
 ---
 
-## 17. Fee 和 Settlement
+## 21. Fee 与 Settlement
 
-Fee 必须经过：
+费用权威链：
 
 ```text
-Fee Configuration
-→ Fee Schedule
+Market / Broker Fee Config
+→ Versioned Schedule Registry
+→ Runtime Assembly
 → Fee Resolver
 → Fee Instruction
-→ Order Fee Accrual
-→ Fee Projection
+→ Order Fee Accrual Authority
+→ Fee Manager
 ```
 
-FeeManager 不计算 Fee，只安装正式结果。
-
-支持：
+必须区分：
 
 ```text
 FILL
 ORDER_CUMULATIVE
 ```
 
-订单级最低佣金不得在每个 Fill 重复收取。
+跨部分成交最低佣金等订单累计费用必须由独立 Authority 管理，不能让每个 Fill 独立重复收取。
 
-Settlement Date、Cash Availability 和 Asset Bucket 必须来自 Market Instruction，不得由 Planner 硬编码。
+Settlement 必须由 Market Rule / Instruction 驱动。
+
+禁止：
+
+- Strategy 计算正式费用；
+- Virtual Broker 直接写 Account Fee；
+- Account 再次计算 Fee；
+- Settlement Manager 自行猜交易日；
+- 把费用差额作为测试补丁写入 Ledger；
+- 修改历史 Fee Schedule 而不增加版本。
 
 ---
 
-## 18. Persistence 和 Recovery
+## 22. Persistence、Checkpoint 与 Recovery
 
-当前 Backtest 支持：
+### 22.1 Durable Authority
+
+成交的 Durable Authority 是 Transaction Store。
+
+Applied Projection Ledger 是可重建的幂等索引，不是成交真值。
+
+Collector 和 Analytics 必须读取正式 Projection Ready / Committed Fact，不得从最终 Manager Snapshot 反推逐笔成交。
+
+### 22.2 Checkpoint
+
+Checkpoint 必须：
+
+- 在明确完成边界创建；
+- 记录精确 MarketData Cursor；
+- 记录 Participant Schema Version；
+- 原子写入；
+- 可读回验证；
+- 不包含不稳定对象地址；
+- 不包含明文 Secret；
+- 支持确定性恢复。
+
+新增有状态组件时，必须明确：
 
 ```text
-Memory Store
-SQLite Store
-Prepared Transaction
-Committed Transaction
-Projection State
-Projection Ready
-Durable Outbox
-Runtime Checkpoint
-Restart Recovery
+Checkpointable
+Stateless
+Unsupported
 ```
 
-Recovery 必须遵守：
+不得默认忽略。
 
-* 不重新选择成本；
-* 不重新生成 Identity；
-* 不重复 Commit 已持久化 Transaction；
-* 不修改已提交 Fact；
-* 不依赖当前 Manager 状态重算历史结果；
-* 只重建相同 Prepared Transaction或应用持久化 Projection；
-* 恢复完成后执行只读 Authority Validation。
+### 22.3 Recovery
 
-不得新增：
+恢复原则：
 
 ```text
-Close Store
-Close Coordinator
-Close Recovery Phase
-Market-Specific Recovery Phase
+Restore Durable State
+→ Validate Authority
+→ Resolve Transaction Tail
+→ Resume Ordered Projection
+→ Rebuild Derived Index
+→ Validate Aggregate
+→ Open Runtime
+→ Deliver Continuation Events
 ```
 
-除非现有通用基础设施无法表达正式需求，并有明确 ADR。
+OnlyAlpha 使用 Forward Recovery，不提供跨 Manager Rollback。
+
+禁止：
+
+- Commit 后通过全局回滚恢复；
+- 删除 committed transaction；
+- 跳过失败 Projection 并继续；
+- Recovery 期间发布重复历史事件；
+- 用最终 Snapshot 掩盖中间事务缺失；
+- 恢复失败后自动创建空 Runtime；
+- 旧 Schema 不兼容时静默迁移。
+
+Persistence Schema 或 Checkpoint Schema 变化必须有显式版本和迁移/拒绝策略。
 
 ---
 
-## 19. Event 语义
+## 23. Result、Analytics、Artifact 与 Observation
 
-当前语义：
+Result 的逐笔成交来源必须是：
 
 ```text
-Durable Outbox : at-least-once
-Direct Event   : best-effort
+Projection Ready Committed Fact
 ```
 
-Outbox Published 表示 EventBus 已接受，不表示 Subscriber 已确认。
+不得从以下来源重建成交：
 
-当前未实现：
+- Broker 内部状态；
+- Order 最终 Snapshot；
+- Position 最终 Snapshot；
+- Account 最终余额；
+- EventBus 历史；
+- 测试手工构造列表。
+
+Result 必须保持：
+
+- 可序列化；
+- 稳定字段语义；
+- 明确空集合 Schema；
+- 稳定 Determinism Fingerprint；
+- Cluster Scope 正确；
+- Runtime Scope 正确。
+
+Artifact 写入要求：
+
+- 原子写入；
+- Manifest；
+- 相对路径；
+- Fingerprint；
+- Decimal 字符串；
+- Timestamp UTC ISO-8601 或明确 Unix nanos；
+- Enum 使用 value；
+- 不泄漏 Secret、Token、账户凭据和用户绝对路径。
+
+Paper Observation：
+
+- 只读；
+- 不成为交易状态权威；
+- Latest Store 和 Sink 不得阻塞核心 Runtime；
+- Observation 丢弃必须可计数和诊断；
+- 停止后不得继续增长。
+
+---
+
+## 24. 配置规则
+
+一个 Cluster 配置应完整描述：
+
+- Cluster；
+- Runtime；
+- Market；
+- Reference Data；
+- Universe；
+- DataSource；
+- Account；
+- Broker；
+- Strategy；
+- Factor；
+- Indicator；
+- Output。
+
+规则：
+
+- 配置必须版本化；
+- 未知字段不能静默吞掉；
+- 类型转换必须显式；
+- Secret 通过环境变量或安全注入获取；
+- 配置不能直接嵌入 Runtime Manager；
+- 配置引用的动态类型必须在 dry-run 校验；
+- Market Profile、DataSource 和 Broker Capability 必须在装配前验证；
+- 不兼容 Cluster 必须拆分 Runtime 或 Fail Closed；
+- 配置指纹必须稳定。
+
+修改配置 Schema 时必须同步：
 
 ```text
-Subscriber ACK
-Delivery Watermark
-Exactly-once
-Direct Durable Journal
-Remote EventBus
+Parser
+DTO
+Validation
+Normalized Payload
+Fingerprint
+Example Config
+Contract Test
+CLI dry-run
+Documentation
 ```
 
-不得在文档或代码中声称已经实现。
+---
+
+## 25. 插件规则
+
+插件发现依赖 Entry Point、Descriptor 和 Capability。
+
+插件必须：
+
+- 通过公共 Plugin API；
+- 提供稳定 Plugin ID 和 Version；
+- 声明 Capability；
+- 提供配置 Parser；
+- 提供 Validate Request；
+- 提供显式 Lifecycle；
+- 把外部异常转为可诊断错误；
+- 不在 import 阶段执行外部副作用；
+- 不泄漏 SDK 原始对象到 Core；
+- 不读取未声明的全局状态。
+
+Core 不得提供隐藏的具体插件回退实现。
+
+插件不存在或不兼容时必须产生明确失败，不得静默切换到 Synthetic、Placeholder 或其他插件。
 
 ---
 
-## 20. API 演进与旧接口清理
+## 26. 测试分层
 
-从第一性原则修复问题时，应选择一条正式路径。
+统一入口：
 
-不得因为以下原因保留错误接口：
+```bash
+uv run python scripts/test_suite.py fast
+uv run python scripts/test_suite.py integration
+uv run python scripts/test_suite.py ashare
+uv run python scripts/test_suite.py recovery
+uv run python scripts/test_suite.py miniqmt-contract
+uv run python scripts/test_suite.py miniqmt-local
+uv run python scripts/test_suite.py full
+uv run python scripts/test_suite.py release
+```
 
-* 旧测试仍调用；
-* 示例仍调用；
-* Prompt 中出现；
-* 历史代码使用；
-* 修改调用点工作量较大；
-* 可能有未声明的内部用户。
-
-当旧接口失去业务意义时：
-
-1. 修改所有正式调用点；
-2. 修改测试；
-3. 修改示例；
-4. 修改文档；
-5. 删除旧接口；
-6. 删除 Adapter；
-7. 删除无用参数；
-8. 删除过时错误码；
-9. 增加 Architecture Gate 防止恢复。
-
-禁止创建只做转发的兼容层。
-
-公共发布兼容必须是明确产品决策，不能由测试偶然决定。
-
----
-
-## 21. 测试原则
-
-测试应验证正式边界，而不是保护历史实现。
-
-测试不得：
-
-* 直接篡改对象私有状态；
-* 依赖字典顺序；
-* 依赖随机时间；
-* 绕过 OnlyEngine 声称验证产品链；
-* 用手工 Broker Update 声称完成 Virtual Broker 产品；
-* 降低经济不变量；
-* 隐藏正式 Execution；
-* 使用 `skip` 或 `xfail` 掩盖回归；
-* 添加生产 `test_mode`；
-* 为测试保留废弃生产接口。
-
----
-
-## 22. 测试分层
-
-测试应划分为：
-
-### Fast
+主 Marker：
 
 ```text
 unit
 contract
 architecture
+integration
+scenario
+conformance
+recovery
+external
+performance
 ```
 
-特点：
-
-* 纯函数；
-* Value Object；
-* Planner；
-* Reducer；
-* Codec；
-* Registry；
-* Architecture Gate。
-
-### Integration Smoke
-
-最短正式纵切面：
+附加 Marker：
 
 ```text
-OnlyEngine
-→ 一个 Runtime
-→ 一个或两个 Cluster
-→ 最少 Bar
-→ 一个 Open
-→ 一个 Close
-→ Result
+slow
+miniqmt
+requires_network
+requires_tushare
+requires_local_qmt
+requires_broker_account
+windows
 ```
 
-### Full Integration
-
-```text
-Multi-Fill
-Multi-Cluster
-Artifact
-Report
-Scenario
-SQLite
-```
-
-### Recovery / Exhaustive
-
-```text
-Commit Fault
-Mid-Projection
-Outbox
-Checkpoint
-A→B→C
-Registration Order
-Fault Matrix
-```
-
-### External
-
-```text
-Network
-Tushare Token
-Local QMT
-Platform SDK
-```
-
-External Test 不得进入默认离线测试。
-
----
-
-## 23. 测试性能规则
-
-新增测试必须选择成本最低但仍能证明业务语义的正式层级。产品纵切面必须经过 `OnlyEngine`；Analytics、Report、Artifact、
-Collector 和 CLI formatting 优先复用不可变 Result/Snapshot Fixture。长测试必须标记 `slow` 或 `recovery`，External 测试不得
-进入默认离线门禁，MiniQMT 真实下单必须由人工显式触发并标记 `requires_broker_account`。禁止向生产代码加入测试开关。
-
-OnlyAlpha 的 Integration Test 成本较高。新增测试必须控制重复工作。
-
-必须：
-
-* 使用满足业务场景的最短数据；
-* 下游组件优先消费固定 Result Fixture；
-* Analytics 不应反复运行完整 Engine；
-* Report Renderer 不应反复运行完整 Engine；
-* Collector 单元测试不应生成全部 Artifact；
-* 每类业务只保留必要的双运行 Determinism 测试；
-* Recovery Fault Matrix 可以复用模块级 Baseline；
-* 使用 `tmp_path` 隔离文件；
-* 需要共享 Module Fixture 时评估 `--dist=loadscope`；
-* 时长差异明显时评估 `--dist=worksteal`；
-* 新增长测试必须标记 `slow` 或 `recovery`。
-
-不得通过生产快捷路径提速。
-
----
-
-## 24. 测试命令
-
-依赖：
-
-```bash
-uv sync --frozen --all-packages --all-groups
-```
-
-静态检查：
-
-```bash
-uv run ruff check src tests examples packages
-uv run ruff format --check src tests examples packages
-uv run mypy src/onlyalpha
-```
-
-快速核心：
-
-```bash
-uv run pytest \
-  tests/execution \
-  tests/order \
-  tests/position \
-  tests/account \
-  tests/strategy_ledger \
-  tests/risk \
-  tests/architecture \
-  -q
-```
-
-Integration：
-
-```bash
-uv run pytest -n 6 --dist=worksteal tests/integration -q
-```
-
-完整 Core：
-
-```bash
-uv run pytest -n auto tests -q
-```
-
-离线门禁：
-
-```bash
-uv run pytest -n auto tests -q \
-  -m "not external and not requires_network and not requires_tushare and not requires_local_qmt"
-```
-
-失败定位：
-
-```bash
-uv run pytest path/to/test.py::test_name -vv --tb=long
-```
-
-性能分析：
-
-```bash
-uv run pytest tests/integration -q \
-  --durations=100 \
-  --durations-min=0.5
-```
-
----
-
-## 25. 实现工作流
-
-每个非平凡任务按以下顺序执行。
-
-### 25.1 审计
-
-确认：
-
-```text
-当前源码
-当前测试
-当前 ADR
-当前公共 API
-当前 Capability
-当前非目标
-```
-
-### 25.2 复现
-
-增加最小失败测试，稳定暴露真实问题。
-
-不得先大规模修改代码再猜测根因。
-
-### 25.3 设计
-
-明确：
-
-```text
-唯一 Authority
-模块职责
-输入
-输出
-不变量
-持久化边界
-恢复边界
-非目标
-```
-
-### 25.4 实现
-
-优先：
-
-* 纯函数；
-* 不可变 Dataclass；
-* 显式 Port；
-* 单一数据来源；
-* 小而明确的模块；
-* 现有通用基础设施。
-
-### 25.5 清理
-
-删除：
-
-* 旧路径；
-* 旧参数；
-* Compatibility Wrapper；
-* 无调用 Helper；
-* 过时 Error Code；
-* 过时 Fixture；
-* 过时文档。
-
-### 25.6 验证
-
-依次运行：
-
-```text
-定向单元测试
-相关组件测试
-Integration
-Recovery
-Architecture
-全量门禁
-```
-
-### 25.7 文档
-
-同步更新：
-
-```text
-ADR
-README
-组件文档
-Roadmap
-AGENTS
-```
-
-只有实际产品边界发生变化时才更新“完成状态”。
-
----
-
-## 26. 架构门禁
-
-重大功能应增加 Architecture Test，检查：
-
-* Core 不导入具体插件；
-* 产品入口只有 OnlyEngine；
-* Strategy 不持有 Manager；
-* Account 不重算 PnL；
-* Ledger 不重算 PnL；
-* Position/Allocation 不产生两套 Close Cost；
-* 支持范围不进入 Legacy Mutation；
-* Recovery 不重新决策历史业务；
-* 不新增平行 Store；
-* 不新增平行 Coordinator；
-* 不新增市场专用 Recovery Phase；
-* 不存在生产 Fault Switch；
-* 不存在兼容模式开关；
-* 不存在测试专用生产入口。
-
----
-
-## 27. 代码质量
-
-Python：
-
-```text
-Python 3.12
-Strict Mypy
-Ruff
-Dataclass
-Decimal
-Explicit Typing
-```
-
-必须：
-
-* 公共接口有类型；
-* 避免 `Any`；
-* 避免隐式全局状态；
-* 避免模块导入副作用；
-* 使用明确的 Domain Type；
-* 使用稳定 ID；
-* 使用 UTC 内部时间；
-* 用 Instrument/Calendar 表达本地市场时间；
-* 使用结构化错误码；
-* Fail Closed。
+### 26.1 Lane 选择
+
+| 修改范围 | 最低验证 |
+|---|---|
+| 纯值对象、纯函数 | 目标单测 + `fast` |
+| 公共 API / Plugin SPI | Contract + `fast` |
+| Engine / Runtime / Cluster | `integration` |
+| Market Profile / A-share 规则 | `ashare` |
+| Transaction / Projection / Checkpoint | `recovery` |
+| MiniQMT 转换 | `miniqmt-contract` |
+| 本地真实 MiniQMT | `miniqmt-local`，仅显式环境 |
+| 跨模块或发布变更 | `full` |
+| 发布候选 | `release` |
+
+实际运行最窄的正确集合，但不得用“小测试已通过”替代必须的 Recovery 或 Conformance。
+
+### 26.2 测试原则
 
 禁止：
 
-* 裸 `dict` 在领域层长期传播；
-* Float 表示金额、价格和数量；
-* Manager 互相直接写状态；
-* Plugin 反向依赖 Core 内部实现；
-* SQL 中隐藏业务规则；
-* 生产代码中隐藏测试开关。
+- 删除覆盖来缩短时间；
+- 使用 `skip`/`xfail` 掩盖回归；
+- 放宽经济不变量；
+- 增加生产 `test_mode`；
+- 手工构造成功 Fill 替代 Virtual Broker；
+- 通过 sleep 修复确定性问题；
+- 让离线测试访问网络；
+- 普通测试连接真实账户；
+- 多个 Worker 共享可写 SQLite；
+- 使用本机时区作为隐含输入；
+- 只断言最终余额而忽略逐笔事实。
+
+测试应优先复用：
+
+- 固定 Result Fixture；
+- 只读 Recovery Baseline；
+- MiniQMT Golden Dataset；
+- Exact Scenario Input。
+
+但产品纵切面、故障恢复和确定性专项测试必须保留完整 Engine 运行。
+
+### 26.3 真实环境边界
+
+Fake SDK 通过只能证明 Contract，不等于真实产品通过。
+
+真实 MiniQMT：
+
+- 必须显式 opt-in；
+- 必须使用对应 Marker；
+- 必须串行；
+- 不满足环境时记录 Not Executed；
+- 不得伪造 PASS。
+
+真实订单：
+
+- 必须使用独立 Manual Gate；
+- 必须显式账户和权限；
+- 不进入普通 CI；
+- 不进入默认 `miniqmt-local`；
+- 未完成安全门禁前不得自动提交。
 
 ---
 
-## 28. 文档规则
+## 27. 静态质量门禁
 
-文档必须区分：
-
-```text
-已形成正式产品链
-基础模型存在
-Legacy 路径存在
-计划实现
-明确不支持
-```
-
-禁止把：
+项目使用：
 
 ```text
-有 Enum
-有 Manager
-有单元测试
-有旧执行路径
+Python 3.12
+uv
+Ruff
+Ruff Format
+mypy strict
+pytest
+pytest-xdist
 ```
 
-描述成产品完成。
+常用命令：
 
-README 应面向使用者。
+```bash
+uv sync --frozen --all-packages --all-groups
+uv run ruff check src tests examples packages scripts
+uv run ruff format --check src tests examples packages scripts
+uv run mypy src/onlyalpha
+uv run python scripts/version_sync.py check
+uv build --all-packages
+```
 
-AGENTS 应面向工程实施者。
+规则：
 
-ADR 应记录不可逆或重要架构决策。
-
-Roadmap 应表达产品状态，不应堆叠历史提交日志。
-
-`docs/reports/` 和 `prompts/` 不得覆盖当前源码事实。
+- 不以 `# type: ignore` 掩盖设计错误；
+- 新 ignore 必须最小化并注明原因；
+- 不使用无类型 `dict` 替代明确 DTO；
+- 公共方法必须有完整类型；
+- 错误码应稳定、可测试；
+- 不吞掉异常；
+- cleanup 失败应进入诊断；
+- 不使用全局可变状态；
+- 不依赖未排序集合产生输出；
+- 文件写入必须考虑原子性；
+- 资源必须有明确关闭路径。
 
 ---
 
-## 29. 当前优先级
+## 28. 代码修改原则
 
-### P0：Test Suite Performance and Layering
+### 28.1 优先修改现有权威路径
 
-目标：
-
-```text
-缩短开发反馈
-减少重复 Engine Run
-建立 Fast / Integration / Recovery 分层
-保持覆盖不下降
-```
-
-当前测试基础设施事实：
+新增能力前，先查找：
 
 ```text
-Result Fixture       : tests/fixtures/results/，仅由显式维护脚本重生成
-Recovery Baseline    : 提交只读压缩源，运行时物化到忽略的 .test-cache 并复制到独立 tmp_path
-MiniQMT Golden v1    : 真实未复权历史 Bar；不代表 ST、停牌或 Effective Reference 已完成
-Performance Metrics  : .test-metrics/，基线目标由人工确认，不由 CI 自动覆盖
-External Boundary    : MiniQMT Local 串行只读；真实订单使用独立手动 Gate
+Existing Domain Type
+Existing Port
+Existing Factory
+Existing Registry
+Existing Planner
+Existing Projection Target
+Existing Query
+Existing Result DTO
+Existing Checkpoint Participant
 ```
 
-### P1：CN A-share Cash Product Closure
+只有在职责确实不同且无法合理扩展时才新增抽象。
 
-目标：
+### 28.2 禁止双路径
+
+禁止创建：
 
 ```text
-T+1
-停牌
-涨跌停
-板块/ST
-整手和零股
-费用
-真实离线样本
-完整 Scenario Pack
+new_manager_v2
+legacy_or_new
+paper_special_execution
+close_only_processor
+market_specific_engine
+compatibility_accounting
+temporary_trade_store
 ```
 
-### P2：Data and Corporate Action
+若新实现替代旧实现，应：
 
-目标：
+1. 迁移正式调用方；
+2. 迁移测试；
+3. 删除旧正式路径；
+4. 保留必要的数据读取兼容；
+5. 更新 ADR 和文档；
+6. 增加架构门禁防止回流。
 
-```text
-复权
-公司行为
-证券状态
-参考数据版本
-大规模回放
-```
+### 28.3 Fail Closed
 
-### P3：Research Workflow
+以下场景必须明确失败：
 
-### P4：Paper / Live
+- 未知 Market Profile；
+- Capability 不支持；
+- Reference 缺失；
+- 状态无法归因；
+- Fill Identity 冲突；
+- 配置不兼容；
+- Checkpoint Schema 不兼容；
+- Projection 前置状态不匹配；
+- Broker/Local Authority 冲突达到阻断级；
+- Paper 启动历史数据不足；
+- Session 边界无法确认；
+- Secret 或外部环境未配置。
 
-Futures/Margin、Short/Hedging 和更多市场应在当前 Cash 产品闭环后再扩展。
+不得为了“先跑起来”使用隐式默认值放行资金和交易状态。
 
 ---
 
-## 30. PR 完成标准
+## 29. 文档规则
 
-一个 PR 只有在以下条件满足后才能声明完成：
+代码行为变化时必须同步相关文档。
 
-1. 根因已明确；
-2. 正式 Authority 唯一；
-3. 模块职责清晰；
-4. 旧路径已删除；
-5. 无无意义兼容层；
-6. 单元测试通过；
-7. Integration 通过；
-8. Recovery 不回归；
-9. Architecture Gate 通过；
-10. Ruff 通过；
-11. Mypy 通过；
-12. 文档与源码一致；
-13. 非目标明确；
-14. 未伪造测试结果；
-15. 未把未完成内容转移为隐性后续债务。
+### README
+
+只描述：
+
+- 产品定位；
+- 当前可用能力；
+- 快速开始；
+- 产品边界；
+- 风险声明；
+- 文档导航。
+
+不得把 README 重新写成历史实施日志。
+
+### AGENTS
+
+只描述：
+
+- Agent 执行规则；
+- 架构不变量；
+- 事实来源；
+- 验证和交付门禁。
+
+### Roadmap
+
+描述：
+
+- 已完成阶段；
+- 当前阶段；
+- 后续产品优先级；
+- 明确非目标。
+
+### ADR
+
+以下变化必须新增或更新 ADR：
+
+- 状态所有权；
+- Durable Authority；
+- Projection 顺序；
+- Recovery Phase；
+- Public API；
+- Persistence Schema；
+- Plugin 边界；
+- Market Rule Authority；
+- Result Authority；
+- 旧路径替换。
+
+### Report
+
+`docs/reports/` 必须带：
+
+- 日期；
+- 版本或 Commit；
+- 环境；
+- 实际执行命令；
+- 原始结果；
+- 未执行项；
+- 限制；
+- Artifact 引用。
+
+历史报告不能被当作当前状态自动继承。
 
 ---
 
-## 31. 最终原则
+## 30. 安全与敏感信息
 
-OnlyAlpha 的实现应优先满足：
+禁止提交或输出：
+
+- Token；
+- Password；
+- Secret；
+- Broker Credential；
+- Account Auth；
+- 私钥；
+- 本地 QMT 用户数据绝对路径；
+- 用户主目录绝对路径；
+- 未脱敏账户 ID；
+- 外部服务完整响应中的敏感字段。
+
+日志、Artifact、Worker Request/Result 和验收 Evidence 必须脱敏。
+
+真实交易相关修改必须默认关闭，并要求显式配置和权限。
+
+---
+
+## 31. Agent 交付格式
+
+完成代码任务时，最终报告至少包含：
 
 ```text
-业务正确
->
-架构清晰
->
+1. 修改目标
+2. 当前事实和原始问题
+3. 修改的正式权威路径
+4. 变更文件
+5. 不变量如何保持
+6. 运行的测试和真实结果
+7. 未运行的测试及原因
+8. 剩余限制
+9. 是否修改 Public API / Schema / ADR
+```
+
+不得只说“已完成”或“测试通过”。
+
+测试结果必须区分：
+
+```text
+PASS
+FAIL
+BLOCKED
+NOT EXECUTED
+```
+
+不得把环境缺失描述为 PASS。
+
+---
+
+## 32. Definition of Done
+
+一项修改只有在满足下列条件时才算完成：
+
+### 业务正确性
+
+- 使用唯一正式入口；
+- 未绕过状态权威；
+- 未创建第二套正式路径；
+- 经济不变量成立；
+- 不支持能力 Fail Closed；
+- 重复和乱序输入行为明确；
+- 失败语义明确。
+
+### 架构正确性
+
+- 依赖方向正确；
+- Runtime 仍是可变状态唯一所有者；
+- 插件未穿透 Core 内部；
+- Strategy/Factor 未获得越权能力；
+- Market Rule 未复制；
+- Result 仍来自正式成交权威。
+
+### 恢复正确性
+
+若涉及状态：
+
+- Checkpoint 能力已声明；
+- Schema 版本已处理；
+- 连续运行和恢复运行等价；
+- 事务尾部和 Projection 恢复已覆盖；
+- Event 不重复泄漏。
+
+### 测试正确性
+
+- 运行了最窄的正确测试；
+- 涉及交易/持久化时运行 Recovery；
+- 涉及市场规则时运行 Conformance；
+- 没有通过删除测试、skip 或放宽断言完成；
+- 测试结果真实记录。
+
+### 工程完整性
+
+- 类型检查通过；
+- Lint/Format 通过；
+- 示例和配置同步；
+- 文档同步；
+- 不泄漏敏感信息；
+- 无临时文件和调试代码；
+- 没有未说明的兼容分支。
+
+---
+
+## 33. 禁止清单
+
+在 OnlyAlpha 中禁止以下做法：
+
+```text
+绕过 OnlyEngine 证明产品能力
+绕过 Runtime Queue 处理 Broker 回报
+Strategy 直接修改订单、仓位或账户
+Plugin 持有 Runtime Manager
+用 Event Handler 驱动核心状态
+用最终 Snapshot 反推逐笔成交
+多个 Fill 合并为一个可变 Transaction
+Commit 后修改 Transaction
+Position、Account、Ledger 分别重算 PnL
+多个组件复制市场规则
+使用 Float 处理正式账务
+未知能力静默降级
+Fake SDK PASS 冒充真实产品 PASS
+为了测试增加生产 test_mode
+通过 skip/xfail 掩盖失败
+用 sleep 修复确定性
+未排序集合进入结果指纹
+不兼容 Schema 静默读取
+在 Artifact 中保存 Secret
+未运行测试却声称测试通过
+根据 prompts/ 创建第二套实现
+```
+
+---
+
+## 34. 最终原则
+
+当实现方案之间存在冲突时，优先选择：
+
+```text
+唯一权威
+> 多份状态副本
+
 确定性
->
-可恢复
->
-可审计
->
-性能
->
-兼容历史内部接口
+> 偶然顺序
+
+显式失败
+> 隐式降级
+
+不可变事实
+> 可变推断
+
+正式产品纵切面
+> 单组件演示
+
+Forward Recovery
+> 跨 Manager 回滚
+
+公共 Port
+> 内部对象穿透
+
+可验证边界
+> 功能数量
 ```
 
-性能优化不得破坏业务正确性。
+OnlyAlpha 的工程质量不由“存在多少类和模块”衡量，而由以下问题衡量：
 
-兼容旧测试不得破坏正式模型。
-
-新增功能不得建立第二套 Authority。
-
-任何无法解释的经济状态都必须 Fail Closed。
+```text
+同一输入是否产生同一结果？
+每个事实是否有唯一来源？
+每个状态是否有唯一所有者？
+每次失败是否可以解释？
+每次恢复是否保持经济等价？
+每项产品声明是否有真实验收证据？
+```
