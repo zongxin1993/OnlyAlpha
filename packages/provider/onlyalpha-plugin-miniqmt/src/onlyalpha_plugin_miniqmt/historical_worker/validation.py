@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from zoneinfo import ZoneInfo
@@ -11,11 +12,21 @@ from .models import OnlyMiniQmtWorkerRequest
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyNormalizedHistoricalRows:
+    records: tuple[dict[str, object], ...]
+    provider_raw_bar_count: int
+    rejected_out_of_range_count: int
+    provider_raw_last_bar_end_ns: int | None
+
+
 def normalize_rows(
     raw_rows: list[dict[str, object]], request: OnlyMiniQmtWorkerRequest
-) -> tuple[dict[str, object], ...]:
+) -> OnlyNormalizedHistoricalRows:
     minutes = _period_minutes(request.period)
     records: list[dict[str, object]] = []
+    raw_ends: list[int] = []
+    rejected_out_of_range_count = 0
     for row in raw_rows:
         missing = {"time", "open", "high", "low", "close", "volume"} - row.keys()
         if missing:
@@ -34,6 +45,7 @@ def normalize_rows(
             # Live callbacks have separate, evolving-Bar semantics.
             end = event
             start = event - timedelta(minutes=minutes)
+        raw_ends.append(_nanos(end))
         record = {
             "instrument_id": request.instrument_id,
             "bar_type": request.period,
@@ -48,10 +60,17 @@ def normalize_rows(
         }
         if int(str(record["bar_end_ns"])) <= request.end_time_ns:
             records.append(record)
+        else:
+            rejected_out_of_range_count += 1
     records.sort(key=lambda item: int(str(item["bar_end_ns"])))
     selected = tuple(records[-request.required_bars :])
     validate_records(selected, request, require_count=True)
-    return selected
+    return OnlyNormalizedHistoricalRows(
+        selected,
+        len(raw_rows),
+        rejected_out_of_range_count,
+        max(raw_ends, default=None),
+    )
 
 
 def validate_records(

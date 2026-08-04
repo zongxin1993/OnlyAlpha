@@ -128,7 +128,9 @@ class OnlyMiniQmtHistoricalIsolatedClient:
         instrument = self._create_request.instruments[request.instrument_id]
         minutes = request.bar_type.specification.step
         period = "1d" if minutes == 1_440 else f"{minutes // 60}h" if minutes % 60 == 0 else f"{minutes}m"
+        requested_start = request.requested_start.to_datetime().astimezone(UTC).isoformat().replace("+00:00", "Z")
         end = request.end_time.to_datetime().astimezone(UTC).isoformat().replace("+00:00", "Z")
+        observed = request.bootstrap_observed_at.to_datetime().astimezone(UTC).isoformat().replace("+00:00", "Z")
         return OnlyMiniQmtWorkerRequest(
             request_id=request.request_id,
             userdata_mini_path=str(self._userdata_mini_path.resolve()),
@@ -136,8 +138,12 @@ class OnlyMiniQmtHistoricalIsolatedClient:
             xt_symbol=to_xt_symbol(request.instrument_id),
             period=period,
             required_bars=request.required_bars,
+            requested_start=requested_start,
+            requested_start_ns=request.requested_start.unix_nanos,
             end_time=end,
             end_time_ns=request.end_time.unix_nanos,
+            bootstrap_observed_at=observed,
+            bootstrap_observed_at_ns=request.bootstrap_observed_at.unix_nanos,
             fields=profile.explicit_fields,
             adjustment=profile.adjustment,
             fill_data=profile.fill_data,
@@ -169,6 +175,10 @@ class OnlyMiniQmtHistoricalIsolatedClient:
             raise ValueError("result request fingerprint mismatch")
         if int(manifest.get("row_count", -1)) != len(records):
             raise ValueError("result row count mismatch")
+        if int(manifest.get("requested_end_ns", -1)) != request.end_time.unix_nanos:
+            raise ValueError("result requested boundary mismatch")
+        if int(manifest.get("bootstrap_observed_at_ns", -1)) != request.bootstrap_observed_at.unix_nanos:
+            raise ValueError("result bootstrap observation mismatch")
         validate_records(records, transport, require_count=True)
         encoded = bars_payload(records)
         if manifest.get("bars_file_fingerprint") != bytes_fingerprint(encoded):
@@ -182,17 +192,29 @@ class OnlyMiniQmtHistoricalIsolatedClient:
             raise ValueError("first Bar boundary mismatch")
         if int(manifest.get("last_bar_end_ns", -1)) != OnlyTimestamp.from_datetime(last.bar_end).unix_nanos:
             raise ValueError("last Bar boundary mismatch")
+        provider_raw_last_ns = manifest.get("provider_raw_last_bar_end_ns")
         return OnlyHistoricalWarmupResult(
-            OnlyHistoricalWarmupStatus.SUCCESS,
-            bars,
-            transport.request_fingerprint,
-            content_fingerprint,
-            OnlyTimestamp.from_datetime(first.bar_end),
-            OnlyTimestamp.from_datetime(last.bar_end),
-            "miniqmt",
-            None if manifest.get("provider_version") is None else str(manifest["provider_version"]),
-            transport.compatibility_profile_id,
-            None,
+            status=OnlyHistoricalWarmupStatus.SUCCESS,
+            bars=bars,
+            request_fingerprint=transport.request_fingerprint,
+            content_fingerprint=content_fingerprint,
+            first_bar_end=OnlyTimestamp.from_datetime(first.bar_end),
+            last_bar_end=OnlyTimestamp.from_datetime(last.bar_end),
+            bootstrap_observed_at=request.bootstrap_observed_at,
+            requested_start=request.requested_start,
+            requested_end=request.end_time,
+            provider_raw_bar_count=int(manifest["provider_raw_bar_count"]),
+            accepted_bar_count=int(manifest["accepted_bar_count"]),
+            rejected_out_of_range_count=int(manifest["rejected_out_of_range_count"]),
+            provider_raw_last_bar_end=None
+            if provider_raw_last_ns is None
+            else OnlyTimestamp.from_unix_nanos(int(provider_raw_last_ns)),
+            accepted_last_bar_end=OnlyTimestamp.from_datetime(last.bar_end),
+            provider="miniqmt",
+            provider_version=None if manifest.get("provider_version") is None else str(manifest["provider_version"]),
+            compatibility_profile_id=transport.compatibility_profile_id,
+            diagnostic=None,
+            working_directory=str(workdir),
         )
 
     def _bar(self, record: dict[str, Any], request: OnlyHistoricalWarmupRequest) -> OnlyBar:
@@ -284,16 +306,24 @@ class OnlyMiniQmtHistoricalIsolatedClient:
         provider_version: str | None = None,
     ) -> OnlyHistoricalWarmupResult:
         return OnlyHistoricalWarmupResult(
-            status,
-            (),
-            transport.request_fingerprint,
-            None,
-            None,
-            None,
-            "miniqmt",
-            provider_version,
-            transport.compatibility_profile_id,
-            OnlyHistoricalWarmupDiagnostic(
+            status=status,
+            bars=(),
+            request_fingerprint=transport.request_fingerprint,
+            content_fingerprint=None,
+            first_bar_end=None,
+            last_bar_end=None,
+            bootstrap_observed_at=OnlyTimestamp.from_unix_nanos(transport.bootstrap_observed_at_ns),
+            requested_start=OnlyTimestamp.from_unix_nanos(transport.requested_start_ns),
+            requested_end=OnlyTimestamp.from_unix_nanos(transport.end_time_ns),
+            provider_raw_bar_count=0,
+            accepted_bar_count=0,
+            rejected_out_of_range_count=0,
+            provider_raw_last_bar_end=None,
+            accepted_last_bar_end=None,
+            provider="miniqmt",
+            provider_version=provider_version,
+            compatibility_profile_id=transport.compatibility_profile_id,
+            diagnostic=OnlyHistoricalWarmupDiagnostic(
                 code,
                 message,
                 exit_code,
@@ -305,6 +335,7 @@ class OnlyMiniQmtHistoricalIsolatedClient:
                 transport.compatibility_profile_id,
                 str(self._userdata_mini_path.resolve()),
             ),
+            working_directory=str(workdir),
         )
 
     def _failure_without_worker(
@@ -317,16 +348,24 @@ class OnlyMiniQmtHistoricalIsolatedClient:
             {"request_id": request.request_id, "compatibility_profile_id": request.compatibility_profile_id}
         )
         return OnlyHistoricalWarmupResult(
-            status,
-            (),
-            request_fingerprint,
-            None,
-            None,
-            None,
-            "miniqmt",
-            None,
-            request.compatibility_profile_id,
-            OnlyHistoricalWarmupDiagnostic(
+            status=status,
+            bars=(),
+            request_fingerprint=request_fingerprint,
+            content_fingerprint=None,
+            first_bar_end=None,
+            last_bar_end=None,
+            bootstrap_observed_at=request.bootstrap_observed_at,
+            requested_start=request.requested_start,
+            requested_end=request.end_time,
+            provider_raw_bar_count=0,
+            accepted_bar_count=0,
+            rejected_out_of_range_count=0,
+            provider_raw_last_bar_end=None,
+            accepted_last_bar_end=None,
+            provider="miniqmt",
+            provider_version=None,
+            compatibility_profile_id=request.compatibility_profile_id,
+            diagnostic=OnlyHistoricalWarmupDiagnostic(
                 "MINIQMT_HISTORICAL_INVALID_REQUEST",
                 str(exc),
                 None,

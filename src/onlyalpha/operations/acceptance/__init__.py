@@ -3,7 +3,13 @@
 from .artifacts import OnlyAcceptanceArtifactBundle, OnlyAcceptanceArtifactWriter
 from .assertions import OnlyPaperAcceptanceAssertions
 from .evidence import only_evidence_from_dict, only_evidence_to_dict
-from .models import OnlyAcceptanceCase, OnlyAcceptanceEvidence, OnlyAcceptanceVerdict
+from .models import (
+    OnlyAcceptanceCase,
+    OnlyAcceptanceEvidence,
+    OnlyAcceptanceExecutionStage,
+    OnlyAcceptanceFailureKind,
+    OnlyAcceptanceVerdict,
+)
 from .paper_plan import OnlyPaperAcceptancePlan
 from .paper_runner import OnlyPaperAcceptanceResult, OnlyPaperAcceptanceRunner
 from .verdict import OnlyAcceptanceVerdictReducer
@@ -13,6 +19,8 @@ __all__ = [
     "OnlyAcceptanceArtifactWriter",
     "OnlyAcceptanceCase",
     "OnlyAcceptanceEvidence",
+    "OnlyAcceptanceExecutionStage",
+    "OnlyAcceptanceFailureKind",
     "OnlyAcceptanceVerdict",
     "OnlyAcceptanceVerdictReducer",
     "OnlyPaperAcceptanceAssertions",

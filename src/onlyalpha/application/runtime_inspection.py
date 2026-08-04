@@ -35,6 +35,14 @@ class OnlyHistoricalWarmupInspection:
     bar_count: int
     first_bar_end: OnlyTimestamp | None
     last_bar_end: OnlyTimestamp | None
+    bootstrap_observed_at: OnlyTimestamp
+    requested_start: OnlyTimestamp
+    requested_end: OnlyTimestamp
+    provider_raw_bar_count: int
+    accepted_bar_count: int
+    rejected_out_of_range_count: int
+    provider_raw_last_bar_end: OnlyTimestamp | None
+    accepted_last_bar_end: OnlyTimestamp | None
     diagnostic_code: str | None
     process_exit_code: int | None
 
@@ -53,6 +61,8 @@ class OnlyStreamingRuntimeInspectionSnapshot:
     next_market_close: OnlyTimestamp
     source_connected: bool
     worker_alive: bool
+    bootstrap_observed_at: OnlyTimestamp | None
+    historical_requested_end: OnlyTimestamp | None
     historical_watermarks: tuple[OnlyHistoricalWatermark, ...]
     historical_warmups: tuple[OnlyHistoricalWarmupInspection, ...]
     historical_bar_count: int
@@ -63,6 +73,21 @@ class OnlyStreamingRuntimeInspectionSnapshot:
     closed_external_bar_count: int
     derived_internal_bar_count: int
     historical_observation_count: int
+    historical_provider_bar_count: int
+    historical_replay_attempted_count: int
+    historical_processed_bar_count: int
+    historical_rejected_bar_count: int
+    historical_duplicate_count: int
+    historical_provider_last_bar_end: OnlyTimestamp | None
+    historical_last_attempted_bar_end: OnlyTimestamp | None
+    historical_last_processed_bar_end: OnlyTimestamp | None
+    historical_watermark_last_bar_end: OnlyTimestamp | None
+    historical_first_rejection_reason: str | None
+    acceptance_execution_stage: str
+    last_received_at: OnlyTimestamp | None
+    last_closed_bar_end: OnlyTimestamp | None
+    next_expected_bar_end: OnlyTimestamp | None
+    pending_live_bar_count: int
     live_observation_count: int
     duplicate_count: int
     historical_overlap_count: int

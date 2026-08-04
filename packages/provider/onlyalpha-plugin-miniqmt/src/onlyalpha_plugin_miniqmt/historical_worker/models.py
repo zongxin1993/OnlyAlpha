@@ -21,8 +21,12 @@ class OnlyMiniQmtWorkerRequest:
     xt_symbol: str
     period: str
     required_bars: int
+    requested_start: str
+    requested_start_ns: int
     end_time: str
     end_time_ns: int
+    bootstrap_observed_at: str
+    bootstrap_observed_at_ns: int
     fields: tuple[str, ...]
     adjustment: str
     fill_data: bool
@@ -43,8 +47,12 @@ class OnlyMiniQmtWorkerRequest:
             "xt_symbol": self.xt_symbol,
             "period": self.period,
             "required_bars": self.required_bars,
+            "requested_start": self.requested_start,
+            "requested_start_ns": self.requested_start_ns,
             "end_time": self.end_time,
             "end_time_ns": self.end_time_ns,
+            "bootstrap_observed_at": self.bootstrap_observed_at,
+            "bootstrap_observed_at_ns": self.bootstrap_observed_at_ns,
             "fields": list(self.fields),
             "adjustment": self.adjustment,
             "fill_data": self.fill_data,
@@ -75,8 +83,12 @@ class OnlyMiniQmtWorkerRequest:
             xt_symbol=str(raw["xt_symbol"]),
             period=str(raw["period"]),
             required_bars=int(raw["required_bars"]),
+            requested_start=str(raw["requested_start"]),
+            requested_start_ns=int(raw["requested_start_ns"]),
             end_time=str(raw["end_time"]),
             end_time_ns=int(raw["end_time_ns"]),
+            bootstrap_observed_at=str(raw["bootstrap_observed_at"]),
+            bootstrap_observed_at_ns=int(raw["bootstrap_observed_at_ns"]),
             fields=tuple(fields),
             adjustment=str(raw["adjustment"]),
             fill_data=bool(raw["fill_data"]),
@@ -96,6 +108,8 @@ class OnlyMiniQmtWorkerRequest:
             raise ValueError("historical worker identifiers are required")
         if self.required_bars <= 0 or self.maximum_count < self.required_bars or self.overlap_bars < 0:
             raise ValueError("historical worker Bar counts are invalid")
+        if self.requested_start_ns >= self.end_time_ns or self.end_time_ns > self.bootstrap_observed_at_ns:
+            raise ValueError("historical worker frozen request boundaries are invalid")
         if self.price_precision < 0 or self.quantity_precision < 0:
             raise ValueError("historical worker precisions cannot be negative")
         if not Path(self.userdata_mini_path).is_dir():

@@ -22,7 +22,7 @@ from onlyalpha_plugin_miniqmt.historical_worker.protocol import (
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--behavior", choices=("success", "half", "sleep"), default="success")
+    parser.add_argument("--behavior", choices=("success", "opening-boundary", "half", "sleep"), default="success")
     args = parser.parse_args()
     request = OnlyMiniQmtWorkerRequest.parse(read_json(args.request))
     root = args.request.parent
@@ -30,20 +30,31 @@ def main() -> int:
         (root / "worker.pid").write_text(str(os.getpid()), encoding="ascii")
         time.sleep(60)
         return 0
+    if args.behavior == "opening-boundary":
+        minute_ns = 60_000_000_000
+        previous_close = request.end_time_ns - (18 * 60 + 36) * minute_ns
+        ends = [previous_close - offset * minute_ns for offset in range(5, -1, -1)]
+        ends += [request.end_time_ns - 6 * minute_ns]
+        ends += [request.end_time_ns - offset * minute_ns for offset in range(5, -1, -1)]
+    else:
+        ends = [
+            request.end_time_ns - (request.required_bars - index - 1) * 60_000_000_000
+            for index in range(request.required_bars)
+        ]
     records = tuple(
         {
             "instrument_id": request.instrument_id,
             "bar_type": request.period,
-            "bar_start_ns": request.end_time_ns - (request.required_bars - index) * 60_000_000_000,
-            "bar_end_ns": request.end_time_ns - (request.required_bars - index - 1) * 60_000_000_000,
-            "ts_event_ns": request.end_time_ns - (request.required_bars - index - 1) * 60_000_000_000,
+            "bar_start_ns": end_ns - 60_000_000_000,
+            "bar_end_ns": end_ns,
+            "ts_event_ns": end_ns,
             "open": "10.00",
             "high": "10.10",
             "low": "9.90",
             "close": "10.05",
             "volume": "100",
         }
-        for index in range(request.required_bars)
+        for end_ns in ends
     )
     encoded = bars_payload(records)
     if args.behavior == "half":
@@ -62,6 +73,14 @@ def main() -> int:
             "instrument_id": request.instrument_id,
             "period": request.period,
             "requested_bars": request.required_bars,
+            "requested_start_ns": request.requested_start_ns,
+            "requested_end_ns": request.end_time_ns,
+            "bootstrap_observed_at_ns": request.bootstrap_observed_at_ns,
+            "provider_raw_bar_count": len(records),
+            "accepted_bar_count": len(records),
+            "rejected_out_of_range_count": 0,
+            "provider_raw_last_bar_end_ns": records[-1]["bar_end_ns"],
+            "accepted_last_bar_end_ns": records[-1]["bar_end_ns"],
             "row_count": len(records),
             "first_bar_end_ns": records[0]["bar_end_ns"],
             "last_bar_end_ns": records[-1]["bar_end_ns"],

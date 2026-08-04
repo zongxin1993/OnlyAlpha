@@ -80,6 +80,11 @@ Watermark/Catch-up 重叠去重、Bootstrap/Catch-up 订单副作用抑制、Lat
 Session-aware Health、长生命周期 CLI Runner 与一次性 `snapshot` 命令。真实 MiniQMT Historical Compatibility、实时 Gap
 Recovery、重连、Streaming Checkpoint/Recovery 与 Paper 产品验收仍未完成。
 
+PR5.1.3/PR5.1.3b 已完成冻结 Profile 的真实 OPEN Historical Bootstrap 与 Live Handoff 验收：Historical Boundary 在
+Bootstrap 起点冻结，Worker/Parent 双层拒绝超界数据，Replay/Watermark/Observation 使用最后成功 Pipeline Bar 作为唯一
+Authority；真实 MiniQMT 形成 6 根 1m、2 根 3m、Live Observation、Shadow Intent、Reservation Release 与有序停止。
+Paper Runtime 仍为部分完成；Reconnect、Gap Recovery、Streaming Checkpoint/Recovery、广泛兼容性与真实交易继续未完成。
+
 ## Phase 4：Live 产品循环（未完成）
 
 真实行情/交易 Gateway、重连、同步和生产级对账尚未闭环。本阶段开始前继续保持真实交易禁用。

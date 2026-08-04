@@ -17,13 +17,18 @@ from onlyalpha_plugin_miniqmt.historical_worker.compatibility import resolve_pro
 from onlyalpha_plugin_miniqmt.historical_worker.models import OnlyMiniQmtWorkerRequest
 from onlyalpha_plugin_miniqmt.historical_worker.protocol import tail
 from onlyalpha_plugin_miniqmt.historical_worker.query import query_history
-from onlyalpha_plugin_miniqmt.historical_worker.validation import validate_records
+from onlyalpha_plugin_miniqmt.historical_worker.validation import normalize_rows, validate_records
 
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.data.warmup import OnlyHistoricalWarmupRequest, OnlyHistoricalWarmupStatus
+from onlyalpha.data.warmup import (
+    OnlyHistoricalValidationError,
+    OnlyHistoricalWarmupRequest,
+    OnlyHistoricalWarmupStatus,
+    only_validate_historical_warmup_result,
+)
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
     OnlyAggregationSource,
@@ -52,7 +57,9 @@ def _request(*, timeout: int = 5) -> OnlyHistoricalWarmupRequest:
         instrument_id,
         bar_type,
         2,
+        OnlyTimestamp.from_datetime(datetime(2026, 7, 24, 2, tzinfo=UTC)),
         OnlyTimestamp.from_datetime(datetime(2026, 8, 3, 2, tzinfo=UTC)),
+        OnlyTimestamp.from_datetime(datetime(2026, 8, 3, 2, 0, 30, tzinfo=UTC)),
         OnlyDataVersion("test-v1"),
         OnlyAdjustmentType.RAW,
         timeout,
@@ -295,26 +302,76 @@ def test_parent_rejects_duplicate_or_out_of_order_transport_records(tmp_path: Pa
         validate_records((record, dict(record)), request, require_count=True)
 
 
+def test_worker_filters_provider_rows_after_frozen_requested_end(tmp_path: Path) -> None:
+    request = _client(tmp_path, "success")._transport_request(_request())  # noqa: SLF001
+    end_millis = request.end_time_ns // 1_000_000
+    raw_rows = [
+        {
+            "time": end_millis + offset,
+            "open": "10.00",
+            "high": "10.10",
+            "low": "9.90",
+            "close": "10.05",
+            "volume": "100",
+        }
+        for offset in (-60_000, 0, 60_000, 120_000, 180_000, 240_000, 300_000, 360_000)
+    ]
+
+    normalized = normalize_rows(raw_rows, request)
+
+    assert normalized.provider_raw_bar_count == 8
+    assert len(normalized.records) == 2
+    assert normalized.rejected_out_of_range_count == 6
+    assert max(int(item["bar_end_ns"]) for item in normalized.records) <= request.end_time_ns
+
+
+def test_parent_fails_closed_when_worker_returns_bar_after_requested_end(tmp_path: Path) -> None:
+    request = _request()
+    result = _client(tmp_path, "success").load_warmup(request)
+    last = result.bars[-1]
+    invalid_end = request.end_time.to_datetime() + timedelta(minutes=1)
+    invalid = replace(
+        last,
+        bar_start=request.end_time.to_datetime(),
+        bar_end=invalid_end,
+        ts_event=invalid_end,
+        ts_init=invalid_end,
+    )
+    malicious = replace(
+        result,
+        bars=(result.bars[0], invalid),
+        last_bar_end=OnlyTimestamp.from_datetime(invalid_end),
+        accepted_last_bar_end=OnlyTimestamp.from_datetime(invalid_end),
+    )
+
+    with pytest.raises(OnlyHistoricalValidationError, match="HISTORICAL_BAR_EXCEEDS_REQUESTED_BOUNDARY"):
+        only_validate_historical_warmup_result(request, malicious)
+
+
 def test_transport_request_rejects_unknown_protocol_or_missing_userdata(tmp_path: Path) -> None:
     payload = OnlyMiniQmtWorkerRequest(
-        "id",
-        str(tmp_path / "missing"),
-        "600000.XSHG",
-        "600000.SH",
-        "1m",
-        1,
-        "2026-08-03T02:00:00Z",
-        1,
-        ("time",),
-        "none",
-        False,
-        2,
-        0,
-        "miniqmt-history-v2",
-        "END_TIME_WITH_COUNT",
-        True,
-        1,
-        10,
+        request_id="id",
+        userdata_mini_path=str(tmp_path / "missing"),
+        instrument_id="600000.XSHG",
+        xt_symbol="600000.SH",
+        period="1m",
+        required_bars=1,
+        requested_start="2026-08-02T02:00:00Z",
+        requested_start_ns=1,
+        end_time="2026-08-03T02:00:00Z",
+        end_time_ns=2,
+        bootstrap_observed_at="2026-08-03T02:00:01Z",
+        bootstrap_observed_at_ns=3,
+        fields=("time",),
+        adjustment="none",
+        fill_data=False,
+        price_precision=2,
+        quantity_precision=0,
+        compatibility_profile_id="miniqmt-history-v2",
+        query_mode="END_TIME_WITH_COUNT",
+        download_before_query=True,
+        overlap_bars=1,
+        maximum_count=10,
     )
     with pytest.raises(ValueError, match="not a directory"):
         payload.validate()
@@ -352,9 +409,15 @@ def test_validated_cache_reuses_matching_profile_but_never_stale_coverage(tmp_pa
     assert first.manifest.key.data_version == "test-v1"
     assert first.manifest.key.compatibility_profile_id == "miniqmt-history-v2"
     assert first.manifest.time_semantics_version == 2
+    assert first.manifest.metadata["provider_raw_bar_count"] == 2
+    assert first.manifest.metadata["accepted_bar_count"] == 2
     stale_end = end + timedelta(minutes=1)
     stale_request = replace(cache_request, time_range=OnlyTimeRange(end - timedelta(days=10), stale_end))
-    stale_warmup = replace(warmup, end_time=OnlyTimestamp.from_datetime(stale_end))
+    stale_warmup = replace(
+        warmup,
+        end_time=OnlyTimestamp.from_datetime(stale_end),
+        bootstrap_observed_at=OnlyTimestamp.from_datetime(stale_end + timedelta(seconds=1)),
+    )
     stale_provider = OnlyMiniQmtIsolatedWarmupCacheProvider(
         _client(tmp_path / "third", "half"), stale_warmup, "miniqmt"
     )

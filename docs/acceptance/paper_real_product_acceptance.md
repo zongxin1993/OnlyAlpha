@@ -46,6 +46,12 @@ uv run python scripts/run_paper_real_acceptance.py `
 
 Live Handoff 只在 A 股 `OPEN` 且当前 Session 剩余窗口足够时执行。休市或窗口不足返回 `NOT_EXECUTED`，不得重试、改 Bar 或改证券制造 PASS。
 
+冻结 Live Profile 的采集预算为 `430s`：6×1m 与 2×3m 取较大值，再加一个 1m 对齐窗口和 10s grace。完整 Session
+窗口为 startup `60s` + collection `430s` + shutdown `15s` = `505s`；执行前检查与实际等待共享该 Authority。
+
+开市 Bootstrap 只冻结一次 `bootstrap_observed_at` 和 `historical_requested_end`。Provider 原始尾部、Worker 接受尾部、
+Pipeline 最后成功 Bar 和 Historical Watermark 分开记录；Watermark 只能等于最后成功进入 Pipeline 的 Historical Bar。
+
 ## 判定
 
 Required Evidence 的严格优先级为：
@@ -57,3 +63,6 @@ FAIL > BLOCKED > NOT_EXECUTED > PASS
 Optional Evidence 不参与总体 PASS。真实环境结果与 Automated Contract 必须分开记录，Fake SDK 通过不能升级真实产品状态。
 
 Runner 只调用 `OnlyEngine.initialize/start/wait/stop/close`，并通过 `OnlyEngineInspectionService` 读取不可变聚合快照。它不直接调用 Runtime、Strategy、Finalizer、Indicator 或 Manager。
+
+通用资源释放 Case 名为 `ORDERED_SHUTDOWN`。`STOP_WITH_PENDING_BAR` 只保留为自动化行为测试，并验证停止前存在 Pending
+Bar、停止后 Closed/Observation 不增长以及 Pending Identity 未发布。

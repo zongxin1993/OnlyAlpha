@@ -63,5 +63,14 @@ class OnlyMiniQmtIsolatedWarmupCacheProvider:
                 "provider_version": result.provider_version,
                 "request_fingerprint": result.request_fingerprint,
                 "content_fingerprint": result.content_fingerprint,
+                "provider_raw_bar_count": result.provider_raw_bar_count,
+                "accepted_bar_count": result.accepted_bar_count,
+                "rejected_out_of_range_count": result.rejected_out_of_range_count,
+                "provider_raw_last_bar_end_ns": None
+                if result.provider_raw_last_bar_end is None
+                else result.provider_raw_last_bar_end.unix_nanos,
+                "accepted_last_bar_end_ns": None
+                if result.accepted_last_bar_end is None
+                else result.accepted_last_bar_end.unix_nanos,
             },
         )

@@ -21,9 +21,11 @@ from onlyalpha.data.models import (
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.data.warmup import (
+    OnlyHistoricalValidationError,
     OnlyHistoricalWarmupRequest,
     OnlyHistoricalWarmupResult,
     OnlyHistoricalWarmupStatus,
+    only_validate_historical_warmup_result,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyRuntimeMode
@@ -125,6 +127,17 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         self._closed_external_bar_count = 0
         self._derived_internal_bar_count = 0
         self._historical_observation_count = 0
+        self._bootstrap_observed_at: OnlyTimestamp | None = None
+        self._historical_requested_end: OnlyTimestamp | None = None
+        self._historical_provider_bar_count = 0
+        self._historical_replay_attempted_count = 0
+        self._historical_rejected_bar_count = 0
+        self._historical_duplicate_count = 0
+        self._historical_provider_last_bar_end: OnlyTimestamp | None = None
+        self._historical_last_attempted_bar_end: OnlyTimestamp | None = None
+        self._historical_last_processed_bar_end: OnlyTimestamp | None = None
+        self._historical_first_rejection_reason: str | None = None
+        self._acceptance_execution_stage = "ENGINE_START"
         self._historical_processed_bar_count = 0
         self._live_observation_count = 0
         self._out_of_order_count = 0
@@ -187,10 +200,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
 
     @property
     def last_historical_bar_end(self) -> OnlyTimestamp | None:
-        values = tuple(
-            result.last_bar_end for result in self._historical_warmup_results if result.last_bar_end is not None
-        )
-        return max(values, default=None)
+        return self._historical_last_processed_bar_end
 
     @property
     def inspection_timestamp(self) -> OnlyTimestamp:
@@ -237,6 +247,50 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         return self._historical_processed_bar_count
 
     @property
+    def bootstrap_observed_at(self) -> OnlyTimestamp | None:
+        return self._bootstrap_observed_at
+
+    @property
+    def historical_requested_end(self) -> OnlyTimestamp | None:
+        return self._historical_requested_end
+
+    @property
+    def historical_provider_bar_count(self) -> int:
+        return self._historical_provider_bar_count
+
+    @property
+    def historical_replay_attempted_count(self) -> int:
+        return self._historical_replay_attempted_count
+
+    @property
+    def historical_rejected_bar_count(self) -> int:
+        return self._historical_rejected_bar_count
+
+    @property
+    def historical_duplicate_count(self) -> int:
+        return self._historical_duplicate_count
+
+    @property
+    def historical_provider_last_bar_end(self) -> OnlyTimestamp | None:
+        return self._historical_provider_last_bar_end
+
+    @property
+    def historical_last_attempted_bar_end(self) -> OnlyTimestamp | None:
+        return self._historical_last_attempted_bar_end
+
+    @property
+    def historical_last_processed_bar_end(self) -> OnlyTimestamp | None:
+        return self._historical_last_processed_bar_end
+
+    @property
+    def historical_first_rejection_reason(self) -> str | None:
+        return self._historical_first_rejection_reason
+
+    @property
+    def acceptance_execution_stage(self) -> str:
+        return self._acceptance_execution_stage
+
+    @property
     def live_observation_count(self) -> int:
         return self._live_observation_count
 
@@ -251,6 +305,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
     @property
     def catch_up_suppressed_intent_count(self) -> int:
         return self._catch_up_suppressed_intent_count
+
+    @property
+    def pending_live_bar_count(self) -> int:
+        return self._live_finalizer.pending_count
 
     def _recover_runtime(self) -> None:
         # Streaming checkpoint/restart is deliberately outside PR5.1.
@@ -288,8 +346,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         except Exception:
             self._streaming_phase = OnlyStreamingPhase.FAILED
             raise
+        self._acceptance_execution_stage = "HISTORICAL_OBSERVATION"
         for key, bar in sorted(self._latest_bars.items(), key=lambda item: str(item[0])):
             self._publish_observations(bar, self._latest_sources[key])
+        self._acceptance_execution_stage = "LIVE_COLLECTION"
 
     def wait(self, timeout: float | None = None) -> None:
         if self.state is not OnlyRuntimeState.RUNNING:
@@ -328,6 +388,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         if not callable(load_warmup):
             raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
         observed_at = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
+        self._bootstrap_observed_at = observed_at
         bars: list[OnlyBar] = []
         alignment = lcm(*self._warmup_alignment_steps) if self._warmup_alignment_steps else 1
         for bar_type in sorted(self._streaming_subscription.bar_types, key=str):
@@ -336,18 +397,26 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
                 bar_type=bar_type,
                 observed_at=observed_at,
             )
+            self._historical_requested_end = (
+                closed_cutoff
+                if self._historical_requested_end is None
+                else min(self._historical_requested_end, closed_cutoff)
+            )
             request = OnlyHistoricalWarmupRequest(
                 f"bootstrap-{self.runtime_id}-{bar_type.instrument_id}-{bar_type.specification.step}",
                 OnlyRuntimeId(self.runtime_id),
                 bar_type.instrument_id,
                 bar_type,
                 self._bootstrap_bars + alignment,
+                OnlyTimestamp.from_datetime(closed_cutoff.to_datetime() - timedelta(days=10)),
                 closed_cutoff,
+                observed_at,
                 self._streaming_data_version,
                 OnlyAdjustmentType.RAW,
                 self._historical_timeout_seconds,
                 self._historical_compatibility_profile,
             )
+            self._acceptance_execution_stage = "HISTORICAL_WORKER"
             result = load_warmup(request)
             self._historical_warmup_results.append(result)
             if result.status is not OnlyHistoricalWarmupStatus.SUCCESS:
@@ -360,23 +429,20 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
                     if diagnostic.working_directory is not None:
                         detail += f" (diagnostics={diagnostic.working_directory})"
                 raise OnlyRuntimeError(f"historical warmup failed closed: {detail}")
+            self._acceptance_execution_stage = "HISTORICAL_PARENT_VALIDATION"
+            only_validate_historical_warmup_result(request, result)
+            self._historical_provider_bar_count += result.provider_raw_bar_count
+            provider_last = result.provider_raw_last_bar_end
+            if provider_last is not None:
+                self._historical_provider_last_bar_end = (
+                    provider_last
+                    if self._historical_provider_last_bar_end is None
+                    else max(self._historical_provider_last_bar_end, provider_last)
+                )
             aligned = self._align_warmup_bars(result.bars)
             bars.extend(aligned)
             if not aligned:
                 raise OnlyRuntimeError("historical warmup returned no aligned Bars")
-            latest = aligned[-1]
-            fingerprint = hashlib.sha256(
-                json.dumps([item.to_dict() for item in aligned], sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest()
-            self._historical_watermarks[(str(bar_type.instrument_id), bar_type)] = OnlyHistoricalWatermark(
-                self._streaming_source.source_id,  # type: ignore[union-attr]
-                bar_type.instrument_id,
-                bar_type,
-                OnlyTimestamp.from_datetime(latest.bar_start),
-                OnlyTimestamp.from_datetime(latest.bar_end),
-                self._streaming_data_version,
-                fingerprint,
-            )
         ordered = sorted(bars, key=lambda bar: (bar.bar_end, str(bar.bar_type)))
         source_id = self._streaming_source.source_id  # type: ignore[union-attr]
         records = tuple(
@@ -395,25 +461,76 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             )
             for sequence, bar in enumerate(ordered, start=1)
         )
+        self._acceptance_execution_stage = "HISTORICAL_REPLAY"
+        processed_records: list[OnlyMarketDataInboundUpdate] = []
+        processed_by_type: dict[OnlyBarType, list[OnlyBar]] = {}
         for update in records:
-            result = self._services.market_data_processor.process(update)
-            self._record_processing_result(result)
-            if result.status in {
-                OnlyMarketDataProcessingStatus.REJECTED,
-                OnlyMarketDataProcessingStatus.FAILED,
-                OnlyMarketDataProcessingStatus.STALE,
-            }:
-                raise OnlyRuntimeError(f"historical warmup failed: {result}")
             if not isinstance(update.payload, OnlyBarUpdate):
                 raise AssertionError("historical warmup records must contain Bars")
             bar = update.payload.bar
+            self._historical_replay_attempted_count += 1
+            self._historical_last_attempted_bar_end = OnlyTimestamp.from_datetime(bar.bar_end)
+            if not self._historical_bar_is_in_calendar_session(bar):
+                self._record_historical_rejection("HISTORICAL_BAR_OUTSIDE_CALENDAR_SESSION")
+                continue
+            result = self._services.market_data_processor.process(update)
+            self._record_processing_result(result)
+            if result.status is OnlyMarketDataProcessingStatus.DUPLICATE:
+                self._historical_duplicate_count += 1
+                if self._historical_first_rejection_reason is None:
+                    self._historical_first_rejection_reason = "HISTORICAL_BAR_DUPLICATE"
+                continue
+            if not isinstance(result.pipeline_result, OnlyMarketDataUpdateResult):
+                reason = (
+                    result.status.value
+                    if result.failure is None
+                    else f"{result.status.value}: {result.failure.error_type}: {result.failure.message}"
+                )
+                self._record_historical_rejection(reason)
+                if result.status is OnlyMarketDataProcessingStatus.FAILED:
+                    raise OnlyRuntimeError(f"historical warmup failed: {result}")
+                continue
             self._processed_bar_identities.add(
                 (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
             )
-        self._live_finalizer.seed_closed_sequences(records)
+            processed_records.append(update)
+            processed_by_type.setdefault(bar.bar_type, []).append(result.pipeline_result.base_bar)
+            self._historical_last_processed_bar_end = OnlyTimestamp.from_datetime(
+                result.pipeline_result.base_bar.bar_end
+            )
+        if not processed_records:
+            raise OnlyHistoricalValidationError("NO_HISTORICAL_BAR_PROCESSED")
+        self._acceptance_execution_stage = "HISTORICAL_WATERMARK"
+        for bar_type, processed in sorted(processed_by_type.items(), key=lambda item: str(item[0])):
+            latest = processed[-1]
+            fingerprint = hashlib.sha256(
+                json.dumps([item.to_dict() for item in processed], sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            watermark = OnlyHistoricalWatermark(
+                source_id,
+                bar_type.instrument_id,
+                bar_type,
+                OnlyTimestamp.from_datetime(latest.bar_start),
+                OnlyTimestamp.from_datetime(latest.bar_end),
+                self._streaming_data_version,
+                fingerprint,
+            )
+            if watermark.last_bar_end != OnlyTimestamp.from_datetime(latest.bar_end):
+                raise AssertionError("historical Watermark must equal the last processed Bar")
+            self._historical_watermarks[(str(bar_type.instrument_id), bar_type)] = watermark
+        self._live_finalizer.seed_closed_sequences(tuple(processed_records))
         set_floor = getattr(self._streaming_source, "set_live_sequence_floor", None)
-        if callable(set_floor) and records:
-            set_floor(max(int(item.source_sequence) for item in records))
+        if callable(set_floor):
+            set_floor(max(int(item.source_sequence) for item in processed_records))
+
+    def _historical_bar_is_in_calendar_session(self, bar: OnlyBar) -> bool:
+        intervals = self._selected_calendar.session_intervals_for_trading_day(OnlyTradingDay(bar.trading_day))
+        return any(start <= bar.bar_start < end and start < bar.bar_end <= end for start, end in intervals)
+
+    def _record_historical_rejection(self, reason: str) -> None:
+        self._historical_rejected_bar_count += 1
+        if self._historical_first_rejection_reason is None:
+            self._historical_first_rejection_reason = reason
 
     def _align_warmup_bars(self, bars: tuple[OnlyBar, ...]) -> tuple[OnlyBar, ...]:
         if not self._warmup_alignment_steps:

@@ -113,7 +113,8 @@ def run(request_path: Path) -> int:
     try:
         from .validation import normalize_rows
 
-        records = normalize_rows(raw_rows, request)
+        normalized = normalize_rows(raw_rows, request)
+        records = normalized.records
     except Exception as exc:
         _failure(
             workdir,
@@ -141,6 +142,14 @@ def run(request_path: Path) -> int:
                 "instrument_id": request.instrument_id,
                 "period": request.period,
                 "requested_bars": request.required_bars,
+                "requested_start_ns": request.requested_start_ns,
+                "requested_end_ns": request.end_time_ns,
+                "bootstrap_observed_at_ns": request.bootstrap_observed_at_ns,
+                "provider_raw_bar_count": normalized.provider_raw_bar_count,
+                "accepted_bar_count": len(records),
+                "rejected_out_of_range_count": normalized.rejected_out_of_range_count,
+                "provider_raw_last_bar_end_ns": normalized.provider_raw_last_bar_end_ns,
+                "accepted_last_bar_end_ns": records[-1]["bar_end_ns"],
                 "row_count": len(records),
                 "first_bar_end_ns": records[0]["bar_end_ns"],
                 "last_bar_end_ns": records[-1]["bar_end_ns"],

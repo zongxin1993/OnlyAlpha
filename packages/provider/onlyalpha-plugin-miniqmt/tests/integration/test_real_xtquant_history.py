@@ -1,7 +1,7 @@
 """Opt-in acceptance against a running local MiniQMT historical service."""
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,7 +46,9 @@ def test_real_history_is_isolated_and_returns_fifty_closed_bars(tmp_path: Path) 
         instrument,
         bar_type,
         50,
+        OnlyTimestamp.from_datetime(end.astimezone(UTC) - timedelta(days=10)),
         OnlyTimestamp.from_datetime(end.astimezone(UTC)),
+        OnlyTimestamp.from_datetime(end.astimezone(UTC) + timedelta(seconds=1)),
         OnlyDataVersion("miniqmt-real-read-only"),
         OnlyAdjustmentType.RAW,
         30,

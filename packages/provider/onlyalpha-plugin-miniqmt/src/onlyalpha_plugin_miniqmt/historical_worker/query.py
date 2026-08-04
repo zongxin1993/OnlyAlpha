@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -27,8 +27,8 @@ def query_history(xtdata: Any, request: OnlyMiniQmtWorkerRequest) -> object:
     # shifts intraday coverage by eight hours.
     end = datetime.fromisoformat(request.end_time.replace("Z", "+00:00")).astimezone(UTC)
     provider_end = end.astimezone(_SHANGHAI)
-    lookback = max(10, request.required_bars // 48 + 5)
-    start_text = (provider_end - timedelta(days=lookback)).strftime("%Y%m%d%H%M%S")
+    requested_start = datetime.fromisoformat(request.requested_start.replace("Z", "+00:00")).astimezone(UTC)
+    start_text = requested_start.astimezone(_SHANGHAI).strftime("%Y%m%d%H%M%S")
     end_text = provider_end.strftime("%Y%m%d%H%M%S")
     if request.download_before_query:
         try:

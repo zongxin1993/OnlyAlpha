@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import json
 import sys
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
 from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
 from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
 
+from onlyalpha.application import OnlyEngineInspectionService
 from onlyalpha.cli import main
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
@@ -28,14 +32,28 @@ _HELPER = Path("packages/provider/onlyalpha-plugin-miniqmt/tests/helpers/histori
 class _FakeLiveXtData:
     def __init__(self) -> None:
         self.subscriptions: list[int] = []
+        self.callbacks: list[Callable[[object], None]] = []
 
     def subscribe_quote(self, *args: object, **kwargs: object) -> int:
-        del args, kwargs
+        del args
         self.subscriptions.append(1)
+        self.callbacks.append(cast(Callable[[object], None], kwargs["callback"]))
         return 1
 
     def unsubscribe_quote(self, sequence: int) -> None:
         self.subscriptions.remove(sequence)
+
+    def publish_bar(self, bar_end: datetime) -> None:
+        row = {
+            "time": int(bar_end.timestamp() * 1000),
+            "open": "10.00",
+            "high": "10.10",
+            "low": "9.90",
+            "close": "10.05",
+            "volume": "100",
+        }
+        for callback in self.callbacks:
+            callback({"000001.SZ": row})
 
 
 def _config(tmp_path: Path) -> OnlyClusterRunConfig:
@@ -48,6 +66,16 @@ def _config(tmp_path: Path) -> OnlyClusterRunConfig:
             "historical_timeout_seconds": 5,
         }
     )
+    userdata = tmp_path / "userdata_mini"
+    userdata.mkdir(parents=True)
+    payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
+    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+
+
+def _acceptance_config(tmp_path: Path) -> OnlyClusterRunConfig:
+    baseline = OnlyClusterRunConfig.load("examples/configs/miniqmt_paper_acceptance.yaml")
+    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir(parents=True)
     payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
@@ -136,6 +164,123 @@ def test_engine_replays_isolated_warmup_and_establishes_watermark(
     assert not xtdata.subscriptions
     jsonl = tmp_path / "user_data" / "observations" / "paper-macd.jsonl"
     assert jsonl.is_file()
+
+
+def test_open_bootstrap_rejects_opening_auction_bar_and_watermarks_last_processed_bar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    xtdata = _FakeLiveXtData()
+    _patch_source_factory(monkeypatch, xtdata, datetime(2026, 8, 4, 1, 36, 17, tzinfo=UTC))
+    monkeypatch.setattr(
+        OnlyMiniQmtHistoricalIsolatedClient,
+        "_default_command",
+        staticmethod(
+            lambda request_path: (
+                sys.executable,
+                str(_HELPER),
+                "--request",
+                str(request_path),
+                "--behavior",
+                "opening-boundary",
+            )
+        ),
+    )
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("paper-open-boundary"), tmp_path / "user_data"))
+    engine.add_cluster(_config(tmp_path))
+    engine.initialize()
+
+    engine.start()
+
+    runtime = engine.runtimes[0]
+    snapshot = runtime.historical_watermarks[0]  # type: ignore[attr-defined]
+    assert runtime.historical_replay_attempted_count == 13  # type: ignore[attr-defined]
+    assert runtime.historical_processed_bar_count == 12  # type: ignore[attr-defined]
+    assert runtime.historical_rejected_bar_count == 1  # type: ignore[attr-defined]
+    assert runtime.historical_first_rejection_reason == "HISTORICAL_BAR_OUTSIDE_CALENDAR_SESSION"  # type: ignore[attr-defined]
+    assert runtime.historical_last_processed_bar_end == snapshot.last_bar_end  # type: ignore[attr-defined]
+    assert snapshot.last_bar_end == runtime.historical_requested_end  # type: ignore[attr-defined]
+    observations = runtime.latest_observation_store.list_runtime(runtime.config.runtime_id)  # type: ignore[attr-defined]
+    assert observations
+    assert observations[0].latest_bar_end == snapshot.last_bar_end
+    engine.stop()
+
+
+def test_formal_engine_fake_live_advances_six_external_and_two_derived_bars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    xtdata = _FakeLiveXtData()
+    initial = datetime(2026, 8, 4, 1, 36, 17, tzinfo=UTC)
+    clock = OnlyBacktestClock(initial)
+
+    def create(self: OnlyMiniQmtDataSourceFactory, request: object) -> OnlyMiniQmtDataSource:
+        del self
+        return OnlyMiniQmtDataSource(request, request.plugin_config, xtdata)  # type: ignore[arg-type,attr-defined]
+
+    monkeypatch.setattr(OnlyMiniQmtDataSourceFactory, "create", create)
+    monkeypatch.setattr("onlyalpha.runtime.paper.factory.OnlyLiveClock", lambda: clock)
+    monkeypatch.setattr(
+        OnlyMiniQmtHistoricalIsolatedClient,
+        "_default_command",
+        staticmethod(
+            lambda request_path: (
+                sys.executable,
+                str(_HELPER),
+                "--request",
+                str(request_path),
+                "--behavior",
+                "opening-boundary",
+            )
+        ),
+    )
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("paper-fake-live"), tmp_path / "user_data"))
+    engine.add_cluster(_acceptance_config(tmp_path))
+    engine.initialize()
+    engine.start()
+    stopped = False
+    try:
+        inspection = OnlyEngineInspectionService()
+        before = inspection.capture(engine)[0]
+
+        for minute in range(37, 45):
+            boundary = datetime(2026, 8, 4, 1, minute, tzinfo=UTC)
+            clock.advance_to(boundary)
+            xtdata.publish_bar(boundary)
+            time.sleep(0.02)
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            after = inspection.capture(engine)[0]
+            if (
+                after.closed_external_bar_count - before.closed_external_bar_count >= 6
+                and after.derived_internal_bar_count - before.derived_internal_bar_count >= 2
+                and after.live_observation_count - before.live_observation_count >= 6
+            ):
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("formal fake live path did not reach the frozen Bar targets")
+
+        assert after.live_order_intent_count - before.live_order_intent_count >= 1
+        assert after.shadow_suppressed_count - before.shadow_suppressed_count >= 1
+        assert after.reservation_created_count - before.reservation_created_count >= 1
+        assert after.reservation_released_count - before.reservation_released_count >= 1
+        assert after.open_reservation_count == 0
+        assert after.external_order_id_count == 0
+        assert after.fill_count == 0
+        assert after.position_count == 0
+        assert after.pending_live_bar_count == 1
+        pending_identity_end = datetime(2026, 8, 4, 1, 44, tzinfo=UTC)
+        assert after.latest_observations[0].latest_bar_end.to_datetime() < pending_identity_end
+
+        engine.stop()
+        stopped = True
+        after_stop = inspection.capture(engine)[0]
+        assert after_stop.closed_external_bar_count == after.closed_external_bar_count
+        assert after_stop.live_observation_count == after.live_observation_count
+        assert after_stop.latest_observations[0].latest_bar_end == after.latest_observations[0].latest_bar_end
+    finally:
+        if not stopped:
+            engine.stop()
 
 
 def test_engine_worker_abort_fails_before_live_subscription(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

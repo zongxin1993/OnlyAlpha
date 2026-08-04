@@ -201,7 +201,7 @@ class OnlyMiniQmtDataSource:
         cache_request = OnlyHistoricalDataRequest(
             request.instrument_id,
             request.bar_type,
-            OnlyTimeRange(end - timedelta(days=10), end + timedelta(microseconds=1)),
+            OnlyTimeRange(request.requested_start.to_datetime(), end + timedelta(microseconds=1)),
             request.adjustment_type,
             metadata={
                 "data_version": str(request.data_version),
@@ -218,16 +218,24 @@ class OnlyMiniQmtDataSource:
         except Exception as exc:
             request_fingerprint = _warmup_request_fingerprint(request)
             return OnlyHistoricalWarmupResult(
-                OnlyHistoricalWarmupStatus.PROTOCOL_ERROR,
-                (),
-                request_fingerprint,
-                None,
-                None,
-                None,
-                "miniqmt",
-                None,
-                request.compatibility_profile_id,
-                OnlyHistoricalWarmupDiagnostic(
+                status=OnlyHistoricalWarmupStatus.PROTOCOL_ERROR,
+                bars=(),
+                request_fingerprint=request_fingerprint,
+                content_fingerprint=None,
+                first_bar_end=None,
+                last_bar_end=None,
+                bootstrap_observed_at=request.bootstrap_observed_at,
+                requested_start=request.requested_start,
+                requested_end=request.end_time,
+                provider_raw_bar_count=0,
+                accepted_bar_count=0,
+                rejected_out_of_range_count=0,
+                provider_raw_last_bar_end=None,
+                accepted_last_bar_end=None,
+                provider="miniqmt",
+                provider_version=None,
+                compatibility_profile_id=request.compatibility_profile_id,
+                diagnostic=OnlyHistoricalWarmupDiagnostic(
                     "MINIQMT_HISTORICAL_CACHE_FAILED",
                     str(exc),
                     None,
@@ -244,16 +252,24 @@ class OnlyMiniQmtDataSource:
         if len(bars) < request.required_bars:
             request_fingerprint = _warmup_request_fingerprint(request)
             return OnlyHistoricalWarmupResult(
-                OnlyHistoricalWarmupStatus.INVALID_DATA,
-                (),
-                request_fingerprint,
-                None,
-                None,
-                None,
-                "miniqmt",
-                None,
-                request.compatibility_profile_id,
-                OnlyHistoricalWarmupDiagnostic(
+                status=OnlyHistoricalWarmupStatus.INVALID_DATA,
+                bars=(),
+                request_fingerprint=request_fingerprint,
+                content_fingerprint=None,
+                first_bar_end=None,
+                last_bar_end=None,
+                bootstrap_observed_at=request.bootstrap_observed_at,
+                requested_start=request.requested_start,
+                requested_end=request.end_time,
+                provider_raw_bar_count=0,
+                accepted_bar_count=0,
+                rejected_out_of_range_count=0,
+                provider_raw_last_bar_end=None,
+                accepted_last_bar_end=None,
+                provider="miniqmt",
+                provider_version=None,
+                compatibility_profile_id=request.compatibility_profile_id,
+                diagnostic=OnlyHistoricalWarmupDiagnostic(
                     "MINIQMT_HISTORICAL_CACHE_INSUFFICIENT",
                     "validated historical cache does not contain the required warmup Bars",
                     None,
@@ -269,17 +285,31 @@ class OnlyMiniQmtDataSource:
         request_fingerprint = _warmup_request_fingerprint(request)
         content_fingerprint = hashlib.sha256("\n".join(bar.to_json() for bar in bars).encode()).hexdigest()
         metadata = loaded.manifest.metadata
+        provider_raw_last_ns = metadata.get("provider_raw_last_bar_end_ns")
+        accepted_last_ns = metadata.get("accepted_last_bar_end_ns")
         return OnlyHistoricalWarmupResult(
-            OnlyHistoricalWarmupStatus.SUCCESS,
-            bars,
-            request_fingerprint,
-            content_fingerprint,
-            OnlyTimestamp.from_datetime(bars[0].bar_end),
-            OnlyTimestamp.from_datetime(bars[-1].bar_end),
-            "miniqmt",
-            None if metadata.get("provider_version") is None else str(metadata["provider_version"]),
-            request.compatibility_profile_id,
-            None,
+            status=OnlyHistoricalWarmupStatus.SUCCESS,
+            bars=bars,
+            request_fingerprint=request_fingerprint,
+            content_fingerprint=content_fingerprint,
+            first_bar_end=OnlyTimestamp.from_datetime(bars[0].bar_end),
+            last_bar_end=OnlyTimestamp.from_datetime(bars[-1].bar_end),
+            bootstrap_observed_at=request.bootstrap_observed_at,
+            requested_start=request.requested_start,
+            requested_end=request.end_time,
+            provider_raw_bar_count=int(metadata.get("provider_raw_bar_count", len(bars))),
+            accepted_bar_count=len(bars),
+            rejected_out_of_range_count=int(metadata.get("rejected_out_of_range_count", 0)),
+            provider_raw_last_bar_end=OnlyTimestamp.from_datetime(bars[-1].bar_end)
+            if provider_raw_last_ns is None
+            else OnlyTimestamp.from_unix_nanos(int(provider_raw_last_ns)),
+            accepted_last_bar_end=OnlyTimestamp.from_datetime(bars[-1].bar_end)
+            if accepted_last_ns is None
+            else OnlyTimestamp.from_unix_nanos(int(accepted_last_ns)),
+            provider="miniqmt",
+            provider_version=None if metadata.get("provider_version") is None else str(metadata["provider_version"]),
+            compatibility_profile_id=request.compatibility_profile_id,
+            diagnostic=None,
         )
 
     def load_quotes(self, request: OnlyHistoricalQuoteRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:

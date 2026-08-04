@@ -31,9 +31,12 @@ class OnlyAcceptanceArtifactWriter:
         sanitized_config: dict[str, object],
         evidences: tuple[OnlyAcceptanceEvidence, ...],
         streams: dict[str, tuple[object, ...]] | None = None,
+        worker_documents: dict[str, object] | None = None,
     ) -> OnlyAcceptanceArtifactBundle:
         run_root.mkdir(parents=True, exist_ok=False)
         (run_root / "worker").mkdir()
+        for relative, document in sorted((worker_documents or {}).items()):
+            self._json(run_root / "worker" / relative, only_redact_acceptance_value(document))
         assertions = [only_evidence_to_dict(item) for item in evidences]
         self._json(run_root / "manifest.json", only_redact_acceptance_value(manifest))
         self._json(run_root / "environment.json", only_redact_acceptance_value(environment))
@@ -67,7 +70,7 @@ class OnlyAcceptanceArtifactWriter:
         manifest: dict[str, object],
     ) -> str:
         automated = [item for item in evidences if item.case_id == "AUTOMATED_CONTRACT"]
-        real = [item for item in evidences if item.case_id.startswith("REAL_")]
+        real = [item for item in evidences if item.case_id.startswith("REAL_") or item.case_id == "ORDERED_SHUTDOWN"]
         not_executed = [item for item in evidences if item.verdict is OnlyAcceptanceVerdict.NOT_EXECUTED]
 
         def rows(items: list[OnlyAcceptanceEvidence]) -> str:

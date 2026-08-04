@@ -26,6 +26,13 @@ class OnlyPaperAcceptanceAssertions:
             for observation in observations
         )
         factor_present = any(observation.factor_snapshots for observation in observations)
+        watermark_matches_processed = (
+            snapshot.historical_last_processed_bar_end is not None
+            and snapshot.historical_watermark_last_bar_end == snapshot.historical_last_processed_bar_end
+        )
+        observation_matches_watermark = bool(observations) and all(
+            item.latest_bar_end == snapshot.historical_watermark_last_bar_end for item in observations
+        )
         passed = all(
             (
                 bool(snapshot.historical_statuses) and all(item == "SUCCESS" for item in snapshot.historical_statuses),
@@ -38,7 +45,9 @@ class OnlyPaperAcceptanceAssertions:
                 ),
                 snapshot.historical_bar_count >= plan.minimum_historical_bars,
                 bool(snapshot.historical_watermarks),
+                watermark_matches_processed,
                 bool(observations),
+                observation_matches_watermark,
                 indicator_ready or not plan.require_indicator_ready,
                 factor_present or not plan.require_factor_snapshot,
                 snapshot.fill_count == 0,
@@ -54,6 +63,18 @@ class OnlyPaperAcceptanceAssertions:
             "historical_bar_count": snapshot.historical_bar_count,
             "watermark_count": len(snapshot.historical_watermarks),
             "historical_observation_count": len(observations),
+            "bootstrap_observed_at": snapshot.bootstrap_observed_at,
+            "historical_requested_end": snapshot.historical_requested_end,
+            "historical_provider_bar_count": snapshot.historical_provider_bar_count,
+            "historical_replay_attempted_count": snapshot.historical_replay_attempted_count,
+            "historical_processed_bar_count": snapshot.historical_processed_bar_count,
+            "historical_rejected_bar_count": snapshot.historical_rejected_bar_count,
+            "historical_first_rejection_reason": snapshot.historical_first_rejection_reason,
+            "provider_last_bar_end": snapshot.historical_provider_last_bar_end,
+            "processed_last_bar_end": snapshot.historical_last_processed_bar_end,
+            "watermark_last_bar_end": snapshot.historical_watermark_last_bar_end,
+            "watermark_matches_processed": watermark_matches_processed,
+            "observation_matches_watermark": observation_matches_watermark,
             "indicator_ready": indicator_ready,
             "factor_present": factor_present,
         }
@@ -79,6 +100,8 @@ class OnlyPaperAcceptanceAssertions:
         derived = after.derived_internal_bar_count - before.derived_internal_bar_count
         intents = after.live_order_intent_count - before.live_order_intent_count
         suppressed = after.shadow_suppressed_count - before.shadow_suppressed_count
+        reservations_created = after.reservation_created_count - before.reservation_created_count
+        reservations_released = after.reservation_released_count - before.reservation_released_count
         passed = all(
             (
                 closed >= plan.target_live_closed_bars,
@@ -86,6 +109,8 @@ class OnlyPaperAcceptanceAssertions:
                 live_observations >= plan.target_live_closed_bars,
                 intents >= int(plan.require_live_shadow_intent),
                 suppressed >= int(plan.require_live_shadow_intent),
+                reservations_created >= int(plan.require_live_shadow_intent),
+                reservations_released >= reservations_created,
                 after.external_order_id_count == 0,
                 after.fill_count == 0,
                 after.open_reservation_count == 0,
@@ -108,8 +133,8 @@ class OnlyPaperAcceptanceAssertions:
             "live_observations": live_observations,
             "live_order_intents": intents,
             "shadow_suppressed": suppressed,
-            "reservation_created": after.reservation_created_count - before.reservation_created_count,
-            "reservation_released": after.reservation_released_count - before.reservation_released_count,
+            "reservation_created": reservations_created,
+            "reservation_released": reservations_released,
             "external_order_ids": after.external_order_id_count,
             "fills": after.fill_count,
             "observation_drops": after.observation_drop_count,
