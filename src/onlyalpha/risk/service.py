@@ -278,7 +278,7 @@ class OnlyRiskService:
                         OnlyRiskRuleScope.INSTRUMENT,
                     )
                 )
-            available_cash = next(
+            trade_available_cash = next(
                 (item.amount for item in account.available_balances if item.currency == instrument.settlement_currency),
                 Decimal(0),
             )
@@ -291,8 +291,8 @@ class OnlyRiskService:
                     context.ts_event.to_datetime(),
                     trading_day,
                     Decimal(0) if position is None else position.available_quantity.value,
-                    available_cash,
-                    available_cash if account.available_margin is None else account.available_margin.amount,
+                    trade_available_cash,
+                    trade_available_cash if account.available_margin is None else account.available_margin.amount,
                     position_effect=effect,
                     order_type=request.order_type,
                 )

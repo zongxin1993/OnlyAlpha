@@ -20,7 +20,7 @@ def test_projection_targets_keep_replay_boundary_free_of_business_orchestration(
     )
     assert all(value not in source for value in forbidden)
     assert "setattr(" not in source
-    assert "OnlyReferenceExecutionProjectionTarget" not in source
+    assert "OnlyReferenceRuntimeProjectionTarget" not in source
 
 
 def test_all_real_target_types_and_single_factory_are_present() -> None:

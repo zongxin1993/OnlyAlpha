@@ -15,7 +15,7 @@ from onlyalpha.execution import (
     OnlyExecutionRecoveryPlanBuilder,
     OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
-    OnlyPreparedExecutionTransaction,
+    OnlyPreparedRuntimeTransaction,
 )
 from onlyalpha.runtime.persistence.store import (
     OnlyInMemoryRuntimePersistenceStore,
@@ -49,9 +49,9 @@ def test_store_returns_original_prepared_and_committed_recovery_record(
     assert (
         store.get_recovery_record_by_update(
             prepared.runtime_id,
-            prepared.gateway_id,
+            prepared.fact_draft.gateway_id,
             prepared.account_id,
-            prepared.broker_update_id,
+            prepared.fact_draft.broker_update_id,
         )
         == store.recovery_records(prepared.runtime_id, after_sequence=0)[0]
     )
@@ -171,7 +171,7 @@ def test_session_resolves_three_ready_and_multiple_unprojected_entries_strictly(
     assert session.unprojected_recovered_count == 2
 
 
-def _update(prepared: OnlyPreparedExecutionTransaction) -> OnlyBrokerTradeUpdate:
+def _update(prepared: OnlyPreparedRuntimeTransaction) -> OnlyBrokerTradeUpdate:
     fact = prepared.fact_draft
     fill = OnlyOrderFill(
         fact.trade_id,

@@ -130,7 +130,7 @@ def _decision(
             _local_utc(day, hour, minute),
             OnlyTradingDay(day),
             unreserved_sellable_quantity=sellable,
-            available_cash=Decimal("100000"),
+            trade_available_cash=Decimal("100000"),
         )
     )
 
@@ -156,7 +156,7 @@ def test_pre_trade_and_trade_instruction_share_compiled_identity() -> None:
             Decimal(10),
             datetime(2026, 7, 17, 10, tzinfo=UTC),
             day,
-            available_cash=Decimal(100),
+            trade_available_cash=Decimal(100),
         )
     )
     instruction = engine.build_trade_instruction(
@@ -174,7 +174,7 @@ def test_pre_trade_and_trade_instruction_share_compiled_identity() -> None:
     )
     assert decision.accepted
     assert decision.compiled_identity == instruction.compiled_identity
-    assert instruction.settlement_instruction.asset_available_on == day
+    assert instruction.settlement_schedule.asset_trade_available_on == day
 
 
 @pytest.mark.parametrize(
@@ -332,7 +332,7 @@ def test_missing_reference_returns_structured_fail_closed_decision() -> None:
             Decimal("10.00"),
             _local_utc(date(2026, 7, 5), 9, 30),
             OnlyTradingDay(date(2026, 7, 5)),
-            available_cash=Decimal("100000"),
+            trade_available_cash=Decimal("100000"),
         )
     )
     assert decision.reason_code == "REFERENCE_NOT_FOUND"

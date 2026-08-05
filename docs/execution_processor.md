@@ -1,6 +1,6 @@
 # OnlyExecutionProcessor
 
-ExecutionProcessor 对当前受支持的 Generic T0 Cash、LIMIT BUY OPEN 每个 whole/partial Fill 先调用纯 Planner，随后交给 Runtime-owned `OnlyExecutionCommitCoordinator`。Coordinator 先将独立 Prepared Transaction durable commit 到唯一 Transaction Store，再应用有序增量 Projection；全部成功并标记 Projection Ready 后才返回 durable Outbox intent。
+ExecutionProcessor 对当前受支持的 Generic T0 Cash、LIMIT BUY OPEN 每个 whole/partial Fill 先调用纯 Planner，随后交给 Runtime-owned `OnlyRuntimeTransactionCoordinator`。Coordinator 先将独立 Prepared Transaction durable commit 到唯一 Transaction Store，再应用有序增量 Projection；全部成功并标记 Projection Ready 后才返回 durable Outbox intent。
 重复、拒绝、乱序对账、Store 失败和未完成 Projection 不会形成可发布成功事实；Result 不从 Broker Query 重建本地交易历史。
 
 ## 1. 职责与统一入口

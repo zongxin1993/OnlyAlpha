@@ -74,8 +74,7 @@ def regenerate(name: str) -> None:
                 "ORDER BY checkpoint_sequence DESC LIMIT 1"
             ).fetchone()
             committed_rows = connection.execute(
-                "SELECT transaction_id, trade_id, terminal_identity FROM execution_transactions "
-                "ORDER BY execution_sequence"
+                "SELECT transaction_id, operation_identity FROM runtime_transactions ORDER BY execution_sequence"
             ).fetchall()
         finally:
             connection.close()
@@ -101,7 +100,7 @@ def regenerate(name: str) -> None:
                 "baseline_id": name,
                 "scenario_fingerprint": result.determinism_fingerprint,
                 "configuration_fingerprint": result.determinism_fingerprint,
-                "persistence_schema_version": "1",
+                "persistence_schema_version": "4",
                 "onlyalpha_version": "0.3.2",
                 "database_template": template_name,
                 "database_archive": archive_name,
@@ -109,7 +108,7 @@ def regenerate(name: str) -> None:
                 "checkpoint_id": checkpoint_id,
                 "result_fingerprint": runtime_result.result_fingerprint,
                 "committed_transaction_ids": [item[0] for item in committed_rows],
-                "committed_fact_ids": [item[1] or item[2] for item in committed_rows],
+                "committed_fact_ids": [item[1] for item in committed_rows],
                 "order_count": len(runtime_result.orders),
                 "fill_count": len(runtime_result.facts.executions),
                 "terminal_count": sum(

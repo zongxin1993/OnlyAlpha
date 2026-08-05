@@ -12,6 +12,11 @@ from typing import Protocol
 
 from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide
 from onlyalpha.domain.time import OnlyTradingDay, only_require_utc
+from onlyalpha.settlement.models import (
+    OnlyCompiledSettlementPolicy,
+    OnlySettlementSchedule,
+    OnlySettlementScheduleRequest,
+)
 
 
 class OnlyMarketProfileId(StrEnum):
@@ -123,36 +128,6 @@ class OnlySettlementRule:
             raise ValueError("T_PLUS_N requires a positive lag")
 
 
-@dataclass(frozen=True, slots=True)
-class OnlySettlementContext:
-    execution_id: str
-    account_id: str
-    instrument_id: str
-    side: OnlyOrderSide
-    quantity: Decimal
-    cash_amount: Decimal
-    trade_time: datetime
-    trading_day: OnlyTradingDay
-
-    def __post_init__(self) -> None:
-        only_require_utc(self.trade_time, "settlement trade_time")
-        if self.quantity <= 0 or self.cash_amount < 0:
-            raise ValueError("settlement quantity must be positive and cash non-negative")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlySettlementInstruction:
-    instruction_id: str
-    execution_id: str
-    asset_quantity: Decimal
-    cash_amount: Decimal
-    trade_time: datetime
-    asset_available_day: OnlyTradingDay
-    cash_available_day: OnlyTradingDay
-    legal_settlement_day: OnlyTradingDay
-    model_id: str
-
-
 class OnlyTradingDayAdvancer(Protocol):
     def __call__(self, day: OnlyTradingDay, lag: int) -> OnlyTradingDay: ...
 
@@ -165,24 +140,30 @@ class OnlySettlementModel:
     asset_availability: OnlySettlementRule
     cash_availability: OnlySettlementRule
 
-    def on_execution(
-        self, context: OnlySettlementContext, advance: OnlyTradingDayAdvancer
-    ) -> OnlySettlementInstruction:
-        asset_available = advance(context.trading_day, self._lag(self.asset_availability))
-        cash_available = advance(context.trading_day, self._lag(self.cash_availability))
-        legal_lag = max(self._lag(self.asset_settlement), self._lag(self.cash_settlement))
-        legal_day = advance(context.trading_day, legal_lag)
-        payload = f"{self.model_id}|{context.execution_id}|{context.trade_time.isoformat()}"
-        return OnlySettlementInstruction(
-            instruction_id=hashlib.sha256(payload.encode()).hexdigest(),
-            execution_id=context.execution_id,
-            asset_quantity=context.quantity,
-            cash_amount=context.cash_amount,
-            trade_time=context.trade_time,
-            asset_available_day=asset_available,
-            cash_available_day=cash_available,
-            legal_settlement_day=legal_day,
-            model_id=self.model_id,
+    def compile(self) -> OnlyCompiledSettlementPolicy:
+        return OnlyCompiledSettlementPolicy(
+            self.model_id,
+            0,
+            self._lag(self.asset_availability),
+            0,
+            self._lag(self.cash_availability),
+            self._lag(self.cash_settlement),
+            max(self._lag(self.asset_settlement), self._lag(self.cash_settlement)),
+        )
+
+    def schedule(
+        self, request: OnlySettlementScheduleRequest, advance: OnlyTradingDayAdvancer
+    ) -> OnlySettlementSchedule:
+        policy = self.compile()
+        day = request.trading_day
+        return OnlySettlementSchedule(
+            advance(day, policy.asset_booking_lag),
+            advance(day, policy.asset_trade_availability_lag),
+            advance(day, policy.cash_booking_lag),
+            advance(day, policy.cash_trade_availability_lag),
+            advance(day, policy.cash_withdrawal_lag),
+            advance(day, policy.legal_settlement_lag),
+            policy.policy_id,
         )
 
     @staticmethod

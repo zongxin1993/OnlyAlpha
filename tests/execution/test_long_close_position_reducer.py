@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent
+from onlyalpha.execution import OnlyRuntimeProjectionComponent
 from tests.execution.support.generic_t0_trade_harness import only_test_generic_t0_long_close_context
 
 
@@ -10,7 +10,7 @@ def _position_projection(open_quantity: str, close_quantity: str):
         close_quantity=close_quantity,
     )
     return next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.POSITION
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.POSITION
     )
 
 

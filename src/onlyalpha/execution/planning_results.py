@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
-
-from .projection import OnlyExecutionProjection, OnlyExecutionProjectionComponent
+from onlyalpha.transaction.projection import OnlyRuntimeProjection, OnlyRuntimeProjectionComponent
 
 
 class OnlyTradeExecutionPlanningErrorCode(StrEnum):
@@ -60,7 +59,7 @@ class OnlyTradeExecutionPlanningError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class OnlyExecutionEventIntent:
-    component: OnlyExecutionProjectionComponent
+    component: OnlyRuntimeProjectionComponent
     event_type: OnlyEventType
     payload: object
     source: OnlyEventSource
@@ -68,7 +67,7 @@ class OnlyExecutionEventIntent:
 
 @dataclass(frozen=True, slots=True)
 class OnlyTradeReduction:
-    projection: OnlyExecutionProjection
+    projection: OnlyRuntimeProjection
     event_intents: tuple[OnlyExecutionEventIntent, ...] = ()
 
 

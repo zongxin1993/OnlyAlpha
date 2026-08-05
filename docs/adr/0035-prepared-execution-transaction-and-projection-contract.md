@@ -9,7 +9,7 @@
 
 ## Decision
 
-引入 schema version 2 的 immutable `OnlyPreparedExecutionTransaction`、完整 Fact Draft、15 项 ordered typed Projection、Precondition、Committed Transaction 和 canonical codec。Transaction Store 在单一锁或 SQLite transaction 中分配 sequence、finalize Fact，并原子保存 Transaction 与 Outbox。
+引入 schema version 2 的 immutable `OnlyPreparedRuntimeTransaction`、完整 Fact Draft、15 项 ordered typed Projection、Precondition、Committed Transaction 和 canonical codec。Transaction Store 在单一锁或 SQLite transaction 中分配 sequence、finalize Fact，并原子保存 Transaction 与 Outbox。
 
 Transaction ID 唯一由 identity schema version、Runtime、Gateway、Account、Broker Update 和 Trade ID 推导。`source_sequence` 不进入 ID：Broker Update ID 的公共契约已要求它在 Gateway scope 内稳定唯一。Durable Event ID 由 Transaction ID、Event Sequence 和 Event Type 通过固定 UUID5 namespace 推导。
 

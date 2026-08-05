@@ -22,11 +22,11 @@
 
 ## 3. Transaction、幂等与 Committed Fact
 
-10. `only_execution_transaction_id()` 使用 identity schema version、Runtime ID、Gateway ID、Account ID、Broker Update ID 和 Trade ID，经 `\x1f` 连接及 SHA-256 生成 `ETX-...`；本任务必须保留该算法。
+10. `only_runtime_transaction_id()` 使用 identity schema version、Runtime ID、Gateway ID、Account ID、Broker Update ID 和 Trade ID，经 `\x1f` 连接及 SHA-256 生成 `ETX-...`；本任务必须保留该算法。
 11. Memory Store 以 transaction、`(runtime, gateway, account, trade)` 和 `(runtime, gateway, account, update)` 三类索引识别已有事务；SQLite 以对应唯一约束及 `_find_idempotent()` 识别。相同键且 authority/payload hash 相同返回已有事务，不同则冲突。
 12. 当前 Store 没有 venue trade / external event 业务身份索引。使用新的 Update ID 和 Trade ID 报告同一 Venue Trade，durable transaction 层可再次提交；Processor 的 venue trade 去重只依赖运行中/Checkpoint deduplicator，不是 transaction Store 的 durable Fill authority。
 13. `OnlyCommittedExecutionFact` 已保存 trade/venue trade/update/external event、单次 fill price/quantity、累计 filled、remaining、order status、顺序和时间等审计字段；缺少 canonical fill identity、fill payload fingerprint、per-order fill index、fill count after、terminal fill 和精确累计成交价值。
-14. `OnlyExecutionTransactionQueryPort` 支持按 sequence、transaction ID、trade、update 和 Runtime records 查询；不支持按 Order、Fill Identity 或最新 Order Fill 查询。
+14. `OnlyRuntimeTransactionQueryPort` 支持按 sequence、transaction ID、trade、update 和 Runtime records 查询；不支持按 Order、Fill Identity 或最新 Order Fill 查询。
 
 ## 4. Persistence、Checkpoint 与兼容性
 

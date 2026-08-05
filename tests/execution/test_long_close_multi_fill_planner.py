@@ -2,9 +2,10 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
-from onlyalpha.execution.enums import OnlyExecutionOperationKind, OnlyExecutionProcessingStatus
+from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.position.enums import OnlyPositionReservationState, OnlyPositionStatus
 from onlyalpha.risk.enums import OnlyRiskReservationState
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.generic_t0_trade_harness import (
     only_test_generic_t0_long_close_context,
     only_test_generic_t0_long_close_update,
@@ -48,7 +49,7 @@ def test_long_close_300_400_300_is_three_sequential_durable_transactions() -> No
         first_context.update.order_id,
     )
     assert len(transactions) == 3
-    assert all(item.operation_kind is OnlyExecutionOperationKind.TRADE_FILL for item in transactions)
+    assert all(item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL for item in transactions)
     facts = tuple(item.fact for item in transactions)
     assert all(isinstance(item, OnlyCommittedExecutionFact) for item in facts)
     trade_facts = tuple(item for item in facts if isinstance(item, OnlyCommittedExecutionFact))

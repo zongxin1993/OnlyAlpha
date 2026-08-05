@@ -41,7 +41,7 @@ def only_test_runtime_authority_digest(env: OnlyIntegrationEnvironment) -> OnlyT
     accounts = runtime.account_manager
     ledgers = runtime.strategy_ledger_manager
     risk = runtime.risk_service
-    settlement = runtime.settlement_manager
+    settlement = runtime.settlement_authority
     fees = runtime.fee_manager
     processor = runtime.execution_processor
     return OnlyTestRuntimeAuthorityDigest(
@@ -116,7 +116,7 @@ def only_test_runtime_authority_digest(env: OnlyIntegrationEnvironment) -> OnlyT
                 risk.reservations._reservation_id_by_order_id,
             )
         ),
-        settlement=_stable((settlement._pending, settlement.records, settlement.sequence_head)),
+        settlement=_stable((settlement.snapshots(), settlement.sequence_head)),
         fees=_stable(
             (
                 fees.records,

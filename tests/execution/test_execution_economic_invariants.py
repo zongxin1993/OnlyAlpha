@@ -11,7 +11,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
+    OnlyRuntimeProjectionComponent,
     only_execution_state_hash,
     only_expected_execution_reservations,
     only_with_execution_projection_hash,
@@ -103,12 +103,12 @@ def test_reservation_presence_matrix_is_directional_and_risk_is_mandatory() -> N
 @pytest.mark.parametrize(
     "component",
     (
-        OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
-        OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK_RESERVATION,
+        OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
+        OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION,
     ),
 )
-def test_buy_open_rejects_missing_required_reservation(component: OnlyExecutionProjectionComponent) -> None:
+def test_buy_open_rejects_missing_required_reservation(component: OnlyRuntimeProjectionComponent) -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     projections = tuple(item for item in prepared.projections if item.identity.component is not component)
     projections = tuple(
@@ -132,12 +132,12 @@ def test_buy_open_rejects_position_reservation() -> None:
     position_reservation = next(
         item
         for item in only_test_projection_codec_cases()
-        if item.identity.component is OnlyExecutionProjectionComponent.POSITION_RESERVATION
+        if item.identity.component is OnlyRuntimeProjectionComponent.POSITION_RESERVATION
     )
     risk_index = next(
         index
         for index, item in enumerate(prepared.projections)
-        if item.identity.component is OnlyExecutionProjectionComponent.RISK_RESERVATION
+        if item.identity.component is OnlyRuntimeProjectionComponent.RISK_RESERVATION
     )
     projections = (*prepared.projections[:risk_index], position_reservation, *prepared.projections[risk_index:])
     projections = tuple(
@@ -159,25 +159,25 @@ def test_buy_open_rejects_position_reservation() -> None:
 @pytest.mark.parametrize(
     ("component", "field", "value"),
     (
-        (OnlyExecutionProjectionComponent.FEE, "account_id", "other-account"),
-        (OnlyExecutionProjectionComponent.FEE, "order_id", "other-order"),
-        (OnlyExecutionProjectionComponent.FEE, "trade_id", "other-trade"),
-        (OnlyExecutionProjectionComponent.SETTLEMENT, "account_id", OnlyAccountId("other-account")),
+        (OnlyRuntimeProjectionComponent.FEE, "account_id", "other-account"),
+        (OnlyRuntimeProjectionComponent.FEE, "order_id", "other-order"),
+        (OnlyRuntimeProjectionComponent.FEE, "trade_id", "other-trade"),
+        (OnlyRuntimeProjectionComponent.SETTLEMENT, "account_id", OnlyAccountId("other-account")),
         (
-            OnlyExecutionProjectionComponent.RISK,
+            OnlyRuntimeProjectionComponent.RISK,
             "runtime_id",
             OnlyRuntimeId("other-runtime"),
         ),
     ),
 )
 def test_prepared_transaction_rejects_fee_settlement_and_risk_scope_corruption(
-    component: OnlyExecutionProjectionComponent, field: str, value: object
+    component: OnlyRuntimeProjectionComponent, field: str, value: object
 ) -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     projections = list(prepared.projections)
     index = next(index for index, item in enumerate(projections) if item.identity.component is component)
     projection = projections[index]
-    if component is OnlyExecutionProjectionComponent.FEE:
+    if component is OnlyRuntimeProjectionComponent.FEE:
         after = replace(projection.after, instruction=replace(projection.after.instruction, **{field: value}))
     else:
         after = replace(projection.after, **{field: value})

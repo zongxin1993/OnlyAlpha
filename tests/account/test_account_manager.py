@@ -53,7 +53,7 @@ def test_account_snapshot_is_immutable_and_derived_from_single_writer() -> None:
     account = manager()
     snapshot = account.require_snapshot(ACCOUNT)
 
-    assert snapshot.cash.available_cash == money("100000.00")
+    assert snapshot.cash.trade_available_cash == money("100000.00")
     assert snapshot.equity == money("100000.00")
     with pytest.raises(FrozenInstanceError):
         snapshot.version = 9  # type: ignore[misc]
@@ -81,8 +81,8 @@ def test_reservation_lifecycle_is_idempotent_and_never_double_freezes() -> None:
 
     assert first.changed is True
     assert duplicate.changed is False
-    assert partial.after.cash.frozen_cash == money("600.00")
-    assert released.after.cash.frozen_cash == money("0.00")
+    assert partial.after.cash.order_reserved_cash == money("600.00")
+    assert released.after.cash.order_reserved_cash == money("0.00")
     assert released.after.reservations[0].state is OnlyAccountReservationState.RELEASED
 
 
@@ -105,7 +105,7 @@ def test_trade_and_valuation_update_cash_equity_and_pnl_once() -> None:
     duplicate = account.apply_trade_cash_flow(flow)
     valued = account.apply_valuation(OnlyAccountValuation(RUNTIME, ACCOUNT, money("1100.00"), money("100.00"), T1, 1))
 
-    assert applied.after.cash.cash_balance == money("98995.00")
+    assert applied.after.cash.ledger_cash == money("98995.00")
     assert duplicate.changed is False
     assert valued.after.equity == money("100095.00")
     assert valued.after.unrealized_pnl == money("100.00")
@@ -167,7 +167,7 @@ def test_cash_change_fee_and_serialization_are_exact_and_deterministic() -> None
     first = account.apply_fee(fee)
     duplicate = account.apply_fee(fee)
 
-    assert first.after.cash.cash_balance == money("100009.00")
+    assert first.after.cash.ledger_cash == money("100009.00")
     assert first.after.fees == money("1.00")
     assert duplicate.changed is False
     assert first.after.to_json() == first.after.to_json()

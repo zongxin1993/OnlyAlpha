@@ -118,7 +118,7 @@ class OnlyStreamingRuntimeInspectionSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class OnlyEconomicBaseline:
-    cash_balance: Decimal
+    ledger_cash: Decimal
     position_count: int
     total_position_quantity: Decimal
     order_count: int

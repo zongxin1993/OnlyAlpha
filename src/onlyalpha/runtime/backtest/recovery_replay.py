@@ -14,7 +14,7 @@ from onlyalpha.data.models import (
 from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
-from onlyalpha.execution import OnlyExecutionRecoverySession
+from onlyalpha.execution.causal_recovery import OnlyExecutionRecoverySession
 from onlyalpha.runtime.backtest.recovery_boundary import (
     OnlyBacktestRecoveryBoundary,
     OnlyBacktestRecoveryPhase,

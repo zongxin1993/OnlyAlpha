@@ -18,7 +18,7 @@
 10. `OnlyRuntimeLedgerReconciliationService.reconcile()` 接收账户、position、allocation、strategy ledger 与 valuation 等正式 snapshot/query 输入，生成 runtime 级差异；Backtest run plan 已在结果组装时调用。Validator 应复用它，而不是复制 capital/cash/PnL/equity 公式。
 11. `OnlyExecutionInvariantChecker.check(account_id, instrument_id)` 可检查负账户余额、账户 frozen/available 等关系、负 position/allocation、T+1 availability、ledger equity view、account equity，以及账户/position reservation 的负数与 scope/quantity 基础关系。它按账户与标的检查，不替代全 Runtime 归约。
 12. Position reconciliation 可比较账户 position 与 Cluster allocation 的 scope、数量和缺失/孤立关系；完整 authority 仍需按 account/instrument/side（hedging 时保持 side 独立）遍历所有 snapshot。
-13. `OnlyInMemoryAppliedProjectionLedger` 在每个 Runtime assembly 时新建，由 projection targets 记录本进程已应用/恢复 projection 的 payload/result hash；重启后只会因本次 tail/continuation 重放重新形成相关记录。
+13. `OnlyInMemoryAppliedRuntimeProjectionLedger` 在每个 Runtime assembly 时新建，由 projection targets 记录本进程已应用/恢复 projection 的 payload/result hash；重启后只会因本次 tail/continuation 重放重新形成相关记录。
 14. 它是可丢弃的加速与幂等索引，不在 checkpoint/SQLite 中作为事务事实持久化，也不覆盖 checkpoint prefix。持久交易存在性和 projection-ready 真值只属于 Runtime persistence store，因此它不能决定交易是否存在。
 15. Outbox query 可读取 runtime 的全部 outbox row，包括 key（runtime/sequence/event index）、event、idempotency key、published 状态、attempt count、时间及错误，并可查询 pending count，足以检查 identity、引用和发布状态。
 16. 标准 broker query port可提供 open/all order snapshot；当前 gateway snapshot包括 broker/local order id、account、instrument、side、status、quantity/filled/remaining、price及 broker sequence（实现可用时）。能力由 plugin capability 声明；checkpoint-enabled Backtest 当前只要求 deterministic checkpoint driver，尚未对 recovery authority query fail-fast。

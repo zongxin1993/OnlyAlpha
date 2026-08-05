@@ -2,7 +2,7 @@
 
 当前 canonical transaction schema 为 v4。相较 v3，Projection payload 增加真实 Manager replay 所需的 cycle、record sequence、Strategy valuation line 和 valuation timeline metadata；旧 schema 不隐式解码。真实安装语义见 [Real Manager Projection Targets](execution_projection_targets.md)。
 
-`OnlyPreparedExecutionTransaction` 是 Broker execution Update 与 durable commit 之间的不可变权威输入，schema version 为
+`OnlyPreparedRuntimeTransaction` 是 Broker execution Update 与 durable commit 之间的不可变权威输入，schema version 为
 4；旧 schema 不兼容且不隐式迁移。`TRADE_FILL` 的事务 ID 继续由 Runtime、Gateway、Account、Broker Update 与 Trade ID
 确定；`ORDER_TERMINAL` 使用独立 `ETERM-...` Terminal Identity、nullable Trade ID 和强类型 Terminal Fact。
 

@@ -9,7 +9,7 @@ from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
-from onlyalpha.execution import OnlyExecutionTransactionOutboxKey
+from onlyalpha.execution import OnlyRuntimeTransactionOutboxKey
 from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
 from onlyalpha.runtime.defaults import only_default_engine_services
@@ -251,7 +251,7 @@ class OnlyOutboxCheckpointFailureStore:
         self._delegate = delegate
         self._minimum_execution_sequence = minimum_execution_sequence
 
-    def mark_published(self, key: OnlyExecutionTransactionOutboxKey, published_at: OnlyTimestamp) -> None:
+    def mark_published(self, key: OnlyRuntimeTransactionOutboxKey, published_at: OnlyTimestamp) -> None:
         if key.execution_sequence >= self._minimum_execution_sequence:
             raise RuntimeError("TEST_MULTI_FILL_OUTBOX_PUBLICATION_FAILURE")
         self._delegate.mark_published(key, published_at)

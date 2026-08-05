@@ -9,7 +9,7 @@
 
 ## Decision
 
-`OnlyRuntimePersistenceStorePort` 中的 transaction 记录是唯一 durable Trade authority。`OnlyAppliedProjectionLedger` 仅记录某个 Projection 是否已应用，是可由 checkpoint authority 与有序 transaction tail 重建的幂等索引，不是第二业务真值。
+`OnlyRuntimePersistenceStorePort` 中的 transaction 记录是唯一 durable Trade authority。`OnlyAppliedRuntimeProjectionLedger` 仅记录某个 Projection 是否已应用，是可由 checkpoint authority 与有序 transaction tail 重建的幂等索引，不是第二业务真值。
 
 当前正式流程固定为：
 
@@ -26,7 +26,7 @@ Broker Trade Update
 
 Coordinator 接收显式 `committed_at` 与 `projected_at`，只依赖 Commit、Query、Projection State Port 和 Projection Applier，不导入 Manager。Store commit 必须发生在任何业务 Projection mutation 之前。同一幂等键与相同完整 Prepared payload 返回已有事务；同键不同 payload 是冲突。
 
-Runtime sequence gate 要求当前事务的直接前序已经 Projection Ready；不能跳过未完成事务。Target 按 `OnlyExecutionProjectionOrder` 顺序执行。任一 Target 失败时保留已完成前缀、记录 projection failure、隐藏 Outbox，并停止后续事务；重试通过 Applied Ledger 的 APPLIED/IDEMPOTENT/RECOVERED 语义继续 forward recovery。全部 Target 完成后才标记 Projection Ready。
+Runtime sequence gate 要求当前事务的直接前序已经 Projection Ready；不能跳过未完成事务。Target 按 `OnlyRuntimeProjectionOrder` 顺序执行。任一 Target 失败时保留已完成前缀、记录 projection failure、隐藏 Outbox，并停止后续事务；重试通过 Applied Ledger 的 APPLIED/IDEMPOTENT/RECOVERED 语义继续 forward recovery。全部 Target 完成后才标记 Projection Ready。
 
 Outbox 记录与事务一起 durable commit，但 `pending()` 只返回 Projection Ready 且未发布的记录。发布为 at-least-once；Event ID 稳定，消费者仍须幂等。本 ADR 不声称 exactly-once。
 

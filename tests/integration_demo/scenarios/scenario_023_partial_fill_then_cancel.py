@@ -39,7 +39,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     risk = partial.runtime.risk_service.reservations.get_for_order(submitted.order_id)
     assert order.status is OnlyOrderStatus.CANCELLED
     assert order.filled_quantity.value == Decimal("40")
-    assert account.cash.frozen_cash.amount == Decimal("0.00")
+    assert account.cash.order_reserved_cash.amount == Decimal("0.00")
     assert risk is not None and risk.state.value == "RELEASED"
     assert isinstance(partial.runtime.broker_gateway, OnlyVirtualBrokerGateway)
     assert partial.runtime.broker_gateway.fill_plan_store.require(submitted.order_id).status is (

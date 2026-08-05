@@ -137,7 +137,7 @@ def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
         currency=CNY,
     )
     ledger_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
-    assert account.cash.frozen_cash.amount == 0
+    assert account.cash.order_reserved_cash.amount == 0
     assert account_reservation.remaining_amount.amount == 0
     assert account_reservation.state.value == "CONSUMED"
     assert ledger.cash.cash_reserved.amount == 0

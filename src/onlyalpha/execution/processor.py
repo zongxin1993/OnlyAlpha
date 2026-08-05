@@ -70,7 +70,7 @@ from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
 from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter, OnlyPositionReservationManager
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.risk.service import OnlyRiskService
-from onlyalpha.settlement.manager import OnlySettlementManager
+from onlyalpha.settlement.authority import OnlySettlementAuthority
 from onlyalpha.strategy_ledger.enums import OnlyStrategyFeeType
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
@@ -81,6 +81,18 @@ from onlyalpha.strategy_ledger.models import (
     OnlyStrategyLedgerMutationResult,
     OnlyStrategyTradeAccountingInput,
 )
+from onlyalpha.transaction.coordinator import (
+    OnlyRuntimeTransactionCoordinationStatus,
+    OnlyRuntimeTransactionCoordinator,
+)
+from onlyalpha.transaction.delivery import (
+    OnlyExecutionEventDeliveryIntent,
+    OnlyExecutionEventDeliveryMode,
+)
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionQueryPort
+from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
+from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction
 
 from .capability import OnlyExecutionCapability, only_resolve_execution_capability
 from .causal_recovery import (
@@ -89,20 +101,11 @@ from .causal_recovery import (
     OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
 )
-from .commit_coordinator import (
-    OnlyExecutionCommitCoordinationStatus,
-    OnlyExecutionCommitCoordinator,
-)
 from .committed import OnlyCommittedExecutionFact
-from .delivery import (
-    OnlyExecutionEventDeliveryIntent,
-    OnlyExecutionEventDeliveryMode,
-)
 from .enums import (
     OnlyExecutionFailureCode,
     OnlyExecutionMutationStatus,
     OnlyExecutionMutationStep,
-    OnlyExecutionOperationKind,
     OnlyExecutionProcessingStatus,
 )
 from .event_buffer import OnlyExecutionEventBatch, OnlyExecutionEventBuffer
@@ -123,10 +126,8 @@ from .models import (
     OnlyExecutionReconciliationRequest,
     OnlyExecutionSnapshotBundle,
 )
-from .persistence_ports import OnlyExecutionTransactionQueryPort
 from .planning_context import OnlyTerminalExecutionPlanningContext, OnlyTradeExecutionPlanningContext
 from .planning_results import OnlyTradeExecutionPlanningError
-from .projection import OnlyExecutionProjectionComponent
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver
 from .state import (
     OnlyExecutionAuditStore,
@@ -141,7 +142,6 @@ from .terminal_identity import (
 )
 from .terminal_planner import OnlyTerminalExecutionTransactionPlanner
 from .trade_planner import OnlyTradeExecutionTransactionPlanner
-from .transaction import OnlyPreparedExecutionTransaction
 
 OnlyExecutionValuation = Callable[[OnlyStrategyLedgerKey, OnlyPositionTrade], None]
 OnlyAccountValuation = Callable[[OnlyPositionTrade], None]
@@ -203,8 +203,8 @@ class OnlyExecutionProcessor:
         trade_planner: OnlyTradeExecutionTransactionPlanner,
         terminal_planning_context_builder: OnlyTerminalPlanningContextBuilder,
         terminal_planner: OnlyTerminalExecutionTransactionPlanner,
-        execution_commit_coordinator: OnlyExecutionCommitCoordinator,
-        execution_transaction_query: OnlyExecutionTransactionQueryPort,
+        execution_commit_coordinator: OnlyRuntimeTransactionCoordinator,
+        execution_transaction_query: OnlyRuntimeTransactionQueryPort,
         reconciliation: OnlyExecutionReconciliationPort,
         deduplicator: OnlyExecutionUpdateDeduplicator,
         sequence_tracker: OnlyExecutionSequenceTracker,
@@ -213,7 +213,7 @@ class OnlyExecutionProcessor:
         connection_state: OnlyConnectionStateConsumer,
         base_currency: OnlyCurrency,
         market_rules: OnlyTradeInstructionPort | None = None,
-        settlement_manager: OnlySettlementManager | None = None,
+        settlement_authority: OnlySettlementAuthority | None = None,
         margin_manager: OnlyMarginManager | None = None,
         fee_manager: OnlyFeeManager | None = None,
         fee_resolver: OnlyFeeResolver | None = None,
@@ -254,7 +254,7 @@ class OnlyExecutionProcessor:
         self._connection_state = connection_state
         self._base_currency = base_currency
         self._market_rules = market_rules
-        self._settlement_manager = settlement_manager
+        self._settlement_authority = settlement_authority
         self._margin_manager = margin_manager
         self._fee_manager = fee_manager
         self._fee_resolver = fee_resolver
@@ -705,7 +705,7 @@ class OnlyExecutionProcessor:
         sequence_scope: tuple[str, ...],
         mode: OnlyExecutionProcessingMode,
         recovery_session: OnlyExecutionRecoverySession | None,
-        prepared: OnlyPreparedExecutionTransaction,
+        prepared: OnlyPreparedRuntimeTransaction,
         instrument_id: OnlyInstrumentId,
         steps: list[OnlyExecutionMutationRecord],
     ) -> OnlyExecutionProcessingResult:
@@ -746,33 +746,33 @@ class OnlyExecutionProcessor:
                 projected_at=coordinated_at,
             )
         if coordination.status in {
-            OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
-            OnlyExecutionCommitCoordinationStatus.ALREADY_READY,
+            OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED,
+            OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY,
         }:
             transaction = coordination.transaction
             if transaction is None:
                 raise AssertionError("successful execution coordination lost its committed transaction")
             component_steps = {
-                OnlyExecutionProjectionComponent.ORDER: OnlyExecutionMutationStep.ORDER,
-                OnlyExecutionProjectionComponent.POSITION: OnlyExecutionMutationStep.POSITION,
-                OnlyExecutionProjectionComponent.ALLOCATION: OnlyExecutionMutationStep.ALLOCATION,
-                OnlyExecutionProjectionComponent.SETTLEMENT: OnlyExecutionMutationStep.SETTLEMENT,
-                OnlyExecutionProjectionComponent.MARGIN: OnlyExecutionMutationStep.MARGIN,
-                OnlyExecutionProjectionComponent.FEE: OnlyExecutionMutationStep.FEE,
-                OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL: OnlyExecutionMutationStep.FEE,
-                OnlyExecutionProjectionComponent.ACCOUNT: OnlyExecutionMutationStep.ACCOUNT,
-                OnlyExecutionProjectionComponent.STRATEGY_LEDGER: OnlyExecutionMutationStep.STRATEGY_LEDGER,
-                OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
-                OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
-                OnlyExecutionProjectionComponent.POSITION_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
-                OnlyExecutionProjectionComponent.MARGIN_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
-                OnlyExecutionProjectionComponent.RISK_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
-                OnlyExecutionProjectionComponent.RISK: OnlyExecutionMutationStep.RISK,
-                OnlyExecutionProjectionComponent.VALUATION: OnlyExecutionMutationStep.ACCOUNT,
+                OnlyRuntimeProjectionComponent.ORDER: OnlyExecutionMutationStep.ORDER,
+                OnlyRuntimeProjectionComponent.POSITION: OnlyExecutionMutationStep.POSITION,
+                OnlyRuntimeProjectionComponent.ALLOCATION: OnlyExecutionMutationStep.ALLOCATION,
+                OnlyRuntimeProjectionComponent.SETTLEMENT: OnlyExecutionMutationStep.SETTLEMENT,
+                OnlyRuntimeProjectionComponent.MARGIN: OnlyExecutionMutationStep.MARGIN,
+                OnlyRuntimeProjectionComponent.FEE: OnlyExecutionMutationStep.FEE,
+                OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL: OnlyExecutionMutationStep.FEE,
+                OnlyRuntimeProjectionComponent.ACCOUNT: OnlyExecutionMutationStep.ACCOUNT,
+                OnlyRuntimeProjectionComponent.STRATEGY_LEDGER: OnlyExecutionMutationStep.STRATEGY_LEDGER,
+                OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
+                OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
+                OnlyRuntimeProjectionComponent.POSITION_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
+                OnlyRuntimeProjectionComponent.MARGIN_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
+                OnlyRuntimeProjectionComponent.RISK_RESERVATION: OnlyExecutionMutationStep.RESERVATION,
+                OnlyRuntimeProjectionComponent.RISK: OnlyExecutionMutationStep.RISK,
+                OnlyRuntimeProjectionComponent.VALUATION: OnlyExecutionMutationStep.ACCOUNT,
             }
             mutation_status = (
                 OnlyExecutionMutationStatus.APPLIED
-                if coordination.status is OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED
+                if coordination.status is OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED
                 else OnlyExecutionMutationStatus.DUPLICATE
             )
             steps.extend(
@@ -797,7 +797,7 @@ class OnlyExecutionProcessor:
             self._sequences.observe(sequence_scope, update.source_sequence)
             status = (
                 OnlyExecutionProcessingStatus.APPLIED
-                if coordination.status is OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED
+                if coordination.status is OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED
                 else OnlyExecutionProcessingStatus.DUPLICATE
             )
             payload: OnlyExecutionDispatchPayload = (
@@ -846,8 +846,8 @@ class OnlyExecutionProcessor:
         reconciliation = None
         processing_status = OnlyExecutionProcessingStatus.FAILED
         if coordination.transaction is not None and coordination.status in {
-            OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED,
-            OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+            OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED,
+            OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
         }:
             reconciliation = self._make_reconciliation(
                 update,
@@ -1095,7 +1095,7 @@ class OnlyExecutionProcessor:
         account = self._accounts.get_snapshot(order.account_id)
         if instruction is not None and account is not None:
             capability = only_resolve_execution_capability(
-                operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
+                operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
                 market_profile_id=instruction.compiled_identity.profile_id,
                 account_type=account.account_type,
                 order_type=order.order_type,
@@ -1172,25 +1172,8 @@ class OnlyExecutionProcessor:
             )
         )
         instruction = self._trade_instructions.get(str(trade.trade_id))
-        if instruction is None or self._settlement_manager is None:
-            raise ValueError("Trade commit requires a Market instruction and Settlement Manager")
-        trading_day = (
-            self._trading_day(trade.ts_event)
-            if self._trading_day is not None
-            else OnlyTradingDay(trade.ts_event.to_datetime().date())
-        )
-        self._settlement_manager.register(
-            instruction.settlement_instruction,
-            cash_currency=fee_instruction.fee_breakdown.total.currency,
-        )
-        self._settlement_manager.advance(trading_day)
-        steps.append(
-            OnlyExecutionMutationRecord(
-                OnlyExecutionMutationStep.SETTLEMENT,
-                OnlyExecutionMutationStatus.APPLIED,
-                instruction.settlement_instruction.instruction_id,
-            )
-        )
+        if instruction is None:
+            raise ValueError("Trade commit requires a compiled Market instruction")
         margin_record = None
         if instruction.margin_instruction is not None:
             if self._margin_manager is None:
@@ -1643,7 +1626,8 @@ class OnlyExecutionProcessor:
                 raise ValueError("POSITION_SCOPE_CONFLICT: missing resolved Trade instruction")
             settlement_bucket = (
                 OnlySettlementBucket.SETTLED
-                if instruction.settlement_instruction.asset_available_on.value <= update.ts_event.to_datetime().date()
+                if instruction.settlement_schedule.asset_trade_available_on.value
+                <= update.ts_event.to_datetime().date()
                 else OnlySettlementBucket.UNSETTLED
             )
         return OnlyPositionTrade(
@@ -1758,7 +1742,7 @@ class OnlyExecutionProcessor:
             OnlyExecutionCapability.UNSUPPORTED
             if instruction is None or order is None or account is None or position_scope is None
             else only_resolve_execution_capability(
-                operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
+                operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
                 market_profile_id=instruction.compiled_identity.profile_id,
                 account_type=account.account_type,
                 order_type=order.order_type,
@@ -1789,7 +1773,7 @@ class OnlyExecutionProcessor:
         )
         compiled = self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
         capability = only_resolve_execution_capability(
-            operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
+            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
             market_profile_id=compiled.identity.profile_id,
             account_type=account.account_type,
             order_type=order.order_type,
@@ -1813,7 +1797,7 @@ class OnlyExecutionProcessor:
         )
         return (
             bool(ledgers)
-            and account.cash.cash_balance.amount == sum((item.cash.cash_balance.amount for item in ledgers), Decimal(0))
+            and account.cash.ledger_cash.amount == sum((item.cash.ledger_cash.amount for item in ledgers), Decimal(0))
             and account.position_market_value.amount
             == sum((item.equity.position_market_value.amount for item in ledgers), Decimal(0))
         )

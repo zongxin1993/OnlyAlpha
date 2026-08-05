@@ -7,12 +7,13 @@ from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
-from onlyalpha.execution import OnlyCommittedExecutionFact, OnlyExecutionOperationKind
-from onlyalpha.execution.projection import OnlyRiskExecutionProjection
+from onlyalpha.execution import OnlyCommittedExecutionFact
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.position.enums import OnlyPositionReservationState
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
+from onlyalpha.transaction import OnlyRuntimeOperationKind
+from onlyalpha.transaction.projection import OnlyRiskExecutionProjection
 from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill_config
 
 
@@ -35,7 +36,7 @@ def test_engine_virtual_broker_runs_complete_long_close_multi_fill(tmp_path, sam
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     records = reader.transactions_for_order(runtime.config.runtime_id, sell.order_id)
     assert len(records) == 3
-    assert all(item.operation_kind is OnlyExecutionOperationKind.TRADE_FILL for item in records)
+    assert all(item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL for item in records)
     assert all(isinstance(item.fact, OnlyCommittedExecutionFact) for item in records)
     facts = tuple(item.fact for item in records if isinstance(item.fact, OnlyCommittedExecutionFact))
     assert tuple(item.fill_index for item in facts) == (1, 2, 3)

@@ -13,21 +13,22 @@ from onlyalpha.account.models import OnlyAccountReservation, OnlyAccountSnapshot
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.execution.applied_projection import OnlyAppliedProjectionLedger
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
-from onlyalpha.execution.persistence_ports import (
-    OnlyExecutionTransactionOutboxPort,
-    OnlyExecutionTransactionQueryPort,
-    OnlyProjectionReadyExecutionQueryPort,
-)
+from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
 from onlyalpha.fee.manager import OnlyFeeRecord
 from onlyalpha.margin.manager import OnlyMarginRecord
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.position.reservations import OnlyPositionReservation
 from onlyalpha.risk.reservations import OnlyRiskReservation
-from onlyalpha.settlement.manager import OnlySettlementRecord
+from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot
 from onlyalpha.strategy_ledger.models import OnlyStrategyCashReservation, OnlyStrategyLedgerSnapshot
+from onlyalpha.transaction.applied_projection import OnlyAppliedRuntimeProjectionLedger
+from onlyalpha.transaction.persistence_ports import (
+    OnlyProjectionReadyRuntimeQueryPort,
+    OnlyRuntimeTransactionOutboxPort,
+    OnlyRuntimeTransactionQueryPort,
+)
 
 from .authority_views import OnlyBrokerRecoveryAuthorityView, OnlyRuntimeBoundaryAuthorityView
 from .outcome import OnlyRuntimeRecoveryOutcome
@@ -96,10 +97,10 @@ class OnlyPostRecoveryValidationReport:
 class OnlyPostRecoveryValidationContext:
     runtime_id: OnlyRuntimeId
     outcome: OnlyRuntimeRecoveryOutcome
-    transaction_query: OnlyExecutionTransactionQueryPort
-    ready_transaction_query: OnlyProjectionReadyExecutionQueryPort
-    outbox_query: OnlyExecutionTransactionOutboxPort
-    applied_projection_view: OnlyAppliedProjectionLedger
+    transaction_query: OnlyRuntimeTransactionQueryPort
+    ready_transaction_query: OnlyProjectionReadyRuntimeQueryPort
+    outbox_query: OnlyRuntimeTransactionOutboxPort
+    applied_projection_view: OnlyAppliedRuntimeProjectionLedger
     runtime_boundary_view: OnlyRuntimeBoundaryAuthorityView
     orders: tuple[OnlyOrderSnapshot, ...] = ()
     positions: tuple[OnlyPositionSnapshot, ...] = ()
@@ -112,7 +113,7 @@ class OnlyPostRecoveryValidationContext:
     risk_reservations: tuple[OnlyRiskReservation, ...] = ()
     margin_reservations: tuple[OnlyMarginReservation, ...] = ()
     fee_records: tuple[OnlyFeeRecord, ...] = ()
-    settlement_records: tuple[OnlySettlementRecord, ...] = ()
+    settlement_records: tuple[OnlySettlementInstructionSnapshot, ...] = ()
     margin_records: tuple[OnlyMarginRecord, ...] = ()
     broker_view: OnlyBrokerRecoveryAuthorityView | None = None
     ledger_reconciliation_violations: tuple[str, ...] = ()
@@ -142,7 +143,11 @@ class OnlyTransactionAuthorityCheck:
         sequences = tuple(item.execution_sequence for item in records)
         expected = tuple(range(1, len(records) + 1))
         ids = tuple(item.transaction_id for item in records)
-        updates = tuple(str(item.fact.broker_update_id) for item in records)
+        updates = tuple(
+            str(item.fact.broker_update_id)
+            for item in records
+            if isinstance(item.fact, OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact)
+        )
         trades = tuple(str(item.fact.trade_id) for item in records if isinstance(item.fact, OnlyCommittedExecutionFact))
         ready_expected = tuple(item for item in records if item.projection_ready)
         return (
@@ -601,7 +606,7 @@ class OnlyAccountLedgerAuthorityCheck:
         reservation_mismatch = tuple(
             str(account.account_id)
             for account in context.accounts
-            if active_by_account.get(str(account.account_id), Decimal(0)) != account.cash.frozen_cash.amount
+            if active_by_account.get(str(account.account_id), Decimal(0)) != account.cash.order_reserved_cash.amount
         )
         return (
             _check(
@@ -632,7 +637,7 @@ class OnlyFeeSettlementMarginAuthorityCheck:
             if isinstance(item.fact, OnlyCommittedExecutionFact)
         )
         fee_keys = {item.instruction_id for item in context.fee_records}
-        settlement_keys = {item.instruction_id for item in context.settlement_records}
+        settlement_keys = {str(item.instruction.instruction_id) for item in context.settlement_records}
         fact_by_fee = {fact.fee_instruction_id: fact for _, fact in trade_records}
         fact_by_settlement = {fact.settlement_instruction_id: fact for _, fact in trade_records}
         missing_fee = tuple(sequence for sequence, fact in trade_records if fact.fee_instruction_id not in fee_keys)
@@ -669,27 +674,23 @@ class OnlyFeeSettlementMarginAuthorityCheck:
         )
         orphan_fee = tuple(item.fee_record_id for item in context.fee_records if item.instruction_id not in fact_by_fee)
         settlement_scope = tuple(
-            item.instruction_id
+            str(item.instruction.instruction_id)
             for item in context.settlement_records
-            if (fact := fact_by_settlement.get(item.instruction_id)) is not None
+            if (fact := fact_by_settlement.get(str(item.instruction.instruction_id))) is not None
             and (
-                item.account_id != str(fact.account_id)
-                or item.instrument_id != str(fact.instrument_id)
-                or item.source_order_id != str(fact.order_id)
-                or item.source_trade_id != str(fact.trade_id)
-                or item.legal_settlement_date != fact.legal_settlement_date
+                item.instruction.account_id != fact.account_id
+                or item.instruction.instrument_id != fact.instrument_id
+                or item.instruction.order_id != fact.order_id
+                or item.instruction.trade_id != fact.trade_id
+                or item.instruction.schedule.legal_settlement_on != fact.legal_settlement_date
             )
         )
         orphan_settlement = tuple(
-            item.instruction_id for item in context.settlement_records if item.instruction_id not in fact_by_settlement
-        )
-        settlement_state = tuple(
-            item.instruction_id
+            str(item.instruction.instruction_id)
             for item in context.settlement_records
-            if (item.legal_settled and item.status != "SETTLED")
-            or (not item.legal_settled and item.status not in {"BOOKED", "PENDING"})
-            or (item.status == "SETTLED" and not item.legal_settled)
+            if str(item.instruction.instruction_id) not in fact_by_settlement
         )
+        settlement_state: tuple[str, ...] = ()
         margin_applicable = any(fact.margin_instruction_id is not None for _, fact in trade_records)
         active_margin = tuple(item for item in context.margin_reservations if item.reserved or item.occupied)
         margin_applicable = (

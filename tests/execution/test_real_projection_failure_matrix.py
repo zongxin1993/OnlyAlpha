@@ -1,23 +1,23 @@
 import pytest
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent, OnlyExecutionRecoveryStatus
+from onlyalpha.execution import OnlyExecutionRecoveryStatus, OnlyRuntimeProjectionComponent
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 
 _COMPONENTS = tuple(
     component
-    for component in OnlyExecutionProjectionComponent
+    for component in OnlyRuntimeProjectionComponent
     if component
     not in {
-        OnlyExecutionProjectionComponent.MARGIN,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.MARGIN_RESERVATION,
+        OnlyRuntimeProjectionComponent.MARGIN,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.MARGIN_RESERVATION,
     }
 )
 
 
 @pytest.mark.parametrize("component", _COMPONENTS, ids=lambda item: item.value)
 def test_failure_before_each_real_target_recovers_exact_prefix_without_duplicate_authority(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
 ) -> None:
     baseline = OnlyRealExecutionRecoveryHarness.create()
     assert baseline.recover().succeeded
@@ -43,7 +43,7 @@ def test_failure_before_each_real_target_recovers_exact_prefix_without_duplicate
 
 @pytest.mark.parametrize("component", _COMPONENTS, ids=lambda item: item.value)
 def test_failure_after_real_target_return_recovers_as_idempotent_without_duplicate_authority(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
 ) -> None:
     baseline = OnlyRealExecutionRecoveryHarness.create()
     assert baseline.recover().succeeded

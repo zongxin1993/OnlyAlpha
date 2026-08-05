@@ -10,7 +10,7 @@ from onlyalpha.execution import (
     OnlyExecutionRecoveryPlanBuilder,
     OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
-    OnlyPreparedExecutionTransaction,
+    OnlyPreparedRuntimeTransaction,
 )
 from onlyalpha.runtime.backtest.recovery_boundary import (
     OnlyBacktestRecoveryBoundary,
@@ -61,7 +61,7 @@ def _resolved_execution_session() -> OnlyExecutionRecoverySession:
     return OnlyExecutionRecoverySession(OnlyExecutionRecoveryPlan(prepared.runtime_id, 1, 0, ()))
 
 
-def _matching_execution_session() -> tuple[OnlyExecutionRecoverySession, OnlyPreparedExecutionTransaction]:
+def _matching_execution_session() -> tuple[OnlyExecutionRecoverySession, OnlyPreparedRuntimeTransaction]:
     store = OnlyInMemoryRuntimePersistenceStore()
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store.commit(prepared, committed_at=prepared.prepared_at)

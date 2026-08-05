@@ -66,8 +66,26 @@ def assert_recovery_equivalent(baseline: OnlyRecoveryBaseline, recovered: OnlyRe
 
     actual = canonical_value(only_backtest_business_projection(recovered))
     expected = _thaw(baseline.canonical_projection)
+    assert actual == expected, _first_difference(actual, expected)
     assert recovered.result_fingerprint == baseline.result_fingerprint
-    assert actual == expected
+
+
+def _first_difference(actual: object, expected: object, path: str = "root") -> str:
+    if type(actual) is not type(expected):
+        return f"{path}: type {type(actual).__name__} != {type(expected).__name__}"
+    if isinstance(actual, dict) and isinstance(expected, dict):
+        if actual.keys() != expected.keys():
+            return f"{path}: keys {actual.keys() ^ expected.keys()}"
+        for key in actual:
+            if actual[key] != expected[key]:
+                return _first_difference(actual[key], expected[key], f"{path}.{key}")
+    if isinstance(actual, list) and isinstance(expected, list):
+        if len(actual) != len(expected):
+            return f"{path}: length {len(actual)} != {len(expected)}"
+        for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+            if left != right:
+                return _first_difference(left, right, f"{path}[{index}]")
+    return f"{path}: {actual!r} != {expected!r}"
 
 
 def _object(path: Path) -> dict[str, object]:

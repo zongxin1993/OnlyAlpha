@@ -166,10 +166,10 @@
   },
   "checkpoint_id": "backtest-3fac729b44c6577a:30",
   "committed_fact_ids": [
-    "virtual-trade-00000001",
-    "virtual-trade-00000002",
-    "virtual-trade-00000003",
-    "virtual-trade-00000004"
+    "EFILL-7f6908bb8eff9f9c0220ca9eb69f8a9b9477c5749e0517da04726689e27739ab",
+    "EFILL-5cba87a66306da8da10498912ee52d86af04dd1193883fed897a2aa427aa222b",
+    "EFILL-0429c88d4882d9b1462f08dc35621e52407fbfb5f62b78e8b01974b6b7fa9278",
+    "EFILL-1d8ca8bb1f0f355c158b676804c493578268d85e762cb139e682c2f013a22bcc"
   ],
   "committed_transaction_ids": [
     "ETX-f9a8723649ad379aa05aa36d5ecd1a3425df4ab4d47d7fd19fb7897b5cd9e83b",
@@ -177,15 +177,15 @@
     "ETX-850c0969e28310e16508aaa32c2e31e4e7bd23677353a66a192f0864430558aa",
     "ETX-1f51b38a28ded995889717ed78f976128748765281e9cb13cec9243184f7875f"
   ],
-  "configuration_fingerprint": "27830db2909b0f883b003f93bf18d3700e6f3b5e5efed9a04f3af1093800f7a0",
+  "configuration_fingerprint": "016775fd6c58e4376957bcaea0449c1b5c87dad0ccf0037df8f5ce06936ce5ed",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "70db737753ba9e735d5e142277ffa1c259a445850ffe49263e1e640b54621c9c",
-  "database_template": "multi_cluster_close_baseline-70db737753ba9e735d5e142277ffa1c259a445850ffe49263e1e640b54621c9c.sqlite3",
+  "database_fingerprint": "d1535c1c4856953b1fb7cc9681b3bfc0abf1f74c7e6f057efa8406b28ccfd742",
+  "database_template": "multi_cluster_close_baseline-d1535c1c4856953b1fb7cc9681b3bfc0abf1f74c7e6f057efa8406b28ccfd742.sqlite3",
   "fill_count": 4,
   "onlyalpha_version": "0.3.2",
   "order_count": 4,
-  "persistence_schema_version": "1",
-  "result_fingerprint": "266800e38585771f29540f74808520b9878074c0fe88e58503d11d2a92a118ab",
-  "scenario_fingerprint": "27830db2909b0f883b003f93bf18d3700e6f3b5e5efed9a04f3af1093800f7a0",
+  "persistence_schema_version": "4",
+  "result_fingerprint": "73044f72302fc231dc5c71cf45d16f7e944813338fe89cfb86ad9653c02028a6",
+  "scenario_fingerprint": "016775fd6c58e4376957bcaea0449c1b5c87dad0ccf0037df8f5ce06936ce5ed",
   "terminal_count": 0
 }

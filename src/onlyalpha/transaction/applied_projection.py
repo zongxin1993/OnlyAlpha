@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.transaction.projection import OnlyRuntimeProjection, OnlyRuntimeProjectionComponent
 
-from .committed import OnlyCommittedExecutionFact
-from .projection import OnlyExecutionProjection, OnlyExecutionProjectionComponent
-from .terminal_fact import OnlyCommittedTerminalExecutionFact
+from .facts import OnlyCommittedRuntimeFact
 
 
 def _require_digest(value: str, label: str) -> None:
@@ -18,11 +17,11 @@ def _require_digest(value: str, label: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyExecutionProjectionApplyContext(OnlyDomainModel):
+class OnlyRuntimeProjectionApplyContext(OnlyDomainModel):
     transaction_id: str
     execution_sequence: int
-    fact: OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact
-    projection: OnlyExecutionProjection
+    fact: OnlyCommittedRuntimeFact
+    projection: OnlyRuntimeProjection
 
     def __post_init__(self) -> None:
         if not self.transaction_id.strip():
@@ -34,10 +33,10 @@ class OnlyExecutionProjectionApplyContext(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyAppliedProjectionRecord(OnlyDomainModel):
+class OnlyAppliedRuntimeProjectionRecord(OnlyDomainModel):
     transaction_id: str
     execution_sequence: int
-    component: OnlyExecutionProjectionComponent
+    component: OnlyRuntimeProjectionComponent
     entity_key: str
     payload_hash: str
     result_state_hash: str
@@ -49,38 +48,38 @@ class OnlyAppliedProjectionRecord(OnlyDomainModel):
         _require_digest(self.result_state_hash, "Applied Projection result_state_hash")
 
 
-class OnlyAppliedProjectionLedger(Protocol):
+class OnlyAppliedRuntimeProjectionLedger(Protocol):
     def get(
-        self, execution_sequence: int, component: OnlyExecutionProjectionComponent
-    ) -> OnlyAppliedProjectionRecord | None: ...
+        self, execution_sequence: int, component: OnlyRuntimeProjectionComponent
+    ) -> OnlyAppliedRuntimeProjectionRecord | None: ...
 
-    def record(self, record: OnlyAppliedProjectionRecord) -> None: ...
+    def record(self, record: OnlyAppliedRuntimeProjectionRecord) -> None: ...
 
 
-class OnlyInMemoryAppliedProjectionLedger:
+class OnlyInMemoryAppliedRuntimeProjectionLedger:
     def __init__(self) -> None:
-        self._records: dict[tuple[int, OnlyExecutionProjectionComponent], OnlyAppliedProjectionRecord] = {}
+        self._records: dict[tuple[int, OnlyRuntimeProjectionComponent], OnlyAppliedRuntimeProjectionRecord] = {}
 
     def get(
-        self, execution_sequence: int, component: OnlyExecutionProjectionComponent
-    ) -> OnlyAppliedProjectionRecord | None:
+        self, execution_sequence: int, component: OnlyRuntimeProjectionComponent
+    ) -> OnlyAppliedRuntimeProjectionRecord | None:
         return self._records.get((execution_sequence, component))
 
-    def record(self, record: OnlyAppliedProjectionRecord) -> None:
+    def record(self, record: OnlyAppliedRuntimeProjectionRecord) -> None:
         key = (record.execution_sequence, record.component)
         existing = self._records.get(key)
         if existing is not None and existing != record:
             raise ValueError("Applied Projection sequence/component already has different authority")
         self._records.setdefault(key, record)
 
-    def records(self) -> tuple[OnlyAppliedProjectionRecord, ...]:
+    def records(self) -> tuple[OnlyAppliedRuntimeProjectionRecord, ...]:
         keys = sorted(self._records, key=lambda item: (item[0], item[1].value))
         return tuple(self._records[key] for key in keys)
 
 
 __all__ = [
-    "OnlyAppliedProjectionLedger",
-    "OnlyAppliedProjectionRecord",
-    "OnlyExecutionProjectionApplyContext",
-    "OnlyInMemoryAppliedProjectionLedger",
+    "OnlyAppliedRuntimeProjectionLedger",
+    "OnlyAppliedRuntimeProjectionRecord",
+    "OnlyRuntimeProjectionApplyContext",
+    "OnlyInMemoryAppliedRuntimeProjectionLedger",
 ]

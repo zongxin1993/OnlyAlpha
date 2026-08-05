@@ -9,7 +9,7 @@ ADR 0044 的恢复先重放行情并跳过 Store 中已存在的 Broker Update�
 
 ## Decision
 
-1. Recovery 使用 `OnlyStoredExecutionTransaction` 同时读取原始 Prepared contract 与 Committed transaction；Memory 和 SQLite Store 实现相同 Recovery Query Port。
+1. Recovery 使用 `OnlyStoredRuntimeTransaction` 同时读取原始 Prepared contract 与 Committed transaction；Memory 和 SQLite Store 实现相同 Recovery Query Port。
 2. `OnlyExecutionRecoveryPlan` 按 execution sequence 建立 Ready prefix 和 Unprojected suffix，`OnlyExecutionRecoverySession` 是唯一 tail 进度、冲突与 resolution authority。
 3. 每个恢复 Broker Trade Update 仍进入 `OnlyExecutionProcessor`。Processor 使用与正常运行相同的 Planning Context Builder 和 Planner 重建 Prepared，并要求对象全等，同时重新验证 authority/payload canonical hash。
 4. Replay 后批量 Rehydrate 是错误的，因为它让同一 Bar 或后续 Bar 的 Strategy 观察旧 authority；Replay 前预先应用 tail 也错误，因为它让更早的 callback 观察未来 authority。事务只能在原 Broker Update 因果点 resolve。

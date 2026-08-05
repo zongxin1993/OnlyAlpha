@@ -94,6 +94,9 @@ class OnlyBacktestArtifactWriter:
                         "accounts",
                         "equity",
                         "settlements",
+                        "settlement_instructions",
+                        "settlement_maturities",
+                        "runtime_transactions",
                         "margin",
                         "fees",
                         "market_rule_decisions",
@@ -163,6 +166,27 @@ class OnlyBacktestArtifactWriter:
                 "settlements.parquet": (
                     "SETTLEMENTS",
                     _table(_SETTLEMENT_SCHEMA, [_record(item) for item in facts.settlements]),
+                ),
+                "settlement_instructions.parquet": (
+                    "SETTLEMENT_INSTRUCTIONS",
+                    _table(
+                        _SETTLEMENT_INSTRUCTION_SCHEMA,
+                        [_record(item) for item in facts.settlement_instructions],
+                    ),
+                ),
+                "settlement_maturities.parquet": (
+                    "SETTLEMENT_MATURITIES",
+                    _table(
+                        _SETTLEMENT_MATURITY_SCHEMA,
+                        [_record(item) for item in facts.settlement_maturities],
+                    ),
+                ),
+                "runtime_transactions.parquet": (
+                    "RUNTIME_TRANSACTIONS",
+                    _table(
+                        _RUNTIME_TRANSACTION_SCHEMA,
+                        [_record(item) for item in facts.runtime_transactions],
+                    ),
                 ),
                 "margin.parquet": ("MARGIN", _table(_MARGIN_SCHEMA, [_record(item) for item in facts.margin])),
                 "fees.parquet": ("FEES", _table(_FEE_SCHEMA, [_record(item) for item in facts.fees])),
@@ -347,7 +371,7 @@ class OnlyBacktestArtifactWriter:
                         "account_id": str(item.key.account_id),
                         "cluster_id": str(item.key.cluster_id),
                         "currency": item.currency.code,
-                        "cash": item.cash_balance.amount,
+                        "cash": item.ledger_cash.amount,
                         "market_value": item.position_market_value.amount,
                         "equity": item.equity.amount,
                         "realized_pnl": item.realized_pnl.amount,
@@ -483,7 +507,7 @@ _ACCOUNT_SCHEMA = pa.schema(
         ("account_id", pa.string()),
         ("currency", pa.string()),
         ("cash", _DECIMAL),
-        ("frozen_cash", _DECIMAL),
+        ("order_reserved_cash", _DECIMAL),
         ("market_value", _DECIMAL),
         ("equity", _DECIMAL),
         ("realized_pnl", _DECIMAL),
@@ -549,6 +573,65 @@ _SETTLEMENT_SCHEMA = pa.schema(
         ("settlement_time", _TIMESTAMP),
         ("status", pa.string()),
         ("settlement_model_id", pa.string()),
+    ]
+)
+_SETTLEMENT_INSTRUCTION_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("instruction_id", pa.string()),
+        ("runtime_id", pa.string()),
+        ("account_id", pa.string()),
+        ("cluster_id", pa.string()),
+        ("instrument_id", pa.string()),
+        ("order_id", pa.string()),
+        ("trade_id", pa.string()),
+        ("position_id", pa.string()),
+        ("position_cycle", pa.int64()),
+        ("allocation_id", pa.string()),
+        ("allocation_cycle", pa.int64()),
+        ("side", pa.string()),
+        ("quantity", _DECIMAL),
+        ("gross_notional", _DECIMAL),
+        ("net_cash_flow", _DECIMAL),
+        ("trading_day", pa.date32()),
+        ("asset_trade_available_on", pa.date32()),
+        ("cash_trade_available_on", pa.date32()),
+        ("cash_withdrawable_on", pa.date32()),
+        ("legal_settlement_on", pa.date32()),
+        ("policy_id", pa.string()),
+        ("compiled_rule_fingerprint", pa.string()),
+        ("reference_fingerprint", pa.string()),
+        ("status", pa.string()),
+        ("version", pa.int64()),
+    ]
+)
+_SETTLEMENT_MATURITY_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("maturity_identity", pa.string()),
+        ("instruction_id", pa.string()),
+        ("runtime_id", pa.string()),
+        ("account_id", pa.string()),
+        ("effective_on", pa.date32()),
+        ("transitions_json", pa.string()),
+        ("asset_quantity_delta", _DECIMAL),
+        ("cash_withdrawable_delta", _DECIMAL),
+        ("runtime_sequence", pa.int64()),
+        ("transaction_id", pa.string()),
+        ("projection_ready", pa.bool_()),
+    ]
+)
+_RUNTIME_TRANSACTION_SCHEMA = pa.schema(
+    [
+        ("sequence", pa.int64()),
+        ("runtime_sequence", pa.int64()),
+        ("transaction_id", pa.string()),
+        ("operation_kind", pa.string()),
+        ("operation_identity", pa.string()),
+        ("runtime_id", pa.string()),
+        ("account_id", pa.string()),
+        ("effective_time", _TIMESTAMP),
+        ("projection_ready", pa.bool_()),
     ]
 )
 _MARGIN_SCHEMA = pa.schema(

@@ -30,10 +30,14 @@ from onlyalpha.result.records import (
     OnlyOrderResultRecord,
     OnlyPositionResultRecord,
     OnlyProfileTimelineResultRecord,
+    OnlyRuntimeTransactionResultRecord,
     OnlySequencedResultRecord,
+    OnlySettlementInstructionResultRecord,
+    OnlySettlementMaturityResultRecord,
     OnlySettlementResultRecord,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
+from onlyalpha.settlement.facts import OnlyCommittedSettlementMaturityFact
 
 
 class OnlyResultCollectorLifecycle(StrEnum):
@@ -145,8 +149,8 @@ class OnlyBacktestResultCollector:
                     runtime_id=str(account.runtime_id),
                     account_id=str(account.account_id),
                     currency=str(account.base_currency),
-                    cash=account.cash.cash_balance.amount,
-                    frozen_cash=account.cash.frozen_cash.amount,
+                    cash=account.cash.ledger_cash.amount,
+                    order_reserved_cash=account.cash.order_reserved_cash.amount,
                     market_value=account.position_market_value.amount,
                     equity=account.equity.amount,
                     realized_pnl=account.realized_pnl.amount,
@@ -316,23 +320,89 @@ class OnlyBacktestResultCollector:
         settlement_records = tuple(
             OnlySettlementResultRecord(
                 sequence=next_sequence(),
-                account_id=item.account_id,
-                instrument_id=item.instrument_id,
-                execution_id=item.source_trade_id,
-                asset_quantity=item.booked_quantity,
-                cash_amount=item.cash_amount,
-                trade_time=trade_time_by_id.get(item.source_trade_id, now),
-                asset_available_time=datetime.combine(item.processed_on.value, time(), UTC),
-                cash_available_time=datetime.combine(item.processed_on.value, time(), UTC),
-                settlement_time=datetime.combine(
-                    (item.legal_settlement_date or item.processed_on).value,
-                    time(),
-                    UTC,
+                account_id=str(item.instruction.account_id),
+                instrument_id=str(item.instruction.instrument_id),
+                execution_id=str(item.instruction.trade_id),
+                asset_quantity=item.instruction.trade_quantity.value,
+                cash_amount=item.instruction.cash_leg.legal_amount.amount,
+                trade_time=trade_time_by_id.get(str(item.instruction.trade_id), now),
+                asset_available_time=datetime.combine(
+                    item.instruction.schedule.asset_trade_available_on.value, time(), UTC
                 ),
-                status=item.status,
-                settlement_model_id="MARKET_RULE_INSTRUCTION",
+                cash_available_time=datetime.combine(
+                    item.instruction.schedule.cash_trade_available_on.value, time(), UTC
+                ),
+                settlement_time=datetime.combine(item.instruction.schedule.legal_settlement_on.value, time(), UTC),
+                status=item.status.value,
+                settlement_model_id=item.instruction.schedule.policy_id,
             )
-            for item in runtime.settlement_manager.records
+            for item in runtime.settlement_authority.records
+        )
+        settlement_instruction_records = tuple(
+            OnlySettlementInstructionResultRecord(
+                sequence=next_sequence(),
+                instruction_id=str(item.instruction.instruction_id),
+                runtime_id=str(item.instruction.runtime_id),
+                account_id=str(item.instruction.account_id),
+                cluster_id=str(item.instruction.cluster_id),
+                instrument_id=str(item.instruction.instrument_id),
+                order_id=str(item.instruction.order_id),
+                trade_id=str(item.instruction.trade_id),
+                position_id=str(item.instruction.position_id),
+                position_cycle=item.instruction.position_cycle,
+                allocation_id=str(item.instruction.allocation_id),
+                allocation_cycle=item.instruction.allocation_cycle,
+                side=item.instruction.side.value,
+                quantity=item.instruction.trade_quantity.value,
+                gross_notional=item.instruction.gross_notional.amount,
+                net_cash_flow=item.instruction.net_cash_flow.amount,
+                trading_day=item.instruction.trading_day.value,
+                asset_trade_available_on=item.instruction.schedule.asset_trade_available_on.value,
+                cash_trade_available_on=item.instruction.schedule.cash_trade_available_on.value,
+                cash_withdrawable_on=item.instruction.schedule.cash_withdrawable_on.value,
+                legal_settlement_on=item.instruction.schedule.legal_settlement_on.value,
+                policy_id=item.instruction.schedule.policy_id,
+                compiled_rule_fingerprint=item.instruction.compiled_rule_fingerprint,
+                reference_fingerprint=item.instruction.reference_fingerprint,
+                status=item.status.value,
+                version=item.version,
+            )
+            for item in runtime.settlement_authority.snapshots()
+        )
+        transactions = runtime.execution_transaction_query.records(OnlyRuntimeId(str(runtime.config.runtime_id)))
+        settlement_maturity_records = tuple(
+            OnlySettlementMaturityResultRecord(
+                sequence=next_sequence(),
+                maturity_identity=item.fact.maturity_identity,
+                instruction_id=str(item.fact.instruction_id),
+                runtime_id=str(item.runtime_id),
+                account_id=str(item.fact.account_id),
+                effective_on=item.fact.effective_on.value,
+                transitions_json=json.dumps(
+                    [transition.value for transition in item.fact.transitions], separators=(",", ":")
+                ),
+                asset_quantity_delta=item.fact.asset_available_delta.value,
+                cash_withdrawable_delta=item.fact.cash_withdrawable_delta.amount,
+                runtime_sequence=item.execution_sequence,
+                transaction_id=item.transaction_id,
+                projection_ready=item.projection_ready,
+            )
+            for item in transactions
+            if isinstance(item.fact, OnlyCommittedSettlementMaturityFact)
+        )
+        runtime_transaction_records = tuple(
+            OnlyRuntimeTransactionResultRecord(
+                sequence=next_sequence(),
+                runtime_sequence=item.execution_sequence,
+                transaction_id=item.transaction_id,
+                operation_kind=item.operation_kind.value,
+                operation_identity=item.operation_identity,
+                runtime_id=str(item.runtime_id),
+                account_id=None if item.account_id is None else str(item.account_id),
+                effective_time=item.effective_time.to_datetime(),
+                projection_ready=item.projection_ready,
+            )
+            for item in transactions
         )
         margin_records = tuple(
             OnlyMarginResultRecord(
@@ -406,6 +476,9 @@ class OnlyBacktestResultCollector:
             profile_timeline=tuple(timeline_records),
             compiled_market_rules=tuple(compiled_records),
             settlements=settlement_records,
+            settlement_instructions=settlement_instruction_records,
+            settlement_maturities=settlement_maturity_records,
+            runtime_transactions=runtime_transaction_records,
             margin=margin_records,
             fees=fee_records,
         )
@@ -428,6 +501,9 @@ class OnlyBacktestResultCollector:
             accounts=normalize(facts.accounts),
             equity=normalize(facts.equity),
             settlements=normalize(facts.settlements),
+            settlement_instructions=normalize(facts.settlement_instructions),
+            settlement_maturities=normalize(facts.settlement_maturities),
+            runtime_transactions=normalize(facts.runtime_transactions),
             margin=normalize(facts.margin),
             fees=normalize(facts.fees),
             market_rule_decisions=normalize(facts.market_rule_decisions),

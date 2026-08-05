@@ -2,7 +2,7 @@ import ast
 import inspect
 from pathlib import Path
 
-from onlyalpha.execution import OnlyExecutionCommitCoordinator
+from onlyalpha.execution import OnlyRuntimeTransactionCoordinator
 
 
 def _imports(path: str) -> set[str]:
@@ -46,7 +46,7 @@ def test_product_supported_trade_path_has_one_transaction_authority_and_no_switc
     assert "self._execution_commit_coordinator.commit(" in processor
     assert "runtime_persistence_store" in runtime
     assert "OnlyInMemoryRuntimePersistenceStore()" not in runtime
-    assert "OnlyExecutionCommitCoordinator(" in runtime
+    assert "OnlyRuntimeTransactionCoordinator(" in runtime
     assert "CommittedExecutionJournal" not in execution
     assert "ExecutionCommitPort" not in execution
     assert "feature_flag" not in processor.lower()
@@ -55,13 +55,13 @@ def test_product_supported_trade_path_has_one_transaction_authority_and_no_switc
 
 def test_applied_ledger_is_only_an_in_memory_rebuildable_index() -> None:
     source = Path("src/onlyalpha/execution/applied_projection.py").read_text(encoding="utf-8")
-    assert "class OnlyInMemoryAppliedProjectionLedger" in source
+    assert "class OnlyInMemoryAppliedRuntimeProjectionLedger" in source
     assert "sqlite" not in source.lower()
     assert "open(" not in source
 
 
 def test_coordinator_has_no_compatibility_constructor() -> None:
-    parameters = inspect.signature(OnlyExecutionCommitCoordinator).parameters
+    parameters = inspect.signature(OnlyRuntimeTransactionCoordinator).parameters
     assert tuple(parameters) == (
         "commit_port",
         "query_port",

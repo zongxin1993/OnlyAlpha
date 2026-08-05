@@ -243,7 +243,7 @@ def test_every_planning_stage_failure_has_no_partial_result_or_external_side_eff
 
 def _inject_failure(stage: str, monkeypatch: pytest.MonkeyPatch) -> None:
     planner_module = importlib.import_module("onlyalpha.execution.trade_planner")
-    projection_builder_module = importlib.import_module("onlyalpha.execution.projection_builder")
+    projection_builder_module = importlib.import_module("onlyalpha.transaction.projection_builder")
 
     def fail(*args: object, **kwargs: object) -> None:
         del args, kwargs
@@ -270,12 +270,12 @@ def _inject_failure(stage: str, monkeypatch: pytest.MonkeyPatch) -> None:
     elif stage == "fact_draft":
         monkeypatch.setattr(planner_module.OnlyTradeExecutionTransactionPlanner, "_fact", staticmethod(fail))
     elif stage == "projection_finalization":
-        monkeypatch.setattr(projection_builder_module.OnlyExecutionProjectionBuilder, "finalize", fail)
+        monkeypatch.setattr(projection_builder_module.OnlyRuntimeProjectionBuilder, "finalize", fail)
     elif stage == "precondition":
-        monkeypatch.setattr(planner_module, "OnlyExecutionPrecondition", fail)
+        monkeypatch.setattr(planner_module, "OnlyRuntimePrecondition", fail)
     elif stage == "event":
         monkeypatch.setattr(planner_module.OnlyTradeExecutionTransactionPlanner, "_events", staticmethod(fail))
     elif stage == "prepared_transaction":
-        monkeypatch.setattr(planner_module, "OnlyPreparedExecutionTransaction", fail)
+        monkeypatch.setattr(planner_module, "OnlyPreparedRuntimeTransaction", fail)
     else:
         raise AssertionError(f"unknown failure stage: {stage}")

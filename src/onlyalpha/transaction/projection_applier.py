@@ -6,37 +6,37 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .applied_projection import OnlyExecutionProjectionApplyContext
-from .projection import (
-    OnlyExecutionProjection,
-    OnlyExecutionProjectionComponent,
-    OnlyExecutionProjectionTarget,
+from onlyalpha.transaction.applied_projection import OnlyRuntimeProjectionApplyContext
+from onlyalpha.transaction.projection import (
     OnlyProjectionApplyResult,
     OnlyProjectionApplyStatus,
+    OnlyRuntimeProjection,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeProjectionTarget,
 )
-from .transaction import OnlyCommittedExecutionTransaction
+from onlyalpha.transaction.transaction import OnlyCommittedRuntimeTransaction
 
 
-class OnlyExecutionProjectionBatchStatus(StrEnum):
+class OnlyRuntimeProjectionBatchStatus(StrEnum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyExecutionProjectionBatchResult:
+class OnlyRuntimeProjectionBatchResult:
     execution_sequence: int
     applied: tuple[OnlyProjectionApplyResult, ...]
     idempotent: tuple[OnlyProjectionApplyResult, ...]
     recovered: tuple[OnlyProjectionApplyResult, ...]
-    failed_projection: OnlyExecutionProjection | None
-    status: OnlyExecutionProjectionBatchStatus
+    failed_projection: OnlyRuntimeProjection | None
+    status: OnlyRuntimeProjectionBatchStatus
     error: str | None
 
 
-class OnlyExecutionProjectionApplier:
+class OnlyRuntimeProjectionApplier:
     def __init__(
         self,
-        targets: Mapping[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget],
+        targets: Mapping[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget],
     ) -> None:
         copied = dict(targets)
         for component, target in copied.items():
@@ -44,7 +44,7 @@ class OnlyExecutionProjectionApplier:
                 raise ValueError("projection target mapping component mismatch")
         self._targets = copied
 
-    def apply(self, transaction: OnlyCommittedExecutionTransaction) -> OnlyExecutionProjectionBatchResult:
+    def apply(self, transaction: OnlyCommittedRuntimeTransaction) -> OnlyRuntimeProjectionBatchResult:
         ordered = tuple(sorted(transaction.projections, key=lambda item: item.identity.projection_sequence))
         expected = tuple(range(1, len(ordered) + 1))
         if tuple(item.identity.projection_sequence for item in ordered) != expected:
@@ -56,18 +56,18 @@ class OnlyExecutionProjectionApplier:
             identity = projection.identity
             target = self._targets.get(identity.component)
             if target is None:
-                return OnlyExecutionProjectionBatchResult(
+                return OnlyRuntimeProjectionBatchResult(
                     transaction.execution_sequence,
                     tuple(applied),
                     tuple(idempotent),
                     tuple(recovered),
                     projection,
-                    OnlyExecutionProjectionBatchStatus.FAILED,
+                    OnlyRuntimeProjectionBatchStatus.FAILED,
                     f"missing projection target for {identity.component.value}",
                 )
             try:
                 result = target.apply_execution_projection(
-                    OnlyExecutionProjectionApplyContext(
+                    OnlyRuntimeProjectionApplyContext(
                         transaction.transaction_id,
                         transaction.execution_sequence,
                         transaction.fact,
@@ -75,13 +75,13 @@ class OnlyExecutionProjectionApplier:
                     )
                 )
             except Exception as exc:
-                return OnlyExecutionProjectionBatchResult(
+                return OnlyRuntimeProjectionBatchResult(
                     transaction.execution_sequence,
                     tuple(applied),
                     tuple(idempotent),
                     tuple(recovered),
                     projection,
-                    OnlyExecutionProjectionBatchStatus.FAILED,
+                    OnlyRuntimeProjectionBatchStatus.FAILED,
                     f"{type(exc).__name__}: {exc}",
                 )
             if result.status is OnlyProjectionApplyStatus.APPLIED:
@@ -93,28 +93,28 @@ class OnlyExecutionProjectionApplier:
             if result.status is OnlyProjectionApplyStatus.RECOVERED:
                 recovered.append(result)
                 continue
-            return OnlyExecutionProjectionBatchResult(
+            return OnlyRuntimeProjectionBatchResult(
                 transaction.execution_sequence,
                 tuple(applied),
                 tuple(idempotent),
                 tuple(recovered),
                 projection,
-                OnlyExecutionProjectionBatchStatus.FAILED,
+                OnlyRuntimeProjectionBatchStatus.FAILED,
                 result.status.value,
             )
-        return OnlyExecutionProjectionBatchResult(
+        return OnlyRuntimeProjectionBatchResult(
             transaction.execution_sequence,
             tuple(applied),
             tuple(idempotent),
             tuple(recovered),
             None,
-            OnlyExecutionProjectionBatchStatus.COMPLETED,
+            OnlyRuntimeProjectionBatchStatus.COMPLETED,
             None,
         )
 
 
 __all__ = [
-    "OnlyExecutionProjectionApplier",
-    "OnlyExecutionProjectionBatchResult",
-    "OnlyExecutionProjectionBatchStatus",
+    "OnlyRuntimeProjectionApplier",
+    "OnlyRuntimeProjectionBatchResult",
+    "OnlyRuntimeProjectionBatchStatus",
 ]

@@ -56,7 +56,7 @@ class OnlyStrategyLedger:
         self.status = OnlyStrategyLedgerStatus.CREATED
         self.initial_capital = initial_capital
         self.external_cash_flow = zero
-        self.cash_balance = initial_capital
+        self.ledger_cash = initial_capital
         self.realized_pnl = zero
         self.fees = zero
         self._valuation_lines: dict[object, OnlyStrategyValuationLine] = {}
@@ -115,17 +115,17 @@ class OnlyStrategyLedger:
         reservations: tuple[OnlyStrategyCashReservation, ...],
     ) -> OnlyStrategyLedgerSnapshot:
         self._require_currency(cash_reserved)
-        cash_available = OnlyMoney(self.cash_balance.amount - cash_reserved.amount, self.key.base_currency)
+        cash_available = OnlyMoney(self.ledger_cash.amount - cash_reserved.amount, self.key.base_currency)
         if cash_available.amount < 0:
             raise OnlyStrategyLedgerInsufficientCashError("Strategy cash available became negative")
         net_pnl = self.realized_pnl + self.unrealized_pnl - self.fees
-        cash_view = self.cash_balance + self.position_market_value
+        cash_view = self.ledger_cash + self.position_market_value
         pnl_view = self.initial_capital + self.external_cash_flow + net_pnl
         drawdown = self._drawdown(self._equity)
         simple_return = self._simple_return(self._equity)
         daily_pnl = self._equity - self.day_start_equity
         daily_return = self._daily_return(daily_pnl)
-        cash = OnlyStrategyCashSnapshot(self.cash_balance, cash_reserved, cash_available)
+        cash = OnlyStrategyCashSnapshot(self.ledger_cash, cash_reserved, cash_available)
         pnl = OnlyStrategyPnLSnapshot(self.realized_pnl, self.unrealized_pnl, self.fees, net_pnl)
         equity = OnlyStrategyEquitySnapshot(
             self.key,
@@ -135,7 +135,7 @@ class OnlyStrategyLedger:
             self.version,
             self.initial_capital,
             self.external_cash_flow,
-            self.cash_balance,
+            self.ledger_cash,
             cash_reserved,
             cash_available,
             self.position_cost,
@@ -235,9 +235,9 @@ class OnlyStrategyLedger:
             cash_delta = OnlyMoney(-(notional.amount + trade.fee.amount), self.key.base_currency)
         else:
             cash_delta = OnlyMoney(notional.amount - trade.fee.amount, self.key.base_currency)
-        if self.cash_balance.amount + cash_delta.amount < 0:
+        if self.ledger_cash.amount + cash_delta.amount < 0:
             raise OnlyStrategyLedgerInsufficientCashError("Trade would make Strategy cash negative")
-        self.cash_balance = self.cash_balance + cash_delta
+        self.ledger_cash = self.ledger_cash + cash_delta
         self.realized_pnl = self.realized_pnl + accounting.realized_pnl_delta
         self.fees = self.fees + trade.fee
         self._update_trade_valuation(accounting)
@@ -292,9 +292,9 @@ class OnlyStrategyLedger:
     def apply_fee(self, entry: OnlyStrategyFeeEntry) -> None:
         self._require_active()
         self._require_currency(entry.amount)
-        if self.cash_balance.amount < entry.amount.amount:
+        if self.ledger_cash.amount < entry.amount.amount:
             raise OnlyStrategyLedgerInsufficientCashError("Fee would make Strategy cash negative")
-        self.cash_balance = self.cash_balance - entry.amount
+        self.ledger_cash = self.ledger_cash - entry.amount
         self.fees = self.fees + entry.amount
         self.fee_entries.append(entry)
         self._record_cash(
@@ -317,9 +317,9 @@ class OnlyStrategyLedger:
     ) -> None:
         self._require_active()
         self._require_currency(amount)
-        if self.cash_balance.amount + amount.amount < 0:
+        if self.ledger_cash.amount + amount.amount < 0:
             raise OnlyStrategyLedgerInsufficientCashError("cash adjustment would make cash negative")
-        self.cash_balance = self.cash_balance + amount
+        self.ledger_cash = self.ledger_cash + amount
         self.external_cash_flow = self.external_cash_flow + amount
         self._record_cash(
             OnlyStrategyCashEntryType.MANUAL_ADJUSTMENT,
@@ -420,7 +420,7 @@ class OnlyStrategyLedger:
         return result
 
     def _reconcile_equity(self) -> None:
-        cash_view = self.cash_balance + self.position_market_value
+        cash_view = self.ledger_cash + self.position_market_value
         pnl_view = self.initial_capital + self.external_cash_flow + self.realized_pnl + self.unrealized_pnl - self.fees
         self._equity = cash_view
         if cash_view != pnl_view:

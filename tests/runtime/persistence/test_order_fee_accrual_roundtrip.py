@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent
+from onlyalpha.execution import OnlyRuntimeProjectionComponent
 from onlyalpha.runtime.persistence.store import (
     OnlyInMemoryRuntimePersistenceStore,
     OnlySqliteRuntimePersistenceStore,
@@ -26,7 +26,7 @@ def test_order_fee_accrual_projection_round_trips_through_runtime_store(backend:
     assert actual == expected
     assert actual is not None
     assert any(
-        item.identity.component is OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL for item in actual.projections
+        item.identity.component is OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL for item in actual.projections
     )
     if isinstance(store, OnlySqliteRuntimePersistenceStore):
         store.close()

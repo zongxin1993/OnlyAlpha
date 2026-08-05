@@ -229,14 +229,6 @@ class OnlyPosition:
         self.version += 1
         return True
 
-    def settle(self) -> OnlyQuantity:
-        moved = self.unsettled_quantity
-        if moved.value:
-            self.settled_quantity = self.settled_quantity + moved
-            self.unsettled_quantity = only_zero_quantity(moved.precision)
-            self.version += 1
-        return moved
-
     def set_reconciling(self, broker_available: OnlyQuantity | None = None) -> None:
         self.status = OnlyPositionStatus.RECONCILING
         self.broker_available_quantity = broker_available

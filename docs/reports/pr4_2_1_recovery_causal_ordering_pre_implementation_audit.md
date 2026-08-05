@@ -64,15 +64,15 @@
 
 14. **Store 是否保存完整 Prepared Payload**
 
-    SQLite `execution_transactions.prepared_payload` 保存 canonical 编码后的完整 `OnlyPreparedExecutionTransaction`，同时保存 prepared authority hash 和 payload hash；Memory commit 目前只做 Prepared codec round-trip 验证，没有把 Prepared 对象保存在独立 record 中。
+    SQLite `execution_transactions.prepared_payload` 保存 canonical 编码后的完整 `OnlyPreparedRuntimeTransaction`，同时保存 prepared authority hash 和 payload hash；Memory commit 目前只做 Prepared codec round-trip 验证，没有把 Prepared 对象保存在独立 record 中。
 
 15. **Memory Store 是否保留 Prepared Transaction**
 
-    否。Memory Store 只保存 `OnlyCommittedExecutionTransaction`；Prepared 仅在 commit 栈内编码/解码验证后丢弃，当前 query 无法返回原 Prepared Contract。
+    否。Memory Store 只保存 `OnlyCommittedRuntimeTransaction`；Prepared 仅在 commit 栈内编码/解码验证后丢弃，当前 query 无法返回原 Prepared Contract。
 
 16. **如何按 Broker Update 查询 Stored Prepared + Committed**
 
-    当前做不到。现有 `get_by_update()` 只返回 committed。SQLite `_decode_row()` 会读取并校验 prepared payload，但只把 committed 返回；Memory Store 更未保存 Prepared。需要新增 Recovery Query Port 与 `OnlyStoredExecutionTransaction(prepared, committed)`，两种 Store 同契约实现。
+    当前做不到。现有 `get_by_update()` 只返回 committed。SQLite `_decode_row()` 会读取并校验 prepared payload，但只把 committed 返回；Memory Store 更未保存 Prepared。需要新增 Recovery Query Port 与 `OnlyStoredRuntimeTransaction(prepared, committed)`，两种 Store 同契约实现。
 
 17. **当前 Result Fingerprint 未覆盖的业务字段**
 

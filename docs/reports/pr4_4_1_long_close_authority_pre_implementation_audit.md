@@ -42,7 +42,7 @@
 
 ## Projection、Checkpoint 与 Recovery
 
-22. `OnlyExecutionProjectionComponent.POSITION_RESERVATION`、State、Projection、Codec union 与 transition validation 已存在；但正式 Generic T0 Projection Target Registry 尚未注册 Position Reservation Target，Planner 也不生成该 Projection。
+22. `OnlyRuntimeProjectionComponent.POSITION_RESERVATION`、State、Projection、Codec union 与 transition validation 已存在；但正式 Generic T0 Projection Target Registry 尚未注册 Position Reservation Target，Planner 也不生成该 Projection。
 23. Runtime checkpoint 已注册 `position-reservation.authority` Participant，并完整 capture/restore Position Reservation Manager。
 24. Recovery 能恢复 checkpoint 中的 Position Reservation，也能反序列化存储的 Position Reservation Projection；但由于缺少正式 Target，当前无法安装一笔尚未投影的 Position Reservation Projection。PR4.4.1 必须补齐 Target 和恢复安装，而不新增 Recovery Phase。
 25. Virtual Broker 已能接收 `LIMIT SELL CLOSE`，匹配 SELL limit，生成 Whole Fill `OnlyBrokerTradeUpdate`，并维护 SELL cash/position 投影；无需修改其 Fill Identity、Fill Index 或 Fill Plan 语义。

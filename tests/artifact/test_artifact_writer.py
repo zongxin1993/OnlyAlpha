@@ -56,7 +56,7 @@ def _result(value: str = "1000000.01") -> OnlyArtifactResultFixture:
         account_id="account-1",
         currency="CNY",
         cash=amount,
-        frozen_cash=Decimal("0.01"),
+        order_reserved_cash=Decimal("0.01"),
         market_value=Decimal("0"),
         equity=amount,
         realized_pnl=Decimal("0.1"),
@@ -167,6 +167,9 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
         "cluster_equity.parquet",
         "signals.parquet",
         "settlements.parquet",
+        "settlement_instructions.parquet",
+        "settlement_maturities.parquet",
+        "runtime_transactions.parquet",
         "margin.parquet",
         "fees.parquet",
         "market_rule_decisions.parquet",
@@ -181,10 +184,13 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
     assert pq.read_table(tmp_path / "orders.parquet").num_rows == 0
     assert pq.read_table(tmp_path / "orders.parquet").num_columns > 0
     assert pq.read_table(tmp_path / "settlements.parquet").num_rows == 0
+    assert pq.read_table(tmp_path / "settlement_instructions.parquet").num_columns > 0
+    assert pq.read_table(tmp_path / "settlement_maturities.parquet").num_columns > 0
+    assert pq.read_table(tmp_path / "runtime_transactions.parquet").num_columns > 0
     assert pq.read_table(tmp_path / "margin.parquet").num_rows == 0
     account = pq.read_table(tmp_path / "accounts.parquet").to_pylist()[0]
     assert account["cash"] == Decimal("1000000.010000000000000000")
-    assert account["frozen_cash"] == Decimal("0.010000000000000000")
+    assert account["order_reserved_cash"] == Decimal("0.010000000000000000")
     assert not tuple(tmp_path.glob(".artifact-staging-*"))
 
 

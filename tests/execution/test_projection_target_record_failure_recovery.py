@@ -1,10 +1,10 @@
 import pytest
 
 from onlyalpha.execution import (
-    OnlyAppliedProjectionRecord,
-    OnlyExecutionProjectionComponent,
-    OnlyInMemoryAppliedProjectionLedger,
+    OnlyAppliedRuntimeProjectionRecord,
+    OnlyInMemoryAppliedRuntimeProjectionLedger,
     OnlyProjectionApplyStatus,
+    OnlyRuntimeProjectionComponent,
 )
 from tests.execution.support.manager_authority_digest import only_test_runtime_authority_digest
 from tests.execution.targets.support import only_test_projection_context, only_test_projection_target_bundle
@@ -17,12 +17,12 @@ class _OnlyTestFailOnceAppliedProjectionLedger:
     def get(
         self,
         execution_sequence: int,
-        component: OnlyExecutionProjectionComponent,
-    ) -> OnlyAppliedProjectionRecord | None:
+        component: OnlyRuntimeProjectionComponent,
+    ) -> OnlyAppliedRuntimeProjectionRecord | None:
         del execution_sequence, component
         return None
 
-    def record(self, record: OnlyAppliedProjectionRecord) -> None:
+    def record(self, record: OnlyAppliedRuntimeProjectionRecord) -> None:
         del record
         if not self.failed:
             self.failed = True
@@ -32,15 +32,15 @@ class _OnlyTestFailOnceAppliedProjectionLedger:
 @pytest.mark.parametrize(
     "component",
     (
-        OnlyExecutionProjectionComponent.POSITION,
-        OnlyExecutionProjectionComponent.FEE,
-        OnlyExecutionProjectionComponent.ACCOUNT,
-        OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
-        OnlyExecutionProjectionComponent.VALUATION,
+        OnlyRuntimeProjectionComponent.POSITION,
+        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.ACCOUNT,
+        OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
+        OnlyRuntimeProjectionComponent.VALUATION,
     ),
 )
 def test_manager_install_survives_ledger_record_failure_and_retry_recovers(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
 ) -> None:
     bundle = only_test_projection_target_bundle()
     context = only_test_projection_context(bundle, component)
@@ -49,7 +49,7 @@ def test_manager_install_survives_ledger_record_failure_and_retry_recovers(
         failing_target.apply_execution_projection(context)
     installed = only_test_runtime_authority_digest(bundle.environment)
 
-    ledger = OnlyInMemoryAppliedProjectionLedger()
+    ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
     recovered_target = bundle.create_targets(ledger)[component]
     result = recovered_target.apply_execution_projection(context)
     assert result.status is OnlyProjectionApplyStatus.RECOVERED

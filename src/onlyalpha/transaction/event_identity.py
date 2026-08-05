@@ -20,7 +20,7 @@ from onlyalpha.event.model import (
 _EXECUTION_EVENT_NAMESPACE = UUID("c7f52042-c48f-5ef2-9f3b-75373a72dc77")
 
 
-def only_execution_transaction_event_id(
+def only_runtime_transaction_event_id(
     *, transaction_id: str, event_sequence: int, event_type: OnlyEventType
 ) -> OnlyEventId:
     if not transaction_id.strip() or event_sequence < 1:
@@ -59,7 +59,7 @@ class OnlyExecutionTransactionEventFactory:
             payload=payload,
             cluster_id=cluster_id,
             metadata={} if metadata is None else metadata,
-            event_id=only_execution_transaction_event_id(
+            event_id=only_runtime_transaction_event_id(
                 transaction_id=transaction_id,
                 event_sequence=event_sequence,
                 event_type=event_type,
@@ -73,5 +73,5 @@ class OnlyExecutionTransactionEventFactory:
 
 __all__ = [
     "OnlyExecutionTransactionEventFactory",
-    "only_execution_transaction_event_id",
+    "only_runtime_transaction_event_id",
 ]

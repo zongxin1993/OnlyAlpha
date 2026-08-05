@@ -2,7 +2,7 @@
 
 `OnlyRuntimePersistenceStorePort` 是 Runtime 的统一持久化边界。Memory 与 SQLite 实现共享事务提交、投影进度、Outbox、检查点、幂等和错误契约；Runtime 只能装配一个 Store 实例，不能分别创建成交与检查点数据库。
 
-同一 Transaction/Trade/Update 业务键且 `authority_hash` 相同时返回原 committed transaction；同一业务键指向不同 authority，或多个幂等索引指向不同事务时抛出 `OnlyExecutionTransactionConflict`。I/O、SQLite lock/malformed/schema、非业务唯一约束、Outbox、序列化和损坏数据错误统一抛出 `OnlyRuntimePersistenceStoreError` 并保留 cause。
+同一 Transaction/Trade/Update 业务键且 `authority_hash` 相同时返回原 committed transaction；同一业务键指向不同 authority，或多个幂等索引指向不同事务时抛出 `OnlyRuntimeTransactionConflict`。I/O、SQLite lock/malformed/schema、非业务唯一约束、Outbox、序列化和损坏数据错误统一抛出 `OnlyRuntimePersistenceStoreError` 并保留 cause。
 
 SQLite schema v2 将 metadata、transactions、indexes、outbox、checkpoint headers 和 checkpoint components 保存在同一数据库。事务、索引与 Outbox 使用同一 `BEGIN IMMEDIATE`；一个检查点的 header、全部 components 和 retention 删除也使用单一原子事务。schema v1 与历史 `execution_store_metadata` 布局均明确拒绝，不提供隐式迁移。
 

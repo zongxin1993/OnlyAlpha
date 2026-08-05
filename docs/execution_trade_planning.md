@@ -13,7 +13,7 @@ authority、Settlement/Fee record sequence head，以及由最新 Closed Bar 提
 
 Planner 固定执行：验证 → Planned Trade → Order → Position → Allocation → Settlement → Fee → Account → Strategy Ledger →
 Account Cash Reservation → Strategy Cash Reservation → Risk Reservation → Risk → Valuation → Fact Draft → Projection →
-Precondition → deterministic Event → Prepared Transaction。最终 Projection 顺序使用 `OnlyExecutionProjectionOrder`；本场景包含
+Precondition → deterministic Event → Prepared Transaction。最终 Projection 顺序使用 `OnlyRuntimeProjectionOrder`；本场景包含
 12 项 Projection，不包含 Position Reservation、Margin 或 Margin Reservation。
 
 Position 与 Allocation 的新实体身份由调用方按现有 Manager cycle 规则预先读取并放入 creation authority。Reducer 只验证并

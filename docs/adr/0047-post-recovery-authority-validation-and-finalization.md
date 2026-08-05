@@ -49,7 +49,7 @@ reconciliation and manager snapshots remain the formula authorities; the Validat
 settlement, position, account or risk reducers. Checks are canonically sorted by code/scope and SHA-256 fingerprinted as operational
 diagnostics; that fingerprint is excluded from canonical business projection.
 
-`OnlyInMemoryAppliedProjectionLedger` remains a discardable application index. The durable transaction store is the only
+`OnlyInMemoryAppliedRuntimeProjectionLedger` remains a discardable application index. The durable transaction store is the only
 transaction authority. A new Engine need not reconstruct the checkpoint prefix in this in-memory ledger, so validation covers only
 the current persisted-tail plus continuation range. No SQLite applied-ledger table is introduced.
 

@@ -4316,14 +4316,6 @@
   "cluster_equity_timelines": [
     [
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4371,6 +4363,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -4416,14 +4416,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4471,6 +4463,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -4516,14 +4516,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4571,6 +4563,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -4616,14 +4616,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4671,6 +4663,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -4716,14 +4716,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4771,6 +4763,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -4816,14 +4816,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4871,6 +4863,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -4916,14 +4916,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -4971,6 +4963,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5016,14 +5016,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5071,6 +5063,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5116,14 +5116,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5171,6 +5163,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5216,14 +5216,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5271,6 +5263,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5316,14 +5316,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5371,6 +5363,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5416,14 +5416,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5471,6 +5463,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5516,14 +5516,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5571,6 +5563,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5616,14 +5616,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5671,6 +5663,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5716,14 +5716,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5771,6 +5763,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5816,14 +5816,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5871,6 +5863,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -5916,14 +5916,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -5971,6 +5963,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6016,14 +6016,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6073,6 +6065,14 @@
             "value": "backtest-0c6981aa2050c745"
           }
         },
+        "ledger_cash": {
+          "amount": "996997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
         "ledger_id": {
           "value": "SLEDGER-backtest-0c6981aa2050c745-backtest-account-macd-demo-CNY"
         },
@@ -6116,14 +6116,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992993.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6171,6 +6163,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992993.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6216,14 +6216,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992993.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6271,6 +6263,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992993.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6316,14 +6316,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992993.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6371,6 +6363,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992993.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6416,14 +6416,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992993.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6471,6 +6463,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992993.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6516,14 +6516,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992993.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6573,6 +6565,14 @@
             "value": "backtest-0c6981aa2050c745"
           }
         },
+        "ledger_cash": {
+          "amount": "992993.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
         "ledger_id": {
           "value": "SLEDGER-backtest-0c6981aa2050c745-backtest-account-macd-demo-CNY"
         },
@@ -6616,14 +6616,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "989990.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6671,6 +6663,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "989990.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6716,14 +6716,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "989990.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6771,6 +6763,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "989990.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6816,14 +6816,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "989990.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6871,6 +6863,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "989990.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -6916,14 +6916,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "989990.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -6971,6 +6963,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "989990.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7016,14 +7016,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "989990.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7073,6 +7065,14 @@
             "value": "backtest-0c6981aa2050c745"
           }
         },
+        "ledger_cash": {
+          "amount": "989990.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
         "ledger_id": {
           "value": "SLEDGER-backtest-0c6981aa2050c745-backtest-account-macd-demo-CNY"
         },
@@ -7116,14 +7116,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992987.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7171,6 +7163,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992987.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7216,14 +7216,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992987.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7271,6 +7263,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992987.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7316,14 +7316,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992987.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7371,6 +7363,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992987.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7416,14 +7416,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992987.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7471,6 +7463,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "992987.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7516,14 +7516,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "992987.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7573,6 +7565,14 @@
             "value": "backtest-0c6981aa2050c745"
           }
         },
+        "ledger_cash": {
+          "amount": "992987.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
         "ledger_id": {
           "value": "SLEDGER-backtest-0c6981aa2050c745-backtest-account-macd-demo-CNY"
         },
@@ -7616,14 +7616,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996983.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7671,6 +7663,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996983.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7716,14 +7716,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996983.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7771,6 +7763,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996983.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7816,14 +7816,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996983.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7871,6 +7863,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996983.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -7916,14 +7916,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996983.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -7971,6 +7963,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996983.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8016,14 +8016,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "996983.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8073,6 +8065,14 @@
             "value": "backtest-0c6981aa2050c745"
           }
         },
+        "ledger_cash": {
+          "amount": "996983.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
         "ledger_id": {
           "value": "SLEDGER-backtest-0c6981aa2050c745-backtest-account-macd-demo-CNY"
         },
@@ -8116,14 +8116,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8171,6 +8163,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8216,14 +8216,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8271,6 +8263,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8316,14 +8316,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8371,6 +8363,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8416,14 +8416,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8471,6 +8463,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8516,14 +8516,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8571,6 +8563,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8616,14 +8616,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8671,6 +8663,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8716,14 +8716,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8771,6 +8763,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8816,14 +8816,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8871,6 +8863,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -8916,14 +8916,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -8971,6 +8963,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9016,14 +9016,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9071,6 +9063,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9116,14 +9116,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9171,6 +9163,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9216,14 +9216,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9271,6 +9263,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9316,14 +9316,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9371,6 +9363,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9416,14 +9416,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9471,6 +9463,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9516,14 +9516,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9571,6 +9563,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9616,14 +9616,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9671,6 +9663,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9716,14 +9716,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9771,6 +9763,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9816,14 +9816,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9871,6 +9863,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -9916,14 +9916,6 @@
         }
       },
       {
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -9971,6 +9963,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "ledger_id": {
@@ -10196,9 +10196,9 @@
         "currency": "OnlyCurrency(code='CNY', precision=2, currency_type=<OnlyCurrencyType.FIAT: 'FIAT'>)",
         "equity": "999980.00",
         "fees": "20.00",
-        "frozen_cash": "0.00",
         "market_value": "0.00",
         "occupied_margin": "0",
+        "order_reserved_cash": "0.00",
         "realized_pnl": "0.00",
         "released_margin": "0",
         "reserved_margin": "0",
@@ -10218,7 +10218,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "runtime_mode": "BACKTEST",
         "schema_version": "1",
-        "sequence": 83,
+        "sequence": 95,
         "trading_day": "2026-01-05",
         "venue_id": "XSHG"
       }
@@ -11449,12 +11449,12 @@
         "request_id": "macd-demo-macd-000001-buy",
         "runtime_id": "backtest-0c6981aa2050c745",
         "sequence": 5,
-        "settlement_instruction_id": "c0bfc5d3d5b467311c6e5e650f5bd28e2a68deab5e62f587209b0ff92902b849",
+        "settlement_instruction_id": "SINS-807b2f51c309a60b7449fa6cedcb4700073038a0251e169e7ef41631e67ebe77",
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
         "strategy_id": "macd-strategy",
-        "trade_instruction_id": "TINSTR-71564a3111537f52b6e7d5b555869958d0ee0c9904e19b5a482ddbd094d2b4cd",
+        "trade_instruction_id": "TINSTR-8170436c06541fb01752baca9e9cb8cae93c16abe0c95e60f1239683bec95ca0",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:39:00Z",
         "turnover": "3000.00",
@@ -11507,12 +11507,12 @@
         "request_id": "macd-demo-macd-000001-buy",
         "runtime_id": "backtest-0c6981aa2050c745",
         "sequence": 6,
-        "settlement_instruction_id": "ce8d87294506106ead3c9d941f7e7978bb59eca31e19f4dbe263a09f41117239",
+        "settlement_instruction_id": "SINS-90775d318cdcfaa35116e07652768a0d1f0b85320e2694ac5cbe8e4d62735918",
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
         "strategy_id": "macd-strategy",
-        "trade_instruction_id": "TINSTR-7c90650d023053e61c3221cfc995747a6ba366710d71964f4fdb2be5695e8172",
+        "trade_instruction_id": "TINSTR-8170436c06541fb01752baca9e9cb8cae93c16abe0c95e60f1239683bec95ca0",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:40:00Z",
         "turnover": "4000.00",
@@ -11565,12 +11565,12 @@
         "request_id": "macd-demo-macd-000001-buy",
         "runtime_id": "backtest-0c6981aa2050c745",
         "sequence": 7,
-        "settlement_instruction_id": "cc7c3fe811bc3e3d5b661ed4285f8b8d219572873036050cd9ebdf5f2db4ed4b",
+        "settlement_instruction_id": "SINS-0ddb880893c1a97ebd1e669562d032d0082d7778ba1c9de778604d5a24623974",
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
         "strategy_id": "macd-strategy",
-        "trade_instruction_id": "TINSTR-4be78137636cc1da90f80b9d488993d149b6580eef92419da1f7e8291cacf3a5",
+        "trade_instruction_id": "TINSTR-8170436c06541fb01752baca9e9cb8cae93c16abe0c95e60f1239683bec95ca0",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:41:00Z",
         "turnover": "3000.00",
@@ -11623,12 +11623,12 @@
         "request_id": "macd-demo-macd-000002-sell",
         "runtime_id": "backtest-0c6981aa2050c745",
         "sequence": 8,
-        "settlement_instruction_id": "2951c689a3d95b3300118965ad4f803661395bc6c7765cae1f4b0ad654b31263",
+        "settlement_instruction_id": "SINS-078386dff43181d26cf7cf04bc9a4ee116744e9a46b8a81a1890d538c9541da2",
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
         "strategy_id": "macd-strategy",
-        "trade_instruction_id": "TINSTR-7473d02fd819640f419ba58ce9bc1dcaa76f1ebf35f956936cc977381093acb5",
+        "trade_instruction_id": "TINSTR-ff8f58b87f4057fc4c8a49c6970b7cc7c12a6706ef4f98512c458c9a2227062e",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:42:00Z",
         "turnover": "3000.00",
@@ -11681,12 +11681,12 @@
         "request_id": "macd-demo-macd-000002-sell",
         "runtime_id": "backtest-0c6981aa2050c745",
         "sequence": 9,
-        "settlement_instruction_id": "f7f3228beef8234a389c2e65cb031cd280094bae86796603762205da1d8d7d49",
+        "settlement_instruction_id": "SINS-52c72fc0e177b39b5b51f8564ac268e303ac1faa2f04173f83030f142485eb1e",
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
         "strategy_id": "macd-strategy",
-        "trade_instruction_id": "TINSTR-395610a2bcb4e4015421b727207d499c0b93a8999820cfd363105d44474a8b76",
+        "trade_instruction_id": "TINSTR-ff8f58b87f4057fc4c8a49c6970b7cc7c12a6706ef4f98512c458c9a2227062e",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:43:00Z",
         "turnover": "4000.00",
@@ -11739,12 +11739,12 @@
         "request_id": "macd-demo-macd-000002-sell",
         "runtime_id": "backtest-0c6981aa2050c745",
         "sequence": 10,
-        "settlement_instruction_id": "87ccd12e9ebcb8859be713c562cfdeac323b3a36c7a961a5d3bd7bae8110d935",
+        "settlement_instruction_id": "SINS-5bbb57fcc485b7437ac606ea7a8bb29d63d9d4d7610ca1acd3fe503594fdf840",
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
         "strategy_id": "macd-strategy",
-        "trade_instruction_id": "TINSTR-5e03cd218b74553b66fbb63f63a5c3fbd58bbc51823205510f4d9d85eac00d7b",
+        "trade_instruction_id": "TINSTR-ff8f58b87f4057fc4c8a49c6970b7cc7c12a6706ef4f98512c458c9a2227062e",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:44:00Z",
         "turnover": "3000.00",
@@ -11766,7 +11766,7 @@
         "order_id": "backtest-0c6981aa2050c745-ORDER-000001",
         "schedule_id": "GENERIC_T0_MARKET_FEES",
         "schedule_version": "1",
-        "sequence": 74,
+        "sequence": 86,
         "status": "CONFIRMED",
         "trade_id": "virtual-trade-00000001"
       },
@@ -11784,7 +11784,7 @@
         "order_id": "backtest-0c6981aa2050c745-ORDER-000001",
         "schedule_id": "GENERIC_T0_MARKET_FEES",
         "schedule_version": "1",
-        "sequence": 75,
+        "sequence": 87,
         "status": "CONFIRMED",
         "trade_id": "virtual-trade-00000002"
       },
@@ -11802,7 +11802,7 @@
         "order_id": "backtest-0c6981aa2050c745-ORDER-000001",
         "schedule_id": "GENERIC_T0_MARKET_FEES",
         "schedule_version": "1",
-        "sequence": 76,
+        "sequence": 88,
         "status": "CONFIRMED",
         "trade_id": "virtual-trade-00000003"
       },
@@ -11820,7 +11820,7 @@
         "order_id": "backtest-0c6981aa2050c745-ORDER-000002",
         "schedule_id": "GENERIC_T0_MARKET_FEES",
         "schedule_version": "1",
-        "sequence": 77,
+        "sequence": 89,
         "status": "CONFIRMED",
         "trade_id": "virtual-trade-00000004"
       },
@@ -11838,7 +11838,7 @@
         "order_id": "backtest-0c6981aa2050c745-ORDER-000002",
         "schedule_id": "GENERIC_T0_MARKET_FEES",
         "schedule_version": "1",
-        "sequence": 78,
+        "sequence": 90,
         "status": "CONFIRMED",
         "trade_id": "virtual-trade-00000005"
       },
@@ -11856,7 +11856,7 @@
         "order_id": "backtest-0c6981aa2050c745-ORDER-000002",
         "schedule_id": "GENERIC_T0_MARKET_FEES",
         "schedule_version": "1",
-        "sequence": 79,
+        "sequence": 91,
         "status": "CONFIRMED",
         "trade_id": "virtual-trade-00000006"
       }
@@ -11880,7 +11880,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 80,
+        "sequence": 92,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -11905,7 +11905,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 81,
+        "sequence": 93,
         "side": "SELL",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -12022,10 +12022,249 @@
         "resolved_rules_fingerprint": "ad997cdd317e564b4a4381bb132817f3e14f1b964d70d899706e22c5263e00ba",
         "runtime_id": "backtest-0c6981aa2050c745",
         "runtime_mode": "BACKTEST",
-        "sequence": 82,
+        "sequence": 94,
         "trading_day": "2026-01-05"
       }
     ],
+    "runtime_transactions": [
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:39:00Z",
+        "operation_identity": "EFILL-d971b76a2c8a5bed57bfdbeb213d6f3ff7e0e44a6693e3287ce7144624b62d05",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "runtime_sequence": 1,
+        "sequence": 80,
+        "transaction_id": "ETX-9470b72a5a17f4e02ee08609297b7dd944e9e915d09b89319dc748405a396fbf"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:40:00Z",
+        "operation_identity": "EFILL-e6fefb76781f2e37961f8489d8d5ed01372e8709506e812776031ec06616adef",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "runtime_sequence": 2,
+        "sequence": 81,
+        "transaction_id": "ETX-c78a25917a24133ae12b7bc5802566e1e45b478899442f6a0d249f14c7ad5259"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:41:00Z",
+        "operation_identity": "EFILL-67bae4797b5bd2cf4e1d65df6c85fe4c79b10832ebad6ffae18d3b32f45b55ad",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "runtime_sequence": 3,
+        "sequence": 82,
+        "transaction_id": "ETX-83d11643a6c0ad721681b8302c0cd2a968e2b5c9943d789643600f550cf551b3"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:42:00Z",
+        "operation_identity": "EFILL-4ea284e1e36e80261e6dadecaa58f3f9bcd767ff3860e0c24db3bc9deebf5fae",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "runtime_sequence": 4,
+        "sequence": 83,
+        "transaction_id": "ETX-70586efe16781c3e26f4bd1b2dd53480ad7465efffa761b280f115460ea918dd"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:43:00Z",
+        "operation_identity": "EFILL-08ca4fce600efdcba0e81f7113686be03b125ec29be6b05e64f66b952ff09b0e",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "runtime_sequence": 5,
+        "sequence": 84,
+        "transaction_id": "ETX-98330302f43a6c50b2a85bc4a79e26b764610acfe557ebe1144683fa4205690e"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:44:00Z",
+        "operation_identity": "EFILL-fba66b271a5e2bf6e6d879b227d15968167aab03c242ec289fbb22eaf276b306",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "runtime_sequence": 6,
+        "sequence": 85,
+        "transaction_id": "ETX-a119cd657b29fbff85ad4d6e73b38b08769d2a8f53fc61ba38780e94df20d6b8"
+      }
+    ],
+    "settlement_instructions": [
+      {
+        "account_id": "backtest-account",
+        "allocation_cycle": 1,
+        "allocation_id": "ALLOC-backtest-0c6981aa2050c745-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "asset_trade_available_on": "2026-01-05",
+        "cash_trade_available_on": "2026-01-05",
+        "cash_withdrawable_on": "2026-01-05",
+        "cluster_id": "macd-demo",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
+        "gross_notional": "3000.00",
+        "instruction_id": "SINS-078386dff43181d26cf7cf04bc9a4ee116744e9a46b8a81a1890d538c9541da2",
+        "instrument_id": "TESTETF.XSHG",
+        "legal_settlement_on": "2026-01-05",
+        "net_cash_flow": "2997.00",
+        "order_id": "backtest-0c6981aa2050c745-ORDER-000002",
+        "policy_id": "GENERIC_T0",
+        "position_cycle": 1,
+        "position_id": "POS-backtest-0c6981aa2050c745-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "quantity": "300",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "sequence": 74,
+        "side": "SELL",
+        "status": "COMPLETED",
+        "trade_id": "virtual-trade-00000004",
+        "trading_day": "2026-01-05",
+        "version": 2
+      },
+      {
+        "account_id": "backtest-account",
+        "allocation_cycle": 1,
+        "allocation_id": "ALLOC-backtest-0c6981aa2050c745-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "asset_trade_available_on": "2026-01-05",
+        "cash_trade_available_on": "2026-01-05",
+        "cash_withdrawable_on": "2026-01-05",
+        "cluster_id": "macd-demo",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
+        "gross_notional": "3000.00",
+        "instruction_id": "SINS-0ddb880893c1a97ebd1e669562d032d0082d7778ba1c9de778604d5a24623974",
+        "instrument_id": "TESTETF.XSHG",
+        "legal_settlement_on": "2026-01-05",
+        "net_cash_flow": "-3003.00",
+        "order_id": "backtest-0c6981aa2050c745-ORDER-000001",
+        "policy_id": "GENERIC_T0",
+        "position_cycle": 1,
+        "position_id": "POS-backtest-0c6981aa2050c745-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "quantity": "300",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "sequence": 75,
+        "side": "BUY",
+        "status": "COMPLETED",
+        "trade_id": "virtual-trade-00000003",
+        "trading_day": "2026-01-05",
+        "version": 2
+      },
+      {
+        "account_id": "backtest-account",
+        "allocation_cycle": 1,
+        "allocation_id": "ALLOC-backtest-0c6981aa2050c745-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "asset_trade_available_on": "2026-01-05",
+        "cash_trade_available_on": "2026-01-05",
+        "cash_withdrawable_on": "2026-01-05",
+        "cluster_id": "macd-demo",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
+        "gross_notional": "4000.00",
+        "instruction_id": "SINS-52c72fc0e177b39b5b51f8564ac268e303ac1faa2f04173f83030f142485eb1e",
+        "instrument_id": "TESTETF.XSHG",
+        "legal_settlement_on": "2026-01-05",
+        "net_cash_flow": "3996.00",
+        "order_id": "backtest-0c6981aa2050c745-ORDER-000002",
+        "policy_id": "GENERIC_T0",
+        "position_cycle": 1,
+        "position_id": "POS-backtest-0c6981aa2050c745-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "quantity": "400",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "sequence": 76,
+        "side": "SELL",
+        "status": "COMPLETED",
+        "trade_id": "virtual-trade-00000005",
+        "trading_day": "2026-01-05",
+        "version": 2
+      },
+      {
+        "account_id": "backtest-account",
+        "allocation_cycle": 1,
+        "allocation_id": "ALLOC-backtest-0c6981aa2050c745-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "asset_trade_available_on": "2026-01-05",
+        "cash_trade_available_on": "2026-01-05",
+        "cash_withdrawable_on": "2026-01-05",
+        "cluster_id": "macd-demo",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
+        "gross_notional": "3000.00",
+        "instruction_id": "SINS-5bbb57fcc485b7437ac606ea7a8bb29d63d9d4d7610ca1acd3fe503594fdf840",
+        "instrument_id": "TESTETF.XSHG",
+        "legal_settlement_on": "2026-01-05",
+        "net_cash_flow": "2997.00",
+        "order_id": "backtest-0c6981aa2050c745-ORDER-000002",
+        "policy_id": "GENERIC_T0",
+        "position_cycle": 1,
+        "position_id": "POS-backtest-0c6981aa2050c745-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "quantity": "300",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "sequence": 77,
+        "side": "SELL",
+        "status": "COMPLETED",
+        "trade_id": "virtual-trade-00000006",
+        "trading_day": "2026-01-05",
+        "version": 2
+      },
+      {
+        "account_id": "backtest-account",
+        "allocation_cycle": 1,
+        "allocation_id": "ALLOC-backtest-0c6981aa2050c745-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "asset_trade_available_on": "2026-01-05",
+        "cash_trade_available_on": "2026-01-05",
+        "cash_withdrawable_on": "2026-01-05",
+        "cluster_id": "macd-demo",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
+        "gross_notional": "3000.00",
+        "instruction_id": "SINS-807b2f51c309a60b7449fa6cedcb4700073038a0251e169e7ef41631e67ebe77",
+        "instrument_id": "TESTETF.XSHG",
+        "legal_settlement_on": "2026-01-05",
+        "net_cash_flow": "-3003.00",
+        "order_id": "backtest-0c6981aa2050c745-ORDER-000001",
+        "policy_id": "GENERIC_T0",
+        "position_cycle": 1,
+        "position_id": "POS-backtest-0c6981aa2050c745-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "quantity": "300",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "sequence": 78,
+        "side": "BUY",
+        "status": "COMPLETED",
+        "trade_id": "virtual-trade-00000001",
+        "trading_day": "2026-01-05",
+        "version": 2
+      },
+      {
+        "account_id": "backtest-account",
+        "allocation_cycle": 1,
+        "allocation_id": "ALLOC-backtest-0c6981aa2050c745-backtest-account-macd-demo-TESTETF.XSHG-00000001",
+        "asset_trade_available_on": "2026-01-05",
+        "cash_trade_available_on": "2026-01-05",
+        "cash_withdrawable_on": "2026-01-05",
+        "cluster_id": "macd-demo",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
+        "gross_notional": "4000.00",
+        "instruction_id": "SINS-90775d318cdcfaa35116e07652768a0d1f0b85320e2694ac5cbe8e4d62735918",
+        "instrument_id": "TESTETF.XSHG",
+        "legal_settlement_on": "2026-01-05",
+        "net_cash_flow": "-4004.00",
+        "order_id": "backtest-0c6981aa2050c745-ORDER-000001",
+        "policy_id": "GENERIC_T0",
+        "position_cycle": 1,
+        "position_id": "POS-backtest-0c6981aa2050c745-backtest-account-TESTETF.XSHG-LONG-00000001",
+        "quantity": "400",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "runtime_id": "backtest-0c6981aa2050c745",
+        "sequence": 79,
+        "side": "BUY",
+        "status": "COMPLETED",
+        "trade_id": "virtual-trade-00000002",
+        "trading_day": "2026-01-05",
+        "version": 2
+      }
+    ],
+    "settlement_maturities": [],
     "settlements": [
       {
         "account_id": "backtest-account",
@@ -12033,27 +12272,13 @@
         "asset_quantity": "300",
         "cash_amount": "3000.00",
         "cash_available_time": "2026-01-05T00:00:00Z",
-        "execution_id": "virtual-trade-00000001",
+        "execution_id": "virtual-trade-00000004",
         "instrument_id": "TESTETF.XSHG",
         "sequence": 68,
-        "settlement_model_id": "MARKET_RULE_INSTRUCTION",
+        "settlement_model_id": "GENERIC_T0",
         "settlement_time": "2026-01-05T00:00:00Z",
-        "status": "SETTLED",
-        "trade_time": "2026-01-05T01:39:00Z"
-      },
-      {
-        "account_id": "backtest-account",
-        "asset_available_time": "2026-01-05T00:00:00Z",
-        "asset_quantity": "400",
-        "cash_amount": "4000.00",
-        "cash_available_time": "2026-01-05T00:00:00Z",
-        "execution_id": "virtual-trade-00000002",
-        "instrument_id": "TESTETF.XSHG",
-        "sequence": 69,
-        "settlement_model_id": "MARKET_RULE_INSTRUCTION",
-        "settlement_time": "2026-01-05T00:00:00Z",
-        "status": "SETTLED",
-        "trade_time": "2026-01-05T01:40:00Z"
+        "status": "COMPLETED",
+        "trade_time": "2026-01-05T01:42:00Z"
       },
       {
         "account_id": "backtest-account",
@@ -12063,25 +12288,11 @@
         "cash_available_time": "2026-01-05T00:00:00Z",
         "execution_id": "virtual-trade-00000003",
         "instrument_id": "TESTETF.XSHG",
-        "sequence": 70,
-        "settlement_model_id": "MARKET_RULE_INSTRUCTION",
+        "sequence": 69,
+        "settlement_model_id": "GENERIC_T0",
         "settlement_time": "2026-01-05T00:00:00Z",
-        "status": "SETTLED",
+        "status": "COMPLETED",
         "trade_time": "2026-01-05T01:41:00Z"
-      },
-      {
-        "account_id": "backtest-account",
-        "asset_available_time": "2026-01-05T00:00:00Z",
-        "asset_quantity": "300",
-        "cash_amount": "3000.00",
-        "cash_available_time": "2026-01-05T00:00:00Z",
-        "execution_id": "virtual-trade-00000004",
-        "instrument_id": "TESTETF.XSHG",
-        "sequence": 71,
-        "settlement_model_id": "MARKET_RULE_INSTRUCTION",
-        "settlement_time": "2026-01-05T00:00:00Z",
-        "status": "SETTLED",
-        "trade_time": "2026-01-05T01:42:00Z"
       },
       {
         "account_id": "backtest-account",
@@ -12091,10 +12302,10 @@
         "cash_available_time": "2026-01-05T00:00:00Z",
         "execution_id": "virtual-trade-00000005",
         "instrument_id": "TESTETF.XSHG",
-        "sequence": 72,
-        "settlement_model_id": "MARKET_RULE_INSTRUCTION",
+        "sequence": 70,
+        "settlement_model_id": "GENERIC_T0",
         "settlement_time": "2026-01-05T00:00:00Z",
-        "status": "SETTLED",
+        "status": "COMPLETED",
         "trade_time": "2026-01-05T01:43:00Z"
       },
       {
@@ -12105,11 +12316,39 @@
         "cash_available_time": "2026-01-05T00:00:00Z",
         "execution_id": "virtual-trade-00000006",
         "instrument_id": "TESTETF.XSHG",
-        "sequence": 73,
-        "settlement_model_id": "MARKET_RULE_INSTRUCTION",
+        "sequence": 71,
+        "settlement_model_id": "GENERIC_T0",
         "settlement_time": "2026-01-05T00:00:00Z",
-        "status": "SETTLED",
+        "status": "COMPLETED",
         "trade_time": "2026-01-05T01:44:00Z"
+      },
+      {
+        "account_id": "backtest-account",
+        "asset_available_time": "2026-01-05T00:00:00Z",
+        "asset_quantity": "300",
+        "cash_amount": "3000.00",
+        "cash_available_time": "2026-01-05T00:00:00Z",
+        "execution_id": "virtual-trade-00000001",
+        "instrument_id": "TESTETF.XSHG",
+        "sequence": 72,
+        "settlement_model_id": "GENERIC_T0",
+        "settlement_time": "2026-01-05T00:00:00Z",
+        "status": "COMPLETED",
+        "trade_time": "2026-01-05T01:39:00Z"
+      },
+      {
+        "account_id": "backtest-account",
+        "asset_available_time": "2026-01-05T00:00:00Z",
+        "asset_quantity": "400",
+        "cash_amount": "4000.00",
+        "cash_available_time": "2026-01-05T00:00:00Z",
+        "execution_id": "virtual-trade-00000002",
+        "instrument_id": "TESTETF.XSHG",
+        "sequence": 73,
+        "settlement_model_id": "GENERIC_T0",
+        "settlement_time": "2026-01-05T00:00:00Z",
+        "status": "COMPLETED",
+        "trade_time": "2026-01-05T01:40:00Z"
       }
     ],
     "signals": []
@@ -12133,7 +12372,7 @@
       "precision": 2
     },
     "cash": {
-      "available_cash": {
+      "ledger_cash": {
         "amount": "999980.00",
         "currency": {
           "code": "CNY",
@@ -12141,15 +12380,7 @@
           "precision": 2
         }
       },
-      "cash_balance": {
-        "amount": "999980.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "frozen_cash": {
+      "order_reserved_cash": {
         "amount": "0.00",
         "currency": {
           "code": "CNY",
@@ -12157,8 +12388,24 @@
           "precision": 2
         }
       },
-      "unsettled_cash": {
+      "trade_available_cash": {
+        "amount": "999980.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "unsettled_receivable_cash": {
         "amount": "0",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "withdrawable_cash": {
+        "amount": "999980.00",
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -12348,16 +12595,16 @@
             "precision": 2
           }
         },
-        "cash_balance": {
-          "amount": "999980.00",
+        "cash_reserved": {
+          "amount": "0.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
             "precision": 2
           }
         },
-        "cash_reserved": {
-          "amount": "0.00",
+        "ledger_cash": {
+          "amount": "999980.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -13019,14 +13266,6 @@
             "precision": 2
           }
         },
-        "cash_balance": {
-          "amount": "999980.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
         "cash_reserved": {
           "amount": "0.00",
           "currency": {
@@ -13121,6 +13360,14 @@
           },
           "runtime_id": {
             "value": "backtest-0c6981aa2050c745"
+          }
+        },
+        "ledger_cash": {
+          "amount": "999980.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
           }
         },
         "maximum_drawdown": {
@@ -14358,7 +14605,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "c0bfc5d3d5b467311c6e5e650f5bd28e2a68deab5e62f587209b0ff92902b849",
+      "settlement_instruction_id": "SINS-807b2f51c309a60b7449fa6cedcb4700073038a0251e169e7ef41631e67ebe77",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "0.00",
@@ -14400,7 +14647,7 @@
       "trade_id": {
         "value": "virtual-trade-00000001"
       },
-      "trade_instruction_id": "TINSTR-71564a3111537f52b6e7d5b555869958d0ee0c9904e19b5a482ddbd094d2b4cd",
+      "trade_instruction_id": "TINSTR-8170436c06541fb01752baca9e9cb8cae93c16abe0c95e60f1239683bec95ca0",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -14780,7 +15027,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "ce8d87294506106ead3c9d941f7e7978bb59eca31e19f4dbe263a09f41117239",
+      "settlement_instruction_id": "SINS-90775d318cdcfaa35116e07652768a0d1f0b85320e2694ac5cbe8e4d62735918",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "0.00",
@@ -14822,7 +15069,7 @@
       "trade_id": {
         "value": "virtual-trade-00000002"
       },
-      "trade_instruction_id": "TINSTR-7c90650d023053e61c3221cfc995747a6ba366710d71964f4fdb2be5695e8172",
+      "trade_instruction_id": "TINSTR-8170436c06541fb01752baca9e9cb8cae93c16abe0c95e60f1239683bec95ca0",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -15202,7 +15449,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "cc7c3fe811bc3e3d5b661ed4285f8b8d219572873036050cd9ebdf5f2db4ed4b",
+      "settlement_instruction_id": "SINS-0ddb880893c1a97ebd1e669562d032d0082d7778ba1c9de778604d5a24623974",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "0.00",
@@ -15244,7 +15491,7 @@
       "trade_id": {
         "value": "virtual-trade-00000003"
       },
-      "trade_instruction_id": "TINSTR-4be78137636cc1da90f80b9d488993d149b6580eef92419da1f7e8291cacf3a5",
+      "trade_instruction_id": "TINSTR-8170436c06541fb01752baca9e9cb8cae93c16abe0c95e60f1239683bec95ca0",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -15624,7 +15871,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "2951c689a3d95b3300118965ad4f803661395bc6c7765cae1f4b0ad654b31263",
+      "settlement_instruction_id": "SINS-078386dff43181d26cf7cf04bc9a4ee116744e9a46b8a81a1890d538c9541da2",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "-0.00",
@@ -15666,7 +15913,7 @@
       "trade_id": {
         "value": "virtual-trade-00000004"
       },
-      "trade_instruction_id": "TINSTR-7473d02fd819640f419ba58ce9bc1dcaa76f1ebf35f956936cc977381093acb5",
+      "trade_instruction_id": "TINSTR-ff8f58b87f4057fc4c8a49c6970b7cc7c12a6706ef4f98512c458c9a2227062e",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -16046,7 +16293,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "f7f3228beef8234a389c2e65cb031cd280094bae86796603762205da1d8d7d49",
+      "settlement_instruction_id": "SINS-52c72fc0e177b39b5b51f8564ac268e303ac1faa2f04173f83030f142485eb1e",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "-0.00",
@@ -16088,7 +16335,7 @@
       "trade_id": {
         "value": "virtual-trade-00000005"
       },
-      "trade_instruction_id": "TINSTR-395610a2bcb4e4015421b727207d499c0b93a8999820cfd363105d44474a8b76",
+      "trade_instruction_id": "TINSTR-ff8f58b87f4057fc4c8a49c6970b7cc7c12a6706ef4f98512c458c9a2227062e",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -16468,7 +16715,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "87ccd12e9ebcb8859be713c562cfdeac323b3a36c7a961a5d3bd7bae8110d935",
+      "settlement_instruction_id": "SINS-5bbb57fcc485b7437ac606ea7a8bb29d63d9d4d7610ca1acd3fe503594fdf840",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "-0.00",
@@ -16510,7 +16757,7 @@
       "trade_id": {
         "value": "virtual-trade-00000006"
       },
-      "trade_instruction_id": "TINSTR-5e03cd218b74553b66fbb63f63a5c3fbd58bbc51823205510f4d9d85eac00d7b",
+      "trade_instruction_id": "TINSTR-ff8f58b87f4057fc4c8a49c6970b7cc7c12a6706ef4f98512c458c9a2227062e",
       "trading_day": {
         "value": "2026-01-05"
       },

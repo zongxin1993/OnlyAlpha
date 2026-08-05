@@ -11,6 +11,12 @@ from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashEntryType, OnlyStrategyFeeType
 from onlyalpha.strategy_ledger.identifiers import OnlyStrategyCashEntryId, OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.models import OnlyStrategyCashEntry, OnlyStrategyFeeEntry
+from onlyalpha.transaction.projection import (
+    OnlyAccountExecutionProjection,
+    OnlyRuntimeProjectionComponent,
+    OnlyStrategyLedgerExecutionProjection,
+)
+from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 
 from ..execution_state import (
     OnlyAccountExecutionState,
@@ -19,12 +25,6 @@ from ..execution_state import (
 )
 from ..planned_trade import OnlyPlannedTrade
 from ..planning_results import OnlyExecutionEventIntent
-from ..projection import (
-    OnlyAccountExecutionProjection,
-    OnlyExecutionProjectionComponent,
-    OnlyStrategyLedgerExecutionProjection,
-)
-from ..projection_builder import OnlyExecutionProjectionBuilder
 from .trade_reservations import (
     OnlyAccountCashReservationTradeReduction,
     OnlyStrategyCashReservationTradeReduction,
@@ -58,7 +58,7 @@ class OnlyAccountTradeReducer:
         position_market_value_delta: OnlyMoney,
         position_unrealized_pnl: OnlyMoney,
         realized_pnl_delta: OnlyMoney | None = None,
-        cash_available: bool = True,
+        cash_withdrawable: bool = True,
         *,
         projection_sequence: int,
     ) -> OnlyAccountTradeReduction:
@@ -76,7 +76,7 @@ class OnlyAccountTradeReducer:
             ),
             before.base_currency,
         )
-        cash = before.cash_balance + cash_delta
+        cash = before.ledger_cash + cash_delta
         if cash.amount < 0:
             raise ValueError("Trade would create negative Account cash")
         reservation_consumed = (
@@ -86,17 +86,18 @@ class OnlyAccountTradeReducer:
             Decimal(0) if reservation_reduction is None else reservation_reduction.released_delta.amount
         )
         frozen = OnlyMoney(
-            before.frozen_cash.amount - reservation_consumed - reservation_released, before.base_currency
+            before.order_reserved_cash.amount - reservation_consumed - reservation_released, before.base_currency
         )
         if frozen.amount < 0:
             raise ValueError("Account frozen cash is smaller than Reservation")
         market_value = before.position_market_value + position_market_value_delta
         unsettled = OnlyMoney(
-            before.unsettled_cash.amount
-            + (trade.settled_notional.amount if closing and not cash_available else Decimal(0)),
+            before.unsettled_receivable_cash.amount
+            + (cash_delta.amount if closing and not cash_withdrawable else Decimal(0)),
             before.base_currency,
         )
-        available = OnlyMoney(cash.amount - frozen.amount - unsettled.amount, before.base_currency)
+        available = OnlyMoney(cash.amount - frozen.amount, before.base_currency)
+        withdrawable = OnlyMoney(available.amount - unsettled.amount, before.base_currency)
         reserved_margin = before.reserved_margin
         occupied_margin = before.occupied_margin
         available_margin = None
@@ -107,10 +108,11 @@ class OnlyAccountTradeReducer:
             )
         after = replace(
             before,
-            cash_balance=cash,
-            available_cash=available,
-            frozen_cash=frozen,
-            unsettled_cash=unsettled,
+            ledger_cash=cash,
+            trade_available_cash=available,
+            withdrawable_cash=withdrawable,
+            order_reserved_cash=frozen,
+            unsettled_receivable_cash=unsettled,
             position_market_value=market_value,
             realized_pnl=before.realized_pnl + realized,
             unrealized_pnl=position_unrealized_pnl,
@@ -122,10 +124,10 @@ class OnlyAccountTradeReducer:
             last_external_sequence=trade.source_sequence,
             available_margin=available_margin,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyAccountExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.ACCOUNT,
+                component=OnlyRuntimeProjectionComponent.ACCOUNT,
                 entity_key=str(after.account_id),
                 before=before,
                 after=after,
@@ -142,8 +144,8 @@ class OnlyAccountTradeReducer:
             cash_delta,
             trade.authoritative_fee,
             (
-                _intent(OnlyExecutionProjectionComponent.ACCOUNT, "ACCOUNT_TRADE_APPLIED", after),
-                _intent(OnlyExecutionProjectionComponent.ACCOUNT, "ACCOUNT_VALUED", after),
+                _intent(OnlyRuntimeProjectionComponent.ACCOUNT, "ACCOUNT_TRADE_APPLIED", after),
+                _intent(OnlyRuntimeProjectionComponent.ACCOUNT, "ACCOUNT_VALUED", after),
             ),
         )
 
@@ -176,7 +178,7 @@ class OnlyStrategyLedgerTradeReducer:
             ),
             currency,
         )
-        cash = before.cash_balance + cash_delta
+        cash = before.ledger_cash + cash_delta
         if cash.amount < 0:
             raise ValueError("Trade would create negative Strategy Ledger cash")
         quantum = Decimal(1).scaleb(-currency.precision)
@@ -285,7 +287,7 @@ class OnlyStrategyLedgerTradeReducer:
         )
         after = replace(
             before,
-            cash_balance=cash,
+            ledger_cash=cash,
             cash_reserved=cash_reserved,
             cash_available=OnlyMoney(cash.amount - cash_reserved.amount, currency),
             position_cost=position_cost,
@@ -303,10 +305,10 @@ class OnlyStrategyLedgerTradeReducer:
             last_trade_sequence=trade.source_sequence,
             last_trade_order=trade.stable_order,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyStrategyLedgerExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
+                component=OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
                 entity_key=str(after.ledger_id),
                 before=before,
                 after=after,
@@ -323,13 +325,13 @@ class OnlyStrategyLedgerTradeReducer:
             cash_delta,
             trade.authoritative_fee,
             (
-                _intent(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, "STRATEGY_TRADE_APPLIED", after),
-                _intent(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, "STRATEGY_VALUATION_UPDATED", after),
+                _intent(OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, "STRATEGY_TRADE_APPLIED", after),
+                _intent(OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, "STRATEGY_VALUATION_UPDATED", after),
             ),
         )
 
 
-def _intent(component: OnlyExecutionProjectionComponent, event_type: str, payload: object) -> OnlyExecutionEventIntent:
+def _intent(component: OnlyRuntimeProjectionComponent, event_type: str, payload: object) -> OnlyExecutionEventIntent:
     encoded = payload.to_dict() if hasattr(payload, "to_dict") else payload
     return OnlyExecutionEventIntent(
         component, OnlyEventType(event_type), encoded, OnlyEventSource("execution.trade_planner")

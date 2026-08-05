@@ -5,7 +5,7 @@ import pytest
 
 from onlyalpha.execution import (
     OnlyAttributedCloseCostAuthority,
-    OnlyExecutionProjectionComponent,
+    OnlyRuntimeProjectionComponent,
     OnlyTradeExecutionPlanningError,
     OnlyTradeExecutionTransactionPlanner,
     only_build_attributed_close_cost_authority,
@@ -30,10 +30,10 @@ def test_cluster_allocation_is_the_only_close_cost_authority() -> None:
 def test_partial_close_rederives_aggregate_position_average() -> None:
     _, _, prepared = only_test_multi_cluster_close_context(close_quantity="400")
     position = next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.POSITION
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.POSITION
     )
     allocation = next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.ALLOCATION
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.ALLOCATION
     )
 
     assert prepared.fact_draft.released_open_price_quantity == Decimal("4000.00")

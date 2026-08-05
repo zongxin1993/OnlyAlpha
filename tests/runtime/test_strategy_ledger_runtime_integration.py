@@ -21,5 +21,5 @@ def test_each_runtime_owns_manager_and_context_is_cluster_scoped(
     first.add_cluster("engine", cluster_b)
     assert cluster_a.context is not None and cluster_b.context is not None
     assert cluster_a.context.ledger.snapshot().key.cluster_id == OnlyClusterId("ledger-cluster-a")
-    assert cluster_a.context.ledger.cash_balance.amount == Decimal("12345.67")
+    assert cluster_a.context.ledger.ledger_cash.amount == Decimal("12345.67")
     assert cluster_b.context.ledger.snapshot().key.cluster_id == OnlyClusterId("ledger-cluster-b")

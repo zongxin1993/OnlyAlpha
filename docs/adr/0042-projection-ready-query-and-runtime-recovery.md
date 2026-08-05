@@ -6,14 +6,14 @@
 ## Context
 
 ADR 0041 建立了 durable commit、ordered real Manager Projection、Projection Ready 与 durable Outbox，但
-`OnlyExecutionTransactionQueryPort.records()` 同时被管理恢复和正式 Result 使用，Runtime 启动也没有自动完成未 Ready 的
+`OnlyRuntimeTransactionQueryPort.records()` 同时被管理恢复和正式 Result 使用，Runtime 启动也没有自动完成未 Ready 的
 transaction tail。Committed transaction 因而可能在 Manager authority 尚不完整时进入业务结果，且崩溃后的恢复依赖手工调用。
 
 ## Decision
 
 Committed 与 Projection Ready 是两个不可合并的状态：Committed 表示事务已经不可丢失、必须恢复；Projection Ready 表示全部
-真实 Manager Projection 已完成，可以成为正式业务成交。`OnlyExecutionTransactionQueryPort` 是 Admin/Recovery query，可读取全部
-committed transaction；`OnlyProjectionReadyExecutionQueryPort` 是 Business query，只提供 `ready_records()` 与 `ready_count()`。
+真实 Manager Projection 已完成，可以成为正式业务成交。`OnlyRuntimeTransactionQueryPort` 是 Admin/Recovery query，可读取全部
+committed transaction；`OnlyProjectionReadyRuntimeQueryPort` 是 Business query，只提供 `ready_records()` 与 `ready_count()`。
 Collector、RunPlan、Result、fee attribution、execution fingerprint、Analytics、Scenario、Artifact、Report 与 Application query 只能沿
 Business query 读取。
 

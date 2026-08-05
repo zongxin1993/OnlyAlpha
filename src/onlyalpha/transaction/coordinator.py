@@ -8,25 +8,24 @@ from enum import StrEnum
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-
-from .delivery import OnlyExecutionEventDeliveryIntent, OnlyExecutionEventDeliveryMode
-from .persistence_ports import (
-    OnlyExecutionProjectionStatePort,
-    OnlyExecutionTransactionCommitPort,
-    OnlyExecutionTransactionConflict,
-    OnlyExecutionTransactionQueryPort,
+from onlyalpha.transaction.delivery import OnlyExecutionEventDeliveryIntent, OnlyExecutionEventDeliveryMode
+from onlyalpha.transaction.persistence_ports import (
     OnlyRuntimePersistenceStoreError,
+    OnlyRuntimeProjectionStatePort,
+    OnlyRuntimeTransactionCommitPort,
+    OnlyRuntimeTransactionConflict,
+    OnlyRuntimeTransactionQueryPort,
 )
-from .projection import OnlyExecutionProjectionComponent
-from .projection_applier import (
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionBatchResult,
-    OnlyExecutionProjectionBatchStatus,
+from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
+from onlyalpha.transaction.projection_applier import (
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionBatchResult,
+    OnlyRuntimeProjectionBatchStatus,
 )
-from .transaction import OnlyCommittedExecutionTransaction, OnlyPreparedExecutionTransaction
+from onlyalpha.transaction.transaction import OnlyCommittedRuntimeTransaction, OnlyPreparedRuntimeTransaction
 
 
-class OnlyExecutionCommitCoordinationStatus(StrEnum):
+class OnlyRuntimeTransactionCoordinationStatus(StrEnum):
     COMMITTED_AND_PROJECTED = "COMMITTED_AND_PROJECTED"
     ALREADY_READY = "ALREADY_READY"
     PROJECTION_FAILED = "PROJECTION_FAILED"
@@ -37,26 +36,26 @@ class OnlyExecutionCommitCoordinationStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyExecutionCommitCoordinationResult:
-    transaction: OnlyCommittedExecutionTransaction | None
+class OnlyRuntimeTransactionCoordinationResult:
+    transaction: OnlyCommittedRuntimeTransaction | None
     transaction_inserted: bool
-    status: OnlyExecutionCommitCoordinationStatus
-    projection_result: OnlyExecutionProjectionBatchResult | None
+    status: OnlyRuntimeTransactionCoordinationStatus
+    projection_result: OnlyRuntimeProjectionBatchResult | None
     delivery_intent: OnlyExecutionEventDeliveryIntent
-    failure_component: OnlyExecutionProjectionComponent | None
+    failure_component: OnlyRuntimeProjectionComponent | None
     error: str | None
 
 
-class OnlyExecutionCommitCoordinator:
+class OnlyRuntimeTransactionCoordinator:
     """The sole Trade transaction coordinator for one Runtime product path."""
 
     def __init__(
         self,
         *,
-        commit_port: OnlyExecutionTransactionCommitPort,
-        query_port: OnlyExecutionTransactionQueryPort,
-        projection_state_port: OnlyExecutionProjectionStatePort,
-        projection_applier: OnlyExecutionProjectionApplier,
+        commit_port: OnlyRuntimeTransactionCommitPort,
+        query_port: OnlyRuntimeTransactionQueryPort,
+        projection_state_port: OnlyRuntimeProjectionStatePort,
+        projection_applier: OnlyRuntimeProjectionApplier,
         now: Callable[[], OnlyTimestamp],
     ) -> None:
         self._commit_port = commit_port
@@ -67,21 +66,21 @@ class OnlyExecutionCommitCoordinator:
 
     def commit(
         self,
-        prepared: OnlyPreparedExecutionTransaction,
+        prepared: OnlyPreparedRuntimeTransaction,
         *,
         committed_at: OnlyTimestamp,
         projected_at: OnlyTimestamp,
-    ) -> OnlyExecutionCommitCoordinationResult:
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         invalid = self._validate_prepared(prepared)
         if invalid is not None:
-            return self._result(OnlyExecutionCommitCoordinationStatus.INVALID_TRANSACTION, error=invalid)
+            return self._result(OnlyRuntimeTransactionCoordinationStatus.INVALID_TRANSACTION, error=invalid)
         try:
             committed = self._commit_port.commit(prepared, committed_at=committed_at)
-        except OnlyExecutionTransactionConflict as exc:
-            return self._result(OnlyExecutionCommitCoordinationStatus.TRANSACTION_CONFLICT, error=str(exc))
+        except OnlyRuntimeTransactionConflict as exc:
+            return self._result(OnlyRuntimeTransactionCoordinationStatus.TRANSACTION_CONFLICT, error=str(exc))
         except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+                OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
                 error=f"{type(exc).__name__}: {exc}",
             )
         return self._coordinate(
@@ -95,7 +94,7 @@ class OnlyExecutionCommitCoordinator:
         runtime_id: OnlyRuntimeId,
         *,
         limit: int | None = None,
-    ) -> tuple[OnlyExecutionCommitCoordinationResult, ...]:
+    ) -> tuple[OnlyRuntimeTransactionCoordinationResult, ...]:
         if limit is not None and limit <= 0:
             raise ValueError("execution recovery limit must be positive")
         try:
@@ -103,13 +102,13 @@ class OnlyExecutionCommitCoordinator:
         except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return (
                 self._result(
-                    OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+                    OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
                     error=f"{type(exc).__name__}: {exc}",
                 ),
             )
         ordered = tuple(sorted(transactions, key=lambda item: item.execution_sequence))
         selected = ordered if limit is None else ordered[:limit]
-        results: list[OnlyExecutionCommitCoordinationResult] = []
+        results: list[OnlyRuntimeTransactionCoordinationResult] = []
         for transaction in selected:
             result = self._coordinate(
                 transaction,
@@ -118,86 +117,86 @@ class OnlyExecutionCommitCoordinator:
             )
             results.append(result)
             if result.status not in {
-                OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
-                OnlyExecutionCommitCoordinationStatus.ALREADY_READY,
+                OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED,
+                OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY,
             }:
                 break
         return tuple(results)
 
     def rehydrate_existing(
         self,
-        transaction: OnlyCommittedExecutionTransaction,
+        transaction: OnlyCommittedRuntimeTransaction,
         *,
         projected_at: OnlyTimestamp,
-    ) -> OnlyExecutionCommitCoordinationResult:
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         """Reapply a durable Ready transaction without changing Store or Outbox state."""
 
         try:
             current = self._query_port.get_by_sequence(transaction.runtime_id, transaction.execution_sequence)
             if current is None or current != transaction or not current.projection_ready:
                 return self._result(
-                    OnlyExecutionCommitCoordinationStatus.TRANSACTION_CONFLICT,
+                    OnlyRuntimeTransactionCoordinationStatus.TRANSACTION_CONFLICT,
                     transaction=transaction,
                     error="recovery Ready transaction does not match durable Store authority",
                 )
             projection_result = self._projection_applier.apply(current)
         except (AssertionError, OnlyRuntimePersistenceStoreError, OSError, RuntimeError, TypeError, ValueError) as exc:
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED,
+                OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED,
                 transaction=transaction,
                 error=f"{type(exc).__name__}: {exc}",
             )
-        if projection_result.status is OnlyExecutionProjectionBatchStatus.FAILED:
+        if projection_result.status is OnlyRuntimeProjectionBatchStatus.FAILED:
             failed = projection_result.failed_projection
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED,
+                OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED,
                 transaction=current,
                 projection_result=projection_result,
                 failure_component=None if failed is None else failed.identity.component,
                 error=projection_result.error or "recovery projection batch failed",
             )
         return self._result(
-            OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
+            OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED,
             transaction=current,
             projection_result=projection_result,
         )
 
     def recover_existing(
         self,
-        transaction: OnlyCommittedExecutionTransaction,
+        transaction: OnlyCommittedRuntimeTransaction,
         *,
         projected_at: OnlyTimestamp,
-    ) -> OnlyExecutionCommitCoordinationResult:
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         """Forward-recover one durable unprojected transaction at its causal update point."""
 
         return self._coordinate(transaction, transaction_inserted=False, projected_at=projected_at)
 
     def _coordinate(
         self,
-        transaction: OnlyCommittedExecutionTransaction,
+        transaction: OnlyCommittedRuntimeTransaction,
         *,
         transaction_inserted: bool,
         projected_at: OnlyTimestamp,
-    ) -> OnlyExecutionCommitCoordinationResult:
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         try:
             current = self._query_port.get_by_sequence(transaction.runtime_id, transaction.execution_sequence)
         except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+                OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
                 transaction=transaction,
                 transaction_inserted=transaction_inserted,
                 error=f"{type(exc).__name__}: {exc}",
             )
         if current is None:
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+                OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
                 transaction=transaction,
                 transaction_inserted=transaction_inserted,
                 error="committed transaction cannot be queried by its assigned sequence",
             )
         if current.projection_ready:
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.ALREADY_READY,
+                OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY,
                 transaction=current,
                 transaction_inserted=transaction_inserted,
                 delivery=True,
@@ -207,14 +206,14 @@ class OnlyExecutionCommitCoordinator:
                 previous = self._query_port.get_by_sequence(current.runtime_id, current.execution_sequence - 1)
             except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
                 return self._result(
-                    OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+                    OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
                     transaction=current,
                     transaction_inserted=transaction_inserted,
                     error=f"{type(exc).__name__}: {exc}",
                 )
             if previous is None or not previous.projection_ready:
                 return self._result(
-                    OnlyExecutionCommitCoordinationStatus.SEQUENCE_BLOCKED,
+                    OnlyRuntimeTransactionCoordinationStatus.SEQUENCE_BLOCKED,
                     transaction=current,
                     transaction_inserted=transaction_inserted,
                     error=f"execution sequence {current.execution_sequence - 1} is not projection-ready",
@@ -230,7 +229,7 @@ class OnlyExecutionCommitCoordinator:
                 projection_result=None,
                 error=error,
             )
-        if projection_result.status is OnlyExecutionProjectionBatchStatus.FAILED:
+        if projection_result.status is OnlyRuntimeProjectionBatchStatus.FAILED:
             failed = projection_result.failed_projection
             return self._projection_failure(
                 current,
@@ -265,7 +264,7 @@ class OnlyExecutionCommitCoordinator:
                 error="projection-ready state was not durably observable after marking",
             )
         return self._result(
-            OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
+            OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED,
             transaction=ready,
             transaction_inserted=transaction_inserted,
             projection_result=projection_result,
@@ -274,14 +273,14 @@ class OnlyExecutionCommitCoordinator:
 
     def _projection_failure(
         self,
-        transaction: OnlyCommittedExecutionTransaction,
+        transaction: OnlyCommittedRuntimeTransaction,
         *,
         transaction_inserted: bool,
         projected_at: OnlyTimestamp,
-        projection_result: OnlyExecutionProjectionBatchResult | None,
+        projection_result: OnlyRuntimeProjectionBatchResult | None,
         error: str,
-        failure_component: OnlyExecutionProjectionComponent | None = None,
-    ) -> OnlyExecutionCommitCoordinationResult:
+        failure_component: OnlyRuntimeProjectionComponent | None = None,
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         try:
             self._projection_state_port.mark_projection_failed(
                 transaction.runtime_id,
@@ -291,7 +290,7 @@ class OnlyExecutionCommitCoordinator:
             )
         except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             return self._result(
-                OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+                OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
                 transaction=transaction,
                 transaction_inserted=transaction_inserted,
                 projection_result=projection_result,
@@ -299,7 +298,7 @@ class OnlyExecutionCommitCoordinator:
                 error=f"{error}; mark projection failed failed: {type(exc).__name__}: {exc}",
             )
         return self._result(
-            OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED,
+            OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED,
             transaction=transaction,
             transaction_inserted=transaction_inserted,
             projection_result=projection_result,
@@ -309,13 +308,13 @@ class OnlyExecutionCommitCoordinator:
 
     def _projection_state_failure(
         self,
-        transaction: OnlyCommittedExecutionTransaction,
+        transaction: OnlyCommittedRuntimeTransaction,
         *,
         transaction_inserted: bool,
         projected_at: OnlyTimestamp,
-        projection_result: OnlyExecutionProjectionBatchResult,
+        projection_result: OnlyRuntimeProjectionBatchResult,
         error: str,
-    ) -> OnlyExecutionCommitCoordinationResult:
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         try:
             self._projection_state_port.mark_projection_failed(
                 transaction.runtime_id,
@@ -326,7 +325,7 @@ class OnlyExecutionCommitCoordinator:
         except (OnlyRuntimePersistenceStoreError, OSError, RuntimeError, ValueError) as exc:
             error = f"{error}; mark projection failed failed: {type(exc).__name__}: {exc}"
         return self._result(
-            OnlyExecutionCommitCoordinationStatus.STORE_FAILURE,
+            OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE,
             transaction=transaction,
             transaction_inserted=transaction_inserted,
             projection_result=projection_result,
@@ -334,7 +333,7 @@ class OnlyExecutionCommitCoordinator:
         )
 
     @staticmethod
-    def _validate_prepared(prepared: OnlyPreparedExecutionTransaction) -> str | None:
+    def _validate_prepared(prepared: OnlyPreparedRuntimeTransaction) -> str | None:
         if not prepared.transaction_id.strip():
             return "prepared transaction identity is empty"
         if not prepared.authority_hash or not prepared.payload_hash:
@@ -345,15 +344,15 @@ class OnlyExecutionCommitCoordinator:
 
     @staticmethod
     def _result(
-        status: OnlyExecutionCommitCoordinationStatus,
+        status: OnlyRuntimeTransactionCoordinationStatus,
         *,
-        transaction: OnlyCommittedExecutionTransaction | None = None,
+        transaction: OnlyCommittedRuntimeTransaction | None = None,
         transaction_inserted: bool = False,
-        projection_result: OnlyExecutionProjectionBatchResult | None = None,
+        projection_result: OnlyRuntimeProjectionBatchResult | None = None,
         delivery: bool = False,
-        failure_component: OnlyExecutionProjectionComponent | None = None,
+        failure_component: OnlyRuntimeProjectionComponent | None = None,
         error: str | None = None,
-    ) -> OnlyExecutionCommitCoordinationResult:
+    ) -> OnlyRuntimeTransactionCoordinationResult:
         intent = (
             OnlyExecutionEventDeliveryIntent(
                 OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX,
@@ -362,7 +361,7 @@ class OnlyExecutionCommitCoordinator:
             if delivery and transaction is not None
             else OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.NONE)
         )
-        return OnlyExecutionCommitCoordinationResult(
+        return OnlyRuntimeTransactionCoordinationResult(
             transaction,
             transaction_inserted,
             status,
@@ -374,7 +373,7 @@ class OnlyExecutionCommitCoordinator:
 
 
 __all__ = [
-    "OnlyExecutionCommitCoordinationResult",
-    "OnlyExecutionCommitCoordinationStatus",
-    "OnlyExecutionCommitCoordinator",
+    "OnlyRuntimeTransactionCoordinationResult",
+    "OnlyRuntimeTransactionCoordinationStatus",
+    "OnlyRuntimeTransactionCoordinator",
 ]

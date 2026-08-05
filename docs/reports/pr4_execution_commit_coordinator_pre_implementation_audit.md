@@ -24,13 +24,13 @@
 5. `src/onlyalpha/execution/transaction_store.py` 已提供相同 Port 下的 In-memory 与 SQLite Store：原子分配 Runtime
    `execution_sequence`，持久化 Prepared/Committed、trade/update/transaction 幂等索引、Projection 状态和 Outbox。
    两者均以相同 authority hash 判定幂等/冲突，`unprojected()` 按 sequence 返回未 ready 记录。
-6. `OnlyExecutionProjectionApplier`（`src/onlyalpha/execution/projection_applier.py:36-113`）严格按
+6. `OnlyRuntimeProjectionApplier`（`src/onlyalpha/execution/projection_applier.py:36-113`）严格按
    `projection_sequence` 应用；APPLIED/IDEMPOTENT/RECOVERED 继续，缺 Target、Target 异常或任意冲突立即返回 FAILED，
    并保留失败 Component 与已应用结果。它不写 Store、不发布 Event。
 7. 12 个真实 Target 在 `src/onlyalpha/execution/projection_targets.py:854-889` 由
    `only_create_generic_t0_execution_projection_targets()` 注册，顺序为 Order、Position、Allocation、Settlement、Fee、
    Account、Strategy Ledger、Account Cash Reservation、Strategy Cash Reservation、Risk Reservation、Risk、Valuation。
-8. `OnlyInMemoryAppliedProjectionLedger`（`src/onlyalpha/execution/applied_projection.py:51-77`）当前只是 Runtime 内
+8. `OnlyInMemoryAppliedRuntimeProjectionLedger`（`src/onlyalpha/execution/applied_projection.py:51-77`）当前只是 Runtime 内
    `(execution_sequence, component)` 加速索引。ADR 0039 明确它可丢弃、可重建、非 durable business authority；真实
    Manager 已是 Result 而 ledger 丢失时由 Target 返回 RECOVERED 并修复索引。
 9. 新 Store 已实施 Projection Ready Outbox 门禁：In-memory `pending()` 在

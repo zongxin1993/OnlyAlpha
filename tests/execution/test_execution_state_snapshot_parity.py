@@ -147,8 +147,8 @@ def test_real_account_and_ledger_snapshots_preserve_formulas_fields_and_hashes()
         OnlyAccountConfig(RUNTIME, ACCOUNT, "virtual", OnlyAccountType.CASH, CNY, money("100.00")), T0
     )
     first_state = only_account_execution_state(first)
-    assert first_state.cash_balance == first.cash.cash_balance
-    assert first_state.available_cash == first.cash.available_cash == money("100.00")
+    assert first_state.ledger_cash == first.cash.ledger_cash
+    assert first_state.trade_available_cash == first.cash.trade_available_cash == money("100.00")
     assert first_state.available_margin == first.available_margin == money("100.00")
     assert first_state.equity == first.equity == money("100.00")
     changed = accounts.apply_margin_change(
@@ -167,19 +167,19 @@ def test_real_account_and_ledger_snapshots_preserve_formulas_fields_and_hashes()
     ledgers.create_ledger(key, money("100.00"), T0)
     snapshot = ledgers.activate_ledger(key, T1)
     state = only_strategy_ledger_execution_state(snapshot)
-    assert state.cash_balance == snapshot.cash.cash_balance
+    assert state.ledger_cash == snapshot.cash.ledger_cash
     assert state.cash_available == snapshot.cash.cash_available
     assert state.position_cost == snapshot.equity.position_cost
     assert state.position_market_value == snapshot.equity.position_market_value
     assert state.cash_entries == snapshot.cash_entries
     assert state.fee_entries == snapshot.fee_entries
-    assert state.equity == snapshot.equity.equity == state.cash_balance + state.position_market_value
+    assert state.equity == snapshot.equity.equity == state.ledger_cash + state.position_market_value
 
 
 @pytest.mark.parametrize(
     "changes",
     (
-        {"available_cash": money("99.00")},
+        {"trade_available_cash": money("99.00")},
         {"available_margin": money("99.00")},
         {"equity": money("99.00")},
         {"version": 0},
@@ -361,10 +361,10 @@ def test_pr2_generic_t0_baseline_uses_real_manager_before_after_authority() -> N
     ledger_after_state = only_strategy_ledger_execution_state(ledger_after)
 
     prepared = only_test_generic_t0_cash_buy_open_transaction()
-    assert account_after_state.cash_balance.amount - account_before_state.cash_balance.amount == (
+    assert account_after_state.ledger_cash.amount - account_before_state.ledger_cash.amount == (
         prepared.fact_draft.account_cash_delta.amount
     )
-    assert ledger_after_state.cash_balance.amount - ledger_before_state.cash_balance.amount == (
+    assert ledger_after_state.ledger_cash.amount - ledger_before_state.ledger_cash.amount == (
         prepared.fact_draft.ledger_cash_delta.amount
     )
     assert account_after_state.position_market_value == ledger_after_state.position_market_value == money("20.00")

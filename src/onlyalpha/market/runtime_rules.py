@@ -34,7 +34,6 @@ from onlyalpha.market.models import (
     OnlyPriceBandRoundingMode,
     OnlyPriceRule,
     OnlyQuantityRule,
-    OnlySettlementContext,
     OnlySettlementModel,
     OnlyShortSellingRule,
     OnlySlippageModel,
@@ -44,6 +43,7 @@ from onlyalpha.market.models import (
 )
 from onlyalpha.market.registry import OnlyMarketProfileRegistry, OnlyMarketProfileRequest, OnlyResolvedMarketProfile
 from onlyalpha.reference import OnlyAshareInstrumentReference, OnlyAshareReferenceError
+from onlyalpha.settlement.models import OnlySettlementSchedule, OnlySettlementScheduleRequest
 
 _PRE_TRADE_RULE_ORDER = (
     "REFERENCE_COVERAGE",
@@ -208,7 +208,7 @@ class OnlyPreTradeMarketContext:
     timestamp: datetime
     trading_day: OnlyTradingDay
     unreserved_sellable_quantity: Decimal = Decimal(0)
-    available_cash: Decimal = Decimal(0)
+    trade_available_cash: Decimal = Decimal(0)
     available_margin: Decimal = Decimal(0)
     position_effect: OnlyPositionEffect = OnlyPositionEffect.AUTO
     order_type: OnlyOrderType = OnlyOrderType.LIMIT
@@ -281,21 +281,6 @@ class OnlyPositionInstruction:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlySettlementRuntimeInstruction:
-    instruction_id: str
-    instrument_id: str
-    source_trade_id: str
-    asset_quantity: Decimal
-    cash_amount: Decimal
-    asset_available_on: OnlyTradingDay
-    cash_trade_available_on: OnlyTradingDay
-    cash_withdrawable_on: OnlyTradingDay
-    legal_settlement_on: OnlyTradingDay
-    account_id: str = ""
-    source_order_id: str = ""
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyMarginInstruction:
     action: str
     account_id: str
@@ -333,7 +318,7 @@ class OnlyTradeApplicationRequest:
 @dataclass(frozen=True, slots=True)
 class OnlyTradeApplicationInstruction:
     position_instruction: OnlyPositionInstruction
-    settlement_instruction: OnlySettlementRuntimeInstruction
+    settlement_schedule: OnlySettlementSchedule
     margin_instruction: OnlyMarginInstruction | None
     cash_instruction: OnlyCashInstruction
     compiled_identity: OnlyCompiledMarketRuleIdentity
@@ -777,7 +762,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             passed if position_available else failed_status,
             None if position_available else "SELL_QUANTITY_EXCEEDS_AVAILABLE",
         )
-        capital_available = required_cash <= context.available_cash and required_margin <= context.available_margin
+        capital_available = (
+            required_cash <= context.trade_available_cash and required_margin <= context.available_margin
+        )
         capital_reason = "INSUFFICIENT_MARGIN" if required_margin > context.available_margin else "INSUFFICIENT_CASH"
         record(
             "AVAILABLE_CASH",
@@ -924,17 +911,8 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         if effect is OnlyPositionEffect.AUTO:
             effect = OnlyPositionEffect.OPEN if request.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
         notional = request.price * request.quantity * reference.contract_multiplier
-        settlement = rules.settlement_policy.on_execution(
-            OnlySettlementContext(
-                request.trade_id,
-                request.account_id,
-                request.instrument_id,
-                request.side,
-                request.quantity,
-                notional,
-                request.timestamp,
-                request.trading_day,
-            ),
+        settlement = rules.settlement_policy.schedule(
+            OnlySettlementScheduleRequest(request.side, request.trading_day),
             self._advance_trading_day,
         )
         margin = None
@@ -965,33 +943,20 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             effect,
             request.quantity,
             request.price,
-            "AVAILABLE" if settlement.asset_available_day == request.trading_day else "PENDING",
+            "AVAILABLE" if settlement.asset_trade_available_on == request.trading_day else "PENDING",
             request.order_id,
             request.trade_id,
-        )
-        settlement_instruction = OnlySettlementRuntimeInstruction(
-            settlement.instruction_id,
-            request.instrument_id,
-            request.trade_id,
-            settlement.asset_quantity,
-            settlement.cash_amount,
-            settlement.asset_available_day,
-            settlement.cash_available_day,
-            settlement.cash_available_day,
-            settlement.legal_settlement_day,
-            request.account_id,
-            request.order_id,
         )
         settles_notional = rules.margin_policy is None
         cash_sign = Decimal(-1) if request.side is OnlyOrderSide.BUY else Decimal(1)
         return OnlyTradeApplicationInstruction(
             position,
-            settlement_instruction,
+            settlement,
             margin,
             OnlyCashInstruction(
                 reference.currency,
                 cash_sign * notional if settles_notional else Decimal(0),
-                settlement.cash_available_day,
+                settlement.cash_trade_available_on,
                 settles_notional,
             ),
             rules.identity,

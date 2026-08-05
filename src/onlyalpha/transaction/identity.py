@@ -10,7 +10,7 @@ from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId, OnlyTrade
 ONLY_EXECUTION_TRANSACTION_IDENTITY_SCHEMA_VERSION = 1
 
 
-def only_execution_transaction_id(
+def only_runtime_transaction_id(
     *,
     runtime_id: OnlyRuntimeId,
     gateway_id: OnlyBrokerGatewayId,
@@ -32,4 +32,4 @@ def only_execution_transaction_id(
     return f"ETX-{hashlib.sha256(authority.encode('utf-8')).hexdigest()}"
 
 
-__all__ = ["ONLY_EXECUTION_TRANSACTION_IDENTITY_SCHEMA_VERSION", "only_execution_transaction_id"]
+__all__ = ["ONLY_EXECUTION_TRANSACTION_IDENTITY_SCHEMA_VERSION", "only_runtime_transaction_id"]

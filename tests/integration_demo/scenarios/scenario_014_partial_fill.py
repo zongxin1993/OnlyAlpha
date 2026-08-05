@@ -23,7 +23,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
 
     assert snapshot.status is OnlyOrderStatus.PARTIALLY_FILLED
     assert snapshot.filled_quantity.value == Decimal("40")
-    assert account.cash.frozen_cash.amount == Decimal("600.60")
+    assert account.cash.order_reserved_cash.amount == Decimal("600.60")
     risk_reservation = partial.runtime.risk_service.reservations.get_for_order(snapshot.order_id)
     assert risk_reservation is not None
     assert risk_reservation.consumed_quantity.value == Decimal("40")
@@ -34,7 +34,9 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert committed[0].projection_ready
     assert committed[0].fact.fill_index == 1
     assert partial.runtime.broker_gateway is not None
-    assert partial.runtime.broker_gateway.query_account(snapshot.account_id).frozen_cash.amount == Decimal("600.00")
+    assert partial.runtime.broker_gateway.query_account(snapshot.account_id).order_reserved_cash.amount == Decimal(
+        "600.00"
+    )
     return env.report_builder.scenario(
         "014", "Virtual Broker 部分成交", "40/100 成交形成独立 Transaction，Local 与 Broker Reservation 保持一致"
     )

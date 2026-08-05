@@ -2,7 +2,7 @@ import ast
 import inspect
 from pathlib import Path
 
-from onlyalpha.execution import OnlyProjectionReadyExecutionQueryPort
+from onlyalpha.execution import OnlyProjectionReadyRuntimeQueryPort
 
 
 def _calls(path: str) -> set[str]:
@@ -28,11 +28,11 @@ def test_business_result_chain_uses_only_projection_ready_query() -> None:
         for path in Path(f"src/onlyalpha/{root}").rglob("*.py")
     )
     assert ".records(" not in downstream
-    assert "OnlyExecutionTransactionQueryPort" not in downstream
+    assert "OnlyRuntimeTransactionQueryPort" not in downstream
 
 
 def test_ready_query_signature_has_no_ambiguous_filter_switch() -> None:
-    ready = inspect.signature(OnlyProjectionReadyExecutionQueryPort.ready_records)
+    ready = inspect.signature(OnlyProjectionReadyRuntimeQueryPort.ready_records)
     assert tuple(ready.parameters) == ("self", "runtime_id", "after_sequence")
     assert "ready_only" not in ready.parameters
     production = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha").rglob("*.py"))

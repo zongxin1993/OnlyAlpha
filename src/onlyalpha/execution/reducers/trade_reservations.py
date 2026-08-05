@@ -11,6 +11,15 @@ from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.position.enums import OnlyPositionReservationState
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationStage, OnlyStrategyCashReservationState
+from onlyalpha.transaction.projection import (
+    OnlyAccountCashReservationExecutionProjection,
+    OnlyPositionReservationExecutionProjection,
+    OnlyRiskExecutionProjection,
+    OnlyRiskReservationExecutionProjection,
+    OnlyRuntimeProjectionComponent,
+    OnlyStrategyCashReservationExecutionProjection,
+)
+from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 
 from ..execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -21,15 +30,6 @@ from ..execution_state import (
 )
 from ..planned_trade import OnlyPlannedTrade
 from ..planning_results import OnlyExecutionEventIntent
-from ..projection import (
-    OnlyAccountCashReservationExecutionProjection,
-    OnlyExecutionProjectionComponent,
-    OnlyPositionReservationExecutionProjection,
-    OnlyRiskExecutionProjection,
-    OnlyRiskReservationExecutionProjection,
-    OnlyStrategyCashReservationExecutionProjection,
-)
-from ..projection_builder import OnlyExecutionProjectionBuilder
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,10 +108,10 @@ class OnlyPositionReservationTradeReducer:
             updated_at=trade.ts_init,
             version=before.version + 1,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyPositionReservationExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                component=OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
                 entity_key=str(after.reservation_id),
                 before=before,
                 after=after,
@@ -128,7 +128,7 @@ class OnlyPositionReservationTradeReducer:
             trade.quantity,
             (
                 _intent(
-                    OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                    OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
                     "POSITION_RESERVATION_CONSUMED",
                     after,
                 ),
@@ -171,10 +171,10 @@ class OnlyAccountCashReservationTradeReducer:
             updated_at=trade.ts_init,
             version=before.version + 1 + int(released.amount > 0),
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyAccountCashReservationExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                component=OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
                 entity_key=after.reservation_id,
                 before=before,
                 after=after,
@@ -186,14 +186,12 @@ class OnlyAccountCashReservationTradeReducer:
         projection = builder.finalize(projection)
         assert isinstance(projection, OnlyAccountCashReservationExecutionProjection)
         intents = [
-            _intent(
-                OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION, "ACCOUNT_CASH_RESERVATION_CONSUMED", after
-            )
+            _intent(OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION, "ACCOUNT_CASH_RESERVATION_CONSUMED", after)
         ]
         if released.amount:
             intents.append(
                 _intent(
-                    OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                    OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
                     "ACCOUNT_CASH_RESERVATION_RELEASED",
                     after,
                 )
@@ -237,10 +235,10 @@ class OnlyStrategyCashReservationTradeReducer:
             updated_at=trade.ts_init,
             version=before.version + 1 + int(released.amount > 0),
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyStrategyCashReservationExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+                component=OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
                 entity_key=str(after.reservation_id),
                 before=before,
                 after=after,
@@ -253,13 +251,13 @@ class OnlyStrategyCashReservationTradeReducer:
         assert isinstance(projection, OnlyStrategyCashReservationExecutionProjection)
         intents = [
             _intent(
-                OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION, "STRATEGY_CASH_RESERVATION_CONSUMED", after
+                OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION, "STRATEGY_CASH_RESERVATION_CONSUMED", after
             )
         ]
         if released.amount:
             intents.append(
                 _intent(
-                    OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+                    OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
                     "STRATEGY_CASH_RESERVATION_RELEASED",
                     after,
                 )
@@ -319,10 +317,10 @@ class OnlyRiskReservationTradeReducer:
             updated_at=trade.ts_init,
             version=before.version + 1,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyRiskReservationExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.RISK_RESERVATION,
+                component=OnlyRuntimeProjectionComponent.RISK_RESERVATION,
                 entity_key=str(after.reservation_id),
                 before=before,
                 after=after,
@@ -392,10 +390,10 @@ class OnlyRiskTradeReducer:
             remaining_order_notional=remaining_order_notional,
             version=before.version + 1,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyRiskExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.RISK,
+                component=OnlyRuntimeProjectionComponent.RISK,
                 entity_key=str(after.cluster_id),
                 before=before,
                 after=after,
@@ -409,11 +407,11 @@ class OnlyRiskTradeReducer:
         return OnlyRiskTradeReduction(
             after,
             projection,
-            (_intent(OnlyExecutionProjectionComponent.RISK, "RISK_STATE_UPDATED", after),),
+            (_intent(OnlyRuntimeProjectionComponent.RISK, "RISK_STATE_UPDATED", after),),
         )
 
 
-def _intent(component: OnlyExecutionProjectionComponent, event_type: str, payload: object) -> OnlyExecutionEventIntent:
+def _intent(component: OnlyRuntimeProjectionComponent, event_type: str, payload: object) -> OnlyExecutionEventIntent:
     encoded = payload.to_dict() if hasattr(payload, "to_dict") else payload
     return OnlyExecutionEventIntent(
         component, OnlyEventType(event_type), encoded, OnlyEventSource("execution.trade_planner")

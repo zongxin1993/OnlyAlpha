@@ -3,8 +3,8 @@ from dataclasses import replace
 import pytest
 
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
     OnlyFeeExecutionProjection,
+    OnlyRuntimeProjectionComponent,
     OnlySettlementExecutionProjection,
     only_execution_state_hash,
 )
@@ -15,14 +15,14 @@ from tests.execution.targets.support import only_test_projection_context, only_t
 @pytest.mark.parametrize(
     "component,manager_name",
     (
-        (OnlyExecutionProjectionComponent.POSITION, "position_manager"),
-        (OnlyExecutionProjectionComponent.ALLOCATION, "allocation_manager"),
-        (OnlyExecutionProjectionComponent.ACCOUNT, "account_manager"),
-        (OnlyExecutionProjectionComponent.STRATEGY_LEDGER, "strategy_ledger_manager"),
+        (OnlyRuntimeProjectionComponent.POSITION, "position_manager"),
+        (OnlyRuntimeProjectionComponent.ALLOCATION, "allocation_manager"),
+        (OnlyRuntimeProjectionComponent.ACCOUNT, "account_manager"),
+        (OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, "strategy_ledger_manager"),
     ),
 )
 def test_repository_failure_leaves_manager_and_applied_ledger_unchanged(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
     manager_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -42,7 +42,7 @@ def test_repository_failure_leaves_manager_and_applied_ledger_unchanged(
 
 def test_fee_restore_validation_failure_is_atomic() -> None:
     bundle = only_test_projection_target_bundle()
-    component = OnlyExecutionProjectionComponent.FEE
+    component = OnlyRuntimeProjectionComponent.FEE
     context = only_test_projection_context(bundle, component)
     projection = context.projection
     assert isinstance(projection, OnlyFeeExecutionProjection)
@@ -57,7 +57,7 @@ def test_fee_restore_validation_failure_is_atomic() -> None:
 
 def test_settlement_restore_validation_failure_is_atomic() -> None:
     bundle = only_test_projection_target_bundle()
-    component = OnlyExecutionProjectionComponent.SETTLEMENT
+    component = OnlyRuntimeProjectionComponent.SETTLEMENT
     context = only_test_projection_context(bundle, component)
     projection = context.projection
     assert isinstance(projection, OnlySettlementExecutionProjection)

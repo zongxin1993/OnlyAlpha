@@ -8,15 +8,15 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.execution import (
+from onlyalpha.execution.causal_recovery import (
     OnlyExecutionRecoveryPlanBuilder,
     OnlyExecutionRecoverySession,
-    OnlyExecutionTransactionRecoveryQueryPort,
 )
 from onlyalpha.runtime.checkpoint.codec import only_validate_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import OnlyCheckpointRestoreContext, OnlyRuntimeCheckpoint
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.persistence.store import OnlyRuntimeCheckpointQueryPort
+from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionRecoveryQueryPort
 
 if TYPE_CHECKING:
     from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayResult
@@ -55,7 +55,7 @@ class OnlyRuntimeRecoveryOrchestrator:
         config_fingerprint: str,
         participant_registry: OnlyRuntimeCheckpointParticipantRegistry,
         checkpoint_query: OnlyRuntimeCheckpointQueryPort,
-        transaction_query: OnlyExecutionTransactionRecoveryQueryPort,
+        transaction_query: OnlyRuntimeTransactionRecoveryQueryPort,
         causal_replay: Callable[
             [OnlyRuntimeCheckpoint, OnlyExecutionRecoverySession],
             OnlyBacktestRecoveryReplayResult,

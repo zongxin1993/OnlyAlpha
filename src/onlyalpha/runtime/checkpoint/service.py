@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution.persistence_ports import (
-    OnlyExecutionTransactionOutboxPort,
-    OnlyExecutionTransactionQueryPort,
-)
 from onlyalpha.runtime.persistence.store import (
     OnlyRuntimeCheckpointQueryPort,
     OnlyRuntimeCheckpointWritePort,
+)
+from onlyalpha.transaction.persistence_ports import (
+    OnlyRuntimeTransactionOutboxPort,
+    OnlyRuntimeTransactionQueryPort,
 )
 
 from .codec import only_seal_runtime_checkpoint, only_validate_runtime_checkpoint
@@ -33,8 +33,8 @@ class OnlyRuntimeCheckpointService:
         registry: OnlyRuntimeCheckpointParticipantRegistry,
         write_port: OnlyRuntimeCheckpointWritePort,
         query_port: OnlyRuntimeCheckpointQueryPort,
-        transaction_query: OnlyExecutionTransactionQueryPort,
-        outbox_port: OnlyExecutionTransactionOutboxPort,
+        transaction_query: OnlyRuntimeTransactionQueryPort,
+        outbox_port: OnlyRuntimeTransactionOutboxPort,
         retain_last: int,
     ) -> None:
         self._runtime_id = runtime_id

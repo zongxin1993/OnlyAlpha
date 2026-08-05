@@ -91,18 +91,18 @@ class OnlyBrokerCancelResult(OnlyDomainModel):
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerBalanceSnapshot(OnlyDomainModel):
     currency: OnlyCurrency
-    cash_balance: OnlyMoney
-    available_cash: OnlyMoney
-    frozen_cash: OnlyMoney
+    ledger_cash: OnlyMoney
+    trade_available_cash: OnlyMoney
+    order_reserved_cash: OnlyMoney
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerAccountSnapshot(OnlyDomainModel):
     gateway_id: OnlyBrokerGatewayId
     account_id: OnlyAccountId
-    cash_balance: OnlyMoney
-    available_cash: OnlyMoney
-    frozen_cash: OnlyMoney
+    ledger_cash: OnlyMoney
+    trade_available_cash: OnlyMoney
+    order_reserved_cash: OnlyMoney
     equity: OnlyMoney
     snapshot_time: OnlyTimestamp
     source_sequence: int

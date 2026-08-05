@@ -94,20 +94,20 @@
   },
   "checkpoint_id": "backtest-0c6981aa2050c745:30",
   "committed_fact_ids": [
-    "virtual-trade-00000001"
+    "EFILL-d971b76a2c8a5bed57bfdbeb213d6f3ff7e0e44a6693e3287ce7144624b62d05"
   ],
   "committed_transaction_ids": [
     "ETX-9470b72a5a17f4e02ee08609297b7dd944e9e915d09b89319dc748405a396fbf"
   ],
-  "configuration_fingerprint": "c3d26915726449633bc1bebfdacf3477631eef081f40cce317bf92e5e21c9557",
+  "configuration_fingerprint": "96efdd5ab92f214ecb193bf2edfd4921283c5f21003d1598402cc2e327f78982",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "c5be168ab5331193b41fcd40b4d65e304f616c78b246388ff353f7c412e860ba",
-  "database_template": "terminal_after_partial_fill_baseline-c5be168ab5331193b41fcd40b4d65e304f616c78b246388ff353f7c412e860ba.sqlite3",
+  "database_fingerprint": "c16eeebae7624a6430fbf2c29e7bd95b97e50ce0aae8d5260b76d31f9eb75420",
+  "database_template": "terminal_after_partial_fill_baseline-c16eeebae7624a6430fbf2c29e7bd95b97e50ce0aae8d5260b76d31f9eb75420.sqlite3",
   "fill_count": 1,
   "onlyalpha_version": "0.3.2",
   "order_count": 1,
-  "persistence_schema_version": "1",
-  "result_fingerprint": "aab7eb2daac83cc96b78118777b19d359a90e61e486afdf8c7e9ed4640ff06e6",
-  "scenario_fingerprint": "c3d26915726449633bc1bebfdacf3477631eef081f40cce317bf92e5e21c9557",
+  "persistence_schema_version": "4",
+  "result_fingerprint": "225e7490bfe84b214e4354aae02d4cc461b77d3f1e78a7e0fd945fd76de3ef05",
+  "scenario_fingerprint": "96efdd5ab92f214ecb193bf2edfd4921283c5f21003d1598402cc2e327f78982",
   "terminal_count": 1
 }

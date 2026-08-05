@@ -9,7 +9,7 @@ from typing import NoReturn
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution import (
+from onlyalpha.execution.causal_recovery import (
     OnlyExecutionRecoveryPhase,
     OnlyExecutionRecoverySession,
 )

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyTradeId
-from onlyalpha.execution import OnlyExecutionTransactionConflict
+from onlyalpha.execution import OnlyRuntimeTransactionConflict
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlySqliteRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import (
     only_test_generic_t0_cash_buy_open_transaction,
@@ -38,7 +38,7 @@ def test_fill_identity_query_duplicate_and_conflict_survive_store_reopen(kind: s
         envelope,
         fact_draft=replace(envelope.fact_draft, fill_identity=first.fact_draft.fill_identity),
     )
-    with pytest.raises(OnlyExecutionTransactionConflict, match="Fill identity"):
+    with pytest.raises(OnlyRuntimeTransactionConflict, match="Fill identity"):
         store.commit(conflict, committed_at=conflict.prepared_at)
     if isinstance(store, OnlySqliteRuntimePersistenceStore):
         store.close()

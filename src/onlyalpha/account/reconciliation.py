@@ -21,13 +21,13 @@ class OnlyBrokerAccountSnapshotView(Protocol):
     def account_id(self) -> OnlyAccountId: ...
 
     @property
-    def cash_balance(self) -> OnlyMoney: ...
+    def ledger_cash(self) -> OnlyMoney: ...
 
     @property
-    def available_cash(self) -> OnlyMoney: ...
+    def trade_available_cash(self) -> OnlyMoney: ...
 
     @property
-    def frozen_cash(self) -> OnlyMoney: ...
+    def order_reserved_cash(self) -> OnlyMoney: ...
 
     @property
     def equity(self) -> OnlyMoney: ...
@@ -63,9 +63,9 @@ class OnlyAccountReconciliationResult(OnlyDomainModel):
 
 class OnlyAccountAuthorityPolicy:
     def authority_for(self, field: str) -> OnlyAccountAuthority:
-        if field in {"cash_balance", "equity"}:
+        if field in {"ledger_cash", "equity"}:
             return OnlyAccountAuthority.BROKER
-        if field in {"available_cash", "frozen_cash"}:
+        if field in {"trade_available_cash", "order_reserved_cash"}:
             return OnlyAccountAuthority.RECONCILED
         return OnlyAccountAuthority.LOCAL
 
@@ -82,9 +82,9 @@ class OnlyAccountReconciliationService:
     def reconcile(self, broker: OnlyBrokerAccountSnapshotView) -> OnlyAccountReconciliationResult:
         local = self._manager.require_snapshot(broker.account_id)
         fields = {
-            "cash_balance": (local.cash.cash_balance, broker.cash_balance),
-            "available_cash": (local.cash.available_cash, broker.available_cash),
-            "frozen_cash": (local.cash.frozen_cash, broker.frozen_cash),
+            "ledger_cash": (local.cash.ledger_cash, broker.ledger_cash),
+            "trade_available_cash": (local.cash.trade_available_cash, broker.trade_available_cash),
+            "order_reserved_cash": (local.cash.order_reserved_cash, broker.order_reserved_cash),
             "equity": (local.equity, broker.equity),
         }
         differences = tuple(
@@ -97,7 +97,7 @@ class OnlyAccountReconciliationService:
                 item,
                 (
                     OnlyAccountReconciliationSeverity.BLOCK_ACCOUNT
-                    if item.field in {"cash_balance", "equity"}
+                    if item.field in {"ledger_cash", "equity"}
                     else OnlyAccountReconciliationSeverity.WARNING
                 ),
                 "Broker/local Account values differ",

@@ -1,27 +1,27 @@
 import pytest
 
 from onlyalpha.execution import (
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionBatchStatus,
-    OnlyExecutionProjectionComponent,
-    OnlyExecutionProjectionTarget,
     OnlyProjectionApplyResult,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionBatchStatus,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeProjectionTarget,
 )
-from onlyalpha.execution.applied_projection import OnlyExecutionProjectionApplyContext
+from onlyalpha.transaction.applied_projection import OnlyRuntimeProjectionApplyContext
 from tests.execution.targets.support import only_test_projection_target_bundle
 from tests.execution.test_real_projection_target_manager_parity import _projection_authority
 
 
 class _OnlyTestFailOnceTarget:
-    def __init__(self, delegate: OnlyExecutionProjectionTarget) -> None:
+    def __init__(self, delegate: OnlyRuntimeProjectionTarget) -> None:
         self._delegate = delegate
         self._failed = False
 
     @property
-    def component(self) -> OnlyExecutionProjectionComponent:
+    def component(self) -> OnlyRuntimeProjectionComponent:
         return self._delegate.component
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         if not self._failed:
             self._failed = True
             raise RuntimeError("injected target failure")
@@ -32,34 +32,34 @@ class _OnlyTestFailOnceTarget:
     "failed_component",
     tuple(
         component
-        for component in OnlyExecutionProjectionComponent
+        for component in OnlyRuntimeProjectionComponent
         if component
         not in {
-            OnlyExecutionProjectionComponent.MARGIN,
-            OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-            OnlyExecutionProjectionComponent.MARGIN_RESERVATION,
+            OnlyRuntimeProjectionComponent.MARGIN,
+            OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+            OnlyRuntimeProjectionComponent.MARGIN_RESERVATION,
         }
     ),
 )
 def test_forward_recovery_resumes_from_applied_projection_ledger(
-    failed_component: OnlyExecutionProjectionComponent,
+    failed_component: OnlyRuntimeProjectionComponent,
 ) -> None:
     control = only_test_projection_target_bundle()
-    assert control.apply_all().status is OnlyExecutionProjectionBatchStatus.COMPLETED
+    assert control.apply_all().status is OnlyRuntimeProjectionBatchStatus.COMPLETED
 
     recovered = only_test_projection_target_bundle()
     targets = dict(recovered.targets)
     targets[failed_component] = _OnlyTestFailOnceTarget(targets[failed_component])
-    applier = OnlyExecutionProjectionApplier(targets)
+    applier = OnlyRuntimeProjectionApplier(targets)
     first = applier.apply(recovered.transaction)
-    assert first.status is OnlyExecutionProjectionBatchStatus.FAILED
+    assert first.status is OnlyRuntimeProjectionBatchStatus.FAILED
     assert first.failed_projection is not None
     assert first.failed_projection.identity.component is failed_component
     projection_sequence = first.failed_projection.identity.projection_sequence
     assert len(recovered.applied_ledger.records()) == projection_sequence - 1
 
     resumed = applier.apply(recovered.transaction)
-    assert resumed.status is OnlyExecutionProjectionBatchStatus.COMPLETED
+    assert resumed.status is OnlyRuntimeProjectionBatchStatus.COMPLETED
     assert len(resumed.idempotent) == projection_sequence - 1
     assert len(resumed.applied) == 14 - projection_sequence
     assert len(recovered.applied_ledger.records()) == 13

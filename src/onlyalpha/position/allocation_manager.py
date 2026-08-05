@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionSide, OnlySettlementBucket
 from onlyalpha.position.exceptions import OnlyPositionOverSellError
@@ -15,7 +15,6 @@ from onlyalpha.position.keys import OnlyPositionAllocationKey
 from onlyalpha.position.models import (
     OnlyPositionAllocationSnapshot,
     OnlyPositionTrade,
-    OnlySettlementResult,
     OnlyUnallocatedPosition,
     only_zero_quantity,
 )
@@ -264,17 +263,6 @@ class OnlyPositionAllocationManager:
         snapshot = state.snapshot()
         self._repository.save(snapshot)
         return snapshot
-
-    def settle(self, key: OnlyPositionAllocationKey, trading_day: OnlyTradingDay) -> OnlySettlementResult:
-        state = self._require_state(key)
-        before = state.version
-        moved = state.unsettled
-        if moved.value:
-            state.settled = state.settled + moved
-            state.unsettled = only_zero_quantity(moved.precision)
-            state.version += 1
-            self._repository.save(state.snapshot())
-        return OnlySettlementResult(trading_day, moved, before, state.version, moved.value > 0)
 
     def reconcile_unallocated(
         self,

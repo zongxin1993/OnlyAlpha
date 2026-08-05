@@ -1,12 +1,10 @@
 """Converters from Manager-owned replay authority to execution projection state."""
 
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.fee.manager import OnlyFeeExecutionAuthoritySnapshot
-from onlyalpha.settlement.manager import OnlySettlementExecutionAuthoritySnapshot
-
-from .projection import (
+from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot
+from onlyalpha.transaction.projection import (
     OnlyFeeExecutionState,
     OnlyFeeInstructionReplay,
     OnlyFeeRecordReplay,
@@ -51,55 +49,36 @@ def only_fee_execution_state(authority: OnlyFeeExecutionAuthoritySnapshot) -> On
 
 
 def only_settlement_execution_state(
-    authority: OnlySettlementExecutionAuthoritySnapshot,
+    authority: OnlySettlementInstructionSnapshot,
 ) -> OnlySettlementExecutionState:
-    currency = authority.cash_currency
-    if currency is None:
-        raise ValueError("Settlement execution authority does not contain cash currency")
     instruction = authority.instruction
     return OnlySettlementExecutionState(
-        instruction.instruction_id,
-        OnlyAccountId(instruction.account_id),
-        OnlyInstrumentId.parse(instruction.instrument_id),
-        OnlyOrderId(instruction.source_order_id),
-        instruction.source_trade_id,
-        instruction.asset_quantity,
-        OnlyMoney(instruction.cash_amount, currency),
-        authority.asset_released,
-        authority.trade_cash_released,
-        authority.withdrawable_cash_released,
+        str(instruction.instruction_id),
+        instruction.account_id,
+        instruction.instrument_id,
+        instruction.order_id,
+        str(instruction.trade_id),
+        instruction.trade_quantity.value,
+        instruction.gross_notional,
+        authority.asset_trade_available,
+        authority.cash_trade_available,
+        authority.cash_withdrawable,
         authority.legal_settled,
-        instruction.asset_available_on,
-        instruction.cash_trade_available_on,
-        instruction.cash_withdrawable_on,
-        instruction.legal_settlement_on,
+        instruction.schedule.asset_trade_available_on,
+        instruction.schedule.cash_trade_available_on,
+        instruction.schedule.cash_withdrawable_on,
+        instruction.schedule.legal_settlement_on,
         authority.version,
         authority.record_sequence_head,
+        instruction,
     )
 
 
 def only_settlement_record_replay(
-    authority: OnlySettlementExecutionAuthoritySnapshot,
+    authority: OnlySettlementInstructionSnapshot,
 ) -> tuple[OnlySettlementRecordReplay, ...]:
-    currency = authority.cash_currency
-    if currency is None:
-        raise ValueError("Settlement execution authority does not contain cash currency")
-    return tuple(
-        OnlySettlementRecordReplay(
-            item.instruction_id,
-            OnlyAccountId(item.account_id),
-            OnlyInstrumentId.parse(item.instrument_id),
-            OnlyOrderId(item.source_order_id),
-            item.source_trade_id,
-            item.processed_on,
-            item.available_quantity,
-            OnlyMoney(item.trade_available_cash, currency),
-            OnlyMoney(item.withdrawable_cash, currency),
-            item.legal_settled,
-            item.sequence,
-        )
-        for item in authority.records
-    )
+    del authority
+    return ()
 
 
 __all__ = ["only_fee_execution_state", "only_settlement_execution_state", "only_settlement_record_replay"]

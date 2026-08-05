@@ -164,7 +164,7 @@ def test_cash_trade_fee_pnl_equity_and_serialization() -> None:
     allocations = OnlyPositionAllocationManager(RUNTIME)
     account_trade(manager, key, allocations, make_trade(1, OnlyOrderSide.BUY, "1000", "10.00", "5.00"))
     snapshot = manager.require_snapshot(key)
-    assert snapshot.cash.cash_balance.amount == Decimal("89995.00")
+    assert snapshot.cash.ledger_cash.amount == Decimal("89995.00")
     assert snapshot.cash.cash_reserved.amount == Decimal("0.00")
     assert snapshot.pnl.fees.amount == Decimal("5.00")
     assert snapshot.equity.equity.amount == Decimal("99995.00")
@@ -188,7 +188,7 @@ def test_cash_trade_fee_pnl_equity_and_serialization() -> None:
     account_trade(manager, key, allocations, make_trade(3, OnlyOrderSide.SELL, "400", "12.00", "3.00"))
     sold = manager.require_snapshot(key)
     assert sold.pnl.realized_pnl.amount == Decimal("800.00")
-    assert sold.cash.cash_balance.amount == Decimal("94792.00")
+    assert sold.cash.ledger_cash.amount == Decimal("94792.00")
     assert sold.pnl.fees.amount == Decimal("8.00")
 
 

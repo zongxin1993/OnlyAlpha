@@ -1,37 +1,37 @@
 import pytest
 
 from onlyalpha.execution import (
-    OnlyAppliedProjectionRecord,
-    OnlyExecutionProjectionApplyContext,
-    OnlyExecutionProjectionComponent,
+    OnlyAppliedRuntimeProjectionRecord,
     OnlyExecutionRecoveryStatus,
     OnlyProjectionApplyStatus,
+    OnlyRuntimeProjectionApplyContext,
+    OnlyRuntimeProjectionComponent,
 )
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 from tests.execution.targets.support import only_test_projection_context
 
 _COMPONENTS = tuple(
     component
-    for component in OnlyExecutionProjectionComponent
+    for component in OnlyRuntimeProjectionComponent
     if component
     not in {
-        OnlyExecutionProjectionComponent.MARGIN,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.MARGIN_RESERVATION,
+        OnlyRuntimeProjectionComponent.MARGIN,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.MARGIN_RESERVATION,
     }
 )
 
 
 @pytest.mark.parametrize("component", _COMPONENTS, ids=lambda item: item.value)
 def test_real_target_payload_conflict_never_overwrites_installed_manager_authority(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
 ) -> None:
     harness = OnlyRealExecutionRecoveryHarness.create()
     context = only_test_projection_context(harness.bundle, component)
     target = harness.targets[component]
     assert target.apply_execution_projection(context).status is OnlyProjectionApplyStatus.APPLIED
     manager_before = harness.manager_digest()
-    conflict = OnlyExecutionProjectionApplyContext(
+    conflict = OnlyRuntimeProjectionApplyContext(
         f"{context.transaction_id}-conflict",
         context.execution_sequence,
         context.fact,
@@ -48,7 +48,7 @@ def test_real_target_payload_conflict_never_overwrites_installed_manager_authori
 @pytest.mark.parametrize("conflict", ("version", "state"))
 @pytest.mark.parametrize("component", _COMPONENTS, ids=lambda item: item.value)
 def test_real_target_version_and_state_conflict_keep_manager_authority_unchanged(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
     conflict: str,
 ) -> None:
     harness = OnlyRealExecutionRecoveryHarness.create()
@@ -73,7 +73,7 @@ def test_real_target_version_and_state_conflict_keep_manager_authority_unchanged
 @pytest.mark.parametrize("conflict", ("payload", "version", "state"))
 @pytest.mark.parametrize("component", _COMPONENTS, ids=lambda item: item.value)
 def test_real_conflict_blocks_recovery_and_keeps_transaction_out_of_business_query(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
     conflict: str,
 ) -> None:
     harness = OnlyRealExecutionRecoveryHarness.create()
@@ -81,7 +81,7 @@ def test_real_conflict_blocks_recovery_and_keeps_transaction_out_of_business_que
     identity = projection.identity
     if conflict == "payload":
         harness.applied_ledger.record(
-            OnlyAppliedProjectionRecord(
+            OnlyAppliedRuntimeProjectionRecord(
                 "conflicting-transaction",
                 harness.bundle.transaction.execution_sequence,
                 component,

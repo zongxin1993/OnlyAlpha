@@ -149,7 +149,7 @@ class OnlyPaperAcceptanceAssertions:
         before_values = asdict(before)
         after_values = asdict(after)
         stable_fields = (
-            "cash_balance",
+            "ledger_cash",
             "position_count",
             "total_position_quantity",
             "fill_count",

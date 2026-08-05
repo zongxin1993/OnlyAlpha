@@ -46,10 +46,6 @@ from onlyalpha.execution import (
     OnlyAllocationExecutionReplayMetadata,
     OnlyAllocationExecutionState,
     OnlyCommittedExecutionFactDraft,
-    OnlyExecutionPrecondition,
-    OnlyExecutionProjection,
-    OnlyExecutionProjectionComponent,
-    OnlyExecutionProjectionIdentity,
     OnlyExecutionTransactionEventFactory,
     OnlyFeeExecutionProjection,
     OnlyFeeExecutionState,
@@ -68,11 +64,15 @@ from onlyalpha.execution import (
     OnlyPositionExecutionState,
     OnlyPositionReservationExecutionProjection,
     OnlyPositionReservationExecutionState,
-    OnlyPreparedExecutionTransaction,
+    OnlyPreparedRuntimeTransaction,
     OnlyRiskExecutionProjection,
     OnlyRiskExecutionState,
     OnlyRiskReservationExecutionProjection,
     OnlyRiskReservationExecutionState,
+    OnlyRuntimePrecondition,
+    OnlyRuntimeProjection,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeProjectionIdentity,
     OnlySettlementExecutionProjection,
     OnlySettlementExecutionState,
     OnlyStrategyCashReservationExecutionProjection,
@@ -82,7 +82,7 @@ from onlyalpha.execution import (
     OnlyValuationExecutionProjection,
     OnlyValuationExecutionState,
     only_execution_state_hash,
-    only_execution_transaction_id,
+    only_runtime_transaction_id,
     only_with_execution_projection_hash,
 )
 from onlyalpha.fee import (
@@ -118,6 +118,7 @@ from onlyalpha.strategy_ledger.identifiers import (
 )
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.models import OnlyStrategyCashEntry
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
 _TEST_RUNTIME_ID = OnlyRuntimeId("runtime")
 _TEST_TRADE_ID = OnlyTradeId("trade")
@@ -252,7 +253,7 @@ def only_test_execution_fact_draft(
     )
 
 
-def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProjection, ...]:
+def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyRuntimeProjection, ...]:
     """Return the economically coherent Generic T0 Cash projection set."""
 
     timestamp = _timestamp()
@@ -522,52 +523,52 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         remaining_order_notional=_money("60.00"),
     )
 
-    projections: tuple[OnlyExecutionProjection, ...] = (
+    projections: tuple[OnlyRuntimeProjection, ...] = (
         OnlyOrderExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.ORDER, 1, str(order_id), before_order, after_order),
+            _identity(OnlyRuntimeProjectionComponent.ORDER, 1, str(order_id), before_order, after_order),
             before_order,
             after_order,
             fill,
             _TEST_UPDATE_ID,
         ),
         OnlyPositionExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.POSITION, 2, "position", None, position),
+            _identity(OnlyRuntimeProjectionComponent.POSITION, 2, "position", None, position),
             None,
             position,
             _money("0.00"),
             OnlyPositionExecutionReplayMetadata(1),
         ),
         OnlyAllocationExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.ALLOCATION, 3, "allocation", None, allocation),
+            _identity(OnlyRuntimeProjectionComponent.ALLOCATION, 3, "allocation", None, allocation),
             None,
             allocation,
             _money("0.00"),
             OnlyAllocationExecutionReplayMetadata(1),
         ),
         OnlySettlementExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.SETTLEMENT, 4, "settlement", None, settlement),
+            _identity(OnlyRuntimeProjectionComponent.SETTLEMENT, 4, "settlement", None, settlement),
             None,
             settlement,
             (),
         ),
         OnlyOrderFeeAccrualExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL, 5, str(order_id), None, fee_accrual),
+            _identity(OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL, 5, str(order_id), None, fee_accrual),
             None,
             fee_accrual,
         ),
         OnlyFeeExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.FEE, 6, "fee-instruction", None, fee),
+            _identity(OnlyRuntimeProjectionComponent.FEE, 6, "fee-instruction", None, fee),
             None,
             fee,
         ),
         OnlyAccountExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.ACCOUNT, 7, "account", account_before, account_after),
+            _identity(OnlyRuntimeProjectionComponent.ACCOUNT, 7, "account", account_before, account_after),
             account_before,
             account_after,
         ),
         OnlyStrategyLedgerExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
+                OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
                 8,
                 "ledger",
                 ledger_before,
@@ -578,7 +579,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         ),
         OnlyAccountCashReservationExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
                 9,
                 "account-reservation",
                 account_reservation_before,
@@ -589,7 +590,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         ),
         OnlyStrategyCashReservationExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+                OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
                 10,
                 "strategy-reservation",
                 strategy_reservation_before,
@@ -600,7 +601,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
         ),
         OnlyRiskReservationExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.RISK_RESERVATION,
+                OnlyRuntimeProjectionComponent.RISK_RESERVATION,
                 11,
                 "risk-reservation",
                 risk_reservation_before,
@@ -610,7 +611,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
             risk_reservation_after,
         ),
         OnlyRiskExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.RISK, 12, "risk", risk_before, risk_after),
+            _identity(OnlyRuntimeProjectionComponent.RISK, 12, "risk", risk_before, risk_after),
             risk_before,
             risk_after,
         ),
@@ -618,7 +619,7 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyExecutionProje
     return tuple(only_with_execution_projection_hash(item) for item in projections)
 
 
-def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
+def only_test_projection_codec_cases() -> tuple[OnlyRuntimeProjection, ...]:
     """Return independent projection cases for union/codec coverage."""
 
     timestamp = _timestamp()
@@ -760,15 +761,15 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
         position_market_value=_money("20.00"),
         version=2,
     )
-    extras: dict[OnlyExecutionProjectionComponent, OnlyExecutionProjection] = {
-        OnlyExecutionProjectionComponent.MARGIN: OnlyMarginExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.MARGIN, 1, "margin-instruction", margin_before, margin_after),
+    extras: dict[OnlyRuntimeProjectionComponent, OnlyRuntimeProjection] = {
+        OnlyRuntimeProjectionComponent.MARGIN: OnlyMarginExecutionProjection(
+            _identity(OnlyRuntimeProjectionComponent.MARGIN, 1, "margin-instruction", margin_before, margin_after),
             margin_before,
             margin_after,
         ),
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION: OnlyPositionReservationExecutionProjection(
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION: OnlyPositionReservationExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
                 1,
                 "position-reservation",
                 position_reservation_before,
@@ -777,9 +778,9 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
             position_reservation_before,
             position_reservation_after,
         ),
-        OnlyExecutionProjectionComponent.MARGIN_RESERVATION: OnlyMarginReservationExecutionProjection(
+        OnlyRuntimeProjectionComponent.MARGIN_RESERVATION: OnlyMarginReservationExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.MARGIN_RESERVATION,
+                OnlyRuntimeProjectionComponent.MARGIN_RESERVATION,
                 1,
                 "margin-reservation",
                 margin_reservation_before,
@@ -788,9 +789,9 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
             margin_reservation_before,
             margin_reservation_after,
         ),
-        OnlyExecutionProjectionComponent.RISK_RESERVATION: OnlyRiskReservationExecutionProjection(
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION: OnlyRiskReservationExecutionProjection(
             _identity(
-                OnlyExecutionProjectionComponent.RISK_RESERVATION,
+                OnlyRuntimeProjectionComponent.RISK_RESERVATION,
                 1,
                 "risk-reservation",
                 risk_reservation_before,
@@ -799,13 +800,13 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
             risk_reservation_before,
             risk_reservation_after,
         ),
-        OnlyExecutionProjectionComponent.RISK: OnlyRiskExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.RISK, 1, "risk", risk_before, risk_after),
+        OnlyRuntimeProjectionComponent.RISK: OnlyRiskExecutionProjection(
+            _identity(OnlyRuntimeProjectionComponent.RISK, 1, "risk", risk_before, risk_after),
             risk_before,
             risk_after,
         ),
-        OnlyExecutionProjectionComponent.VALUATION: OnlyValuationExecutionProjection(
-            _identity(OnlyExecutionProjectionComponent.VALUATION, 1, "valuation", valuation_before, valuation_after),
+        OnlyRuntimeProjectionComponent.VALUATION: OnlyValuationExecutionProjection(
+            _identity(OnlyRuntimeProjectionComponent.VALUATION, 1, "valuation", valuation_before, valuation_after),
             valuation_before,
             valuation_after,
         ),
@@ -813,7 +814,7 @@ def only_test_projection_codec_cases() -> tuple[OnlyExecutionProjection, ...]:
     by_component = {item.identity.component: item for item in base} | extras
     projections = tuple(
         _resequence_projection(by_component[component], sequence)
-        for sequence, component in enumerate(OnlyExecutionProjectionComponent, start=1)
+        for sequence, component in enumerate(OnlyRuntimeProjectionComponent, start=1)
     )
     return projections
 
@@ -825,7 +826,7 @@ def only_test_generic_t0_cash_buy_open_transaction(
     trade_id: OnlyTradeId = _TEST_TRADE_ID,
     update_id: OnlyBrokerUpdateId = _TEST_UPDATE_ID,
     fill_index: int = 1,
-) -> OnlyPreparedExecutionTransaction:
+) -> OnlyPreparedRuntimeTransaction:
     fact = only_test_execution_fact_draft(
         runtime_id=runtime_id,
         trade_id=trade_id,
@@ -835,34 +836,33 @@ def only_test_generic_t0_cash_buy_open_transaction(
     projections = only_test_generic_t0_cash_buy_open_projections()
     if runtime_id != _TEST_RUNTIME_ID or trade_id != _TEST_TRADE_ID or update_id != _TEST_UPDATE_ID:
         projections = _rescope_projections(projections, runtime_id, trade_id, update_id)
-    transaction_id = only_execution_transaction_id(
+    transaction_id = only_runtime_transaction_id(
         runtime_id=runtime_id,
         gateway_id=fact.gateway_id,
         account_id=fact.account_id,
         broker_update_id=update_id,
         trade_id=trade_id,
     )
-    return OnlyPreparedExecutionTransaction(
-        transaction_id,
-        runtime_id,
-        fact.gateway_id,
-        fact.account_id,
-        update_id,
-        trade_id,
-        fact.source_sequence,
-        fact.ts_init if prepared_at is None else prepared_at,
-        fact,
-        projections,
-        only_test_execution_events(transaction_id=transaction_id, runtime_id=runtime_id),
-        only_test_execution_preconditions(projections),
+    return OnlyPreparedRuntimeTransaction(
+        transaction_id=transaction_id,
+        runtime_id=runtime_id,
+        operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
+        operation_identity=fact.fill_identity,
+        account_id=fact.account_id,
+        effective_time=fact.ts_event,
+        prepared_at=fact.ts_init if prepared_at is None else prepared_at,
+        fact_draft=fact,
+        projections=projections,
+        outbox_events=only_test_execution_events(transaction_id=transaction_id, runtime_id=runtime_id),
+        preconditions=only_test_execution_preconditions(projections),
     )
 
 
 def only_test_execution_preconditions(
-    projections: tuple[OnlyExecutionProjection, ...],
-) -> tuple[OnlyExecutionPrecondition, ...]:
+    projections: tuple[OnlyRuntimeProjection, ...],
+) -> tuple[OnlyRuntimePrecondition, ...]:
     return tuple(
-        OnlyExecutionPrecondition(
+        OnlyRuntimePrecondition(
             item.identity.component,
             item.identity.entity_key,
             item.identity.expected_version,
@@ -889,20 +889,20 @@ def only_test_execution_events(*, transaction_id: str, runtime_id: OnlyRuntimeId
     )
 
 
-def only_test_rehash(prepared: OnlyPreparedExecutionTransaction, **changes: object) -> OnlyPreparedExecutionTransaction:
+def only_test_rehash(prepared: OnlyPreparedRuntimeTransaction, **changes: object) -> OnlyPreparedRuntimeTransaction:
     return replace(prepared, **changes, authority_hash="", payload_hash="")
 
 
 def _identity(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
     sequence: int,
     entity_key: str,
     before: OnlyDomainModel | None,
     after: OnlyDomainModel,
-) -> OnlyExecutionProjectionIdentity:
+) -> OnlyRuntimeProjectionIdentity:
     expected_version = 0 if before is None else int(str(before.to_dict()["version"]))
     result_version = int(str(after.to_dict()["version"]))
-    return OnlyExecutionProjectionIdentity(
+    return OnlyRuntimeProjectionIdentity(
         component,
         entity_key,
         expected_version,
@@ -914,13 +914,13 @@ def _identity(
     )
 
 
-def _projection[ProjectionT: OnlyExecutionProjection](
-    projections: tuple[OnlyExecutionProjection, ...], projection_type: type[ProjectionT]
+def _projection[ProjectionT: OnlyRuntimeProjection](
+    projections: tuple[OnlyRuntimeProjection, ...], projection_type: type[ProjectionT]
 ) -> ProjectionT:
     return next(item for item in projections if isinstance(item, projection_type))
 
 
-def _resequence_projection(projection: OnlyExecutionProjection, sequence: int) -> OnlyExecutionProjection:
+def _resequence_projection(projection: OnlyRuntimeProjection, sequence: int) -> OnlyRuntimeProjection:
     updated = replace(
         projection,
         identity=replace(projection.identity, projection_sequence=sequence, payload_hash="0" * 64),
@@ -939,6 +939,7 @@ def _account_state(*, cash: str, market_value: str, version: int, sequence: int)
         OnlyAccountType.CASH,
         _currency(),
         OnlyAccountStatus.ACTIVE,
+        cash_money,
         cash_money,
         cash_money,
         zero,
@@ -1012,16 +1013,16 @@ def _ledger_state(
 
 
 def _rescope_projections(
-    projections: tuple[OnlyExecutionProjection, ...],
+    projections: tuple[OnlyRuntimeProjection, ...],
     runtime_id: OnlyRuntimeId,
     trade_id: OnlyTradeId,
     update_id: OnlyBrokerUpdateId,
-) -> tuple[OnlyExecutionProjection, ...]:
+) -> tuple[OnlyRuntimeProjection, ...]:
     if runtime_id != _TEST_RUNTIME_ID:
         raise ValueError("custom Runtime fixture scope is not supported")
-    result: list[OnlyExecutionProjection] = []
+    result: list[OnlyRuntimeProjection] = []
     for projection in projections:
-        updated: OnlyExecutionProjection = projection
+        updated: OnlyRuntimeProjection = projection
         if isinstance(projection, OnlyOrderExecutionProjection):
             after = replace(projection.after, last_trade_id=trade_id)
             identity = replace(
@@ -1057,7 +1058,7 @@ def _rescope_projections(
     return tuple(result)
 
 
-def _replace_projection_after[ProjectionT: OnlyExecutionProjection](
+def _replace_projection_after[ProjectionT: OnlyRuntimeProjection](
     projection: ProjectionT, after: object
 ) -> ProjectionT:
     if not hasattr(after, "version"):

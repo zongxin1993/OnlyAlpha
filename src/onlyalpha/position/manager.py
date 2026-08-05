@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyPositionId, OnlyRuntimeId
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.position.entities import OnlyPosition
 from onlyalpha.position.enums import OnlyPositionMutationStatus, OnlyPositionStatus
@@ -15,7 +15,6 @@ from onlyalpha.position.models import (
     OnlyPositionRestriction,
     OnlyPositionSnapshot,
     OnlyPositionTrade,
-    OnlySettlementResult,
 )
 from onlyalpha.position.pnl import OnlyLinearPnLModel, OnlyPnLModel
 from onlyalpha.position.ports import OnlyPositionEventPublisher, OnlyPositionRepository
@@ -229,16 +228,6 @@ class OnlyPositionManager:
         snapshot = entity.snapshot()
         self._save(snapshot)
         return snapshot
-
-    def settle(self, key: OnlyPositionKey, trading_day: OnlyTradingDay) -> OnlySettlementResult:
-        entity = self._require_entity(key)
-        before = entity.snapshot()
-        moved = entity.settle()
-        after = entity.snapshot()
-        if moved.value:
-            self._save(after)
-            self._publish("POSITION_SETTLED", after, after.updated_at)
-        return OnlySettlementResult(trading_day, moved, before.version, after.version, moved.value > 0)
 
     def set_reconciling(self, key: OnlyPositionKey, broker_available: OnlyQuantity | None = None) -> None:
         entity = self._require_entity(key)

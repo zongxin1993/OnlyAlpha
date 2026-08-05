@@ -66,29 +66,13 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
 from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
-from onlyalpha.execution import (
-    OnlyExecutionCommitCoordinator,
-    OnlyExecutionDeliveryDiagnostic,
-    OnlyExecutionEventBuffer,
-    OnlyExecutionEventDeliveryCoordinator,
-    OnlyExecutionEventDeliveryIntent,
-    OnlyExecutionEventDeliveryMode,
-    OnlyExecutionEventDeliveryResult,
-    OnlyExecutionOutboxPublisher,
-    OnlyExecutionProcessor,
-    OnlyExecutionRecoveryResult,
-    OnlyExecutionRecoveryService,
+from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
+from onlyalpha.execution.processor import OnlyExecutionProcessor
+from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
-    OnlyOutboxPublishResult,
-)
-from onlyalpha.execution.persistence_ports import (
-    OnlyExecutionProjectionStatePort,
-    OnlyExecutionTransactionOutboxPort,
-    OnlyExecutionTransactionQueryPort,
-    OnlyProjectionReadyExecutionQueryPort,
 )
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
@@ -125,7 +109,6 @@ from onlyalpha.position.manager import OnlyPositionManager
 from onlyalpha.position.ports import OnlyPositionEventPublisher
 from onlyalpha.position.queries import OnlyPositionQueryService
 from onlyalpha.position.reservations import OnlyPositionReservationManager
-from onlyalpha.position.settlement import OnlySettlementService
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.runtime.events.gate import OnlyRuntimeEventGatePhase, OnlyRuntimeEventGateSnapshot
@@ -133,12 +116,32 @@ from onlyalpha.runtime.events.router import OnlyRuntimeEventRouter
 from onlyalpha.runtime.persistence.store import (
     OnlyRuntimePersistenceStorePort,
 )
-from onlyalpha.settlement.manager import OnlySettlementManager
+from onlyalpha.settlement.authority import OnlySettlementAuthority
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.query import OnlyStrategyLedgerQueryService
 from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
+from onlyalpha.transaction.coordinator import OnlyRuntimeTransactionCoordinator
+from onlyalpha.transaction.delivery import (
+    OnlyExecutionDeliveryDiagnostic,
+    OnlyExecutionEventDeliveryCoordinator,
+    OnlyExecutionEventDeliveryIntent,
+    OnlyExecutionEventDeliveryMode,
+    OnlyExecutionEventDeliveryResult,
+    OnlyExecutionOutboxPublisher,
+    OnlyOutboxPublishResult,
+)
+from onlyalpha.transaction.persistence_ports import (
+    OnlyProjectionReadyRuntimeQueryPort,
+    OnlyRuntimeProjectionStatePort,
+    OnlyRuntimeTransactionOutboxPort,
+    OnlyRuntimeTransactionQueryPort,
+)
+from onlyalpha.transaction.recovery import (
+    OnlyExecutionRecoveryResult,
+    OnlyExecutionRecoveryService,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -286,8 +289,7 @@ class OnlyRuntimeServices:
     position_query: OnlyPositionQueryService
     strategy_ledger_manager: OnlyStrategyLedgerManager
     strategy_ledger_query: OnlyStrategyLedgerQueryService
-    settlement_service: OnlySettlementService
-    settlement_manager: OnlySettlementManager
+    settlement_authority: OnlySettlementAuthority
     margin_manager: OnlyMarginManager
     fee_manager: OnlyFeeManager
     strategy_valuation_service: OnlyStrategyValuationService
@@ -297,12 +299,12 @@ class OnlyRuntimeServices:
     broker_inbound: OnlyBrokerInboundQueue
     broker_gateway: OnlyBrokerGateway | None
     execution_processor: OnlyExecutionProcessor
-    execution_commit_coordinator: OnlyExecutionCommitCoordinator
+    execution_commit_coordinator: OnlyRuntimeTransactionCoordinator
     execution_recovery_service: OnlyExecutionRecoveryService
-    execution_transaction_query: OnlyExecutionTransactionQueryPort
-    ready_execution_query: OnlyProjectionReadyExecutionQueryPort
-    execution_projection_state: OnlyExecutionProjectionStatePort
-    execution_transaction_outbox: OnlyExecutionTransactionOutboxPort
+    execution_transaction_query: OnlyRuntimeTransactionQueryPort
+    ready_execution_query: OnlyProjectionReadyRuntimeQueryPort
+    execution_projection_state: OnlyRuntimeProjectionStatePort
+    runtime_transaction_outbox: OnlyRuntimeTransactionOutboxPort
     execution_event_buffer: OnlyExecutionEventBuffer
     execution_delivery_coordinator: OnlyExecutionEventDeliveryCoordinator
     execution_outbox_publisher: OnlyExecutionOutboxPublisher
@@ -568,7 +570,7 @@ class OnlyRuntime:
         self._account_performance_projector = OnlyAccountPerformanceProjector(config.runtime_id)  # type: ignore[arg-type]
         self._account_manager.bind_performance_observer(self._project_account_performance)
         self._account_query = OnlyAccountQueryService(self._account_manager)
-        self._settlement_manager = OnlySettlementManager()
+        self._settlement_authority = OnlySettlementAuthority()
         self._margin_manager = OnlyMarginManager(OnlyRuntimeId(str(config.runtime_id)))
         self._fee_manager = OnlyFeeManager()
 
@@ -637,8 +639,8 @@ class OnlyRuntime:
         return self._account_reservation_manager
 
     @property
-    def settlement_manager(self) -> OnlySettlementManager:
-        return self._settlement_manager
+    def settlement_authority(self) -> OnlySettlementAuthority:
+        return self._settlement_authority
 
     @property
     def margin_manager(self) -> OnlyMarginManager:
@@ -707,13 +709,13 @@ class OnlyRuntime:
         return self._services.broker_gateway
 
     @property
-    def execution_transaction_query(self) -> OnlyExecutionTransactionQueryPort:
+    def execution_transaction_query(self) -> OnlyRuntimeTransactionQueryPort:
         """Administrative query over every durably committed transaction."""
 
         return self._services.execution_transaction_query
 
     @property
-    def ready_execution_query(self) -> OnlyProjectionReadyExecutionQueryPort:
+    def ready_execution_query(self) -> OnlyProjectionReadyRuntimeQueryPort:
         """Business query over Projection Ready transactions only."""
 
         return self._services.ready_execution_query
@@ -731,7 +733,7 @@ class OnlyRuntime:
     ) -> None:
         self._execution_delivery_diagnostics.append(
             OnlyExecutionDeliveryDiagnostic(
-                self.config.runtime_id,  # type: ignore[arg-type]
+                OnlyRuntimeId(str(self.config.runtime_id)),
                 processing_sequence,
                 result.mode,
                 result.attempted,
@@ -748,7 +750,7 @@ class OnlyRuntime:
     def _drain_execution_outbox(self) -> OnlyOutboxPublishResult:
         try:
             result = self._services.execution_outbox_publisher.publish_pending(
-                self.config.runtime_id  # type: ignore[arg-type]
+                OnlyRuntimeId(str(self.config.runtime_id))
             )
         except Exception as exc:
             raise OnlyRuntimeOutboxDeliveryError(
@@ -825,7 +827,7 @@ class OnlyRuntime:
             raise ValueError("Cluster engine_id does not match Runtime scope")
         cluster_id = OnlyClusterId(cluster.config.cluster_id)
         ledger_key = OnlyStrategyLedgerKey(
-            self.config.runtime_id,  # type: ignore[arg-type]
+            OnlyRuntimeId(str(self.config.runtime_id)),
             self.config.default_account_id,  # type: ignore[arg-type]
             cluster_id,
             self.config.strategy_base_currency,

@@ -9,7 +9,7 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyDefaultRuntimePersistenceStoreFactory,
     OnlyRuntimePersistenceStoreCreateRequest,
 )
-from onlyalpha.runtime.persistence.store import OnlyExecutionTransactionOutboxKey, OnlySqliteRuntimePersistenceStore
+from onlyalpha.runtime.persistence.store import OnlyRuntimeTransactionOutboxKey, OnlySqliteRuntimePersistenceStore
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
@@ -18,7 +18,7 @@ from tests.integration.test_engine_continuous_restart import _sqlite_config
 
 
 class OnlyPersistentOutboxFailureStore(OnlyFailOnceRuntimePersistenceStore):
-    def mark_published(self, key: OnlyExecutionTransactionOutboxKey, published_at: object) -> None:
+    def mark_published(self, key: OnlyRuntimeTransactionOutboxKey, published_at: object) -> None:
         del key, published_at
         raise RuntimeError("injected persistent Engine A outbox acknowledgement failure")
 

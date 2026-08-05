@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from onlyalpha.execution import (
-    OnlyPreparedExecutionTransaction,
+    OnlyPreparedRuntimeTransaction,
     OnlyTradeExecutionPlanningContext,
     OnlyTradeExecutionTransactionPlanner,
 )
@@ -36,7 +36,7 @@ def only_test_generic_t0_expected_reductions():
     return only_test_generic_t0_prepared_transaction().projections
 
 
-def only_test_generic_t0_prepared_transaction() -> OnlyPreparedExecutionTransaction:
+def only_test_generic_t0_prepared_transaction() -> OnlyPreparedRuntimeTransaction:
     return OnlyTradeExecutionTransactionPlanner().prepare(only_test_generic_t0_trade_planning_context())
 
 

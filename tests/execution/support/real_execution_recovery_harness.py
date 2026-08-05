@@ -5,13 +5,13 @@ from dataclasses import replace
 
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import (
-    OnlyExecutionCommitCoordinator,
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionComponent,
-    OnlyExecutionProjectionTarget,
     OnlyExecutionRecoveryResult,
     OnlyExecutionRecoveryService,
-    OnlyInMemoryAppliedProjectionLedger,
+    OnlyInMemoryAppliedRuntimeProjectionLedger,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeProjectionTarget,
+    OnlyRuntimeTransactionCoordinator,
 )
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from tests.execution.support.execution_authority_digest import OnlyExecutionAuthorityDigest
@@ -28,8 +28,8 @@ class OnlyRealExecutionRecoveryHarness:
     def __init__(
         self,
         bundle: OnlyTestProjectionTargetBundle,
-        targets: Mapping[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget],
-        applied_ledger: OnlyInMemoryAppliedProjectionLedger,
+        targets: Mapping[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget],
+        applied_ledger: OnlyInMemoryAppliedRuntimeProjectionLedger,
     ) -> None:
         self.bundle = bundle
         self.applied_ledger = applied_ledger
@@ -43,12 +43,12 @@ class OnlyRealExecutionRecoveryHarness:
         *,
         store: OnlyRuntimePersistenceStorePort | None = None,
         scenario: OnlyTestGenericT0Scenario | None = None,
-        target_fault: tuple[OnlyExecutionProjectionComponent, str] | None = None,
-        ledger_fault: OnlyExecutionProjectionComponent | None = None,
+        target_fault: tuple[OnlyRuntimeProjectionComponent, str] | None = None,
+        ledger_fault: OnlyRuntimeProjectionComponent | None = None,
         long_close: bool = False,
     ) -> OnlyRealExecutionRecoveryHarness:
         bundle = only_test_projection_target_bundle(scenario, store, long_close=long_close)
-        ledger = OnlyInMemoryAppliedProjectionLedger()
+        ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
         target_ledger = ledger if ledger_fault is None else OnlyFailOnceAppliedProjectionLedger(ledger, ledger_fault)
         targets = bundle.create_targets(target_ledger)
         if target_fault is not None:
@@ -80,21 +80,21 @@ class OnlyRealExecutionRecoveryHarness:
         return replace(digest, journal=(), event_bus=())
 
     def rebuild_with_clean_ledger(self) -> None:
-        self.applied_ledger = OnlyInMemoryAppliedProjectionLedger()
+        self.applied_ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
         self.targets = self.bundle.create_targets(self.applied_ledger)
         self.coordinator = self._coordinator(self.targets)
         self.recovery_service = OnlyExecutionRecoveryService(self.coordinator)
 
     def _coordinator(
         self,
-        targets: Mapping[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget],
-    ) -> OnlyExecutionCommitCoordinator:
+        targets: Mapping[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget],
+    ) -> OnlyRuntimeTransactionCoordinator:
         runtime = self.bundle.environment.runtime
-        return OnlyExecutionCommitCoordinator(
+        return OnlyRuntimeTransactionCoordinator(
             commit_port=self.transaction_store,
             query_port=self.transaction_store,
             projection_state_port=self.transaction_store,
-            projection_applier=OnlyExecutionProjectionApplier(targets),
+            projection_applier=OnlyRuntimeProjectionApplier(targets),
             now=lambda: OnlyTimestamp.from_unix_nanos(runtime.clock.timestamp_ns()),
         )
 

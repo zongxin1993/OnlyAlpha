@@ -10,8 +10,8 @@ import onlyalpha.runtime.persistence.store as transaction_store_module
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEventId
 from onlyalpha.execution import (
-    OnlyExecutionTransactionConflict,
     OnlyRuntimePersistenceStoreError,
+    OnlyRuntimeTransactionConflict,
     only_decode_committed_execution_transaction,
     only_decode_prepared_execution_transaction,
     only_encode_committed_execution_transaction,
@@ -55,8 +55,16 @@ def test_identity_event_and_hash_contracts_are_deterministic() -> None:
 
 def test_prepared_transaction_rejects_identity_projection_precondition_and_hash_errors() -> None:
     prepared = _prepared()
-    with pytest.raises(ValueError, match="requires identity"):
-        replace(prepared, transaction_id="arbitrary", authority_hash="", payload_hash="")
+    operation_neutral = replace(
+        prepared,
+        transaction_id="arbitrary-runtime-operation",
+        outbox_events=(),
+        authority_hash="",
+        payload_hash="",
+    )
+    assert operation_neutral.transaction_id == "arbitrary-runtime-operation"
+    with pytest.raises(ValueError, match="stable identities"):
+        replace(prepared, operation_identity="", authority_hash="", payload_hash="")
     with pytest.raises(ValueError, match="one-to-one"):
         replace(prepared, preconditions=(), authority_hash="", payload_hash="")
     with pytest.raises(ValueError, match="authority hash mismatch"):
@@ -103,11 +111,11 @@ def test_memory_and_sqlite_conflict_and_contiguous_sequence_contract(transaction
     transaction_store.commit(first, committed_at=timestamp)
     changed_fact = replace(first.fact_draft, market_profile_version="conflicting-version")
     conflict = replace(first, fact_draft=changed_fact, authority_hash="", payload_hash="")
-    with pytest.raises(OnlyExecutionTransactionConflict):
+    with pytest.raises(OnlyRuntimeTransactionConflict):
         transaction_store.commit(conflict, committed_at=timestamp)
     second = _prepared(
-        trade_id=type(first.trade_id)("trade-2"),
-        update_id=type(first.broker_update_id)("update-2"),
+        trade_id=type(first.fact_draft.trade_id)("trade-2"),
+        update_id=type(first.fact_draft.broker_update_id)("update-2"),
         fill_index=2,
     )
     assert transaction_store.commit(second, committed_at=timestamp).transaction.execution_sequence == 2
@@ -125,7 +133,7 @@ def test_sqlite_restart_and_payload_corruption_detection(tmp_path: Path) -> None
     recovered.close()
     connection = sqlite3.connect(path)
     with connection:
-        connection.execute("UPDATE execution_transactions SET prepared_payload_hash=?", ("0" * 64,))
+        connection.execute("UPDATE runtime_transactions SET prepared_payload_hash=?", ("0" * 64,))
     connection.close()
     corrupted = OnlySqliteRuntimePersistenceStore(path)
     with pytest.raises(OnlyRuntimePersistenceStoreError) as captured:
@@ -151,10 +159,10 @@ def test_sqlite_detects_outbox_payload_corruption(tmp_path: Path) -> None:
     connection = sqlite3.connect(path)
     with connection:
         payload = connection.execute(
-            "SELECT event_payload FROM execution_transaction_outbox WHERE event_sequence=1"
+            "SELECT event_payload FROM runtime_transaction_outbox WHERE event_sequence=1"
         ).fetchone()[0]
         connection.execute(
-            "UPDATE execution_transaction_outbox SET event_payload=? WHERE event_sequence=1",
+            "UPDATE runtime_transaction_outbox SET event_payload=? WHERE event_sequence=1",
             (payload.replace('"sequence":1', '"sequence":99'),),
         )
     connection.close()
@@ -172,7 +180,7 @@ def test_memory_commit_failure_does_not_publish_partial_state(monkeypatch: pytes
     def fail_outbox(*args: object, **kwargs: object) -> None:
         raise RuntimeError("injected outbox failure")
 
-    monkeypatch.setattr(transaction_store_module, "OnlyExecutionTransactionOutboxRecord", fail_outbox)
+    monkeypatch.setattr(transaction_store_module, "OnlyRuntimeTransactionOutboxRecord", fail_outbox)
     with pytest.raises(OnlyRuntimePersistenceStoreError) as captured:
         store.commit(
             prepared,
@@ -191,7 +199,7 @@ def test_sqlite_commit_failure_rolls_back_transaction_and_sequence(tmp_path: Pat
     connection = sqlite3.connect(path)
     with connection:
         connection.execute(
-            "CREATE TRIGGER fail_outbox BEFORE INSERT ON execution_transaction_outbox "
+            "CREATE TRIGGER fail_outbox BEFORE INSERT ON runtime_transaction_outbox "
             "BEGIN SELECT RAISE(ABORT, 'injected outbox failure'); END"
         )
     connection.close()

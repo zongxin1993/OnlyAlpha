@@ -65,7 +65,7 @@ class OnlyRuntimeLedgerReconciliationService:
 
         values = (
             ("initial_equity", account_initial_equity, tuple(item.capital.initial_capital for item in ledgers)),
-            ("cash_balance", account.cash.cash_balance, tuple(item.cash.cash_balance for item in ledgers)),
+            ("ledger_cash", account.cash.ledger_cash, tuple(item.cash.ledger_cash for item in ledgers)),
             (
                 "position_market_value",
                 account.position_market_value,

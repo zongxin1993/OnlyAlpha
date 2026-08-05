@@ -8,7 +8,7 @@ TARGETS = Path("src/onlyalpha/execution/projection_targets.py")
 
 def test_applied_projection_ledger_is_only_a_rebuildable_runtime_index() -> None:
     source = APPLIED_LEDGER.read_text(encoding="utf-8")
-    assert "OnlyInMemoryAppliedProjectionLedger" in source
+    assert "OnlyInMemoryAppliedRuntimeProjectionLedger" in source
     assert "Sqlite" not in source
     assert "sqlite" not in source
     assert "transaction_store" not in source

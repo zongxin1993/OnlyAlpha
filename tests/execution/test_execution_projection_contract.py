@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import (
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionApplyContext,
-    OnlyExecutionProjectionBatchStatus,
-    OnlyExecutionProjectionComponent,
     OnlyProjectionApplyStatus,
-    OnlyReferenceExecutionProjectionTarget,
+    OnlyReferenceRuntimeProjectionTarget,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionApplyContext,
+    OnlyRuntimeProjectionBatchStatus,
+    OnlyRuntimeProjectionComponent,
     only_decode_execution_projection,
     only_decode_prepared_execution_transaction,
     only_encode_execution_projection,
@@ -39,7 +39,7 @@ def test_canonical_state_hash_covers_authority_and_normalizes_mapping_order() ->
 
 def test_projection_union_cases_round_trip_independently_and_schema_v2_is_rejected() -> None:
     projections = only_test_projection_codec_cases()
-    assert len(projections) == len(OnlyExecutionProjectionComponent) == 16
+    assert len(projections) == len(OnlyRuntimeProjectionComponent) == 16
     for projection in projections:
         payload = only_encode_execution_projection(projection)
         assert only_decode_execution_projection(payload) == projection
@@ -59,8 +59,8 @@ def test_projection_union_cases_round_trip_independently_and_schema_v2_is_reject
 def test_projection_state_enforces_apply_idempotency_payload_and_version_contract() -> None:
     transaction = _committed_transaction()
     projection = only_test_generic_t0_cash_buy_open_projections()[3]
-    state = OnlyReferenceExecutionProjectionTarget(OnlyExecutionProjectionComponent.SETTLEMENT)
-    context = OnlyExecutionProjectionApplyContext(transaction.transaction_id, 1, transaction.fact, projection)
+    state = OnlyReferenceRuntimeProjectionTarget(OnlyRuntimeProjectionComponent.SETTLEMENT)
+    context = OnlyRuntimeProjectionApplyContext(transaction.transaction_id, 1, transaction.fact, projection)
     assert state.apply_execution_projection(context).status is OnlyProjectionApplyStatus.APPLIED
     assert state.apply_execution_projection(context).status is OnlyProjectionApplyStatus.IDEMPOTENT
     conflicting = replace(projection, identity=replace(projection.identity, payload_hash="b" * 64))
@@ -74,16 +74,16 @@ def test_projection_state_enforces_apply_idempotency_payload_and_version_contrac
         context, execution_sequence=2, fact=replace(transaction.fact, execution_sequence=2), projection=stale
     )
     assert state.apply_execution_projection(stale_context).status is OnlyProjectionApplyStatus.VERSION_CONFLICT
-    wrong = OnlyReferenceExecutionProjectionTarget(OnlyExecutionProjectionComponent.ORDER)
+    wrong = OnlyReferenceRuntimeProjectionTarget(OnlyRuntimeProjectionComponent.ORDER)
     assert wrong.apply_execution_projection(context).status is OnlyProjectionApplyStatus.INVALID_COMPONENT
 
 
 def test_projection_state_distinguishes_state_hash_from_version_conflict() -> None:
     transaction = _committed_transaction()
     projection = only_test_generic_t0_cash_buy_open_projections()[3]
-    state = OnlyReferenceExecutionProjectionTarget(OnlyExecutionProjectionComponent.SETTLEMENT)
+    state = OnlyReferenceRuntimeProjectionTarget(OnlyRuntimeProjectionComponent.SETTLEMENT)
     state.seed(projection.identity.entity_key, projection.identity.expected_version, "f" * 64)
-    context = OnlyExecutionProjectionApplyContext(transaction.transaction_id, 1, transaction.fact, projection)
+    context = OnlyRuntimeProjectionApplyContext(transaction.transaction_id, 1, transaction.fact, projection)
     assert state.apply_execution_projection(context).status is OnlyProjectionApplyStatus.STATE_CONFLICT
 
 
@@ -94,7 +94,7 @@ def test_projection_applier_replay_is_idempotent_and_does_not_mark_store_ready()
         prepared, committed_at=OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
     ).transaction
     targets = {
-        component: OnlyReferenceExecutionProjectionTarget(component) for component in OnlyExecutionProjectionComponent
+        component: OnlyReferenceRuntimeProjectionTarget(component) for component in OnlyRuntimeProjectionComponent
     }
     for projection in transaction.projections:
         if projection.identity.expected_version:
@@ -103,11 +103,11 @@ def test_projection_applier_replay_is_idempotent_and_does_not_mark_store_ready()
                 projection.identity.expected_version,
                 projection.identity.expected_state_hash,
             )
-    applier = OnlyExecutionProjectionApplier(targets)
+    applier = OnlyRuntimeProjectionApplier(targets)
     first = applier.apply(transaction)
     replay = applier.apply(transaction)
-    assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(first.applied) == 12
-    assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED and len(replay.idempotent) == 12
+    assert first.status is OnlyRuntimeProjectionBatchStatus.COMPLETED and len(first.applied) == 12
+    assert replay.status is OnlyRuntimeProjectionBatchStatus.COMPLETED and len(replay.idempotent) == 12
     assert store.unprojected(prepared.runtime_id) == (transaction,)
 
 

@@ -4,7 +4,7 @@ import pytest
 
 from onlyalpha.domain.identifiers import OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution import OnlyExecutionTransactionConflict
+from onlyalpha.execution import OnlyRuntimeTransactionConflict
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import (
     only_test_generic_t0_cash_buy_open_transaction,
@@ -33,7 +33,7 @@ def test_fill_index_is_per_order_contiguous_and_conflict_checked() -> None:
         update_id=type(first.broker_update_id)("update-conflict"),
         fill_index=2,
     )
-    with pytest.raises(OnlyExecutionTransactionConflict, match="Fill index"):
+    with pytest.raises(OnlyRuntimeTransactionConflict, match="Fill index"):
         store.commit(conflict, committed_at=conflict.prepared_at)
     assert store.latest_fill_for_order(first.runtime_id, first.fact_draft.order_id).fact.fill_index == 2  # type: ignore[union-attr]
 

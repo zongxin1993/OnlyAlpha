@@ -24,9 +24,9 @@ def money(value: str) -> OnlyMoney:
 @dataclass(frozen=True)
 class BrokerAccountSnapshot:
     account_id: OnlyAccountId
-    cash_balance: OnlyMoney
-    available_cash: OnlyMoney
-    frozen_cash: OnlyMoney
+    ledger_cash: OnlyMoney
+    trade_available_cash: OnlyMoney
+    order_reserved_cash: OnlyMoney
     equity: OnlyMoney
     snapshot_time: OnlyTimestamp
 
@@ -51,5 +51,5 @@ def test_broker_local_conflict_is_explicit_and_never_silently_overwrites_local_t
     )
 
     assert result.action is OnlyAccountReconciliationAction.BLOCK_ACCOUNT
-    assert manager.require_snapshot(account_id).cash.cash_balance == money("100.00")
+    assert manager.require_snapshot(account_id).cash.ledger_cash == money("100.00")
     assert manager.require_snapshot(account_id).status is OnlyAccountStatus.RECONCILING

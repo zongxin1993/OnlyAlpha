@@ -4,17 +4,17 @@ from dataclasses import dataclass
 
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.execution import (
-    OnlyAppliedProjectionLedger,
-    OnlyCommittedExecutionTransaction,
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionApplyContext,
-    OnlyExecutionProjectionBatchResult,
-    OnlyExecutionProjectionBatchStatus,
-    OnlyExecutionProjectionComponent,
-    OnlyExecutionProjectionTarget,
+    OnlyAppliedRuntimeProjectionLedger,
+    OnlyCommittedRuntimeTransaction,
     OnlyExecutionValuationAuthority,
-    OnlyInMemoryAppliedProjectionLedger,
+    OnlyInMemoryAppliedRuntimeProjectionLedger,
     OnlyProjectionApplyStatus,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionApplyContext,
+    OnlyRuntimeProjectionBatchResult,
+    OnlyRuntimeProjectionBatchStatus,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeProjectionTarget,
     OnlyValuationExecutionState,
     only_create_generic_t0_execution_projection_targets,
 )
@@ -31,18 +31,18 @@ from tests.integration_demo.environment import OnlyIntegrationEnvironment
 @dataclass(slots=True)
 class OnlyTestProjectionTargetBundle:
     environment: OnlyIntegrationEnvironment
-    transaction: OnlyCommittedExecutionTransaction
+    transaction: OnlyCommittedRuntimeTransaction
     valuation_authority: OnlyExecutionValuationAuthority
-    applied_ledger: OnlyInMemoryAppliedProjectionLedger
-    targets: dict[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget]
+    applied_ledger: OnlyInMemoryAppliedRuntimeProjectionLedger
+    targets: dict[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget]
     transaction_store: OnlyRuntimePersistenceStorePort
 
-    def apply_all(self) -> OnlyExecutionProjectionBatchResult:
-        return OnlyExecutionProjectionApplier(self.targets).apply(self.transaction)
+    def apply_all(self) -> OnlyRuntimeProjectionBatchResult:
+        return OnlyRuntimeProjectionApplier(self.targets).apply(self.transaction)
 
     def create_targets(
-        self, ledger: OnlyAppliedProjectionLedger
-    ) -> dict[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget]:
+        self, ledger: OnlyAppliedRuntimeProjectionLedger
+    ) -> dict[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget]:
         runtime = self.environment.runtime
         return dict(
             only_create_generic_t0_execution_projection_targets(
@@ -50,7 +50,7 @@ class OnlyTestProjectionTargetBundle:
                 position_manager=runtime.position_manager,
                 allocation_manager=runtime.allocation_manager,
                 position_reservation_manager=runtime.position_reservation_manager,
-                settlement_manager=runtime.settlement_manager,
+                settlement_authority=runtime.settlement_authority,
                 fee_manager=runtime.fee_manager,
                 order_fee_accrual_manager=runtime.order_fee_accrual_manager,
                 account_manager=runtime.account_manager,
@@ -99,13 +99,13 @@ def only_test_projection_target_bundle(
         lambda state: runtime.restore_execution_valuation_version(state.version),
         current_valuation,
     )
-    ledger = OnlyInMemoryAppliedProjectionLedger()
+    ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
     bundle = OnlyTestProjectionTargetBundle(environment, committed, valuation, ledger, {}, store)
     bundle.targets = bundle.create_targets(ledger)
     return bundle
 
 
-def only_test_assert_component_applies(component: OnlyExecutionProjectionComponent) -> None:
+def only_test_assert_component_applies(component: OnlyRuntimeProjectionComponent) -> None:
     bundle = only_test_projection_target_bundle()
     context = only_test_projection_context(bundle, component)
     projection = context.projection
@@ -117,7 +117,7 @@ def only_test_assert_component_applies(component: OnlyExecutionProjectionCompone
     assert second.status is OnlyProjectionApplyStatus.IDEMPOTENT
     assert len(bundle.applied_ledger.records()) == 1
 
-    conflict = OnlyExecutionProjectionApplyContext(
+    conflict = OnlyRuntimeProjectionApplyContext(
         f"{context.transaction_id}-conflict",
         context.execution_sequence,
         context.fact,
@@ -127,14 +127,14 @@ def only_test_assert_component_applies(component: OnlyExecutionProjectionCompone
     assert target.apply_execution_projection(conflict).status is OnlyProjectionApplyStatus.PAYLOAD_CONFLICT
     assert only_test_runtime_authority_digest(bundle.environment) == before_conflict
 
-    fresh_target = bundle.create_targets(OnlyInMemoryAppliedProjectionLedger())[component]
+    fresh_target = bundle.create_targets(OnlyInMemoryAppliedRuntimeProjectionLedger())[component]
     assert fresh_target.apply_execution_projection(context).status is OnlyProjectionApplyStatus.RECOVERED
     assert only_test_runtime_authority_digest(bundle.environment) == before_conflict
 
     invalid_projection = next(
         item for item in bundle.transaction.projections if item.identity.component is not component
     )
-    invalid_context = OnlyExecutionProjectionApplyContext(
+    invalid_context = OnlyRuntimeProjectionApplyContext(
         context.transaction_id,
         context.execution_sequence,
         context.fact,
@@ -148,7 +148,7 @@ def only_test_assert_component_applies(component: OnlyExecutionProjectionCompone
         item for item in state_bundle.transaction.projections if item.identity.component is component
     )
     object.__setattr__(state_projection.identity, "expected_state_hash", "f" * 64)
-    state_context = OnlyExecutionProjectionApplyContext(
+    state_context = OnlyRuntimeProjectionApplyContext(
         state_bundle.transaction.transaction_id,
         state_bundle.transaction.execution_sequence,
         state_bundle.transaction.fact,
@@ -164,19 +164,19 @@ def only_test_assert_component_applies(component: OnlyExecutionProjectionCompone
 
 def only_test_assert_all_apply(bundle: OnlyTestProjectionTargetBundle) -> None:
     first = bundle.apply_all()
-    assert first.status is OnlyExecutionProjectionBatchStatus.COMPLETED
+    assert first.status is OnlyRuntimeProjectionBatchStatus.COMPLETED
     assert len(first.applied) == 13
     replay = bundle.apply_all()
-    assert replay.status is OnlyExecutionProjectionBatchStatus.COMPLETED
+    assert replay.status is OnlyRuntimeProjectionBatchStatus.COMPLETED
     assert len(replay.idempotent) == 13
 
 
 def only_test_projection_context(
     bundle: OnlyTestProjectionTargetBundle,
-    component: OnlyExecutionProjectionComponent,
-) -> OnlyExecutionProjectionApplyContext:
+    component: OnlyRuntimeProjectionComponent,
+) -> OnlyRuntimeProjectionApplyContext:
     projection = next(item for item in bundle.transaction.projections if item.identity.component is component)
-    return OnlyExecutionProjectionApplyContext(
+    return OnlyRuntimeProjectionApplyContext(
         bundle.transaction.transaction_id,
         bundle.transaction.execution_sequence,
         bundle.transaction.fact,

@@ -258,10 +258,11 @@ class OnlyAccountExecutionState(OnlyDomainModel):
     account_type: OnlyAccountType
     base_currency: OnlyCurrency
     status: OnlyAccountStatus
-    cash_balance: OnlyMoney
-    available_cash: OnlyMoney
-    frozen_cash: OnlyMoney
-    unsettled_cash: OnlyMoney
+    ledger_cash: OnlyMoney
+    trade_available_cash: OnlyMoney
+    withdrawable_cash: OnlyMoney
+    order_reserved_cash: OnlyMoney
+    unsettled_receivable_cash: OnlyMoney
     position_market_value: OnlyMoney
     realized_pnl: OnlyMoney
     unrealized_pnl: OnlyMoney
@@ -281,10 +282,11 @@ class OnlyAccountExecutionState(OnlyDomainModel):
 
     def __post_init__(self) -> None:
         values = (
-            self.cash_balance,
-            self.available_cash,
-            self.frozen_cash,
-            self.unsettled_cash,
+            self.ledger_cash,
+            self.trade_available_cash,
+            self.withdrawable_cash,
+            self.order_reserved_cash,
+            self.unsettled_receivable_cash,
             self.position_market_value,
             self.realized_pnl,
             self.unrealized_pnl,
@@ -306,10 +308,11 @@ class OnlyAccountExecutionState(OnlyDomainModel):
             raise ValueError("Account execution Margin state requires base currency")
         if (
             min(
-                self.cash_balance.amount,
-                self.available_cash.amount,
-                self.frozen_cash.amount,
-                self.unsettled_cash.amount,
+                self.ledger_cash.amount,
+                self.trade_available_cash.amount,
+                self.withdrawable_cash.amount,
+                self.order_reserved_cash.amount,
+                self.unsettled_receivable_cash.amount,
                 *(item.amount for item in present_margins),
             )
             < 0
@@ -318,18 +321,18 @@ class OnlyAccountExecutionState(OnlyDomainModel):
         ):
             raise ValueError("Account execution cash/version is invalid")
         if (
-            self.available_cash.amount
-            != self.cash_balance.amount - self.frozen_cash.amount - self.unsettled_cash.amount
+            self.trade_available_cash.amount != self.ledger_cash.amount - self.order_reserved_cash.amount
+            or self.withdrawable_cash.amount != self.trade_available_cash.amount - self.unsettled_receivable_cash.amount
         ):
-            raise ValueError("Account available cash formula is invalid")
-        if self.equity.amount != self.cash_balance.amount + self.position_market_value.amount:
+            raise ValueError("Account cash availability formula is invalid")
+        if self.equity.amount != self.ledger_cash.amount + self.position_market_value.amount:
             raise ValueError("Account equity formula is invalid")
         if self.available_margin is not None:
             assert self.reserved_margin is not None and self.occupied_margin is not None
             if self.available_margin.amount != (
-                self.cash_balance.amount
-                - self.frozen_cash.amount
-                - self.unsettled_cash.amount
+                self.ledger_cash.amount
+                - self.order_reserved_cash.amount
+                - self.unsettled_receivable_cash.amount
                 - self.reserved_margin.amount
                 - self.occupied_margin.amount
             ):
@@ -345,7 +348,7 @@ class OnlyStrategyLedgerExecutionState(OnlyDomainModel):
     status: OnlyStrategyLedgerStatus
     initial_capital: OnlyMoney
     external_cash_flow: OnlyMoney
-    cash_balance: OnlyMoney
+    ledger_cash: OnlyMoney
     cash_reserved: OnlyMoney
     cash_available: OnlyMoney
     position_cost: OnlyMoney
@@ -369,7 +372,7 @@ class OnlyStrategyLedgerExecutionState(OnlyDomainModel):
         values = (
             self.initial_capital,
             self.external_cash_flow,
-            self.cash_balance,
+            self.ledger_cash,
             self.cash_reserved,
             self.cash_available,
             self.position_cost,
@@ -382,8 +385,8 @@ class OnlyStrategyLedgerExecutionState(OnlyDomainModel):
         if any(item.currency != self.key.base_currency for item in values):
             raise ValueError("Ledger execution state requires one base currency")
         if (
-            self.cash_available.amount != self.cash_balance.amount - self.cash_reserved.amount
-            or self.equity.amount != self.cash_balance.amount + self.position_market_value.amount
+            self.cash_available.amount != self.ledger_cash.amount - self.cash_reserved.amount
+            or self.equity.amount != self.ledger_cash.amount + self.position_market_value.amount
             or self.version < 1
             or self.updated_at < self.created_at
         ):
@@ -746,10 +749,11 @@ def only_account_execution_state(snapshot: OnlyAccountSnapshot) -> OnlyAccountEx
         snapshot.account_type,
         snapshot.base_currency,
         snapshot.status,
-        snapshot.cash.cash_balance,
-        snapshot.cash.available_cash,
-        snapshot.cash.frozen_cash,
-        snapshot.cash.unsettled_cash,
+        snapshot.cash.ledger_cash,
+        snapshot.cash.trade_available_cash,
+        snapshot.cash.withdrawable_cash,
+        snapshot.cash.order_reserved_cash,
+        snapshot.cash.unsettled_receivable_cash,
         snapshot.position_market_value,
         snapshot.realized_pnl,
         snapshot.unrealized_pnl,
@@ -776,7 +780,7 @@ def only_strategy_ledger_execution_state(snapshot: OnlyStrategyLedgerSnapshot) -
         snapshot.status,
         snapshot.capital.initial_capital,
         snapshot.capital.external_cash_flow,
-        snapshot.cash.cash_balance,
+        snapshot.cash.ledger_cash,
         snapshot.cash.cash_reserved,
         snapshot.cash.cash_available,
         snapshot.equity.position_cost,

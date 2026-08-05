@@ -6,7 +6,6 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
 from onlyalpha.runtime.checkpoint.codec import only_seal_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
     ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
@@ -28,6 +27,7 @@ from onlyalpha.runtime.recovery.validation import (
     OnlyPostRecoveryValidationContext,
     OnlyPostRecoveryValidationReport,
 )
+from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
 
 
 class OnlyTestClusterFinalizationManager:
@@ -133,7 +133,7 @@ def _fixture(
         store,
         store,
         store,
-        OnlyInMemoryAppliedProjectionLedger(),
+        OnlyInMemoryAppliedRuntimeProjectionLedger(),
         OnlyRuntimeBoundaryAuthorityView(
             runtime_id,
             broker_inbound_count,

@@ -78,7 +78,7 @@ class OnlyExecutionInvariantChecker:
             ):
                 violations.append(OnlyExecutionInvariantViolation("LEDGER_EQUITY_VIEW_MISMATCH", str(ledger.key)))
         account = self._accounts.require_snapshot(account_id)
-        if account.equity.amount != account.cash.cash_balance.amount + account.position_market_value.amount:
+        if account.equity.amount != account.cash.ledger_cash.amount + account.position_market_value.amount:
             violations.append(OnlyExecutionInvariantViolation("ACCOUNT_EQUITY_MISMATCH", str(account_id)))
         for reservation in account.reservations:
             if (

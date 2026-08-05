@@ -194,6 +194,66 @@ class OnlySettlementResultRecord(OnlySequencedResultRecord):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class OnlySettlementInstructionResultRecord(OnlySequencedResultRecord):
+    instruction_id: str
+    runtime_id: str
+    account_id: str
+    cluster_id: str
+    instrument_id: str
+    order_id: str
+    trade_id: str
+    position_id: str
+    position_cycle: int
+    allocation_id: str
+    allocation_cycle: int
+    side: str
+    quantity: Decimal
+    gross_notional: Decimal
+    net_cash_flow: Decimal
+    trading_day: date
+    asset_trade_available_on: date
+    cash_trade_available_on: date
+    cash_withdrawable_on: date
+    legal_settlement_on: date
+    policy_id: str
+    compiled_rule_fingerprint: str
+    reference_fingerprint: str
+    status: str
+    version: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlySettlementMaturityResultRecord(OnlySequencedResultRecord):
+    maturity_identity: str
+    instruction_id: str
+    runtime_id: str
+    account_id: str
+    effective_on: date
+    transitions_json: str
+    asset_quantity_delta: Decimal
+    cash_withdrawable_delta: Decimal
+    runtime_sequence: int
+    transaction_id: str
+    projection_ready: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyRuntimeTransactionResultRecord(OnlySequencedResultRecord):
+    runtime_sequence: int
+    transaction_id: str
+    operation_kind: str
+    operation_identity: str
+    runtime_id: str
+    account_id: str | None
+    effective_time: datetime
+    projection_ready: bool
+
+    def __post_init__(self) -> None:
+        OnlySequencedResultRecord.__post_init__(self)
+        only_require_utc(self.effective_time, "Runtime transaction effective_time")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyMarginResultRecord(OnlySequencedResultRecord):
     account_id: str
     instrument_id: str
@@ -324,7 +384,7 @@ class OnlyAccountResultRecord(OnlySequencedResultRecord):
     account_id: str
     currency: str
     cash: Decimal
-    frozen_cash: Decimal
+    order_reserved_cash: Decimal
     market_value: Decimal | None
     equity: Decimal | None
     realized_pnl: Decimal
@@ -339,7 +399,7 @@ class OnlyAccountResultRecord(OnlySequencedResultRecord):
     def __post_init__(self) -> None:
         OnlySequencedResultRecord.__post_init__(self)
         only_require_utc(self.ts_event, "account ts_event")
-        if self.frozen_cash < 0 or self.commission < 0 or self.fees < 0:
+        if self.order_reserved_cash < 0 or self.commission < 0 or self.fees < 0:
             raise ValueError("account frozen cash and fees cannot be negative")
 
 
@@ -383,6 +443,9 @@ class OnlyBacktestFacts:
     accounts: tuple[OnlyAccountResultRecord, ...] = ()
     equity: tuple[OnlyEquityResultRecord, ...] = ()
     settlements: tuple[OnlySettlementResultRecord, ...] = ()
+    settlement_instructions: tuple[OnlySettlementInstructionResultRecord, ...] = ()
+    settlement_maturities: tuple[OnlySettlementMaturityResultRecord, ...] = ()
+    runtime_transactions: tuple[OnlyRuntimeTransactionResultRecord, ...] = ()
     margin: tuple[OnlyMarginResultRecord, ...] = ()
     fees: tuple[OnlyFeeResultRecord, ...] = ()
     market_rule_decisions: tuple[OnlyMarketRuleDecisionResultRecord, ...] = ()
@@ -399,6 +462,9 @@ class OnlyBacktestFacts:
             "accounts",
             "equity",
             "settlements",
+            "settlement_instructions",
+            "settlement_maturities",
+            "runtime_transactions",
             "margin",
             "fees",
             "market_rule_decisions",

@@ -18,7 +18,6 @@ from onlyalpha.domain.value import OnlyMoney, OnlyRate
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.manager import OnlyFeeManager
 from onlyalpha.fee.models import OnlyFeeInstruction
-from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import OnlyPositionReservationState
@@ -28,7 +27,8 @@ from onlyalpha.position.reservations import OnlyPositionReservation, OnlyPositio
 from onlyalpha.risk.reservations import OnlyRiskReservation
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.snapshots import OnlyRiskSnapshot
-from onlyalpha.settlement.manager import OnlySettlementManager, OnlySettlementRecord
+from onlyalpha.settlement.authority import OnlySettlementAuthority
+from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot, OnlySettlementInstructionStatus
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyCashReservation,
@@ -36,16 +36,38 @@ from onlyalpha.strategy_ledger.models import (
     OnlyStrategyLedgerSnapshot,
     OnlyStrategyPnLSnapshot,
 )
-
-from .applied_projection import (
-    OnlyAppliedProjectionLedger,
-    OnlyAppliedProjectionRecord,
-    OnlyExecutionProjectionApplyContext,
+from onlyalpha.transaction.applied_projection import (
+    OnlyAppliedRuntimeProjectionLedger,
+    OnlyAppliedRuntimeProjectionRecord,
+    OnlyRuntimeProjectionApplyContext,
 )
+from onlyalpha.transaction.projection import (
+    OnlyAccountCashReservationExecutionProjection,
+    OnlyAccountExecutionProjection,
+    OnlyAllocationExecutionProjection,
+    OnlyFeeExecutionProjection,
+    OnlyOrderExecutionProjection,
+    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderTerminalExecutionProjection,
+    OnlyPositionExecutionProjection,
+    OnlyPositionReservationExecutionProjection,
+    OnlyProjectionApplyResult,
+    OnlyProjectionApplyStatus,
+    OnlyRiskExecutionProjection,
+    OnlyRiskReservationExecutionProjection,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeProjectionTarget,
+    OnlySettlementExecutionProjection,
+    OnlyStrategyCashReservationExecutionProjection,
+    OnlyStrategyLedgerExecutionProjection,
+    OnlyValuationExecutionProjection,
+    OnlyValuationExecutionState,
+)
+from onlyalpha.transaction.state_hash import only_execution_state_hash
+
 from .authority_state import (
     only_fee_execution_state,
     only_settlement_execution_state,
-    only_settlement_record_replay,
 )
 from .committed import OnlyCommittedExecutionFact
 from .execution_state import (
@@ -66,35 +88,13 @@ from .execution_state import (
     only_strategy_cash_reservation_execution_state,
     only_strategy_ledger_execution_state,
 )
-from .projection import (
-    OnlyAccountCashReservationExecutionProjection,
-    OnlyAccountExecutionProjection,
-    OnlyAllocationExecutionProjection,
-    OnlyExecutionProjectionComponent,
-    OnlyExecutionProjectionTarget,
-    OnlyFeeExecutionProjection,
-    OnlyOrderExecutionProjection,
-    OnlyOrderFeeAccrualExecutionProjection,
-    OnlyOrderTerminalExecutionProjection,
-    OnlyPositionExecutionProjection,
-    OnlyPositionReservationExecutionProjection,
-    OnlyProjectionApplyResult,
-    OnlyProjectionApplyStatus,
-    OnlyRiskExecutionProjection,
-    OnlyRiskReservationExecutionProjection,
-    OnlySettlementExecutionProjection,
-    OnlyStrategyCashReservationExecutionProjection,
-    OnlyStrategyLedgerExecutionProjection,
-    OnlyValuationExecutionProjection,
-    OnlyValuationExecutionState,
-)
-from .state_hash import only_execution_state_hash
+from .terminal_fact import OnlyCommittedTerminalExecutionFact
 
 
-def only_execution_trade_fingerprints(context: OnlyExecutionProjectionApplyContext) -> tuple[str, ...]:
+def only_execution_trade_fingerprints(context: OnlyRuntimeProjectionApplyContext) -> tuple[str, ...]:
     fact = context.fact
     if not isinstance(fact, OnlyCommittedExecutionFact):
-        raise TypeError("Trade fingerprints require a committed Trade Fact")
+        return ()
     values = {f"trade:{fact.trade_id}", f"execution:{fact.broker_update_id}"}
     if fact.venue_trade_id is not None:
         values.add(f"venue:{fact.venue_trade_id}")
@@ -118,32 +118,32 @@ class _OnlyProjectionApplyDecision(StrEnum):
 @dataclass(frozen=True, slots=True)
 class _OnlyProjectionApplyPreparation:
     decision: _OnlyProjectionApplyDecision
-    record: OnlyAppliedProjectionRecord
+    record: OnlyAppliedRuntimeProjectionRecord
 
 
 class _OnlyProjectionTargetBase:
     def __init__(
         self,
-        component: OnlyExecutionProjectionComponent,
-        applied_ledger: OnlyAppliedProjectionLedger,
+        component: OnlyRuntimeProjectionComponent,
+        applied_ledger: OnlyAppliedRuntimeProjectionLedger,
     ) -> None:
         self._component = component
         self._applied_ledger = applied_ledger
 
     @property
-    def component(self) -> OnlyExecutionProjectionComponent:
+    def component(self) -> OnlyRuntimeProjectionComponent:
         return self._component
 
     def _prepare(
         self,
-        context: OnlyExecutionProjectionApplyContext,
+        context: OnlyRuntimeProjectionApplyContext,
         current: OnlyDomainModel | None,
     ) -> OnlyProjectionApplyResult | _OnlyProjectionApplyPreparation:
         identity = context.projection.identity
         if identity.component is not self.component:
             return self._result(OnlyProjectionApplyStatus.INVALID_COMPONENT, context, current)
         prior = self._applied_ledger.get(context.execution_sequence, self.component)
-        record = OnlyAppliedProjectionRecord(
+        record = OnlyAppliedRuntimeProjectionRecord(
             context.transaction_id,
             context.execution_sequence,
             self.component,
@@ -170,7 +170,7 @@ class _OnlyProjectionTargetBase:
 
     def _complete(
         self,
-        context: OnlyExecutionProjectionApplyContext,
+        context: OnlyRuntimeProjectionApplyContext,
         before: OnlyDomainModel | None,
         after: OnlyDomainModel,
         preparation: _OnlyProjectionApplyPreparation,
@@ -188,7 +188,7 @@ class _OnlyProjectionTargetBase:
     def _result(
         self,
         status: OnlyProjectionApplyStatus,
-        context: OnlyExecutionProjectionApplyContext,
+        context: OnlyRuntimeProjectionApplyContext,
         before: OnlyDomainModel | None,
         after: OnlyDomainModel | None = None,
     ) -> OnlyProjectionApplyResult:
@@ -222,11 +222,11 @@ def _allocation_snapshot(state: OnlyAllocationExecutionState) -> OnlyPositionAll
 
 
 class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyOrderManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.ORDER, applied_ledger)
+    def __init__(self, manager: OnlyOrderManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.ORDER, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_snapshot = (
             self._manager.get_snapshot(projection.after.order_id)
@@ -239,6 +239,8 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
             return prepared
         assert isinstance(projection, OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection)
         snapshot = _order_snapshot(projection.after)
+        if not isinstance(context.fact, OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact):
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         external_ids = frozenset({str(context.fact.broker_update_id)})
         trade_ids = (
             frozenset({str(context.fact.trade_id)})
@@ -264,11 +266,11 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
 
 class OnlyPositionExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyPositionManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.POSITION, applied_ledger)
+    def __init__(self, manager: OnlyPositionManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.POSITION, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_snapshot = (
             self._current(projection) if isinstance(projection, OnlyPositionExecutionProjection) else None
@@ -299,11 +301,13 @@ class OnlyPositionExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
 
 class OnlyAllocationExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyPositionAllocationManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.ALLOCATION, applied_ledger)
+    def __init__(
+        self, manager: OnlyPositionAllocationManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger
+    ) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.ALLOCATION, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_snapshot = (
             self._current(projection) if isinstance(projection, OnlyAllocationExecutionProjection) else None
@@ -334,19 +338,21 @@ class OnlyAllocationExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
 
 class OnlySettlementExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlySettlementManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.SETTLEMENT, applied_ledger)
+    def __init__(self, manager: OnlySettlementAuthority, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.SETTLEMENT, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
-        authority = (
-            self._manager.get_execution_authority(projection.after.instruction_id)
-            if isinstance(projection, OnlySettlementExecutionProjection)
-            else None
-        )
-        if authority is not None and authority.cash_currency is None:
-            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
+        authority = None
+        if isinstance(projection, OnlySettlementExecutionProjection):
+            instruction = projection.after.instruction
+            if instruction is None:
+                return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
+            try:
+                authority = self._manager.require(instruction.instruction_id)
+            except KeyError:
+                authority = None
         try:
             current = None if authority is None else only_settlement_execution_state(authority)
         except (TypeError, ValueError):
@@ -355,70 +361,47 @@ class OnlySettlementExecutionProjectionTarget(_OnlyProjectionTargetBase):
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
         assert isinstance(projection, OnlySettlementExecutionProjection)
-        if authority is not None and only_settlement_record_replay(authority) != projection.records:
-            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         after = projection.after
-        instruction = OnlySettlementRuntimeInstruction(
-            after.instruction_id,
-            str(after.instrument_id),
-            after.source_trade_id,
-            after.asset_quantity,
-            after.cash_amount.amount,
-            after.asset_available_on,
-            after.cash_trade_available_on,
-            after.cash_withdrawable_on,
-            after.legal_settlement_on,
-            str(after.account_id),
-            str(after.source_order_id),
+        if after.instruction is None:
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
+        complete = (
+            after.asset_released
+            and after.trade_cash_released
+            and after.withdrawable_cash_released
+            and after.legal_settled
         )
-        records = tuple(
-            OnlySettlementRecord(
-                item.instruction_id,
-                str(item.instrument_id),
-                item.source_trade_id,
-                after.asset_quantity,
-                after.cash_amount.amount,
-                after.asset_quantity,
-                item.available_quantity,
-                item.trade_available_cash.amount,
-                item.withdrawable_cash.amount,
-                item.legal_settled,
-                item.processed_on,
-                item.sequence,
-                str(item.account_id),
-                str(item.source_order_id),
-                after.legal_settlement_on,
-                "SETTLED" if item.legal_settled else "PENDING",
-            )
-            for item in projection.records
+        self._manager.apply_projection(
+            authority,
+            OnlySettlementInstructionSnapshot(
+                after.instruction,
+                True,
+                after.asset_released,
+                True,
+                after.trade_cash_released,
+                after.withdrawable_cash_released,
+                after.legal_settled,
+                OnlySettlementInstructionStatus.COMPLETED
+                if complete
+                else OnlySettlementInstructionStatus.PARTIALLY_EFFECTIVE,
+                after.version,
+                after.record_sequence_head,
+                None,
+            ),
         )
-        self._manager.restore_execution_authority(
-            instruction,
-            asset_released=after.asset_released,
-            trade_cash_released=after.trade_cash_released,
-            withdrawable_cash_released=after.withdrawable_cash_released,
-            legal_settled=after.legal_settled,
-            records=records,
-            sequence_head=after.record_sequence_head,
-            version=after.version,
-            cash_currency=after.cash_amount.currency,
-        )
-        installed_authority = self._manager.get_execution_authority(after.instruction_id)
-        if installed_authority is None:
-            raise RuntimeError("Settlement Projection installation lost its instruction")
+        installed_authority = self._manager.require(after.instruction.instruction_id)
         installed = only_settlement_execution_state(installed_authority)
-        if only_settlement_record_replay(installed_authority) != projection.records:
-            raise RuntimeError("Settlement Projection installation produced the wrong records")
         return self._complete(context, current, installed, prepared)
 
 
 class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyFeeManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.FEE, applied_ledger)
+    def __init__(self, manager: OnlyFeeManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.FEE, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
+        if not isinstance(context.fact, OnlyCommittedExecutionFact):
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
         authority = (
             self._manager.get_execution_authority(projection.after.instruction.idempotency_key)
             if isinstance(projection, OnlyFeeExecutionProjection)
@@ -460,12 +443,14 @@ class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
 
 class OnlyOrderFeeAccrualExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyOrderFeeAccrualManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL, applied_ledger)
+    def __init__(self, manager: OnlyOrderFeeAccrualManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
+        if not isinstance(context.fact, OnlyCommittedExecutionFact):
+            return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
         current = self._manager.get(context.fact.order_id)
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
@@ -486,7 +471,13 @@ def _account_snapshot(state: OnlyAccountExecutionState, current: OnlyAccountSnap
         state.account_type,
         state.base_currency,
         state.status,
-        OnlyAccountCashBalance(state.cash_balance, state.available_cash, state.frozen_cash, state.unsettled_cash),
+        OnlyAccountCashBalance(
+            state.ledger_cash,
+            state.trade_available_cash,
+            state.withdrawable_cash,
+            state.order_reserved_cash,
+            state.unsettled_receivable_cash,
+        ),
         state.position_market_value,
         state.realized_pnl,
         state.unrealized_pnl,
@@ -508,11 +499,11 @@ def _account_snapshot(state: OnlyAccountExecutionState, current: OnlyAccountSnap
 
 
 class OnlyAccountExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyAccountManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.ACCOUNT, applied_ledger)
+    def __init__(self, manager: OnlyAccountManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.ACCOUNT, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_snapshot = (
             self._manager.get_snapshot(projection.after.account_id)
@@ -524,14 +515,15 @@ class OnlyAccountExecutionProjectionTarget(_OnlyProjectionTargetBase):
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
         assert isinstance(projection, OnlyAccountExecutionProjection) and current_snapshot is not None
-        if not isinstance(context.fact, OnlyCommittedExecutionFact):
-            raise ValueError("Account execution projection requires a Trade Fact")
+        trade_ids = (context.fact.trade_id,) if isinstance(context.fact, OnlyCommittedExecutionFact) else ()
         self._manager.restore_execution_authority(
             _account_snapshot(projection.after, current_snapshot),
-            trade_ids=(context.fact.trade_id,),
+            trade_ids=trade_ids,
         )
         if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
-            self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 4)
+            self._manager.restore_execution_event_sequence(
+                self._manager.execution_event_sequence + (4 if trade_ids else 1)
+            )
         installed = self._manager.require_snapshot(projection.after.account_id)
         return self._complete(context, current, only_account_execution_state(installed), prepared)
 
@@ -543,7 +535,7 @@ def _rate(value: Decimal) -> OnlyRate:
 def _ledger_snapshot(
     state: OnlyStrategyLedgerExecutionState,
     current: OnlyStrategyLedgerSnapshot,
-    context: OnlyExecutionProjectionApplyContext,
+    context: OnlyRuntimeProjectionApplyContext,
     projection: OnlyStrategyLedgerExecutionProjection,
 ) -> OnlyStrategyLedgerSnapshot:
     if not isinstance(context.fact, OnlyCommittedExecutionFact):
@@ -559,7 +551,7 @@ def _ledger_snapshot(
         ),
         Decimal(0),
     ).quantize(quantum)
-    stage_equity = state.cash_balance.amount + stage_market_amount
+    stage_equity = state.ledger_cash.amount + stage_market_amount
     stage_high = max(current.equity.high_water_mark.amount, stage_equity)
     stage_drawdown = Decimal(0) if stage_high == 0 else stage_equity / stage_high - Decimal(1)
     high_amount = max(stage_high, state.equity.amount)
@@ -574,7 +566,7 @@ def _ledger_snapshot(
     simple = None
     if state.external_cash_flow.amount == 0 and state.initial_capital.amount > 0:
         simple = _rate((state.equity.amount - state.initial_capital.amount) / state.initial_capital.amount)
-    cash = OnlyStrategyCashSnapshot(state.cash_balance, state.cash_reserved, state.cash_available)
+    cash = OnlyStrategyCashSnapshot(state.ledger_cash, state.cash_reserved, state.cash_available)
     pnl = OnlyStrategyPnLSnapshot(state.realized_pnl, state.unrealized_pnl, state.fees, net)
     equity = replace(
         current.equity,
@@ -584,7 +576,7 @@ def _ledger_snapshot(
         version=state.version,
         initial_capital=state.initial_capital,
         external_cash_flow=state.external_cash_flow,
-        cash_balance=state.cash_balance,
+        ledger_cash=state.ledger_cash,
         cash_reserved=state.cash_reserved,
         cash_available=state.cash_available,
         position_cost=state.position_cost,
@@ -594,7 +586,7 @@ def _ledger_snapshot(
         fees=state.fees,
         net_pnl=net,
         equity=state.equity,
-        equity_by_cash_view=state.cash_balance + state.position_market_value,
+        equity_by_cash_view=state.ledger_cash + state.position_market_value,
         equity_by_pnl_view=state.initial_capital + state.external_cash_flow + net,
         high_water_mark=high,
         drawdown=drawdown,
@@ -642,11 +634,11 @@ def _ledger_snapshot(
 
 
 class OnlyStrategyLedgerExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyStrategyLedgerManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.STRATEGY_LEDGER, applied_ledger)
+    def __init__(self, manager: OnlyStrategyLedgerManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_snapshot = (
             self._manager.get_snapshot(projection.after.key)
@@ -684,11 +676,11 @@ class OnlyStrategyLedgerExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
 
 class OnlyAccountCashReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyAccountManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION, applied_ledger)
+    def __init__(self, manager: OnlyAccountManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_entity = None
         if isinstance(projection, OnlyAccountCashReservationExecutionProjection):
@@ -719,11 +711,11 @@ class OnlyAccountCashReservationExecutionProjectionTarget(_OnlyProjectionTargetB
 
 
 class OnlyStrategyCashReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyStrategyLedgerManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION, applied_ledger)
+    def __init__(self, manager: OnlyStrategyLedgerManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_entity = None
         if isinstance(projection, OnlyStrategyCashReservationExecutionProjection):
@@ -755,11 +747,13 @@ class OnlyStrategyCashReservationExecutionProjectionTarget(_OnlyProjectionTarget
 
 
 class OnlyPositionReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyPositionReservationManager, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.POSITION_RESERVATION, applied_ledger)
+    def __init__(
+        self, manager: OnlyPositionReservationManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger
+    ) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.POSITION_RESERVATION, applied_ledger)
         self._manager = manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_entity = (
             self._manager.get(projection.after.order_id)
@@ -785,11 +779,11 @@ class OnlyPositionReservationExecutionProjectionTarget(_OnlyProjectionTargetBase
 
 
 class OnlyRiskReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, service: OnlyRiskService, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.RISK_RESERVATION, applied_ledger)
+    def __init__(self, service: OnlyRiskService, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.RISK_RESERVATION, applied_ledger)
         self._service = service
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_entity = (
             self._service.reservations.get_for_order(projection.after.order_id)
@@ -828,11 +822,11 @@ class OnlyRiskReservationExecutionProjectionTarget(_OnlyProjectionTargetBase):
 
 
 class OnlyRiskExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, service: OnlyRiskService, applied_ledger: OnlyAppliedProjectionLedger) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.RISK, applied_ledger)
+    def __init__(self, service: OnlyRiskService, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.RISK, applied_ledger)
         self._service = service
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current_snapshot = (
             self._service.get_snapshot(projection.after.cluster_id)
@@ -896,14 +890,14 @@ class OnlyValuationExecutionProjectionTarget(_OnlyProjectionTargetBase):
         authority: OnlyExecutionValuationAuthority,
         account_manager: OnlyAccountManager,
         ledger_manager: OnlyStrategyLedgerManager,
-        applied_ledger: OnlyAppliedProjectionLedger,
+        applied_ledger: OnlyAppliedRuntimeProjectionLedger,
     ) -> None:
-        super().__init__(OnlyExecutionProjectionComponent.VALUATION, applied_ledger)
+        super().__init__(OnlyRuntimeProjectionComponent.VALUATION, applied_ledger)
         self._authority = authority
         self._accounts = account_manager
         self._ledgers = ledger_manager
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         projection = context.projection
         current = (
             self._authority.get(projection.after.account_id)
@@ -932,20 +926,20 @@ def only_create_generic_t0_execution_projection_targets(
     position_manager: OnlyPositionManager,
     allocation_manager: OnlyPositionAllocationManager,
     position_reservation_manager: OnlyPositionReservationManager,
-    settlement_manager: OnlySettlementManager,
+    settlement_authority: OnlySettlementAuthority,
     fee_manager: OnlyFeeManager,
     order_fee_accrual_manager: OnlyOrderFeeAccrualManager,
     account_manager: OnlyAccountManager,
     ledger_manager: OnlyStrategyLedgerManager,
     risk_service: OnlyRiskService,
     valuation_authority: OnlyExecutionValuationAuthority,
-    applied_ledger: OnlyAppliedProjectionLedger,
-) -> Mapping[OnlyExecutionProjectionComponent, OnlyExecutionProjectionTarget]:
-    targets: tuple[OnlyExecutionProjectionTarget, ...] = (
+    applied_ledger: OnlyAppliedRuntimeProjectionLedger,
+) -> Mapping[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget]:
+    targets: tuple[OnlyRuntimeProjectionTarget, ...] = (
         OnlyOrderExecutionProjectionTarget(order_manager, applied_ledger),
         OnlyPositionExecutionProjectionTarget(position_manager, applied_ledger),
         OnlyAllocationExecutionProjectionTarget(allocation_manager, applied_ledger),
-        OnlySettlementExecutionProjectionTarget(settlement_manager, applied_ledger),
+        OnlySettlementExecutionProjectionTarget(settlement_authority, applied_ledger),
         OnlyFeeExecutionProjectionTarget(fee_manager, applied_ledger),
         OnlyOrderFeeAccrualExecutionProjectionTarget(order_fee_accrual_manager, applied_ledger),
         OnlyAccountExecutionProjectionTarget(account_manager, applied_ledger),

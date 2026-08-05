@@ -9,16 +9,17 @@ from typing import NoReturn
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate
 from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
-
-from .codec import (
-    only_prepared_execution_transaction_authority_hash,
-    only_prepared_execution_transaction_payload_hash,
+from onlyalpha.execution.committed import OnlyCommittedExecutionFact
+from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
+from onlyalpha.transaction.codec import (
+    only_prepared_runtime_transaction_authority_hash,
+    only_prepared_runtime_transaction_payload_hash,
 )
-from .persistence_ports import OnlyExecutionTransactionRecoveryQueryPort
-from .transaction import (
-    OnlyCommittedExecutionTransaction,
-    OnlyPreparedExecutionTransaction,
-    OnlyStoredExecutionTransaction,
+from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionRecoveryQueryPort
+from onlyalpha.transaction.transaction import (
+    OnlyCommittedRuntimeTransaction,
+    OnlyPreparedRuntimeTransaction,
+    OnlyStoredRuntimeTransaction,
 )
 
 
@@ -52,15 +53,15 @@ class OnlyExecutionRecoveryDecisionKind(StrEnum):
 class OnlyExecutionRecoveryEntry:
     execution_sequence: int
     state: OnlyExecutionRecoveryEntryState
-    stored: OnlyStoredExecutionTransaction
+    stored: OnlyStoredRuntimeTransaction
 
     @property
     def broker_update_id(self) -> object:
-        return self.stored.prepared.broker_update_id
+        return _prepared_broker_update_id(self.stored.prepared)
 
     @property
     def trade_id(self) -> object:
-        return self.stored.prepared.trade_id
+        return getattr(self.stored.prepared.fact_draft, "trade_id", None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +116,7 @@ class OnlyExecutionRecoveryPlan:
 
 
 class OnlyExecutionRecoveryPlanBuilder:
-    def __init__(self, query: OnlyExecutionTransactionRecoveryQueryPort) -> None:
+    def __init__(self, query: OnlyRuntimeTransactionRecoveryQueryPort) -> None:
         self._query = query
 
     def build(
@@ -180,20 +181,23 @@ class OnlyExecutionRecoverySession:
     def decide(
         self,
         update: OnlyBrokerInboundUpdate,
-        prepared: OnlyPreparedExecutionTransaction,
+        prepared: OnlyPreparedRuntimeTransaction,
     ) -> OnlyExecutionRecoveryDecision:
         self._require_usable()
         if self._phase is OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
-            if prepared.broker_update_id != update.update_id:
+            if _prepared_broker_update_id(prepared) != update.update_id:
                 self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
             return OnlyExecutionRecoveryDecision(OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION, None)
         entry = self.next_entry
         if entry is None:
             self._fail("RECOVERY_TRANSACTION_MISSING")
         expected = entry.stored.prepared
-        if expected.broker_update_id != update.update_id or expected.transaction_id != prepared.transaction_id:
+        if (
+            _prepared_broker_update_id(expected) != update.update_id
+            or expected.transaction_id != prepared.transaction_id
+        ):
             later = any(
-                candidate.stored.prepared.broker_update_id == update.update_id
+                _prepared_broker_update_id(candidate.stored.prepared) == update.update_id
                 or candidate.stored.prepared.transaction_id == prepared.transaction_id
                 for candidate in self._plan.entries[self._index + 1 :]
             )
@@ -203,22 +207,24 @@ class OnlyExecutionRecoverySession:
             mismatches = tuple(
                 name for name in prepared.__dataclass_fields__ if getattr(prepared, name) != getattr(expected, name)
             )
+            prepared_fact = prepared.fact_draft.to_dict()
+            expected_fact = expected.fact_draft.to_dict()
             fact_mismatches = tuple(
                 name
-                for name in prepared.fact_draft.__dataclass_fields__
-                if getattr(prepared.fact_draft, name) != getattr(expected.fact_draft, name)
+                for name in sorted(prepared_fact.keys() | expected_fact.keys())
+                if prepared_fact.get(name) != expected_fact.get(name)
             )
             processing_detail = (
-                f" expected_processing={expected.fact_draft.processing_sequence}"
-                f" actual_processing={prepared.fact_draft.processing_sequence}"
+                f" expected_processing={getattr(expected.fact_draft, 'processing_sequence', None)}"
+                f" actual_processing={getattr(prepared.fact_draft, 'processing_sequence', None)}"
             )
             self._fail(
                 "RECOVERY_PREPARED_TRANSACTION_MISMATCH: "
                 f"fields={','.join(mismatches)} fact_fields={','.join(fact_mismatches)}{processing_detail}"
             )
         try:
-            authority_hash = only_prepared_execution_transaction_authority_hash(prepared)
-            payload_hash = only_prepared_execution_transaction_payload_hash(prepared)
+            authority_hash = only_prepared_runtime_transaction_authority_hash(prepared)
+            payload_hash = only_prepared_runtime_transaction_payload_hash(prepared)
         except ValueError as exc:
             self._phase = OnlyExecutionRecoveryPhase.FAILED
             raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_CODEC_OR_HASH_MISMATCH") from exc
@@ -250,7 +256,7 @@ class OnlyExecutionRecoverySession:
         if self._index == len(self._plan.entries):
             self._phase = OnlyExecutionRecoveryPhase.TAIL_RESOLVED
 
-    def record_continuation(self, transaction: OnlyCommittedExecutionTransaction) -> None:
+    def record_continuation(self, transaction: OnlyCommittedRuntimeTransaction) -> None:
         self._require_usable()
         if self._phase is not OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
             self._fail("RECOVERY_CONTINUATION_BEFORE_TAIL_RESOLVED")
@@ -268,11 +274,13 @@ class OnlyExecutionRecoverySession:
             self._fail("RECOVERY_CONTINUATION_TRANSACTION_NOT_READY")
         if transaction.runtime_id != self._plan.runtime_id:
             self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
+        if not isinstance(transaction.fact, OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact):
+            self._fail("RECOVERY_TRANSACTION_IS_NOT_BROKER_DRIVEN")
         continuation = OnlyExecutionRecoveryContinuation(
             transaction.execution_sequence,
             transaction.transaction_id,
             transaction.fact.broker_update_id,
-            transaction.trade_id,
+            getattr(transaction.fact, "trade_id", None),
         )
         if any(
             item.transaction_id == continuation.transaction_id
@@ -297,3 +305,10 @@ class OnlyExecutionRecoverySession:
     def _fail(self, message: str) -> NoReturn:
         self._phase = OnlyExecutionRecoveryPhase.FAILED
         raise OnlyExecutionRecoveryError(message)
+
+
+def _prepared_broker_update_id(prepared: OnlyPreparedRuntimeTransaction) -> OnlyBrokerUpdateId:
+    update_id = getattr(prepared.fact_draft, "broker_update_id", None)
+    if not isinstance(update_id, OnlyBrokerUpdateId):
+        raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_IS_NOT_BROKER_DRIVEN")
+    return update_id

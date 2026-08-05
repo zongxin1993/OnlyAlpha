@@ -26,6 +26,6 @@ def test_engine_runtime_long_close_commits_one_durable_transaction_and_projects_
     reservation = environment.runtime.position_reservation_manager.get(context.update.order_id)
     assert position.total_quantity.value == allocation.total_quantity.value == Decimal("100")
     assert position.average_open_price is not None and position.average_open_price.value == Decimal("10.00")
-    assert account.cash.cash_balance == ledger.cash.cash_balance
+    assert account.cash.ledger_cash == ledger.cash.ledger_cash
     assert account.realized_pnl == ledger.pnl.realized_pnl
     assert reservation is not None and reservation.remaining_quantity.value == 0

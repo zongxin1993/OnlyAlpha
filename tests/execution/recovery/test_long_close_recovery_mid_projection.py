@@ -1,19 +1,19 @@
 import pytest
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent, OnlyExecutionRecoveryStatus
+from onlyalpha.execution import OnlyExecutionRecoveryStatus, OnlyRuntimeProjectionComponent
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 
 
 @pytest.mark.parametrize(
     "component",
     (
-        OnlyExecutionProjectionComponent.ACCOUNT,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.VALUATION,
+        OnlyRuntimeProjectionComponent.ACCOUNT,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.VALUATION,
     ),
 )
 def test_long_close_mid_projection_failure_resumes_without_double_accounting(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
 ) -> None:
     control = OnlyRealExecutionRecoveryHarness.create(long_close=True)
     assert control.recover().succeeded

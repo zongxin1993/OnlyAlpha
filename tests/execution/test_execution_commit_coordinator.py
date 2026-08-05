@@ -5,12 +5,12 @@ import pytest
 from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import (
-    OnlyExecutionCommitCoordinationStatus,
-    OnlyExecutionCommitCoordinator,
     OnlyExecutionEventDeliveryMode,
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionComponent,
-    OnlyReferenceExecutionProjectionTarget,
+    OnlyReferenceRuntimeProjectionTarget,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeTransactionCoordinationStatus,
+    OnlyRuntimeTransactionCoordinator,
 )
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStoreError
 from tests.execution.factories.transaction_factory import (
@@ -25,12 +25,12 @@ _PROJECTED_AT = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 2, tzinfo=UT
 def _coordinator(
     store: OnlyInMemoryRuntimePersistenceStore,
     *,
-    missing: OnlyExecutionProjectionComponent | None = None,
-) -> OnlyExecutionCommitCoordinator:
+    missing: OnlyRuntimeProjectionComponent | None = None,
+) -> OnlyRuntimeTransactionCoordinator:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     targets = {
-        component: OnlyReferenceExecutionProjectionTarget(component)
-        for component in OnlyExecutionProjectionComponent
+        component: OnlyReferenceRuntimeProjectionTarget(component)
+        for component in OnlyRuntimeProjectionComponent
         if component is not missing
     }
     for projection in prepared.projections:
@@ -41,11 +41,11 @@ def _coordinator(
                 projection.identity.expected_version,
                 projection.identity.expected_state_hash,
             )
-    return OnlyExecutionCommitCoordinator(
+    return OnlyRuntimeTransactionCoordinator(
         commit_port=store,
         query_port=store,
         projection_state_port=store,
-        projection_applier=OnlyExecutionProjectionApplier(targets),
+        projection_applier=OnlyRuntimeProjectionApplier(targets),
         now=lambda: _PROJECTED_AT,
     )
 
@@ -58,11 +58,11 @@ def test_commit_is_durable_before_projection_ready_and_duplicate_is_already_read
     first = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
     duplicate = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
 
-    assert first.status is OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED
+    assert first.status is OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED
     assert first.transaction_inserted
     assert first.transaction is not None and first.transaction.projection_ready
     assert first.delivery_intent.mode is OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX
-    assert duplicate.status is OnlyExecutionCommitCoordinationStatus.ALREADY_READY
+    assert duplicate.status is OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY
     assert not duplicate.transaction_inserted
     assert store.pending_count(prepared.runtime_id) == len(prepared.outbox_events)
 
@@ -79,7 +79,7 @@ def test_same_id_with_changed_prepared_payload_is_a_transaction_conflict() -> No
 
     result = coordinator.commit(changed, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
 
-    assert result.status is OnlyExecutionCommitCoordinationStatus.TRANSACTION_CONFLICT
+    assert result.status is OnlyRuntimeTransactionCoordinationStatus.TRANSACTION_CONFLICT
     assert result.transaction is None
     assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.NONE
 
@@ -87,13 +87,13 @@ def test_same_id_with_changed_prepared_payload_is_a_transaction_conflict() -> No
 def test_missing_target_marks_projection_failed_and_hides_outbox() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = OnlyInMemoryRuntimePersistenceStore()
-    coordinator = _coordinator(store, missing=OnlyExecutionProjectionComponent.FEE)
+    coordinator = _coordinator(store, missing=OnlyRuntimeProjectionComponent.FEE)
 
     result = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
     persisted = store.get_by_sequence(prepared.runtime_id, 1)
 
-    assert result.status is OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED
-    assert result.failure_component is OnlyExecutionProjectionComponent.FEE
+    assert result.status is OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED
+    assert result.failure_component is OnlyRuntimeProjectionComponent.FEE
     assert persisted is not None and not persisted.projection_ready
     assert persisted.projection_error == "missing projection target for FEE"
     assert store.pending(prepared.runtime_id, limit=100) == ()
@@ -102,13 +102,13 @@ def test_missing_target_marks_projection_failed_and_hides_outbox() -> None:
 @pytest.mark.parametrize(
     "missing",
     (
-        OnlyExecutionProjectionComponent.ORDER,
-        OnlyExecutionProjectionComponent.FEE,
-        OnlyExecutionProjectionComponent.RISK,
+        OnlyRuntimeProjectionComponent.ORDER,
+        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.RISK,
     ),
 )
 def test_failure_before_first_after_middle_and_before_last_projection_preserves_exact_prefix(
-    missing: OnlyExecutionProjectionComponent,
+    missing: OnlyRuntimeProjectionComponent,
 ) -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = OnlyInMemoryRuntimePersistenceStore()
@@ -119,7 +119,7 @@ def test_failure_before_first_after_middle_and_before_last_projection_preserves_
     )
 
     failed_projection = next(item for item in prepared.projections if item.identity.component is missing)
-    assert result.status is OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED
+    assert result.status is OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED
     assert result.projection_result is not None
     assert len(result.projection_result.applied) == failed_projection.identity.projection_sequence - 1
     assert store.get_by_sequence(prepared.runtime_id, 1) is not None
@@ -130,7 +130,7 @@ def test_sequence_gate_requires_the_immediate_predecessor_to_be_ready() -> None:
     first = only_test_generic_t0_cash_buy_open_transaction()
     second = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-2"),
-        update_id=type(first.broker_update_id)("update-2"),
+        update_id=type(first.fact_draft.broker_update_id)("update-2"),
         fill_index=2,
     )
     store = OnlyInMemoryRuntimePersistenceStore()
@@ -144,7 +144,7 @@ def test_sequence_gate_requires_the_immediate_predecessor_to_be_ready() -> None:
         projected_at=_PROJECTED_AT,
     )
 
-    assert result.status is OnlyExecutionCommitCoordinationStatus.SEQUENCE_BLOCKED
+    assert result.status is OnlyRuntimeTransactionCoordinationStatus.SEQUENCE_BLOCKED
     assert result.transaction is not None and result.transaction.execution_sequence == 2
     assert not result.transaction.projection_ready
 
@@ -153,12 +153,12 @@ def test_recovery_stops_on_first_failed_transaction() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = OnlyInMemoryRuntimePersistenceStore()
     store.commit(prepared, committed_at=_COMMITTED_AT)
-    coordinator = _coordinator(store, missing=OnlyExecutionProjectionComponent.FEE)
+    coordinator = _coordinator(store, missing=OnlyRuntimeProjectionComponent.FEE)
 
     results = coordinator.recover_unprojected(OnlyRuntimeId("runtime"))
 
     assert len(results) == 1
-    assert results[0].status is OnlyExecutionCommitCoordinationStatus.PROJECTION_FAILED
+    assert results[0].status is OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED
 
 
 class _OnlyFailingCommitStore(OnlyInMemoryRuntimePersistenceStore):
@@ -172,7 +172,7 @@ def test_store_commit_failure_never_applies_projection() -> None:
 
     result = _coordinator(store).commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
 
-    assert result.status is OnlyExecutionCommitCoordinationStatus.STORE_FAILURE
+    assert result.status is OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE
     assert store.records() == ()
     assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.NONE
 
@@ -201,14 +201,14 @@ def test_mark_ready_failure_hides_outbox_and_retry_is_projection_idempotent() ->
     coordinator = _coordinator(store)
 
     failed = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
-    assert failed.status is OnlyExecutionCommitCoordinationStatus.STORE_FAILURE
+    assert failed.status is OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE
     assert failed.projection_result is not None
     assert len(failed.projection_result.applied) == len(prepared.projections)
     assert store.pending(prepared.runtime_id, limit=100) == ()
 
     recovered = coordinator.recover_unprojected(prepared.runtime_id)
     assert len(recovered) == 1
-    assert recovered[0].status is OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED
+    assert recovered[0].status is OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED
     assert recovered[0].projection_result is not None
     assert recovered[0].projection_result.applied == ()
     assert len(recovered[0].projection_result.idempotent) == len(prepared.projections)

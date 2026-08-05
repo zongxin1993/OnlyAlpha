@@ -12,7 +12,7 @@ Finalizer phase、Cluster lifecycle、Checkpoint schema、causal replay 或 READ
    `OnlyRuntimeBoundaryAuthorityView` 的 broker、market-data 和 EventBus pending count。
 2. 当前三个 count 被一个布尔表达式合并，任一非零都抛出 `POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY`，因此 EventBus
    pending 被错误归类。
-3. Durable Outbox 的正式幂等身份是 `OnlyExecutionTransactionOutboxKey(runtime_id, execution_sequence,
+3. Durable Outbox 的正式幂等身份是 `OnlyRuntimeTransactionOutboxKey(runtime_id, execution_sequence,
    event_sequence)`。
 4. Outbox 不存在也不需要独立字符串 `idempotency_key`；事件自身的 `event_id` 是另一项独立身份检查。
 5. Account、Strategy、Position、Risk、Margin Reservation 构造器已经保证各自金额/数量守恒、状态与剩余量、币种

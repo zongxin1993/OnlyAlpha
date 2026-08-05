@@ -26,7 +26,7 @@ Reservation presence 由纯 `only_expected_execution_reservations()` 决定。�
 
 Projection union/codec 覆盖与业务事务覆盖分离。`only_test_projection_codec_cases()` 独立覆盖 15 个 union member；Prepared fixture 只能构造经济合法事务，不再存在 all-projections Prepared Transaction。
 
-业务幂等键与不同 authority 的复用使用 `OnlyExecutionTransactionConflict`；I/O、SQLite trigger/lock/malformed/schema、非业务 integrity、Outbox 和 serialization 故障使用 `OnlyRuntimePersistenceStoreError` 并保留 cause。
+业务幂等键与不同 authority 的复用使用 `OnlyRuntimeTransactionConflict`；I/O、SQLite trigger/lock/malformed/schema、非业务 integrity、Outbox 和 serialization 故障使用 `OnlyRuntimePersistenceStoreError` 并保留 cause。
 
 ## Consequences
 

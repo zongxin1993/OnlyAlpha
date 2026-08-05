@@ -55,7 +55,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
     assert rejected.runtime.order_manager.require_snapshot(submitted.order_id).status is OnlyOrderStatus.REJECTED
     assert not rejected.runtime.risk_service.reservations.snapshot_active()
-    assert rejected.runtime.account_manager.list_accounts()[0].cash.frozen_cash.amount == Decimal("0.00")
+    assert rejected.runtime.account_manager.list_accounts()[0].cash.order_reserved_cash.amount == Decimal("0.00")
     return env.report_builder.scenario(
         "019",
         "ExecutionProcessor Broker Rejected",

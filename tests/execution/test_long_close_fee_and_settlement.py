@@ -1,16 +1,16 @@
 from decimal import Decimal
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent
+from onlyalpha.execution import OnlyRuntimeProjectionComponent
 from tests.execution.support.generic_t0_trade_harness import only_test_generic_t0_long_close_context
 
 
 def test_long_close_fee_is_authoritative_and_incremental() -> None:
     _, _, prepared = only_test_generic_t0_long_close_context()
-    fee = next(item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.FEE)
+    fee = next(item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.FEE)
     accrual = next(
         item
         for item in prepared.projections
-        if item.identity.component is OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL
+        if item.identity.component is OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL
     )
 
     assert fee.after.authoritative_total == prepared.fact_draft.authoritative_fee_total
@@ -21,7 +21,7 @@ def test_long_close_fee_is_authoritative_and_incremental() -> None:
 def test_long_close_settlement_carries_positive_sale_cash_without_asset_release() -> None:
     _, _, prepared = only_test_generic_t0_long_close_context()
     settlement = next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.SETTLEMENT
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.SETTLEMENT
     )
 
     assert settlement.after.cash_amount == prepared.fact_draft.gross_cash_inflow

@@ -243,7 +243,7 @@ class OnlyStrategyPnLSnapshot(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyStrategyCashSnapshot(OnlyDomainModel):
-    cash_balance: OnlyMoney
+    ledger_cash: OnlyMoney
     cash_reserved: OnlyMoney
     cash_available: OnlyMoney
 
@@ -257,7 +257,7 @@ class OnlyStrategyEquitySnapshot(OnlyDomainModel):
     version: int
     initial_capital: OnlyMoney
     external_cash_flow: OnlyMoney
-    cash_balance: OnlyMoney
+    ledger_cash: OnlyMoney
     cash_reserved: OnlyMoney
     cash_available: OnlyMoney
     position_cost: OnlyMoney
@@ -334,7 +334,7 @@ class OnlyStrategyLedgerEquityPoint(OnlyDomainModel):
     ts_event: OnlyTimestamp
     currency: OnlyCurrency
     initial_equity: OnlyMoney
-    cash_balance: OnlyMoney
+    ledger_cash: OnlyMoney
     position_market_value: OnlyMoney
     realized_pnl: OnlyMoney
     unrealized_pnl: OnlyMoney

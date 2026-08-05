@@ -2,19 +2,19 @@ from dataclasses import replace
 from decimal import Decimal
 
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
-    OnlyInMemoryAppliedProjectionLedger,
+    OnlyInMemoryAppliedRuntimeProjectionLedger,
     OnlyProjectionApplyStatus,
+    OnlyRuntimeProjectionComponent,
 )
 from tests.execution.targets.support import only_test_projection_context, only_test_projection_target_bundle
 
 
 def _installed_fee_target():
     bundle = only_test_projection_target_bundle()
-    component = OnlyExecutionProjectionComponent.FEE
+    component = OnlyRuntimeProjectionComponent.FEE
     context = only_test_projection_context(bundle, component)
     assert bundle.targets[component].apply_execution_projection(context).status is OnlyProjectionApplyStatus.APPLIED
-    target = bundle.create_targets(OnlyInMemoryAppliedProjectionLedger())[component]
+    target = bundle.create_targets(OnlyInMemoryAppliedRuntimeProjectionLedger())[component]
     return bundle, context, target
 
 

@@ -4,18 +4,16 @@ from decimal import Decimal
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.margin import OnlyMarginManager
-from onlyalpha.market.runtime_rules import OnlyMarginInstruction, OnlySettlementRuntimeInstruction
-from onlyalpha.settlement import OnlySettlementManager
+from onlyalpha.market.runtime_rules import OnlyMarginInstruction, OnlySettlementSchedule
+from onlyalpha.settlement import OnlySettlementAuthority
 
 
-def test_settlement_manager_tracks_four_independent_availability_dimensions() -> None:
-    manager = OnlySettlementManager()
+def test_settlement_authority_tracks_four_independent_availability_dimensions() -> None:
+    manager = OnlySettlementAuthority()
     t0 = OnlyTradingDay(date(2026, 7, 17))
     t1 = OnlyTradingDay(date(2026, 7, 20))
     manager.register(
-        OnlySettlementRuntimeInstruction(
-            "settle-1", "TEST.XSHG", "trade-1", Decimal(100), Decimal(1000), t1, t0, t1, t1
-        )
+        OnlySettlementSchedule("settle-1", "TEST.XSHG", "trade-1", Decimal(100), Decimal(1000), t1, t0, t1, t1)
     )
     today = manager.advance(t0)[0]
     assert today.booked_quantity == Decimal(100)

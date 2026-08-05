@@ -7,7 +7,7 @@ from datetime import date, datetime
 from enum import StrEnum
 
 from onlyalpha.domain.time import only_require_utc
-from onlyalpha.execution.recovery import OnlyExecutionRecoveryResult
+from onlyalpha.transaction.recovery import OnlyExecutionRecoveryResult
 
 
 class OnlyResultDiagnosticSeverity(StrEnum):

@@ -13,16 +13,14 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
     OnlyAllocationCreationAuthority,
-    OnlyExecutionProjection,
-    OnlyExecutionProjectionComponent,
     OnlyFeeExecutionState,
     OnlyFeeInstructionReplay,
     OnlyFeeRecordReplay,
     OnlyPositionCreationAuthority,
-    OnlyPreparedExecutionTransaction,
+    OnlyPreparedRuntimeTransaction,
+    OnlyRuntimeProjection,
+    OnlyRuntimeProjectionComponent,
     OnlySettlementExecutionProjection,
-    OnlySettlementExecutionState,
-    OnlySettlementRecordReplay,
     OnlyTradeExecutionPlanningContext,
     OnlyTradeExecutionTransactionPlanner,
     OnlyValuationExecutionState,
@@ -38,6 +36,7 @@ from onlyalpha.execution import (
     only_strategy_cash_reservation_execution_state,
     only_strategy_ledger_execution_state,
 )
+from onlyalpha.execution.authority_state import only_settlement_execution_state, only_settlement_record_replay
 from onlyalpha.fee import OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyMarketPositionMode, OnlyMarketProfileId
@@ -62,13 +61,13 @@ class OnlyTestGenericT0Scenario:
 class OnlyTestGenericT0ParityResult:
     scenario: OnlyTestGenericT0Scenario
     context: OnlyTradeExecutionPlanningContext
-    prepared: OnlyPreparedExecutionTransaction
+    prepared: OnlyPreparedRuntimeTransaction
     legacy_result: object
     manager_before: OnlyTestRuntimeAuthorityDigest
     manager_after: OnlyTestRuntimeAuthorityDigest
     planner_before: OnlyTestRuntimeAuthorityDigest
     planner_after: OnlyTestRuntimeAuthorityDigest
-    legacy_states: tuple[tuple[OnlyExecutionProjectionComponent, object], ...]
+    legacy_states: tuple[tuple[OnlyRuntimeProjectionComponent, object], ...]
 
 
 def only_test_generic_t0_manager_parity(
@@ -103,7 +102,7 @@ def only_test_generic_t0_manager_parity(
 
 def only_test_generic_t0_projection_environment(
     scenario: OnlyTestGenericT0Scenario,
-) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedRuntimeTransaction]:
     """Return untouched real Managers plus the transaction planned from their authority."""
 
     environment = _environment(scenario)
@@ -161,7 +160,7 @@ def only_test_generic_t0_long_close_context(
     close_quantity: str = "100",
     fill_quantity: str | None = None,
     fill_price: str = "12.00",
-) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedRuntimeTransaction]:
     environment, context = _only_test_generic_t0_long_close_before(
         open_quantity=open_quantity,
         close_quantity=close_quantity,
@@ -206,7 +205,7 @@ def only_test_multi_cluster_close_context(
     close_quantity: str = "1000",
     fill_quantity: str | None = None,
     fill_price: str = "13.00",
-) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedExecutionTransaction]:
+) -> tuple[OnlyIntegrationEnvironment, OnlyTradeExecutionPlanningContext, OnlyPreparedRuntimeTransaction]:
     """Model A@10 plus B@12 while the order belongs to Allocation A."""
 
     environment, context = _only_test_generic_t0_long_close_before(
@@ -364,7 +363,7 @@ def only_test_real_trade_planning_context(
             (item.cumulative_open_price_quantity for item in scoped_allocations), Decimal(0)
         ),
         account_ledger_parity=(
-            account_snapshot.cash.cash_balance == ledger_snapshot.cash.cash_balance
+            account_snapshot.cash.ledger_cash == ledger_snapshot.cash.ledger_cash
             and account_snapshot.position_market_value == ledger_snapshot.equity.position_market_value
         ),
         settlement_before=None,
@@ -388,7 +387,7 @@ def only_test_real_trade_planning_context(
         valuation_before=OnlyValuationExecutionState(
             order.account_id,
             valuation_time,
-            account_snapshot.cash.cash_balance,
+            account_snapshot.cash.ledger_cash,
             account_snapshot.position_market_value,
             account_snapshot.unrealized_pnl,
             account_snapshot.equity,
@@ -401,7 +400,7 @@ def only_test_real_trade_planning_context(
         allocation_cycle=(
             0 if scope.allocation_key is None else runtime.allocation_manager._cycles.get(scope.allocation_key, 0)
         ),
-        settlement_record_sequence=runtime.settlement_manager.sequence_head,
+        settlement_record_sequence=runtime.settlement_authority.sequence_head,
         fee_record_sequence=runtime.fee_manager.sequence_head,
         account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
         ledger_equity_sequence=runtime.strategy_ledger_manager.equity_sequence_head,
@@ -418,7 +417,7 @@ def only_test_real_trade_planning_context(
 def only_test_legacy_projection_states(
     env: OnlyIntegrationEnvironment,
     context: OnlyTradeExecutionPlanningContext,
-) -> tuple[tuple[OnlyExecutionProjectionComponent, object], ...]:
+) -> tuple[tuple[OnlyRuntimeProjectionComponent, object], ...]:
     runtime = env.runtime
     order = runtime.order_manager.require_snapshot(context.update.order_id)
     position = runtime.position_manager.require_snapshot(context.position_scope.position_key)
@@ -437,46 +436,13 @@ def only_test_legacy_projection_states(
     strategy_reservation = next(item for item in ledger.reservations if item.order_id == order.order_id)
     risk_reservation = runtime.risk_service.reservations.get_for_order(order.order_id)
     assert risk_reservation is not None
-    settlement_pending = runtime.settlement_manager._pending[
-        context.trade_instruction.settlement_instruction.instruction_id
-    ]
-    settlement_instruction = settlement_pending.instruction
-    settlement = OnlySettlementExecutionState(
-        settlement_instruction.instruction_id,
-        order.account_id,
-        order.instrument_id,
-        order.order_id,
-        settlement_instruction.source_trade_id,
-        settlement_instruction.asset_quantity,
-        OnlyMoney(settlement_instruction.cash_amount, account.base_currency),
-        settlement_pending.asset_released,
-        settlement_pending.trade_cash_released,
-        settlement_pending.withdrawable_cash_released,
-        settlement_pending.legal_settled,
-        settlement_instruction.asset_available_on,
-        settlement_instruction.cash_trade_available_on,
-        settlement_instruction.cash_withdrawable_on,
-        settlement_instruction.legal_settlement_on,
-        settlement_pending.version,
-        runtime.settlement_manager.sequence_head,
+    settlement_authority = next(
+        item
+        for item in runtime.settlement_authority.snapshots()
+        if item.instruction.trade_id == context.update.fill.trade_id
     )
-    settlement_records = tuple(
-        OnlySettlementRecordReplay(
-            item.instruction_id,
-            order.account_id,
-            order.instrument_id,
-            order.order_id,
-            item.source_trade_id,
-            item.processed_on,
-            item.available_quantity,
-            OnlyMoney(item.trade_available_cash, account.base_currency),
-            OnlyMoney(item.withdrawable_cash, account.base_currency),
-            item.legal_settled,
-            item.sequence,
-        )
-        for item in runtime.settlement_manager.records
-        if item.instruction_id == settlement_instruction.instruction_id
-    )
+    settlement = only_settlement_execution_state(settlement_authority)
+    settlement_records = only_settlement_record_replay(settlement_authority)
     fee_records = tuple(
         OnlyFeeRecordReplay(
             item.fee_record_id,
@@ -510,39 +476,39 @@ def only_test_legacy_projection_states(
     )
     valuation_time = account.valuation_time or account.updated_at
     return (
-        (OnlyExecutionProjectionComponent.ORDER, only_order_execution_state(order)),
-        (OnlyExecutionProjectionComponent.POSITION, only_position_execution_state(position)),
-        (OnlyExecutionProjectionComponent.ALLOCATION, only_allocation_execution_state(allocation)),
-        (OnlyExecutionProjectionComponent.SETTLEMENT, (settlement, settlement_records)),
+        (OnlyRuntimeProjectionComponent.ORDER, only_order_execution_state(order)),
+        (OnlyRuntimeProjectionComponent.POSITION, only_position_execution_state(position)),
+        (OnlyRuntimeProjectionComponent.ALLOCATION, only_allocation_execution_state(allocation)),
+        (OnlyRuntimeProjectionComponent.SETTLEMENT, (settlement, settlement_records)),
         (
-            OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
+            OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
             runtime.order_fee_accrual_manager.get(order.order_id),
         ),
-        (OnlyExecutionProjectionComponent.FEE, fee_state),
-        (OnlyExecutionProjectionComponent.ACCOUNT, only_account_execution_state(account)),
-        (OnlyExecutionProjectionComponent.STRATEGY_LEDGER, only_strategy_ledger_execution_state(ledger)),
+        (OnlyRuntimeProjectionComponent.FEE, fee_state),
+        (OnlyRuntimeProjectionComponent.ACCOUNT, only_account_execution_state(account)),
+        (OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, only_strategy_ledger_execution_state(ledger)),
         (
-            OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
+            OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
             only_account_cash_reservation_execution_state(account_reservation),
         ),
         (
-            OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
+            OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
             only_strategy_cash_reservation_execution_state(strategy_reservation),
         ),
         (
-            OnlyExecutionProjectionComponent.RISK_RESERVATION,
+            OnlyRuntimeProjectionComponent.RISK_RESERVATION,
             only_risk_reservation_execution_state(risk_reservation),
         ),
         (
-            OnlyExecutionProjectionComponent.RISK,
+            OnlyRuntimeProjectionComponent.RISK,
             only_risk_execution_state(runtime.risk_service.get_snapshot(order.cluster_id)),
         ),
         (
-            OnlyExecutionProjectionComponent.VALUATION,
+            OnlyRuntimeProjectionComponent.VALUATION,
             OnlyValuationExecutionState(
                 order.account_id,
                 valuation_time,
-                account.cash.cash_balance,
+                account.cash.ledger_cash,
                 account.position_market_value,
                 account.unrealized_pnl,
                 account.equity,
@@ -552,7 +518,7 @@ def only_test_legacy_projection_states(
     )
 
 
-def only_test_projection_after(projection: OnlyExecutionProjection) -> object:
+def only_test_projection_after(projection: OnlyRuntimeProjection) -> object:
     if isinstance(projection, OnlySettlementExecutionProjection):
         return projection.after, projection.records
     return projection.after

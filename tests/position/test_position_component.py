@@ -1,5 +1,4 @@
 from dataclasses import FrozenInstanceError
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -16,7 +15,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
     OnlyVenueTradeId,
 )
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.position import (
     OnlyBrokerPositionSnapshot,
@@ -39,7 +38,6 @@ from onlyalpha.position import (
     OnlyReconciliationSeverity,
     OnlyRecordingPositionEventPublisher,
     OnlySettlementBucket,
-    OnlySettlementService,
 )
 from onlyalpha.runtime.live.runtime import OnlyLiveRuntime
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
@@ -94,16 +92,16 @@ def apply_both(
     allocations.apply_trade(item)
 
 
-def test_average_cost_t1_realized_pnl_and_new_lifecycle() -> None:
+def test_average_cost_realized_pnl_and_new_lifecycle() -> None:
     positions = OnlyPositionManager(RUNTIME)
     first = trade(1, OnlyOrderSide.BUY, "100", "10", bucket=OnlySettlementBucket.SETTLED)
     positions.apply_trade(first)
-    positions.apply_trade(trade(2, OnlyOrderSide.BUY, "50", "12"))
+    positions.apply_trade(trade(2, OnlyOrderSide.BUY, "50", "12", bucket=OnlySettlementBucket.SETTLED))
     snapshot = positions.list_open()[0]
     assert snapshot.total_quantity.value == Decimal("150")
-    assert snapshot.settled_quantity.value == Decimal("100")
-    assert snapshot.unsettled_quantity.value == Decimal("50")
-    assert snapshot.available_quantity.value == Decimal("100")
+    assert snapshot.settled_quantity.value == Decimal("150")
+    assert snapshot.unsettled_quantity.value == Decimal("0")
+    assert snapshot.available_quantity.value == Decimal("150")
     assert snapshot.average_open_price == OnlyPrice(Decimal("10.67"), 2)
 
     reduced = positions.apply_trade(trade(3, OnlyOrderSide.SELL, "40", "15"))
@@ -112,7 +110,6 @@ def test_average_cost_t1_realized_pnl_and_new_lifecycle() -> None:
     assert reduced.after.average_open_price == OnlyPrice(Decimal("10.67"), 2)
 
     positions.apply_trade(trade(4, OnlyOrderSide.SELL, "60", "10"))
-    positions.settle(positions.list_open()[0].key, OnlyTradingDay(date(2026, 7, 16)))
     closed = positions.apply_trade(trade(5, OnlyOrderSide.SELL, "50", "11"))
     assert closed.after is not None and closed.after.status is OnlyPositionStatus.CLOSED
     old_id = closed.after.position_id
@@ -169,31 +166,6 @@ def test_cluster_cannot_sell_other_allocation_and_unknown_goes_unallocated() -> 
         allocations.apply_trade(trade(2, OnlyOrderSide.SELL, "1", "11", cluster=CLUSTER_A))
     allocations.apply_trade(trade(3, OnlyOrderSide.BUY, "25", "10", cluster=None))
     assert allocations.unallocated()[0].total_quantity.value == Decimal("25")
-
-
-def test_t1_freeze_release_and_settlement_example() -> None:
-    positions = OnlyPositionManager(RUNTIME)
-    allocations = OnlyPositionAllocationManager(RUNTIME)
-    apply_both(
-        positions,
-        allocations,
-        trade(1, OnlyOrderSide.BUY, "1000", "10", bucket=OnlySettlementBucket.SETTLED),
-    )
-    apply_both(positions, allocations, trade(2, OnlyOrderSide.BUY, "500", "11"))
-    key = positions.list_open()[0].key
-    positions.freeze(key, OnlyQuantity(Decimal("600"), 0))
-    assert positions.require_snapshot(key).available_quantity.value == Decimal("400")
-    positions.apply_trade(trade(3, OnlyOrderSide.SELL, "200", "12"))
-    assert positions.require_snapshot(key).available_quantity.value == Decimal("400")
-    positions.release(key, OnlyQuantity(Decimal("400"), 0))
-    assert positions.require_snapshot(key).available_quantity.value == Decimal("800")
-    service = OnlySettlementService(positions, allocations)
-    service.settle_account(
-        ACCOUNT,
-        OnlyTradingDay(date(2026, 7, 15)),
-        OnlyTradingDay(date(2026, 7, 16)),
-    )
-    assert positions.require_snapshot(key).unsettled_quantity.value == 0
 
 
 def test_restriction_is_derived_into_available_quantity() -> None:

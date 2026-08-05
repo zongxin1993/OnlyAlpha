@@ -93,7 +93,7 @@ class OnlyAccountPerformanceProjector:
         if source is OnlyAccountValuationSource.EXTERNAL_CASH_FLOW:
             if previous is None:
                 raise ValueError("External cash flow projection requires the previous Account snapshot")
-            external += snapshot.cash.cash_balance.amount - previous.cash.cash_balance.amount
+            external += snapshot.cash.ledger_cash.amount - previous.cash.ledger_cash.amount
             self._external_cash_flow[snapshot.account_id] = external
         self._sequence += 1
         point = OnlyAccountEquityPoint(
@@ -103,7 +103,7 @@ class OnlyAccountPerformanceProjector:
             snapshot.updated_at,
             trading_day,
             snapshot.base_currency,
-            snapshot.cash.cash_balance,
+            snapshot.cash.ledger_cash,
             snapshot.position_market_value,
             snapshot.realized_pnl,
             snapshot.unrealized_pnl,

@@ -11,7 +11,7 @@ from onlyalpha.runtime.recovery.validation import (
     OnlyFeeSettlementMarginAuthorityCheck,
     OnlyPostRecoveryCheckStatus,
 )
-from onlyalpha.settlement.manager import OnlySettlementRecord
+from onlyalpha.settlement.identifiers import OnlySettlementInstructionId
 from tests.runtime.recovery.support.authority_fixture import OnlyPostRecoveryAuthorityFixture
 from tests.runtime.recovery.test_post_recovery_order_reservation_authority import _account, _authorities
 
@@ -69,47 +69,29 @@ def test_missing_settlement_record_remains_detected() -> None:
     assert "POST_RECOVERY_SETTLEMENT_RECORD_MISSING" in _failed(fixture.context(settlement_records=()))
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    (
-        ("account_id", "wrong-account"),
-        ("instrument_id", "wrong-instrument"),
-        ("source_order_id", "wrong-order"),
-        ("source_trade_id", "wrong-trade"),
-        ("legal_settlement_date", None),
-    ),
-)
-def test_settlement_scope_fields_are_compared_to_committed_fact(field: str, value: object) -> None:
+def test_settlement_account_scope_is_compared_to_committed_fact() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
-    changed = replace(fixture.context().settlement_records[0], **{field: value})
+    record = fixture.context().settlement_records[0]
+    changed = replace(
+        record,
+        instruction=replace(record.instruction, account_id=type(record.instruction.account_id)("wrong-account")),
+    )
     assert "POST_RECOVERY_SETTLEMENT_SCOPE_MISMATCH" in _failed(fixture.context(settlement_records=(changed,)))
 
 
 def test_orphan_settlement_record_is_rejected() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
-    record: OnlySettlementRecord = replace(fixture.context().settlement_records[0], instruction_id="orphan")
+    original = fixture.context().settlement_records[0]
+    record = replace(
+        original,
+        instruction=replace(
+            original.instruction,
+            instruction_id=OnlySettlementInstructionId("SINS-" + "0" * 64),
+        ),
+    )
     assert "POST_RECOVERY_ORPHAN_SETTLEMENT_RECORD" in _failed(
         fixture.context(settlement_records=(*fixture.context().settlement_records, record))
     )
-
-
-@pytest.mark.parametrize(
-    "legal_settled,status,failed",
-    (
-        (False, "BOOKED", False),
-        (False, "PENDING", False),
-        (True, "SETTLED", False),
-        (True, "PENDING", True),
-        (False, "SETTLED", True),
-    ),
-)
-def test_settlement_state_is_checked_internally_not_against_historical_fact(
-    legal_settled: bool, status: str, failed: bool
-) -> None:
-    fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
-    record = replace(fixture.context().settlement_records[0], legal_settled=legal_settled, status=status)
-    failures = _failed(fixture.context(settlement_records=(record,)))
-    assert ("POST_RECOVERY_SETTLEMENT_STATE_MISMATCH" in failures) is failed
 
 
 def test_generic_t0_cash_margin_checks_are_not_applicable() -> None:

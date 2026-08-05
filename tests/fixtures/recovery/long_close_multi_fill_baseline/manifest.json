@@ -138,12 +138,12 @@
   },
   "checkpoint_id": "backtest-0c6981aa2050c745:30",
   "committed_fact_ids": [
-    "virtual-trade-00000001",
-    "virtual-trade-00000002",
-    "virtual-trade-00000003",
-    "virtual-trade-00000004",
-    "virtual-trade-00000005",
-    "virtual-trade-00000006"
+    "EFILL-d971b76a2c8a5bed57bfdbeb213d6f3ff7e0e44a6693e3287ce7144624b62d05",
+    "EFILL-e6fefb76781f2e37961f8489d8d5ed01372e8709506e812776031ec06616adef",
+    "EFILL-67bae4797b5bd2cf4e1d65df6c85fe4c79b10832ebad6ffae18d3b32f45b55ad",
+    "EFILL-4ea284e1e36e80261e6dadecaa58f3f9bcd767ff3860e0c24db3bc9deebf5fae",
+    "EFILL-08ca4fce600efdcba0e81f7113686be03b125ec29be6b05e64f66b952ff09b0e",
+    "EFILL-fba66b271a5e2bf6e6d879b227d15968167aab03c242ec289fbb22eaf276b306"
   ],
   "committed_transaction_ids": [
     "ETX-9470b72a5a17f4e02ee08609297b7dd944e9e915d09b89319dc748405a396fbf",
@@ -153,15 +153,15 @@
     "ETX-98330302f43a6c50b2a85bc4a79e26b764610acfe557ebe1144683fa4205690e",
     "ETX-a119cd657b29fbff85ad4d6e73b38b08769d2a8f53fc61ba38780e94df20d6b8"
   ],
-  "configuration_fingerprint": "62d45701d2baea8b2a4258184ca2663a59cbb5dd1b213e13427de2b89d4daad3",
+  "configuration_fingerprint": "7e2833ce4d5a113e9f6a7169ccb6819331af1dcba85610ded95d50d4a315b4ec",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "a646b35425237da4702c92987ef81a99a4db8ad1f065317b41e580af6d48b725",
-  "database_template": "long_close_multi_fill_baseline-a646b35425237da4702c92987ef81a99a4db8ad1f065317b41e580af6d48b725.sqlite3",
+  "database_fingerprint": "69683a889ad6458bbefd7934d698bb42ad8e7adf580da3ee4cc32cb640be8df6",
+  "database_template": "long_close_multi_fill_baseline-69683a889ad6458bbefd7934d698bb42ad8e7adf580da3ee4cc32cb640be8df6.sqlite3",
   "fill_count": 6,
   "onlyalpha_version": "0.3.2",
   "order_count": 2,
-  "persistence_schema_version": "1",
-  "result_fingerprint": "c5b109c8114c2d80b326d249405a4d13e7c9a04758c4f5b26988658f0f2d84ce",
-  "scenario_fingerprint": "62d45701d2baea8b2a4258184ca2663a59cbb5dd1b213e13427de2b89d4daad3",
+  "persistence_schema_version": "4",
+  "result_fingerprint": "01c9bda47efed911816317c50aa1e8128eb9d58230a446420ebf039494aa578b",
+  "scenario_fingerprint": "7e2833ce4d5a113e9f6a7169ccb6819331af1dcba85610ded95d50d4a315b4ec",
   "terminal_count": 0
 }

@@ -77,18 +77,9 @@ from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
-from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
 from onlyalpha.execution.capability import OnlyExecutionCapability, only_resolve_execution_capability
-from onlyalpha.execution.commit_coordinator import OnlyExecutionCommitCoordinator
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
-from onlyalpha.execution.delivery import (
-    OnlyExecutionEventDeliveryCoordinator,
-    OnlyExecutionEventDeliveryIntent,
-    OnlyExecutionEventDeliveryMode,
-    OnlyExecutionOutboxPublisher,
-    OnlyRoutedDirectExecutionPublisher,
-)
-from onlyalpha.execution.enums import OnlyExecutionOperationKind, OnlyExecutionProcessingStatus
+from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.execution_state import (
     OnlyAccountExecutionState,
@@ -114,15 +105,10 @@ from onlyalpha.execution.planning_context import (
     OnlyTradeExecutionPlanningContext,
 )
 from onlyalpha.execution.processor import OnlyExecutionProcessor
-from onlyalpha.execution.projection import (
-    OnlyValuationExecutionState,
-)
-from onlyalpha.execution.projection_applier import OnlyExecutionProjectionApplier
 from onlyalpha.execution.projection_targets import (
     OnlyExecutionValuationAuthority,
     only_create_generic_t0_execution_projection_targets,
 )
-from onlyalpha.execution.recovery import OnlyExecutionRecoveryService
 from onlyalpha.execution.scope import OnlyExecutionPositionScope
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
@@ -170,10 +156,9 @@ from onlyalpha.position.authority import OnlyPositionAuthorityPolicy
 from onlyalpha.position.enums import OnlyPositionMode
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.position.keys import OnlyPositionAllocationKey
-from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionTrade, OnlySettlementResult
+from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionTrade
 from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
 from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter
-from onlyalpha.position.settlement import OnlySettlementService
 from onlyalpha.position.views import OnlyPositionContextView, OnlyPositionRiskView
 from onlyalpha.risk.contexts import OnlyRiskStateUpdateContext
 from onlyalpha.risk.factory import OnlyRiskProfileFactory
@@ -243,6 +228,7 @@ from onlyalpha.runtime.runtime import (
     OnlyRuntimeServices,
     OnlyRuntimeState,
 )
+from onlyalpha.runtime.trading_day_boundary import OnlyRuntimeTradingDayBoundaryCoordinator
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.models import (
     OnlyStrategyCashSnapshot,
@@ -254,6 +240,21 @@ from onlyalpha.strategy_ledger.order_port import OnlyOrderStrategyCashReservatio
 from onlyalpha.strategy_ledger.publisher import OnlyRuntimeStrategyLedgerEventPublisherAdapter
 from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
 from onlyalpha.strategy_ledger.views import OnlyStrategyLedgerContextView, OnlyStrategyLedgerRiskView
+from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
+from onlyalpha.transaction.coordinator import OnlyRuntimeTransactionCoordinator
+from onlyalpha.transaction.delivery import (
+    OnlyExecutionEventDeliveryCoordinator,
+    OnlyExecutionEventDeliveryIntent,
+    OnlyExecutionEventDeliveryMode,
+    OnlyExecutionOutboxPublisher,
+    OnlyRoutedDirectExecutionPublisher,
+)
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from onlyalpha.transaction.projection import (
+    OnlyValuationExecutionState,
+)
+from onlyalpha.transaction.projection_applier import OnlyRuntimeProjectionApplier
+from onlyalpha.transaction.recovery import OnlyExecutionRecoveryService
 
 
 class OnlyBacktestRunPlanPort(Protocol):
@@ -515,7 +516,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         execution_audit_store = OnlyInMemoryExecutionAuditStore()
         persistence_store = runtime_persistence_store
-        applied_projection_ledger = OnlyInMemoryAppliedProjectionLedger()
+        applied_projection_ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
         self._applied_projection_ledger = applied_projection_ledger
         execution_valuation_authority = OnlyExecutionValuationAuthority(
             account_performance=self._account_performance_projector,
@@ -527,7 +528,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_manager=position_manager,
             allocation_manager=allocation_manager,
             position_reservation_manager=position_reservations,
-            settlement_manager=self._settlement_manager,
+            settlement_authority=self._settlement_authority,
             fee_manager=self._fee_manager,
             order_fee_accrual_manager=self._order_fee_accrual_manager,
             account_manager=self._account_manager,
@@ -536,13 +537,20 @@ class OnlyBacktestRuntime(OnlyRuntime):
             valuation_authority=execution_valuation_authority,
             applied_ledger=applied_projection_ledger,
         )
-        execution_projection_applier = OnlyExecutionProjectionApplier(execution_projection_targets)
-        execution_commit_coordinator = OnlyExecutionCommitCoordinator(
+        execution_projection_applier = OnlyRuntimeProjectionApplier(execution_projection_targets)
+        execution_commit_coordinator = OnlyRuntimeTransactionCoordinator(
             commit_port=persistence_store,
             query_port=persistence_store,
             projection_state_port=persistence_store,
             projection_applier=execution_projection_applier,
             now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+        )
+        self._trading_day_boundary_coordinator = OnlyRuntimeTradingDayBoundaryCoordinator(
+            settlement_authority=self._settlement_authority,
+            position_manager=position_manager,
+            allocation_manager=allocation_manager,
+            account_manager=self._account_manager,
+            transaction_coordinator=execution_commit_coordinator,
         )
         execution_recovery_service = OnlyExecutionRecoveryService(execution_commit_coordinator)
         execution_outbox_publisher = OnlyExecutionOutboxPublisher(
@@ -605,7 +613,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._set_broker_connection_state,
             runtime_config.strategy_base_currency,
             runtime_config.market_rule_engine,
-            self._settlement_manager,
+            self._settlement_authority,
             self._margin_manager,
             self._fee_manager,
             fee_resolver,
@@ -674,10 +682,10 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if self._last_market_trading_day is None:
                     self._last_market_trading_day = trading_day
                 elif trading_day != self._last_market_trading_day:
-                    self._services.settlement_service.settle_account(
-                        runtime_config.default_account_id,  # type: ignore[arg-type]
+                    self._trading_day_boundary_coordinator.process_boundary(
                         self._last_market_trading_day,
                         trading_day,
+                        OnlyTimestamp.from_datetime(result.base_bar.ts_event),
                     )
                     self._last_market_trading_day = trading_day
                 self._apply_market_valuations(result.base_bar, trading_day)
@@ -754,8 +762,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_query,
             self._strategy_ledger_manager,
             self._strategy_ledger_query,
-            OnlySettlementService(position_manager, allocation_manager),
-            self._settlement_manager,
+            self._settlement_authority,
             self._margin_manager,
             self._fee_manager,
             OnlyStrategyValuationService(),
@@ -937,9 +944,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "settlement.authority",
-                1,
-                self._settlement_manager.capture_checkpoint,
-                self._settlement_manager.restore_checkpoint,
+                2,
+                self._settlement_authority.capture_checkpoint,
+                self._settlement_authority.restore_checkpoint,
             )
         )
         self._checkpoint_registry.register(
@@ -1178,7 +1185,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             outcome=outcome,
             transaction_query=self._services.execution_transaction_query,
             ready_transaction_query=self._services.ready_execution_query,
-            outbox_query=self._services.execution_transaction_outbox,
+            outbox_query=self._services.runtime_transaction_outbox,
             applied_projection_view=self._applied_projection_ledger,
             runtime_boundary_view=OnlyRuntimeBoundaryAuthorityView(
                 runtime_id,
@@ -1202,7 +1209,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             risk_reservations=self._services.risk_service.reservations.snapshot_all(),
             margin_reservations=self._margin_manager.active_reservations,
             fee_records=self._fee_manager.records,
-            settlement_records=self._settlement_manager.records,
+            settlement_records=self._settlement_authority.records,
             margin_records=self._margin_manager.records,
             broker_view=broker_view,
             ledger_reconciliation_violations=tuple(violations),
@@ -1483,7 +1490,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
                     f"MD-{self.config.runtime_id}-{self._legacy_market_data_sequence:012d}-"
                     f"{OnlyTimestamp.from_datetime(bar.ts_event).unix_nanos}"
                 ),
-                self.config.runtime_id,  # type: ignore[arg-type]
+                OnlyRuntimeId(str(self.config.runtime_id)),
                 source_id,
                 OnlyDataSequence(self._legacy_market_data_sequence),
                 data_version,
@@ -1629,33 +1636,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             raise TypeError("Trade ingress did not produce an Execution processing result")
         return result
 
-    def settle_positions(
-        self,
-        previous_trading_day: OnlyTradingDay,
-        trading_day: OnlyTradingDay,
-    ) -> tuple[OnlySettlementResult, ...]:
-        """Run existing calendar-derived Position and Allocation settlement."""
-
-        if self._state is not OnlyRuntimeState.RUNNING:
-            raise OnlyLifecycleError("Runtime settles Positions only while RUNNING")
-        self._services.execution_event_buffer.begin()
-        try:
-            result = self._services.settlement_service.settle_account(
-                self.config.default_account_id,  # type: ignore[arg-type]
-                previous_trading_day,
-                trading_day,
-            )
-        except Exception:
-            self._services.execution_event_buffer.abort()
-            raise
-        batch = self._services.execution_event_buffer.seal()
-        delivery = self._services.execution_delivery_coordinator.deliver(
-            self.config.runtime_id,  # type: ignore[arg-type]
-            OnlyExecutionEventDeliveryIntent(OnlyExecutionEventDeliveryMode.DIRECT, direct_batch=batch),
-        )
-        self._record_execution_delivery(None, delivery)
-        return result
-
     def _validate_trade(
         self,
         update: OnlyGatewayOrderFillUpdate,
@@ -1731,7 +1711,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         return (
             bool(ledgers)
-            and account.cash.cash_balance.amount == sum((item.cash.cash_balance.amount for item in ledgers), Decimal(0))
+            and account.cash.ledger_cash.amount == sum((item.cash.ledger_cash.amount for item in ledgers), Decimal(0))
             and account.position_market_value.amount
             == sum((item.equity.position_market_value.amount for item in ledgers), Decimal(0))
         )
@@ -1823,7 +1803,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             currency=account_snapshot.base_currency,
         )
         capability = only_resolve_execution_capability(
-            operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
             market_profile_id=instruction.compiled_identity.profile_id,
             account_type=account_snapshot.account_type,
             order_type=order.order_type,
@@ -1949,7 +1929,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             allocation_creation=allocation_creation,
             position_cycle=position_cycle,
             allocation_cycle=allocation_cycle,
-            settlement_record_sequence=self._services.settlement_manager.sequence_head,
+            settlement_record_sequence=self._services.settlement_authority.sequence_head,
             fee_record_sequence=self._services.fee_manager.sequence_head,
             account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
             ledger_equity_sequence=self._strategy_ledger_manager.equity_sequence_head,
@@ -1991,7 +1971,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             currency=account.base_currency,
         )
         capability = only_resolve_execution_capability(
-            operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
+            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
             market_profile_id=compiled.identity.profile_id,
             account_type=account.account_type,
             order_type=order.order_type,
@@ -2052,7 +2032,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         state = OnlyValuationExecutionState(
             account_id,
             valuation_time,
-            snapshot.cash.cash_balance,
+            snapshot.cash.ledger_cash,
             snapshot.position_market_value,
             snapshot.unrealized_pnl,
             snapshot.equity,
@@ -2262,7 +2242,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         return OnlyClusterContext(
             self.config.engine_id,  # type: ignore[arg-type]
-            self.config.runtime_id,  # type: ignore[arg-type]
+            OnlyRuntimeId(str(self.config.runtime_id)),
             cluster_id,
             self.config.mode,
             OnlyClockView(self._services.clock),
@@ -2549,7 +2529,13 @@ def _execution_bootstrap_account_snapshot(
         state.account_type,
         state.base_currency,
         state.status,
-        OnlyAccountCashBalance(state.cash_balance, state.available_cash, state.frozen_cash, state.unsettled_cash),
+        OnlyAccountCashBalance(
+            state.ledger_cash,
+            state.trade_available_cash,
+            state.withdrawable_cash,
+            state.order_reserved_cash,
+            state.unsettled_receivable_cash,
+        ),
         state.position_market_value,
         state.realized_pnl,
         state.unrealized_pnl,
@@ -2592,7 +2578,7 @@ def _execution_bootstrap_ledger_snapshot(
         )
     )
     daily_pnl = state.equity - current.equity.equity + current.equity.daily_pnl
-    cash = OnlyStrategyCashSnapshot(state.cash_balance, state.cash_reserved, state.cash_available)
+    cash = OnlyStrategyCashSnapshot(state.ledger_cash, state.cash_reserved, state.cash_available)
     pnl = OnlyStrategyPnLSnapshot(state.realized_pnl, state.unrealized_pnl, state.fees, net)
     equity = replace(
         current.equity,
@@ -2602,7 +2588,7 @@ def _execution_bootstrap_ledger_snapshot(
         version=state.version,
         initial_capital=state.initial_capital,
         external_cash_flow=state.external_cash_flow,
-        cash_balance=state.cash_balance,
+        ledger_cash=state.ledger_cash,
         cash_reserved=state.cash_reserved,
         cash_available=state.cash_available,
         position_cost=state.position_cost,
@@ -2612,7 +2598,7 @@ def _execution_bootstrap_ledger_snapshot(
         fees=state.fees,
         net_pnl=net,
         equity=state.equity,
-        equity_by_cash_view=state.cash_balance + state.position_market_value,
+        equity_by_cash_view=state.ledger_cash + state.position_market_value,
         equity_by_pnl_view=state.initial_capital + state.external_cash_flow + net,
         high_water_mark=high,
         drawdown=drawdown,

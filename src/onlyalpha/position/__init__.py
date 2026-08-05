@@ -70,7 +70,6 @@ from onlyalpha.position.reservations import (
     OnlyPositionReservationManager,
     OnlyPositionReservationResult,
 )
-from onlyalpha.position.settlement import OnlySettlementRule, OnlySettlementService, OnlyT1SettlementRule
 from onlyalpha.position.views import (
     OnlyAccountPositionQueryView,
     OnlyAccountPositionRiskView,

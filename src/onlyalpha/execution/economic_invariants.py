@@ -6,13 +6,11 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
-
-from .enums import OnlyExecutionOperationKind
-from .projection import (
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
-    OnlyExecutionProjection,
     OnlyFeeExecutionProjection,
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
@@ -23,22 +21,24 @@ from .projection import (
     OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
+    OnlyRuntimeProjection,
     OnlySettlementExecutionProjection,
     OnlyStrategyCashReservationExecutionProjection,
     OnlyStrategyLedgerExecutionProjection,
 )
+
 from .reservation_presence import OnlyExecutionReservationPresence, only_expected_execution_reservations
-from .transaction import OnlyCommittedExecutionFactDraft
+from .trade_fact import OnlyCommittedExecutionFactDraft
 
 if TYPE_CHECKING:
-    from .transaction import OnlyPreparedExecutionTransaction
+    from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction
 
 
 class OnlyPreparedExecutionEconomicInvariantValidator:
     """Reject a prepared transaction whose facts and authority states disagree."""
 
-    def validate(self, prepared: OnlyPreparedExecutionTransaction) -> None:
-        if prepared.operation_kind is OnlyExecutionOperationKind.ORDER_TERMINAL:
+    def validate(self, prepared: OnlyPreparedRuntimeTransaction) -> None:
+        if prepared.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL:
             self._validate_terminal(prepared)
             return
         fact = _trade_fact(prepared)
@@ -109,7 +109,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         ):
             raise ValueError("Order fee accrual projection contradicts execution fact")
 
-        if account.after.cash_balance.amount - account.before.cash_balance.amount != fact.account_cash_delta.amount:
+        if account.after.ledger_cash.amount - account.before.ledger_cash.amount != fact.account_cash_delta.amount:
             raise ValueError("Account projection cash delta contradicts execution fact")
         if account.after.fees.amount - account.before.fees.amount != fact.account_fee_delta.amount:
             raise ValueError("Account projection fee delta contradicts execution fact")
@@ -118,7 +118,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             != fact.account_realized_pnl_delta.amount
         ):
             raise ValueError("Account projection realized PnL contradicts execution fact")
-        if ledger.after.cash_balance.amount - ledger.before.cash_balance.amount != fact.ledger_cash_delta.amount:
+        if ledger.after.ledger_cash.amount - ledger.before.ledger_cash.amount != fact.ledger_cash_delta.amount:
             raise ValueError("Strategy Ledger projection cash delta contradicts execution fact")
         if ledger.after.fees.amount - ledger.before.fees.amount != fact.ledger_fee_delta.amount:
             raise ValueError("Strategy Ledger projection fee delta contradicts execution fact")
@@ -259,7 +259,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         self._validate_risk_reservations(prepared)
 
     @staticmethod
-    def _validate_terminal(prepared: OnlyPreparedExecutionTransaction) -> None:
+    def _validate_terminal(prepared: OnlyPreparedRuntimeTransaction) -> None:
         from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft
 
         fact = prepared.fact_draft
@@ -327,7 +327,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             raise ValueError("terminal projections contradict Terminal Fact")
 
     @staticmethod
-    def _validate_cash_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
+    def _validate_cash_reservations(prepared: OnlyPreparedRuntimeTransaction) -> None:
         fact = _trade_fact(prepared)
         accounts = _all(prepared.projections, OnlyAccountCashReservationExecutionProjection)
         strategies = _all(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
@@ -391,7 +391,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 raise ValueError("Position Reservation consumption contradicts execution fact")
 
     @staticmethod
-    def _validate_risk_reservations(prepared: OnlyPreparedExecutionTransaction) -> None:
+    def _validate_risk_reservations(prepared: OnlyPreparedRuntimeTransaction) -> None:
         fact = _trade_fact(prepared)
         risk_projection = _one(prepared.projections, OnlyRiskExecutionProjection)
         risk = risk_projection.after
@@ -448,7 +448,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 raise ValueError("Risk Reservation consumption contradicts execution fact")
 
     @staticmethod
-    def _validate_scope(prepared: OnlyPreparedExecutionTransaction) -> None:
+    def _validate_scope(prepared: OnlyPreparedRuntimeTransaction) -> None:
         fact = _trade_fact(prepared)
         order = _one(prepared.projections, OnlyOrderExecutionProjection).after
         position = _one(prepared.projections, OnlyPositionExecutionProjection).after
@@ -502,7 +502,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
 
     @staticmethod
     def _validate_reservation_presence(
-        prepared: OnlyPreparedExecutionTransaction, presence: OnlyExecutionReservationPresence
+        prepared: OnlyPreparedRuntimeTransaction, presence: OnlyExecutionReservationPresence
     ) -> None:
         requirements = (
             (OnlyAccountCashReservationExecutionProjection, presence.require_account_cash),
@@ -518,7 +518,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
                 raise ValueError(f"execution requires exactly {expected} {projection_type.__name__}; received {count}")
 
     @staticmethod
-    def _validate_margin_account(prepared: OnlyPreparedExecutionTransaction) -> None:
+    def _validate_margin_account(prepared: OnlyPreparedRuntimeTransaction) -> None:
         fact = _trade_fact(prepared)
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
         margin = _one(prepared.projections, OnlyMarginExecutionProjection).after
@@ -551,8 +551,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             raise ValueError("Margin Fact, Account and Reservation states do not reconcile")
 
 
-def _one[ProjectionT: OnlyExecutionProjection](
-    projections: tuple[OnlyExecutionProjection, ...], projection_type: type[ProjectionT]
+def _one[ProjectionT: OnlyRuntimeProjection](
+    projections: tuple[OnlyRuntimeProjection, ...], projection_type: type[ProjectionT]
 ) -> ProjectionT:
     matches = tuple(item for item in projections if isinstance(item, projection_type))
     if len(matches) != 1:
@@ -582,15 +582,15 @@ def _validate_close_average(
         raise ValueError(f"{component} remaining close average contradicts exact cost")
 
 
-def _trade_fact(prepared: OnlyPreparedExecutionTransaction) -> OnlyCommittedExecutionFactDraft:
+def _trade_fact(prepared: OnlyPreparedRuntimeTransaction) -> OnlyCommittedExecutionFactDraft:
     fact = prepared.fact_draft
     if not isinstance(fact, OnlyCommittedExecutionFactDraft):
         raise ValueError("Trade execution requires a Trade Fact")
     return fact
 
 
-def _all[ProjectionT: OnlyExecutionProjection](
-    projections: tuple[OnlyExecutionProjection, ...], projection_type: type[ProjectionT]
+def _all[ProjectionT: OnlyRuntimeProjection](
+    projections: tuple[OnlyRuntimeProjection, ...], projection_type: type[ProjectionT]
 ) -> tuple[ProjectionT, ...]:
     return tuple(item for item in projections if isinstance(item, projection_type))
 

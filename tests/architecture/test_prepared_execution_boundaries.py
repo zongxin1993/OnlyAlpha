@@ -34,9 +34,7 @@ def test_new_transaction_commit_port_has_no_two_step_sequence_or_append_contract
     source = Path("src/onlyalpha/execution/persistence_ports.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     protocol = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "OnlyExecutionTransactionCommitPort"
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyRuntimeTransactionCommitPort"
     )
     methods = {node.name for node in protocol.body if isinstance(node, ast.FunctionDef)}
     assert methods == {"commit"}
@@ -86,7 +84,7 @@ def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_abse
         "before_filled_quantity",
         "after_filled_quantity",
         "external_update_id",
-        "only_prepared_execution_transaction_hash",
+        "only_prepared_runtime_transaction_hash",
         "prepared_hash",
     ):
         assert replaced not in source
@@ -105,7 +103,7 @@ def test_execution_authority_states_are_strongly_typed_and_store_errors_are_dist
         encoding="utf-8"
     )
 
-    from onlyalpha.execution import OnlyExecutionTransactionConflict, OnlyRuntimePersistenceStoreError
+    from onlyalpha.execution import OnlyRuntimePersistenceStoreError, OnlyRuntimeTransactionConflict
 
-    assert not issubclass(OnlyRuntimePersistenceStoreError, OnlyExecutionTransactionConflict)
-    assert not issubclass(OnlyExecutionTransactionConflict, OnlyRuntimePersistenceStoreError)
+    assert not issubclass(OnlyRuntimePersistenceStoreError, OnlyRuntimeTransactionConflict)
+    assert not issubclass(OnlyRuntimeTransactionConflict, OnlyRuntimePersistenceStoreError)

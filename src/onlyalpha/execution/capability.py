@@ -8,8 +8,7 @@ from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
-
-from .enums import OnlyExecutionOperationKind
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
 
 class OnlyExecutionCapability(StrEnum):
@@ -21,7 +20,7 @@ class OnlyExecutionCapability(StrEnum):
 
 def only_resolve_execution_capability(
     *,
-    operation_kind: OnlyExecutionOperationKind,
+    operation_kind: OnlyRuntimeOperationKind,
     market_profile_id: str,
     account_type: OnlyAccountType,
     order_type: OnlyOrderType,
@@ -53,9 +52,9 @@ def only_resolve_execution_capability(
         return OnlyExecutionCapability.LEGACY_UNMIGRATED
 
     if generic_cash:
-        if operation_kind is OnlyExecutionOperationKind.TRADE_FILL and long_netting_limit and (buy_open or sell_close):
+        if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL and long_netting_limit and (buy_open or sell_close):
             return OnlyExecutionCapability.DURABLE_TRADE
-        if operation_kind is OnlyExecutionOperationKind.ORDER_TERMINAL and long_netting_limit and sell_close:
+        if operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL and long_netting_limit and sell_close:
             return OnlyExecutionCapability.DURABLE_TERMINAL
         return OnlyExecutionCapability.UNSUPPORTED
 

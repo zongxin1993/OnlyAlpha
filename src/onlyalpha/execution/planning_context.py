@@ -17,6 +17,11 @@ from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint
+from onlyalpha.transaction.projection import (
+    OnlyFeeExecutionState,
+    OnlySettlementExecutionState,
+    OnlyValuationExecutionState,
+)
 
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -32,11 +37,6 @@ from .execution_state import (
     OnlyStrategyLedgerExecutionState,
 )
 from .fill_identity import OnlyExecutionFillAuthority
-from .projection import (
-    OnlyFeeExecutionState,
-    OnlySettlementExecutionState,
-    OnlyValuationExecutionState,
-)
 from .scope import OnlyExecutionPositionScope
 from .terminal_identity import OnlyBrokerOrderTerminalUpdate, OnlyExecutionTerminalAuthority
 

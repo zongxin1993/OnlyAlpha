@@ -16,8 +16,8 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     broker = env.runtime.broker_gateway.query_account(OnlyAccountId(ACCOUNT_ID))
     conflict = replace(
         broker,
-        cash_balance=OnlyMoney(broker.cash_balance.amount - Decimal("1.00"), CNY),
-        available_cash=OnlyMoney(broker.available_cash.amount - Decimal("1.00"), CNY),
+        ledger_cash=OnlyMoney(broker.ledger_cash.amount - Decimal("1.00"), CNY),
+        trade_available_cash=OnlyMoney(broker.trade_available_cash.amount - Decimal("1.00"), CNY),
         equity=OnlyMoney(broker.equity.amount - Decimal("1.00"), CNY),
     )
     now = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
@@ -39,7 +39,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     env.runtime.drain_broker_inbound()
     local_after = env.runtime.account_manager.list_accounts()[0]
 
-    assert local_after.cash.cash_balance == local_before.cash.cash_balance
+    assert local_after.cash.ledger_cash == local_before.cash.ledger_cash
     assert local_after.status.value == "RECONCILING"
     return env.report_builder.scenario(
         "017", "Broker/Local 冲突", "冲突被显式阻断且 Broker Snapshot 未静默覆盖本地真值"

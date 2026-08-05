@@ -11,13 +11,31 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuant
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.fee.models import OnlyFeeInstruction
 from onlyalpha.market.models import OnlyPositionEffect
-from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
 from onlyalpha.position.enums import (
     OnlyPositionReservationStage,
     OnlyPositionStatus,
     OnlySettlementBucket,
 )
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
+from onlyalpha.settlement.models import OnlySettlementInstruction
+from onlyalpha.transaction.projection import (
+    OnlyAllocationExecutionProjection,
+    OnlyAllocationExecutionReplayMetadata,
+    OnlyFeeExecutionProjection,
+    OnlyFeeExecutionState,
+    OnlyFeeInstructionReplay,
+    OnlyFeeRecordReplay,
+    OnlyOrderExecutionProjection,
+    OnlyPositionExecutionProjection,
+    OnlyPositionExecutionReplayMetadata,
+    OnlyRuntimeProjectionComponent,
+    OnlySettlementExecutionProjection,
+    OnlySettlementExecutionState,
+    OnlySettlementRecordReplay,
+    OnlyValuationExecutionProjection,
+    OnlyValuationExecutionState,
+)
+from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 
 from ..close_cost_authority import OnlyAttributedCloseCostAuthority
 from ..execution_state import (
@@ -29,24 +47,6 @@ from ..execution_state import (
 from ..planned_trade import OnlyPlannedTrade
 from ..planning_context import OnlyAllocationCreationAuthority, OnlyPositionCreationAuthority
 from ..planning_results import OnlyExecutionEventIntent
-from ..projection import (
-    OnlyAllocationExecutionProjection,
-    OnlyAllocationExecutionReplayMetadata,
-    OnlyExecutionProjectionComponent,
-    OnlyFeeExecutionProjection,
-    OnlyFeeExecutionState,
-    OnlyFeeInstructionReplay,
-    OnlyFeeRecordReplay,
-    OnlyOrderExecutionProjection,
-    OnlyPositionExecutionProjection,
-    OnlyPositionExecutionReplayMetadata,
-    OnlySettlementExecutionProjection,
-    OnlySettlementExecutionState,
-    OnlySettlementRecordReplay,
-    OnlyValuationExecutionProjection,
-    OnlyValuationExecutionState,
-)
-from ..projection_builder import OnlyExecutionProjectionBuilder
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,10 +145,10 @@ class OnlyOrderTradeReducer:
             version=before.version + 1,
             last_external_sequence=trade.source_sequence,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyOrderExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.ORDER,
+                component=OnlyRuntimeProjectionComponent.ORDER,
                 entity_key=str(before.order_id),
                 before=before,
                 after=after,
@@ -166,7 +166,7 @@ class OnlyOrderTradeReducer:
             projection,
             (
                 _intent(
-                    OnlyExecutionProjectionComponent.ORDER,
+                    OnlyRuntimeProjectionComponent.ORDER,
                     "ORDER_FILLED" if terminal else "ORDER_PARTIALLY_FILLED",
                     after.to_dict(),
                 ),
@@ -249,10 +249,10 @@ class OnlyPositionTradeReducer:
                 last_trade_order=trade.stable_order,
                 cumulative_open_price_quantity=cumulative_after,
             )
-            builder = OnlyExecutionProjectionBuilder()
+            builder = OnlyRuntimeProjectionBuilder()
             projection = OnlyPositionExecutionProjection(
                 builder.identity(
-                    component=OnlyExecutionProjectionComponent.POSITION,
+                    component=OnlyRuntimeProjectionComponent.POSITION,
                     entity_key=str(after.position_id),
                     before=before,
                     after=after,
@@ -271,7 +271,7 @@ class OnlyPositionTradeReducer:
                 realized,
                 (
                     _intent(
-                        OnlyExecutionProjectionComponent.POSITION,
+                        OnlyRuntimeProjectionComponent.POSITION,
                         "POSITION_CLOSED" if quantity_after == 0 else "POSITION_DECREASED",
                         after.to_dict(),
                     ),
@@ -347,10 +347,10 @@ class OnlyPositionTradeReducer:
             cumulative,
         )
         zero = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyPositionExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.POSITION,
+                component=OnlyRuntimeProjectionComponent.POSITION,
                 entity_key=str(after.position_id),
                 before=before,
                 after=after,
@@ -368,7 +368,7 @@ class OnlyPositionTradeReducer:
             after,
             projection,
             zero,
-            (_intent(OnlyExecutionProjectionComponent.POSITION, event_type, after.to_dict()),),
+            (_intent(OnlyRuntimeProjectionComponent.POSITION, event_type, after.to_dict()),),
         )
 
 
@@ -433,10 +433,10 @@ class OnlyAllocationTradeReducer:
                 last_trade_order=trade.stable_order,
                 cumulative_open_price_quantity=cumulative_after,
             )
-            builder = OnlyExecutionProjectionBuilder()
+            builder = OnlyRuntimeProjectionBuilder()
             projection = OnlyAllocationExecutionProjection(
                 builder.identity(
-                    component=OnlyExecutionProjectionComponent.ALLOCATION,
+                    component=OnlyRuntimeProjectionComponent.ALLOCATION,
                     entity_key=str(after.allocation_id),
                     before=before,
                     after=after,
@@ -511,10 +511,10 @@ class OnlyAllocationTradeReducer:
             trade.stable_order,
             cumulative_before + trade.price.value * trade.quantity.value,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyAllocationExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.ALLOCATION,
+                component=OnlyRuntimeProjectionComponent.ALLOCATION,
                 entity_key=str(after.allocation_id),
                 before=before,
                 after=after,
@@ -534,7 +534,7 @@ class OnlySettlementTradeReducer:
     def reduce(
         self,
         before: OnlySettlementExecutionState | None,
-        instruction: OnlySettlementRuntimeInstruction,
+        instruction: OnlySettlementInstruction,
         trading_day: OnlyTradingDay,
         trade: OnlyPlannedTrade,
         *,
@@ -553,48 +553,53 @@ class OnlySettlementTradeReducer:
             )
         )
         flags_after = (
-            flags_before[0] or trading_day >= instruction.asset_available_on,
-            flags_before[1] or trading_day >= instruction.cash_trade_available_on,
-            flags_before[2] or trading_day >= instruction.cash_withdrawable_on,
-            flags_before[3] or trading_day >= instruction.legal_settlement_on,
+            flags_before[0] or trading_day >= instruction.schedule.asset_trade_available_on,
+            flags_before[1] or trading_day >= instruction.schedule.cash_trade_available_on,
+            flags_before[2] or trading_day >= instruction.schedule.cash_withdrawable_on,
+            flags_before[3] or trading_day >= instruction.schedule.legal_settlement_on,
         )
         after = OnlySettlementExecutionState(
-            instruction.instruction_id,
+            str(instruction.instruction_id),
             trade.account_id,
             trade.instrument_id,
             trade.order_id,
-            instruction.source_trade_id,
-            instruction.asset_quantity,
-            _money(instruction.cash_amount, currency),
+            str(instruction.trade_id),
+            instruction.trade_quantity.value,
+            instruction.gross_notional,
             *flags_after,
-            instruction.asset_available_on,
-            instruction.cash_trade_available_on,
-            instruction.cash_withdrawable_on,
-            instruction.legal_settlement_on,
+            instruction.schedule.asset_trade_available_on,
+            instruction.schedule.cash_trade_available_on,
+            instruction.schedule.cash_withdrawable_on,
+            instruction.schedule.legal_settlement_on,
             (1 if before is None else before.version) + int(flags_before != flags_after),
             record_sequence + int(flags_before != flags_after),
+            instruction,
         )
         records: tuple[OnlySettlementRecordReplay, ...] = ()
         if flags_before != flags_after:
             records = (
                 OnlySettlementRecordReplay(
-                    instruction.instruction_id,
+                    str(instruction.instruction_id),
                     after.account_id,
                     after.instrument_id,
                     after.source_order_id,
                     after.source_trade_id,
                     trading_day,
-                    instruction.asset_quantity if flags_after[0] else Decimal(0),
-                    _money(instruction.cash_amount if flags_after[1] else Decimal(0), currency),
-                    _money(instruction.cash_amount if flags_after[2] else Decimal(0), currency),
+                    instruction.trade_quantity.value if flags_after[0] else Decimal(0),
+                    instruction.cash_leg.account_availability_amount
+                    if flags_after[1]
+                    else _money(Decimal(0), currency),
+                    instruction.cash_leg.account_availability_amount
+                    if flags_after[2]
+                    else _money(Decimal(0), currency),
                     flags_after[3],
                     record_sequence + 1,
                 ),
             )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlySettlementExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.SETTLEMENT,
+                component=OnlyRuntimeProjectionComponent.SETTLEMENT,
                 entity_key=after.instruction_id,
                 before=before,
                 after=after,
@@ -609,7 +614,7 @@ class OnlySettlementTradeReducer:
         intents = (
             ()
             if not records
-            else (_intent(OnlyExecutionProjectionComponent.SETTLEMENT, "SETTLEMENT_UPDATED", after.to_dict()),)
+            else (_intent(OnlyRuntimeProjectionComponent.SETTLEMENT, "SETTLEMENT_UPDATED", after.to_dict()),)
         )
         return OnlySettlementTradeReduction(after, projection, intents)
 
@@ -656,10 +661,10 @@ class OnlyFeeTradeReducer:
             1 if before is None else before.version + 1,
             record_sequence + len(records),
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyFeeExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.FEE,
+                component=OnlyRuntimeProjectionComponent.FEE,
                 entity_key=instruction.instruction_id,
                 before=before,
                 after=after,
@@ -670,9 +675,7 @@ class OnlyFeeTradeReducer:
         )
         projection = builder.finalize(projection)
         assert isinstance(projection, OnlyFeeExecutionProjection)
-        intents = (
-            () if not records else (_intent(OnlyExecutionProjectionComponent.FEE, "FEE_RECORDED", after.to_dict()),)
-        )
+        intents = () if not records else (_intent(OnlyRuntimeProjectionComponent.FEE, "FEE_RECORDED", after.to_dict()),)
         return OnlyFeeTradeReduction(after, projection, intents)
 
 
@@ -696,10 +699,10 @@ class OnlyValuationTradeReducer:
             equity=account_cash + position_market_value,
             version=before.version + 1,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyValuationExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.VALUATION,
+                component=OnlyRuntimeProjectionComponent.VALUATION,
                 entity_key=str(after.account_id),
                 before=before,
                 after=after,
@@ -738,7 +741,7 @@ def _money(amount: Decimal, currency: OnlyCurrency) -> OnlyMoney:
     return OnlyMoney(amount.quantize(quantum), currency)
 
 
-def _intent(component: OnlyExecutionProjectionComponent, event_type: str, payload: object) -> OnlyExecutionEventIntent:
+def _intent(component: OnlyRuntimeProjectionComponent, event_type: str, payload: object) -> OnlyExecutionEventIntent:
     return OnlyExecutionEventIntent(
         component, OnlyEventType(event_type), payload, OnlyEventSource("execution.trade_planner")
     )

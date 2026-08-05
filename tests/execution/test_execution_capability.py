@@ -2,22 +2,23 @@ import pytest
 
 from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
-from onlyalpha.execution import OnlyExecutionCapability, OnlyExecutionOperationKind, only_resolve_execution_capability
+from onlyalpha.execution import OnlyExecutionCapability, only_resolve_execution_capability
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
+from onlyalpha.transaction import OnlyRuntimeOperationKind
 
 
 @pytest.mark.parametrize(
     ("operation_kind", "account_ledger_parity", "expected"),
     (
-        (OnlyExecutionOperationKind.TRADE_FILL, True, OnlyExecutionCapability.DURABLE_TRADE),
-        (OnlyExecutionOperationKind.ORDER_TERMINAL, True, OnlyExecutionCapability.DURABLE_TERMINAL),
-        (OnlyExecutionOperationKind.TRADE_FILL, False, OnlyExecutionCapability.LEGACY_UNMIGRATED),
-        (OnlyExecutionOperationKind.ORDER_TERMINAL, False, OnlyExecutionCapability.LEGACY_UNMIGRATED),
+        (OnlyRuntimeOperationKind.TRADE_FILL, True, OnlyExecutionCapability.DURABLE_TRADE),
+        (OnlyRuntimeOperationKind.ORDER_TERMINAL, True, OnlyExecutionCapability.DURABLE_TERMINAL),
+        (OnlyRuntimeOperationKind.TRADE_FILL, False, OnlyExecutionCapability.LEGACY_UNMIGRATED),
+        (OnlyRuntimeOperationKind.ORDER_TERMINAL, False, OnlyExecutionCapability.LEGACY_UNMIGRATED),
     ),
 )
 def test_generic_t0_long_close_requires_single_account_ledger_authority(
-    operation_kind: OnlyExecutionOperationKind,
+    operation_kind: OnlyRuntimeOperationKind,
     account_ledger_parity: bool,
     expected: OnlyExecutionCapability,
 ) -> None:

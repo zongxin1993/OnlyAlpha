@@ -5,18 +5,18 @@
 
 ## Context
 
-ADR 0038 在 Manager restore 后记录 `OnlyAppliedProjectionLedger`。若进程在两者之间失败，Manager 已是 Result Authority，空
+ADR 0038 在 Manager restore 后记录 `OnlyAppliedRuntimeProjectionLedger`。若进程在两者之间失败，Manager 已是 Result Authority，空
 ledger 重试却会把它误报为 version conflict。若再把 ledger 建成独立持久业务真相，它又可能与 durable transaction store 永久
 分叉。
 
 ## Decision
 
-`OnlyRuntimePersistenceStorePort` 中的 transaction 记录是唯一持久业务事务权威。`OnlyAppliedProjectionLedger` 是 Runtime Projection Application
+`OnlyRuntimePersistenceStorePort` 中的 transaction 记录是唯一持久业务事务权威。`OnlyAppliedRuntimeProjectionLedger` 是 Runtime Projection Application
 Acceleration Index：它按 execution sequence/component 快速识别重复 apply，支持 batch forward recovery，并避免每次重查完整
 Manager authority。
 
 Applied Ledger 必须能由正确 Bootstrap Authority 加 ordered committed transaction replay 确定性重建。当前只提供
-`OnlyInMemoryAppliedProjectionLedger`；不新增 SQLite ledger。未来若为性能持久化，它仍是可丢弃、可重建的 checkpoint/cache，
+`OnlyInMemoryAppliedRuntimeProjectionLedger`；不新增 SQLite ledger。未来若为性能持久化，它仍是可丢弃、可重建的 checkpoint/cache，
 不能决定交易、费用、结算或账户历史。
 
 Target 状态机固定为：

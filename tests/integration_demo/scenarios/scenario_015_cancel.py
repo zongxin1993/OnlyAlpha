@@ -23,7 +23,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     order = cancelled.runtime.order_manager.require_snapshot(submitted.order_id)
     account = cancelled.runtime.account_manager.list_accounts()[0]
     assert order.status is OnlyOrderStatus.CANCELLED
-    assert account.cash.frozen_cash.amount == Decimal("0.00")
+    assert account.cash.order_reserved_cash.amount == Decimal("0.00")
     assert not cancelled.runtime.risk_service.reservations.snapshot_active()
     return env.report_builder.scenario(
         "015", "Broker 确认撤单", "撤单回报经 Runtime Inbound Queue 释放全部本地 Reservation"

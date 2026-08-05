@@ -1,19 +1,19 @@
 import pytest
 
 from onlyalpha.execution import (
-    OnlyExecutionCommitCoordinator,
     OnlyExecutionOutboxPublisher,
     OnlyExecutionProcessingStatus,
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionComponent,
     OnlyExecutionRecoveryPlanBuilder,
     OnlyExecutionRecoveryService,
     OnlyExecutionRecoverySession,
-    OnlyInMemoryAppliedProjectionLedger,
+    OnlyInMemoryAppliedRuntimeProjectionLedger,
     OnlyOrderExecutionProjectionTarget,
     OnlyPositionReservationExecutionProjectionTarget,
     OnlyRiskExecutionProjectionTarget,
     OnlyRiskReservationExecutionProjectionTarget,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionComponent,
+    OnlyRuntimeTransactionCoordinator,
     OnlyTerminalExecutionTransactionPlanner,
 )
 from onlyalpha.position.enums import OnlyPositionReservationState
@@ -67,44 +67,44 @@ def test_terminal_committed_before_projection_replays_through_existing_causal_se
 @pytest.mark.parametrize(
     "component",
     (
-        OnlyExecutionProjectionComponent.ORDER,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK,
+        OnlyRuntimeProjectionComponent.ORDER,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK,
     ),
 )
 @pytest.mark.parametrize("fault_position", ("before", "after"))
 def test_terminal_mid_projection_failure_forward_recovers_exactly_once(
-    component: OnlyExecutionProjectionComponent,
+    component: OnlyRuntimeProjectionComponent,
     fault_position: str,
 ) -> None:
     environment, _, update, prepared = _prepared_terminal("CANCELLED")
     runtime = environment.runtime
     store = runtime._runtime_persistence_store
     assert store is not None
-    ledger = OnlyInMemoryAppliedProjectionLedger()
+    ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
     targets = {
-        OnlyExecutionProjectionComponent.ORDER: OnlyOrderExecutionProjectionTarget(runtime.order_manager, ledger),
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION: OnlyPositionReservationExecutionProjectionTarget(
+        OnlyRuntimeProjectionComponent.ORDER: OnlyOrderExecutionProjectionTarget(runtime.order_manager, ledger),
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION: OnlyPositionReservationExecutionProjectionTarget(
             runtime.position_reservation_manager,
             ledger,
         ),
-        OnlyExecutionProjectionComponent.RISK_RESERVATION: OnlyRiskReservationExecutionProjectionTarget(
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION: OnlyRiskReservationExecutionProjectionTarget(
             runtime.risk_service,
             ledger,
         ),
-        OnlyExecutionProjectionComponent.RISK: OnlyRiskExecutionProjectionTarget(runtime.risk_service, ledger),
+        OnlyRuntimeProjectionComponent.RISK: OnlyRiskExecutionProjectionTarget(runtime.risk_service, ledger),
     }
     targets[component] = OnlyFailOnceExecutionProjectionTarget(
         targets[component],
         fail_before=fault_position == "before",
         fail_after=fault_position == "after",
     )
-    coordinator = OnlyExecutionCommitCoordinator(
+    coordinator = OnlyRuntimeTransactionCoordinator(
         commit_port=store,
         query_port=store,
         projection_state_port=store,
-        projection_applier=OnlyExecutionProjectionApplier(targets),
+        projection_applier=OnlyRuntimeProjectionApplier(targets),
         now=lambda: prepared.prepared_at,
     )
     service = OnlyExecutionRecoveryService(coordinator)

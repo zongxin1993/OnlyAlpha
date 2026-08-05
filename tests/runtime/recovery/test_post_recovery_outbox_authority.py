@@ -1,8 +1,8 @@
 from dataclasses import replace
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.execution.persistence_ports import OnlyExecutionTransactionOutboxKey
 from onlyalpha.runtime.recovery.validation import OnlyOutboxAuthorityCheck, OnlyPostRecoveryCheckStatus
+from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionOutboxKey
 from tests.runtime.recovery.support.authority_fixture import OnlyPostRecoveryAuthorityFixture
 
 
@@ -63,7 +63,7 @@ def test_duplicate_event_id_and_durable_key_are_independent() -> None:
 def test_outbox_runtime_scope_and_pending_count_are_validated() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
     rows = fixture.store.outbox_records(fixture.runtime_id)
-    wrong_key = OnlyExecutionTransactionOutboxKey(
+    wrong_key = OnlyRuntimeTransactionOutboxKey(
         OnlyRuntimeId("wrong-runtime"), rows[0].key.execution_sequence, rows[0].key.event_sequence
     )
     wrong_rows = (replace(rows[0], key=wrong_key), *rows[1:])
@@ -78,7 +78,7 @@ def test_outbox_runtime_scope_and_pending_count_are_validated() -> None:
 def test_outbox_rejects_orphan_and_unready_transaction_references() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
     rows = fixture.store.outbox_records(fixture.runtime_id)
-    orphan_key = OnlyExecutionTransactionOutboxKey(fixture.runtime_id, 2, rows[0].key.event_sequence)
+    orphan_key = OnlyRuntimeTransactionOutboxKey(fixture.runtime_id, 2, rows[0].key.event_sequence)
     assert "POST_RECOVERY_OUTBOX_ORPHAN" in _failed(
         fixture.context(outbox_query=OnlyTestOutboxQuery((replace(rows[0], key=orphan_key),)))
     )

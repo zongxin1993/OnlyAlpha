@@ -6,7 +6,7 @@
 
 ```text
 Committed Transaction
-→ OnlyExecutionProjectionApplier
+→ OnlyRuntimeProjectionApplier
 → Component Target
 → Manager restore API
 → Applied Projection Ledger
@@ -16,7 +16,7 @@ Target Registry 由 `only_create_generic_t0_execution_projection_targets()` 一�
 
 ## Apply contract
 
-`OnlyExecutionProjectionApplyContext` 提供 transaction ID、正 execution sequence、完整 `OnlyCommittedExecutionFact` 和 projection。Target 先检查 Component 和 Applied Ledger，再通过 Manager authority query 与正式 converter 读取真实 Current Authority。Current 与 Expected version/hash 一致时安装 Result；Current 已与 Result 一致而 ledger 缺失时只修复 Manager-owned replay index 并重建 ledger record。
+`OnlyRuntimeProjectionApplyContext` 提供 transaction ID、正 execution sequence、完整 `OnlyCommittedExecutionFact` 和 projection。Target 先检查 Component 和 Applied Ledger，再通过 Manager authority query 与正式 converter 读取真实 Current Authority。Current 与 Expected version/hash 一致时安装 Result；Current 已与 Result 一致而 ledger 缺失时只修复 Manager-owned replay index 并重建 ledger record。
 
 Applied Ledger 的重复键只有完全相同记录才是 `IDEMPOTENT`；相同 sequence/component 的不同 transaction、entity 或 payload 是 `PAYLOAD_CONFLICT`。Expected path 成功是 `APPLIED`，Result authority + missing ledger 是 `RECOVERED`。Current version 同时不等于 Expected/Result 是 `VERSION_CONFLICT`；可接受 version 下 hash、scope、record、sequence 或 replay index 冲突是 `STATE_CONFLICT`。
 

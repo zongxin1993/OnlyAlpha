@@ -37,9 +37,9 @@ from onlyalpha.domain.value import OnlyMoney
 @dataclass(slots=True)
 class OnlyAccount:
     config: OnlyAccountConfig
-    cash_balance: OnlyMoney
-    frozen_cash: OnlyMoney
-    unsettled_cash: OnlyMoney
+    ledger_cash: OnlyMoney
+    order_reserved_cash: OnlyMoney
+    unsettled_receivable_cash: OnlyMoney
     position_market_value: OnlyMoney
     realized_pnl: OnlyMoney
     unrealized_pnl: OnlyMoney
@@ -130,10 +130,10 @@ class OnlyAccountManager:
         amount = change.amount.amount
         if change.change_type in {OnlyAccountCashChangeType.WITHDRAWAL, OnlyAccountCashChangeType.FEE}:
             amount = -abs(amount)
-        updated = state.cash_balance.amount + amount
+        updated = state.ledger_cash.amount + amount
         if updated < 0:
             raise ValueError("Account cash cannot become negative")
-        state.cash_balance = OnlyMoney(updated, state.config.base_currency)
+        state.ledger_cash = OnlyMoney(updated, state.config.base_currency)
         self._cash_change_ids.add(change.change_id)
         source = (
             OnlyAccountValuationSource.FEE_ADJUSTMENT
@@ -151,10 +151,10 @@ class OnlyAccountManager:
             if existing != reservation:
                 raise ValueError("Account Reservation ID reused with different content")
             return self._unchanged(before)
-        if reservation.remaining_amount.amount > before.cash.available_cash.amount:
+        if reservation.remaining_amount.amount > before.cash.trade_available_cash.amount:
             raise ValueError("insufficient local Account cash")
         self._reservation_manager.add(reservation)
-        state.frozen_cash = state.frozen_cash + reservation.remaining_amount
+        state.order_reserved_cash = state.order_reserved_cash + reservation.remaining_amount
         return self._commit(state, before, reservation.updated_at, "ACCOUNT_CASH_RESERVED")
 
     def consume_cash_reservation(
@@ -188,7 +188,7 @@ class OnlyAccountManager:
             reservation.version + 1,
         )
         self._reservation_manager.update(reservation)
-        state.frozen_cash = OnlyMoney(state.frozen_cash.amount - consume, amount.currency)
+        state.order_reserved_cash = OnlyMoney(state.order_reserved_cash.amount - consume, amount.currency)
         return self._commit(state, before, timestamp, "ACCOUNT_RESERVATION_CONSUMED")
 
     def release_cash(
@@ -200,7 +200,7 @@ class OnlyAccountManager:
         before = self._snapshot(state)
         if reservation.state is OnlyAccountReservationState.RELEASED:
             return self._unchanged(before)
-        state.frozen_cash = state.frozen_cash - reservation.remaining_amount
+        state.order_reserved_cash = state.order_reserved_cash - reservation.remaining_amount
         self._reservation_manager.update(
             OnlyAccountReservation(
                 reservation.reservation_id,
@@ -224,9 +224,9 @@ class OnlyAccountManager:
         before = self._snapshot(state)
         if fee.fee_id in self._fee_ids:
             return self._unchanged(before)
-        if fee.amount.amount > before.cash.available_cash.amount:
+        if fee.amount.amount > before.cash.trade_available_cash.amount:
             raise ValueError("Account fee exceeds available cash")
-        state.cash_balance = state.cash_balance - fee.amount
+        state.ledger_cash = state.ledger_cash - fee.amount
         state.fees = state.fees + fee.amount
         self._fee_ids.add(fee.fee_id)
         return self._commit(
@@ -256,9 +256,9 @@ class OnlyAccountManager:
             )
         else:
             delta = cash_flow.realized_pnl_delta.amount - cash_flow.fee.amount
-        if state.cash_balance.amount + delta < 0:
+        if state.ledger_cash.amount + delta < 0:
             raise ValueError("Account Trade would create negative cash")
-        state.cash_balance = OnlyMoney(state.cash_balance.amount + delta, state.config.base_currency)
+        state.ledger_cash = OnlyMoney(state.ledger_cash.amount + delta, state.config.base_currency)
         state.fees = state.fees + cash_flow.fee
         state.realized_pnl = state.realized_pnl + cash_flow.realized_pnl_delta
         state.last_external_sequence = cash_flow.external_sequence
@@ -288,7 +288,7 @@ class OnlyAccountManager:
         state.released_margin = (state.released_margin + released_delta).quantize(quantum)
         if min(state.reserved_margin, state.occupied_margin, state.released_margin) < 0:
             raise ValueError("Account margin cannot become negative")
-        if state.reserved_margin + state.occupied_margin > state.cash_balance.amount:
+        if state.reserved_margin + state.occupied_margin > state.ledger_cash.amount:
             raise ValueError("Account margin exceeds cash collateral")
         return self._commit(
             state,
@@ -383,9 +383,9 @@ class OnlyAccountManager:
             raise ValueError("Account replay scope differs from registered Account")
         candidate = replace(
             state,
-            cash_balance=snapshot.cash.cash_balance,
-            frozen_cash=snapshot.cash.frozen_cash,
-            unsettled_cash=snapshot.cash.unsettled_cash,
+            ledger_cash=snapshot.cash.ledger_cash,
+            order_reserved_cash=snapshot.cash.order_reserved_cash,
+            unsettled_receivable_cash=snapshot.cash.unsettled_receivable_cash,
             position_market_value=snapshot.position_market_value,
             realized_pnl=snapshot.realized_pnl,
             unrealized_pnl=snapshot.unrealized_pnl,
@@ -438,11 +438,15 @@ class OnlyAccountManager:
 
     def _snapshot(self, state: OnlyAccount) -> OnlyAccountSnapshot:
         currency = state.config.base_currency
-        available = OnlyMoney(
-            state.cash_balance.amount - state.frozen_cash.amount - state.unsettled_cash.amount,
-            currency,
+        trade_available = OnlyMoney(state.ledger_cash.amount - state.order_reserved_cash.amount, currency)
+        withdrawable = OnlyMoney(trade_available.amount - state.unsettled_receivable_cash.amount, currency)
+        cash = OnlyAccountCashBalance(
+            state.ledger_cash,
+            trade_available,
+            withdrawable,
+            state.order_reserved_cash,
+            state.unsettled_receivable_cash,
         )
-        cash = OnlyAccountCashBalance(state.cash_balance, available, state.frozen_cash, state.unsettled_cash)
         return OnlyAccountSnapshot(
             state.config.runtime_id,
             state.config.account_id,
@@ -455,7 +459,7 @@ class OnlyAccountManager:
             state.realized_pnl,
             state.unrealized_pnl,
             state.fees,
-            state.cash_balance + state.position_market_value,
+            state.ledger_cash + state.position_market_value,
             self._reservation_manager.list_by_account(state.config.account_id),
             state.created_at,
             state.updated_at,
@@ -467,11 +471,7 @@ class OnlyAccountManager:
             occupied_margin=OnlyMoney(state.occupied_margin, currency),
             released_margin=OnlyMoney(state.released_margin, currency),
             available_margin=OnlyMoney(
-                state.cash_balance.amount
-                - state.frozen_cash.amount
-                - state.unsettled_cash.amount
-                - state.reserved_margin
-                - state.occupied_margin,
+                withdrawable.amount - state.reserved_margin - state.occupied_margin,
                 currency,
             ),
         )

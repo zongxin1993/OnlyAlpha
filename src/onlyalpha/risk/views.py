@@ -115,7 +115,7 @@ class OnlyAccountManagerRiskView:
             value.account_id,
             value.updated_at,
             value.version,
-            (value.cash.available_cash,),
+            (value.cash.trade_available_cash,),
             value.status is OnlyAccountStatus.ACTIVE,
             value.status.value,
             value.equity,

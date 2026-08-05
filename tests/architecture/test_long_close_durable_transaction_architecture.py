@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent, OnlyExecutionProjectionOrder
+from onlyalpha.execution import OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionOrder
 
 
 def test_long_close_is_routed_to_prepared_transaction_without_parallel_entrypoint() -> None:
@@ -59,22 +59,22 @@ def test_complete_long_close_reuses_transaction_recovery_and_excludes_terminal_f
 
 def test_long_close_projection_order_is_one_fixed_global_order() -> None:
     components = (
-        OnlyExecutionProjectionComponent.ORDER,
-        OnlyExecutionProjectionComponent.POSITION,
-        OnlyExecutionProjectionComponent.ALLOCATION,
-        OnlyExecutionProjectionComponent.SETTLEMENT,
-        OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
-        OnlyExecutionProjectionComponent.FEE,
-        OnlyExecutionProjectionComponent.ACCOUNT,
-        OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK,
-        OnlyExecutionProjectionComponent.VALUATION,
+        OnlyRuntimeProjectionComponent.ORDER,
+        OnlyRuntimeProjectionComponent.POSITION,
+        OnlyRuntimeProjectionComponent.ALLOCATION,
+        OnlyRuntimeProjectionComponent.SETTLEMENT,
+        OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
+        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.ACCOUNT,
+        OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK,
+        OnlyRuntimeProjectionComponent.VALUATION,
     )
 
-    assert tuple(OnlyExecutionProjectionOrder[item.name] for item in components) == tuple(
-        sorted(OnlyExecutionProjectionOrder[item.name] for item in components)
+    assert tuple(OnlyRuntimeProjectionOrder[item.name] for item in components) == tuple(
+        sorted(OnlyRuntimeProjectionOrder[item.name] for item in components)
     )
 
 
@@ -83,5 +83,5 @@ def test_position_reservation_is_a_formal_projection_target_and_checkpoint_parti
     runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
 
     assert "class OnlyPositionReservationExecutionProjectionTarget" in targets
-    assert "OnlyExecutionProjectionComponent.POSITION_RESERVATION" in targets
+    assert "OnlyRuntimeProjectionComponent.POSITION_RESERVATION" in targets
     assert '"position-reservation.authority"' in runtime

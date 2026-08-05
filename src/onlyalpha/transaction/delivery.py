@@ -14,9 +14,8 @@ from onlyalpha.event.ports import (
     OnlyDurableEventPublicationPort,
     OnlyRuntimeEventDisposition,
 )
-
-from .event_buffer import OnlyExecutionEventBatch
-from .persistence_ports import OnlyExecutionTransactionOutboxPort
+from onlyalpha.execution.event_buffer import OnlyExecutionEventBatch
+from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionOutboxPort
 
 
 class OnlyExecutionEventDeliveryMode(StrEnum):
@@ -121,7 +120,7 @@ class OnlyExecutionOutboxPublisher:
 
     def __init__(
         self,
-        outbox: OnlyExecutionTransactionOutboxPort,
+        outbox: OnlyRuntimeTransactionOutboxPort,
         publisher: OnlyDurableEventPublicationPort,
         now: Callable[[], OnlyTimestamp],
     ) -> None:

@@ -36,8 +36,8 @@ def test_recovery_rebuilds_and_compares_the_complete_prepared_contract() -> None
     assert "self._trade_planner.prepare(planning_context)" in processor
     assert "recovery_session.decide(update, prepared)" in processor
     assert "prepared != expected" in session
-    assert "only_prepared_execution_transaction_authority_hash" in session
-    assert "only_prepared_execution_transaction_payload_hash" in session
+    assert "only_prepared_runtime_transaction_authority_hash" in session
+    assert "only_prepared_runtime_transaction_payload_hash" in session
     assert "RECOVERY_TRANSACTION_MISSING" in session
     assert "RECOVERY_PREPARED_TRANSACTION_MISMATCH" in session
     assert "RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH" in session

@@ -2,9 +2,9 @@ import ast
 from pathlib import Path
 
 from onlyalpha.execution import (
-    OnlyCommittedExecutionTransaction,
-    OnlyExecutionProjectionComponent,
-    OnlyPreparedExecutionTransaction,
+    OnlyCommittedRuntimeTransaction,
+    OnlyPreparedRuntimeTransaction,
+    OnlyRuntimeProjectionComponent,
 )
 
 
@@ -26,7 +26,7 @@ def test_multi_fill_reducers_remain_pure_and_authorities_stay_separate() -> None
     assert "OnlyFeeRateRule" not in fee_manager and "OnlyFeeEngine" not in fee_manager
     assert "Schedule" not in accrual_manager and "OnlyFeeRateRule" not in accrual_manager
     assert "FeeAccrual" not in order
-    assert OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL.value == "ORDER_FEE_ACCRUAL"
+    assert OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL.value == "ORDER_FEE_ACCRUAL"
 
 
 def test_accounting_uses_explicit_deltas_and_order_terminal_authority() -> None:
@@ -43,8 +43,8 @@ def test_accounting_uses_explicit_deltas_and_order_terminal_authority() -> None:
 
 
 def test_transaction_contracts_stay_immutable_and_scope_exclusions_remain() -> None:
-    assert OnlyPreparedExecutionTransaction.__dataclass_params__.frozen
-    assert OnlyCommittedExecutionTransaction.__dataclass_params__.frozen
+    assert OnlyPreparedRuntimeTransaction.__dataclass_params__.frozen
+    assert OnlyCommittedRuntimeTransaction.__dataclass_params__.frozen
     planner = Path("src/onlyalpha/execution/trade_planner.py").read_text(encoding="utf-8")
     runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
     combined = planner + runtime

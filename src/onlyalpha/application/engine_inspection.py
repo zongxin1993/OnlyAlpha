@@ -151,7 +151,7 @@ class OnlyEngineInspectionService:
                     ),
                     position_count=len(runtime.position_manager.snapshot_all()),
                     fee_count=len(runtime.fee_manager.records),
-                    settlement_count=len(runtime.settlement_manager.records),
+                    settlement_count=len(runtime.settlement_authority.records),
                 )
             )
         return tuple(snapshots)
@@ -162,13 +162,13 @@ class OnlyEngineInspectionService:
         positions = tuple(position for runtime in runtimes for position in runtime.position_manager.snapshot_all())
         orders = tuple(order for runtime in runtimes for order in runtime.order_snapshots)
         return OnlyEconomicBaseline(
-            cash_balance=sum((item.cash.cash_balance.amount for item in accounts), Decimal(0)),
+            ledger_cash=sum((item.cash.ledger_cash.amount for item in accounts), Decimal(0)),
             position_count=len(positions),
             total_position_quantity=sum((item.total_quantity.value for item in positions), Decimal(0)),
             order_count=len(orders),
             fill_count=sum(item.fill_count for item in orders),
             fee_count=sum(len(runtime.fee_manager.records) for runtime in runtimes),
-            settlement_count=sum(len(runtime.settlement_manager.records) for runtime in runtimes),
+            settlement_count=sum(len(runtime.settlement_authority.records) for runtime in runtimes),
             cash_reservation_count=sum(
                 item.state is OnlyAccountReservationState.ACTIVE
                 for runtime in runtimes

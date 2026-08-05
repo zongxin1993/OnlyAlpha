@@ -48,32 +48,38 @@ class OnlyAccountConfig(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyAccountCashBalance(OnlyDomainModel):
-    cash_balance: OnlyMoney
-    available_cash: OnlyMoney
-    frozen_cash: OnlyMoney
-    unsettled_cash: OnlyMoney
+    ledger_cash: OnlyMoney
+    trade_available_cash: OnlyMoney
+    withdrawable_cash: OnlyMoney
+    order_reserved_cash: OnlyMoney
+    unsettled_receivable_cash: OnlyMoney
 
     def __post_init__(self) -> None:
         currencies = {
-            self.cash_balance.currency,
-            self.available_cash.currency,
-            self.frozen_cash.currency,
-            self.unsettled_cash.currency,
+            self.ledger_cash.currency,
+            self.trade_available_cash.currency,
+            self.withdrawable_cash.currency,
+            self.order_reserved_cash.currency,
+            self.unsettled_receivable_cash.currency,
         }
         if (
             len(currencies) != 1
             or min(
-                self.cash_balance.amount,
-                self.available_cash.amount,
-                self.frozen_cash.amount,
-                self.unsettled_cash.amount,
+                self.ledger_cash.amount,
+                self.trade_available_cash.amount,
+                self.withdrawable_cash.amount,
+                self.order_reserved_cash.amount,
+                self.unsettled_receivable_cash.amount,
             )
             < 0
         ):
             raise ValueError("Account cash balances require one currency and non-negative amounts")
-        expected = self.cash_balance.amount - self.frozen_cash.amount - self.unsettled_cash.amount
-        if self.available_cash.amount != expected:
-            raise ValueError("available cash must be derived from cash minus frozen and unsettled")
+        trade_available = self.ledger_cash.amount - self.order_reserved_cash.amount
+        withdrawable = trade_available - self.unsettled_receivable_cash.amount
+        if self.trade_available_cash.amount != trade_available or self.withdrawable_cash.amount != withdrawable:
+            raise ValueError("Account cash availability authority is inconsistent")
+        if not 0 <= self.withdrawable_cash.amount <= self.trade_available_cash.amount <= self.ledger_cash.amount:
+            raise ValueError("Account cash availability ordering is invalid")
 
 
 OnlyAccountBalance = OnlyAccountCashBalance
@@ -218,7 +224,7 @@ class OnlyAccountSnapshot(OnlyDomainModel):
 
     def __post_init__(self) -> None:
         values = (
-            self.cash.cash_balance,
+            self.cash.ledger_cash,
             self.position_market_value,
             self.realized_pnl,
             self.unrealized_pnl,
@@ -244,15 +250,11 @@ class OnlyAccountSnapshot(OnlyDomainModel):
         if self.available_margin is not None:
             assert self.reserved_margin is not None and self.occupied_margin is not None
             expected_margin = (
-                self.cash.cash_balance.amount
-                - self.cash.frozen_cash.amount
-                - self.cash.unsettled_cash.amount
-                - self.reserved_margin.amount
-                - self.occupied_margin.amount
+                self.cash.withdrawable_cash.amount - self.reserved_margin.amount - self.occupied_margin.amount
             )
             if self.available_margin.amount != expected_margin:
                 raise ValueError("Account available margin formula is invalid")
-        if self.equity.amount != self.cash.cash_balance.amount + self.position_market_value.amount:
+        if self.equity.amount != self.cash.ledger_cash.amount + self.position_market_value.amount:
             raise ValueError("cash plus position market value must equal Account equity")
         if self.version < 1 or self.updated_at < self.created_at:
             raise ValueError("Account Snapshot lifecycle is invalid")

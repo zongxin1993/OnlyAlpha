@@ -85,9 +85,8 @@ def _projection_authority(environment: OnlyIntegrationEnvironment) -> object:
                 risk._event_sequence,
             ),
             (
-                runtime.settlement_manager._pending,
-                runtime.settlement_manager.records,
-                runtime.settlement_manager.sequence_head,
+                runtime.settlement_authority.snapshots(),
+                runtime.settlement_authority.sequence_head,
             ),
             (
                 runtime.fee_manager.records,

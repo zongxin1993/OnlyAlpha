@@ -5,13 +5,13 @@ from typing import get_type_hints
 
 from onlyalpha.execution import (
     OnlyCommittedExecutionFact,
-    OnlyExecutionCommitCoordinator,
     OnlyExecutionProcessor,
-    OnlyExecutionProjectionStatePort,
     OnlyExecutionRecoveryService,
-    OnlyExecutionTransactionOutboxPort,
-    OnlyExecutionTransactionQueryPort,
-    OnlyProjectionReadyExecutionQueryPort,
+    OnlyProjectionReadyRuntimeQueryPort,
+    OnlyRuntimeProjectionStatePort,
+    OnlyRuntimeTransactionCoordinator,
+    OnlyRuntimeTransactionOutboxPort,
+    OnlyRuntimeTransactionQueryPort,
 )
 from onlyalpha.runtime.runtime import OnlyRuntimeServices
 
@@ -24,10 +24,10 @@ def test_committed_fact_and_runtime_service_have_provider_neutral_runtime_owners
     fact_modules = {getattr(field.type, "__module__", "") for field in fields(OnlyCommittedExecutionFact)}
     assert not any(module.startswith("onlyalpha_plugin_") for module in fact_modules)
     service_hints = get_type_hints(OnlyRuntimeServices)
-    assert service_hints["execution_transaction_query"] is OnlyExecutionTransactionQueryPort
-    assert service_hints["ready_execution_query"] is OnlyProjectionReadyExecutionQueryPort
-    assert service_hints["execution_projection_state"] is OnlyExecutionProjectionStatePort
-    assert service_hints["execution_transaction_outbox"] is OnlyExecutionTransactionOutboxPort
+    assert service_hints["execution_transaction_query"] is OnlyRuntimeTransactionQueryPort
+    assert service_hints["ready_execution_query"] is OnlyProjectionReadyRuntimeQueryPort
+    assert service_hints["execution_projection_state"] is OnlyRuntimeProjectionStatePort
+    assert service_hints["runtime_transaction_outbox"] is OnlyRuntimeTransactionOutboxPort
     assert service_hints["execution_recovery_service"] is OnlyExecutionRecoveryService
 
 
@@ -59,7 +59,7 @@ def test_coordinator_is_the_only_production_execution_transaction_writer() -> No
         ):
             writers.append(path)
     assert writers == [Path("src/onlyalpha/execution/commit_coordinator.py")]
-    assert OnlyExecutionCommitCoordinator.__module__ == "onlyalpha.execution.commit_coordinator"
+    assert OnlyRuntimeTransactionCoordinator.__module__ == "onlyalpha.transaction.coordinator"
     assert OnlyExecutionProcessor.__module__ == "onlyalpha.execution.processor"
 
 

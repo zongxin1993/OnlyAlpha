@@ -1,5 +1,5 @@
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
+    OnlyRuntimeProjectionComponent,
     only_decode_prepared_execution_transaction,
     only_encode_prepared_execution_transaction,
 )
@@ -10,18 +10,18 @@ def test_long_close_prepared_transaction_has_fixed_projection_order_and_fact_aut
     _, context, prepared = only_test_generic_t0_long_close_context(open_quantity="200", close_quantity="100")
 
     assert tuple(item.identity.component for item in prepared.projections) == (
-        OnlyExecutionProjectionComponent.ORDER,
-        OnlyExecutionProjectionComponent.POSITION,
-        OnlyExecutionProjectionComponent.ALLOCATION,
-        OnlyExecutionProjectionComponent.SETTLEMENT,
-        OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
-        OnlyExecutionProjectionComponent.FEE,
-        OnlyExecutionProjectionComponent.ACCOUNT,
-        OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK,
-        OnlyExecutionProjectionComponent.VALUATION,
+        OnlyRuntimeProjectionComponent.ORDER,
+        OnlyRuntimeProjectionComponent.POSITION,
+        OnlyRuntimeProjectionComponent.ALLOCATION,
+        OnlyRuntimeProjectionComponent.SETTLEMENT,
+        OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
+        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.ACCOUNT,
+        OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK,
+        OnlyRuntimeProjectionComponent.VALUATION,
     )
     assert prepared.fact_draft.position_quantity_before == 200
     assert prepared.fact_draft.position_quantity_after == 100

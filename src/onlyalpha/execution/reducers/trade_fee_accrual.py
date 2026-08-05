@@ -9,14 +9,14 @@ from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState, OnlyOrderFeeComponentAccrual
 from onlyalpha.fee.models import OnlyFeeBreakdown, OnlyFeeCalculationScope, OnlyFeeComponent, OnlyFeeInstruction
+from onlyalpha.transaction.projection import (
+    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyRuntimeProjectionComponent,
+)
+from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 
 from ..planned_trade import OnlyPlannedTrade
 from ..planning_results import OnlyExecutionEventIntent
-from ..projection import (
-    OnlyExecutionProjectionComponent,
-    OnlyOrderFeeAccrualExecutionProjection,
-)
-from ..projection_builder import OnlyExecutionProjectionBuilder
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,10 +118,10 @@ class OnlyOrderFeeAccrualTradeReducer:
             trade.ts_init,
             1 if before is None else before.version + 1,
         )
-        builder = OnlyExecutionProjectionBuilder()
+        builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyOrderFeeAccrualExecutionProjection(
             builder.identity(
-                component=OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
+                component=OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
                 entity_key=str(trade.order_id),
                 before=before,
                 after=after,
@@ -133,7 +133,7 @@ class OnlyOrderFeeAccrualTradeReducer:
         projection = builder.finalize(projection)
         assert isinstance(projection, OnlyOrderFeeAccrualExecutionProjection)
         intent = OnlyExecutionEventIntent(
-            OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL,
+            OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
             OnlyEventType("ORDER_FEE_ACCRUAL_UPDATED"),
             after.to_dict(),
             OnlyEventSource("execution.trade_planner"),

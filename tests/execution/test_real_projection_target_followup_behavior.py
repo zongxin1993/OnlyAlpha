@@ -1,12 +1,10 @@
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
     OnlyFeeExecutionProjection,
-    OnlySettlementExecutionProjection,
+    OnlyRuntimeProjectionComponent,
     only_execution_trade_fingerprints,
 )
-from onlyalpha.execution.applied_projection import OnlyExecutionProjectionApplyContext
 from onlyalpha.fee import OnlyFeeInstruction
-from onlyalpha.market.runtime_rules import OnlySettlementRuntimeInstruction
+from onlyalpha.transaction.applied_projection import OnlyRuntimeProjectionApplyContext
 from tests.execution.targets.support import only_test_assert_all_apply, only_test_projection_target_bundle
 
 
@@ -16,14 +14,12 @@ def test_replayed_dedup_cycles_and_sequences_drive_followup_behavior() -> None:
     runtime = bundle.environment.runtime
     transaction = bundle.transaction
     position = next(
-        item for item in transaction.projections if item.identity.component is OnlyExecutionProjectionComponent.POSITION
+        item for item in transaction.projections if item.identity.component is OnlyRuntimeProjectionComponent.POSITION
     )
     allocation = next(
-        item
-        for item in transaction.projections
-        if item.identity.component is OnlyExecutionProjectionComponent.ALLOCATION
+        item for item in transaction.projections if item.identity.component is OnlyRuntimeProjectionComponent.ALLOCATION
     )
-    context = OnlyExecutionProjectionApplyContext(
+    context = OnlyRuntimeProjectionApplyContext(
         transaction.transaction_id,
         transaction.execution_sequence,
         transaction.fact,
@@ -36,25 +32,6 @@ def test_replayed_dedup_cycles_and_sequences_drive_followup_behavior() -> None:
     assert runtime.position_manager._cycles[position.after.key] == position.replay.cycle
     assert runtime.allocation_manager._cycles[allocation.after.key] == allocation.replay.cycle
     assert runtime.risk_service.reservations.sequence_head == 1
-
-    settlement = next(item for item in transaction.projections if isinstance(item, OnlySettlementExecutionProjection))
-    settlement_state = settlement.after
-    next_settlement = OnlySettlementRuntimeInstruction(
-        f"{settlement_state.instruction_id}-next",
-        str(settlement_state.instrument_id),
-        f"{settlement_state.source_trade_id}-next",
-        settlement_state.asset_quantity,
-        settlement_state.cash_amount.amount,
-        settlement_state.asset_available_on,
-        settlement_state.cash_trade_available_on,
-        settlement_state.cash_withdrawable_on,
-        settlement_state.legal_settlement_on,
-        str(settlement_state.account_id),
-        str(settlement_state.source_order_id),
-    )
-    runtime.settlement_manager.register(next_settlement)
-    emitted = runtime.settlement_manager.advance(settlement_state.legal_settlement_on)
-    assert emitted[-1].sequence == settlement_state.record_sequence_head + 1
 
     fee = next(item for item in transaction.projections if isinstance(item, OnlyFeeExecutionProjection))
     replay = fee.after.instruction

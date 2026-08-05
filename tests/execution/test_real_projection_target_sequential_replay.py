@@ -1,6 +1,6 @@
 from onlyalpha.execution import (
-    OnlyExecutionProjectionApplier,
-    OnlyExecutionProjectionBatchStatus,
+    OnlyRuntimeProjectionApplier,
+    OnlyRuntimeProjectionBatchStatus,
     OnlyTradeExecutionTransactionPlanner,
 )
 from tests.execution.support.generic_t0_trade_harness import (
@@ -18,8 +18,8 @@ def test_three_sequential_buy_open_transactions_match_legacy_authority() -> None
     scenario = OnlyTestGenericT0Scenario("sequential")
     legacy, _ = only_test_generic_t0_legacy_environment(scenario)
     replay = only_test_projection_target_bundle(scenario)
-    applier = OnlyExecutionProjectionApplier(replay.targets)
-    assert applier.apply(replay.transaction).status is OnlyExecutionProjectionBatchStatus.COMPLETED
+    applier = OnlyRuntimeProjectionApplier(replay.targets)
+    assert applier.apply(replay.transaction).status is OnlyRuntimeProjectionBatchStatus.COMPLETED
 
     for number, minute in ((2, 4), (3, 5)):
         suffix = f"t{number}"
@@ -41,7 +41,7 @@ def test_three_sequential_buy_open_transactions_match_legacy_authority() -> None
         planned = OnlyTradeExecutionTransactionPlanner().prepare(context)
         committed = replay.transaction_store.commit(planned, committed_at=context.prepared_at).transaction
         assert committed.execution_sequence == number
-        assert applier.apply(committed).status is OnlyExecutionProjectionBatchStatus.COMPLETED
+        assert applier.apply(committed).status is OnlyRuntimeProjectionBatchStatus.COMPLETED
 
     assert len(replay.applied_ledger.records()) == 39
     assert _projection_authority(replay.environment) == _projection_authority(legacy)

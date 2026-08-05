@@ -17,12 +17,12 @@ from onlyalpha.domain.identifiers import (
     OnlyTradeId,
     OnlyVenueTradeId,
 )
-
-from .enums import OnlyExecutionOperationKind
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
 if TYPE_CHECKING:
+    from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionQueryPort
+
     from .committed import OnlyCommittedExecutionFact
-    from .persistence_ports import OnlyExecutionTransactionQueryPort
 
 ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION = 1
 
@@ -163,14 +163,14 @@ def only_classify_execution_fill(
 
 
 def only_capture_execution_fill_authority(
-    query: OnlyExecutionTransactionQueryPort,
+    query: OnlyRuntimeTransactionQueryPort,
     update: OnlyBrokerTradeUpdate,
 ) -> OnlyExecutionFillAuthority:
     identity = only_execution_fill_identity_from_update(update)
     fingerprint = only_execution_fill_payload_fingerprint(update)
     existing = query.get_by_fill_identity(update.runtime_id, identity)
     if existing is not None:
-        if existing.operation_kind is not OnlyExecutionOperationKind.TRADE_FILL:
+        if existing.operation_kind is not OnlyRuntimeOperationKind.TRADE_FILL:
             raise ValueError("FILL_IDENTITY_CONFLICT: durable Fill identity resolved to a non-Trade operation")
         existing_fact = cast("OnlyCommittedExecutionFact", existing.fact)
         if existing_fact.fill_payload_fingerprint != fingerprint:
@@ -179,7 +179,7 @@ def only_capture_execution_fill_authority(
     latest = query.latest_fill_for_order(update.runtime_id, update.order_id)
     if latest is None:
         fill_index = 1
-    elif latest.operation_kind is not OnlyExecutionOperationKind.TRADE_FILL:
+    elif latest.operation_kind is not OnlyRuntimeOperationKind.TRADE_FILL:
         raise ValueError("FILL_IDENTITY_CONFLICT: latest Fill query returned a non-Trade operation")
     else:
         fill_index = cast("OnlyCommittedExecutionFact", latest.fact).fill_index + 1

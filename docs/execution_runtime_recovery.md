@@ -73,7 +73,7 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
 9. Produce an immutable Recovery Outcome, move Clusters to `RECOVERY_FINALIZING`, call `on_recovery_complete()`, drain internal
    events, and validate transaction, Outbox, recovery projection range, manager, Broker and Runtime-boundary authority through
    read-only Ports. Finalizer preflight diagnoses non-empty Broker/MarketData inbound queues separately from pending EventBus
-   work. `OnlyExecutionTransactionOutboxKey(runtime_id, execution_sequence, event_sequence)` is the durable Outbox idempotency
+   work. `OnlyRuntimeTransactionOutboxKey(runtime_id, execution_sequence, event_sequence)` is the durable Outbox idempotency
    identity; it is validated independently from each Event's `event_id` and has no second string idempotency key.
 10. Capture and write the post-recovery checkpoint, read it back through `latest_checkpoint()` and compare the complete header,
     aggregate hash and components. Only then mark Clusters `RECOVERED` and Runtime `READY`.

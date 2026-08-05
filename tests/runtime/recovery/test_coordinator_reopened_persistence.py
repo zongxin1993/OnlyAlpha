@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
     OnlyExecutionRecoveryStatus,
+    OnlyRuntimeProjectionComponent,
 )
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
@@ -15,7 +15,7 @@ def test_coordinator_recovers_reopened_persistence_with_fresh_test_authority(tmp
     first_store = OnlySqliteRuntimePersistenceStore(path)
     first = OnlyRealExecutionRecoveryHarness.create(
         store=first_store,
-        target_fault=(OnlyExecutionProjectionComponent.ORDER, "before"),
+        target_fault=(OnlyRuntimeProjectionComponent.ORDER, "before"),
     )
     assert first.recover().status is OnlyExecutionRecoveryStatus.FAILED
     committed = first_store.records(first.bundle.transaction.runtime_id)[0]

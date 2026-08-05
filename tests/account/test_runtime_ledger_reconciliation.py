@@ -94,7 +94,7 @@ def test_account_only_fee_produces_structured_differences_without_mutating_ledge
     )
     result = _reconcile(accounts, ledgers)
     assert result.status is OnlyRuntimeLedgerReconciliationStatus.MISMATCHED
-    assert {item.field for item in result.differences} == {"cash_balance", "fees", "equity"}
+    assert {item.field for item in result.differences} == {"ledger_cash", "fees", "equity"}
     assert all(item.cluster_ids == (OnlyClusterId("a"), OnlyClusterId("b")) for item in result.differences)
     assert ledgers.list_ledgers() == before
 
@@ -196,7 +196,7 @@ def test_missing_ledger_fee_is_reported_by_total_and_trade_attribution() -> None
     )
 
     assert {item.field for item in result.differences} == {
-        "cash_balance",
+        "ledger_cash",
         "fees",
         "equity",
         "trade_fee_attribution:trade-a",
@@ -210,8 +210,8 @@ def test_fixed_capital_profit_and_loss_sum_to_account_portfolio_result() -> None
         account,
         cash=replace(
             account.cash,
-            cash_balance=OnlyMoney(Decimal("1030.00"), CNY),
-            available_cash=OnlyMoney(Decimal("1030.00"), CNY),
+            ledger_cash=OnlyMoney(Decimal("1030.00"), CNY),
+            trade_available_cash=OnlyMoney(Decimal("1030.00"), CNY),
         ),
         realized_pnl=OnlyMoney(Decimal("30.00"), CNY),
         equity=OnlyMoney(Decimal("1030.00"), CNY),
@@ -226,7 +226,7 @@ def test_fixed_capital_profit_and_loss_sum_to_account_portfolio_result() -> None
                 ledger,
                 cash=replace(
                     ledger.cash,
-                    cash_balance=OnlyMoney(final_equity, CNY),
+                    ledger_cash=OnlyMoney(final_equity, CNY),
                     cash_available=OnlyMoney(final_equity, CNY),
                 ),
                 pnl=replace(
@@ -236,7 +236,7 @@ def test_fixed_capital_profit_and_loss_sum_to_account_portfolio_result() -> None
                 ),
                 equity=replace(
                     ledger.equity,
-                    cash_balance=OnlyMoney(final_equity, CNY),
+                    ledger_cash=OnlyMoney(final_equity, CNY),
                     cash_available=OnlyMoney(final_equity, CNY),
                     realized_pnl=OnlyMoney(pnl, CNY),
                     net_pnl=OnlyMoney(pnl, CNY),

@@ -24,23 +24,38 @@ from onlyalpha.position.enums import (
 )
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 from onlyalpha.risk.enums import OnlyRiskReservationState
+from onlyalpha.settlement.identity import only_instruction_identity_payload, only_settlement_instruction_id
+from onlyalpha.settlement.models import (
+    OnlyAssetSettlementLeg,
+    OnlyCashSettlementLeg,
+    OnlySettlementInstruction,
+    OnlySettlementLegDirection,
+    only_settlement_instruction_content_fingerprint,
+)
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState, OnlyStrategyLedgerStatus
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from onlyalpha.transaction.event_identity import OnlyExecutionTransactionEventFactory
+from onlyalpha.transaction.identity import only_runtime_transaction_id
+from onlyalpha.transaction.projection import (
+    OnlyRuntimeProjection,
+    OnlyRuntimeProjectionComponent,
+    OnlyValuationExecutionProjection,
+)
+from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
+from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
 
 from .capability import OnlyExecutionCapability, only_resolve_execution_capability
 from .close_cost_authority import (
     OnlyAttributedCloseCostAuthority,
     only_build_attributed_close_cost_authority,
 )
-from .enums import OnlyExecutionOperationKind
-from .event_identity import OnlyExecutionTransactionEventFactory
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
     OnlyPositionReservationExecutionState,
     OnlyStrategyCashReservationExecutionState,
 )
 from .fill_identity import only_execution_fill_identity_from_update, only_execution_fill_payload_fingerprint
-from .identity import only_execution_transaction_id
 from .planned_trade import OnlyPlannedTrade
 from .planning_context import OnlyTradeExecutionPlanningContext
 from .planning_results import (
@@ -48,8 +63,6 @@ from .planning_results import (
     OnlyTradeExecutionPlanningError,
     OnlyTradeExecutionPlanningErrorCode,
 )
-from .projection import OnlyExecutionProjection, OnlyExecutionProjectionComponent, OnlyValuationExecutionProjection
-from .projection_builder import OnlyExecutionProjectionBuilder
 from .reducers import (
     OnlyAccountCashReservationTradeReducer,
     OnlyAccountTradeReducer,
@@ -66,7 +79,7 @@ from .reducers import (
     OnlyStrategyLedgerTradeReducer,
     OnlyValuationTradeReducer,
 )
-from .transaction import OnlyCommittedExecutionFactDraft, OnlyExecutionPrecondition, OnlyPreparedExecutionTransaction
+from .trade_fact import OnlyCommittedExecutionFactDraft
 
 _PROFILE_ID = "GENERIC_T0_CASH"
 
@@ -74,7 +87,7 @@ _PROFILE_ID = "GENERIC_T0_CASH"
 @dataclass(frozen=True, slots=True)
 class _OnlyTradePlan:
     trade: OnlyPlannedTrade
-    projections: tuple[OnlyExecutionProjection, ...]
+    projections: tuple[OnlyRuntimeProjection, ...]
     event_intents: tuple[OnlyExecutionEventIntent, ...]
     fact: OnlyCommittedExecutionFactDraft
 
@@ -82,11 +95,11 @@ class _OnlyTradePlan:
 class OnlyTradeExecutionTransactionPlanner:
     """Compile one complete immutable authority into a Prepared Transaction."""
 
-    def prepare(self, context: OnlyTradeExecutionPlanningContext) -> OnlyPreparedExecutionTransaction:
+    def prepare(self, context: OnlyTradeExecutionPlanningContext) -> OnlyPreparedRuntimeTransaction:
         self._validate(context)
         try:
             plan = self._reduce(context)
-            transaction_id = only_execution_transaction_id(
+            transaction_id = only_runtime_transaction_id(
                 runtime_id=context.update.runtime_id,
                 gateway_id=context.update.gateway_id,
                 account_id=context.update.account_id,
@@ -94,7 +107,7 @@ class OnlyTradeExecutionTransactionPlanner:
                 trade_id=context.update.fill.trade_id,
             )
             preconditions = tuple(
-                OnlyExecutionPrecondition(
+                OnlyRuntimePrecondition(
                     item.identity.component,
                     item.identity.entity_key,
                     item.identity.expected_version,
@@ -103,20 +116,23 @@ class OnlyTradeExecutionTransactionPlanner:
                 for item in plan.projections
             )
             events = self._events(context, transaction_id, plan.event_intents)
-            return OnlyPreparedExecutionTransaction(
-                transaction_id,
-                context.update.runtime_id,
-                context.update.gateway_id,
-                context.update.account_id,
-                context.update.update_id,
-                context.update.fill.trade_id,
-                context.update.source_sequence,
-                context.prepared_at,
-                plan.fact,
-                plan.projections,
-                events,
-                preconditions,
+            prepared = OnlyPreparedRuntimeTransaction(
+                transaction_id=transaction_id,
+                runtime_id=context.update.runtime_id,
+                operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
+                operation_identity=context.fill_authority.identity,
+                account_id=context.update.account_id,
+                effective_time=context.update.ts_event,
+                prepared_at=context.prepared_at,
+                fact_draft=plan.fact,
+                projections=plan.projections,
+                outbox_events=events,
+                preconditions=preconditions,
             )
+            from .economic_invariants import OnlyPreparedExecutionEconomicInvariantValidator
+
+            OnlyPreparedExecutionEconomicInvariantValidator().validate(prepared)
+            return prepared
         except OnlyTradeExecutionPlanningError:
             raise
         except (AssertionError, TypeError, ValueError) as exc:
@@ -168,9 +184,10 @@ class OnlyTradeExecutionTransactionPlanner:
             cycle=context.allocation_cycle,
             projection_sequence=3,
         )
+        settlement_instruction = _settlement_instruction(context, trade, position.after, allocation.after)
         settlement = OnlySettlementTradeReducer().reduce(
             context.settlement_before,
-            context.trade_instruction.settlement_instruction,
+            settlement_instruction,
             context.trading_day,
             trade,
             record_sequence=context.settlement_record_sequence,
@@ -245,7 +262,7 @@ class OnlyTradeExecutionTransactionPlanner:
             position_market_delta,
             position_unrealized,
             position.realized_pnl_delta if closing else None,
-            settlement.after.trade_cash_released,
+            settlement.after.withdrawable_cash_released,
             projection_sequence=7,
         )
         ledger = OnlyStrategyLedgerTradeReducer().reduce(
@@ -268,7 +285,7 @@ class OnlyTradeExecutionTransactionPlanner:
         valuation = OnlyValuationTradeReducer().reduce(
             context.valuation_before,
             trade,
-            account.after.cash_balance,
+            account.after.ledger_cash,
             account.after.position_market_value,
             account.after.unrealized_pnl,
             projection_sequence=12 if closing else 13,
@@ -287,7 +304,7 @@ class OnlyTradeExecutionTransactionPlanner:
             ),
             identity=replace(ledger.projection.identity, payload_hash="0" * 64),
         )
-        ledger_projection = OnlyExecutionProjectionBuilder().finalize(ledger_projection)
+        ledger_projection = OnlyRuntimeProjectionBuilder().finalize(ledger_projection)
         valuation_projection = replace(
             valuation.projection,
             account_equity_points=_account_equity_points(context, trade, account.after),
@@ -295,9 +312,9 @@ class OnlyTradeExecutionTransactionPlanner:
             account_equity_before=context.account_equity_before,
             strategy_equity_before=context.strategy_equity_before,
         )
-        valuation_projection = OnlyExecutionProjectionBuilder().finalize(valuation_projection)
+        valuation_projection = OnlyRuntimeProjectionBuilder().finalize(valuation_projection)
         assert isinstance(valuation_projection, OnlyValuationExecutionProjection)
-        common_projections: tuple[OnlyExecutionProjection, ...] = (
+        common_projections: tuple[OnlyRuntimeProjection, ...] = (
             order.projection,
             position.projection,
             allocation.projection,
@@ -307,7 +324,7 @@ class OnlyTradeExecutionTransactionPlanner:
             account.projection,
             ledger_projection,
         )
-        reservation_projections: tuple[OnlyExecutionProjection, ...]
+        reservation_projections: tuple[OnlyRuntimeProjection, ...]
         if closing:
             assert position_reservation is not None
             reservation_projections = (position_reservation.projection,)
@@ -373,7 +390,7 @@ class OnlyTradeExecutionTransactionPlanner:
         zero = _money(Decimal(0), currency)
         bucket = (
             OnlySettlementBucket.SETTLED
-            if context.trade_instruction.settlement_instruction.asset_available_on <= context.trading_day
+            if context.trade_instruction.settlement_schedule.asset_trade_available_on <= context.trading_day
             else OnlySettlementBucket.UNSETTLED
         )
         return OnlyPlannedTrade(
@@ -426,9 +443,9 @@ class OnlyTradeExecutionTransactionPlanner:
         close_authority: OnlyAttributedCloseCostAuthority | None,
     ) -> OnlyCommittedExecutionFactDraft:
         from onlyalpha.fee.models import OnlyFeeInstruction
+        from onlyalpha.transaction.projection import OnlySettlementExecutionState
 
         from .execution_state import OnlyOrderExecutionState
-        from .projection import OnlySettlementExecutionState
         from .reducers.trade_accounting import OnlyAccountTradeReduction, OnlyStrategyLedgerTradeReduction
         from .reducers.trade_fee_accrual import OnlyOrderFeeAccrualTradeReduction
         from .reducers.trade_reservations import (
@@ -695,7 +712,7 @@ class OnlyTradeExecutionTransactionPlanner:
         if instruction.margin_instruction is not None or context.margin_reservation_before is not None:
             _fail(OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, "Margin is not supported")
         capability = only_resolve_execution_capability(
-            operation_kind=OnlyExecutionOperationKind.TRADE_FILL,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
             market_profile_id=instruction.compiled_identity.profile_id,
             account_type=context.account_before.account_type,
             order_type=order.order_type,
@@ -783,7 +800,7 @@ class OnlyTradeExecutionTransactionPlanner:
                 OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Runtime/Account/Cluster/Instrument scope disagrees"
             )
         position_instruction = instruction.position_instruction
-        settlement = instruction.settlement_instruction
+        settlement = instruction.settlement_schedule
         expected_notional = _money(
             update.fill.price.value * update.fill.quantity.value * context.contract_multiplier.value,
             fee.fee_breakdown.currency,
@@ -796,12 +813,7 @@ class OnlyTradeExecutionTransactionPlanner:
             or position_instruction.position_effect is not scope.position_effect
             or position_instruction.quantity != update.fill.quantity.value
             or position_instruction.price != update.fill.price.value
-            or settlement.account_id != str(order.account_id)
-            or settlement.instrument_id != str(order.instrument_id)
-            or settlement.source_order_id != str(order.order_id)
-            or settlement.source_trade_id != str(update.fill.trade_id)
-            or settlement.asset_quantity != update.fill.quantity.value
-            or settlement.cash_amount != expected_notional.amount
+            or settlement.policy_id != instruction.settlement_schedule.policy_id
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Market instruction scope disagrees")
         if (
@@ -814,8 +826,8 @@ class OnlyTradeExecutionTransactionPlanner:
             _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Fee instruction scope disagrees")
         currency = fee.fee_breakdown.currency
         monies: list[OnlyMoney | None] = [
-            context.account_before.cash_balance,
-            context.strategy_ledger_before.cash_balance,
+            context.account_before.ledger_cash,
+            context.strategy_ledger_before.ledger_cash,
             context.risk_reservation_before.reserved_notional,
             context.valuation_before.cash,
         ]
@@ -833,7 +845,7 @@ class OnlyTradeExecutionTransactionPlanner:
             _fail(OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, "Risk authority Currency disagrees")
         if (
             not context.account_ledger_parity
-            or context.valuation_before.cash != context.account_before.cash_balance
+            or context.valuation_before.cash != context.account_before.ledger_cash
             or context.valuation_before.position_market_value != context.account_before.position_market_value
             or context.valuation_before.unrealized_pnl != context.account_before.unrealized_pnl
         ):
@@ -854,8 +866,8 @@ class OnlyTradeExecutionTransactionPlanner:
                 "Cash instruction disagrees with Generic cash settlement",
             )
         if context.settlement_before is not None and (
-            context.settlement_before.instruction_id != settlement.instruction_id
-            or context.settlement_before.source_trade_id != str(update.fill.trade_id)
+            context.settlement_before.instruction is None
+            or context.settlement_before.instruction.trade_id != update.fill.trade_id
         ):
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH,
@@ -1082,6 +1094,89 @@ def _require_position_reservation(
     return value
 
 
+def _settlement_instruction(
+    context: OnlyTradeExecutionPlanningContext,
+    trade: OnlyPlannedTrade,
+    position_after: object,
+    allocation_after: object,
+) -> OnlySettlementInstruction:
+    from .execution_state import OnlyAllocationExecutionState, OnlyPositionExecutionState
+
+    if not isinstance(position_after, OnlyPositionExecutionState) or not isinstance(
+        allocation_after, OnlyAllocationExecutionState
+    ):
+        raise TypeError("Settlement instruction requires final Position and Allocation authority")
+    position_cycle = (
+        context.position_creation.cycle if context.position_creation is not None else context.position_cycle
+    )
+    allocation_cycle = (
+        context.allocation_creation.cycle if context.allocation_creation is not None else context.allocation_cycle
+    )
+    if position_cycle < 1 or allocation_cycle < 1:
+        _fail(
+            OnlyTradeExecutionPlanningErrorCode.REDUCTION_INVARIANT_FAILED,
+            "Settlement instruction requires final lifecycle cycles",
+        )
+    schedule = context.trade_instruction.settlement_schedule
+    cash_credit = trade.side is OnlyOrderSide.SELL
+    account_amount = OnlyMoney(
+        trade.gross_notional.amount - trade.authoritative_fee.amount
+        if cash_credit
+        else trade.gross_notional.amount + trade.authoritative_fee.amount,
+        trade.gross_notional.currency,
+    )
+    net_cash_flow = account_amount if cash_credit else OnlyMoney(-account_amount.amount, account_amount.currency)
+    identity = context.trade_instruction.compiled_identity
+    provisional = OnlySettlementInstruction(
+        instruction_id=only_settlement_instruction_id({"provisional": context.fill_authority.identity}),
+        runtime_id=trade.runtime_id,
+        account_id=trade.account_id,
+        cluster_id=trade.cluster_id,
+        instrument_id=trade.instrument_id,
+        order_id=trade.order_id,
+        trade_id=trade.trade_id,
+        position_id=position_after.position_id,
+        position_cycle=position_cycle,
+        allocation_id=allocation_after.allocation_id,
+        allocation_cycle=allocation_cycle,
+        side=trade.side,
+        trade_quantity=trade.quantity,
+        gross_notional=trade.gross_notional,
+        net_cash_flow=net_cash_flow,
+        trading_day=trade.trading_day,
+        schedule=schedule,
+        asset_leg=OnlyAssetSettlementLeg(
+            OnlySettlementLegDirection.CREDIT if trade.side is OnlyOrderSide.BUY else OnlySettlementLegDirection.DEBIT,
+            trade.quantity,
+            schedule.asset_booked_on,
+            schedule.asset_trade_available_on,
+            schedule.legal_settlement_on,
+        ),
+        cash_leg=OnlyCashSettlementLeg(
+            OnlySettlementLegDirection.CREDIT if cash_credit else OnlySettlementLegDirection.DEBIT,
+            trade.gross_notional,
+            account_amount,
+            schedule.cash_booked_on,
+            schedule.cash_trade_available_on,
+            schedule.cash_withdrawable_on,
+            schedule.legal_settlement_on,
+        ),
+        market_profile_id=identity.profile_id,
+        market_profile_version=identity.profile_version,
+        compiled_rule_fingerprint=identity.compiled_rules_fingerprint,
+        reference_fingerprint=identity.reference_fingerprint,
+        content_fingerprint="0" * 64,
+    )
+    fingerprinted = replace(
+        provisional,
+        content_fingerprint=only_settlement_instruction_content_fingerprint(provisional),
+    )
+    return replace(
+        fingerprinted,
+        instruction_id=only_settlement_instruction_id(only_instruction_identity_payload(fingerprinted)),
+    )
+
+
 def _position_key(context: OnlyTradeExecutionPlanningContext) -> OnlyPositionKey:
     scope = context.position_scope
     return OnlyPositionKey(
@@ -1113,9 +1208,16 @@ def _execution_id(context: OnlyTradeExecutionPlanningContext) -> str:
 
 def _trade_instruction_id(context: OnlyTradeExecutionPlanningContext) -> str:
     instruction = context.trade_instruction
+    schedule = instruction.settlement_schedule
     authority = "|".join(
         (
-            instruction.settlement_instruction.instruction_id,
+            schedule.policy_id,
+            schedule.asset_booked_on.value.isoformat(),
+            schedule.asset_trade_available_on.value.isoformat(),
+            schedule.cash_booked_on.value.isoformat(),
+            schedule.cash_trade_available_on.value.isoformat(),
+            schedule.cash_withdrawable_on.value.isoformat(),
+            schedule.legal_settlement_on.value.isoformat(),
             instruction.compiled_identity.compiled_rules_fingerprint,
             instruction.position_instruction.position_side,
             instruction.position_instruction.position_effect.value,
@@ -1169,12 +1271,12 @@ def _account_equity_points(
             trade.ts_init,
             None,
             after.base_currency,
-            after.cash_balance,
+            after.ledger_cash,
             market_value,
             after.realized_pnl,
             unrealized,
             after.fees,
-            after.cash_balance + market_value,
+            after.ledger_cash + market_value,
             external,
             source,
             start_version + index - 1,
@@ -1201,7 +1303,7 @@ def _strategy_equity_points(
         after.key.base_currency,
     )
     stage_unrealized = stage_market - after.position_cost
-    stage_equity = after.cash_balance + stage_market
+    stage_equity = after.ledger_cash + stage_market
     economic_values = (
         (stage_market, stage_unrealized, stage_equity),
         (after.position_market_value, after.unrealized_pnl, after.equity),
@@ -1236,7 +1338,7 @@ def _strategy_equity_points(
                 trade.ts_event if index <= 2 else trade.ts_init,
                 after.key.base_currency,
                 after.initial_capital,
-                after.cash_balance,
+                after.ledger_cash,
                 market_value,
                 after.realized_pnl,
                 unrealized,
@@ -1257,10 +1359,10 @@ def _event_timestamp(
     intent: OnlyExecutionEventIntent,
 ) -> OnlyTimestamp:
     initialized_components = {
-        OnlyExecutionProjectionComponent.ACCOUNT,
-        OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION,
-        OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK,
+        OnlyRuntimeProjectionComponent.ACCOUNT,
+        OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
+        OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK,
     }
     return context.update.ts_init if intent.component in initialized_components else context.update.ts_event
 
@@ -1270,8 +1372,8 @@ def _event_initialized_at(
     intent: OnlyExecutionEventIntent,
 ) -> OnlyTimestamp:
     event_time_components = {
-        OnlyExecutionProjectionComponent.POSITION,
-        OnlyExecutionProjectionComponent.STRATEGY_LEDGER,
+        OnlyRuntimeProjectionComponent.POSITION,
+        OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
     }
     return context.update.ts_event if intent.component in event_time_components else context.update.ts_init
 

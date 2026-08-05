@@ -29,8 +29,8 @@ class OnlyStrategyLedgerContextView:
         return self.snapshot().equity.equity
 
     @property
-    def cash_balance(self) -> OnlyMoney:
-        return self.snapshot().cash.cash_balance
+    def ledger_cash(self) -> OnlyMoney:
+        return self.snapshot().cash.ledger_cash
 
     @property
     def cash_available(self) -> OnlyMoney:

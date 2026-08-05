@@ -18,15 +18,14 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
-
-from .enums import OnlyExecutionOperationKind
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     schema_version = 1
 
-    operation_kind: OnlyExecutionOperationKind
+    operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
     terminal_payload_fingerprint: str
     broker_update_id: OnlyBrokerUpdateId
@@ -58,7 +57,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     cluster_active_order_count_delta: int
 
     def __post_init__(self) -> None:
-        if self.operation_kind is not OnlyExecutionOperationKind.ORDER_TERMINAL:
+        if self.operation_kind is not OnlyRuntimeOperationKind.ORDER_TERMINAL:
             raise ValueError("terminal fact requires ORDER_TERMINAL operation kind")
         if not self.terminal_identity.startswith("ETERM-") or len(self.terminal_payload_fingerprint) != 64:
             raise ValueError("terminal fact requires stable identity authority")
@@ -106,7 +105,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
 class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
     schema_version = 1
 
-    operation_kind: OnlyExecutionOperationKind
+    operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
     terminal_payload_fingerprint: str
     broker_update_id: OnlyBrokerUpdateId

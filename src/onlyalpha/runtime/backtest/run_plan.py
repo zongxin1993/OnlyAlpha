@@ -252,7 +252,7 @@ class OnlyBacktestRunPlan:
         active_risk_reservations = self._require_runtime().risk_service.reservations.snapshot_active()
         checks = {
             "ACCOUNT_EQUITY": account.equity.amount
-            == account.cash.cash_balance.amount + account.position_market_value.amount,
+            == account.cash.ledger_cash.amount + account.position_market_value.amount,
             "LEDGER_EQUITY_VIEWS": all(
                 ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view
                 for ledger in ledgers

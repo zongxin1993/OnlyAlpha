@@ -11,12 +11,13 @@ from onlyalpha.broker.updates import (
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderRejection
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution.enums import OnlyExecutionOperationKind, OnlyExecutionProcessingStatus
-from onlyalpha.execution.projection import OnlyExecutionProjectionComponent
+from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
 from onlyalpha.execution.terminal_identity import only_capture_execution_terminal_authority
 from onlyalpha.position.enums import OnlyPositionReservationState, OnlyPositionStatus
 from onlyalpha.risk.enums import OnlyRiskReservationState
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
 from tests.execution.support.generic_t0_trade_harness import only_test_generic_t0_long_close_context
 
 
@@ -84,14 +85,14 @@ def test_partial_long_close_terminal_is_one_durable_transaction(
     )
     assert len(transactions) == 2
     committed = transactions[-1]
-    assert committed.operation_kind is OnlyExecutionOperationKind.ORDER_TERMINAL
-    assert committed.trade_id is None
+    assert committed.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
+    assert not hasattr(committed.fact, "trade_id")
     assert isinstance(committed.fact, OnlyCommittedTerminalExecutionFact)
     assert tuple(item.identity.component for item in committed.projections) == (
-        OnlyExecutionProjectionComponent.ORDER,
-        OnlyExecutionProjectionComponent.POSITION_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK_RESERVATION,
-        OnlyExecutionProjectionComponent.RISK,
+        OnlyRuntimeProjectionComponent.ORDER,
+        OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK_RESERVATION,
+        OnlyRuntimeProjectionComponent.RISK,
     )
     order = environment.runtime.order_manager.require_snapshot(update.order_id)
     assert order.status is expected

@@ -10,7 +10,6 @@ from onlyalpha.market.models import (
     OnlyMarginState,
     OnlyMarketProfileId,
     OnlyMarketProfileResolver,
-    OnlySettlementContext,
     only_next_calendar_day,
 )
 from onlyalpha.market.profiles import (
@@ -20,6 +19,7 @@ from onlyalpha.market.profiles import (
     only_generic_margin_futures_profile,
     only_generic_t0_cash_profile,
 )
+from onlyalpha.settlement.models import OnlySettlementScheduleRequest
 
 
 def test_profile_resolver_is_versioned_and_fingerprinted() -> None:
@@ -31,22 +31,14 @@ def test_profile_resolver_is_versioned_and_fingerprinted() -> None:
 
 
 def test_t0_and_a_share_t1_use_same_settlement_model_boundary() -> None:
-    context = OnlySettlementContext(
-        execution_id="execution-1",
-        account_id="account-1",
-        instrument_id="TEST.VENUE",
-        side=OnlyOrderSide.BUY,
-        quantity=Decimal(100),
-        cash_amount=Decimal(1000),
-        trade_time=datetime(2026, 1, 5, tzinfo=UTC),
-        trading_day=OnlyTradingDay(datetime(2026, 1, 5).date()),
-    )
-    t0 = only_generic_t0_cash_profile().settlement_model.on_execution(context, only_next_calendar_day)
-    t1 = only_cn_a_share_cash_profile("2025.1").settlement_model.on_execution(context, only_next_calendar_day)
-    assert t0.asset_available_day == context.trading_day
-    assert t1.asset_available_day.value.isoformat() == "2026-01-06"
-    assert t1.cash_available_day == context.trading_day
-    assert t1.legal_settlement_day.value.isoformat() == "2026-01-06"
+    day = OnlyTradingDay(datetime(2026, 1, 5).date())
+    request = OnlySettlementScheduleRequest(OnlyOrderSide.BUY, day)
+    t0 = only_generic_t0_cash_profile().settlement_model.schedule(request, only_next_calendar_day)
+    t1 = only_cn_a_share_cash_profile("2025.1").settlement_model.schedule(request, only_next_calendar_day)
+    assert t0.asset_trade_available_on == day
+    assert t1.asset_trade_available_on.value.isoformat() == "2026-01-06"
+    assert t1.cash_trade_available_on == day
+    assert t1.legal_settlement_on.value.isoformat() == "2026-01-06"
 
 
 def test_crypto_is_24x7_and_declares_fractional_quantity() -> None:

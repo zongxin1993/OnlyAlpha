@@ -21,7 +21,7 @@ Ledger and submit a new order. A deterministic Broker could fill that order late
 2. `decide(update, prepared)` returns exactly one of `REHYDRATE_READY`, `RECOVER_UNPROJECTED` or `COMMIT_CONTINUATION`. While the
    tail is still matching, a missing or out-of-order transaction continues to fail closed; it cannot bypass the persisted plan.
 3. Once the tail is resolved, a new Trade is a continuation. It uses the ordinary Planning Context, Planner and
-   `OnlyExecutionCommitCoordinator.commit()`, so the Runtime Persistence Store assigns the next sequence, writes the transaction
+   `OnlyRuntimeTransactionCoordinator.commit()`, so the Runtime Persistence Store assigns the next sequence, writes the transaction
    and durable Outbox, applies the formal projections and marks Projection Ready.
 4. A continuation is recorded in the Recovery Session only to validate contiguous sequence, Runtime scope and unique transaction,
    Broker Update and Trade identities. The Runtime Persistence Store remains the authority.

@@ -88,7 +88,7 @@ def test_real_manager_parity_covers_complete_economic_and_lifecycle_authority(
     assert settlement.records[-1].sequence == result.context.settlement_record_sequence + 1
     if fee.after.records:
         assert fee.after.records[0].record_id.endswith(f"{result.context.fee_record_sequence + 1:08d}")
-    assert valuation.after.cash == account.after.cash_balance
+    assert valuation.after.cash == account.after.ledger_cash
     assert valuation.after.position_market_value == account.after.position_market_value
     assert valuation.after.equity == account.after.equity == ledger.after.equity
     assert order.after.updated_at == result.context.update.ts_init

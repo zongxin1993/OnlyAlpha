@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.execution import (
-    OnlyExecutionProjectionComponent,
     OnlyExecutionRecoveryStatus,
+    OnlyRuntimeProjectionComponent,
 )
 from onlyalpha.runtime.persistence.store import (
     OnlyInMemoryRuntimePersistenceStore,
@@ -96,7 +96,7 @@ def test_mark_failed_failure_preserves_original_projection_error_and_tail(
     faulting = OnlyFailOnceRuntimePersistenceStore(store, OnlyTestRuntimePersistenceFault.MARK_FAILED)
     harness = OnlyRealExecutionRecoveryHarness.create(
         store=faulting,
-        target_fault=(OnlyExecutionProjectionComponent.FEE, "before"),
+        target_fault=(OnlyRuntimeProjectionComponent.FEE, "before"),
     )
 
     failed = harness.recover()
@@ -129,7 +129,7 @@ def test_sqlite_reopen_with_fresh_bootstrap_authority_recovers_transaction_tail(
     first_store = OnlySqliteRuntimePersistenceStore(path)
     first = OnlyRealExecutionRecoveryHarness.create(
         store=first_store,
-        target_fault=(OnlyExecutionProjectionComponent.FEE, "before"),
+        target_fault=(OnlyRuntimeProjectionComponent.FEE, "before"),
     )
     failed = first.recover()
     assert failed.status is OnlyExecutionRecoveryStatus.FAILED

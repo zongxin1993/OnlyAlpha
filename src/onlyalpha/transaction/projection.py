@@ -15,11 +15,7 @@ from onlyalpha.domain.execution import OnlyOrderFill
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState
-from onlyalpha.fee.models import OnlyFeeBreakdown
-from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
-
-from .execution_state import (
+from onlyalpha.execution.execution_state import (
     OnlyAccountCashReservationExecutionState,
     OnlyAccountExecutionState,
     OnlyAllocationExecutionState,
@@ -32,13 +28,17 @@ from .execution_state import (
     OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionState,
 )
-from .state_hash import only_execution_state_hash
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState
+from onlyalpha.fee.models import OnlyFeeBreakdown
+from onlyalpha.settlement.models import OnlySettlementInstruction
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
+from onlyalpha.transaction.state_hash import only_execution_state_hash
 
 if TYPE_CHECKING:
-    from .applied_projection import OnlyExecutionProjectionApplyContext
+    from onlyalpha.transaction.applied_projection import OnlyRuntimeProjectionApplyContext
 
 
-class OnlyExecutionProjectionComponent(StrEnum):
+class OnlyRuntimeProjectionComponent(StrEnum):
     ORDER = "ORDER"
     POSITION = "POSITION"
     ALLOCATION = "ALLOCATION"
@@ -57,7 +57,7 @@ class OnlyExecutionProjectionComponent(StrEnum):
     VALUATION = "VALUATION"
 
 
-class OnlyExecutionProjectionOrder(IntEnum):
+class OnlyRuntimeProjectionOrder(IntEnum):
     ORDER = 1
     POSITION = 2
     ALLOCATION = 3
@@ -77,8 +77,8 @@ class OnlyExecutionProjectionOrder(IntEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyExecutionProjectionIdentity(OnlyDomainModel):
-    component: OnlyExecutionProjectionComponent
+class OnlyRuntimeProjectionIdentity(OnlyDomainModel):
+    component: OnlyRuntimeProjectionComponent
     entity_key: str
     expected_version: int
     result_version: int
@@ -99,14 +99,14 @@ class OnlyExecutionProjectionIdentity(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyOrderExecutionState
     after: OnlyOrderExecutionState
     fill: OnlyOrderFill
     broker_update_id: OnlyBrokerUpdateId
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.ORDER)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ORDER)
         _require_state_contract(self.identity, self.before, self.after)
         if _order_scope(self.before) != _order_scope(self.after) or self.identity.entity_key != str(
             self.after.order_id
@@ -138,7 +138,7 @@ class OnlyOrderExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderTerminalExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyOrderExecutionState
     after: OnlyOrderExecutionState
     broker_update_id: OnlyBrokerUpdateId
@@ -147,7 +147,7 @@ class OnlyOrderTerminalExecutionProjection(OnlyDomainModel):
     terminal_reason: str
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.ORDER)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ORDER)
         _require_state_contract(self.identity, self.before, self.after)
         if _order_scope(self.before) != _order_scope(self.after) or self.identity.entity_key != str(
             self.after.order_id
@@ -195,14 +195,14 @@ class OnlyAllocationExecutionReplayMetadata(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyPositionExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyPositionExecutionState | None
     after: OnlyPositionExecutionState
     realized_pnl_delta: OnlyMoney
     replay: OnlyPositionExecutionReplayMetadata
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.POSITION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.POSITION)
         _require_state_contract(self.identity, self.before, self.after)
         if self.identity.entity_key != str(self.after.position_id):
             raise ValueError("Position projection entity key mismatch")
@@ -222,14 +222,14 @@ class OnlyPositionExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyAllocationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyAllocationExecutionState | None
     after: OnlyAllocationExecutionState
     realized_pnl_delta: OnlyMoney
     replay: OnlyAllocationExecutionReplayMetadata
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.ALLOCATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ALLOCATION)
         _require_state_contract(self.identity, self.before, self.after)
         if self.identity.entity_key != str(self.after.allocation_id):
             raise ValueError("Allocation projection entity key mismatch")
@@ -266,6 +266,7 @@ class OnlySettlementExecutionState(OnlyDomainModel):
     legal_settlement_on: OnlyTradingDay
     version: int
     record_sequence_head: int
+    instruction: OnlySettlementInstruction | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -302,13 +303,13 @@ class OnlySettlementRecordReplay(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlySettlementExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlySettlementExecutionState | None
     after: OnlySettlementExecutionState
     records: tuple[OnlySettlementRecordReplay, ...]
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.SETTLEMENT)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.SETTLEMENT)
         _require_state_contract(self.identity, self.before, self.after)
         if self.identity.entity_key != self.after.instruction_id:
             raise ValueError("Settlement projection entity key mismatch")
@@ -343,12 +344,12 @@ class OnlyMarginExecutionState(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarginExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyMarginExecutionState | None
     after: OnlyMarginExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.MARGIN)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.MARGIN)
         _require_state_contract(self.identity, self.before, self.after)
 
 
@@ -428,12 +429,12 @@ class OnlyFeeExecutionState(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyFeeExecutionState | None
     after: OnlyFeeExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.FEE)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.FEE)
         _require_state_contract(self.identity, self.before, self.after)
         if self.identity.entity_key != self.after.instruction.instruction_id:
             raise ValueError("Fee projection entity key mismatch")
@@ -441,12 +442,12 @@ class OnlyFeeExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderFeeAccrualExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyOrderFeeAccrualExecutionState | None
     after: OnlyOrderFeeAccrualExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.ORDER_FEE_ACCRUAL)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL)
         _require_state_contract(self.identity, self.before, self.after)
         if self.identity.entity_key != str(self.after.order_id):
             raise ValueError("Order fee accrual projection entity key mismatch")
@@ -460,12 +461,12 @@ class OnlyOrderFeeAccrualExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyAccountExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyAccountExecutionState
     after: OnlyAccountExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.ACCOUNT)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ACCOUNT)
         _require_state_contract(self.identity, self.before, self.after)
         if (self.before.runtime_id, self.before.account_id) != (self.after.runtime_id, self.after.account_id):
             raise ValueError("Account projection scope mismatch")
@@ -478,13 +479,13 @@ class OnlyAccountExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyStrategyLedgerExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyStrategyLedgerExecutionState
     after: OnlyStrategyLedgerExecutionState
     valuation_lines: tuple[OnlyStrategyValuationLine, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.STRATEGY_LEDGER)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.STRATEGY_LEDGER)
         _require_state_contract(self.identity, self.before, self.after)
         if self.before.ledger_id != self.after.ledger_id or self.before.key != self.after.key:
             raise ValueError("Strategy Ledger projection scope mismatch")
@@ -495,12 +496,12 @@ class OnlyStrategyLedgerExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyAccountCashReservationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyAccountCashReservationExecutionState | None
     after: OnlyAccountCashReservationExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.ACCOUNT_CASH_RESERVATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
         if self.before is not None:
@@ -509,12 +510,12 @@ class OnlyAccountCashReservationExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyStrategyCashReservationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyStrategyCashReservationExecutionState | None
     after: OnlyStrategyCashReservationExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.STRATEGY_CASH_RESERVATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
         if self.before is not None:
@@ -523,12 +524,12 @@ class OnlyStrategyCashReservationExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyPositionReservationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyPositionReservationExecutionState | None
     after: OnlyPositionReservationExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.POSITION_RESERVATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.POSITION_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
         if self.before is not None:
@@ -537,12 +538,12 @@ class OnlyPositionReservationExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarginReservationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyMarginReservationExecutionState | None
     after: OnlyMarginReservationExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.MARGIN_RESERVATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.MARGIN_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
         if self.before is not None:
@@ -551,12 +552,12 @@ class OnlyMarginReservationExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyRiskReservationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyRiskReservationExecutionState | None
     after: OnlyRiskReservationExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.RISK_RESERVATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.RISK_RESERVATION)
         _require_state_contract(self.identity, self.before, self.after)
         _require_reservation_scope(self.identity.entity_key, self.before, self.after)
         if self.before is not None:
@@ -565,12 +566,12 @@ class OnlyRiskReservationExecutionProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyRiskExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyRiskExecutionState
     after: OnlyRiskExecutionState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.RISK)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.RISK)
         _require_state_contract(self.identity, self.before, self.after)
 
 
@@ -594,7 +595,7 @@ class OnlyValuationExecutionState(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyValuationExecutionProjection(OnlyDomainModel):
-    identity: OnlyExecutionProjectionIdentity
+    identity: OnlyRuntimeProjectionIdentity
     before: OnlyValuationExecutionState | None
     after: OnlyValuationExecutionState
     account_equity_points: tuple[OnlyAccountEquityPoint, ...] = ()
@@ -603,11 +604,11 @@ class OnlyValuationExecutionProjection(OnlyDomainModel):
     strategy_equity_before: tuple[OnlyStrategyLedgerEquityPoint, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyExecutionProjectionComponent.VALUATION)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.VALUATION)
         _require_state_contract(self.identity, self.before, self.after)
 
 
-type OnlyExecutionProjection = (
+type OnlyRuntimeProjection = (
     OnlyOrderExecutionProjection
     | OnlyOrderTerminalExecutionProjection
     | OnlyPositionExecutionProjection
@@ -635,7 +636,7 @@ type OnlyExecutionReservationProjection = (
 )
 
 
-def _require_component(identity: OnlyExecutionProjectionIdentity, expected: OnlyExecutionProjectionComponent) -> None:
+def _require_component(identity: OnlyRuntimeProjectionIdentity, expected: OnlyRuntimeProjectionComponent) -> None:
     if identity.component is not expected:
         raise ValueError(f"{expected.value} projection requires matching component identity")
 
@@ -646,7 +647,7 @@ def _require_digest(value: str, label: str) -> None:
 
 
 def _require_state_contract(
-    identity: OnlyExecutionProjectionIdentity,
+    identity: OnlyRuntimeProjectionIdentity,
     before: OnlyDomainModel | None,
     after: OnlyDomainModel,
 ) -> None:
@@ -852,7 +853,7 @@ class OnlyProjectionApplyStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class OnlyProjectionApplyResult:
     status: OnlyProjectionApplyStatus
-    component: OnlyExecutionProjectionComponent
+    component: OnlyRuntimeProjectionComponent
     entity_key: str
     execution_sequence: int
     before_version: int
@@ -862,11 +863,11 @@ class OnlyProjectionApplyResult:
     payload_hash: str
 
 
-class OnlyExecutionProjectionTarget(Protocol):
+class OnlyRuntimeProjectionTarget(Protocol):
     @property
-    def component(self) -> OnlyExecutionProjectionComponent: ...
+    def component(self) -> OnlyRuntimeProjectionComponent: ...
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult: ...
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -876,22 +877,22 @@ class _OnlyProjectionEntityState:
     applied: tuple[tuple[int, str], ...]
 
 
-class OnlyReferenceExecutionProjectionTarget:
+class OnlyReferenceRuntimeProjectionTarget:
     """Reference target implementing version, state-hash and idempotency checks."""
 
-    def __init__(self, component: OnlyExecutionProjectionComponent) -> None:
+    def __init__(self, component: OnlyRuntimeProjectionComponent) -> None:
         self._component = component
         self._entities: dict[str, _OnlyProjectionEntityState] = {}
 
     @property
-    def component(self) -> OnlyExecutionProjectionComponent:
+    def component(self) -> OnlyRuntimeProjectionComponent:
         return self._component
 
     def seed(self, entity_key: str, version: int, state_hash: str) -> None:
         _require_digest(state_hash, "seed state_hash")
         self._entities[entity_key] = _OnlyProjectionEntityState(version, state_hash, ())
 
-    def apply_execution_projection(self, context: OnlyExecutionProjectionApplyContext) -> OnlyProjectionApplyResult:
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
         execution_sequence = context.execution_sequence
         projection = context.projection
         identity = projection.identity
@@ -927,7 +928,7 @@ class OnlyReferenceExecutionProjectionTarget:
     def _result(
         status: OnlyProjectionApplyStatus,
         execution_sequence: int,
-        identity: OnlyExecutionProjectionIdentity,
+        identity: OnlyRuntimeProjectionIdentity,
         before: _OnlyProjectionEntityState,
         after: _OnlyProjectionEntityState | None = None,
     ) -> OnlyProjectionApplyResult:

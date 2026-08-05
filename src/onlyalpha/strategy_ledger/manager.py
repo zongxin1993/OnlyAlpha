@@ -429,7 +429,7 @@ class OnlyStrategyLedgerManager:
         ledger.status = snapshot.status
         ledger.initial_capital = snapshot.capital.initial_capital
         ledger.external_cash_flow = snapshot.capital.external_cash_flow
-        ledger.cash_balance = snapshot.cash.cash_balance
+        ledger.ledger_cash = snapshot.cash.ledger_cash
         ledger.position_cost = snapshot.equity.position_cost
         ledger.position_market_value = snapshot.equity.position_market_value
         ledger.realized_pnl = snapshot.pnl.realized_pnl
@@ -601,7 +601,7 @@ class OnlyStrategyLedgerManager:
                 snapshot.updated_at,
                 snapshot.key.base_currency,
                 snapshot.capital.initial_capital,
-                snapshot.cash.cash_balance,
+                snapshot.cash.ledger_cash,
                 snapshot.equity.position_market_value,
                 snapshot.pnl.realized_pnl,
                 snapshot.pnl.unrealized_pnl,

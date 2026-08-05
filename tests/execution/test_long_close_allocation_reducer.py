@@ -1,13 +1,13 @@
 from decimal import Decimal
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent
+from onlyalpha.execution import OnlyRuntimeProjectionComponent
 from tests.execution.support.generic_t0_trade_harness import only_test_generic_t0_long_close_context
 
 
 def test_long_close_allocation_uses_position_realized_pnl_authority() -> None:
     _, _, prepared = only_test_generic_t0_long_close_context(open_quantity="200", close_quantity="100")
     allocation = next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.ALLOCATION
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.ALLOCATION
     )
 
     assert allocation.before is not None
@@ -21,7 +21,7 @@ def test_long_close_allocation_uses_position_realized_pnl_authority() -> None:
 def test_long_close_allocation_zero_quantity_clears_cost_authority() -> None:
     _, _, prepared = only_test_generic_t0_long_close_context()
     allocation = next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.ALLOCATION
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.ALLOCATION
     )
 
     assert allocation.after.total_quantity.value == 0

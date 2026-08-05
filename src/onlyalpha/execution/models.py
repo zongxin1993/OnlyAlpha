@@ -19,7 +19,6 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.execution.delivery import OnlyExecutionEventDeliveryIntent
 from onlyalpha.execution.enums import (
     OnlyExecutionFailureCode,
     OnlyExecutionMutationStatus,
@@ -39,6 +38,7 @@ from onlyalpha.strategy_ledger.models import (
     OnlyStrategyLedgerMutationResult,
     OnlyStrategyLedgerSnapshot,
 )
+from onlyalpha.transaction.delivery import OnlyExecutionEventDeliveryIntent
 
 
 @dataclass(frozen=True, slots=True)

@@ -35,8 +35,8 @@ def test_validator_is_read_only_and_runtime_agnostic() -> None:
 def test_validation_closure_keeps_the_single_structured_outbox_identity() -> None:
     persistence = Path("src/onlyalpha/execution/persistence_ports.py").read_text(encoding="utf-8")
     key = persistence[
-        persistence.index("class OnlyExecutionTransactionOutboxKey") : persistence.index(
-            "class OnlyExecutionTransactionOutboxRecord"
+        persistence.index("class OnlyRuntimeTransactionOutboxKey") : persistence.index(
+            "class OnlyRuntimeTransactionOutboxRecord"
         )
     ]
     for field in ("runtime_id", "execution_sequence", "event_sequence"):

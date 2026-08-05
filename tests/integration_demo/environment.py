@@ -446,9 +446,10 @@ class OnlyIntegrationEnvironment:
     def settle_next_day(self) -> tuple[object, ...]:
         # Close the final day-one aggregation window before changing TradingDay.
         self.process_bar(DAY_ONE, 5, "10.00")
-        results = self.runtime.settle_positions(OnlyTradingDay(DAY_ONE), OnlyTradingDay(DAY_TWO))
-        # The day-two Bar advances the independent Broker settlement and sends its snapshots inbound.
+        before = len(self.runtime.execution_transaction_query.records(self.runtime.config.runtime_id))
+        # The first day-two Bar runs the shared Runtime boundary before Strategy dispatch.
         self.process_bar(DAY_TWO, 0, "10.00")
+        results = self.runtime.execution_transaction_query.records(self.runtime.config.runtime_id)[before:]
         self.event_recorder.capture(self.runtime.event_bus)
         return results
 
@@ -573,16 +574,16 @@ class OnlyIntegrationEnvironment:
             cluster_id=CLUSTER_ID,
             currency=CNY,
         )
-        assert ledger.cash.cash_balance.amount == Decimal("1000199.38")
+        assert ledger.cash.ledger_cash.amount == Decimal("1000199.38")
         assert ledger.pnl.realized_pnl.amount == Decimal("200.00")
         assert ledger.pnl.net_pnl.amount == Decimal("199.38")
         assert ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view
         account = self.runtime.account_manager.list_accounts()[0]
-        assert account.cash.cash_balance.amount == Decimal("1000199.38")
+        assert account.cash.ledger_cash.amount == Decimal("1000199.38")
         assert account.equity.amount == Decimal("1000199.38")
         assert self.runtime.broker_gateway is not None
         broker_account = self.runtime.broker_gateway.query_account(OnlyAccountId(ACCOUNT_ID))
-        assert broker_account.cash_balance.amount - account.cash.cash_balance.amount == account.fees.amount
+        assert broker_account.ledger_cash.amount - account.cash.ledger_cash.amount == account.fees.amount
         assert self.buy_trade_result is not None
         assert self.sell_trade_result is not None
         assert self.buy_trade_result.allocation_status is OnlyPositionMutationStatus.APPLIED

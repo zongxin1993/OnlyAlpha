@@ -7,7 +7,6 @@ from typing import Any
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.execution.applied_projection import OnlyInMemoryAppliedProjectionLedger
 from onlyalpha.fee.manager import OnlyFeeRecord
 from onlyalpha.runtime.checkpoint.codec import only_seal_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
@@ -20,8 +19,10 @@ from onlyalpha.runtime.recovery.authority_views import OnlyRuntimeBoundaryAuthor
 from onlyalpha.runtime.recovery.orchestrator import OnlyRuntimeRecoveryDiagnostic, OnlyRuntimeRecoveryStatus
 from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 from onlyalpha.runtime.recovery.validation import OnlyPostRecoveryValidationContext
-from onlyalpha.settlement.manager import OnlySettlementRecord
-from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
+from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot, OnlySettlementInstructionStatus
+from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
+from onlyalpha.transaction.projection import OnlySettlementExecutionProjection
+from tests.execution.factories.trade_planning_factory import only_test_generic_t0_prepared_transaction
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +42,11 @@ class OnlyPostRecoveryAuthorityFixture:
         )
         store = OnlyInMemoryRuntimePersistenceStore()
         fee_records: tuple[OnlyFeeRecord, ...] = ()
-        settlement_records: tuple[OnlySettlementRecord, ...] = ()
+        settlement_records: tuple[OnlySettlementInstructionSnapshot, ...] = ()
         covered_sequence = 0
         if with_transaction:
-            prepared = only_test_generic_t0_cash_buy_open_transaction(runtime_id=runtime_id)
+            prepared = only_test_generic_t0_prepared_transaction()
+            runtime_id = prepared.runtime_id
             committed = store.commit(prepared, committed_at=prepared.prepared_at).transaction
             store.mark_projection_ready(runtime_id, 1, projected_at=prepared.prepared_at)
             fact = committed.fact
@@ -90,24 +92,24 @@ class OnlyPostRecoveryAuthorityFixture:
                         1,
                     ),
                 )
+            settlement_projection = next(
+                item for item in prepared.projections if isinstance(item, OnlySettlementExecutionProjection)
+            )
+            settlement_state = settlement_projection.after
+            assert settlement_state.instruction is not None
             settlement_records = (
-                OnlySettlementRecord(
-                    fact.settlement_instruction_id,
-                    str(fact.instrument_id),
-                    str(fact.trade_id),
-                    fact.fill_quantity.value,
-                    fact.settled_notional.amount,
-                    fact.fill_quantity.value,
-                    Decimal(0),
-                    Decimal(0),
-                    Decimal(0),
-                    False,
-                    fact.trading_day,
-                    1,
-                    str(fact.account_id),
-                    str(fact.order_id),
-                    fact.legal_settlement_date,
-                    "BOOKED",
+                OnlySettlementInstructionSnapshot(
+                    settlement_state.instruction,
+                    True,
+                    settlement_state.asset_released,
+                    True,
+                    settlement_state.trade_cash_released,
+                    settlement_state.withdrawable_cash_released,
+                    settlement_state.legal_settled,
+                    OnlySettlementInstructionStatus.COMPLETED,
+                    settlement_state.version,
+                    settlement_state.record_sequence_head,
+                    None,
                 ),
             )
             covered_sequence = 1
@@ -147,7 +149,7 @@ class OnlyPostRecoveryAuthorityFixture:
             store,
             store,
             store,
-            OnlyInMemoryAppliedProjectionLedger(),
+            OnlyInMemoryAppliedRuntimeProjectionLedger(),
             OnlyRuntimeBoundaryAuthorityView(runtime_id, 0, 0, 0, cursor, 0, 0, 0, timestamp),
             fee_records=fee_records,
             settlement_records=settlement_records,

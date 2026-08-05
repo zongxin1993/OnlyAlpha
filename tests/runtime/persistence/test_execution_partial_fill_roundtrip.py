@@ -3,8 +3,11 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from onlyalpha.execution import only_encode_committed_execution_transaction
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
+from onlyalpha.transaction.persistence_ports import OnlyRuntimePersistenceStoreError
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 
 _FILL_FIELDS = {
@@ -30,7 +33,7 @@ def test_sqlite_roundtrip_preserves_new_fill_authority(tmp_path: Path) -> None:
     reopened.close()
 
 
-def test_sqlite_query_reads_legacy_whole_fill_committed_payload_without_schema_migration(tmp_path: Path) -> None:
+def test_sqlite_query_rejects_legacy_whole_fill_payload_without_schema_migration(tmp_path: Path) -> None:
     path = tmp_path / "runtime.sqlite3"
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = OnlySqliteRuntimePersistenceStore(path)
@@ -49,13 +52,11 @@ def test_sqlite_query_reads_legacy_whole_fill_committed_payload_without_schema_m
     connection = sqlite3.connect(path)
     with connection:
         connection.execute(
-            "UPDATE execution_transactions SET committed_payload=?, committed_payload_hash=?",
+            "UPDATE runtime_transactions SET committed_payload=?, committed_payload_hash=?",
             (encoded, legacy_hash),
         )
     connection.close()
     reopened = OnlySqliteRuntimePersistenceStore(path)
-    restored = reopened.get_by_sequence(prepared.runtime_id, 1)
-    assert restored is not None
-    assert restored.fact.fill_index == restored.fact.fill_count_after == 1
-    assert restored.fact.terminal_fill
+    with pytest.raises(OnlyRuntimePersistenceStoreError, match="malformed"):
+        reopened.get_by_sequence(prepared.runtime_id, 1)
     reopened.close()

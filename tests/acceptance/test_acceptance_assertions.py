@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unit
 def test_economic_isolation_detects_cash_mutation() -> None:
     baseline = OnlyEconomicBaseline(Decimal("100"), 0, Decimal(0), 0, 0, 0, 0, 0, 0, 0)
     passed, reason, _, _ = OnlyPaperAcceptanceAssertions().economic_isolation(
-        baseline, replace(baseline, cash_balance=Decimal("99"))
+        baseline, replace(baseline, ledger_cash=Decimal("99"))
     )
     assert not passed
     assert reason == "ECONOMIC_STATE_MUTATED"

@@ -25,8 +25,8 @@ def test_account_consumes_explicit_reservation_deltas_for_each_fill() -> None:
         zero,
         projection_sequence=7,
     )
-    assert first.after.frozen_cash.amount == (
-        context.account_before.frozen_cash.amount - first_reservation.consumed_delta.amount
+    assert first.after.order_reserved_cash.amount == (
+        context.account_before.order_reserved_cash.amount - first_reservation.consumed_delta.amount
     )
 
     final_reservation = reservation_reducer.reduce(
@@ -43,5 +43,5 @@ def test_account_consumes_explicit_reservation_deltas_for_each_fill() -> None:
         zero,
         projection_sequence=7,
     )
-    assert final.after.frozen_cash.amount == 0
-    assert final.after.cash_balance.amount == context.account_before.cash_balance.amount - Decimal("1000.00")
+    assert final.after.order_reserved_cash.amount == 0
+    assert final.after.ledger_cash.amount == context.account_before.ledger_cash.amount - Decimal("1000.00")

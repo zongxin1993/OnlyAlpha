@@ -14,28 +14,28 @@ from onlyalpha.position.enums import (
     OnlyPositionReservationState,
 )
 from onlyalpha.risk.enums import OnlyRiskReleaseReason, OnlyRiskReservationState
-
-from .capability import OnlyExecutionCapability, only_resolve_execution_capability
-from .enums import OnlyExecutionOperationKind
-from .event_identity import OnlyExecutionTransactionEventFactory
-from .planning_context import OnlyTerminalExecutionPlanningContext
-from .projection import (
-    OnlyExecutionProjection,
-    OnlyExecutionProjectionComponent,
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from onlyalpha.transaction.event_identity import OnlyExecutionTransactionEventFactory
+from onlyalpha.transaction.projection import (
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
+    OnlyRuntimeProjection,
+    OnlyRuntimeProjectionComponent,
 )
-from .projection_builder import OnlyExecutionProjectionBuilder
+from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
+from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
+
+from .capability import OnlyExecutionCapability, only_resolve_execution_capability
+from .planning_context import OnlyTerminalExecutionPlanningContext
 from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft
-from .transaction import OnlyExecutionPrecondition, OnlyPreparedExecutionTransaction
 
 
 class OnlyTerminalExecutionTransactionPlanner:
     """Compile one Long Close terminal update into the shared transaction protocol."""
 
-    def prepare(self, context: OnlyTerminalExecutionPlanningContext) -> OnlyPreparedExecutionTransaction:
+    def prepare(self, context: OnlyTerminalExecutionPlanningContext) -> OnlyPreparedRuntimeTransaction:
         self._validate(context)
         authority = context.terminal_authority
         update = context.update
@@ -139,12 +139,12 @@ class OnlyTerminalExecutionTransactionPlanner:
             version=risk_snapshot_before.version + 1,
         )
 
-        builder = OnlyExecutionProjectionBuilder()
-        projections: tuple[OnlyExecutionProjection, ...] = (
+        builder = OnlyRuntimeProjectionBuilder()
+        projections: tuple[OnlyRuntimeProjection, ...] = (
             builder.finalize(
                 OnlyOrderTerminalExecutionProjection(
                     builder.identity(
-                        component=OnlyExecutionProjectionComponent.ORDER,
+                        component=OnlyRuntimeProjectionComponent.ORDER,
                         entity_key=str(order_after.order_id),
                         before=context.order_before,
                         after=order_after,
@@ -161,7 +161,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             builder.finalize(
                 OnlyPositionReservationExecutionProjection(
                     builder.identity(
-                        component=OnlyExecutionProjectionComponent.POSITION_RESERVATION,
+                        component=OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
                         entity_key=str(position_after.reservation_id),
                         before=position_before,
                         after=position_after,
@@ -174,7 +174,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             builder.finalize(
                 OnlyRiskReservationExecutionProjection(
                     builder.identity(
-                        component=OnlyExecutionProjectionComponent.RISK_RESERVATION,
+                        component=OnlyRuntimeProjectionComponent.RISK_RESERVATION,
                         entity_key=str(risk_after.reservation_id),
                         before=risk_before,
                         after=risk_after,
@@ -187,7 +187,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             builder.finalize(
                 OnlyRiskExecutionProjection(
                     builder.identity(
-                        component=OnlyExecutionProjectionComponent.RISK,
+                        component=OnlyRuntimeProjectionComponent.RISK,
                         entity_key=str(risk_snapshot_after.cluster_id),
                         before=risk_snapshot_before,
                         after=risk_snapshot_after,
@@ -199,7 +199,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             ),
         )
         fact = OnlyCommittedTerminalExecutionFactDraft(
-            operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
+            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
             terminal_identity=authority.terminal_identity,
             terminal_payload_fingerprint=authority.payload_fingerprint,
             broker_update_id=update.update_id,
@@ -231,7 +231,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             cluster_active_order_count_delta=-1,
         )
         preconditions = tuple(
-            OnlyExecutionPrecondition(
+            OnlyRuntimePrecondition(
                 item.identity.component,
                 item.identity.entity_key,
                 item.identity.expected_version,
@@ -240,22 +240,23 @@ class OnlyTerminalExecutionTransactionPlanner:
             for item in projections
         )
         events = _events(context, authority.terminal_identity, projections)
-        return OnlyPreparedExecutionTransaction(
+        prepared = OnlyPreparedRuntimeTransaction(
             transaction_id=authority.terminal_identity,
             runtime_id=update.runtime_id,
-            gateway_id=update.gateway_id,
+            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
+            operation_identity=authority.terminal_identity,
             account_id=update.account_id,
-            broker_update_id=update.update_id,
-            trade_id=None,
-            source_sequence=update.source_sequence,
+            effective_time=update.ts_event,
             prepared_at=context.prepared_at,
             fact_draft=fact,
             projections=projections,
             outbox_events=events,
             preconditions=preconditions,
-            operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
-            terminal_identity=authority.terminal_identity,
         )
+        from .economic_invariants import OnlyPreparedExecutionEconomicInvariantValidator
+
+        OnlyPreparedExecutionEconomicInvariantValidator().validate(prepared)
+        return prepared
 
     @staticmethod
     def _validate(context: OnlyTerminalExecutionPlanningContext) -> None:
@@ -263,7 +264,7 @@ class OnlyTerminalExecutionTransactionPlanner:
         order = context.order_before
         scope = context.position_scope
         capability = only_resolve_execution_capability(
-            operation_kind=OnlyExecutionOperationKind.ORDER_TERMINAL,
+            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
             market_profile_id=context.market_profile_id,
             account_type=context.account_type,
             order_type=order.order_type,
@@ -349,7 +350,7 @@ def _zero_quantity(authority: OnlyQuantity) -> OnlyQuantity:
 def _events(
     context: OnlyTerminalExecutionPlanningContext,
     transaction_id: str,
-    projections: tuple[OnlyExecutionProjection, ...],
+    projections: tuple[OnlyRuntimeProjection, ...],
 ) -> tuple[OnlyEvent, ...]:
     factory = OnlyExecutionTransactionEventFactory()
     return tuple(

@@ -1,13 +1,13 @@
 from decimal import Decimal
 
-from onlyalpha.execution import OnlyExecutionProjectionComponent
+from onlyalpha.execution import OnlyRuntimeProjectionComponent
 from tests.execution.support.generic_t0_trade_harness import only_test_multi_cluster_close_context
 
 
 def test_allocation_consumes_shared_attributed_close_cost() -> None:
     _, _, prepared = only_test_multi_cluster_close_context(close_quantity="400")
     projection = next(
-        item for item in prepared.projections if item.identity.component is OnlyExecutionProjectionComponent.ALLOCATION
+        item for item in prepared.projections if item.identity.component is OnlyRuntimeProjectionComponent.ALLOCATION
     )
 
     assert projection.after.total_quantity.value == Decimal("600")

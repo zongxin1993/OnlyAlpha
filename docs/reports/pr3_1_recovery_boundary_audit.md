@@ -7,7 +7,7 @@
 
 当前实现证明的是“正确 Bootstrap/Before Authority + 已提交 Trade Transaction Tail → Runtime Manager After
 Authority”，不是从空 Runtime 完整恢复。`OnlyExecutionTransactionStore` 已保存 durable transaction 和
-projection-ready 状态，但尚未装配 Runtime Commit Coordinator；`OnlyAppliedProjectionLedger` 只有内存实现，当前实际
+projection-ready 状态，但尚未装配 Runtime Commit Coordinator；`OnlyAppliedRuntimeProjectionLedger` 只有内存实现，当前实际
 用途是进程内逐 Component 幂等索引。
 
 Fee 与 Settlement Target 在发现 Manager 中存在 instruction 后直接令 `current = projection.after`，没有读取 Manager

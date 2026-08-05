@@ -2,10 +2,10 @@ import ast
 import inspect
 
 from onlyalpha.execution import (
-    OnlyCommittedExecutionTransaction,
-    OnlyExecutionTransactionQueryPort,
+    OnlyCommittedRuntimeTransaction,
+    OnlyRuntimeTransactionQueryPort,
     fill_identity,
-    only_execution_transaction_id,
+    only_runtime_transaction_id,
 )
 from onlyalpha.execution.reducers import trade_state
 
@@ -26,10 +26,10 @@ def test_order_reducer_remains_pure_and_fill_identity_has_no_runtime_dependency(
 
 
 def test_durable_fill_query_and_immutable_transaction_contract_remain_public() -> None:
-    assert hasattr(OnlyExecutionTransactionQueryPort, "get_by_fill_identity")
-    assert hasattr(OnlyExecutionTransactionQueryPort, "transactions_for_order")
-    assert OnlyCommittedExecutionTransaction.__dataclass_params__.frozen
-    assert only_execution_transaction_id(
+    assert hasattr(OnlyRuntimeTransactionQueryPort, "get_by_fill_identity")
+    assert hasattr(OnlyRuntimeTransactionQueryPort, "transactions_for_order")
+    assert OnlyCommittedRuntimeTransaction.__dataclass_params__.frozen
+    assert only_runtime_transaction_id(
         runtime_id=__import__("onlyalpha.domain.identifiers", fromlist=["OnlyRuntimeId"]).OnlyRuntimeId("runtime"),
         gateway_id=__import__("onlyalpha.broker", fromlist=["OnlyBrokerGatewayId"]).OnlyBrokerGatewayId("gateway"),
         account_id=__import__("onlyalpha.domain.identifiers", fromlist=["OnlyAccountId"]).OnlyAccountId("account"),

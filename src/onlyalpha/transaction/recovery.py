@@ -6,13 +6,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-
-from .commit_coordinator import (
-    OnlyExecutionCommitCoordinationResult,
-    OnlyExecutionCommitCoordinationStatus,
-    OnlyExecutionCommitCoordinator,
+from onlyalpha.transaction.coordinator import (
+    OnlyRuntimeTransactionCoordinationResult,
+    OnlyRuntimeTransactionCoordinationStatus,
+    OnlyRuntimeTransactionCoordinator,
 )
-from .projection import OnlyExecutionProjectionComponent
+from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
 
 
 class OnlyExecutionRecoveryStatus(StrEnum):
@@ -34,8 +33,8 @@ class OnlyExecutionRecoveryResult:
     failed_sequence: int | None
     failed_transaction_id: str | None
     blocked_sequence: int | None
-    failure_component: OnlyExecutionProjectionComponent | None
-    coordinator_status: OnlyExecutionCommitCoordinationStatus | None
+    failure_component: OnlyRuntimeProjectionComponent | None
+    coordinator_status: OnlyRuntimeTransactionCoordinationStatus | None
     projection_error: str | None
     error: str | None
 
@@ -47,7 +46,7 @@ class OnlyExecutionRecoveryResult:
 class OnlyExecutionRecoveryService:
     """Translate Coordinator tail recovery into one stable Runtime lifecycle result."""
 
-    def __init__(self, coordinator: OnlyExecutionCommitCoordinator) -> None:
+    def __init__(self, coordinator: OnlyRuntimeTransactionCoordinator) -> None:
         self._coordinator = coordinator
 
     def recover(
@@ -83,7 +82,7 @@ class OnlyExecutionRecoveryService:
                 len(completed),
                 sum(bool(item.projection_result and item.projection_result.recovered) for item in completed),
                 sum(
-                    item.status is OnlyExecutionCommitCoordinationStatus.ALREADY_READY
+                    item.status is OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY
                     or bool(item.projection_result and item.projection_result.idempotent)
                     for item in completed
                 ),
@@ -105,7 +104,7 @@ class OnlyExecutionRecoveryService:
             len(completed),
             sum(bool(item.projection_result and item.projection_result.recovered) for item in completed),
             sum(
-                item.status is OnlyExecutionCommitCoordinationStatus.ALREADY_READY
+                item.status is OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY
                 or bool(item.projection_result and item.projection_result.idempotent)
                 for item in completed
             ),
@@ -119,17 +118,17 @@ class OnlyExecutionRecoveryService:
         )
 
     @staticmethod
-    def _completed(result: OnlyExecutionCommitCoordinationResult) -> bool:
+    def _completed(result: OnlyRuntimeTransactionCoordinationResult) -> bool:
         return result.status in {
-            OnlyExecutionCommitCoordinationStatus.COMMITTED_AND_PROJECTED,
-            OnlyExecutionCommitCoordinationStatus.ALREADY_READY,
+            OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED,
+            OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY,
         }
 
     @staticmethod
-    def _failure_status(status: OnlyExecutionCommitCoordinationStatus) -> OnlyExecutionRecoveryStatus:
-        if status is OnlyExecutionCommitCoordinationStatus.SEQUENCE_BLOCKED:
+    def _failure_status(status: OnlyRuntimeTransactionCoordinationStatus) -> OnlyExecutionRecoveryStatus:
+        if status is OnlyRuntimeTransactionCoordinationStatus.SEQUENCE_BLOCKED:
             return OnlyExecutionRecoveryStatus.SEQUENCE_BLOCKED
-        if status is OnlyExecutionCommitCoordinationStatus.STORE_FAILURE:
+        if status is OnlyRuntimeTransactionCoordinationStatus.STORE_FAILURE:
             return OnlyExecutionRecoveryStatus.STORE_FAILURE
         return OnlyExecutionRecoveryStatus.FAILED
 
