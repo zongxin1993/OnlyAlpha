@@ -8,15 +8,22 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
         item for item in env.runtime.execution_audit_store.records() if item.update_type == "OnlyBrokerTradeUpdate"
     )
     assert trade.status is OnlyExecutionProcessingStatus.APPLIED
-    assert trade.completed_steps[:8] == (
+    assert trade.completed_steps == (
         OnlyExecutionMutationStep.VALIDATION,
         OnlyExecutionMutationStep.ORDER,
         OnlyExecutionMutationStep.POSITION,
         OnlyExecutionMutationStep.ALLOCATION,
         OnlyExecutionMutationStep.SETTLEMENT,
         OnlyExecutionMutationStep.FEE,
+        OnlyExecutionMutationStep.FEE,
         OnlyExecutionMutationStep.ACCOUNT,
         OnlyExecutionMutationStep.STRATEGY_LEDGER,
+        OnlyExecutionMutationStep.RESERVATION,
+        OnlyExecutionMutationStep.RESERVATION,
+        OnlyExecutionMutationStep.RESERVATION,
+        OnlyExecutionMutationStep.RISK,
+        OnlyExecutionMutationStep.ACCOUNT,
+        OnlyExecutionMutationStep.INVARIANT_CHECK,
     )
     assert trade.invariant_result.passed
     return env.report_builder.scenario(

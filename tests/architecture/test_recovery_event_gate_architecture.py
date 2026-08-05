@@ -26,7 +26,7 @@ def test_business_publishers_do_not_own_event_bus_or_runtime_router() -> None:
     for path in (
         "src/onlyalpha/order/publisher.py",
         "src/onlyalpha/risk/publisher.py",
-        "src/onlyalpha/execution/delivery.py",
+        "src/onlyalpha/transaction/delivery.py",
     ):
         imports = _imports(path)
         assert "onlyalpha.event.bus" not in imports
@@ -37,7 +37,7 @@ def test_business_publishers_do_not_own_event_bus_or_runtime_router() -> None:
 def test_processor_and_commit_coordinator_do_not_depend_on_router_or_gate() -> None:
     for path in (
         "src/onlyalpha/execution/processor.py",
-        "src/onlyalpha/execution/commit_coordinator.py",
+        "src/onlyalpha/transaction/coordinator.py",
     ):
         imports = _imports(path)
         assert "onlyalpha.runtime.events.router" not in imports

@@ -64,14 +64,16 @@ def test_allocation_released_cost_mismatch_fails_closed() -> None:
 def test_fact_released_cost_mismatch_fails_closed() -> None:
     _, _, prepared = only_test_multi_cluster_close_context(close_quantity="400")
     with pytest.raises(ValueError, match="cost"):
-        replace(
-            prepared,
-            fact_draft=replace(
-                prepared.fact_draft,
-                released_open_price_quantity=(prepared.fact_draft.released_open_price_quantity + Decimal("1.00")),
-            ),
-            authority_hash="",
-            payload_hash="",
+        OnlyPreparedExecutionEconomicInvariantValidator().validate(
+            replace(
+                prepared,
+                fact_draft=replace(
+                    prepared.fact_draft,
+                    released_open_price_quantity=(prepared.fact_draft.released_open_price_quantity + Decimal("1.00")),
+                ),
+                authority_hash="",
+                payload_hash="",
+            )
         )
 
 
@@ -80,18 +82,20 @@ def test_realized_pnl_mismatch_fails_closed() -> None:
     currency = prepared.fact_draft.currency
     wrong = OnlyMoney(prepared.fact_draft.realized_pnl_delta.amount + Decimal("1.00"), currency)
     with pytest.raises(ValueError, match="PnL"):
-        replace(
-            prepared,
-            fact_draft=replace(
-                prepared.fact_draft,
-                realized_pnl_delta=wrong,
-                position_realized_pnl_delta=wrong,
-                allocation_realized_pnl_delta=wrong,
-                account_realized_pnl_delta=wrong,
-                ledger_realized_pnl_delta=wrong,
-            ),
-            authority_hash="",
-            payload_hash="",
+        OnlyPreparedExecutionEconomicInvariantValidator().validate(
+            replace(
+                prepared,
+                fact_draft=replace(
+                    prepared.fact_draft,
+                    realized_pnl_delta=wrong,
+                    position_realized_pnl_delta=wrong,
+                    allocation_realized_pnl_delta=wrong,
+                    account_realized_pnl_delta=wrong,
+                    ledger_realized_pnl_delta=wrong,
+                ),
+                authority_hash="",
+                payload_hash="",
+            )
         )
 
 

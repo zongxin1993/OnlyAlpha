@@ -1,6 +1,9 @@
-from collections.abc import Callable
-
-from onlyalpha.execution import OnlyExecutionProcessingResult, OnlyExecutionProcessingStatus
+from onlyalpha.execution import (
+    OnlyExecutionProcessingResult,
+    OnlyExecutionProcessingStatus,
+    OnlyRuntimeProjectionComponent,
+)
+from tests.execution.support.execution_fault_injection import OnlyFailOnceExecutionProjectionTarget
 
 from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
 
@@ -11,18 +14,14 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     for minute in range(3):
         failed.process_bar(DAY_ONE, minute, "10.00")
     failed.submit_buy()
-    manager = failed.runtime.strategy_ledger_manager
-    original: Callable[..., object] = manager.apply_trade_accounting
-
-    def explicit_failure_adapter(*args: object, **kwargs: object) -> object:
-        del args, kwargs
-        raise RuntimeError("explicit integration Ledger failure adapter")
-
-    manager.apply_trade_accounting = explicit_failure_adapter  # type: ignore[method-assign]
-    try:
-        failed.process_bar(DAY_ONE, 4, "10.00")
-    finally:
-        manager.apply_trade_accounting = original  # type: ignore[method-assign]
+    coordinator = failed.runtime.execution_processor._execution_commit_coordinator
+    applier = coordinator._projection_applier
+    component = OnlyRuntimeProjectionComponent.STRATEGY_LEDGER
+    applier._targets[component] = OnlyFailOnceExecutionProjectionTarget(
+        applier._targets[component],
+        fail_before=True,
+    )
+    failed.process_bar(DAY_ONE, 4, "10.00")
     result = next(
         item
         for item in reversed(failed.runtime.broker_results)
@@ -33,7 +32,10 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert result.reconciliation_request is not None
     assert "ORDER_FILLED" not in event_types
     assert "STRATEGY_TRADE_APPLIED" not in event_types
-    assert "EXECUTION_PROCESSING_FAILED" in event_types
+    committed = failed.runtime.execution_transaction_query.records(failed.runtime.config.runtime_id)
+    assert len(committed) == 1 and not committed[0].projection_ready
+    assert failed.runtime.ready_execution_query.ready_records(failed.runtime.config.runtime_id) == ()
+    assert failed.runtime.execution_reconciliation_queue.requests() == (result.reconciliation_request,)
     return env.report_builder.scenario(
         "022",
         "中途失败",

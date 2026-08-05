@@ -20,7 +20,6 @@ from onlyalpha.execution import (
     OnlyPreparedRuntimeTransaction,
     OnlyRuntimeProjection,
     OnlyRuntimeProjectionComponent,
-    OnlySettlementExecutionProjection,
     OnlyTradeExecutionPlanningContext,
     OnlyTradeExecutionTransactionPlanner,
     OnlyValuationExecutionState,
@@ -36,7 +35,7 @@ from onlyalpha.execution import (
     only_strategy_cash_reservation_execution_state,
     only_strategy_ledger_execution_state,
 )
-from onlyalpha.execution.authority_state import only_settlement_execution_state, only_settlement_record_replay
+from onlyalpha.execution.authority_state import only_settlement_execution_state
 from onlyalpha.fee import OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyMarketPositionMode, OnlyMarketProfileId
@@ -442,7 +441,6 @@ def only_test_legacy_projection_states(
         if item.instruction.trade_id == context.update.fill.trade_id
     )
     settlement = only_settlement_execution_state(settlement_authority)
-    settlement_records = only_settlement_record_replay(settlement_authority)
     fee_records = tuple(
         OnlyFeeRecordReplay(
             item.fee_record_id,
@@ -479,7 +477,7 @@ def only_test_legacy_projection_states(
         (OnlyRuntimeProjectionComponent.ORDER, only_order_execution_state(order)),
         (OnlyRuntimeProjectionComponent.POSITION, only_position_execution_state(position)),
         (OnlyRuntimeProjectionComponent.ALLOCATION, only_allocation_execution_state(allocation)),
-        (OnlyRuntimeProjectionComponent.SETTLEMENT, (settlement, settlement_records)),
+        (OnlyRuntimeProjectionComponent.SETTLEMENT, settlement),
         (
             OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
             runtime.order_fee_accrual_manager.get(order.order_id),
@@ -519,8 +517,6 @@ def only_test_legacy_projection_states(
 
 
 def only_test_projection_after(projection: OnlyRuntimeProjection) -> object:
-    if isinstance(projection, OnlySettlementExecutionProjection):
-        return projection.after, projection.records
     return projection.after
 
 

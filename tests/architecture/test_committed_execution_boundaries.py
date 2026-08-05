@@ -45,9 +45,9 @@ def test_result_collector_has_no_broker_query_or_virtual_broker_dependency() -> 
 
 
 def test_coordinator_is_the_only_production_execution_transaction_writer() -> None:
-    execution_root = Path("src/onlyalpha/execution")
+    transaction_root = Path("src/onlyalpha/transaction")
     writers: list[Path] = []
-    for path in execution_root.glob("*.py"):
+    for path in transaction_root.glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         if any(
             isinstance(node, ast.Call)
@@ -58,7 +58,7 @@ def test_coordinator_is_the_only_production_execution_transaction_writer() -> No
             for node in ast.walk(tree)
         ):
             writers.append(path)
-    assert writers == [Path("src/onlyalpha/execution/commit_coordinator.py")]
+    assert writers == [Path("src/onlyalpha/transaction/coordinator.py")]
     assert OnlyRuntimeTransactionCoordinator.__module__ == "onlyalpha.transaction.coordinator"
     assert OnlyExecutionProcessor.__module__ == "onlyalpha.execution.processor"
 

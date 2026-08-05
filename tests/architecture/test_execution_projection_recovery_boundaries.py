@@ -1,8 +1,8 @@
 from pathlib import Path
 
-APPLIED_LEDGER = Path("src/onlyalpha/execution/applied_projection.py")
-APPLIER = Path("src/onlyalpha/execution/projection_applier.py")
-PROJECTION = Path("src/onlyalpha/execution/projection.py")
+APPLIED_LEDGER = Path("src/onlyalpha/transaction/applied_projection.py")
+APPLIER = Path("src/onlyalpha/transaction/projection_applier.py")
+PROJECTION = Path("src/onlyalpha/transaction/projection.py")
 TARGETS = Path("src/onlyalpha/execution/projection_targets.py")
 
 
@@ -48,8 +48,9 @@ def test_fee_and_settlement_targets_query_manager_authority_for_current_state() 
             "class OnlyFeeExecutionProjectionTarget"
         )
     ]
+    assert ".get_execution_authority(" in fee
+    assert ".require(" in settlement
     for target in (fee, settlement):
-        assert ".get_execution_authority(" in target
         assert "current = projection.after" not in target
 
 

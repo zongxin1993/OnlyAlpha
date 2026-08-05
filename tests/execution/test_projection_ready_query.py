@@ -35,7 +35,7 @@ def _populate(store: OnlyRuntimePersistenceStorePort, runtime_id: OnlyRuntimeId)
         prepared = only_test_generic_t0_cash_buy_open_transaction(
             runtime_id=runtime_id,
             trade_id=OnlyTradeId(f"trade-{runtime_id}-{sequence}"),
-            update_id=type(only_test_generic_t0_cash_buy_open_transaction().broker_update_id)(
+            update_id=type(only_test_generic_t0_cash_buy_open_transaction().fact_draft.broker_update_id)(
                 f"update-{runtime_id}-{sequence}"
             ),
             fill_index=sequence,

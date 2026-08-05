@@ -35,7 +35,7 @@ from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, Only
 from onlyalpha.transaction.state_hash import only_execution_state_hash
 
 if TYPE_CHECKING:
-    from onlyalpha.transaction.applied_projection import OnlyRuntimeProjectionApplyContext
+    from .applied_projection import OnlyRuntimeProjectionApplyContext
 
 
 class OnlyRuntimeProjectionComponent(StrEnum):

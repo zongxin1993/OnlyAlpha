@@ -84,8 +84,13 @@ def test_all_reservation_lifecycles_close_after_full_fills() -> None:
     assert env.sell_order is not None and env.sell_order.order_id is not None
     position = env.runtime.position_reservation_manager.get(env.sell_order.order_id)
     assert position is not None and position.remaining_quantity.value == 0
-    position_facts = tuple(item.event_type for item in env.event_recorder.events if item.source == "position_manager")
-    assert position_facts == ("POSITION_OPENED", "POSITION_SETTLED", "POSITION_CLOSED")
+    position_facts = tuple(
+        item.event_type
+        for item in env.event_recorder.events
+        if item.source == "execution.trade_planner"
+        and item.event_type in {"POSITION_OPENED", "POSITION_SETTLED", "POSITION_CLOSED"}
+    )
+    assert position_facts == ("POSITION_OPENED", "POSITION_CLOSED")
 
 
 def test_runtime_pipeline_snapshot_precedes_cluster_callback() -> None:

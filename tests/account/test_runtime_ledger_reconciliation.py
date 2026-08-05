@@ -212,6 +212,7 @@ def test_fixed_capital_profit_and_loss_sum_to_account_portfolio_result() -> None
             account.cash,
             ledger_cash=OnlyMoney(Decimal("1030.00"), CNY),
             trade_available_cash=OnlyMoney(Decimal("1030.00"), CNY),
+            withdrawable_cash=OnlyMoney(Decimal("1030.00"), CNY),
         ),
         realized_pnl=OnlyMoney(Decimal("30.00"), CNY),
         equity=OnlyMoney(Decimal("1030.00"), CNY),

@@ -13,7 +13,7 @@ def _imports(path: str) -> set[str]:
 
 
 def test_coordinator_planner_and_store_dependency_direction() -> None:
-    coordinator = _imports("src/onlyalpha/execution/commit_coordinator.py")
+    coordinator = _imports("src/onlyalpha/transaction/coordinator.py")
     planner = _imports("src/onlyalpha/execution/trade_planner.py")
     store = _imports("src/onlyalpha/runtime/persistence/store.py")
     assert not any(name.endswith(".manager") for name in coordinator)
@@ -54,7 +54,7 @@ def test_product_supported_trade_path_has_one_transaction_authority_and_no_switc
 
 
 def test_applied_ledger_is_only_an_in_memory_rebuildable_index() -> None:
-    source = Path("src/onlyalpha/execution/applied_projection.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/transaction/applied_projection.py").read_text(encoding="utf-8")
     assert "class OnlyInMemoryAppliedRuntimeProjectionLedger" in source
     assert "sqlite" not in source.lower()
     assert "open(" not in source

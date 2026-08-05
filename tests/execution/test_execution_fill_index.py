@@ -17,7 +17,7 @@ def test_fill_index_is_per_order_contiguous_and_conflict_checked() -> None:
     first = only_test_generic_t0_cash_buy_open_transaction()
     second = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-2"),
-        update_id=type(first.broker_update_id)("update-2"),
+        update_id=type(first.fact_draft.broker_update_id)("update-2"),
         fill_index=2,
     )
     store.commit(first, committed_at=first.prepared_at)
@@ -30,7 +30,7 @@ def test_fill_index_is_per_order_contiguous_and_conflict_checked() -> None:
     )
     conflict = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("trade-conflict"),
-        update_id=type(first.broker_update_id)("update-conflict"),
+        update_id=type(first.fact_draft.broker_update_id)("update-conflict"),
         fill_index=2,
     )
     with pytest.raises(OnlyRuntimeTransactionConflict, match="Fill index"):
@@ -44,7 +44,7 @@ def test_duplicate_fill_does_not_advance_index_or_sequence() -> None:
     committed = store.commit(first, committed_at=first.prepared_at).transaction
     envelope = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("other-envelope-trade"),
-        update_id=type(first.broker_update_id)("other-envelope-update"),
+        update_id=type(first.fact_draft.broker_update_id)("other-envelope-update"),
     )
     duplicate = only_test_rehash(
         envelope,

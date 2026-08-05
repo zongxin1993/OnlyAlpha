@@ -11,17 +11,23 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
+    OnlyPreparedExecutionEconomicInvariantValidator,
     OnlyRuntimeProjectionComponent,
     only_execution_state_hash,
     only_expected_execution_reservations,
     only_with_execution_projection_hash,
 )
 from onlyalpha.market.models import OnlyPositionEffect
+from onlyalpha.transaction import OnlyPreparedRuntimeTransaction
 from tests.execution.factories.transaction_factory import (
     only_test_execution_preconditions,
     only_test_generic_t0_cash_buy_open_transaction,
     only_test_projection_codec_cases,
 )
+
+
+def _validate(prepared: OnlyPreparedRuntimeTransaction) -> None:
+    OnlyPreparedExecutionEconomicInvariantValidator().validate(prepared)
 
 
 @pytest.mark.parametrize(
@@ -41,7 +47,7 @@ def test_prepared_transaction_rejects_cross_projection_economic_contradictions(
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     fact = replace(prepared.fact_draft, **changes)
     with pytest.raises(ValueError, match=message):
-        replace(prepared, fact_draft=fact, authority_hash="", payload_hash="")
+        _validate(replace(prepared, fact_draft=fact, authority_hash="", payload_hash=""))
 
 
 def test_prepared_transaction_rejects_account_ledger_pnl_and_reservation_contradictions() -> None:
@@ -56,7 +62,7 @@ def test_prepared_transaction_rejects_account_ledger_pnl_and_reservation_contrad
     for change in changes:
         fact = replace(prepared.fact_draft, **change)
         with pytest.raises(ValueError):
-            replace(prepared, fact_draft=fact, authority_hash="", payload_hash="")
+            _validate(replace(prepared, fact_draft=fact, authority_hash="", payload_hash=""))
 
 
 def test_prepared_transaction_rejects_margin_presence_contradiction() -> None:
@@ -70,12 +76,14 @@ def test_prepared_transaction_rejects_margin_presence_contradiction() -> None:
         for index, item in enumerate(projections, start=1)
     )
     with pytest.raises(ValueError, match="without Margin instruction"):
-        replace(
-            prepared,
-            projections=projections,
-            preconditions=only_test_execution_preconditions(projections),
-            authority_hash="",
-            payload_hash="",
+        _validate(
+            replace(
+                prepared,
+                projections=projections,
+                preconditions=only_test_execution_preconditions(projections),
+                authority_hash="",
+                payload_hash="",
+            )
         )
 
 
@@ -118,12 +126,14 @@ def test_buy_open_rejects_missing_required_reservation(component: OnlyRuntimePro
         for index, item in enumerate(projections, start=1)
     )
     with pytest.raises(ValueError, match="requires exactly 1"):
-        replace(
-            prepared,
-            projections=projections,
-            preconditions=only_test_execution_preconditions(projections),
-            authority_hash="",
-            payload_hash="",
+        _validate(
+            replace(
+                prepared,
+                projections=projections,
+                preconditions=only_test_execution_preconditions(projections),
+                authority_hash="",
+                payload_hash="",
+            )
         )
 
 
@@ -147,12 +157,14 @@ def test_buy_open_rejects_position_reservation() -> None:
         for index, item in enumerate(projections, start=1)
     )
     with pytest.raises(ValueError, match="requires exactly 0"):
-        replace(
-            prepared,
-            projections=projections,
-            preconditions=only_test_execution_preconditions(projections),
-            authority_hash="",
-            payload_hash="",
+        _validate(
+            replace(
+                prepared,
+                projections=projections,
+                preconditions=only_test_execution_preconditions(projections),
+                authority_hash="",
+                payload_hash="",
+            )
         )
 
 
@@ -189,10 +201,12 @@ def test_prepared_transaction_rejects_fee_settlement_and_risk_scope_corruption(
     projections[index] = only_with_execution_projection_hash(replace(projection, identity=identity, after=after))
     projected = tuple(projections)
     with pytest.raises(ValueError, match="scope|contradicts"):
-        replace(
-            prepared,
-            projections=projected,
-            preconditions=only_test_execution_preconditions(projected),
-            authority_hash="",
-            payload_hash="",
+        _validate(
+            replace(
+                prepared,
+                projections=projected,
+                preconditions=only_test_execution_preconditions(projected),
+                authority_hash="",
+                payload_hash="",
+            )
         )

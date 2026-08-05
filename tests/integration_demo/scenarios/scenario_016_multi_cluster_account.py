@@ -47,7 +47,7 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     shared.process_bar(DAY_ONE, 3, "10.00")
 
     account = shared.runtime.account_manager.require_snapshot(OnlyAccountId(ACCOUNT_ID))
-    assert account.cash.order_reserved_cash.amount == Decimal("2000.02")
+    assert account.cash.order_reserved_cash.amount == Decimal("2002.00")
     assert {item.key.cluster_id for item in shared.runtime.strategy_ledger_manager.list_ledgers()} == {
         CLUSTER_ID,
         second_id,

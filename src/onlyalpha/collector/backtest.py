@@ -369,7 +369,7 @@ class OnlyBacktestResultCollector:
             )
             for item in runtime.settlement_authority.snapshots()
         )
-        transactions = runtime.execution_transaction_query.records(OnlyRuntimeId(str(runtime.config.runtime_id)))
+        transactions = runtime.ready_execution_query.ready_records(OnlyRuntimeId(str(runtime.config.runtime_id)))
         settlement_maturity_records = tuple(
             OnlySettlementMaturityResultRecord(
                 sequence=next_sequence(),

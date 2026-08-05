@@ -33,7 +33,7 @@ def test_submit_is_transport_only_and_fill_arrives_from_next_bar(virtual_broker)
     assert updates == []
     gateway.run_due()
     assert isinstance(updates[0], OnlyBrokerOrderAcceptedUpdate)
-    assert gateway.query_account(ACCOUNT).frozen_cash == OnlyMoney(Decimal("1000.00"), CNY)
+    assert gateway.query_account(ACCOUNT).order_reserved_cash == OnlyMoney(Decimal("1000.00"), CNY)
 
     second = bar(date(2026, 1, 5), 1)
     clock.advance_to(second.ts_event)
@@ -41,7 +41,7 @@ def test_submit_is_transport_only_and_fill_arrives_from_next_bar(virtual_broker)
 
     assert any(isinstance(update, OnlyBrokerTradeUpdate) for update in updates)
     assert gateway.query_orders(ACCOUNT)[0].status is OnlyOrderStatus.FILLED
-    assert gateway.query_account(ACCOUNT).cash_balance == OnlyMoney(Decimal("99000.00"), CNY)
+    assert gateway.query_account(ACCOUNT).ledger_cash == OnlyMoney(Decimal("99000.00"), CNY)
 
 
 def test_cancel_releases_independent_broker_reservation(virtual_broker) -> None:
@@ -65,7 +65,7 @@ def test_cancel_releases_independent_broker_reservation(virtual_broker) -> None:
     gateway.run_due()
 
     assert gateway.query_orders(ACCOUNT)[0].status is OnlyOrderStatus.CANCELLED
-    assert gateway.query_account(ACCOUNT).frozen_cash == OnlyMoney(Decimal("0.00"), CNY)
+    assert gateway.query_account(ACCOUNT).order_reserved_cash == OnlyMoney(Decimal("0.00"), CNY)
     assert len(updates) == 2
 
 

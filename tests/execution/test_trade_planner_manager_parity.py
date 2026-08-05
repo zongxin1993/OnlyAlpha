@@ -85,7 +85,7 @@ def test_real_manager_parity_covers_complete_economic_and_lifecycle_authority(
     assert strategy_reservation.after.state.value == expected_reservation_state
     assert risk_reservation.after.state.value == "CONSUMED"
     assert risk.after.reserved_quantity == 0
-    assert settlement.records[-1].sequence == result.context.settlement_record_sequence + 1
+    assert settlement.after.record_sequence_head == result.context.settlement_record_sequence + 1
     if fee.after.records:
         assert fee.after.records[0].record_id.endswith(f"{result.context.fee_record_sequence + 1:08d}")
     assert valuation.after.cash == account.after.ledger_cash

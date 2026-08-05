@@ -41,7 +41,7 @@ def test_terminal_operation_codec_round_trip_has_no_trade_id() -> None:
     assert decoded == prepared
     assert decoded.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
     assert not hasattr(decoded.fact_draft, "trade_id")
-    assert decoded.terminal_identity is not None
+    assert decoded.fact_draft.terminal_identity is not None
 
 
 @pytest.mark.parametrize("sqlite", [False, True])
@@ -78,7 +78,7 @@ def test_runtime_schema_two_is_rejected_without_migration_or_deletion(tmp_path: 
 
     with pytest.raises(
         OnlyRuntimePersistenceSchemaUnsupported,
-        match=r"expected='3', actual='2'",
+        match=r"expected='4', actual='2'",
     ):
         OnlySqliteRuntimePersistenceStore(path)
 

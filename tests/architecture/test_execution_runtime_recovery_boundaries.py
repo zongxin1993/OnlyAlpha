@@ -27,8 +27,8 @@ def test_runtime_services_owns_recovery_and_initialize_start_have_strict_order()
 
 
 def test_recovery_and_projection_dependencies_do_not_cross_runtime_manager_or_planner_boundaries() -> None:
-    recovery = _imports("src/onlyalpha/execution/recovery.py")
-    coordinator = _imports("src/onlyalpha/execution/commit_coordinator.py")
+    recovery = _imports("src/onlyalpha/transaction/recovery.py")
+    coordinator = _imports("src/onlyalpha/transaction/coordinator.py")
     targets = _imports("src/onlyalpha/execution/projection_targets.py")
     assert not any(name.endswith(".manager") or ".runtime" in name for name in recovery)
     assert not any("planner" in name for name in recovery)
@@ -38,7 +38,7 @@ def test_recovery_and_projection_dependencies_do_not_cross_runtime_manager_or_pl
 
 def test_production_has_no_recovery_fault_switch_or_persistent_applied_ledger() -> None:
     production = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha").rglob("*.py"))
-    applied = Path("src/onlyalpha/execution/applied_projection.py").read_text(encoding="utf-8")
+    applied = Path("src/onlyalpha/transaction/applied_projection.py").read_text(encoding="utf-8")
     assert "fail_after_position" not in production
     assert "fail_before" not in production
     assert "OnlySqliteAppliedProjectionLedger" not in production

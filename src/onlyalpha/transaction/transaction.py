@@ -59,7 +59,7 @@ class OnlyPreparedRuntimeTransaction:
         self._validate_events()
         if self.prepared_at < self.effective_time or self.effective_time != self.fact_draft.ts_event:
             raise ValueError("prepared Runtime transaction effective/prepared times disagree")
-        from onlyalpha.transaction.codec import (
+        from .codec import (
             only_prepared_runtime_transaction_authority_hash,
             only_prepared_runtime_transaction_payload_hash,
         )
@@ -76,7 +76,7 @@ class OnlyPreparedRuntimeTransaction:
             raise ValueError("prepared execution transaction payload hash mismatch")
 
     def _validate_projections(self) -> None:
-        from onlyalpha.transaction.codec import only_runtime_projection_payload_hash
+        from .codec import only_runtime_projection_payload_hash
 
         identities = tuple(item.identity for item in self.projections)
         if tuple(item.projection_sequence for item in identities) != tuple(range(1, len(identities) + 1)):
@@ -101,7 +101,7 @@ class OnlyPreparedRuntimeTransaction:
             raise ValueError("precondition and projection expected authority disagree")
 
     def _validate_events(self) -> None:
-        from onlyalpha.transaction.event_identity import only_runtime_transaction_event_id
+        from .event_identity import only_runtime_transaction_event_id
 
         event_ids = []
         for event_sequence, event in enumerate(self.outbox_events, start=1):

@@ -23,7 +23,7 @@ def test_fill_identity_query_duplicate_and_conflict_survive_store_reopen(kind: s
 
     envelope = only_test_generic_t0_cash_buy_open_transaction(
         trade_id=OnlyTradeId("new-envelope-trade"),
-        update_id=type(first.broker_update_id)("new-envelope-update"),
+        update_id=type(first.fact_draft.broker_update_id)("new-envelope-update"),
     )
     duplicate = only_test_rehash(
         envelope,

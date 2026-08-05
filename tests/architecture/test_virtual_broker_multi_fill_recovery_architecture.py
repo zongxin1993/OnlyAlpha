@@ -54,7 +54,7 @@ def test_checkpoint_contract_is_version_two_without_production_fault_switches() 
 def test_protected_transaction_and_recovery_architecture_files_are_unchanged() -> None:
     protected = (
         "src/onlyalpha/execution/trade_planner.py",
-        "src/onlyalpha/execution/commit_coordinator.py",
+        "src/onlyalpha/transaction/coordinator.py",
         "src/onlyalpha/execution/fill_identity.py",
         "src/onlyalpha/fee/accrual.py",
         "src/onlyalpha/runtime/events/gate.py",

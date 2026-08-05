@@ -37,4 +37,4 @@ def test_partial_fill_then_cancel_terminates_remaining_plan_steps() -> None:
     assert gateway.query_orders(ACCOUNT)[0].status is OnlyOrderStatus.CANCELLED
     assert gateway.fill_plan_store.list()[0].status is OnlyVirtualFillPlanStatus.CANCELLED
     assert len(gateway.query_trades(ACCOUNT)) == 1
-    assert gateway.query_account(ACCOUNT).frozen_cash.amount == Decimal("0.00")
+    assert gateway.query_account(ACCOUNT).order_reserved_cash.amount == Decimal("0.00")

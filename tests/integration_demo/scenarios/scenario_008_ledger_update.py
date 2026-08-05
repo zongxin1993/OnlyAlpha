@@ -12,6 +12,6 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
         cluster_id=CLUSTER_ID,
         currency=CNY,
     )
-    assert ledger.cash.ledger_cash.amount == Decimal("998999.99")
+    assert ledger.cash.ledger_cash.amount == Decimal("998999.00")
     assert ledger.cash.cash_reserved.amount == Decimal("0.00")
     return env.report_builder.scenario("008", "Strategy Ledger 更新", "买入本金与费用只记入来源 Cluster")

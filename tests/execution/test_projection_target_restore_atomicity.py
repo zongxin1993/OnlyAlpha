@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 import pytest
 
 from onlyalpha.execution import (
@@ -61,13 +59,10 @@ def test_settlement_restore_validation_failure_is_atomic() -> None:
     context = only_test_projection_context(bundle, component)
     projection = context.projection
     assert isinstance(projection, OnlySettlementExecutionProjection)
-    object.__setattr__(
-        projection,
-        "records",
-        tuple(replace(item, sequence=projection.after.record_sequence_head + 1) for item in projection.records),
-    )
+    object.__setattr__(projection.after, "record_sequence_head", -1)
+    object.__setattr__(projection.identity, "result_state_hash", only_execution_state_hash(projection.after))
     before = only_test_runtime_authority_digest(bundle.environment)
-    with pytest.raises(ValueError, match="sequence head"):
+    with pytest.raises(ValueError, match="record sequence"):
         bundle.targets[component].apply_execution_projection(context)
     assert only_test_runtime_authority_digest(bundle.environment) == before
     assert not bundle.applied_ledger.records()

@@ -75,7 +75,6 @@ from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.order.results import OnlyOrderSubmitResult
-from onlyalpha.position.enums import OnlyPositionMutationStatus
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.reference import (
     OnlyAshareBoard,
@@ -263,7 +262,7 @@ class OnlyIntegrationEnvironment:
         maximum_fill_quantity: OnlyQuantity | None = None,
         virtual_broker: bool = True,
         cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
-        market_profile_id: OnlyMarketProfileId = OnlyMarketProfileId.CN_A_SHARE_CASH,
+        market_profile_id: OnlyMarketProfileId = OnlyMarketProfileId.GENERIC_T0_CASH,
         fee_resolver_config: OnlyFeeResolverConfig | None = None,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
@@ -574,20 +573,20 @@ class OnlyIntegrationEnvironment:
             cluster_id=CLUSTER_ID,
             currency=CNY,
         )
-        assert ledger.cash.ledger_cash.amount == Decimal("1000199.38")
+        assert ledger.cash.ledger_cash.amount == Decimal("1000197.80")
         assert ledger.pnl.realized_pnl.amount == Decimal("200.00")
-        assert ledger.pnl.net_pnl.amount == Decimal("199.38")
+        assert ledger.pnl.net_pnl.amount == Decimal("197.80")
         assert ledger.equity.equity_by_cash_view == ledger.equity.equity_by_pnl_view
         account = self.runtime.account_manager.list_accounts()[0]
-        assert account.cash.ledger_cash.amount == Decimal("1000199.38")
-        assert account.equity.amount == Decimal("1000199.38")
+        assert account.cash.ledger_cash.amount == Decimal("1000197.80")
+        assert account.equity.amount == Decimal("1000197.80")
         assert self.runtime.broker_gateway is not None
         broker_account = self.runtime.broker_gateway.query_account(OnlyAccountId(ACCOUNT_ID))
         assert broker_account.ledger_cash.amount - account.cash.ledger_cash.amount == account.fees.amount
         assert self.buy_trade_result is not None
         assert self.sell_trade_result is not None
-        assert self.buy_trade_result.allocation_status is OnlyPositionMutationStatus.APPLIED
-        assert self.sell_trade_result.allocation_status is OnlyPositionMutationStatus.APPLIED
+        assert self.buy_trade_result.status.value == "APPLIED"
+        assert self.sell_trade_result.status.value == "APPLIED"
         if self.sell_order is None or self.sell_order.order_id is None:
             raise AssertionError("sell Order is missing")
         reservation = self.runtime.position_reservation_manager.get(self.sell_order.order_id)

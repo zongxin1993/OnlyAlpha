@@ -17,6 +17,8 @@ def test_committed_but_unprojected_transaction_is_hidden_from_formal_result_fact
     assert harness.transaction_store.records(runtime.config.runtime_id)  # type: ignore[arg-type]
     assert harness.transaction_store.ready_records(runtime.config.runtime_id) == ()  # type: ignore[arg-type]
     assert collected.facts.executions == ()
+    assert collected.facts.settlement_maturities == ()
+    assert collected.facts.runtime_transactions == ()
 
 
 def test_projection_ready_transaction_enters_formal_result_exactly_once() -> None:

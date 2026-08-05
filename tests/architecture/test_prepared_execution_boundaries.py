@@ -11,15 +11,15 @@ def _imports(path: str) -> set[str]:
 
 def test_prepared_transaction_projection_and_store_do_not_import_runtime_managers_or_event_bus() -> None:
     for path in (
-        "src/onlyalpha/execution/identity.py",
-        "src/onlyalpha/execution/event_identity.py",
-        "src/onlyalpha/execution/transaction.py",
+        "src/onlyalpha/transaction/identity.py",
+        "src/onlyalpha/transaction/event_identity.py",
+        "src/onlyalpha/transaction/transaction.py",
         "src/onlyalpha/execution/execution_state.py",
-        "src/onlyalpha/execution/state_hash.py",
+        "src/onlyalpha/transaction/state_hash.py",
         "src/onlyalpha/execution/economic_invariants.py",
-        "src/onlyalpha/execution/projection.py",
-        "src/onlyalpha/execution/codec.py",
-        "src/onlyalpha/execution/projection_applier.py",
+        "src/onlyalpha/transaction/projection.py",
+        "src/onlyalpha/transaction/codec.py",
+        "src/onlyalpha/transaction/projection_applier.py",
     ):
         imports = _imports(path)
         assert not any("runtime" in name for name in imports)
@@ -31,7 +31,7 @@ def test_prepared_transaction_projection_and_store_do_not_import_runtime_manager
 
 
 def test_new_transaction_commit_port_has_no_two_step_sequence_or_append_contract() -> None:
-    source = Path("src/onlyalpha/execution/persistence_ports.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/transaction/persistence_ports.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     protocol = next(
         node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyRuntimeTransactionCommitPort"
@@ -66,10 +66,10 @@ def test_replay_correctness_rules_have_no_manager_dependency_or_legacy_formula()
 
 def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_absent() -> None:
     paths = (
-        "src/onlyalpha/execution/transaction.py",
-        "src/onlyalpha/execution/projection.py",
-        "src/onlyalpha/execution/codec.py",
-        "src/onlyalpha/execution/persistence_ports.py",
+        "src/onlyalpha/transaction/transaction.py",
+        "src/onlyalpha/transaction/projection.py",
+        "src/onlyalpha/transaction/codec.py",
+        "src/onlyalpha/transaction/persistence_ports.py",
         "src/onlyalpha/runtime/persistence/store.py",
         "src/onlyalpha/execution/__init__.py",
     )
@@ -88,7 +88,7 @@ def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_abse
         "prepared_hash",
     ):
         assert replaced not in source
-    projection = Path("src/onlyalpha/execution/projection.py").read_text(encoding="utf-8")
+    projection = Path("src/onlyalpha/transaction/projection.py").read_text(encoding="utf-8")
     assert "instruction: str\n    before_state: str" not in projection
     assert "fee_records: tuple[str" not in projection
     assert "reservation_state_before: str" not in projection
@@ -96,10 +96,10 @@ def test_replaced_prepared_contract_names_and_loose_projection_payloads_are_abse
 
 def test_execution_authority_states_are_strongly_typed_and_store_errors_are_distinct() -> None:
     state = Path("src/onlyalpha/execution/execution_state.py").read_text(encoding="utf-8")
-    projection = Path("src/onlyalpha/execution/projection.py").read_text(encoding="utf-8")
+    projection = Path("src/onlyalpha/transaction/projection.py").read_text(encoding="utf-8")
     assert "Any" not in state + projection
     assert "dict[str, object]" not in state + projection
-    assert "expected_state_hash: str | None" not in Path("src/onlyalpha/execution/transaction.py").read_text(
+    assert "expected_state_hash: str | None" not in Path("src/onlyalpha/transaction/transaction.py").read_text(
         encoding="utf-8"
     )
 

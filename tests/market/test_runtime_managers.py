@@ -1,29 +1,62 @@
-from datetime import date
+from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.execution import OnlySettlementExecutionProjection
+from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
 from onlyalpha.margin import OnlyMarginManager
-from onlyalpha.market.runtime_rules import OnlyMarginInstruction, OnlySettlementSchedule
-from onlyalpha.settlement import OnlySettlementAuthority
+from onlyalpha.market.models import OnlySettlementModel, OnlySettlementRule, OnlySettlementTiming
+from onlyalpha.market.runtime_rules import OnlyMarginInstruction
+from onlyalpha.settlement import OnlySettlementAuthority, OnlySettlementScheduleRequest
+from tests.execution.factories.trade_planning_factory import only_test_generic_t0_trade_planning_context
 
 
 def test_settlement_authority_tracks_four_independent_availability_dimensions() -> None:
-    manager = OnlySettlementAuthority()
-    t0 = OnlyTradingDay(date(2026, 7, 17))
-    t1 = OnlyTradingDay(date(2026, 7, 20))
-    manager.register(
-        OnlySettlementSchedule("settle-1", "TEST.XSHG", "trade-1", Decimal(100), Decimal(1000), t1, t0, t1, t1)
+    context = only_test_generic_t0_trade_planning_context()
+    t0 = context.trading_day
+
+    def next_business_day(day: OnlyTradingDay, lag: int) -> OnlyTradingDay:
+        value = day.value
+        for _ in range(lag):
+            value += timedelta(days=1)
+            while value.weekday() >= 5:
+                value += timedelta(days=1)
+        return OnlyTradingDay(value)
+
+    t1 = next_business_day(t0, 1)
+
+    model = OnlySettlementModel(
+        "CN_A_SHARE_T1",
+        OnlySettlementRule(OnlySettlementTiming.T_PLUS_ONE),
+        OnlySettlementRule(OnlySettlementTiming.T_PLUS_ONE),
+        OnlySettlementRule(OnlySettlementTiming.T_PLUS_ONE),
+        OnlySettlementRule(OnlySettlementTiming.T_PLUS_ZERO),
     )
-    today = manager.advance(t0)[0]
-    assert today.booked_quantity == Decimal(100)
-    assert today.available_quantity == 0
-    assert today.trade_available_cash == Decimal(1000)
-    assert today.withdrawable_cash == 0
-    settled = manager.advance(t1)[0]
-    assert settled.available_quantity == Decimal(100)
-    assert settled.withdrawable_cash == Decimal(1000)
-    assert settled.legal_settled
+    schedule = model.schedule(OnlySettlementScheduleRequest(context.order_before.side, t0), next_business_day)
+    prepared = OnlyTradeExecutionTransactionPlanner().prepare(
+        replace(
+            context,
+            trading_day=t0,
+            trade_instruction=replace(context.trade_instruction, settlement_schedule=schedule),
+        )
+    )
+    projection = next(item for item in prepared.projections if isinstance(item, OnlySettlementExecutionProjection))
+    assert projection.after.instruction is not None
+    manager = OnlySettlementAuthority()
+    manager.register(projection.after.instruction)
+
+    today = manager.snapshots()[0]
+    assert not today.asset_trade_available
+    assert today.cash_trade_available
+    assert not today.cash_withdrawable
+    assert not today.legal_settled
+    assert {item.transition.value for item in manager.due_transitions(t1)} == {
+        "ASSET_TRADE_AVAILABLE",
+        "CASH_WITHDRAWABLE",
+        "LEGAL_SETTLED",
+    }
 
 
 def test_margin_manager_reserve_occupy_and_release_lifecycle() -> None:
