@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import date, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -8,8 +9,39 @@ from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyR
 from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyIndex, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
+from onlyalpha.plugin.api import OnlyAshareInstrumentReference
 
 from ..mapping.exchange import to_xt_symbol
+
+
+def ashare_reference(raw: Mapping[str, object]) -> OnlyAshareInstrumentReference:
+    """Normalize a frozen, explicitly enriched MiniQMT reference payload.
+
+    MiniQMT instrument detail alone does not prove historical board/ST,
+    suspension, or previous-close authority; callers must provide all fields.
+    """
+
+    try:
+        return OnlyAshareInstrumentReference.from_mapping(
+            {
+                "instrument_id": raw.get("instrument_id"),
+                "exchange": raw.get("exchange"),
+                "security_type": raw.get("security_type"),
+                "board": raw.get("board"),
+                "lot_size": raw.get("MinLimitOrderVolume"),
+                "price_tick": raw.get("PriceTick"),
+                "st_status": raw.get("st_status"),
+                "suspended": raw.get("suspended"),
+                "previous_close": raw.get("preClose"),
+                "effective_from": raw.get("trading_day"),
+                "effective_to": raw.get("effective_to"),
+                "source": "MINIQMT",
+                "source_version": raw.get("source_version"),
+                "data_version": raw.get("data_version"),
+            }
+        )
+    except ValueError as exc:
+        raise ValueError(f"MINIQMT_REFERENCE_INVALID: {exc}") from exc
 
 
 def instrument(xtdata: Any, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None:

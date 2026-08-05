@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from shutil import copyfile
 from typing import TYPE_CHECKING
@@ -112,6 +114,36 @@ class OnlyEngineResultExporter:
                         },
                     )
                 )
+                reference_data = runtime_plan.assembly_plan.reference_data
+                reference_records = [item.to_dict() for item in reference_data.ashare_registry.records]
+                reference_payload = {
+                    "schema_version": 1,
+                    "reference_registry_fingerprint": reference_data.reference_registry_fingerprint,
+                    "resolved_reference_count": len(reference_records),
+                    "reference_source_versions": sorted({str(item["source_version"]) for item in reference_records}),
+                    "record_schema": [
+                        "instrument_id",
+                        "exchange",
+                        "security_type",
+                        "board",
+                        "lot_size",
+                        "price_tick",
+                        "st_status",
+                        "suspended",
+                        "previous_close",
+                        "effective_from",
+                        "effective_to",
+                        "source",
+                        "source_version",
+                        "data_version",
+                        "record_fingerprint",
+                    ],
+                    "records": reference_records,
+                }
+                reference_payload["artifact_fingerprint"] = sha256(
+                    json.dumps(reference_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest()
+                files.append(_write_json(runtime_root / "reference_snapshot.json", reference_payload))
                 files.append(
                     _write_json(
                         runtime_root / "result.json",
@@ -178,5 +210,7 @@ def _planned_runtime_id(execution_plan: OnlyEngineExecutionPlan | None, config: 
 
 
 def _write_json(path: Path, value: object) -> Path:
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, path)
     return path

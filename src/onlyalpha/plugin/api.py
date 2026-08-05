@@ -39,5 +39,6 @@ from onlyalpha.plugin.lifecycle import (
     OnlyPluginResourceSnapshot,
 )
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION, OnlyPluginApiVersion
+from onlyalpha.reference import OnlyAshareInstrumentReference as OnlyAshareInstrumentReference
 
 __all__ = [name for name in globals() if name.startswith("Only") or name == "ONLYALPHA_PLUGIN_API_VERSION"]

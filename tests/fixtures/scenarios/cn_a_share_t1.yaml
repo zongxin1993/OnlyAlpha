@@ -14,8 +14,6 @@ reference:
   instruments:
     - instrument_id: "600000.XSHG"
       asset_class: EQUITY
-      board: MAIN
-      st_status: false
       timezone: Asia/Shanghai
       trading_calendar_id: CN_XSHG
       price_precision: 2
@@ -23,6 +21,8 @@ reference:
       price_increment: "0.01"
       quantity_increment: "100"
       lot_size: "100"
+  ashare_instruments:
+    - {instrument_id: 600000.XSHG, exchange: SSE, security_type: COMMON_STOCK, board: SSE_MAIN, lot_size: "100", price_tick: "0.01", st_status: false, suspended: false, previous_close: "10.00", effective_from: "2026-01-05", effective_to: "2026-01-06", source: SCENARIO, source_version: "cn-a-share-t1-v1", data_version: "cn-a-share-reference-v1"}
 data:
   bars:
     - {instrument_id: "600000.XSHG", ts_event: "2026-01-05T01:31:00Z", ts_init: "2026-01-05T01:31:00Z", sequence: 1, open: "10.00", high: "10.10", low: "9.90", close: "10.00", volume: "1000"}

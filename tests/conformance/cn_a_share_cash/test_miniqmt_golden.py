@@ -35,8 +35,6 @@ def _config() -> OnlyClusterRunConfig:
         {
             "instrument_id": "600000.XSHG",
             "asset_class": "EQUITY",
-            "board": "MAIN",
-            "st_status": False,
             "price_precision": 2,
             "price_increment": "0.01",
             "quantity_increment": "100",
@@ -44,6 +42,24 @@ def _config() -> OnlyClusterRunConfig:
             "minimum_quantity": "100",
         }
     )
+    payload["reference_data"]["ashare_instruments"] = [
+        {
+            "instrument_id": "600000.XSHG",
+            "exchange": "SSE",
+            "security_type": "COMMON_STOCK",
+            "board": "SSE_MAIN",
+            "lot_size": "100",
+            "price_tick": "0.01",
+            "st_status": False,
+            "suspended": False,
+            "previous_close": "10.00",
+            "effective_from": "2025-01-02",
+            "effective_to": "2025-01-14",
+            "source": "GOLDEN_DATASET",
+            "source_version": "cn-a-share-reference-v1",
+            "data_version": "cn-a-share-reference-v1",
+        }
+    ]
     payload["universes"][0]["instruments"] = ["600000.XSHG"]
     payload["data_sources"] = [
         {
@@ -127,6 +143,17 @@ def test_miniqmt_golden_runs_through_engine_and_virtual_broker(tmp_path: Path) -
     assert result.status == "COMPLETED", result.failures
     assert result.cluster_results[0]["data"]["processed_bar_count"] == 7  # type: ignore[index]
     assert result.runtime_results[0].result_fingerprint  # type: ignore[attr-defined]
+    assert result.manifest_path is not None
+    runtime_id = result.runtime_results[0].runtime_id  # type: ignore[attr-defined]
+    reference_artifact = json.loads(
+        (result.manifest_path.parent / "runtimes" / str(runtime_id) / "reference_snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert reference_artifact["resolved_reference_count"] == 1
+    assert reference_artifact["reference_registry_fingerprint"]
+    assert reference_artifact["records"][0]["previous_close"] == "10.00"
+    assert reference_artifact["records"][0]["record_fingerprint"]
 
 
 def test_miniqmt_golden_engine_result_is_deterministic(tmp_path: Path) -> None:

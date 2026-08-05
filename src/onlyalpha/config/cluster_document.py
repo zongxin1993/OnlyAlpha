@@ -23,6 +23,7 @@ from onlyalpha.config.models import (
     OnlyFactorImportConfig,
     OnlyFeeConfig,
     OnlyJsonMapping,
+    OnlyJsonValue,
     OnlyMarketConfig,
     OnlyReferenceDataConfig,
     OnlyStrategyImportConfig,
@@ -123,6 +124,12 @@ class OnlyClusterRunConfig:
         market = _parse_market(parser, root)
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
         normalized_root: dict[str, object] = dict(root)
+        normalized_reference = dict(parser._map(root.get("reference_data"), "$.reference_data"))
+        normalized_reference["ashare_instruments"] = cast(
+            OnlyJsonValue,
+            [item.to_dict() for item in reference_data.ashare_registry.records],
+        )
+        normalized_root["reference_data"] = normalized_reference
         normalized_runtime = dict(runtime_raw)
         normalized_runtime["persistence"] = runtime.persistence.to_dict()
         normalized_root["runtime"] = normalized_runtime

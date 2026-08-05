@@ -16,4 +16,4 @@ class OnlyPluginApiVersion:
         return f"{self.major}.{self.minor}"
 
 
-ONLYALPHA_PLUGIN_API_VERSION = OnlyPluginApiVersion(major=1, minor=0)
+ONLYALPHA_PLUGIN_API_VERSION = OnlyPluginApiVersion(major=1, minor=1)

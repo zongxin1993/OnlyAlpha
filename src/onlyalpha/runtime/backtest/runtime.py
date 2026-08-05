@@ -881,7 +881,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._checkpoint_registry.register(
                 OnlyJsonRuntimeCheckpointParticipant(
                     "market.rules",
-                    1,
+                    runtime_config.market_rule_engine.checkpoint_schema_version,
                     runtime_config.market_rule_engine.capture_checkpoint,
                     runtime_config.market_rule_engine.restore_checkpoint,
                 )

@@ -177,6 +177,10 @@ OnlyAlpha 内置以下 Market Profile：
 
 尚未完整覆盖新股特殊阶段、退市整理、北交所、可转债、融资融券、集合竞价、盘中临停以及全部历史税费版本。
 
+A 股版本化 Reference Authority 已完成：板块、历史 ST、停牌、交易单位、价格精度和正式前收盘价可按
+Instrument + Trading Day 唯一解析，并参与配置校验、Runtime 兼容性、Artifact 和恢复指纹。A 股 Durable
+Execution、完整 T+1、费用与撮合闭环仍未完成。
+
 ### 5. Paper 行情观察
 
 Paper Runtime 当前已经完成以下真实 MiniQMT 验收范围：
@@ -525,6 +529,7 @@ OnlyAlpha 的关键工程约束包括：
 - [测试规范](docs/testing.md)
 - [路线图](docs/roadmap.md)
 - [A 股 Market Profile](docs/a_share_market_profile.md)
+- [A 股 Reference Authority](docs/reference_data_authority.md)
 - [Paper 产品验收](docs/acceptance/paper_real_product_acceptance.md)
 - [Backtest Runtime](docs/backtest.md)
 - [Runtime](docs/runtime.md)

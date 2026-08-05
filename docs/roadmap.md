@@ -46,6 +46,10 @@ fingerprint。Runtime Committed Execution 已成为 Result/Analytics/Artifact �
 已完成版本化 `CN_A_SHARE_CASH@2025.1` 基础领域 Profile：T+1 instruction、Long-only、禁止裸卖空、
 多 Session、Reference 驱动的主板/ST/创业板/科创板涨跌幅、整手/零股清仓和基础税费。尚缺正式 Runtime 纵切面：
 
+已建立版本化 A 股 Reference Authority：显式交易所/证券类型/板块、历史 ST、停牌、交易单位、价格精度、
+正式前收盘价、生效区间、来源版本与内容指纹形成唯一 Registry/Query，并进入 Runtime 分组、Artifact 和恢复校验。
+这不代表 A 股 Durable Execution 已接线。
+
 - 完整涨跌停、停牌、交易单位与申报规则；
 - 跨部分成交最低佣金累计；
 - Profile 驱动的 Broker/ExecutionProcessor 状态更新；

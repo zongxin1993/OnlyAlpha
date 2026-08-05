@@ -5,6 +5,7 @@ from onlyalpha_plugin_miniqmt.config import (
     DEFAULT_USERDATA_MINI_PATH,
     OnlyMiniQmtConfig,
 )
+from onlyalpha_plugin_miniqmt.data_source.reference import ashare_reference
 from onlyalpha_plugin_miniqmt.errors import OnlyMiniQmtError
 from onlyalpha_plugin_miniqmt.mapping.exchange import from_xt_symbol, to_xt_symbol
 from onlyalpha_plugin_miniqmt.mapping.order import (
@@ -44,3 +45,36 @@ def test_import_does_not_require_xtquant() -> None:
     import onlyalpha_plugin_miniqmt
 
     assert onlyalpha_plugin_miniqmt.PLUGIN_ID == "miniqmt"
+
+
+def test_enriched_frozen_reference_maps_without_xtquant_import() -> None:
+    reference = ashare_reference(
+        {
+            "instrument_id": "300001.XSHE",
+            "exchange": "SZSE",
+            "security_type": "COMMON_STOCK",
+            "board": "CHINEXT",
+            "MinLimitOrderVolume": "100",
+            "PriceTick": "0.01",
+            "st_status": False,
+            "suspended": False,
+            "preClose": "20.00",
+            "trading_day": "2025-01-02",
+            "effective_to": "2025-01-03",
+            "source_version": "miniqmt-fixture-v1",
+            "data_version": "reference-v1",
+        }
+    )
+    assert reference.board.value == "CHINEXT"
+
+
+def test_plain_instrument_detail_cannot_fabricate_historical_reference() -> None:
+    with pytest.raises(ValueError, match="MINIQMT_REFERENCE_INVALID"):
+        ashare_reference(
+            {
+                "instrument_id": "300001.XSHE",
+                "exchange": "SZSE",
+                "MinLimitOrderVolume": "100",
+                "PriceTick": "0.01",
+            }
+        )

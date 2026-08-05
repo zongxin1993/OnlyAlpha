@@ -646,6 +646,11 @@ Profile 是版本化市场语义，不是业务 Manager。
 
 无法确定规则时必须 Fail Closed，并产生可诊断原因。
 
+`CN_A_SHARE_CASH` 的板块、历史 ST、停牌、交易单位、价格精度和正式前收盘价只能来自版本化
+`OnlyAshareInstrumentReference`，并由唯一 Registry/Query 按 `Instrument + TradingDay` 解析。Runtime Factory
+不得读取自由 `instrument_attributes`，不得以当前状态或上一根 Bar 回填历史 Reference。Registry 指纹必须参与
+Runtime 兼容性、Artifact 和 Checkpoint 恢复校验。
+
 所有内置 Profile 当前仍应视为 Experimental，除非正式 Conformance 和产品纵切面明确升级其状态。
 
 ---

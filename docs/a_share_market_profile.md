@@ -8,3 +8,5 @@
 
 未完整覆盖：新股初期、退市整理、北交所、可转债、融资融券、集合竞价细节、盘中临停及全部历史税费版本。
 
+Reference 输入现在只接受按交易日解析的版本化 A 股权威记录。`previous_close` 是 RAW 规则基准，不从上一根
+Bar 推导；Reference 缺失、区间重叠或字段未知均 Fail Closed。参见 `reference_data_authority.md`。

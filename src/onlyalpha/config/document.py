@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -65,7 +65,7 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueId,
 )
 from onlyalpha.domain.instrument import OnlyCryptoSpot, OnlyEquity, OnlyETF, OnlyFuture, OnlyInstrument
-from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
+from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
     OnlyMoney,
@@ -76,6 +76,9 @@ from onlyalpha.domain.value import (
 )
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
+from onlyalpha.reference import (
+    OnlyAshareInstrumentReference,
+)
 
 
 class OnlyClusterConfigError(OnlyConfigError):
@@ -161,6 +164,23 @@ class OnlyRuntimeAssemblyPlan:
         universes = {x.universe_id for x in self.universes}
         brokers = {str(x.gateway_id) for x in self.brokers}
         accounts = {str(x.account_id) for x in self.accounts}
+
+        registry = self.reference_data.ashare_registry
+        if self.market.profile.value == "CN_A_SHARE_CASH":
+            reference_ids = {str(item.instrument_id) for item in registry.records}
+            missing_ids = sorted(instruments - reference_ids)
+            if missing_ids:
+                raise OnlyClusterConfigError(f"REFERENCE_NOT_FOUND: {missing_ids[0]}")
+            if self.runtime.runtime_type == "BACKTEST" and self.start_time is not None and self.end_time is not None:
+                for calendar in self.reference_data.calendars:
+                    day = self.start_time.astimezone(calendar.timezone.zone_info).date()
+                    end_day = self.end_time.astimezone(calendar.timezone.zone_info).date()
+                    while day <= end_day:
+                        if calendar.is_trading_day(day):
+                            for instrument in self.reference_data.instruments:
+                                if instrument.trading_calendar_id == calendar.calendar_id:
+                                    registry.resolve(instrument.instrument_id, OnlyTradingDay(day)).require_snapshot()
+                        day += timedelta(days=1)
 
         if len(self.accounts) != 1:
             raise OnlyClusterConfigError("OnlyAlpha currently requires exactly one shared Account per Runtime")
@@ -279,15 +299,32 @@ class _OnlyClusterDocumentParser:
             self._instrument(item, f"$.reference_data.instruments[{i}]", currency)
             for i, item in enumerate(instrument_mappings)
         )
-        attributes = MappingProxyType(
-            {
-                str(instrument.instrument_id): MappingProxyType(
-                    {key: item[key] for key in ("board", "st_status") if key in item}
-                )
-                for instrument, item in zip(instruments, instrument_mappings, strict=True)
-            }
+        legacy_fields = tuple(
+            f"$.reference_data.instruments[{index}].{field}"
+            for index, item in enumerate(instrument_mappings)
+            for field in ("board", "st_status", "suspended", "previous_close")
+            if field in item
         )
-        return OnlyReferenceDataConfig(calendars, instruments, attributes)
+        if legacy_fields:
+            raise OnlyClusterConfigError(
+                "A-share reference fields must use reference_data.ashare_instruments: " + ", ".join(legacy_fields)
+            )
+        ashare = tuple(
+            self._ashare_reference(
+                self._map(value, f"$.reference_data.ashare_instruments[{index}]"),
+                f"$.reference_data.ashare_instruments[{index}]",
+            )
+            for index, value in enumerate(
+                self._list(raw.get("ashare_instruments", []), "$.reference_data.ashare_instruments")
+            )
+        )
+        return OnlyReferenceDataConfig(calendars, instruments, ashare)
+
+    def _ashare_reference(self, raw: OnlyJsonMapping, path: str) -> OnlyAshareInstrumentReference:
+        try:
+            return OnlyAshareInstrumentReference.from_mapping(raw)
+        except ValueError as exc:
+            raise OnlyClusterConfigError(f"{path}: {exc}") from exc
 
     def _calendar(self, raw: OnlyJsonMapping, path: str) -> OnlyTradingCalendar:
         sessions = tuple(

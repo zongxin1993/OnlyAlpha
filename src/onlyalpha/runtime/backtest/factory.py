@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,7 +23,13 @@ from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
-from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
+from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
+from onlyalpha.market.runtime_rules import (
+    OnlyMarketRuleEngine,
+    OnlyReferenceProvider,
+    only_ashare_instrument_reference,
+    only_instrument_reference,
+)
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest, OnlyBrokerGatewayFactory
 from onlyalpha.plugin.capabilities import (
@@ -235,24 +241,28 @@ class OnlyBacktestRuntimeFactory:
                     remaining -= 1
             return OnlyTradingDay(candidate)
 
-        references = {
-            str(instrument.instrument_id): only_instrument_reference(
-                instrument,
-                profile_id=config.market.profile.value,
-                board=(
-                    None
-                    if config.reference_data.instrument_attributes.get(str(instrument.instrument_id), {}).get("board")
-                    is None
-                    else str(config.reference_data.instrument_attributes[str(instrument.instrument_id)]["board"])
-                ),
-                st_status=bool(
-                    config.reference_data.instrument_attributes.get(str(instrument.instrument_id), {}).get(
-                        "st_status", False
-                    )
-                ),
-            )
-            for instrument in config.reference_data.instruments
-        }
+        ashare_query = config.reference_data.ashare_registry
+        references: Mapping[str, OnlyInstrumentReferenceSnapshot] | OnlyReferenceProvider
+        if config.market.profile.value == "CN_A_SHARE_CASH":
+            instruments = config.reference_data.instrument_by_id
+
+            def resolve_reference(instrument_id: str, trading_day: OnlyTradingDay) -> OnlyInstrumentReferenceSnapshot:
+                identity = OnlyInstrumentId.parse(instrument_id)
+                record = ashare_query.resolve(identity, trading_day).require_snapshot()
+                return only_ashare_instrument_reference(
+                    instruments[identity], record, profile_id=config.market.profile.value
+                )
+
+            references = resolve_reference
+
+        else:
+            references = {
+                str(instrument.instrument_id): only_instrument_reference(
+                    instrument,
+                    profile_id=config.market.profile.value,
+                )
+                for instrument in config.reference_data.instruments
+            }
         market_rule_engine = OnlyMarketRuleEngine(
             registry=components.market_profiles,
             compiler=components.market_rule_compiler,
@@ -260,6 +270,11 @@ class OnlyBacktestRuntimeFactory:
             runtime_mode=OnlyRuntimeMode.BACKTEST,
             references=references,
             advance_trading_day=advance_trading_day,
+            reference_registry_fingerprint=(
+                config.reference_data.reference_registry_fingerprint
+                if config.market.profile.value == "CN_A_SHARE_CASH"
+                else None
+            ),
         )
         fee_resolver_config = OnlyFeeResolverConfig(
             market_mode=config.market.fees.mode,

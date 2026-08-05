@@ -120,6 +120,9 @@ def test_engine_output_contains_runtime_plan_and_normalized_configs(tmp_path: Pa
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     runtime_id = manifest["clusters"][0]["runtime_id"]
     assert (root / f"runtimes/{runtime_id}/summary.json").is_file()
+    reference = json.loads((root / f"runtimes/{runtime_id}/reference_snapshot.json").read_text(encoding="utf-8"))
+    assert reference["reference_registry_fingerprint"]
+    assert reference["record_schema"]
     assert (root / "clusters/macd-demo/normalized_config.json").is_file()
     assert not (tmp_path / "output").exists()
 

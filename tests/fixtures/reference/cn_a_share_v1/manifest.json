@@ -1,0 +1,1 @@
+{"dataset":"cn_a_share_v1","files":{"references.json":"42c5f8fdd40ff3c406d62f91619c86d72be28a6017e55c001e5068d60a95ff4d"},"limitations":["COMMON_STOCK only","SSE and SZSE only","No corporate-action adjustment","No BSE, ETF, convertible bond, IPO special stage, or delisting stage"],"schema_version":"1"}

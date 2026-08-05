@@ -12,7 +12,7 @@ DATA_DESCRIPTOR = OnlyPluginDescriptor(
     "tushare",
     OnlyPluginType.DATA_SOURCE,
     "0.1.0",
-    OnlyPluginApiVersion(1, 0),
+    OnlyPluginApiVersion(1, 1),
     "Tushare",
     "OnlyAlpha",
     DATA_CAPABILITIES,

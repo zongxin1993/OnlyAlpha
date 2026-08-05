@@ -317,6 +317,7 @@ class OnlyInstrumentReferenceSnapshot:
     board: str | None = None
     st_status: bool = False
     suspended: bool = False
+    previous_close: Decimal | None = None
     trading_calendar_id: str | None = None
 
     def __post_init__(self) -> None:

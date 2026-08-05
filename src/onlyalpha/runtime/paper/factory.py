@@ -17,12 +17,19 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.enums import OnlyAggregationSource, OnlyRuntimeMode
+from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.fee.models import OnlyFeeConfigurationMode
 from onlyalpha.fee.resolver import OnlyFeeResolverConfig
-from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, only_instrument_reference
+from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
+from onlyalpha.market.runtime_rules import (
+    OnlyMarketRuleEngine,
+    OnlyReferenceProvider,
+    only_ashare_instrument_reference,
+    only_instrument_reference,
+)
 from onlyalpha.market.session_clock import OnlyMarketSessionResolver
 from onlyalpha.observation import (
     OnlyConsoleObservationSink,
@@ -273,13 +280,28 @@ class OnlyPaperRuntimeFactory:
                     remaining -= 1
             return OnlyTradingDay(candidate)
 
-        references = {
-            str(instrument.instrument_id): only_instrument_reference(
-                instrument,
-                profile_id=config.market.profile.value,
-            )
-            for instrument in config.reference_data.instruments
-        }
+        ashare_registry = config.reference_data.ashare_registry
+        references: Mapping[str, OnlyInstrumentReferenceSnapshot] | OnlyReferenceProvider
+        if config.market.profile.value == "CN_A_SHARE_CASH":
+            instruments = config.reference_data.instrument_by_id
+
+            def resolve_reference(instrument_id: str, trading_day: OnlyTradingDay) -> OnlyInstrumentReferenceSnapshot:
+                identity = OnlyInstrumentId.parse(instrument_id)
+                record = ashare_registry.resolve(identity, trading_day).require_snapshot()
+                return only_ashare_instrument_reference(
+                    instruments[identity], record, profile_id=config.market.profile.value
+                )
+
+            references = resolve_reference
+
+        else:
+            references = {
+                str(instrument.instrument_id): only_instrument_reference(
+                    instrument,
+                    profile_id=config.market.profile.value,
+                )
+                for instrument in config.reference_data.instruments
+            }
         engine = OnlyMarketRuleEngine(
             registry=components.market_profiles,
             compiler=components.market_rule_compiler,
@@ -287,6 +309,11 @@ class OnlyPaperRuntimeFactory:
             runtime_mode=OnlyRuntimeMode.PAPER,
             references=references,
             advance_trading_day=advance,
+            reference_registry_fingerprint=(
+                config.reference_data.reference_registry_fingerprint
+                if config.market.profile.value == "CN_A_SHARE_CASH"
+                else None
+            ),
         )
         startup = OnlyMarketSessionResolver(calendar).resolve(OnlyTimestamp.from_datetime(clock.now_utc()))
         validation_day = startup.current_trading_day or startup.next_trading_day

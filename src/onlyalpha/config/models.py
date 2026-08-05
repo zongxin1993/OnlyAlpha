@@ -31,6 +31,7 @@ from onlyalpha.fee.models import OnlyBrokerFeeReportingMode, OnlyFeeConfiguratio
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.registry import OnlyMarketProfileRequest
+from onlyalpha.reference import OnlyAshareInstrumentReference, OnlyAshareReferenceRegistry
 
 type OnlyJsonValue = str | int | float | bool | None | list[OnlyJsonValue] | dict[str, OnlyJsonValue]
 type OnlyJsonMapping = Mapping[str, OnlyJsonValue]
@@ -72,14 +73,7 @@ class OnlyClusterCapitalConfig:
 class OnlyReferenceDataConfig:
     calendars: tuple[OnlyTradingCalendar, ...]
     instruments: tuple[OnlyInstrument, ...]
-    instrument_attributes: Mapping[str, Mapping[str, object]] = field(default_factory=lambda: MappingProxyType({}))
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "instrument_attributes",
-            MappingProxyType({key: MappingProxyType(dict(value)) for key, value in self.instrument_attributes.items()}),
-        )
+    ashare_instruments: tuple[OnlyAshareInstrumentReference, ...] = ()
 
     @property
     def calendar_by_id(self) -> Mapping[OnlyCalendarId, OnlyTradingCalendar]:
@@ -88,6 +82,14 @@ class OnlyReferenceDataConfig:
     @property
     def instrument_by_id(self) -> Mapping[OnlyInstrumentId, OnlyInstrument]:
         return MappingProxyType({x.instrument_id: x for x in self.instruments})
+
+    @property
+    def ashare_registry(self) -> OnlyAshareReferenceRegistry:
+        return OnlyAshareReferenceRegistry(self.ashare_instruments)
+
+    @property
+    def reference_registry_fingerprint(self) -> str:
+        return self.ashare_registry.fingerprint
 
 
 @dataclass(frozen=True, slots=True)

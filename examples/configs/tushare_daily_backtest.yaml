@@ -17,6 +17,8 @@ reference_data:
       holidays: []
   instruments:
     - {instrument_id: 600000.XSHG, asset_class: EQUITY, timezone: Asia/Shanghai, trading_calendar_id: CN_XSHG, price_precision: 4, quantity_precision: 0, price_increment: "0.0001", quantity_increment: "1", lot_size: "100", minimum_quantity: "100", maximum_quantity: "100000000"}
+  ashare_instruments:
+    - {instrument_id: 600000.XSHG, exchange: SSE, security_type: COMMON_STOCK, board: SSE_MAIN, lot_size: "100", price_tick: "0.01", st_status: false, suspended: false, previous_close: "10.00", effective_from: "2025-01-01", effective_to: "2026-01-02", source: CONFIG, source_version: "tushare-demo-reference-v1", data_version: "cn-a-share-reference-v1"}
 universes:
   - {universe_id: tushare-demo-universe, type: STATIC, instruments: [600000.XSHG]}
 data_sources:

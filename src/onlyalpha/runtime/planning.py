@@ -48,6 +48,13 @@ class OnlyRuntimeCompatibilityKey:
             )
         )
         replay = config.runtime.extensions.get("replay", {})
+        market_environment: dict[str, object] = {
+            "profile": config.market.profile.value,
+            "version": config.market.version,
+            "overrides": dict(config.market.overrides),
+        }
+        if config.market.profile.value == "CN_A_SHARE_CASH":
+            market_environment["reference_registry_fingerprint"] = config.reference_data.reference_registry_fingerprint
         return cls(
             config.runtime_type,
             "" if config.start_time is None else config.start_time.isoformat(),
@@ -57,13 +64,7 @@ class OnlyRuntimeCompatibilityKey:
             source_versions,
             broker_environment,
             account_environment,
-            _fingerprint(
-                {
-                    "profile": config.market.profile.value,
-                    "version": config.market.version,
-                    "overrides": dict(config.market.overrides),
-                }
-            ),
+            _fingerprint(market_environment),
             _fingerprint(config.runtime.persistence.to_dict()),
         )
 

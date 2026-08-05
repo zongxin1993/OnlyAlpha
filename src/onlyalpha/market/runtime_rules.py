@@ -34,6 +34,7 @@ from onlyalpha.market.models import (
     OnlyTradingSessionModel,
 )
 from onlyalpha.market.registry import OnlyMarketProfileRegistry, OnlyMarketProfileRequest, OnlyResolvedMarketProfile
+from onlyalpha.reference import OnlyAshareInstrumentReference
 
 
 class OnlyMarketRuleStage(StrEnum):
@@ -312,6 +313,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         runtime_mode: OnlyRuntimeMode,
         references: Mapping[str, OnlyInstrumentReferenceSnapshot] | OnlyReferenceProvider,
         advance_trading_day: OnlyTradingDayAdvancer,
+        reference_registry_fingerprint: str | None = None,
     ) -> None:
         self._registry = registry
         self._compiler = compiler
@@ -319,6 +321,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         self._runtime_mode = runtime_mode
         self._references = references
         self._advance_trading_day = advance_trading_day
+        self._reference_registry_fingerprint = reference_registry_fingerprint
         self._cache: dict[tuple[str, date, str], OnlyCompiledMarketRules] = {}
         self._decisions: list[OnlyMarketOrderDecision | OnlyMarketMatchDecision] = []
 
@@ -398,11 +401,18 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                         "unfilled_reason": item.unfilled_reason,
                     }
                 )
-        return {"decisions": decisions}
+        payload: dict[str, object] = {"decisions": decisions}
+        if self._reference_registry_fingerprint is not None:
+            payload["reference_registry_fingerprint"] = self._reference_registry_fingerprint
+        return payload
 
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
             raise ValueError("Market Rule checkpoint must contain decisions")
+        if self._reference_registry_fingerprint is not None and (
+            payload.get("reference_registry_fingerprint") != self._reference_registry_fingerprint
+        ):
+            raise ValueError("REFERENCE_FINGERPRINT_MISMATCH: checkpoint reference registry differs")
 
         def identity(raw: object) -> OnlyCompiledMarketRuleIdentity:
             if not isinstance(raw, dict):
@@ -459,6 +469,10 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                 raise ValueError("unsupported Market Rule decision kind")
         self._decisions = restored
 
+    @property
+    def checkpoint_schema_version(self) -> int:
+        return 2 if self._reference_registry_fingerprint is not None else 1
+
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         rules = self.compiled_rules(context.instrument_id, context.trading_day)
         reference = self._reference(context.instrument_id, context.trading_day)
@@ -478,7 +492,12 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             )
         if reason is None and (context.price <= 0 or context.price % reference.tick_size != 0):
             reason = "INVALID_PRICE_TICK"
-        limits = rules.price_policy.price_limits(context.previous_close)
+        previous_close = reference.previous_close
+        if previous_close is None:
+            previous_close = context.previous_close
+        elif context.previous_close is not None and context.previous_close != previous_close:
+            reason = "REFERENCE_ADJUSTMENT_SEMANTICS_CONFLICT"
+        limits = rules.price_policy.price_limits(previous_close)
         if reason is None and limits is not None and not limits[0] <= context.price <= limits[1]:
             reason = "OUTSIDE_DAILY_PRICE_LIMIT"
         effect = self._position_effect(rules, context)
@@ -721,6 +740,44 @@ def only_instrument_reference(
         board=board,
         st_status=st_status,
         trading_calendar_id=None if instrument.trading_calendar_id is None else str(instrument.trading_calendar_id),
+    )
+
+
+def only_ashare_instrument_reference(
+    instrument: OnlyInstrument,
+    record: OnlyAshareInstrumentReference,
+    *,
+    profile_id: object,
+) -> OnlyInstrumentReferenceSnapshot:
+    """Project one resolved authority record into the existing compiled-rule contract."""
+
+    if record.instrument_id != instrument.instrument_id:
+        raise ValueError("REFERENCE_RUNTIME_CONFLICT: Instrument and Reference identities differ")
+    expected_venue = {"SSE": "XSHG", "SZSE": "XSHE"}[record.exchange.value]
+    if str(instrument.venue) != expected_venue:
+        raise ValueError("REFERENCE_RUNTIME_CONFLICT: exchange and Instrument venue differ")
+    projection = only_instrument_reference(
+        instrument,
+        profile_id=profile_id,
+        source=record.source.value,
+        board=record.board.value,
+        st_status=record.st_status,
+    )
+    return OnlyInstrumentReferenceSnapshot(
+        **{
+            **asdict(projection),
+            "effective_from": datetime.combine(record.effective_from.value, time(), tzinfo=UTC),
+            "effective_to": (
+                None if record.effective_to is None else datetime.combine(record.effective_to.value, time(), tzinfo=UTC)
+            ),
+            "source_version": record.source_version,
+            "content_fingerprint": record.record_fingerprint,
+            "tick_size": record.price_tick.value,
+            "lot_size": record.lot_size.value,
+            "st_status": record.st_status,
+            "suspended": record.suspended,
+            "previous_close": record.previous_close.value,
+        }
     )
 
 
