@@ -80,7 +80,7 @@ class OnlyBacktestArtifactWriter:
         descriptors: list[OnlyArtifactDescriptor] = []
         try:
             summary = {
-                "schema_version": 3,
+                "schema_version": 4,
                 "result_fingerprint": result_fingerprint,
                 "analysis_fingerprint": analysis.analysis_fingerprint,
                 "fact_counts": {
@@ -115,10 +115,17 @@ class OnlyBacktestArtifactWriter:
             self._write_json(staging, "summary.json", "SUMMARY", summary, descriptors)
             self._write_json(
                 staging,
+                "market_rule_decisions.json",
+                "MARKET_RULE_DECISIONS_JSON",
+                {"schema_version": 4, "decisions": _json_value(facts.market_rule_decisions)},
+                descriptors,
+            )
+            self._write_json(
+                staging,
                 "diagnostics.json",
                 "DIAGNOSTICS",
                 {
-                    "schema_version": 3,
+                    "schema_version": 4,
                     "failure_count": 0 if diagnostics is None else diagnostics.total_failure_count,
                     "warning_count": len(analysis.warnings),
                     "truncated": False if diagnostics is None else diagnostics.truncated,
@@ -132,7 +139,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "data_manifest.json",
                 "DATA_MANIFEST",
-                {"schema_version": 3, "data": _json_value(data)},
+                {"schema_version": 4, "data": _json_value(data)},
                 descriptors,
             )
             tables = {
@@ -187,7 +194,7 @@ class OnlyBacktestArtifactWriter:
                 )
             )
             manifest = OnlyBacktestArtifactManifest(
-                3,
+                4,
                 result_fingerprint,
                 analysis.analysis_fingerprint,
                 artifact_content_fingerprint,
@@ -588,6 +595,20 @@ _MARKET_RULE_DECISION_SCHEMA = pa.schema(
         ("decision", pa.string()),
         ("reason", pa.string()),
         ("ts_event", _TIMESTAMP),
+        ("trading_day", pa.date32()),
+        ("profile_version", pa.string()),
+        ("side", pa.string()),
+        ("quantity", _DECIMAL),
+        ("price", _DECIMAL),
+        ("trading_phase", pa.string()),
+        ("previous_close", _DECIMAL),
+        ("tick_size", _DECIMAL),
+        ("limit_rate", _DECIMAL),
+        ("lower_limit", _DECIMAL),
+        ("upper_limit", _DECIMAL),
+        ("quantity_policy", pa.string()),
+        ("reference_fingerprint", pa.string()),
+        ("evaluations", pa.string()),
     ]
 )
 _PROFILE_TIMELINE_SCHEMA = pa.schema(

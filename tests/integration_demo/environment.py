@@ -65,13 +65,25 @@ from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
 from onlyalpha.market.registry import OnlyMarketProfileRequest
-from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine, only_instrument_reference
+from onlyalpha.market.runtime_rules import (
+    OnlyMarketRuleCompiler,
+    OnlyMarketRuleEngine,
+    only_ashare_instrument_reference,
+    only_instrument_reference,
+)
 from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.order.results import OnlyOrderSubmitResult
 from onlyalpha.position.enums import OnlyPositionMutationStatus
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
+from onlyalpha.reference import (
+    OnlyAshareBoard,
+    OnlyAshareExchange,
+    OnlyAshareInstrumentReference,
+    OnlyAshareSecurityType,
+    OnlyReferenceDataSource,
+)
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
@@ -289,16 +301,36 @@ class OnlyIntegrationEnvironment:
             OnlyBarSpecification(3, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
             OnlyAggregationSource.INTERNAL,
         )
+        if market_profile_id is OnlyMarketProfileId.CN_A_SHARE_CASH:
+            ashare_record = OnlyAshareInstrumentReference(
+                INSTRUMENT_ID,
+                OnlyAshareExchange.SSE,
+                OnlyAshareSecurityType.COMMON_STOCK,
+                OnlyAshareBoard.SSE_MAIN,
+                OnlyQuantity(Decimal(100), 0),
+                OnlyPrice(Decimal("0.01"), 2),
+                False,
+                False,
+                OnlyPrice(Decimal("11.00"), 2),
+                OnlyTradingDay(date(2025, 1, 1)),
+                None,
+                OnlyReferenceDataSource.SCENARIO,
+                "integration-v1",
+                "integration-v1",
+            )
+            reference = only_ashare_instrument_reference(
+                self.instrument,
+                ashare_record,
+                profile_id=market_profile_id.value,
+            )
+        else:
+            reference = only_instrument_reference(self.instrument, profile_id=market_profile_id.value)
         market_rules = OnlyMarketRuleEngine(
             registry=only_builtin_market_profile_registry(),
             compiler=OnlyMarketRuleCompiler(),
             request=OnlyMarketProfileRequest(market_profile_id),
             runtime_mode=OnlyRuntimeMode.BACKTEST,
-            references={
-                str(self.instrument.instrument_id): only_instrument_reference(
-                    self.instrument, profile_id=market_profile_id.value, board="MAIN"
-                )
-            },
+            references={str(self.instrument.instrument_id): reference},
             advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
         )
         initial_time = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)

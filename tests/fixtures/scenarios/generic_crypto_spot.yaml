@@ -29,7 +29,7 @@ data:
 actions:
   - action_id: BUY_CRYPTO
     trigger: {type: ON_BAR_SEQUENCE, sequence: 1}
-    command: {type: SUBMIT_ORDER, instrument_id: BTCUSDT.BINANCE, side: BUY, order_type: MARKET, quantity: "0.2500", position_effect: AUTO}
+    command: {type: SUBMIT_ORDER, instrument_id: BTCUSDT.BINANCE, side: BUY, order_type: LIMIT, quantity: "0.2500", price: "100.00", position_effect: AUTO}
 expectations:
   - {assertion_id: CRYPTO_FILLED, fact: ORDER, selector: {action_id: BUY_CRYPTO}, field: status, operator: EQUALS, expected: FILLED}
   - {assertion_id: WEEKEND_PROFILE, fact: PROFILE_TIMELINE, selector: {profile_id: GENERIC_24X7_CRYPTO_SPOT}, operator: EXISTS}

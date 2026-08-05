@@ -646,6 +646,10 @@ Profile 是版本化市场语义，不是业务 Manager。
 
 无法确定规则时必须 Fail Closed，并产生可诊断原因。
 
+`OnlyMarketRuleEngine.evaluate_pre_trade()` 是 Runtime 唯一正式 Pre-Trade Market Rule Authority。Reference 只提供证券事实，
+Profile 只提供版本化制度，Compiler 必须在 evaluate 前解析最终 Session/Price/Quantity Policy。Order、Risk、Strategy 与
+Broker 不得复制交易阶段、价格带、Tick、申报数量或零股规则；主错误码必须来自固定顺序中的首个失败 Evaluation。
+
 `CN_A_SHARE_CASH` 的板块、历史 ST、停牌、交易单位、价格精度和正式前收盘价只能来自版本化
 `OnlyAshareInstrumentReference`，并由唯一 Registry/Query 按 `Instrument + TradingDay` 解析。Runtime Factory
 不得读取自由 `instrument_attributes`，不得以当前状态或上一根 Bar 回填历史 Reference。Registry 指纹必须参与

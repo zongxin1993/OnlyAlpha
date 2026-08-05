@@ -29,6 +29,10 @@ uv run python scripts/test_suite.py release
 长测试必须标记 `slow` 或 `recovery`。产品纵切面必须经过 `OnlyEngine`；Analytics、Report、Artifact、Collector
 应优先复用固定 Result/Snapshot fixture。
 
+A 股申报前规则测试必须覆盖 2026-07-06 制度切换、主板/创业板/科创板风险警示矩阵、Tick 舍入上下限、五类交易阶段、
+停牌/Inactive 分离、科创板最低数量与递增、零股全量清仓、固定 Evaluation 顺序、100 次确定性、Checkpoint 权威变化
+拒绝以及结构化 Artifact。Risk/Order 测试不得另建 Session、Price 或 Quantity Validator。
+
 MiniQMT Contract 使用 Fake XtData/XtTrader，验证原始 SDK 形状到领域对象的转换，不导入真实 `xtquant`；
 Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 Windows、`userdata_mini_path`（或
 `ONLYALPHA_MINIQMT_PATH`）和可导入的 `xtquant`。真实查询必须显式 opt-in；真实下单还必须具有

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
@@ -12,6 +13,7 @@ from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
+from onlyalpha.market.runtime_rules import OnlyMarketOrderDecision
 from onlyalpha.result.diagnostics import (
     OnlyBacktestDiagnostics,
 )
@@ -223,6 +225,51 @@ class OnlyBacktestResultCollector:
             for decision in rule_engine.decisions:
                 accepted = getattr(decision, "accepted", getattr(decision, "matched", False))
                 reason = getattr(decision, "reason_code", getattr(decision, "unfilled_reason", None))
+                decision_trading_day: date | None
+                if isinstance(decision, OnlyMarketOrderDecision):
+                    evaluation_payload = [
+                        {
+                            "inputs": [list(pair) for pair in item.inputs],
+                            "reason_code": item.reason_code,
+                            "rule_code": item.rule_code,
+                            "status": item.status.value,
+                        }
+                        for item in decision.evaluations
+                    ]
+                    ts_event = decision.timestamp
+                    decision_trading_day = decision.trading_day.value
+                    side = decision.side.value
+                    quantity = decision.normalized_quantity
+                    price = decision.normalized_price
+                    trading_phase = decision.trading_phase.value
+                    previous_close = decision.previous_close
+                    tick_size = decision.tick_size
+                    limit_rate = decision.daily_limit_rate
+                    lower_limit = decision.lower_limit
+                    upper_limit = decision.upper_limit
+                    quantity_policy = json.dumps(
+                        {
+                            "buy_quantity_increment": str(decision.buy_quantity_increment),
+                            "minimum_buy_quantity": str(decision.minimum_buy_quantity),
+                            "sell_quantity_increment": str(decision.sell_quantity_increment),
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                else:
+                    evaluation_payload = []
+                    ts_event = now
+                    decision_trading_day = None
+                    side = None
+                    quantity = None
+                    price = None
+                    trading_phase = None
+                    previous_close = None
+                    tick_size = None
+                    limit_rate = None
+                    lower_limit = None
+                    upper_limit = None
+                    quantity_policy = None
                 decision_records.append(
                     OnlyMarketRuleDecisionResultRecord(
                         sequence=next_sequence(),
@@ -233,7 +280,21 @@ class OnlyBacktestResultCollector:
                         rule_type=type(decision).__name__,
                         decision="ACCEPTED" if accepted else "REJECTED",
                         reason=reason,
-                        ts_event=now,
+                        ts_event=ts_event,
+                        trading_day=decision_trading_day,
+                        profile_version=decision.compiled_identity.profile_version,
+                        side=side,
+                        quantity=quantity,
+                        price=price,
+                        trading_phase=trading_phase,
+                        previous_close=previous_close,
+                        tick_size=tick_size,
+                        limit_rate=limit_rate,
+                        lower_limit=lower_limit,
+                        upper_limit=upper_limit,
+                        quantity_policy=quantity_policy,
+                        reference_fingerprint=decision.compiled_identity.reference_fingerprint,
+                        evaluations=json.dumps(evaluation_payload, sort_keys=True, separators=(",", ":")),
                     )
                 )
             if not decision_records:

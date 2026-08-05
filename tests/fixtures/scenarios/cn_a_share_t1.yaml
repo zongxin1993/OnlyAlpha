@@ -30,7 +30,7 @@ data:
 actions:
   - action_id: BUY_BOARD_LOT
     trigger: {type: ON_BAR_SEQUENCE, sequence: 1}
-    command: {type: SUBMIT_ORDER, instrument_id: "600000.XSHG", side: BUY, order_type: MARKET, quantity: "100", position_effect: AUTO}
+    command: {type: SUBMIT_ORDER, instrument_id: "600000.XSHG", side: BUY, order_type: LIMIT, quantity: "100", price: "10.00", position_effect: AUTO}
 expectations:
   - {assertion_id: A_SHARE_FILLED, fact: ORDER, selector: {action_id: BUY_BOARD_LOT}, field: status, operator: EQUALS, expected: FILLED}
   - {assertion_id: A_SHARE_PROFILE, fact: PROFILE_TIMELINE, selector: {profile_id: CN_A_SHARE_CASH}, operator: EXISTS}

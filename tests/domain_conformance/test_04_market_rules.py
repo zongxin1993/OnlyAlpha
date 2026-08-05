@@ -1,11 +1,15 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide
-from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot, OnlyMarketProfileId, OnlyQuantityRule
+from onlyalpha.domain.enums import OnlyAssetClass, OnlyRuntimeMode
+from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot, OnlyMarketProfileId
+from onlyalpha.market.profiles import only_builtin_market_profile_registry
+from onlyalpha.market.registry import OnlyMarketProfileRequest
+from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine
 
 
-def test_same_equity_can_use_different_rules(equity, buy_request) -> None:
+def test_generic_profile_compiles_instrument_quantity_semantics(equity) -> None:
     reference = OnlyInstrumentReferenceSnapshot(
         str(equity.instrument_id),
         OnlyAssetClass.EQUITY,
@@ -20,8 +24,14 @@ def test_same_equity_can_use_different_rules(equity, buy_request) -> None:
         quantity_step=Decimal("0.001"),
         lot_size=Decimal("100"),
     )
-    assert (
-        OnlyQuantityRule(True, buy_lot_required=True).validate(reference, OnlyOrderSide.BUY, buy_request.quantity.value)
-        == "BUY_LOT_REQUIRED"
+    engine = OnlyMarketRuleEngine(
+        registry=only_builtin_market_profile_registry(),
+        compiler=OnlyMarketRuleCompiler(),
+        request=OnlyMarketProfileRequest(OnlyMarketProfileId.GENERIC_T0_CASH),
+        runtime_mode=OnlyRuntimeMode.BACKTEST,
+        references={reference.instrument_id: reference},
+        advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
     )
-    assert OnlyQuantityRule(True).validate(reference, OnlyOrderSide.BUY, buy_request.quantity.value) is None
+    policy = engine.compiled_rules(reference.instrument_id, OnlyTradingDay(date(2026, 1, 5))).quantity_policy
+    assert policy.allow_fractional
+    assert policy.buy_quantity_increment == Decimal("0.001")

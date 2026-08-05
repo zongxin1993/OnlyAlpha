@@ -1,6 +1,5 @@
 """Non-removable System Risk Rules."""
 
-from onlyalpha.domain.enums import OnlyOrderType, OnlySecurityStatus
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext
@@ -56,65 +55,6 @@ class OnlyInstrumentExistsRiskRule(OnlyRiskRule):
         return self._accept()
 
 
-class OnlyInstrumentTradingStatusRiskRule(OnlyRiskRule):
-    def __init__(self) -> None:
-        super().__init__(_mandatory("system.instrument_tradable", 40))
-
-    def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        instrument = context.instruments.get(request.instrument_id)
-        if instrument is None:
-            return self._accept()
-        if instrument.status is not OnlySecurityStatus.ACTIVE or not instrument.is_effective_at(
-            context.ts_event.to_datetime()
-        ):
-            return self._reject(
-                OnlyRiskRejectionCode.INSTRUMENT_NOT_TRADABLE,
-                "Instrument is not active at the Risk evaluation time",
-                requested_value=instrument.status.value,
-                allowed_value=OnlySecurityStatus.ACTIVE.value,
-            )
-        return self._accept()
-
-
-class OnlyOrderTypeSupportedRiskRule(OnlyRiskRule):
-    def __init__(self) -> None:
-        super().__init__(_mandatory("system.order_type_supported", 50))
-
-    def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        if request.order_type not in context.supported_order_types:
-            return self._reject(
-                OnlyRiskRejectionCode.UNSUPPORTED_ORDER_TYPE,
-                "Execution Port does not support this Order type",
-                requested_value=request.order_type.value,
-                allowed_value=",".join(sorted(item.value for item in context.supported_order_types)),
-            )
-        return self._accept()
-
-
-class OnlyBasicPriceRiskRule(OnlyRiskRule):
-    def __init__(self) -> None:
-        super().__init__(_mandatory("system.basic_price", 60))
-
-    def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        del context
-        if request.order_type is OnlyOrderType.LIMIT and (request.price is None or request.price.value <= 0):
-            return self._reject(OnlyRiskRejectionCode.INVALID_PRICE, "LIMIT requires a positive Price")
-        if request.order_type is OnlyOrderType.MARKET and request.price is not None:
-            return self._reject(OnlyRiskRejectionCode.INVALID_PRICE, "MARKET cannot carry a Price")
-        return self._accept()
-
-
-class OnlyBasicQuantityRiskRule(OnlyRiskRule):
-    def __init__(self) -> None:
-        super().__init__(_mandatory("system.basic_quantity", 70))
-
-    def evaluate(self, request: OnlyOrderRequest, context: OnlyRiskEvaluationContext) -> OnlyRiskDecision:
-        del context
-        if request.quantity.value <= 0:
-            return self._reject(OnlyRiskRejectionCode.INVALID_QUANTITY, "Order quantity must be positive")
-        return self._accept()
-
-
 class OnlyKillSwitchRiskRule(OnlyRiskRule):
     def __init__(self) -> None:
         super().__init__(_mandatory("system.kill_switch", 80))
@@ -134,10 +74,6 @@ def only_mandatory_rules(runtime_id: OnlyRuntimeId) -> tuple[OnlyRiskRule, ...]:
         OnlyRuntimeScopeRiskRule(runtime_id),
         OnlyClusterScopeRiskRule(),
         OnlyInstrumentExistsRiskRule(),
-        OnlyInstrumentTradingStatusRiskRule(),
-        OnlyOrderTypeSupportedRiskRule(),
-        OnlyBasicPriceRiskRule(),
-        OnlyBasicQuantityRiskRule(),
         OnlyKillSwitchRiskRule(),
     )
 

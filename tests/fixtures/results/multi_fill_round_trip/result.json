@@ -1,8 +1,8 @@
 {
   "backtest_reports": [
     {
-      "analysis_fingerprint": "a5ad63d5669e59613e30fb24333b9c7cc981a8f3b83ba15b73351beb6fa6228c",
-      "artifact_content_fingerprint": "b6f13df30a614e3f8a294eacf31e8b300ac6e211ceb544a07bb894c0b74648d0",
+      "analysis_fingerprint": "0e342a6601509de961ad1f9d61835ea9eb5f2afa4caedaa3eb4767ec0c64084d",
+      "artifact_content_fingerprint": "cdf48f69f4ec0ab3a12a684661da6318db8dada2a36f555601da3904b0355fd9",
       "artifact_manifest_path": "artifact_manifest.json",
       "bar_count": 29,
       "cluster_count": 1,
@@ -112,7 +112,7 @@
           "unix_nanos": 1767578340000000000
         }
       },
-      "result_fingerprint": "573e6322e6c0195c7fcef883caf737c80fe585c6c33eff13f036d67bce7482ab",
+      "result_fingerprint": "c5b109c8114c2d80b326d249405a4d13e7c9a04758c4f5b26988658f0f2d84ce",
       "runtime_id": "backtest-0c6981aa2050c745",
       "runtime_performance": {
         "account_id": {
@@ -12382,7 +12382,7 @@
           "UNADJUSTED"
         ]
       },
-      "determinism_fingerprint": "573e6322e6c0195c7fcef883caf737c80fe585c6c33eff13f036d67bce7482ab",
+      "determinism_fingerprint": "c5b109c8114c2d80b326d249405a4d13e7c9a04758c4f5b26988658f0f2d84ce",
       "diagnostics": {
         "execution_recoveries": [],
         "failure_count": 0,
@@ -14622,7 +14622,7 @@
         "status": "MATCHED",
         "ts_event_ns": 1767578340000000000
       },
-      "result_fingerprint": "573e6322e6c0195c7fcef883caf737c80fe585c6c33eff13f036d67bce7482ab",
+      "result_fingerprint": "c5b109c8114c2d80b326d249405a4d13e7c9a04758c4f5b26988658f0f2d84ce",
       "run": {
         "cluster_ids": [
           "macd-demo"
@@ -14874,7 +14874,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -15236,7 +15236,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000001"
           },
-          "trade_instruction_id": "TINSTR-a9214618bb2a0087cad03f38f517d5992b238551b7968df02559aac62c650062",
+          "trade_instruction_id": "TINSTR-71564a3111537f52b6e7d5b555869958d0ee0c9904e19b5a482ddbd094d2b4cd",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -15387,7 +15387,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -15749,7 +15749,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000002"
           },
-          "trade_instruction_id": "TINSTR-acbdc3bb83b12dfc5186f607fc00326e81ba67a24cd5f1ccd4be01577dee5b83",
+          "trade_instruction_id": "TINSTR-7c90650d023053e61c3221cfc995747a6ba366710d71964f4fdb2be5695e8172",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -15900,7 +15900,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -16262,7 +16262,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000003"
           },
-          "trade_instruction_id": "TINSTR-fff685d148537c22ea290c82be5de2e55ecd4569f0c42eff01514657a6dfccc6",
+          "trade_instruction_id": "TINSTR-4be78137636cc1da90f80b9d488993d149b6580eef92419da1f7e8291cacf3a5",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -16413,7 +16413,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -16775,7 +16775,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000004"
           },
-          "trade_instruction_id": "TINSTR-e63a767fff27ffda95768a7d19836374c441077330ec35349bf9a4268e48c2a7",
+          "trade_instruction_id": "TINSTR-7473d02fd819640f419ba58ce9bc1dcaa76f1ebf35f956936cc977381093acb5",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -16926,7 +16926,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -17288,7 +17288,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000005"
           },
-          "trade_instruction_id": "TINSTR-69f8cb1d5dfa51e275d345e2e86945c9a8d09148d7bb1fd0ba11567596529db1",
+          "trade_instruction_id": "TINSTR-395610a2bcb4e4015421b727207d499c0b93a8999820cfd363105d44474a8b76",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -17439,7 +17439,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -17801,7 +17801,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000006"
           },
-          "trade_instruction_id": "TINSTR-a8116f4463fbb2b392bde5b5dbedf92f40b6c673dd4ba13d52e99c2c372db2a1",
+          "trade_instruction_id": "TINSTR-5e03cd218b74553b66fbb63f63a5c3fbd58bbc51823205510f4d9d85eac00d7b",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -17824,13 +17824,13 @@
       ]
     }
   ],
-  "determinism_fingerprint": "46ea1029b37d05f32ff61ecbbe2a0f7e00ef732ff517ec3c4ffbcad538134168",
+  "determinism_fingerprint": "62d45701d2baea8b2a4258184ca2663a59cbb5dd1b213e13427de2b89d4daad3",
   "engine_id": "fixture-multi_fill_round_trip",
   "failures": [],
-  "manifest_path": "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-multi_fill_round_trip-1y50mf7j\\runs\\fixture-multi_fill_round_trip\\run-32822cedbb5345279cf0650fcf013d4a\\manifest.json",
+  "manifest_path": "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-multi_fill_round_trip-9snk6qtj\\runs\\fixture-multi_fill_round_trip\\run-0a40d706406a4a33a9c50a667216e882\\manifest.json",
   "report_paths": [
-    "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-multi_fill_round_trip-1y50mf7j\\runs\\fixture-multi_fill_round_trip\\run-32822cedbb5345279cf0650fcf013d4a\\report.md"
+    "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-multi_fill_round_trip-9snk6qtj\\runs\\fixture-multi_fill_round_trip\\run-0a40d706406a4a33a9c50a667216e882\\report.md"
   ],
-  "run_id": "run-32822cedbb5345279cf0650fcf013d4a",
+  "run_id": "run-0a40d706406a4a33a9c50a667216e882",
   "status": "COMPLETED"
 }

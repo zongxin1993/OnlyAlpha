@@ -243,6 +243,20 @@ class OnlyMarketRuleDecisionResultRecord(OnlySequencedResultRecord):
     decision: str
     reason: str | None
     ts_event: datetime
+    trading_day: date | None = None
+    profile_version: str | None = None
+    side: str | None = None
+    quantity: Decimal | None = None
+    price: Decimal | None = None
+    trading_phase: str | None = None
+    previous_close: Decimal | None = None
+    tick_size: Decimal | None = None
+    limit_rate: Decimal | None = None
+    lower_limit: Decimal | None = None
+    upper_limit: Decimal | None = None
+    quantity_policy: str | None = None
+    reference_fingerprint: str | None = None
+    evaluations: str = "[]"
 
     def __post_init__(self) -> None:
         OnlySequencedResultRecord.__post_init__(self)

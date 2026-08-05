@@ -159,17 +159,18 @@ OnlyAlpha 内置以下 Market Profile：
 - `GENERIC_MARGIN_FUTURES`
 - `GENERIC_24X7_CRYPTO_SPOT`
 - `CN_A_SHARE_CASH@2025.1`
+- `CN_A_SHARE_CASH@2026.07`
 
 这些 Profile 当前均属于 **Experimental**。Profile 存在不等于对应市场已经完成正式交易产品闭环。
 
-`CN_A_SHARE_CASH@2025.1` 已表达的主要规则包括：
+`CN_A_SHARE_CASH` 按交易日自动解析 `2025.1` 与 `2026.07` 制度版本。已表达的主要规则包括：
 
 - Long-only；
 - 禁止裸卖空；
 - 证券 T+1；
-- 上午、午休和下午 Session；
-- 主板、ST、创业板和科创板涨跌幅；
-- 买入整手；
+- 开盘集合竞价、连续竞价、午休和收盘集合竞价阶段；
+- 主板、风险警示、创业板和科创板的版本化涨跌幅矩阵与 Tick 对齐上下限；
+- 主板/创业板整手以及科创板最低 200、1 股递增；
 - 零股仅允许清仓；
 - 基础佣金、印花税和过户费；
 - Bar 成交量参与率；
@@ -180,6 +181,9 @@ OnlyAlpha 内置以下 Market Profile：
 A 股版本化 Reference Authority 已完成：板块、历史 ST、停牌、交易单位、价格精度和正式前收盘价可按
 Instrument + Trading Day 唯一解析，并参与配置校验、Runtime 兼容性、Artifact 和恢复指纹。A 股 Durable
 Execution、完整 T+1、费用与撮合闭环仍未完成。
+
+`OnlyMarketRuleEngine.evaluate_pre_trade()` 是 Runtime 唯一申报前市场规则权威。其结构化 Decision 固定记录制度版本、
+Reference/编译指纹、交易阶段、数量政策、价格带和有序 Evaluation；Risk 与 Order 只消费该结果，不复制市场制度规则。
 
 ### 5. Paper 行情观察
 

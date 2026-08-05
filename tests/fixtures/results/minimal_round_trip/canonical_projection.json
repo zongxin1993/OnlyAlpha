@@ -3483,7 +3483,7 @@
     ],
     "compiled_market_rules": [
       {
-        "compiled_rules_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+        "compiled_rules_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "instrument_id": "TESTETF.XSHG",
         "profile_id": "GENERIC_T0_CASH",
         "profile_version": "1",
@@ -3882,7 +3882,7 @@
         "broker_fee_schedule_versions": [],
         "cluster_id": "macd-fast-demo",
         "commission": "0.00",
-        "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "contract_multiplier": "1",
         "execution_id": "EXEC-23c28cc343f3086dde6126fd924548ff823c7aff93b71fc9b4b9b6a5133007c7",
         "fee_breakdown": {
@@ -3928,7 +3928,7 @@
         "side": "BUY",
         "slippage": "0.00",
         "strategy_id": "macd-fast-strategy",
-        "trade_instruction_id": "TINSTR-84f6de5ef3ff7204a5a276a2bcaed2e981c3ab6d94080d843a2d9a1f425488de",
+        "trade_instruction_id": "TINSTR-62df45137f58e5ea04f4ef04d4488fecb4e2da758ea582e4f6c1fc606daa0eac",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:34:00Z",
         "turnover": "10080.00",
@@ -3940,7 +3940,7 @@
         "broker_fee_schedule_versions": [],
         "cluster_id": "macd-fast-demo",
         "commission": "0.00",
-        "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+        "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "contract_multiplier": "1",
         "execution_id": "EXEC-b0a0825d97cbc54778c02dc973c6830e2d2a45cad036fd40122b57182d6dbf43",
         "fee_breakdown": {
@@ -3986,7 +3986,7 @@
         "side": "SELL",
         "slippage": "-0.00",
         "strategy_id": "macd-fast-strategy",
-        "trade_instruction_id": "TINSTR-e7f9fbd41a2801b27715de63f0648d1a11e961ccd46adb504d32b7bf015308df",
+        "trade_instruction_id": "TINSTR-45e07b2f25944cf9ab5ef7db00b1da90d88fa5507a8932e381f6026ebdcecc46",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:35:00Z",
         "turnover": "10090.00",
@@ -4036,24 +4036,52 @@
       {
         "account_id": "backtest-account",
         "decision": "ACCEPTED",
+        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"profile_version\",\"1\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_PROFILE_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":\"REALTIME_QUOTE_AUTHORITY_UNAVAILABLE\",\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_EVALUATED\"}]",
         "instrument_id": "TESTETF.XSHG",
+        "limit_rate": null,
+        "lower_limit": null,
         "market_profile_id": "GENERIC_T0_CASH",
+        "previous_close": null,
+        "price": "10.08",
+        "profile_version": "1",
+        "quantity": "1000",
+        "quantity_policy": "{\"buy_quantity_increment\":\"100\",\"minimum_buy_quantity\":\"100\",\"sell_quantity_increment\":\"100\"}",
         "reason": null,
-        "rule_set_id": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "rule_set_id": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "rule_type": "OnlyMarketOrderDecision",
         "sequence": 30,
-        "ts_event": "2026-01-05T01:37:00Z"
+        "side": "BUY",
+        "tick_size": "0.01",
+        "trading_day": "2026-01-05",
+        "trading_phase": "CONTINUOUS",
+        "ts_event": "2026-01-05T01:33:00Z",
+        "upper_limit": null
       },
       {
         "account_id": "backtest-account",
         "decision": "ACCEPTED",
+        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"profile_version\",\"1\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_PROFILE_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":\"REALTIME_QUOTE_AUTHORITY_UNAVAILABLE\",\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_EVALUATED\"}]",
         "instrument_id": "TESTETF.XSHG",
+        "limit_rate": null,
+        "lower_limit": null,
         "market_profile_id": "GENERIC_T0_CASH",
+        "previous_close": null,
+        "price": "10.09",
+        "profile_version": "1",
+        "quantity": "1000",
+        "quantity_policy": "{\"buy_quantity_increment\":\"100\",\"minimum_buy_quantity\":\"100\",\"sell_quantity_increment\":\"100\"}",
         "reason": null,
-        "rule_set_id": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+        "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+        "rule_set_id": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "rule_type": "OnlyMarketOrderDecision",
         "sequence": 31,
-        "ts_event": "2026-01-05T01:37:00Z"
+        "side": "SELL",
+        "tick_size": "0.01",
+        "trading_day": "2026-01-05",
+        "trading_phase": "CONTINUOUS",
+        "ts_event": "2026-01-05T01:34:00Z",
+        "upper_limit": null
       }
     ],
     "order_requests": [
@@ -5642,7 +5670,7 @@
           "precision": 2
         }
       },
-      "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+      "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
       "contract_multiplier": {
         "precision": 0,
         "value": "1"
@@ -5942,7 +5970,7 @@
       "trade_id": {
         "value": "virtual-trade-00000001"
       },
-      "trade_instruction_id": "TINSTR-84f6de5ef3ff7204a5a276a2bcaed2e981c3ab6d94080d843a2d9a1f425488de",
+      "trade_instruction_id": "TINSTR-62df45137f58e5ea04f4ef04d4488fecb4e2da758ea582e4f6c1fc606daa0eac",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -6064,7 +6092,7 @@
           "precision": 2
         }
       },
-      "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+      "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
       "contract_multiplier": {
         "precision": 0,
         "value": "1"
@@ -6364,7 +6392,7 @@
       "trade_id": {
         "value": "virtual-trade-00000002"
       },
-      "trade_instruction_id": "TINSTR-e7f9fbd41a2801b27715de63f0648d1a11e961ccd46adb504d32b7bf015308df",
+      "trade_instruction_id": "TINSTR-45e07b2f25944cf9ab5ef7db00b1da90d88fa5507a8932e381f6026ebdcecc46",
       "trading_day": {
         "value": "2026-01-05"
       },

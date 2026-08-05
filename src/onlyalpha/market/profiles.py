@@ -123,16 +123,27 @@ def only_generic_crypto_spot_profile() -> OnlyMarketProfile:
     )
 
 
-def only_cn_a_share_cash_profile() -> OnlyMarketProfile:
+def only_cn_a_share_cash_profile(version: str) -> OnlyMarketProfile:
+    if version not in {"2025.1", "2026.07"}:
+        raise ValueError("unsupported CN_A_SHARE_CASH profile version")
     sessions = OnlyTradingSessionModel(
-        "CN_A_SHARE_DAY",
+        f"CN_A_SHARE_DAY@{version}",
         "Asia/Shanghai",
         (
+            OnlyTradingSessionDefinition(
+                "opening_auction", time(9, 15), time(9, 25), OnlyTradingPhase.OPENING_AUCTION, allows_orders=False
+            ),
+            OnlyTradingSessionDefinition(
+                "pre_open", time(9, 25), time(9, 30), OnlyTradingPhase.PRE_OPEN, allows_orders=False
+            ),
             OnlyTradingSessionDefinition("morning", time(9, 30), time(11, 30), OnlyTradingPhase.CONTINUOUS),
             OnlyTradingSessionDefinition(
                 "midday_break", time(11, 30), time(13), OnlyTradingPhase.MIDDAY_BREAK, allows_orders=False
             ),
-            OnlyTradingSessionDefinition("afternoon", time(13), time(15), OnlyTradingPhase.CONTINUOUS),
+            OnlyTradingSessionDefinition("afternoon", time(13), time(14, 57), OnlyTradingPhase.CONTINUOUS),
+            OnlyTradingSessionDefinition(
+                "closing_auction", time(14, 57), time(15), OnlyTradingPhase.CLOSING_AUCTION, allows_orders=False
+            ),
         ),
     )
     settlement = OnlySettlementModel("CN_A_SHARE_T1", _T1, _T1, _T1, _IMMEDIATE)
@@ -146,32 +157,18 @@ def only_cn_a_share_cash_profile() -> OnlyMarketProfile:
         OnlyPositionAccountingModel(OnlyMarketPositionMode.LONG_ONLY),
         OnlyShortSellingRule(OnlyShortSellingMode.DISABLED),
         None,
-        OnlyPriceRule(Decimal("0.01"), Decimal("0.10")),
+        OnlyPriceRule(Decimal("0.01")),
         OnlyQuantityRule(False, True, True),
         "CN_A_SHARE_STANDARD_FEES",
         OnlyLiquidityModel(OnlyLiquidityModelType.BAR_VOLUME_PARTICIPATION, Decimal("0.10")),
         _NONE_SLIPPAGE,
         _NEXT_OPEN,
-        date(2025, 1, 1),
-        None,
-        "2025.1",
+        date(2025, 1, 1) if version == "2025.1" else date(2026, 7, 6),
+        date(2026, 7, 6) if version == "2025.1" else None,
+        version,
         "OnlyAlpha",
         True,
     )
-
-
-def only_cn_a_share_price_limit_rate(*, board: str | None, st_status: bool, strict: bool = True) -> Decimal:
-    """Resolve the covered 2025 A-share bands from reference data, never symbol prefixes."""
-    if st_status:
-        return Decimal("0.05")
-    normalized = "" if board is None else board.upper()
-    if normalized in {"MAIN", "SSE_MAIN", "SZSE_MAIN"}:
-        return Decimal("0.10")
-    if normalized in {"CHINEXT", "STAR"}:
-        return Decimal("0.20")
-    if strict:
-        raise ValueError("UNSUPPORTED_CN_A_SHARE_BOARD")
-    return Decimal("0.10")
 
 
 def only_builtin_market_profiles() -> tuple[OnlyMarketProfile, ...]:
@@ -179,7 +176,8 @@ def only_builtin_market_profiles() -> tuple[OnlyMarketProfile, ...]:
         only_generic_t0_cash_profile(),
         only_generic_margin_futures_profile(),
         only_generic_crypto_spot_profile(),
-        only_cn_a_share_cash_profile(),
+        only_cn_a_share_cash_profile("2025.1"),
+        only_cn_a_share_cash_profile("2026.07"),
     )
 
 

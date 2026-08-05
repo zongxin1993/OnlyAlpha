@@ -69,6 +69,17 @@ class OnlyTradingPhase(StrEnum):
     CLOSED = "CLOSED"
 
 
+class OnlyPriceBandRoundingMode(StrEnum):
+    HALF_UP_TO_TICK = "HALF_UP_TO_TICK"
+
+
+class OnlyMarketRuleEvaluationStatus(StrEnum):
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    NOT_EVALUATED = "NOT_EVALUATED"
+
+
 class OnlyLiquidityModelType(StrEnum):
     UNLIMITED = "UNLIMITED"
     BAR_VOLUME_PARTICIPATION = "BAR_VOLUME_PARTICIPATION"
@@ -328,45 +339,49 @@ class OnlyInstrumentReferenceSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class OnlyPriceRule:
+    """Declarative Profile input; executable price bands are compiler-owned."""
+
     tick_size: Decimal
     daily_limit_rate: Decimal | None = None
-
-    def price_limits(self, previous_close: Decimal | None) -> tuple[Decimal, Decimal] | None:
-        if previous_close is None or self.daily_limit_rate is None:
-            return None
-        return previous_close * (1 - self.daily_limit_rate), previous_close * (1 + self.daily_limit_rate)
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyQuantityRule:
+    """Declarative Profile input; executable quantity policy is compiler-owned."""
+
     allow_fractional: bool
     buy_lot_required: bool = False
     allow_odd_lot_liquidation: bool = False
 
-    def validate(
-        self,
-        reference: OnlyInstrumentReferenceSnapshot,
-        side: OnlyOrderSide,
-        quantity: Decimal,
-        price: Decimal | None = None,
-        available_quantity: Decimal | None = None,
-    ) -> str | None:
-        if quantity <= 0 or quantity % reference.quantity_step != 0:
-            return "INVALID_QUANTITY_STEP"
-        if not self.allow_fractional and quantity != quantity.to_integral_value():
-            return "FRACTIONAL_QUANTITY_DISABLED"
-        if reference.minimum_quantity is not None and quantity < reference.minimum_quantity:
-            return "BELOW_MINIMUM_QUANTITY"
-        if price is not None and reference.minimum_notional is not None:
-            if price * quantity * reference.contract_multiplier < reference.minimum_notional:
-                return "BELOW_MINIMUM_NOTIONAL"
-        lot = reference.lot_size
-        if side is OnlyOrderSide.BUY and self.buy_lot_required and lot is not None and quantity % lot != 0:
-            return "BUY_LOT_REQUIRED"
-        if side is OnlyOrderSide.SELL and lot is not None and quantity % lot != 0:
-            if not self.allow_odd_lot_liquidation or available_quantity != quantity:
-                return "ODD_LOT_ONLY_FOR_LIQUIDATION"
-        return None
+
+@dataclass(frozen=True, slots=True)
+class OnlyCompiledPriceBandPolicy:
+    regime_id: str
+    tick_size: Decimal
+    previous_close: Decimal | None
+    daily_limit_rate: Decimal | None
+    lower_limit: Decimal | None
+    upper_limit: Decimal | None
+    rounding_mode: OnlyPriceBandRoundingMode
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyCompiledQuantityPolicy:
+    minimum_buy_quantity: Decimal
+    buy_quantity_increment: Decimal
+    minimum_sell_quantity: Decimal
+    sell_quantity_increment: Decimal
+    odd_lot_liquidation_allowed: bool
+    maximum_limit_order_quantity: Decimal | None
+    allow_fractional: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketRuleEvaluation:
+    rule_code: str
+    status: OnlyMarketRuleEvaluationStatus
+    reason_code: str | None
+    inputs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,67 +478,6 @@ class OnlyMarketProfileResolver:
         if len(matches) != 1:
             raise ValueError(f"expected one effective {profile_id} profile on {effective_on}")
         return matches[0]
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketRuleDecision:
-    rule_type: str
-    accepted: bool
-    reason: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketValidationContext:
-    reference: OnlyInstrumentReferenceSnapshot
-    profile: OnlyEffectiveMarketRules
-    side: OnlyOrderSide
-    quantity: Decimal
-    price: Decimal
-    local_time: datetime
-    available_quantity: Decimal = Decimal(0)
-    previous_close: Decimal | None = None
-
-
-class OnlyMarketOrderValidator:
-    """Deterministic pre-trade validation without future market data."""
-
-    def validate(self, context: OnlyMarketValidationContext) -> tuple[OnlyMarketRuleDecision, ...]:
-        decisions: list[OnlyMarketRuleDecision] = []
-        session = context.profile.session_model.state_at(context.local_time)
-        decisions.append(
-            OnlyMarketRuleDecision(
-                "SESSION", session.allows_orders, None if session.allows_orders else f"PHASE_{session.phase}"
-            )
-        )
-        tradable = context.reference.status == "ACTIVE" and not context.reference.suspended
-        decisions.append(
-            OnlyMarketRuleDecision("TRADABILITY", tradable, None if tradable else "INSTRUMENT_NOT_TRADABLE")
-        )
-        quantity_reason = context.profile.quantity_rule.validate(
-            context.reference,
-            context.side,
-            context.quantity,
-            context.price,
-            context.available_quantity,
-        )
-        decisions.append(OnlyMarketRuleDecision("QUANTITY", quantity_reason is None, quantity_reason))
-        if (
-            context.side is OnlyOrderSide.SELL
-            and context.profile.position_model.mode is OnlyMarketPositionMode.LONG_ONLY
-        ):
-            position_ok = context.quantity <= context.available_quantity
-            decisions.append(
-                OnlyMarketRuleDecision(
-                    "POSITION", position_ok, None if position_ok else "INSUFFICIENT_AVAILABLE_QUANTITY"
-                )
-            )
-        price_ok = context.price > 0 and context.price % context.reference.tick_size == 0
-        reason = None if price_ok else "INVALID_PRICE_TICK"
-        limits = context.profile.price_rule.price_limits(context.previous_close)
-        if price_ok and limits is not None and not limits[0] <= context.price <= limits[1]:
-            price_ok, reason = False, "OUTSIDE_DAILY_PRICE_LIMIT"
-        decisions.append(OnlyMarketRuleDecision("PRICE", price_ok, reason))
-        return tuple(decisions)
 
 
 def only_next_calendar_day(day: OnlyTradingDay, lag: int) -> OnlyTradingDay:

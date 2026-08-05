@@ -1,8 +1,8 @@
 {
   "backtest_reports": [
     {
-      "analysis_fingerprint": "3dcbcf7b67fc6bd6bfeae99bb0f335ddbb07153a44db83036ea3038e064b2689",
-      "artifact_content_fingerprint": "09f2472b0fef6f5e9f214709b751cf3f78a1bcf48c1509a3f0b2c1d8c5254a5b",
+      "analysis_fingerprint": "99aa7feea764237df235407e52bb391836b9e73b8d2bc320619fa4a5dd091a23",
+      "artifact_content_fingerprint": "393d30eaa3039a9e65aec1a0aa37f2ed8a54dbd171f77bf25958fec2535d9b26",
       "artifact_manifest_path": "artifact_manifest.json",
       "bar_count": 7,
       "cluster_count": 1,
@@ -112,7 +112,7 @@
           "unix_nanos": 1767577020000000000
         }
       },
-      "result_fingerprint": "d4827a049ff20842f9678a1e7583ed9e4cbda8e0fbce72bbe61df22e34c8ecfc",
+      "result_fingerprint": "ae2a8bc8e41bcb8176450d9d95a2ac9343990d0502b20e3d3f8b8ea13db801e7",
       "runtime_id": "backtest-70ce9656a136d41a",
       "runtime_performance": {
         "account_id": {
@@ -4324,7 +4324,7 @@
         "processed_bar_count": 7,
         "quality_flags": []
       },
-      "determinism_fingerprint": "d4827a049ff20842f9678a1e7583ed9e4cbda8e0fbce72bbe61df22e34c8ecfc",
+      "determinism_fingerprint": "ae2a8bc8e41bcb8176450d9d95a2ac9343990d0502b20e3d3f8b8ea13db801e7",
       "diagnostics": {
         "execution_recoveries": [],
         "failure_count": 0,
@@ -5872,7 +5872,7 @@
         "status": "MATCHED",
         "ts_event_ns": 1767577020000000000
       },
-      "result_fingerprint": "d4827a049ff20842f9678a1e7583ed9e4cbda8e0fbce72bbe61df22e34c8ecfc",
+      "result_fingerprint": "ae2a8bc8e41bcb8176450d9d95a2ac9343990d0502b20e3d3f8b8ea13db801e7",
       "run": {
         "cluster_ids": [
           "macd-fast-demo"
@@ -6124,7 +6124,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -6486,7 +6486,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000001"
           },
-          "trade_instruction_id": "TINSTR-84f6de5ef3ff7204a5a276a2bcaed2e981c3ab6d94080d843a2d9a1f425488de",
+          "trade_instruction_id": "TINSTR-62df45137f58e5ea04f4ef04d4488fecb4e2da758ea582e4f6c1fc606daa0eac",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -6637,7 +6637,7 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "c66691464c4765c7403474df3c813039804ef66c9006f9b42ab2faf07a904e38",
+          "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
@@ -6999,7 +6999,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000002"
           },
-          "trade_instruction_id": "TINSTR-e7f9fbd41a2801b27715de63f0648d1a11e961ccd46adb504d32b7bf015308df",
+          "trade_instruction_id": "TINSTR-45e07b2f25944cf9ab5ef7db00b1da90d88fa5507a8932e381f6026ebdcecc46",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -7022,13 +7022,13 @@
       ]
     }
   ],
-  "determinism_fingerprint": "ff75f808019aadbd284ea19392bcbd145d23cdfcc565f187261e3f776b66f4c7",
+  "determinism_fingerprint": "99f0633a5bf4f40f1a6779d5909e61e69bf4c8853cd23895b26892b522741951",
   "engine_id": "fixture-minimal_round_trip",
   "failures": [],
-  "manifest_path": "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-minimal_round_trip-y30r4j9b\\runs\\fixture-minimal_round_trip\\run-6e4ee37899804b40bd67c7b07108b40b\\manifest.json",
+  "manifest_path": "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-minimal_round_trip-bvh06spc\\runs\\fixture-minimal_round_trip\\run-75e78a9dd7c34b1ca8dd37ed1794ddc4\\manifest.json",
   "report_paths": [
-    "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-minimal_round_trip-y30r4j9b\\runs\\fixture-minimal_round_trip\\run-6e4ee37899804b40bd67c7b07108b40b\\report.md"
+    "C:\\Users\\zongxin.DESKTOP-MVCBG71\\AppData\\Local\\Temp\\onlyalpha-minimal_round_trip-bvh06spc\\runs\\fixture-minimal_round_trip\\run-75e78a9dd7c34b1ca8dd37ed1794ddc4\\report.md"
   ],
-  "run_id": "run-6e4ee37899804b40bd67c7b07108b40b",
+  "run_id": "run-75e78a9dd7c34b1ca8dd37ed1794ddc4",
   "status": "COMPLETED"
 }

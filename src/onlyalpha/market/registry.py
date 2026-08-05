@@ -227,7 +227,14 @@ class OnlyMarketProfileRegistry:
             )
         else:
             item = self._versions.get((request.profile_id, request.version))
-            matches = () if item is None or item.status is OnlyMarketProfileStatus.REMOVED else (item,)
+            matches = (
+                ()
+                if item is None
+                or item.status is OnlyMarketProfileStatus.REMOVED
+                or effective_on < item.effective_from
+                or (item.effective_to is not None and effective_on >= item.effective_to)
+                else (item,)
+            )
         if len(matches) != 1:
             identity = request.profile_id.value + ("" if request.version is None else f"@{request.version}")
             raise ValueError(f"expected one resolvable market profile: {identity} on {effective_on}")

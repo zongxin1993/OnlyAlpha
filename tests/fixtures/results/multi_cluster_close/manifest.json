@@ -1,5 +1,5 @@
 {
-  "configuration_fingerprint": "237e83d7c058349dbf4c9078ab27368d6ed970b26cd601061cec8e66933f69e3",
+  "configuration_fingerprint": "27830db2909b0f883b003f93bf18d3700e6f3b5e5efed9a04f3af1093800f7a0",
   "data_fingerprint": "1b40360b09dcced38646be00229cb96c4bb42c06f14862413350addda94e0ad4",
   "expected_fill_count": 4,
   "expected_terminal_count": 0,
@@ -12,7 +12,7 @@
     "GENERIC_T0_CASH"
   ],
   "onlyalpha_version": "0.3.2",
-  "result_fingerprint": "4f65017dc4b8d93cfd737bed8b758f8594d4feeee9e6172d67ee65bd29d85e6e",
+  "result_fingerprint": "266800e38585771f29540f74808520b9878074c0fe88e58503d11d2a92a118ab",
   "runtime_type": "BACKTEST",
   "scenario": "multi_cluster_close"
 }

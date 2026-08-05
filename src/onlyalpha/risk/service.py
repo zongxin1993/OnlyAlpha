@@ -68,7 +68,6 @@ from onlyalpha.risk.reservations import (
     OnlyRiskReservationResult,
 )
 from onlyalpha.risk.rules.base import OnlyRiskRule
-from onlyalpha.risk.rules.instrument import only_default_instrument_rules
 from onlyalpha.risk.rules.mandatory import only_mandatory_rules
 from onlyalpha.risk.rules.runtime import (
     OnlyClusterAccountPermissionRiskRule,
@@ -114,7 +113,6 @@ class OnlyRiskService:
         self._publisher = publisher
         self._runtime_rules = runtime_rules
         self._account_rules = account_rules
-        self._instrument_rules = only_default_instrument_rules()
         self._cluster_base_rules: tuple[OnlyRiskRule, ...] = (
             OnlyClusterInstrumentPermissionRiskRule(),
             OnlyClusterAccountPermissionRiskRule(),
@@ -296,15 +294,27 @@ class OnlyRiskService:
                     available_cash,
                     available_cash if account.available_margin is None else account.available_margin.amount,
                     position_effect=effect,
+                    order_type=request.order_type,
                 )
             )
             if not market_decision.accepted:
                 code = {
-                    "INVALID_PRICE_TICK": OnlyRiskRejectionCode.INVALID_PRICE_INCREMENT,
-                    "OUTSIDE_DAILY_PRICE_LIMIT": OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED,
-                    "INSTRUMENT_NOT_TRADABLE": OnlyRiskRejectionCode.INSTRUMENT_NOT_TRADABLE,
+                    "PRICE_NOT_ALIGNED_TO_TICK": OnlyRiskRejectionCode.INVALID_PRICE_INCREMENT,
+                    "PRICE_ABOVE_DAILY_LIMIT": OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED,
+                    "PRICE_BELOW_DAILY_LIMIT": OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED,
+                    "INSTRUMENT_SUSPENDED": OnlyRiskRejectionCode.INSTRUMENT_NOT_TRADABLE,
+                    "INSTRUMENT_INACTIVE": OnlyRiskRejectionCode.INSTRUMENT_NOT_TRADABLE,
+                    "MARKET_CLOSED": OnlyRiskRejectionCode.OUTSIDE_TRADING_SESSION,
+                    "MIDDAY_BREAK": OnlyRiskRejectionCode.OUTSIDE_TRADING_SESSION,
+                    "TRADING_PHASE_NOT_SUPPORTED": OnlyRiskRejectionCode.OUTSIDE_TRADING_SESSION,
+                    "ORDER_TYPE_NOT_SUPPORTED": OnlyRiskRejectionCode.UNSUPPORTED_ORDER_TYPE,
                     "INSUFFICIENT_CASH": OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
-                    "ASSET_NOT_AVAILABLE_T1": OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                    "INSUFFICIENT_MARGIN": OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                    "SELL_QUANTITY_EXCEEDS_AVAILABLE": OnlyRiskRejectionCode.RISK_RESERVATION_EXCEEDED,
+                    "BUY_QUANTITY_BELOW_MINIMUM": OnlyRiskRejectionCode.MINIMUM_QUANTITY_NOT_MET,
+                    "BUY_QUANTITY_INCREMENT_INVALID": OnlyRiskRejectionCode.INVALID_QUANTITY_INCREMENT,
+                    "SELL_QUANTITY_INCREMENT_INVALID": OnlyRiskRejectionCode.INVALID_QUANTITY_INCREMENT,
+                    "ODD_LOT_SELL_REQUIRES_FULL_LIQUIDATION": OnlyRiskRejectionCode.INVALID_QUANTITY_INCREMENT,
                 }.get(market_decision.reason_code or "", OnlyRiskRejectionCode.INVALID_QUANTITY)
                 return OnlyRiskDecision.rejected(
                     OnlyRiskRejection(
@@ -567,12 +577,7 @@ class OnlyRiskService:
 
     def _pipeline(self, profile: OnlyRiskProfile) -> OnlyRiskPipeline:
         return OnlyRiskPipeline(
-            self._mandatory_rules
-            + self._runtime_rules
-            + self._account_rules
-            + self._instrument_rules
-            + self._cluster_base_rules
-            + profile.rules
+            self._mandatory_rules + self._runtime_rules + self._account_rules + self._cluster_base_rules + profile.rules
         )
 
     def _audit(

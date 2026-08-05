@@ -30,7 +30,7 @@ data:
 actions:
   - action_id: BUY_1
     trigger: {type: ON_BAR_SEQUENCE, sequence: 1}
-    command: {type: SUBMIT_ORDER, instrument_id: TEST.XSHG, side: BUY, order_type: MARKET, quantity: "0.25", position_effect: AUTO}
+    command: {type: SUBMIT_ORDER, instrument_id: TEST.XSHG, side: BUY, order_type: LIMIT, quantity: "0.25", price: "10.05", position_effect: AUTO}
 expectations:
   - assertion_id: FILLED
     fact: ORDER

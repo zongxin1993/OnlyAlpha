@@ -22,3 +22,14 @@ def test_legacy_market_rule_mapping_is_absent_from_production_source() -> None:
     occurrences = [line for line in text.splitlines() if "market_simulation" in line]
     assert occurrences and all("UNKNOWN_FIELD" in line or 'if "market_simulation"' in line for line in occurrences)
     assert "market_rule: OnlyMarketRule" not in text
+
+
+def test_pre_trade_market_rule_engine_is_the_only_rule_authority() -> None:
+    source = Path("src/onlyalpha")
+    text = "\n".join(path.read_text(encoding="utf-8") for path in source.rglob("*.py"))
+    assert "OnlyMarketOrderValidator" not in text
+    assert "only_default_instrument_rules" not in text
+    assert "OnlyTradingSessionRiskRule" not in text
+    assert "OnlyPriceLimitRiskRule" not in text
+    assert "OnlyQuantityIncrementRiskRule" not in text
+    assert text.count("def evaluate_pre_trade(") == 2  # Port plus sole Engine implementation.
