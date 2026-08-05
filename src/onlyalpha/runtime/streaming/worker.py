@@ -13,6 +13,8 @@ from .live_bar import OnlyLiveBarFinalizer
 
 
 class OnlyStreamingMarketDataWorker:
+    _JOIN_TIMEOUT_SECONDS = 5.0
+
     def __init__(
         self,
         queue: OnlyMarketDataInboundQueue,
@@ -36,6 +38,7 @@ class OnlyStreamingMarketDataWorker:
         self._stop = Event()
         self._thread: Thread | None = None
         self._failure: BaseException | None = None
+        self._stop_attempted = False
 
     @property
     def alive(self) -> bool:
@@ -46,6 +49,8 @@ class OnlyStreamingMarketDataWorker:
         return self._failure
 
     def start(self) -> None:
+        if self._stop_attempted:
+            raise RuntimeError("streaming market-data worker cannot restart after stop")
         if self.alive:
             return
         self._stop.clear()
@@ -53,12 +58,18 @@ class OnlyStreamingMarketDataWorker:
         self._thread.start()
 
     def stop(self) -> None:
+        if self._stop_attempted:
+            return
+        self._stop_attempted = True
         self._stop.set()
         thread = self._thread
         if thread is not None:
-            thread.join(timeout=5)
+            thread.join(timeout=self._JOIN_TIMEOUT_SECONDS)
             if thread.is_alive():
-                raise RuntimeError("streaming market-data worker did not stop")
+                raise RuntimeError(
+                    "streaming market-data worker did not stop: "
+                    f"operation=join timeout_seconds={self._JOIN_TIMEOUT_SECONDS}"
+                )
 
     def _run(self) -> None:
         try:

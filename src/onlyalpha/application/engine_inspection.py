@@ -48,6 +48,7 @@ class OnlyEngineInspectionService:
                     next_market_close=health.next_market_close,
                     source_connected=health.source_connected,
                     worker_alive=health.worker_alive,
+                    observation_publisher_alive=runtime.observation_publisher_alive,
                     bootstrap_observed_at=runtime.bootstrap_observed_at,
                     historical_requested_end=runtime.historical_requested_end,
                     historical_watermarks=runtime.historical_watermarks,

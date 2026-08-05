@@ -61,6 +61,7 @@ class OnlyStreamingRuntimeInspectionSnapshot:
     next_market_close: OnlyTimestamp
     source_connected: bool
     worker_alive: bool
+    observation_publisher_alive: bool
     bootstrap_observed_at: OnlyTimestamp | None
     historical_requested_end: OnlyTimestamp | None
     historical_watermarks: tuple[OnlyHistoricalWatermark, ...]

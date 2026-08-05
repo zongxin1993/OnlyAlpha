@@ -6,6 +6,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
+from time import monotonic
 from typing import cast
 from uuid import uuid4
 
@@ -69,6 +70,7 @@ class OnlyEngine:
         self._infrastructure = OnlyInfrastructureRegistry()
         self._planner = OnlyRuntimePlanner()
         self._execution_plan: OnlyEngineExecutionPlan | None = None
+        self._stop_attempted = False
 
     @property
     def runtimes(self) -> tuple[OnlyRuntime, ...]:
@@ -246,14 +248,26 @@ class OnlyEngine:
                     )
             self._execution_plan = plan
             self.state = OnlyEngineState.READY
-        except Exception:
+        except Exception as failure:
             for runtime in reversed(created):
-                runtime.close()
+                try:
+                    runtime.close()
+                except Exception as cleanup_failure:
+                    failure.add_note(
+                        f"Runtime initialization cleanup also failed: "
+                        f"{type(cleanup_failure).__name__}: {cleanup_failure}"
+                    )
             self._runtime_sessions.clear()
             self._cluster_sessions.clear()
             self._execution_plan = None
             for cluster_id in reversed(tuple(self._cluster_definitions)):
-                self._infrastructure.release(cluster_id)
+                try:
+                    self._infrastructure.release(cluster_id)
+                except Exception as cleanup_failure:
+                    failure.add_note(
+                        f"Infrastructure initialization cleanup also failed: "
+                        f"{type(cleanup_failure).__name__}: {cleanup_failure}"
+                    )
             self.state = OnlyEngineState.FAILED
             raise
 
@@ -273,11 +287,14 @@ class OnlyEngine:
 
         if self.state is not OnlyEngineState.RUNNING:
             raise OnlyLifecycleError("engine can only wait while RUNNING")
+        budget = None if timeout is None else max(0.0, timeout)
+        deadline = None if budget is None else monotonic() + budget
         for session in self.runtime_sessions:
             wait = getattr(session.runtime, "wait", None)
             if not callable(wait):
                 raise OnlyLifecycleError(f"{session.runtime.runtime_type} Runtime is finite and cannot wait")
-            wait(timeout)
+            remaining = None if deadline is None or budget is None else min(budget, max(0.0, deadline - monotonic()))
+            wait(remaining)
 
     def run(self) -> OnlyEngineRunResult:
         self._require_not_terminated("run")
@@ -409,31 +426,38 @@ class OnlyEngine:
         )
 
     def stop(self) -> None:
-        if self.state is OnlyEngineState.STOPPED:
+        if self._stop_attempted:
             return
-        if not self._runtime_sessions:
-            for cluster_id in reversed(tuple(self._cluster_definitions)):
-                self._infrastructure.release(cluster_id)
-            if self.storage is not None:
-                self.storage.close()
-            self.state = OnlyEngineState.STOPPED
-            return
+        self._stop_attempted = True
         self.state = OnlyEngineState.STOPPING
+        failure: BaseException | None = None
         for session in reversed(self.runtime_sessions):
+            try:
+                session.runtime.close()
+            except BaseException as exc:
+                failure = failure or exc
+                session.state = "FAILED"
+            else:
+                session.state = "STOPPED"
             for cluster_id in reversed(session.bound_cluster_ids):
-                session.runtime.stop_cluster(cluster_id)
                 if self._cluster_sessions[cluster_id].state is not OnlyEngineClusterStatus.FAILED:
                     self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.STOPPED
                     self._handles[cluster_id] = replace(
                         self._handles[cluster_id], status=OnlyEngineClusterStatus.STOPPED
                     )
-            session.runtime.close()
-            session.state = "STOPPED"
         for cluster_id in reversed(tuple(self._cluster_definitions)):
-            self._infrastructure.release(cluster_id)
+            try:
+                self._infrastructure.release(cluster_id)
+            except BaseException as exc:
+                failure = failure or exc
         if self.storage is not None:
-            self.storage.close()
-        self.state = OnlyEngineState.STOPPED
+            try:
+                self.storage.close()
+            except BaseException as exc:
+                failure = failure or exc
+        self.state = OnlyEngineState.FAILED if failure is not None else OnlyEngineState.STOPPED
+        if failure is not None:
+            raise failure
 
     def close(self) -> None:
         """Idempotently close all Engine-owned resources after an operational run."""

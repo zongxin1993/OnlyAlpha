@@ -19,6 +19,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.runtime.defaults import OnlyEngineServices
+from onlyalpha.runtime.factory import OnlyRuntimeBuildResult
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
@@ -80,6 +81,27 @@ def test_engine_initialize_creates_runtime_and_cluster_sessions(tmp_path: Path) 
     assert all(item.cluster is not None and item.resource_references for item in engine.cluster_sessions)
     engine.stop()
     engine.stop()
+
+
+def test_engine_initialize_preserves_primary_failure_when_partial_runtime_cleanup_fails(tmp_path: Path) -> None:
+    runtime = Mock()
+    runtime.initialize.side_effect = RuntimeError("runtime initialize failed")
+    runtime.close.side_effect = RuntimeError("runtime cleanup failed")
+    assembler = Mock()
+    assembler.build.return_value = OnlyRuntimeBuildResult(runtime=runtime)
+    engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("initialize-primary-failure"), tmp_path),
+        services=OnlyEngineServices(assembler),
+    )
+    engine.add_cluster_from_file(CONFIG)
+
+    with pytest.raises(RuntimeError, match="runtime initialize failed") as raised:
+        engine.initialize()
+
+    runtime.close.assert_called_once_with()
+    assert raised.value.__notes__ == [
+        "Runtime initialization cleanup also failed: RuntimeError: runtime cleanup failed"
+    ]
 
 
 def test_engine_product_source_does_not_use_legacy_run_service() -> None:

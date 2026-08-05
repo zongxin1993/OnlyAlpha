@@ -152,6 +152,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             OnlyCompositeObservationSink(observation_sinks), observation_queue_capacity
         )
         self._stop_requested = Event()
+        self._streaming_stop_attempted = False
         self._processing_results: list[OnlyMarketDataProcessingResult] = []
         self._live_finalizer = OnlyLiveBarFinalizer()
         self._streaming_worker = OnlyStreamingMarketDataWorker(
@@ -189,6 +190,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
     @property
     def worker_failure(self) -> BaseException | None:
         return self._streaming_worker.failure
+
+    @property
+    def observation_publisher_alive(self) -> bool:
+        return self._observation_publisher.alive
 
     @property
     def order_snapshots(self) -> tuple[OnlyOrderSnapshot, ...]:
@@ -366,22 +371,38 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
     def stop(self) -> None:
         if self.state in {OnlyRuntimeState.STOPPED, OnlyRuntimeState.CLOSED}:
             return
+        if self._streaming_stop_attempted:
+            return
+        self._streaming_stop_attempted = True
         self._stop_requested.set()
         self._streaming_phase = OnlyStreamingPhase.STOPPING
-        self._unsubscribe()
-        self._streaming_worker.stop()
-        self._observation_publisher.stop()
-        super().stop()
-        self._streaming_phase = OnlyStreamingPhase.STOPPED
+        failure: BaseException | None = None
+        for operation in (
+            self._unsubscribe,
+            self._streaming_worker.stop,
+            self._observation_publisher.stop,
+            super().stop,
+        ):
+            try:
+                operation()
+            except BaseException as exc:
+                failure = failure or exc
+        self._streaming_phase = OnlyStreamingPhase.FAILED if failure is not None else OnlyStreamingPhase.STOPPED
+        if failure is not None:
+            self._stop_failure = failure
+            self._state = OnlyRuntimeState.FAILED
+            raise failure
 
     def _unsubscribe(self) -> None:
         subscription_id = self._streaming_subscription_id
         if subscription_id is None:
             return
         unsubscribe = getattr(self._streaming_source, "unsubscribe", None)
-        if callable(unsubscribe):
-            unsubscribe(OnlyMarketDataUnsubscriptionRequest(f"stop-{self.runtime_id}", subscription_id))
-        self._streaming_subscription_id = None
+        try:
+            if callable(unsubscribe):
+                unsubscribe(OnlyMarketDataUnsubscriptionRequest(f"stop-{self.runtime_id}", subscription_id))
+        finally:
+            self._streaming_subscription_id = None
 
     def _bootstrap(self) -> None:
         load_warmup = getattr(self._streaming_source, "load_warmup", None)

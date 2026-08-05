@@ -22,6 +22,8 @@ class OnlyCompositeObservationSink:
 
 
 class OnlyObservationPublisher:
+    _JOIN_TIMEOUT_SECONDS = 5.0
+
     def __init__(self, sink: OnlyObservationSink, capacity: int = 1024) -> None:
         if capacity <= 0:
             raise ValueError("observation queue capacity must be positive")
@@ -33,6 +35,7 @@ class OnlyObservationPublisher:
         self._stopping = False
         self._drop_count = 0
         self._failure: BaseException | None = None
+        self._stop_attempted = False
 
     @property
     def queue_size(self) -> int:
@@ -48,8 +51,15 @@ class OnlyObservationPublisher:
     def failure(self) -> BaseException | None:
         return self._failure
 
+    @property
+    def alive(self) -> bool:
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
     def start(self) -> None:
         with self._condition:
+            if self._stop_attempted:
+                raise RuntimeError("observation publisher cannot restart after stop")
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stopping = False
@@ -58,6 +68,9 @@ class OnlyObservationPublisher:
 
     def publish(self, snapshot: OnlyMarketObservationSnapshot) -> None:
         with self._condition:
+            if self._stopping:
+                self._drop_count += 1
+                return
             if len(self._queue) >= self._capacity:
                 self._queue.popleft()
                 self._drop_count += 1
@@ -66,13 +79,18 @@ class OnlyObservationPublisher:
 
     def stop(self) -> None:
         with self._condition:
+            if self._stop_attempted:
+                return
+            self._stop_attempted = True
             self._stopping = True
             self._condition.notify_all()
             thread = self._thread
         if thread is not None:
-            thread.join(timeout=5)
+            thread.join(timeout=self._JOIN_TIMEOUT_SECONDS)
             if thread.is_alive():
-                raise RuntimeError("observation publisher did not stop")
+                raise RuntimeError(
+                    f"observation publisher did not stop: operation=join timeout_seconds={self._JOIN_TIMEOUT_SECONDS}"
+                )
 
     def _run(self) -> None:
         try:

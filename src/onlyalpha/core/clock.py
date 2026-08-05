@@ -504,6 +504,8 @@ class OnlyBacktestClock(OnlyVirtualClock):
 class OnlyLiveClock(OnlyClock):
     """Thread-safe system UTC Clock with one monotonic scheduler thread."""
 
+    _JOIN_TIMEOUT_SECONDS = 5.0
+
     def __init__(self) -> None:
         self._condition = threading.Condition(threading.Lock())
         self._sequence = 0
@@ -511,7 +513,8 @@ class OnlyLiveClock(OnlyClock):
         self._timers: dict[OnlyTimerId, OnlyTimer] = {}
         self._failures: list[OnlyTimerFailure] = []
         self._state = OnlyClockState.RUNNING
-        self._thread = threading.Thread(target=self._run_scheduler, name="onlyalpha-clock", daemon=True)
+        self._close_attempted = False
+        self._thread = threading.Thread(target=self._run_scheduler, name="onlyalpha-clock", daemon=False)
         self._thread.start()
 
     @property
@@ -592,8 +595,9 @@ class OnlyLiveClock(OnlyClock):
 
     def close(self) -> None:
         with self._condition:
-            if self._state is OnlyClockState.CLOSED:
+            if self._state is OnlyClockState.CLOSED or self._close_attempted:
                 return
+            self._close_attempted = True
             self._state = OnlyClockState.CLOSING
             for timer in self._timers.values():
                 if timer.state in {OnlyTimerState.SCHEDULED, OnlyTimerState.FIRING}:
@@ -601,7 +605,13 @@ class OnlyLiveClock(OnlyClock):
             self._heap.clear()
             self._condition.notify_all()
         if threading.current_thread() is not self._thread:
-            self._thread.join()
+            self._thread.join(timeout=self._JOIN_TIMEOUT_SECONDS)
+            if self._thread.is_alive():
+                with self._condition:
+                    self._state = OnlyClockState.FAILED
+                raise OnlyClockError(
+                    f"Live Clock scheduler did not stop: operation=join timeout_seconds={self._JOIN_TIMEOUT_SECONDS}"
+                )
         with self._condition:
             self._state = OnlyClockState.CLOSED
 

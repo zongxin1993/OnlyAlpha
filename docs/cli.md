@@ -20,5 +20,13 @@ Glob 结果稳定排序，最后按绝对路径去重。至少必须得到一个
 CLI 只构造 `OnlyEngine`、逐个调用 `add_cluster_from_file()`，最后调用 `validate()` 或 `run()`；它不创建
 Runtime、DataSource、Broker、Strategy、Factor 或 Indicator。
 
+长生命周期 Paper CLI 在 Application 层统一处理 Windows Ctrl+C/CTRL_BREAK 和 POSIX SIGINT/SIGTERM。主线程以
+0.25 秒有限预算调用 `OnlyEngine.wait()`，首次中断经唯一 `OnlyEngine.stop()` 关闭整个 Engine，SIGINT/控制台中断返回
+130，SIGTERM 返回 143；关闭期间第二次中断执行进程级强制退出，不会重入 Runtime 或 Cluster stop。正常退出会输出
+简短 shutdown 信息和 `runtime_shutdown` 诊断（Runtime/streaming 状态、订阅、worker、publisher）。
+
+优雅关闭保证已提交 durable transaction 不被撤销，并有序释放当前资源；它不保存全部 Paper 内存态。当前 Paper 没有
+Streaming Checkpoint/Recovery，强制退出尤其可能丢失未提交的 Bar、指标、因子和 Observation 状态。
+
 工作区职责见 `workspace_structure.md`：CLI 属于 OnlyAlpha 核心，官方 Cluster 配置属于 `OnlyAlpha-plugins`，官方示例只在
 `OnlyAlpha-examples` 组织和调用这些配置。

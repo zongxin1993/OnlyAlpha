@@ -77,6 +77,60 @@ def test_standard_live_port_normalizes_into_runtime_sink() -> None:
     assert xtdata.unsubscribed == [7]
 
 
+def test_stop_unsubscribes_once_and_ignores_late_sdk_callback() -> None:
+    updates: list[object] = []
+    instrument = OnlyInstrumentId.parse("600000.XSHG")
+    request = SimpleNamespace(
+        source_id=OnlyMarketDataSourceId("miniqmt"),
+        runtime_id=OnlyRuntimeId("runtime"),
+        data_version=OnlyDataVersion("live-v1"),
+        market_data_sink=updates.append,
+        bar_types={},
+    )
+    xtdata = OnlyFakeXtData()
+    source = OnlyMiniQmtDataSource(request, object(), xtdata)
+    result = source.subscribe(
+        OnlyMarketDataSubscriptionRequest(
+            "quote-stop",
+            request.source_id,
+            frozenset({instrument}),
+            frozenset({OnlyMarketDataType.QUOTE}),
+        )
+    )
+    assert result.status is OnlyMarketDataRequestStatus.ACCEPTED
+    callback = xtdata.callback
+    assert callback is not None
+
+    source.stop()
+    source.stop()
+    source.close()
+    callback(
+        {
+            "600000.SH": [
+                {
+                    "time": 1_767_576_600_000,
+                    "bidPrice": [8.88],
+                    "askPrice": [8.89],
+                    "bidVol": [100],
+                    "askVol": [200],
+                }
+            ]
+        }
+    )
+
+    assert xtdata.unsubscribed == [7]
+    assert updates == []
+    rejected = source.subscribe(
+        OnlyMarketDataSubscriptionRequest(
+            "quote-late",
+            request.source_id,
+            frozenset({instrument}),
+            frozenset({OnlyMarketDataType.QUOTE}),
+        )
+    )
+    assert rejected.status is OnlyMarketDataRequestStatus.REJECTED
+
+
 def test_live_bar_uses_instrument_price_precision_and_remains_open() -> None:
     updates: list[object] = []
     instrument = OnlyInstrumentId.parse("600000.XSHG")

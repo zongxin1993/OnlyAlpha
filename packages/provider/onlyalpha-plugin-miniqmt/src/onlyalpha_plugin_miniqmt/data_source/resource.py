@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import timedelta
+from threading import Lock
 from typing import Any
 
 from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
@@ -55,6 +56,9 @@ class OnlyMiniQmtDataSource:
         self._life = OnlyMiniQmtLifecycle()
         self._subscriptions: dict[str, tuple[int, ...]] = {}
         self._normalizer = OnlyMiniQmtLiveNormalizer(request)
+        self._subscription_lock = Lock()
+        self._accepting_callbacks = True
+        self._shutdown_started = False
 
     plugin_descriptor = DATA_DESCRIPTOR
 
@@ -118,11 +122,21 @@ class OnlyMiniQmtDataSource:
         self._life.start()
 
     def stop(self) -> None:
-        for sequences in tuple(self._subscriptions.values()):
+        with self._subscription_lock:
+            self._accepting_callbacks = False
+            self._shutdown_started = True
+            subscriptions = tuple(self._subscriptions.values())
+            self._subscriptions.clear()
+        failure: Exception | None = None
+        for sequences in subscriptions:
             for sequence in sequences:
-                self._xtdata.unsubscribe_quote(sequence)
-        self._subscriptions.clear()
+                try:
+                    self._xtdata.unsubscribe_quote(sequence)
+                except Exception as exc:
+                    failure = failure or exc
         self._life.stop()
+        if failure is not None:
+            raise failure
 
     close = stop
 
@@ -297,15 +311,19 @@ class OnlyMiniQmtDataSource:
             bootstrap_observed_at=request.bootstrap_observed_at,
             requested_start=request.requested_start,
             requested_end=request.end_time,
-            provider_raw_bar_count=int(metadata.get("provider_raw_bar_count", len(bars))),
+            provider_raw_bar_count=_metadata_integer(
+                metadata.get("provider_raw_bar_count", len(bars)), "provider_raw_bar_count"
+            ),
             accepted_bar_count=len(bars),
-            rejected_out_of_range_count=int(metadata.get("rejected_out_of_range_count", 0)),
+            rejected_out_of_range_count=_metadata_integer(
+                metadata.get("rejected_out_of_range_count", 0), "rejected_out_of_range_count"
+            ),
             provider_raw_last_bar_end=OnlyTimestamp.from_datetime(bars[-1].bar_end)
             if provider_raw_last_ns is None
-            else OnlyTimestamp.from_unix_nanos(int(provider_raw_last_ns)),
+            else OnlyTimestamp.from_unix_nanos(_metadata_integer(provider_raw_last_ns, "provider_raw_last_bar_end_ns")),
             accepted_last_bar_end=OnlyTimestamp.from_datetime(bars[-1].bar_end)
             if accepted_last_ns is None
-            else OnlyTimestamp.from_unix_nanos(int(accepted_last_ns)),
+            else OnlyTimestamp.from_unix_nanos(_metadata_integer(accepted_last_ns, "accepted_last_bar_end_ns")),
             provider="miniqmt",
             provider_version=None if metadata.get("provider_version") is None else str(metadata["provider_version"]),
             compatibility_profile_id=request.compatibility_profile_id,
@@ -319,6 +337,13 @@ class OnlyMiniQmtDataSource:
         return OnlyHistoricalDataStream((), request.batch_size)
 
     def subscribe(self, request: OnlyMarketDataSubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
+        with self._subscription_lock:
+            if self._shutdown_started:
+                return OnlyMarketDataSubscriptionResult(
+                    OnlyMarketDataRequestStatus.REJECTED,
+                    None,
+                    "MiniQMT DataSource shutdown has started",
+                )
         if self._request.market_data_sink is None:
             return OnlyMarketDataSubscriptionResult(
                 OnlyMarketDataRequestStatus.REJECTED,
@@ -343,11 +368,21 @@ class OnlyMiniQmtDataSource:
         if not sequences:
             return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.REJECTED, None, "empty subscription")
         subscription_id = f"miniqmt:{request.request_id}"
-        self._subscriptions[subscription_id] = tuple(sequences)
+        with self._subscription_lock:
+            if self._shutdown_started:
+                for sequence in sequences:
+                    self._xtdata.unsubscribe_quote(sequence)
+                return OnlyMarketDataSubscriptionResult(
+                    OnlyMarketDataRequestStatus.REJECTED,
+                    None,
+                    "MiniQMT DataSource shutdown started during subscription",
+                )
+            self._subscriptions[subscription_id] = tuple(sequences)
         return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, subscription_id)
 
     def unsubscribe(self, request: OnlyMarketDataUnsubscriptionRequest) -> OnlyMarketDataSubscriptionResult:
-        sequences = self._subscriptions.pop(request.subscription_id, ())
+        with self._subscription_lock:
+            sequences = self._subscriptions.pop(request.subscription_id, ())
         for sequence in sequences:
             self._xtdata.unsubscribe_quote(sequence)
         status = OnlyMarketDataRequestStatus.ACCEPTED if sequences else OnlyMarketDataRequestStatus.REJECTED
@@ -379,9 +414,15 @@ class OnlyMiniQmtDataSource:
                 symbol,
                 period=period,
                 count=count,
-                callback=lambda raw: self._normalizer.publish(raw, instrument_id, period),
+                callback=lambda raw: self._publish_live(raw, instrument_id, period),
             )
         )
+
+    def _publish_live(self, raw: Any, instrument_id: OnlyInstrumentId, period: str) -> None:
+        with self._subscription_lock:
+            if not self._accepting_callbacks:
+                return
+            self._normalizer.publish(raw, instrument_id, period)
 
     def _connection_result(
         self,
@@ -408,3 +449,9 @@ def _warmup_request_fingerprint(request: OnlyHistoricalWarmupRequest) -> str:
         "compatibility_profile_id": request.compatibility_profile_id,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _metadata_integer(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"MiniQMT historical cache metadata {field} must be an integer")
+    return int(value)

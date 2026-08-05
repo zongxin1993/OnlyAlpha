@@ -539,6 +539,9 @@ class OnlyRuntime:
         self._runtime_persistence_store: OnlyRuntimePersistenceStorePort | None = None
         self._clusters_started = False
         self._clusters_recovered = False
+        self._stop_attempted = False
+        self._close_attempted = False
+        self._stop_failure: BaseException | None = None
         # Position is a Runtime state domain even where the mode-specific market/execution
         # assembly is intentionally deferred (Live/Paper/Research in the current phase).
         self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
@@ -987,35 +990,58 @@ class OnlyRuntime:
     def stop(self) -> None:
         if self._state in {OnlyRuntimeState.STOPPED, OnlyRuntimeState.CLOSED}:
             return
+        if self._stop_attempted:
+            return
+        self._stop_attempted = True
         previous_state = self._state
         self._state = OnlyRuntimeState.STOPPING
-        self._services.cluster_manager.stop_all()
+        failure: BaseException | None = None
+        try:
+            self._services.cluster_manager.stop_all()
+        except BaseException as exc:
+            failure = exc
         if previous_state not in {
             OnlyRuntimeState.CREATED,
             OnlyRuntimeState.INITIALIZING,
             OnlyRuntimeState.RECOVERING,
             OnlyRuntimeState.FAILED,
         }:
-            self._drain_execution_outbox()
-        self._services.event_bus.drain()
-        failure = self._run_plugin_cleanup("stop")
+            try:
+                self._drain_execution_outbox()
+            except BaseException as exc:
+                failure = failure or exc
+        try:
+            self._services.event_bus.drain()
+        except BaseException as exc:
+            failure = failure or exc
+        plugin_failure = self._run_plugin_cleanup("stop")
+        failure = failure or plugin_failure
         if failure is not None:
-            self._services.event_router.fail()
+            try:
+                self._services.event_router.fail()
+            except BaseException as router_failure:
+                failure.add_note(
+                    f"Runtime event-router failure marking also failed: "
+                    f"{type(router_failure).__name__}: {router_failure}"
+                )
             self._state = OnlyRuntimeState.FAILED
+            self._stop_failure = failure
             raise failure
         self._state = OnlyRuntimeState.STOPPED
 
     def close(self) -> None:
-        if self._state is OnlyRuntimeState.CLOSED:
+        if self._state is OnlyRuntimeState.CLOSED or self._close_attempted:
             return
-        failure: Exception | None = None
-        try:
-            self.stop()
-        except Exception as exc:
-            failure = exc
+        self._close_attempted = True
+        failure = self._stop_failure
+        if not self._stop_attempted:
+            try:
+                self.stop()
+            except BaseException as exc:
+                failure = failure or exc
         try:
             self._services.cluster_manager.unload_all()
-        except Exception as exc:
+        except BaseException as exc:
             failure = failure or exc
         plugin_failure = self._run_plugin_cleanup("close")
         failure = failure or plugin_failure
@@ -1027,20 +1053,20 @@ class OnlyRuntime:
             }:
                 self._services.event_router.fail()
             self._services.event_router.close()
-        except Exception as exc:
+        except BaseException as exc:
             failure = failure or exc
         try:
             self._services.event_bus.close()
-        except Exception as exc:
+        except BaseException as exc:
             failure = failure or exc
         if self._runtime_persistence_store is not None:
             try:
                 self._runtime_persistence_store.close()
-            except Exception as exc:
+            except BaseException as exc:
                 failure = failure or exc
         try:
             self._services.clock.close()
-        except Exception as exc:
+        except BaseException as exc:
             failure = failure or exc
         if failure is not None:
             self._state = OnlyRuntimeState.FAILED

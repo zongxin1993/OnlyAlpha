@@ -1,4 +1,4 @@
-from threading import Event, Lock, Thread
+from threading import Event, Lock, Thread, current_thread
 from typing import Any
 
 from onlyalpha.broker.capabilities import OnlyBrokerCapabilities
@@ -42,6 +42,7 @@ from .callback import OnlyMiniQmtTraderCallback
 class OnlyMiniQmtBrokerGateway:
     plugin_descriptor = BROKER_DESCRIPTOR
     _ready_state = OnlyBrokerConnectionState.READY
+    _JOIN_TIMEOUT_SECONDS = 5.0
 
     def __init__(
         self,
@@ -61,6 +62,7 @@ class OnlyMiniQmtBrokerGateway:
         self._stopping = Event()
         self._reconnect_lock = Lock()
         self._reconnect_thread: Thread | None = None
+        self._stop_attempted = False
         self._callback = OnlyMiniQmtTraderCallback(self)
         self._order_ids: dict[int, OnlyOrderId] = {}
         self._sysids: dict[OnlyOrderId, str] = {}
@@ -130,10 +132,27 @@ class OnlyMiniQmtBrokerGateway:
         self._life.start()
 
     def stop(self) -> None:
+        if self._stop_attempted:
+            return
+        self._stop_attempted = True
         self._stopping.set()
-        self._trader.stop()
+        failure: Exception | None = None
+        try:
+            self._trader.stop()
+        except Exception as exc:
+            failure = exc
         self._connection_state = OnlyBrokerConnectionState.DISCONNECTED
         self._life.stop()
+        reconnect = self._reconnect_thread
+        if reconnect is not None and reconnect is not current_thread():
+            reconnect.join(timeout=self._JOIN_TIMEOUT_SECONDS)
+            if reconnect.is_alive():
+                failure = failure or RuntimeError(
+                    "MiniQMT reconnect worker did not stop: "
+                    f"operation=join timeout_seconds={self._JOIN_TIMEOUT_SECONDS}"
+                )
+        if failure is not None:
+            raise failure
 
     close = stop
 
@@ -267,7 +286,7 @@ class OnlyMiniQmtBrokerGateway:
         with self._reconnect_lock:
             if self._stopping.is_set() or (self._reconnect_thread and self._reconnect_thread.is_alive()):
                 return
-            self._reconnect_thread = Thread(target=self._reconnect, name="onlyalpha-miniqmt-reconnect", daemon=True)
+            self._reconnect_thread = Thread(target=self._reconnect, name="onlyalpha-miniqmt-reconnect", daemon=False)
             self._reconnect_thread.start()
 
     def _reconnect(self) -> None:

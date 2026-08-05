@@ -327,6 +327,10 @@ uv run onlyalpha run `
 
 该示例只观察行情并执行 Shadow Intent，不会连接交易 Broker 或发送真实订单。
 
+运行期间按 Ctrl+C 会通过唯一 `OnlyEngine` 生命周期停止全部 Runtime 和 Cluster，并取消订阅、停止 worker/publisher、
+关闭插件与 Runtime 资源。SIGINT/控制台中断退出码为 130，SIGTERM 为 143；关闭期间再次中断会强制退出。当前 Paper
+没有 Streaming Checkpoint/Recovery，优雅退出不代表能够保存并从全部实时内存状态原位恢复。
+
 ### 5. 查看运行快照
 
 ```bash

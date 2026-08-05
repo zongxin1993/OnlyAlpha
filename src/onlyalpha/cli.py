@@ -178,12 +178,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if only_engine_lifecycle_kind(engine) is OnlyRuntimeLifecycleKind.LONG_LIVED:
             exit_code = OnlyEngineApplicationRunner().execute(engine)
+            from onlyalpha.application import OnlyEngineInspectionService
+
+            shutdown = OnlyEngineInspectionService().capture(engine)
             print(
                 json.dumps(
                     {
                         "engine_id": str(engine.config.engine_id),
                         "status": engine.state.value,
                         "lifecycle": OnlyRuntimeLifecycleKind.LONG_LIVED.value,
+                        "runtime_shutdown": [
+                            {
+                                "runtime_id": item.runtime_id,
+                                "runtime_state": item.runtime_state.value,
+                                "streaming_phase": item.streaming_phase.value,
+                                "subscription_active": any(value.active for value in item.subscriptions),
+                                "worker_alive": item.worker_alive,
+                                "observation_publisher_alive": item.observation_publisher_alive,
+                                "publisher_pending_count": item.publisher_pending_count,
+                            }
+                            for item in shutdown
+                        ],
                     },
                     ensure_ascii=False,
                     sort_keys=True,

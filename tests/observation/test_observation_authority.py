@@ -51,3 +51,15 @@ def test_slow_sink_does_not_block_producer_and_latest_is_retained() -> None:
     sink.release.set()
     publisher.stop()
     assert sink.items == [first, latest]
+
+
+def test_stop_is_idempotent_and_rejects_late_publication() -> None:
+    sink = _RecordingSink()
+    publisher = OnlyObservationPublisher(sink)  # type: ignore[arg-type]
+    publisher.start()
+    publisher.stop()
+    publisher.stop()
+    publisher.publish(object())  # type: ignore[arg-type]
+    assert not publisher.alive
+    assert publisher.drop_count == 1
+    assert sink.items == []

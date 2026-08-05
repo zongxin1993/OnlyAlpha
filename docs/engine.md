@@ -36,8 +36,12 @@ FAILED
 
 产品链路固定为：`add_cluster()` 只校验并注册不可变 Definition；`initialize()` 生成
 `OnlyEngineExecutionPlan` 并装配/持有真实 `OnlyRuntimeSession` 与 `OnlyClusterSession`；`start()` 启动 Session；`run()`
-只执行已装配 Runtime；`stop()` 按 Cluster、Runtime、基础设施、输出/存储的逆序幂等关闭。一个 Engine 实例只能运行
+只执行已装配 Runtime；`stop()` 反向关闭 Runtime，再释放基础设施和存储。Cluster 与 Runtime-owned Service 的具体
+有序关闭只由 Runtime 权威执行，避免 Engine 先逐 Cluster stop 后 Runtime 再次 stop_all 的双路径。一个 Engine 实例只能运行
 一次，进入 `STOPPED` 或 `FAILED` 后必须新建 Engine。
+
+`wait(timeout)` 的 timeout 是整个 Engine 调用的总预算：多个 Runtime 共享同一个单调时钟 deadline，不会分别消耗完整
+timeout。`None` 仍表示无界等待，但长生命周期 CLI 只使用 0.25 秒有限轮询。
 
 ```text
 OnlyEngine
