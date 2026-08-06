@@ -9,7 +9,7 @@ def test_account_consumes_explicit_reservation_deltas_for_each_fill() -> None:
     context, first_trade, second_trade = only_test_two_fill_trades()
     reservation_reducer = OnlyAccountCashReservationTradeReducer()
     account_reducer = OnlyAccountTradeReducer()
-    zero = OnlyMoney(Decimal(0), first_trade.authoritative_fee.currency)
+    zero = OnlyMoney(Decimal(0), first_trade.fee_charges.currency)
 
     first_reservation = reservation_reducer.reduce(
         context.account_cash_reservation_before,

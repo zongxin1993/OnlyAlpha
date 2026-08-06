@@ -80,7 +80,7 @@ class OnlyBacktestArtifactWriter:
         descriptors: list[OnlyArtifactDescriptor] = []
         try:
             summary = {
-                "schema_version": 4,
+                "schema_version": 5,
                 "result_fingerprint": result_fingerprint,
                 "analysis_fingerprint": analysis.analysis_fingerprint,
                 "fact_counts": {
@@ -120,7 +120,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "market_rule_decisions.json",
                 "MARKET_RULE_DECISIONS_JSON",
-                {"schema_version": 4, "decisions": _json_value(facts.market_rule_decisions)},
+                {"schema_version": 5, "decisions": _json_value(facts.market_rule_decisions)},
                 descriptors,
             )
             self._write_json(
@@ -128,7 +128,7 @@ class OnlyBacktestArtifactWriter:
                 "diagnostics.json",
                 "DIAGNOSTICS",
                 {
-                    "schema_version": 4,
+                    "schema_version": 5,
                     "failure_count": 0 if diagnostics is None else diagnostics.total_failure_count,
                     "warning_count": len(analysis.warnings),
                     "truncated": False if diagnostics is None else diagnostics.truncated,
@@ -142,7 +142,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "data_manifest.json",
                 "DATA_MANIFEST",
-                {"schema_version": 4, "data": _json_value(data)},
+                {"schema_version": 5, "data": _json_value(data)},
                 descriptors,
             )
             tables = {
@@ -190,6 +190,29 @@ class OnlyBacktestArtifactWriter:
                 ),
                 "margin.parquet": ("MARGIN", _table(_MARGIN_SCHEMA, [_record(item) for item in facts.margin])),
                 "fees.parquet": ("FEES", _table(_FEE_SCHEMA, [_record(item) for item in facts.fees])),
+                "fee_schedules.parquet": ("FEE_SCHEDULES", _table(_FEE_SCHEDULE_SCHEMA, [])),
+                "fee_policy_packs.parquet": ("FEE_POLICY_PACKS", _table(_FEE_POLICY_PACK_SCHEMA, [])),
+                "order_fee_bindings.parquet": ("ORDER_FEE_BINDINGS", _table(_ORDER_FEE_BINDING_SCHEMA, [])),
+                "order_fee_estimates.parquet": ("ORDER_FEE_ESTIMATES", _table(_ORDER_FEE_ESTIMATE_SCHEMA, [])),
+                "order_funding_plans.parquet": ("ORDER_FUNDING_PLANS", _table(_ORDER_FUNDING_PLAN_SCHEMA, [])),
+                "order_fee_accruals.parquet": ("ORDER_FEE_ACCRUALS", _table(_ORDER_FEE_ACCRUAL_SCHEMA, [])),
+                "fee_applications.parquet": (
+                    "FEE_APPLICATIONS",
+                    _table(_FEE_SCHEMA, [_record(item) for item in facts.fees]),
+                ),
+                "external_fee_evidence.parquet": (
+                    "EXTERNAL_FEE_EVIDENCE",
+                    _table(_EXTERNAL_FEE_EVIDENCE_SCHEMA, []),
+                ),
+                "fee_reconciliations.parquet": (
+                    "FEE_RECONCILIATIONS",
+                    _table(_FEE_RECONCILIATION_SCHEMA, []),
+                ),
+                "fee_adjustments.parquet": ("FEE_ADJUSTMENTS", _table(_FEE_ADJUSTMENT_SCHEMA, [])),
+                "unallocated_external_fees.parquet": (
+                    "UNALLOCATED_EXTERNAL_FEES",
+                    _table(_UNALLOCATED_EXTERNAL_FEE_SCHEMA, []),
+                ),
                 "market_rule_decisions.parquet": (
                     "MARKET_RULE_DECISIONS",
                     _table(_MARKET_RULE_DECISION_SCHEMA, [_record(item) for item in facts.market_rule_decisions]),
@@ -218,7 +241,7 @@ class OnlyBacktestArtifactWriter:
                 )
             )
             manifest = OnlyBacktestArtifactManifest(
-                4,
+                5,
                 result_fingerprint,
                 analysis.analysis_fingerprint,
                 artifact_content_fingerprint,
@@ -438,7 +461,10 @@ _EXECUTION_SCHEMA = pa.schema(
         ("compiled_rule_fingerprint", pa.string()),
         ("reference_fingerprint", pa.string()),
         ("trade_instruction_id", pa.string()),
-        ("fee_instruction_id", pa.string()),
+        ("fee_application_id", pa.string()),
+        ("fee_total_charges", _DECIMAL),
+        ("fee_total_rebates", _DECIMAL),
+        ("fee_signed_cash_effect", _DECIMAL),
         ("market_fee_schedule_ids", pa.list_(pa.string())),
         ("market_fee_schedule_versions", pa.list_(pa.string())),
         ("broker_fee_schedule_ids", pa.list_(pa.string())),
@@ -448,8 +474,6 @@ _EXECUTION_SCHEMA = pa.schema(
         ("margin_instruction_id", pa.string()),
         ("margin_action", pa.string()),
         ("margin_amount", _DECIMAL),
-        ("reported_broker_fee", _DECIMAL),
-        ("fee_reporting_mode", pa.string()),
         ("liquidity_side", pa.string()),
         ("fee_breakdown", pa.map_(pa.string(), _DECIMAL)),
     ]
@@ -665,6 +689,108 @@ _FEE_SCHEMA = pa.schema(
         ("currency", pa.string()),
         ("schedule_id", pa.string()),
         ("schedule_version", pa.string()),
+    ]
+)
+_FEE_SCHEDULE_SCHEMA = pa.schema(
+    [("schedule_id", pa.string()), ("version", pa.string()), ("authority", pa.string()), ("fingerprint", pa.string())]
+)
+_FEE_POLICY_PACK_SCHEMA = pa.schema(
+    [
+        ("pack_id", pa.string()),
+        ("pack_version", pa.string()),
+        ("market_profile_id", pa.string()),
+        ("fingerprint", pa.string()),
+    ]
+)
+_ORDER_FEE_BINDING_SCHEMA = pa.schema(
+    [
+        ("order_id", pa.string()),
+        ("binding_id", pa.string()),
+        ("pack_id", pa.string()),
+        ("pack_version", pa.string()),
+        ("fingerprint", pa.string()),
+    ]
+)
+_ORDER_FEE_ESTIMATE_SCHEMA = pa.schema(
+    [
+        ("order_id", pa.string()),
+        ("estimated_charges", _DECIMAL),
+        ("estimated_rebates", _DECIMAL),
+        ("currency", pa.string()),
+        ("fingerprint", pa.string()),
+    ]
+)
+_ORDER_FUNDING_PLAN_SCHEMA = pa.schema(
+    [
+        ("order_id", pa.string()),
+        ("notional_reservation", _DECIMAL),
+        ("fee_reservation", _DECIMAL),
+        ("total_reservation", _DECIMAL),
+        ("currency", pa.string()),
+    ]
+)
+_ORDER_FEE_ACCRUAL_SCHEMA = pa.schema(
+    [
+        ("order_id", pa.string()),
+        ("component_id", pa.string()),
+        ("cumulative_target", _DECIMAL),
+        ("cumulative_applied", _DECIMAL),
+        ("currency", pa.string()),
+        ("version", pa.int64()),
+    ]
+)
+_EXTERNAL_FEE_EVIDENCE_SCHEMA = pa.schema(
+    [
+        ("evidence_id", pa.string()),
+        ("broker_id", pa.string()),
+        ("account_id", pa.string()),
+        ("scope", pa.string()),
+        ("mode", pa.string()),
+        ("external_reference", pa.string()),
+        ("report_version", pa.string()),
+        ("content_fingerprint", pa.string()),
+        ("reported_total", _DECIMAL),
+        ("currency", pa.string()),
+        ("effective_at", _TIMESTAMP),
+        ("received_at", _TIMESTAMP),
+    ]
+)
+_FEE_RECONCILIATION_SCHEMA = pa.schema(
+    [
+        ("reconciliation_id", pa.string()),
+        ("evidence_id", pa.string()),
+        ("scope", pa.string()),
+        ("local_model_amount", _DECIMAL),
+        ("prior_adjustments", _DECIMAL),
+        ("current_effective_amount", _DECIMAL),
+        ("reported_authoritative_amount", _DECIMAL),
+        ("difference", _DECIMAL),
+        ("currency", pa.string()),
+        ("reason", pa.string()),
+        ("status", pa.string()),
+        ("adjustment_id", pa.string()),
+    ]
+)
+_FEE_ADJUSTMENT_SCHEMA = pa.schema(
+    [
+        ("adjustment_id", pa.string()),
+        ("reconciliation_id", pa.string()),
+        ("evidence_id", pa.string()),
+        ("account_id", pa.string()),
+        ("cluster_id", pa.string()),
+        ("direction", pa.string()),
+        ("amount", _DECIMAL),
+        ("currency", pa.string()),
+        ("reason", pa.string()),
+    ]
+)
+_UNALLOCATED_EXTERNAL_FEE_SCHEMA = pa.schema(
+    [
+        ("account_id", pa.string()),
+        ("cumulative_charges", _DECIMAL),
+        ("cumulative_refunds", _DECIMAL),
+        ("currency", pa.string()),
+        ("version", pa.int64()),
     ]
 )
 _MARKET_RULE_DECISION_SCHEMA = pa.schema(

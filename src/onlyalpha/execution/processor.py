@@ -8,7 +8,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.account.manager import OnlyAccountManager
-from onlyalpha.account.models import OnlyAccountMutationResult, OnlyAccountSnapshot, OnlyAccountTradeCashFlow
+from onlyalpha.account.models import OnlyAccountMutationResult, OnlyAccountSnapshot
 from onlyalpha.account.reconciliation import OnlyAccountReconciliationService
 from onlyalpha.broker.updates import (
     OnlyBrokerAccountUpdate,
@@ -22,15 +22,13 @@ from onlyalpha.broker.updates import (
     OnlyBrokerTradeUpdate,
 )
 from onlyalpha.core.clock import OnlyClock
-from onlyalpha.domain.enums import OnlyDirection, OnlyOffset, OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.fee.manager import OnlyFeeManager
-from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.models import OnlyMarketPositionMode
@@ -44,7 +42,6 @@ from onlyalpha.order.execution.models import (
     OnlyGatewayOrderAcceptedUpdate,
     OnlyGatewayOrderCancelledUpdate,
     OnlyGatewayOrderExpiredUpdate,
-    OnlyGatewayOrderFillUpdate,
     OnlyGatewayOrderRejectedUpdate,
     OnlyGatewayOrderUpdate,
 )
@@ -55,7 +52,6 @@ from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import (
     OnlyPositionMode,
     OnlyPositionMutationStatus,
-    OnlySettlementBucket,
 )
 from onlyalpha.position.identifiers import OnlyGatewayId
 from onlyalpha.position.keys import OnlyPositionAllocationKey
@@ -71,15 +67,11 @@ from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter,
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.settlement.authority import OnlySettlementAuthority
-from onlyalpha.strategy_ledger.enums import OnlyStrategyFeeType
-from onlyalpha.strategy_ledger.identifiers import OnlyStrategyFeeEntryId
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.models import (
-    OnlyStrategyFeeEntry,
     OnlyStrategyLedgerMutationResult,
-    OnlyStrategyTradeAccountingInput,
 )
 from onlyalpha.transaction.coordinator import (
     OnlyRuntimeTransactionCoordinationStatus,
@@ -215,7 +207,7 @@ class OnlyExecutionProcessor:
         market_rules: OnlyTradeInstructionPort | None = None,
         settlement_authority: OnlySettlementAuthority | None = None,
         margin_manager: OnlyMarginManager | None = None,
-        fee_manager: OnlyFeeManager | None = None,
+        fee_application_ledger: OnlyFeeApplicationLedger | None = None,
         fee_resolver: OnlyFeeResolver | None = None,
         release_margin_reservation: OnlyMarginReservationReleaser | None = None,
         trading_day: Callable[[OnlyTimestamp], OnlyTradingDay] | None = None,
@@ -256,7 +248,7 @@ class OnlyExecutionProcessor:
         self._market_rules = market_rules
         self._settlement_authority = settlement_authority
         self._margin_manager = margin_manager
-        self._fee_manager = fee_manager
+        self._fee_application_ledger = fee_application_ledger
         self._fee_resolver = fee_resolver
         self._release_margin_reservation = release_margin_reservation
         self._trading_day = trading_day
@@ -758,7 +750,7 @@ class OnlyExecutionProcessor:
                 OnlyRuntimeProjectionComponent.ALLOCATION: OnlyExecutionMutationStep.ALLOCATION,
                 OnlyRuntimeProjectionComponent.SETTLEMENT: OnlyExecutionMutationStep.SETTLEMENT,
                 OnlyRuntimeProjectionComponent.MARGIN: OnlyExecutionMutationStep.MARGIN,
-                OnlyRuntimeProjectionComponent.FEE: OnlyExecutionMutationStep.FEE,
+                OnlyRuntimeProjectionComponent.FEE_LEDGER: OnlyExecutionMutationStep.FEE,
                 OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL: OnlyExecutionMutationStep.FEE,
                 OnlyRuntimeProjectionComponent.ACCOUNT: OnlyExecutionMutationStep.ACCOUNT,
                 OnlyRuntimeProjectionComponent.STRATEGY_LEDGER: OnlyExecutionMutationStep.STRATEGY_LEDGER,
@@ -889,7 +881,7 @@ class OnlyExecutionProcessor:
         if isinstance(update, OnlyBrokerOrderExpiredUpdate):
             return self._terminal_order(update, steps, rejected=False)
         if isinstance(update, OnlyBrokerTradeUpdate):
-            return self._unmigrated_trade(update, steps, position_scope)
+            raise ValueError("UNSUPPORTED_EXECUTION_CAPABILITY: Trade requires durable planning")
         if isinstance(update, OnlyBrokerPositionUpdate):
             result = self._position_reconciliation.reconcile(self._local_broker_position(update))
             steps.append(
@@ -1088,6 +1080,8 @@ class OnlyExecutionProcessor:
         position_scope: OnlyExecutionPositionScope | None,
     ) -> OnlyExecutionDispatchPayload:
         """Apply explicitly unmigrated SELL/CLOSE, partial, futures, or multi-capital scope."""
+        raise ValueError("UNSUPPORTED_EXECUTION_CAPABILITY: legacy Trade mutation path was removed")
+        """
         order = self._orders.require(update.order_id)
         if position_scope is None:
             raise ValueError("POSITION_SIDE_RESOLUTION_FAILED: Trade has no Position Scope")
@@ -1109,8 +1103,8 @@ class OnlyExecutionProcessor:
             )
             if capability is OnlyExecutionCapability.DURABLE_TRADE:
                 raise RuntimeError("DURABLE_TRADE_REQUIRED: formal Generic T0 Trade cannot use legacy mutation")
-        fee_instruction = self._resolve_fee_instruction(update, order, position_scope)
-        trade = self._position_trade(update, order, position_scope, fee_instruction)
+        fee_application = self._removed_fee_resolution_path(update, order, position_scope)
+        trade = self._position_trade(update, order, position_scope, fee_application)
         if trade.cluster_id is None:
             raise ValueError("strategy Trade requires Cluster attribution")
         allocation_key = position_scope.allocation_key
@@ -1342,6 +1336,8 @@ class OnlyExecutionProcessor:
             account_result,
             tuple(reservation_results),
         )
+
+        """
 
     def _validate(
         self, update: OnlyBrokerInboundUpdate, context: OnlyExecutionProcessingContext
@@ -1605,15 +1601,16 @@ class OnlyExecutionProcessor:
             self._accounts.start_reconciliation(update.account_id, update.ts_init, "EXECUTION_PARTIAL_MUTATION")
             self._events.abort()
 
+    """
     def _position_trade(
         self,
         update: OnlyBrokerTradeUpdate,
         order: OnlyOrderSnapshot,
         scope: OnlyExecutionPositionScope,
-        fee_instruction: OnlyFeeInstruction,
+        fee_application: object,
     ) -> OnlyPositionTrade:
         instrument = self._instruments[order.instrument_id]
-        fee = fee_instruction.fee_breakdown.total
+        raise RuntimeError("removed non-durable trade conversion")
         settlement_bucket = (
             OnlySettlementBucket.UNSETTLED if order.side is OnlyOrderSide.BUY else OnlySettlementBucket.SETTLED
         )
@@ -1654,12 +1651,12 @@ class OnlyExecutionProcessor:
             position_mode=position_mode,
         )
 
-    def _resolve_fee_instruction(
+    def _removed_fee_resolution_path(
         self,
         update: OnlyBrokerTradeUpdate,
         order: OnlyOrderSnapshot,
         scope: OnlyExecutionPositionScope,
-    ) -> OnlyFeeInstruction:
+    ) -> object:
         if self._fee_resolver is None:
             raise ValueError("FEE_RESOLUTION_REQUIRES_RUNTIME_FEE_RESOLVER")
         return self._fee_resolver.resolve_trade(
@@ -1670,8 +1667,6 @@ class OnlyExecutionProcessor:
             timestamp=update.ts_event,
             liquidity_role=update.fill.liquidity_side.value,
             created_at=update.ts_init.to_datetime(),
-            reported_fee=update.fill.reported_fee,
-            reporting_mode=update.fill.fee_reporting_mode,
         )
 
     def _notional(self, trade: OnlyPositionTrade) -> OnlyMoney:
@@ -1680,6 +1675,8 @@ class OnlyExecutionProcessor:
         return OnlyMoney(
             (trade.price.value * trade.quantity.value * trade.multiplier.value).quantize(quantum), currency
         )
+
+    """
 
     def _allocation_snapshot(
         self,

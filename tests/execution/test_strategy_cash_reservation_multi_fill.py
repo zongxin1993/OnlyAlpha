@@ -27,7 +27,7 @@ def test_strategy_cash_reservation_keeps_stage_until_final_release() -> None:
     assert exact.after.stage is first.after.stage
     assert exact.released_delta.amount == 0
 
-    cost = first_trade.settled_notional + first_trade.authoritative_fee
+    cost = first_trade.settled_notional + first_trade.fee_charges - first_trade.fee_rebates
     exhausted = replace(
         first.after,
         reserved_amount=first.after.consumed_amount + cost,

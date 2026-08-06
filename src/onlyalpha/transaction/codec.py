@@ -17,16 +17,17 @@ from onlyalpha.execution.terminal_fact import (
     OnlyCommittedTerminalExecutionFactDraft,
 )
 from onlyalpha.execution.trade_fact import OnlyCommittedExecutionFactDraft
+from onlyalpha.fee.facts import OnlyCommittedFeeReconciliationFact, OnlyFeeReconciliationFactDraft
 from onlyalpha.settlement.facts import OnlyCommittedSettlementMaturityFact, OnlySettlementMaturityFactDraft
 from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
-    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
@@ -55,8 +56,8 @@ _PROJECTION_TYPES = {
         OnlyAllocationExecutionProjection,
         OnlySettlementExecutionProjection,
         OnlyMarginExecutionProjection,
-        OnlyFeeExecutionProjection,
-        OnlyOrderFeeAccrualExecutionProjection,
+        OnlyFeeApplicationProjection,
+        OnlyOrderFeeAccrualProjection,
         OnlyAccountExecutionProjection,
         OnlyStrategyLedgerExecutionProjection,
         OnlyAccountCashReservationExecutionProjection,
@@ -221,6 +222,8 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedRunt
             if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
             else OnlyCommittedTerminalExecutionFactDraft.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
+            else OnlyFeeReconciliationFactDraft.from_dict(fact_payload)
+            if operation_kind is OnlyRuntimeOperationKind.FEE_RECONCILIATION
             else OnlySettlementMaturityFactDraft.from_dict(fact_payload)
         ),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
@@ -289,6 +292,8 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedRu
             if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
             else OnlyCommittedTerminalExecutionFact.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
+            else OnlyCommittedFeeReconciliationFact.from_dict(fact_payload)
+            if operation_kind is OnlyRuntimeOperationKind.FEE_RECONCILIATION
             else OnlyCommittedSettlementMaturityFact.from_dict(fact_payload)
         ),
         projections=tuple(_decode_projection(item) for item in _list(value, "projections")),
@@ -322,8 +327,8 @@ def _load_object(payload: str) -> Mapping[str, object]:
 
 
 def _require_schema(value: Mapping[str, object]) -> None:
-    if value.get("schema_version") != 5:
-        raise ValueError("unsupported Runtime transaction schema version")
+    if value.get("schema_version") != 6:
+        raise ValueError("UNSUPPORTED_RUNTIME_TRANSACTION_SCHEMA: unsupported schema version")
 
 
 def _mapping(value: Mapping[str, object], key: str) -> Mapping[str, object]:

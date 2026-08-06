@@ -18,6 +18,7 @@ from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.order.enums import OnlyOrderApplyResult
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
 from onlyalpha.order.manager import OnlyOrderManager
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 
 def test_partial_fill_is_idempotent_and_position_inventory_remains_independent(buy_request, cny) -> None:
@@ -29,7 +30,13 @@ def test_partial_fill_is_idempotent_and_position_inventory_remains_independent(b
         OnlySequenceClientOrderIdGenerator(runtime_id),
     )
     now = OnlyTimestamp.from_unix_nanos(1)
-    created = manager.create_order(buy_request, OnlyClusterId("cluster"), OnlyAccountId("account"), now)
+    created = manager.create_order(
+        buy_request,
+        OnlyClusterId("cluster"),
+        OnlyAccountId("account"),
+        now,
+        only_test_zero_fee_contract,
+    )
     manager.mark_submitted(created.order_id, OnlyTimestamp.from_unix_nanos(2))
     manager.apply_accepted(
         created.order_id,

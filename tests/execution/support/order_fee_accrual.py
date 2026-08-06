@@ -8,14 +8,7 @@ from onlyalpha.execution.reducers.trade_fee_accrual import (
     OnlyOrderFeeAccrualTradeReducer,
     OnlyOrderFeeAccrualTradeReduction,
 )
-from onlyalpha.fee import (
-    OnlyFeeAuthority,
-    OnlyFeeBreakdown,
-    OnlyFeeCalculationScope,
-    OnlyFeeComponent,
-    OnlyFeeStatus,
-    OnlyFeeType,
-)
+from onlyalpha.fee import OnlyFeeCalculationScope, OnlyFeeTargetComponent
 from tests.execution.factories.trade_planning_factory import only_test_generic_t0_trade_planning_context
 
 
@@ -26,47 +19,52 @@ def only_test_order_fee_accrual_steps(
     raw_amounts: tuple[str, ...] | None = None,
 ) -> tuple[OnlyOrderFeeAccrualTradeReduction, ...]:
     context = only_test_generic_t0_trade_planning_context()
-    base_trade = context.update.fill
     planned_trade = OnlyTradeExecutionTransactionPlanner._planned_trade(context)
-    currency = context.fee_instruction.fee_breakdown.currency
+    currency = context.fee_assessment.total_charges.currency
+    base_component = context.fee_assessment.components[0]
     reducer = OnlyOrderFeeAccrualTradeReducer()
     before = None
     results = []
-    for index, target in enumerate(targets, start=1):
-        quantity = OnlyQuantity(Decimal("1"), base_trade.quantity.precision)
+    cumulative_quantity = Decimal(0)
+    cumulative_notional = Decimal(0)
+    for index, target_text in enumerate(targets, start=1):
+        quantity = OnlyQuantity(Decimal(1), planned_trade.quantity.precision)
         notional = OnlyMoney(Decimal("10.00"), currency)
+        cumulative_quantity += quantity.value
+        cumulative_notional += notional.amount
+        trade_id = OnlyTradeId(f"accrual-trade-{index}")
         trade = replace(
             planned_trade,
-            trade_id=OnlyTradeId(f"accrual-trade-{index}"),
+            trade_id=trade_id,
             quantity=quantity,
             gross_notional=notional,
             settled_notional=notional,
         )
-        raw = target if raw_amounts is None else raw_amounts[index - 1]
-        component = OnlyFeeComponent(
-            fee_type=OnlyFeeType.BROKER_COMMISSION,
-            authority=OnlyFeeAuthority.BROKER,
-            amount=OnlyMoney(Decimal(target), currency),
-            status=OnlyFeeStatus.CONFIRMED,
-            source_id="test-broker",
-            schedule_id="test-order-fee",
-            schedule_version="1",
-            metadata={"raw_amount": raw},
-            calculation_scope=scope,
+        raw_text = target_text if raw_amounts is None else raw_amounts[index - 1]
+        identity = replace(base_component.identity, calculation_scope=scope)
+        component = OnlyFeeTargetComponent(
+            identity,
+            OnlyMoney(Decimal(raw_text), currency),
+            OnlyMoney(Decimal(target_text), currency),
+            OnlyMoney(Decimal(target_text), currency),
+            context.fee_assessment.local_finality,
         )
-        breakdown = OnlyFeeBreakdown(
-            currency,
-            (component,),
-            component.amount,
-            OnlyFeeStatus.CONFIRMED,
+        assessment = replace(
+            context.fee_assessment,
+            assessment_id=f"{index:064x}",
+            trade_id=trade_id,
+            components=(component,),
+            total_charges=component.target_amount,
         )
-        instruction = replace(
-            context.fee_instruction,
-            trade_id=str(trade.trade_id),
-            fee_breakdown=breakdown,
-            idempotency_key=f"accrual:{index}",
+        result = reducer.reduce(
+            before,
+            assessment,
+            trade,
+            cumulative_fill_quantity=OnlyQuantity(cumulative_quantity, quantity.precision),
+            cumulative_fill_notional=OnlyMoney(cumulative_notional, currency),
+            order_fixed_policy_fingerprint=assessment.binding.fingerprint,
+            projection_sequence=6,
         )
-        result = reducer.reduce(before, instruction, trade, projection_sequence=5)
         results.append(result)
         before = result.after
     return tuple(results)

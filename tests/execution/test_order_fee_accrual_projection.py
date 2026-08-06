@@ -1,5 +1,5 @@
 from onlyalpha.execution import (
-    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderFeeAccrualProjection,
     OnlyRuntimeProjectionApplier,
     OnlyRuntimeProjectionBatchStatus,
     OnlyRuntimeProjectionComponent,
@@ -16,7 +16,7 @@ def test_order_fee_accrual_projection_has_independent_component_codec_and_replay
         for item in bundle.transaction.projections
         if item.identity.component is OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL
     )
-    assert isinstance(projection, OnlyOrderFeeAccrualExecutionProjection)
+    assert isinstance(projection, OnlyOrderFeeAccrualProjection)
     assert only_decode_execution_projection(only_encode_execution_projection(projection)) == projection
 
     applier = OnlyRuntimeProjectionApplier(bundle.targets)

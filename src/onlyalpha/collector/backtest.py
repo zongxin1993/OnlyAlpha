@@ -438,23 +438,23 @@ class OnlyBacktestResultCollector:
         fee_records = tuple(
             OnlyFeeResultRecord(
                 sequence=next_sequence(),
-                fee_record_id=item.fee_record_id,
-                instruction_id=item.instruction_id,
-                idempotency_key=item.idempotency_key,
-                account_id=item.account_id,
-                instrument_id=item.instrument_id,
-                order_id=item.order_id,
-                trade_id=item.trade_id,
-                fee_type=item.fee_type,
-                authority=item.authority,
-                status=item.status,
-                accrued=item.accrued,
-                charged=item.charged,
-                currency=item.currency,
-                schedule_id=item.schedule_id,
-                schedule_version=item.schedule_version,
+                fee_record_id=item.record_id,
+                instruction_id=item.application_id,
+                idempotency_key=item.application_id,
+                account_id=str(item.account_id),
+                instrument_id=str(item.instrument_id),
+                order_id=str(item.order_id),
+                trade_id=str(item.trade_id),
+                fee_type=item.component_identity.fee_type.value,
+                authority=item.component_identity.authority.value,
+                status=item.local_finality.value,
+                accrued=item.cumulative_target_after.amount,
+                charged=item.incremental_amount.amount,
+                currency=item.incremental_amount.currency.code,
+                schedule_id=item.component_identity.schedule_id,
+                schedule_version=item.component_identity.schedule_version,
             )
-            for item in runtime.fee_manager.records
+            for item in runtime.fee_application_ledger.records
         )
         failures = list(runtime.result_progress.snapshot().business_failures)
         diagnostics = OnlyBacktestDiagnostics(
@@ -597,8 +597,8 @@ class OnlyBacktestResultCollector:
         trade: OnlyCommittedExecutionFact,
     ) -> OnlyExecutionResultRecord:
         fee_breakdown: dict[str, Decimal] = {}
-        for component in trade.fee_breakdown.components:
-            key = component.fee_type.value
+        for component in trade.fee_application.components:
+            key = component.identity.fee_type.value
             fee_breakdown[key] = fee_breakdown.get(key, Decimal(0)) + component.amount.amount
         return OnlyExecutionResultRecord(
             sequence=sequence,
@@ -616,7 +616,7 @@ class OnlyBacktestResultCollector:
             price=trade.fill_price.value,
             turnover=trade.gross_notional.amount,
             commission=trade.commission.amount,
-            fees=trade.authoritative_fee_total.amount,
+            fees=trade.fee_total_charges.amount - trade.fee_total_rebates.amount,
             slippage=None if trade.slippage is None else trade.slippage.amount,
             ts_event=trade.ts_event.to_datetime(),
             trading_day=trade.trading_day.value,
@@ -632,7 +632,10 @@ class OnlyBacktestResultCollector:
             compiled_rule_fingerprint=trade.compiled_rule_fingerprint,
             reference_fingerprint=trade.reference_fingerprint,
             trade_instruction_id=trade.trade_instruction_id,
-            fee_instruction_id=trade.fee_instruction_id,
+            fee_application_id=trade.fee_application_id,
+            fee_total_charges=trade.fee_total_charges.amount,
+            fee_total_rebates=trade.fee_total_rebates.amount,
+            fee_signed_cash_effect=trade.fee_signed_cash_effect,
             market_fee_schedule_ids=trade.market_fee_schedule_ids,
             market_fee_schedule_versions=trade.market_fee_schedule_versions,
             broker_fee_schedule_ids=trade.broker_fee_schedule_ids,
@@ -642,15 +645,10 @@ class OnlyBacktestResultCollector:
             margin_instruction_id=trade.margin_instruction_id,
             margin_action=trade.margin_action,
             margin_amount=None if trade.margin_amount is None else trade.margin_amount.amount,
-            reported_broker_fee=None if trade.reported_broker_fee is None else trade.reported_broker_fee.amount,
-            fee_reporting_mode=trade.fee_reporting_mode.value,
             liquidity_side=trade.liquidity_side.value,
             fee_breakdown=fee_breakdown,
             liquidity={
                 "side": trade.liquidity_side.value,
-                "fee_reporting_mode": trade.fee_reporting_mode.value,
-                "reported_broker_fee": (
-                    None if trade.reported_broker_fee is None else trade.reported_broker_fee.amount
-                ),
+                "fee_application_id": trade.fee_application_id,
             },
         )

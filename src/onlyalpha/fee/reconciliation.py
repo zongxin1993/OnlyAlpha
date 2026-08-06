@@ -1,24 +1,28 @@
-"""Immutable broker-fee reconciliation and adjustment creation."""
+"""Pure durable fee-reconciliation planning decisions."""
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from onlyalpha.domain.time import only_require_utc
+from onlyalpha.domain.identifiers import OnlyClusterId, OnlyOrderId, OnlyTradeId
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.models import OnlyFeeAdjustmentInstruction, OnlyFeeInstruction
+from onlyalpha.fee.adjustment import OnlyFeeAdjustment, OnlyFeeAdjustmentDirection
+from onlyalpha.fee.evidence import (
+    OnlyExternalFeeEvidence,
+    OnlyExternalFeeEvidenceMode,
+    OnlyExternalFeeEvidenceScope,
+)
+from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType, only_fee_fingerprint
 
 
 class OnlyFeeReconciliationStatus(StrEnum):
     MATCHED = "MATCHED"
-    ADJUSTMENT_REQUIRED = "ADJUSTMENT_REQUIRED"
     RECONCILED_WITH_ADJUSTMENT = "RECONCILED_WITH_ADJUSTMENT"
     INCOMPLETE_EXTERNAL_DATA = "INCOMPLETE_EXTERNAL_DATA"
-    DUPLICATE_REPORT = "DUPLICATE_REPORT"
+    DUPLICATE_EVIDENCE = "DUPLICATE_EVIDENCE"
+    EVIDENCE_CONFLICT = "EVIDENCE_CONFLICT"
     UNEXPLAINED_DIFFERENCE = "UNEXPLAINED_DIFFERENCE"
     TRADING_BLOCKED = "TRADING_BLOCKED"
 
@@ -36,103 +40,166 @@ class OnlyFeeDifferenceReason(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeReconciliationResult:
+class OnlyLocalFeeReconciliationComponent:
+    fee_type: OnlyFeeType
+    authority: OnlyFeeAuthority
+    external_component_id: str | None
+    direction: OnlyFeeEconomicDirection
+    amount: OnlyMoney
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeReconciliationInput:
+    evidence: OnlyExternalFeeEvidence
+    local_components: tuple[OnlyLocalFeeReconciliationComponent, ...]
+    prior_adjustments: OnlyMoney
+    cluster_id: OnlyClusterId | None
+    order_id: OnlyOrderId | None
+    trade_id: OnlyTradeId | None
+    reason: OnlyFeeDifferenceReason
+    materiality_threshold: OnlyMoney
+    evidence_classification: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeReconciliationDecision:
     reconciliation_id: str
-    status: OnlyFeeReconciliationStatus
-    trade_id: str | None
-    account_id: str
-    local_amount: OnlyMoney | None
-    reported_amount: OnlyMoney | None
+    evidence_id: str
+    scope: OnlyExternalFeeEvidenceScope
+    local_model_amount: OnlyMoney | None
+    prior_adjustments: OnlyMoney
+    current_effective_amount: OnlyMoney | None
+    reported_authoritative_amount: OnlyMoney | None
     difference: OnlyMoney | None
     reason: OnlyFeeDifferenceReason | None
-    adjustment: OnlyFeeAdjustmentInstruction | None = None
+    status: OnlyFeeReconciliationStatus
+    adjustment: OnlyFeeAdjustment | None
 
 
-class OnlyFeeReconciliationService:
-    """Matches one external report to an applied local instruction exactly once."""
-
-    def __init__(self) -> None:
-        self._external_references: set[str] = set()
-
-    def reconcile(
-        self,
-        instruction: OnlyFeeInstruction | None,
-        *,
-        reported_amount: OnlyMoney | None,
-        external_reference: str | None,
-        reason: OnlyFeeDifferenceReason,
-        created_at: datetime,
-        materiality_threshold: OnlyMoney | None = None,
-    ) -> OnlyFeeReconciliationResult:
-        only_require_utc(created_at, "fee reconciliation created_at")
-        key = external_reference or ""
-        if key and key in self._external_references:
-            return self._result(
-                OnlyFeeReconciliationStatus.DUPLICATE_REPORT, instruction, reported_amount, None, reason
-            )
-        if key:
-            self._external_references.add(key)
-        if instruction is None or reported_amount is None:
-            return self._result(
-                OnlyFeeReconciliationStatus.INCOMPLETE_EXTERNAL_DATA, instruction, reported_amount, None, reason
-            )
-        local = instruction.fee_breakdown.total
-        if local.currency != reported_amount.currency:
-            return self._result(
-                OnlyFeeReconciliationStatus.UNEXPLAINED_DIFFERENCE, instruction, reported_amount, None, reason
-            )
-        difference = OnlyMoney(reported_amount.amount - local.amount, local.currency)
-        if not difference.amount:
-            return self._result(OnlyFeeReconciliationStatus.MATCHED, instruction, reported_amount, difference, reason)
-        threshold = materiality_threshold or OnlyMoney(Decimal(0), local.currency)
-        if abs(difference.amount) > threshold.amount and reason is OnlyFeeDifferenceReason.UNKNOWN:
-            return self._result(
-                OnlyFeeReconciliationStatus.TRADING_BLOCKED, instruction, reported_amount, difference, reason
-            )
-        adjustment = OnlyFeeAdjustmentInstruction(
-            hashlib.sha256(
-                f"fee-adjustment:{instruction.trade_id}:{external_reference}:{reported_amount.amount}".encode()
-            ).hexdigest(),
-            instruction.trade_id,
-            None,
-            instruction.account_id,
-            instruction.cluster_id,
-            local.currency,
-            local,
-            reported_amount,
+class OnlyFeeReconciliationPlanner:
+    def plan(self, request: OnlyFeeReconciliationInput) -> OnlyFeeReconciliationDecision:
+        evidence = request.evidence
+        if request.evidence_classification == "DUPLICATE_EVIDENCE":
+            return self._decision(request, OnlyFeeReconciliationStatus.DUPLICATE_EVIDENCE, None, None, None)
+        if request.evidence_classification is not None:
+            return self._decision(request, OnlyFeeReconciliationStatus.EVIDENCE_CONFLICT, None, None, None)
+        local = self._local_amount(request)
+        reported = self._reported_amount(request)
+        if local is None or reported is None:
+            return self._decision(request, OnlyFeeReconciliationStatus.INCOMPLETE_EXTERNAL_DATA, local, reported, None)
+        if local.currency != reported.currency or local.currency != request.prior_adjustments.currency:
+            return self._decision(request, OnlyFeeReconciliationStatus.UNEXPLAINED_DIFFERENCE, local, reported, None)
+        current = OnlyMoney(local.amount + request.prior_adjustments.amount, local.currency)
+        signed_difference = reported.amount - current.amount
+        difference = OnlyMoney(abs(signed_difference), local.currency)
+        if signed_difference == 0:
+            return self._decision(request, OnlyFeeReconciliationStatus.MATCHED, local, reported, difference)
+        if (
+            request.reason is OnlyFeeDifferenceReason.UNKNOWN
+            and difference.amount > request.materiality_threshold.amount
+        ):
+            return self._decision(request, OnlyFeeReconciliationStatus.TRADING_BLOCKED, local, reported, difference)
+        reconciliation_id = self._identity(request, local, reported, difference)
+        adjustment = OnlyFeeAdjustment(
+            only_fee_fingerprint(("adjustment", reconciliation_id)),
+            OnlyFeeAdjustmentDirection.SUPPLEMENTAL_CHARGE
+            if signed_difference > 0
+            else OnlyFeeAdjustmentDirection.REFUND,
             difference,
-            reason.value,
-            external_reference,
-            created_at,
-            f"fee-adjustment:{instruction.account_id}:{instruction.trade_id}:{external_reference}",
+            evidence.account_id,
+            request.cluster_id,
+            request.order_id,
+            request.trade_id,
+            evidence.statement_scope,
+            evidence.evidence_id,
+            reconciliation_id,
+            request.reason,
         )
-        return self._result(
-            OnlyFeeReconciliationStatus.ADJUSTMENT_REQUIRED,
-            instruction,
-            reported_amount,
+        return OnlyFeeReconciliationDecision(
+            reconciliation_id,
+            evidence.evidence_id,
+            evidence.scope,
+            local,
+            request.prior_adjustments,
+            current,
+            reported,
             difference,
-            reason,
+            request.reason,
+            OnlyFeeReconciliationStatus.RECONCILED_WITH_ADJUSTMENT,
             adjustment,
+        )
+
+    def _local_amount(self, request: OnlyFeeReconciliationInput) -> OnlyMoney | None:
+        components = request.local_components
+        mode = request.evidence.mode
+        if mode is OnlyExternalFeeEvidenceMode.COMMISSION_ONLY:
+            components = tuple(item for item in components if item.fee_type is OnlyFeeType.BROKER_COMMISSION)
+        if not components:
+            return None
+        currency = components[0].amount.currency
+        if any(item.amount.currency != currency for item in components):
+            return None
+        amount = sum(
+            (
+                item.amount.amount if item.direction is OnlyFeeEconomicDirection.CHARGE else -item.amount.amount
+                for item in components
+            ),
+            Decimal(0),
+        )
+        return OnlyMoney(amount, currency)
+
+    @staticmethod
+    def _reported_amount(request: OnlyFeeReconciliationInput) -> OnlyMoney | None:
+        evidence = request.evidence
+        if evidence.mode is OnlyExternalFeeEvidenceMode.DETAILED:
+            if not evidence.reported_components:
+                return None
+            currency = evidence.reported_components[0].amount.currency
+            if any(item.amount.currency != currency for item in evidence.reported_components):
+                return None
+            return OnlyMoney(sum((item.amount.amount for item in evidence.reported_components), Decimal(0)), currency)
+        return evidence.reported_total
+
+    def _decision(
+        self,
+        request: OnlyFeeReconciliationInput,
+        status: OnlyFeeReconciliationStatus,
+        local: OnlyMoney | None,
+        reported: OnlyMoney | None,
+        difference: OnlyMoney | None,
+    ) -> OnlyFeeReconciliationDecision:
+        current = None if local is None else OnlyMoney(local.amount + request.prior_adjustments.amount, local.currency)
+        return OnlyFeeReconciliationDecision(
+            self._identity(request, local, reported, difference),
+            request.evidence.evidence_id,
+            request.evidence.scope,
+            local,
+            request.prior_adjustments,
+            current,
+            reported,
+            difference,
+            request.reason,
+            status,
+            None,
         )
 
     @staticmethod
-    def _result(
-        status: OnlyFeeReconciliationStatus,
-        instruction: OnlyFeeInstruction | None,
+    def _identity(
+        request: OnlyFeeReconciliationInput,
+        local: OnlyMoney | None,
         reported: OnlyMoney | None,
         difference: OnlyMoney | None,
-        reason: OnlyFeeDifferenceReason | None,
-        adjustment: OnlyFeeAdjustmentInstruction | None = None,
-    ) -> OnlyFeeReconciliationResult:
-        payload = f"{status}:{None if instruction is None else instruction.trade_id}:{None if reported is None else reported.amount}"
-        return OnlyFeeReconciliationResult(
-            hashlib.sha256(payload.encode()).hexdigest(),
-            status,
-            None if instruction is None else instruction.trade_id,
-            "" if instruction is None else instruction.account_id,
-            None if instruction is None else instruction.fee_breakdown.total,
-            reported,
-            difference,
-            reason,
-            adjustment,
+    ) -> str:
+        return only_fee_fingerprint(
+            (
+                request.evidence.evidence_id,
+                None if local is None else local.to_dict(),
+                request.prior_adjustments.to_dict(),
+                None if reported is None else reported.to_dict(),
+                None if difference is None else difference.to_dict(),
+                request.reason.value,
+            )
         )
+
+
+__all__ = [name for name in globals() if name.startswith("Only")]

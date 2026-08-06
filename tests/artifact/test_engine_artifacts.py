@@ -26,7 +26,7 @@ def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
     assert manifest["analysis_fingerprint"]
     assert manifest["artifact_content_fingerprint"]
     assert manifest["artifacts"]
-    assert manifest["schema_version"] == 4
+    assert manifest["schema_version"] == 5
     expected_rows = {
         "orders.parquet": 2,
         "executions.parquet": 2,

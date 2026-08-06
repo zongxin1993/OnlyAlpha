@@ -89,9 +89,10 @@ def _projection_authority(environment: OnlyIntegrationEnvironment) -> object:
                 runtime.settlement_authority.sequence_head,
             ),
             (
-                runtime.fee_manager.records,
-                runtime.fee_manager._instruction_keys,
-                runtime.fee_manager.sequence_head,
+                runtime.fee_application_ledger.records,
+                runtime.fee_application_ledger._instructions,
+                runtime.fee_application_ledger._instruments,
+                runtime.fee_application_ledger.sequence_head,
             ),
             vars(runtime.account_performance_projector),
         )

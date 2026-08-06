@@ -1,18 +1,14 @@
-"""Pure order-level fee accrual reduction."""
+"""Pure order fee target-to-application reduction."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
-from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
-from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState, OnlyOrderFeeComponentAccrual
-from onlyalpha.fee.models import OnlyFeeBreakdown, OnlyFeeCalculationScope, OnlyFeeComponent, OnlyFeeInstruction
-from onlyalpha.transaction.projection import (
-    OnlyOrderFeeAccrualExecutionProjection,
-    OnlyRuntimeProjectionComponent,
-)
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualAuthority, OnlyOrderFeeAccrualState
+from onlyalpha.fee.application import OnlyFeeApplicationInstruction
+from onlyalpha.fee.models import OnlyFeeAssessment
+from onlyalpha.transaction.projection import OnlyOrderFeeAccrualProjection, OnlyRuntimeProjectionComponent
 from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 
 from ..planned_trade import OnlyPlannedTrade
@@ -21,105 +17,41 @@ from ..planning_results import OnlyExecutionEventIntent
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderFeeAccrualTradeReduction:
-    before: OnlyOrderFeeAccrualExecutionState | None
-    after: OnlyOrderFeeAccrualExecutionState
-    incremental_breakdown: OnlyFeeBreakdown
-    incremental_total: OnlyMoney
-    projection: OnlyOrderFeeAccrualExecutionProjection
+    before: OnlyOrderFeeAccrualState | None
+    after: OnlyOrderFeeAccrualState
+    application: OnlyFeeApplicationInstruction
+    projection: OnlyOrderFeeAccrualProjection
     event_intents: tuple[OnlyExecutionEventIntent, ...]
 
 
 class OnlyOrderFeeAccrualTradeReducer:
     def reduce(
         self,
-        before: OnlyOrderFeeAccrualExecutionState | None,
-        instruction: OnlyFeeInstruction,
+        before: OnlyOrderFeeAccrualState | None,
+        assessment: OnlyFeeAssessment,
         trade: OnlyPlannedTrade,
         *,
+        cumulative_fill_quantity: object,
+        cumulative_fill_notional: object,
+        order_fixed_policy_fingerprint: str,
         projection_sequence: int,
     ) -> OnlyOrderFeeAccrualTradeReduction:
-        currency = instruction.fee_breakdown.currency
-        previous = {} if before is None else {item.key: item for item in before.components}
-        components: list[OnlyOrderFeeComponentAccrual] = []
-        incremental: list[OnlyFeeComponent] = []
-        for target in instruction.fee_breakdown.components:
-            prior = previous.pop(target.unique_key, None)
-            charged_before = Decimal(0) if prior is None else prior.cumulative_charged_amount.amount
-            raw_before = Decimal(0) if prior is None else prior.cumulative_raw_amount.amount
-            target_before = Decimal(0) if prior is None else prior.cumulative_target_amount.amount
-            raw = Decimal(str(target.metadata.get("raw_amount", target.amount.amount)))
-            if target.calculation_scope is OnlyFeeCalculationScope.FILL:
-                delta = target.amount.amount
-                raw_after = raw_before + raw
-                target_after = target_before + target.amount.amount
-            else:
-                delta = target.amount.amount - charged_before
-                raw_after = raw
-                target_after = target.amount.amount
-            if delta < 0:
-                raise ValueError("FEE_ACCRUAL_NEGATIVE_INCREMENT")
-            charged_after = charged_before + delta
-            components.append(
-                OnlyOrderFeeComponentAccrual(
-                    target.fee_type,
-                    target.authority,
-                    target.source_id,
-                    target.schedule_id,
-                    target.schedule_version,
-                    target.calculation_scope,
-                    OnlyMoney(raw_after, currency),
-                    OnlyMoney(target_after, currency),
-                    OnlyMoney(charged_after, currency),
-                )
-            )
-            if delta:
-                incremental.append(
-                    OnlyFeeComponent(
-                        target.fee_type,
-                        target.authority,
-                        OnlyMoney(delta, currency),
-                        target.status,
-                        target.source_id,
-                        target.schedule_id,
-                        target.schedule_version,
-                        target.effective_date,
-                        target.metadata,
-                        target.calculation_scope,
-                    )
-                )
-        components.extend(previous.values())
-        components_tuple = tuple(sorted(components, key=lambda item: tuple(str(value) for value in item.key)))
-        incremental_tuple = tuple(incremental)
-        incremental_total = OnlyMoney(sum((item.amount.amount for item in incremental_tuple), Decimal(0)), currency)
-        breakdown = OnlyFeeBreakdown(currency, incremental_tuple, incremental_total, instruction.fee_breakdown.status)
-        cumulative_quantity = (
-            trade.quantity
-            if before is None
-            else OnlyQuantity(
-                before.cumulative_fill_quantity.value + trade.quantity.value,
-                before.cumulative_fill_quantity.precision,
-            )
-        )
-        cumulative_notional = (
-            trade.gross_notional if before is None else before.cumulative_fill_notional + trade.gross_notional
-        )
-        after = OnlyOrderFeeAccrualExecutionState(
-            trade.runtime_id,
-            trade.account_id,
-            trade.cluster_id,
-            trade.order_id,
-            currency,
-            cumulative_quantity,
-            cumulative_notional,
-            OnlyMoney(sum((item.cumulative_charged_amount.amount for item in components_tuple), Decimal(0)), currency),
-            components_tuple,
-            1 if before is None else before.fill_count + 1,
-            trade.trade_id,
-            trade.ts_init,
-            1 if before is None else before.version + 1,
+        from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
+
+        if not isinstance(cumulative_fill_quantity, OnlyQuantity) or not isinstance(
+            cumulative_fill_notional, OnlyMoney
+        ):
+            raise TypeError("fee accrual requires typed cumulative Fill authority")
+        after, application = OnlyOrderFeeAccrualAuthority().apply(
+            before,
+            assessment,
+            cumulative_fill_quantity=cumulative_fill_quantity,
+            cumulative_fill_notional=cumulative_fill_notional,
+            updated_at=trade.ts_init,
+            order_fixed_policy_fingerprint=order_fixed_policy_fingerprint,
         )
         builder = OnlyRuntimeProjectionBuilder()
-        projection = OnlyOrderFeeAccrualExecutionProjection(
+        projection = OnlyOrderFeeAccrualProjection(
             builder.identity(
                 component=OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
                 entity_key=str(trade.order_id),
@@ -131,14 +63,14 @@ class OnlyOrderFeeAccrualTradeReducer:
             after,
         )
         projection = builder.finalize(projection)
-        assert isinstance(projection, OnlyOrderFeeAccrualExecutionProjection)
+        assert isinstance(projection, OnlyOrderFeeAccrualProjection)
         intent = OnlyExecutionEventIntent(
             OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
             OnlyEventType("ORDER_FEE_ACCRUAL_UPDATED"),
             after.to_dict(),
             OnlyEventSource("execution.trade_planner"),
         )
-        return OnlyOrderFeeAccrualTradeReduction(before, after, breakdown, incremental_total, projection, (intent,))
+        return OnlyOrderFeeAccrualTradeReduction(before, after, application, projection, (intent,))
 
 
 __all__ = ["OnlyOrderFeeAccrualTradeReducer", "OnlyOrderFeeAccrualTradeReduction"]

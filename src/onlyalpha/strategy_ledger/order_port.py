@@ -9,7 +9,6 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
-from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationStage
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
@@ -25,13 +24,11 @@ class OnlyOrderStrategyCashReservationAdapter:
         locator: OnlyStrategyLedgerLocator,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
         reference_price: Callable[[OnlyOrderSnapshot], OnlyPrice | None],
-        fee_resolver: OnlyFeeResolver,
     ) -> None:
         self.__manager = manager
         self.__locator = locator
         self.__instruments = instruments
         self.__reference_price = reference_price
-        self.__fee_resolver = fee_resolver
         self.__keys: dict[OnlyOrderId, OnlyStrategyLedgerKey] = {}
         self.__order_instruments: dict[OnlyOrderId, OnlyInstrumentId] = {}
 
@@ -52,7 +49,11 @@ class OnlyOrderStrategyCashReservationAdapter:
         amount = price.value * order.quantity.value * instrument.contract_multiplier.value
         quantum = Decimal(1).scaleb(-currency.precision)
         notional = OnlyMoney(amount.quantize(quantum, ROUND_HALF_EVEN), currency)
-        estimated_fee = self.__fee_resolver.estimate_order(order, price, timestamp).reservation_fee
+        if order.funding_plan is None:
+            raise ValueError("ORDER_FUNDING_PLAN_REQUIRED")
+        estimated_fee = order.funding_plan.fee_reservation
+        if order.funding_plan.principal_reservation != notional:
+            raise ValueError("ORDER_FUNDING_PLAN_PRINCIPAL_CONFLICT")
         key = self.__locator.require_key(
             runtime_id=order.runtime_id,
             account_id=order.account_id,

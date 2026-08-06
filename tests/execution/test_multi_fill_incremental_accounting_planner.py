@@ -70,16 +70,17 @@ def test_three_fills_commit_three_incremental_transactions() -> None:
     assert tuple(item.fact.fill_index for item in records) == (1, 2, 3)
     assert all(item.projection_ready for item in records)
     assert tuple(item.fact.terminal_fill for item in records) == (False, False, True)
-    assert tuple(item.fact.incremental_fee_total.amount for item in records) == (
+    assert tuple(item.fact.incremental_fee_charges.amount for item in records) == (
         Decimal("2.97"),
         Decimal("3.96"),
         Decimal("2.97"),
     )
-    assert tuple(item.fact.order_cumulative_fee_after.amount for item in records) == (
+    assert tuple(item.fact.order_cumulative_fee_charges_after.amount for item in records) == (
         Decimal("2.97"),
         Decimal("6.93"),
         Decimal("9.90"),
     )
+    assert all(item.fact.incremental_fee_rebates.amount == 0 for item in records)
     assert tuple(item.fact.position_cumulative_open_price_quantity_after for item in records) == (
         Decimal("2970.00"),
         Decimal("6930.00"),

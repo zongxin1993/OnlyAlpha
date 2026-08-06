@@ -33,7 +33,7 @@ class OnlyRuntimePrecondition(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyPreparedRuntimeTransaction:
-    schema_version = 5
+    schema_version = 6
 
     transaction_id: str
     runtime_id: OnlyRuntimeId
@@ -122,7 +122,7 @@ class OnlyPreparedRuntimeTransaction:
 
 @dataclass(frozen=True, slots=True)
 class OnlyCommittedRuntimeTransaction:
-    schema_version = 5
+    schema_version = 6
 
     runtime_id: OnlyRuntimeId
     execution_sequence: int

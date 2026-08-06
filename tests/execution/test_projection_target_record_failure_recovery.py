@@ -33,7 +33,7 @@ class _OnlyTestFailOnceAppliedProjectionLedger:
     "component",
     (
         OnlyRuntimeProjectionComponent.POSITION,
-        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.FEE_LEDGER,
         OnlyRuntimeProjectionComponent.ACCOUNT,
         OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
         OnlyRuntimeProjectionComponent.VALUATION,

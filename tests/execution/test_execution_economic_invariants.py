@@ -7,7 +7,9 @@ from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
+    OnlyOrderId,
     OnlyRuntimeId,
+    OnlyTradeId,
 )
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
@@ -171,9 +173,9 @@ def test_buy_open_rejects_position_reservation() -> None:
 @pytest.mark.parametrize(
     ("component", "field", "value"),
     (
-        (OnlyRuntimeProjectionComponent.FEE, "account_id", "other-account"),
-        (OnlyRuntimeProjectionComponent.FEE, "order_id", "other-order"),
-        (OnlyRuntimeProjectionComponent.FEE, "trade_id", "other-trade"),
+        (OnlyRuntimeProjectionComponent.FEE_LEDGER, "account_id", "other-account"),
+        (OnlyRuntimeProjectionComponent.FEE_LEDGER, "order_id", "other-order"),
+        (OnlyRuntimeProjectionComponent.FEE_LEDGER, "trade_id", "other-trade"),
         (OnlyRuntimeProjectionComponent.SETTLEMENT, "account_id", OnlyAccountId("other-account")),
         (
             OnlyRuntimeProjectionComponent.RISK,
@@ -189,8 +191,17 @@ def test_prepared_transaction_rejects_fee_settlement_and_risk_scope_corruption(
     projections = list(prepared.projections)
     index = next(index for index, item in enumerate(projections) if item.identity.component is component)
     projection = projections[index]
-    if component is OnlyRuntimeProjectionComponent.FEE:
-        after = replace(projection.after, instruction=replace(projection.after.instruction, **{field: value}))
+    if component is OnlyRuntimeProjectionComponent.FEE_LEDGER:
+        application = projection.after.application
+        if field == "trade_id":
+            application = replace(application, trade_id=OnlyTradeId(str(value)))
+        else:
+            typed = OnlyAccountId(str(value)) if field == "account_id" else OnlyOrderId(str(value))
+            application = replace(
+                application,
+                subject=replace(application.subject, **{field: typed}),
+            )
+        after = replace(projection.after, application=application)
     else:
         after = replace(projection.after, **{field: value})
     identity = replace(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -19,26 +18,20 @@ from onlyalpha.domain.identifiers import (
     OnlyOrderId,
     OnlyRuntimeId,
     OnlyTradeId,
-    OnlyVenueTradeId,
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
-from onlyalpha.fee.models import (
-    OnlyBrokerFeeReportingMode,
-    OnlyFeeBreakdown,
-)
+from onlyalpha.fee.application import OnlyFeeApplicationInstruction
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
-
-from .fill_identity import OnlyExecutionFillIdentity, only_execution_fill_identity
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedExecutionFact(OnlyDomainModel):
     """Self-contained result of one fully committed local execution transaction."""
 
-    schema_version = 2
+    schema_version = 3
 
     execution_id: str
     execution_sequence: int
@@ -86,26 +79,26 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     contract_multiplier: OnlyMultiplier
     gross_notional: OnlyMoney
     settled_notional: OnlyMoney
-    authoritative_fee_total: OnlyMoney
+    fee_total_charges: OnlyMoney
+    fee_total_rebates: OnlyMoney
+    fee_signed_cash_effect: Decimal
     market_fee: OnlyMoney
     broker_fee: OnlyMoney
     tax: OnlyMoney
     commission: OnlyMoney
     other_fee: OnlyMoney
-    reported_broker_fee: OnlyMoney | None
-    fee_reporting_mode: OnlyBrokerFeeReportingMode
     reference_price: OnlyPrice | None
     slippage: OnlyMoney | None
     realized_pnl_delta: OnlyMoney
     cash_delta: OnlyMoney
-    fee_instruction_id: str
+    fee_application_id: str
     fee_authority: str
     fee_status: str
     market_fee_schedule_ids: tuple[str, ...]
     market_fee_schedule_versions: tuple[str, ...]
     broker_fee_schedule_ids: tuple[str, ...]
     broker_fee_schedule_versions: tuple[str, ...]
-    fee_breakdown: OnlyFeeBreakdown
+    fee_application: OnlyFeeApplicationInstruction
     market_profile_id: str
     market_profile_version: str
     compiled_rule_fingerprint: str
@@ -133,8 +126,10 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     ledger_cash_delta: OnlyMoney
     ledger_fee_delta: OnlyMoney
     ledger_realized_pnl_delta: OnlyMoney
-    incremental_fee_total: OnlyMoney
-    order_cumulative_fee_after: OnlyMoney
+    incremental_fee_charges: OnlyMoney
+    incremental_fee_rebates: OnlyMoney
+    order_cumulative_fee_charges_after: OnlyMoney
+    order_cumulative_fee_rebates_after: OnlyMoney
     account_reservation_consumed_delta: OnlyMoney
     account_reservation_released_delta: OnlyMoney
     strategy_reservation_consumed_delta: OnlyMoney
@@ -168,8 +163,12 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
         )
         if self.gross_notional != expected:
             raise ValueError("committed execution gross notional must include contract multiplier")
-        if self.authoritative_fee_total != self.fee_breakdown.total:
-            raise ValueError("committed execution fee total must equal authoritative breakdown")
+        if (
+            self.fee_total_charges != self.fee_application.total_charges
+            or self.fee_total_rebates != self.fee_application.total_rebates
+            or self.fee_signed_cash_effect != self.fee_application.signed_cash_effect
+        ):
+            raise ValueError("committed execution Fee Application totals disagree")
         if self.ts_committed < self.ts_init or self.ts_init < self.ts_event:
             raise ValueError("committed execution timestamps violate causal ordering")
         if self.position_realized_pnl_delta != self.realized_pnl_delta:
@@ -191,7 +190,8 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             raise ValueError("committed execution requires durable Fill identity authority")
         if (
             min(
-                self.incremental_fee_total.amount,
+                self.incremental_fee_charges.amount,
+                self.incremental_fee_rebates.amount,
                 self.account_reservation_consumed_delta.amount,
                 self.account_reservation_released_delta.amount,
                 self.strategy_reservation_consumed_delta.amount,
@@ -217,45 +217,7 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
-        if "fill_identity" in payload and "incremental_fee_total" in payload:
-            return super(OnlyCommittedExecutionFact, cls).from_dict(_close_fact_compatible(payload))
-        compatible = dict(payload)
-        fill_quantity = _nested_decimal(payload, "cumulative_filled_quantity")
-        fill_price = _nested_decimal(payload, "fill_price")
-        remaining = _nested_decimal(payload, "remaining_quantity")
-        identity = OnlyExecutionFillIdentity(
-            OnlyRuntimeId(_identifier_text(payload["runtime_id"])),
-            OnlyBrokerGatewayId(_identifier_text(payload["gateway_id"])),
-            OnlyAccountId(_identifier_text(payload["account_id"])),
-            OnlyOrderId(_identifier_text(payload["order_id"])),
-            OnlyTradeId(_identifier_text(payload["trade_id"])),
-            None
-            if payload.get("venue_trade_id") is None
-            else OnlyVenueTradeId(_identifier_text(payload["venue_trade_id"])),
-            None if payload.get("external_event_id") is None else str(payload["external_event_id"]),
-        )
-        historical_fingerprint = hashlib.sha256(
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-        ).hexdigest()
-        compatible.update(
-            fill_identity=only_execution_fill_identity(identity),
-            fill_payload_fingerprint=historical_fingerprint,
-            fill_index=1,
-            fill_count_after=1,
-            terminal_fill=remaining == 0,
-            cumulative_price_quantity_after=str(fill_price * fill_quantity),
-            incremental_fee_total=payload["authoritative_fee_total"],
-            order_cumulative_fee_after=payload["authoritative_fee_total"],
-            account_reservation_consumed_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
-            account_reservation_released_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
-            strategy_reservation_consumed_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
-            strategy_reservation_released_delta={"schema_version": 1, "amount": "0", "currency": payload["currency"]},
-            risk_reservation_quantity_consumed_delta=payload["fill_quantity"],
-            risk_reservation_notional_consumed_delta=payload["gross_notional"],
-            position_cumulative_open_price_quantity_after=str(fill_price * fill_quantity),
-            allocation_cumulative_open_price_quantity_after=str(fill_price * fill_quantity),
-        )
-        return super(OnlyCommittedExecutionFact, cls).from_dict(_close_fact_compatible(compatible))
+        return super(OnlyCommittedExecutionFact, cls).from_dict(payload)
 
     @property
     def stable_order(self) -> tuple[int, int, int, str]:
@@ -269,50 +231,6 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
 def _money(amount: Decimal, currency: OnlyCurrency) -> OnlyMoney:
     quantum = Decimal(1).scaleb(-currency.precision)
     return OnlyMoney(amount.quantize(quantum), currency)
-
-
-def _nested_decimal(payload: Mapping[str, object], key: str) -> Decimal:
-    value = payload[key]
-    if not isinstance(value, Mapping):
-        raise ValueError(f"legacy committed execution {key} is invalid")
-    return Decimal(str(value["value"]))
-
-
-def _identifier_text(value: object) -> str:
-    return str(value["value"]) if isinstance(value, Mapping) else str(value)
-
-
-def _close_fact_compatible(payload: Mapping[str, object]) -> Mapping[str, object]:
-    if "position_quantity_before" in payload:
-        return payload
-    compatible = dict(payload)
-    position_delta = Decimal(str(payload["position_quantity_delta"]))
-    allocation_delta = Decimal(str(payload["allocation_quantity_delta"]))
-    fill_quantity = _nested_decimal(payload, "fill_quantity")
-    quantity_payload = payload["fill_quantity"]
-    if not isinstance(quantity_payload, Mapping):
-        raise ValueError("legacy committed execution fill quantity is invalid")
-    zero_money = {"schema_version": 1, "amount": "0", "currency": payload["currency"]}
-    compatible.update(
-        position_quantity_before=str(fill_quantity - position_delta),
-        position_quantity_after=str(fill_quantity),
-        allocation_quantity_before=str(fill_quantity - allocation_delta),
-        allocation_quantity_after=str(fill_quantity),
-        position_cumulative_open_price_quantity_before=payload["position_cumulative_open_price_quantity_after"],
-        allocation_cumulative_open_price_quantity_before=payload["allocation_cumulative_open_price_quantity_after"],
-        released_open_price_quantity="0",
-        gross_cash_inflow=zero_money,
-        net_cash_inflow=zero_money,
-        allocation_realized_pnl_delta=payload["realized_pnl_delta"],
-        position_reservation_consumed_delta={
-            "schema_version": 1,
-            "value": "0",
-            "precision": int(quantity_payload["precision"]),
-        },
-        position_closed=False,
-        allocation_closed=False,
-    )
-    return compatible
 
 
 __all__ = ["OnlyCommittedExecutionFact"]

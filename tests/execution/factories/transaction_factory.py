@@ -47,9 +47,8 @@ from onlyalpha.execution import (
     OnlyAllocationExecutionState,
     OnlyCommittedExecutionFactDraft,
     OnlyExecutionTransactionEventFactory,
-    OnlyFeeExecutionProjection,
-    OnlyFeeExecutionState,
-    OnlyFeeInstructionReplay,
+    OnlyFeeApplicationProjection,
+    OnlyFeeApplicationState,
     OnlyMarginExecutionProjection,
     OnlyMarginExecutionState,
     OnlyMarginReservationExecutionProjection,
@@ -58,7 +57,7 @@ from onlyalpha.execution import (
     OnlyMarginReservationExecutionStatus,
     OnlyOrderExecutionProjection,
     OnlyOrderExecutionState,
-    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderFeeAccrualProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionExecutionReplayMetadata,
     OnlyPositionExecutionState,
@@ -86,10 +85,10 @@ from onlyalpha.execution import (
     only_with_execution_projection_hash,
 )
 from onlyalpha.fee import (
-    OnlyBrokerFeeReportingMode,
-    OnlyFeeBreakdown,
-    OnlyFeeStatus,
-    OnlyOrderFeeAccrualExecutionState,
+    OnlyFeeApplicationInstruction,
+    OnlyFeeSubject,
+    OnlyLocalFeeFinality,
+    OnlyOrderFeeAccrualState,
 )
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
@@ -180,26 +179,26 @@ def only_test_execution_fact_draft(
         contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
         gross_notional=_money("20.00"),
         settled_notional=_money("20.00"),
-        authoritative_fee_total=zero,
+        fee_total_charges=zero,
+        fee_total_rebates=zero,
+        fee_signed_cash_effect=Decimal(0),
         market_fee=zero,
         broker_fee=zero,
         tax=zero,
         commission=zero,
         other_fee=zero,
-        reported_broker_fee=None,
-        fee_reporting_mode=OnlyBrokerFeeReportingMode.NONE,
         reference_price=_price("10.00"),
         slippage=zero,
         realized_pnl_delta=zero,
         cash_delta=_money("-20.00"),
-        fee_instruction_id="fee-instruction",
+        fee_application_id="fee-application",
         fee_authority="NONE",
-        fee_status=OnlyFeeStatus.CONFIRMED.value,
+        fee_status=OnlyLocalFeeFinality.MODEL_CONFIRMED.value,
         market_fee_schedule_ids=(),
         market_fee_schedule_versions=(),
         broker_fee_schedule_ids=(),
         broker_fee_schedule_versions=(),
-        fee_breakdown=OnlyFeeBreakdown.empty(currency, OnlyFeeStatus.CONFIRMED),
+        fee_application=_fee_application(),
         market_profile_id="GENERIC_T0_CASH",
         market_profile_version="1",
         compiled_rule_fingerprint="compiled",
@@ -227,8 +226,10 @@ def only_test_execution_fact_draft(
         ledger_cash_delta=_money("-20.00"),
         ledger_fee_delta=zero,
         ledger_realized_pnl_delta=zero,
-        incremental_fee_total=zero,
-        order_cumulative_fee_after=zero,
+        incremental_fee_charges=zero,
+        incremental_fee_rebates=zero,
+        order_cumulative_fee_charges_after=zero,
+        order_cumulative_fee_rebates_after=zero,
         account_reservation_consumed_delta=_money("20.00"),
         account_reservation_released_delta=zero,
         strategy_reservation_consumed_delta=_money("20.00"),
@@ -381,25 +382,15 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyRuntimeProject
         1,
         0,
     )
-    fee = OnlyFeeExecutionState(
-        OnlyFeeInstructionReplay(
-            "fee-instruction",
-            str(_TEST_RUNTIME_ID),
-            "cluster",
-            "account",
-            str(order_id),
-            str(_TEST_TRADE_ID),
-            "MARKET_RULE",
-            "fee-idempotency",
-            timestamp,
-        ),
+    fee = OnlyFeeApplicationState(
+        _fee_application(),
         (),
         _money("0.00"),
-        OnlyFeeBreakdown.empty(_currency(), OnlyFeeStatus.CONFIRMED),
+        _money("0.00"),
         1,
         0,
     )
-    fee_accrual = OnlyOrderFeeAccrualExecutionState(
+    fee_accrual = OnlyOrderFeeAccrualState(
         _TEST_RUNTIME_ID,
         OnlyAccountId("account"),
         OnlyClusterId("cluster"),
@@ -408,6 +399,8 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyRuntimeProject
         _quantity("2"),
         _money("20.00"),
         _money("0.00"),
+        _money("0.00"),
+        "0" * 64,
         (),
         1,
         _TEST_TRADE_ID,
@@ -551,13 +544,13 @@ def only_test_generic_t0_cash_buy_open_projections() -> tuple[OnlyRuntimeProject
             settlement,
             (),
         ),
-        OnlyOrderFeeAccrualExecutionProjection(
+        OnlyOrderFeeAccrualProjection(
             _identity(OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL, 5, str(order_id), None, fee_accrual),
             None,
             fee_accrual,
         ),
-        OnlyFeeExecutionProjection(
-            _identity(OnlyRuntimeProjectionComponent.FEE, 6, "fee-instruction", None, fee),
+        OnlyFeeApplicationProjection(
+            _identity(OnlyRuntimeProjectionComponent.FEE_LEDGER, 6, "fee-application", None, fee),
             None,
             fee,
         ),
@@ -1040,10 +1033,11 @@ def _rescope_projections(
         elif isinstance(projection, OnlySettlementExecutionProjection):
             after = replace(projection.after, source_trade_id=str(trade_id))
             updated = _replace_projection_after(projection, after)
-        elif isinstance(projection, OnlyFeeExecutionProjection):
+        elif isinstance(projection, OnlyFeeApplicationProjection):
             after = replace(
                 projection.after,
-                instruction=replace(projection.after.instruction, trade_id=str(trade_id)),
+                application=replace(projection.after.application, trade_id=trade_id),
+                records=tuple(replace(record, trade_id=trade_id) for record in projection.after.records),
             )
             updated = _replace_projection_after(projection, after)
         elif isinstance(projection, OnlyStrategyLedgerExecutionProjection):
@@ -1073,6 +1067,29 @@ def _replace_projection_after[ProjectionT: OnlyRuntimeProjection](
 
 def _currency() -> OnlyCurrency:
     return OnlyCurrency("CNY", 2, OnlyCurrencyType.FIAT)
+
+
+def _fee_application() -> OnlyFeeApplicationInstruction:
+    zero = _money("0.00")
+    return OnlyFeeApplicationInstruction(
+        "fee-application",
+        OnlyFeeSubject(
+            _TEST_RUNTIME_ID,
+            OnlyAccountId("account"),
+            OnlyClusterId("cluster"),
+            OnlyOrderId("order"),
+            _instrument(),
+        ),
+        _TEST_TRADE_ID,
+        (),
+        zero,
+        zero,
+        Decimal(0),
+        None,
+        "0" * 64,
+        OnlyLocalFeeFinality.MODEL_CONFIRMED,
+        "fee-idempotency",
+    )
 
 
 def _money(value: str) -> OnlyMoney:

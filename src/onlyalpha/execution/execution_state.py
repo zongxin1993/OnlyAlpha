@@ -28,6 +28,8 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.position.enums import (
     OnlyPositionMode,
@@ -66,6 +68,8 @@ def _metadata(value: Mapping[str, str]) -> Mapping[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderExecutionState(OnlyDomainModel):
+    schema_version = 2
+
     order_id: OnlyOrderId
     request_id: OnlyOrderRequestId
     client_order_id: OnlyClientOrderId
@@ -106,6 +110,9 @@ class OnlyOrderExecutionState(OnlyDomainModel):
     cumulative_price_quantity: Decimal = Decimal(0)
     last_trade_id: OnlyTradeId | None = None
     historical_fill_identity_missing: bool = False
+    fee_policy_binding: OnlyOrderFeePolicyBinding | None = None
+    fee_estimate: OnlyOrderFeeEstimate | None = None
+    funding_plan: OnlyOrderFundingPlan | None = None
 
     def __post_init__(self) -> None:
         if self.version < 1 or self.quantity.value != self.filled_quantity.value + self.remaining_quantity.value:
@@ -135,12 +142,25 @@ class OnlyOrderExecutionState(OnlyDomainModel):
                 raise ValueError("legacy fill identity exception requires one completed whole fill")
         elif (self.last_trade_id is None) != (self.fill_count == 0):
             raise ValueError("last_trade_id presence must agree with fill_count")
+        contracts = (self.fee_policy_binding, self.fee_estimate, self.funding_plan)
+        if any(item is not None for item in contracts) and any(item is None for item in contracts):
+            raise ValueError("Order fee contract must be installed atomically")
+        if self.fee_policy_binding is not None:
+            if self.fee_policy_binding.order_id != self.order_id or self.funding_plan is None:
+                raise ValueError("Order fee contract scope mismatch")
+            if self.funding_plan.order_id != self.order_id:
+                raise ValueError("Order funding plan scope mismatch")
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _metadata(self.metadata))
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
-        snapshot = OnlyOrderSnapshot.from_dict(payload)
+        compatible = dict(payload)
+        compatible["schema_version"] = OnlyOrderSnapshot.schema_version
+        compatible.setdefault("fee_policy_binding", None)
+        compatible.setdefault("fee_estimate", None)
+        compatible.setdefault("funding_plan", None)
+        snapshot = OnlyOrderSnapshot.from_dict(compatible)
         return cls(**{name: getattr(snapshot, name) for name in cls.__dataclass_fields__})
 
 

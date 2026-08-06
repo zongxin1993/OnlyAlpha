@@ -25,6 +25,8 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.order.entities import OnlyOrder, OnlyOrderEntityResult
 from onlyalpha.order.enums import OnlyOrderApplyResult, OnlyOrderMutationType
 from onlyalpha.order.events import (
@@ -42,6 +44,11 @@ from onlyalpha.order.events import (
 from onlyalpha.order.exceptions import OnlyOrderNotFoundError
 from onlyalpha.order.id_generator import OnlyClientOrderIdGenerator, OnlyOrderIdGenerator
 from onlyalpha.order.results import OnlyOrderMutationResult
+
+type OnlyOrderFeeContractFactory = Callable[
+    [OnlyOrderSnapshot, OnlyTimestamp],
+    tuple[OnlyOrderFeePolicyBinding, OnlyOrderFeeEstimate, OnlyOrderFundingPlan],
+]
 
 
 class OnlyOrderManager:
@@ -75,6 +82,7 @@ class OnlyOrderManager:
         cluster_id: OnlyClusterId,
         account_id: OnlyAccountId,
         timestamp: OnlyTimestamp,
+        fee_contract_factory: OnlyOrderFeeContractFactory | None = None,
     ) -> OnlyOrderMutationResult:
         existing_id = self._order_id_by_request_id.get(request.request_id)
         if existing_id is not None:
@@ -94,6 +102,8 @@ class OnlyOrderManager:
         order_id = self._order_id_generator.next_id()
         client_order_id = self._client_order_id_generator.next_id()
         order = OnlyOrder(request, order_id, client_order_id, self.runtime_id, cluster_id, account_id, timestamp)
+        if fee_contract_factory is not None:
+            order.install_fee_contract(*fee_contract_factory(order.snapshot(), timestamp))
         self._orders[order_id] = order
         self._order_id_by_request_id[request.request_id] = order_id
         self._order_id_by_client_order_id[client_order_id] = order_id

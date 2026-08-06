@@ -9,7 +9,7 @@ from onlyalpha.execution import (
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
     OnlyExecutionProcessingStatus,
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyOrderExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyRiskExecutionProjection,
@@ -55,7 +55,7 @@ def test_real_manager_parity_covers_complete_economic_and_lifecycle_authority(
     position = _one(projections, OnlyPositionExecutionProjection)
     allocation = _one(projections, OnlyAllocationExecutionProjection)
     settlement = _one(projections, OnlySettlementExecutionProjection)
-    fee = _one(projections, OnlyFeeExecutionProjection)
+    fee = _one(projections, OnlyFeeApplicationProjection)
     account = _one(projections, OnlyAccountExecutionProjection)
     ledger = _one(projections, OnlyStrategyLedgerExecutionProjection)
     account_reservation = _one(projections, OnlyAccountCashReservationExecutionProjection)
@@ -68,14 +68,13 @@ def test_real_manager_parity_covers_complete_economic_and_lifecycle_authority(
     assert order.after.filled_quantity.value - order.before.filled_quantity.value == quantity.value
     assert position.after.total_quantity.value - _quantity_before(position.before) == quantity.value
     assert allocation.after.total_quantity.value - _quantity_before(allocation.before) == quantity.value
-    assert fee.after.authoritative_total == result.context.fee_instruction.fee_breakdown.total
-    assert position.after.fees.amount - _money_before(position.before, "fees") == fee.after.authoritative_total.amount
-    assert (
-        allocation.after.fees.amount - _money_before(allocation.before, "fees") == fee.after.authoritative_total.amount
-    )
-    assert account.after.fees.amount - account.before.fees.amount == fee.after.authoritative_total.amount
-    assert ledger.after.fees.amount - ledger.before.fees.amount == fee.after.authoritative_total.amount
-    cost = result.context.trade_instruction.cash_instruction.amount.copy_abs() + fee.after.authoritative_total.amount
+    assert fee.after.total_charges == result.context.fee_assessment.total_charges
+    assert fee.after.total_rebates == result.context.fee_assessment.total_rebates
+    assert position.after.fees.amount - _money_before(position.before, "fees") == fee.after.total_charges.amount
+    assert allocation.after.fees.amount - _money_before(allocation.before, "fees") == fee.after.total_charges.amount
+    assert account.after.fees.amount - account.before.fees.amount == fee.after.total_charges.amount
+    assert ledger.after.fees.amount - ledger.before.fees.amount == fee.after.total_charges.amount
+    cost = result.context.trade_instruction.cash_instruction.amount.copy_abs() + fee.after.total_charges.amount
     assert account_reservation.after.consumed_amount.amount == cost
     assert strategy_reservation.after.consumed_amount.amount == cost
     assert account_reservation.after.remaining_amount.amount == 0

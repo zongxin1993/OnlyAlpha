@@ -6,10 +6,11 @@ from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from onlyalpha.domain.enums import OnlyOrderStatus
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
+from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
-from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.fee.application import OnlyFeeApplicationInstruction
+from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
     OnlyPositionReservationStage,
@@ -21,10 +22,8 @@ from onlyalpha.settlement.models import OnlySettlementInstruction
 from onlyalpha.transaction.projection import (
     OnlyAllocationExecutionProjection,
     OnlyAllocationExecutionReplayMetadata,
-    OnlyFeeExecutionProjection,
-    OnlyFeeExecutionState,
-    OnlyFeeInstructionReplay,
-    OnlyFeeRecordReplay,
+    OnlyFeeApplicationProjection,
+    OnlyFeeApplicationState,
     OnlyOrderExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionExecutionReplayMetadata,
@@ -81,8 +80,8 @@ class OnlySettlementTradeReduction:
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeTradeReduction:
-    after: OnlyFeeExecutionState
-    projection: OnlyFeeExecutionProjection
+    after: OnlyFeeApplicationState
+    projection: OnlyFeeApplicationProjection
     event_intents: tuple[OnlyExecutionEventIntent, ...]
 
 
@@ -110,6 +109,8 @@ class OnlyOrderTradeReducer:
             raise ValueError("Fill exceeds Order remaining quantity")
         new_filled_value = before.filled_quantity.value + trade.quantity.value
         new_remaining_value = before.quantity.value - new_filled_value
+        if new_remaining_value == 0:
+            new_remaining_value = Decimal(0)
         cumulative = before.cumulative_price_quantity + trade.price.value * trade.quantity.value
         precision = max(
             trade.price.precision,
@@ -223,7 +224,7 @@ class OnlyPositionTradeReducer:
                 raise ValueError("CLOSE_COST_AUTHORITY_POSITION_CONFLICT")
             quantity_after = close_authority.position_quantity_after.value
             cumulative_after = close_authority.position_cumulative_cost_after
-            currency = trade.authoritative_fee.currency
+            currency = trade.gross_notional.currency
             realized = close_authority.realized_pnl_delta
             if realized.currency != currency:
                 raise ValueError("CLOSE_COST_AUTHORITY_CURRENCY_CONFLICT")
@@ -241,7 +242,7 @@ class OnlyPositionTradeReducer:
                 ),
                 average_open_price=close_authority.position_average_open_price_after,
                 realized_pnl=before.realized_pnl + realized,
-                fees=before.fees + trade.authoritative_fee,
+                fees=before.fees + trade.fee_charges - trade.fee_rebates,
                 updated_at=trade.ts_event,
                 closed_at=trade.ts_event if quantity_after == 0 else None,
                 version=before.version + 1,
@@ -278,7 +279,7 @@ class OnlyPositionTradeReducer:
                 ),
             )
         zero_quantity = OnlyQuantity(Decimal(0), trade.quantity.precision)
-        zero_money = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
+        zero_money = OnlyMoney(Decimal(0), trade.gross_notional.currency)
         if before is None:
             assert creation is not None
             total_before = zero_quantity
@@ -335,7 +336,7 @@ class OnlyPositionTradeReducer:
             restricted,
             average,
             realized_before,
-            fees_before + trade.authoritative_fee,
+            fees_before + trade.fee_charges - trade.fee_rebates,
             opened_at,
             trade.ts_event,
             None,
@@ -346,7 +347,7 @@ class OnlyPositionTradeReducer:
             broker_available,
             cumulative,
         )
-        zero = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
+        zero = OnlyMoney(Decimal(0), trade.gross_notional.currency)
         builder = OnlyRuntimeProjectionBuilder()
         projection = OnlyPositionExecutionProjection(
             builder.identity(
@@ -425,7 +426,7 @@ class OnlyAllocationTradeReducer:
                 ),
                 average_open_price=close_authority.allocation_average_open_price_after,
                 realized_pnl=before.realized_pnl + realized_pnl_delta,
-                fees=before.fees + trade.authoritative_fee,
+                fees=before.fees + trade.fee_charges - trade.fee_rebates,
                 updated_at=trade.ts_event,
                 closed_at=trade.ts_event if quantity_after == 0 else None,
                 version=before.version + 1,
@@ -451,7 +452,7 @@ class OnlyAllocationTradeReducer:
             assert isinstance(projection, OnlyAllocationExecutionProjection)
             return OnlyAllocationTradeReduction(after, projection, realized_pnl_delta)
         zero_quantity = OnlyQuantity(Decimal(0), trade.quantity.precision)
-        zero_money = OnlyMoney(Decimal(0), trade.authoritative_fee.currency)
+        zero_money = OnlyMoney(Decimal(0), trade.gross_notional.currency)
         if before is None:
             assert creation is not None
             total_before = settled_before = unsettled_before = zero_quantity
@@ -502,7 +503,7 @@ class OnlyAllocationTradeReducer:
                 average_before,
             ),
             realized_before,
-            fees_before + trade.authoritative_fee,
+            fees_before + trade.fee_charges - trade.fee_rebates,
             opened_at,
             trade.ts_event,
             None,
@@ -541,7 +542,7 @@ class OnlySettlementTradeReducer:
         record_sequence: int,
         projection_sequence: int,
     ) -> OnlySettlementTradeReduction:
-        currency = trade.authoritative_fee.currency
+        currency = trade.gross_notional.currency
         flags_before = (
             (False, False, False, False)
             if before is None
@@ -622,50 +623,52 @@ class OnlySettlementTradeReducer:
 class OnlyFeeTradeReducer:
     def reduce(
         self,
-        before: OnlyFeeExecutionState | None,
-        instruction: OnlyFeeInstruction,
+        before: OnlyFeeApplicationState | None,
+        instruction: OnlyFeeApplicationInstruction,
         instrument_id: object,
         *,
         record_sequence: int,
         projection_sequence: int,
     ) -> OnlyFeeTradeReduction:
-        del instrument_id
+        from onlyalpha.domain.identifiers import OnlyInstrumentId
+
+        if not isinstance(instrument_id, OnlyInstrumentId):
+            raise TypeError("Fee Application requires typed Instrument identity")
         records = tuple(
-            OnlyFeeRecordReplay(
-                f"FEE-{instruction.instruction_id}-{record_sequence + index:08d}",
-                instruction.instruction_id,
-                instruction.account_id,
-                instruction.order_id,
+            OnlyFeeApplicationRecord(
+                f"FEEAPP-{instruction.application_id}-{record_sequence + index:08d}",
+                instruction.application_id,
+                instruction.subject.runtime_id,
+                instruction.subject.account_id,
+                instruction.subject.cluster_id,
+                instrument_id,
+                instruction.subject.order_id,
                 instruction.trade_id,
+                component.identity,
+                component.fill_raw_amount,
+                component.cumulative_raw_after,
+                component.cumulative_target_after,
+                component.cumulative_applied_before,
                 component.amount,
-                component.fee_type.value,
+                component.cumulative_applied_after,
+                instruction.local_finality,
+                record_sequence + index,
             )
-            for index, component in enumerate(instruction.fee_breakdown.components, start=1)
+            for index, component in enumerate(instruction.components, start=1)
         )
-        replay = OnlyFeeInstructionReplay(
-            instruction.instruction_id,
-            instruction.runtime_id,
-            instruction.cluster_id,
-            instruction.account_id,
-            instruction.order_id,
-            instruction.trade_id,
-            instruction.calculation_source,
-            instruction.idempotency_key,
-            OnlyTimestamp.from_datetime(instruction.created_at),
-        )
-        after = OnlyFeeExecutionState(
-            replay,
+        after = OnlyFeeApplicationState(
+            instruction,
             records,
-            instruction.fee_breakdown.total,
-            instruction.fee_breakdown,
+            instruction.total_charges,
+            instruction.total_rebates,
             1 if before is None else before.version + 1,
             record_sequence + len(records),
         )
         builder = OnlyRuntimeProjectionBuilder()
-        projection = OnlyFeeExecutionProjection(
+        projection = OnlyFeeApplicationProjection(
             builder.identity(
-                component=OnlyRuntimeProjectionComponent.FEE,
-                entity_key=instruction.instruction_id,
+                component=OnlyRuntimeProjectionComponent.FEE_LEDGER,
+                entity_key=instruction.application_id,
                 before=before,
                 after=after,
                 projection_sequence=projection_sequence,
@@ -674,8 +677,12 @@ class OnlyFeeTradeReducer:
             after,
         )
         projection = builder.finalize(projection)
-        assert isinstance(projection, OnlyFeeExecutionProjection)
-        intents = () if not records else (_intent(OnlyRuntimeProjectionComponent.FEE, "FEE_RECORDED", after.to_dict()),)
+        assert isinstance(projection, OnlyFeeApplicationProjection)
+        intents = (
+            ()
+            if not records
+            else (_intent(OnlyRuntimeProjectionComponent.FEE_LEDGER, "FEE_APPLICATION_RECORDED", after.to_dict()),)
+        )
         return OnlyFeeTradeReduction(after, projection, intents)
 
 

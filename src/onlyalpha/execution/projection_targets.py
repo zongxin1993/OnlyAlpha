@@ -16,8 +16,7 @@ from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
-from onlyalpha.fee.manager import OnlyFeeManager
-from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import OnlyPositionReservationState
@@ -45,9 +44,9 @@ from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyOrderExecutionProjection,
-    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
@@ -66,7 +65,7 @@ from onlyalpha.transaction.projection import (
 from onlyalpha.transaction.state_hash import only_execution_state_hash
 
 from .authority_state import (
-    only_fee_execution_state,
+    only_fee_application_state,
     only_settlement_execution_state,
 )
 from .committed import OnlyCommittedExecutionFact
@@ -393,9 +392,9 @@ class OnlySettlementExecutionProjectionTarget(_OnlyProjectionTargetBase):
         return self._complete(context, current, installed, prepared)
 
 
-class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
-    def __init__(self, manager: OnlyFeeManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
-        super().__init__(OnlyRuntimeProjectionComponent.FEE, applied_ledger)
+class OnlyFeeApplicationProjectionTarget(_OnlyProjectionTargetBase):
+    def __init__(self, manager: OnlyFeeApplicationLedger, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.FEE_LEDGER, applied_ledger)
         self._manager = manager
 
     def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
@@ -403,46 +402,34 @@ class OnlyFeeExecutionProjectionTarget(_OnlyProjectionTargetBase):
         if not isinstance(context.fact, OnlyCommittedExecutionFact):
             return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
         authority = (
-            self._manager.get_execution_authority(projection.after.instruction.idempotency_key)
-            if isinstance(projection, OnlyFeeExecutionProjection)
+            self._manager.get(projection.after.application.idempotency_key)
+            if isinstance(projection, OnlyFeeApplicationProjection)
             else None
         )
         try:
-            current = None if authority is None else only_fee_execution_state(authority)
+            current = None if authority is None else only_fee_application_state(authority)
         except (TypeError, ValueError):
             return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, None)
-        if authority is not None and authority.instrument_id != str(context.fact.instrument_id):
+        if authority is not None and authority.instrument_id != context.fact.instrument_id:
             return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
-        assert isinstance(projection, OnlyFeeExecutionProjection)
-        replay = projection.after.instruction
-        instruction = OnlyFeeInstruction(
-            replay.instruction_id,
-            replay.runtime_id,
-            replay.cluster_id,
-            replay.account_id,
-            replay.order_id,
-            replay.trade_id,
-            projection.after.fee_breakdown,
-            replay.calculation_source,
-            replay.created_at.to_datetime(),
-            replay.idempotency_key,
-        )
-        self._manager.restore_execution_authority(
-            instruction,
-            instrument_id=str(context.fact.instrument_id),
-            record_ids=tuple(item.record_id for item in projection.after.records),
+        assert isinstance(projection, OnlyFeeApplicationProjection)
+        application = projection.after.application
+        self._manager.restore_authority(
+            application,
+            instrument_id=context.fact.instrument_id,
+            records=projection.after.records,
             sequence_head=projection.after.record_sequence_head,
         )
-        installed_authority = self._manager.get_execution_authority(replay.idempotency_key)
+        installed_authority = self._manager.get(application.idempotency_key)
         if installed_authority is None:
             raise RuntimeError("Fee Projection installation lost its instruction")
-        return self._complete(context, current, only_fee_execution_state(installed_authority), prepared)
+        return self._complete(context, current, only_fee_application_state(installed_authority), prepared)
 
 
-class OnlyOrderFeeAccrualExecutionProjectionTarget(_OnlyProjectionTargetBase):
+class OnlyOrderFeeAccrualProjectionTarget(_OnlyProjectionTargetBase):
     def __init__(self, manager: OnlyOrderFeeAccrualManager, applied_ledger: OnlyAppliedRuntimeProjectionLedger) -> None:
         super().__init__(OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL, applied_ledger)
         self._manager = manager
@@ -455,7 +442,7 @@ class OnlyOrderFeeAccrualExecutionProjectionTarget(_OnlyProjectionTargetBase):
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
-        assert isinstance(projection, OnlyOrderFeeAccrualExecutionProjection)
+        assert isinstance(projection, OnlyOrderFeeAccrualProjection)
         self._manager.restore(projection.after)
         installed = self._manager.get(projection.after.order_id)
         if installed is None:
@@ -927,7 +914,7 @@ def only_create_generic_t0_execution_projection_targets(
     allocation_manager: OnlyPositionAllocationManager,
     position_reservation_manager: OnlyPositionReservationManager,
     settlement_authority: OnlySettlementAuthority,
-    fee_manager: OnlyFeeManager,
+    fee_application_ledger: OnlyFeeApplicationLedger,
     order_fee_accrual_manager: OnlyOrderFeeAccrualManager,
     account_manager: OnlyAccountManager,
     ledger_manager: OnlyStrategyLedgerManager,
@@ -940,8 +927,8 @@ def only_create_generic_t0_execution_projection_targets(
         OnlyPositionExecutionProjectionTarget(position_manager, applied_ledger),
         OnlyAllocationExecutionProjectionTarget(allocation_manager, applied_ledger),
         OnlySettlementExecutionProjectionTarget(settlement_authority, applied_ledger),
-        OnlyFeeExecutionProjectionTarget(fee_manager, applied_ledger),
-        OnlyOrderFeeAccrualExecutionProjectionTarget(order_fee_accrual_manager, applied_ledger),
+        OnlyFeeApplicationProjectionTarget(fee_application_ledger, applied_ledger),
+        OnlyOrderFeeAccrualProjectionTarget(order_fee_accrual_manager, applied_ledger),
         OnlyAccountExecutionProjectionTarget(account_manager, applied_ledger),
         OnlyStrategyLedgerExecutionProjectionTarget(ledger_manager, applied_ledger),
         OnlyAccountCashReservationExecutionProjectionTarget(account_manager, applied_ledger),

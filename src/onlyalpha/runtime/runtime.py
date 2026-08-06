@@ -74,14 +74,9 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
-from onlyalpha.fee.manager import OnlyFeeManager
-from onlyalpha.fee.resolver import OnlyFeeResolver, OnlyFeeResolverConfig
-from onlyalpha.fee.schedules import (
-    OnlyBrokerFeeScheduleRegistry,
-    OnlyMarketFeeScheduleRegistry,
-    only_builtin_broker_fee_schedule_registry,
-    only_builtin_market_fee_schedule_registry,
-)
+from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
+from onlyalpha.fee.packs import OnlyFeePolicyPack
+from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
@@ -202,13 +197,7 @@ class OnlyRuntimeAssemblyConfig:
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
     market_rule_engine: OnlyMarketRuleEngine | None = None
-    fee_resolver_config: OnlyFeeResolverConfig = OnlyFeeResolverConfig()
-    market_fee_schedules: OnlyMarketFeeScheduleRegistry = field(
-        default_factory=only_builtin_market_fee_schedule_registry
-    )
-    broker_fee_schedules: OnlyBrokerFeeScheduleRegistry = field(
-        default_factory=only_builtin_broker_fee_schedule_registry
-    )
+    fee_policy_pack: OnlyFeePolicyPack | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -291,7 +280,7 @@ class OnlyRuntimeServices:
     strategy_ledger_query: OnlyStrategyLedgerQueryService
     settlement_authority: OnlySettlementAuthority
     margin_manager: OnlyMarginManager
-    fee_manager: OnlyFeeManager
+    fee_application_ledger: OnlyFeeApplicationLedger
     strategy_valuation_service: OnlyStrategyValuationService
     account_manager: OnlyAccountManager
     account_performance_projector: OnlyAccountPerformanceProjector
@@ -427,13 +416,11 @@ class OnlyRuntimeAccountCashReservationAdapter:
         currency: OnlyCurrency,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
         reference_price: Callable[[OnlyOrderSnapshot], OnlyPrice | None],
-        fee_resolver: OnlyFeeResolver,
     ) -> None:
         self._manager = manager
         self._currency = currency
         self._instruments = instruments
         self._reference_price = reference_price
-        self._fee_resolver = fee_resolver
         self._reservations: dict[OnlyOrderId, OnlyAccountReservationId] = {}
 
     def reserve(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> None:
@@ -455,7 +442,11 @@ class OnlyRuntimeAccountCashReservationAdapter:
             (price.value * order.quantity.value * instrument.contract_multiplier.value).quantize(quantum),
             self._currency,
         )
-        estimated_fee = self._fee_resolver.estimate_order(order, price, timestamp).reservation_fee
+        if order.funding_plan is None:
+            raise ValueError("ORDER_FUNDING_PLAN_REQUIRED")
+        estimated_fee = order.funding_plan.fee_reservation
+        if order.funding_plan.principal_reservation != amount:
+            raise ValueError("ORDER_FUNDING_PLAN_PRINCIPAL_CONFLICT")
         reservation_id = OnlyAccountReservationId(f"ARESV-{order.runtime_id}-{order.order_id}")
         self._manager.reserve_cash(
             OnlyAccountReservation(
@@ -572,7 +563,8 @@ class OnlyRuntime:
         self._account_query = OnlyAccountQueryService(self._account_manager)
         self._settlement_authority = OnlySettlementAuthority()
         self._margin_manager = OnlyMarginManager(OnlyRuntimeId(str(config.runtime_id)))
-        self._fee_manager = OnlyFeeManager()
+        self._fee_application_ledger = OnlyFeeApplicationLedger()
+        self._fee_reconciliation_risk_gate = OnlyFeeReconciliationRiskGate()
 
     @property
     def runtime_id(self) -> str:
@@ -647,8 +639,12 @@ class OnlyRuntime:
         return self._margin_manager
 
     @property
-    def fee_manager(self) -> OnlyFeeManager:
-        return self._fee_manager
+    def fee_application_ledger(self) -> OnlyFeeApplicationLedger:
+        return self._fee_application_ledger
+
+    @property
+    def fee_reconciliation_risk_gate(self) -> OnlyFeeReconciliationRiskGate:
+        return self._fee_reconciliation_risk_gate
 
     @property
     def clock(self) -> OnlyClock:

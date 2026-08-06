@@ -21,8 +21,6 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
-from onlyalpha.fee.models import OnlyFeeConfigurationMode
-from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
 from onlyalpha.market.runtime_rules import (
     OnlyMarketRuleEngine,
@@ -151,13 +149,10 @@ class OnlyPaperRuntimeFactory:
                 broker_gateway_id=None,
                 account_initial_cash=account.initial_cash,
                 market_rule_engine=market_rules,
-                fee_resolver_config=OnlyFeeResolverConfig(
-                    market_mode=OnlyFeeConfigurationMode.NONE,
-                    broker_mode=OnlyFeeConfigurationMode.NONE,
-                    broker_id="paper-shadow",
+                fee_policy_pack=components.fee_policy_packs.require(
+                    config.market.fees.pack_id,
+                    config.market.fees.pack_version,
                 ),
-                market_fee_schedules=components.market_fee_schedules,
-                broker_fee_schedules=components.broker_fee_schedules,
             )
             persistence = components.runtime_persistence_stores.create(
                 OnlyRuntimePersistenceStoreCreateRequest(

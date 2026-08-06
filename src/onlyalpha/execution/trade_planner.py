@@ -13,7 +13,8 @@ from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, O
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity, OnlyRate
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeComponent, OnlyFeeType
+from onlyalpha.fee.application import OnlyFeeApplicationComponent, OnlyFeeApplicationInstruction
+from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
     OnlyPositionMode,
@@ -152,19 +153,23 @@ class OnlyTradeExecutionTransactionPlanner:
 
     def _reduce(self, context: OnlyTradeExecutionPlanningContext) -> _OnlyTradePlan:
         closing = context.position_scope.position_effect is OnlyPositionEffect.CLOSE
-        trade_without_fee = replace(
-            self._planned_trade(context),
-            authoritative_fee=_money(Decimal(0), context.fee_instruction.fee_breakdown.currency),
-        )
+        trade_without_fee = self._planned_trade(context)
         order = OnlyOrderTradeReducer().reduce(context.order_before, trade_without_fee, projection_sequence=1)
+        cumulative_notional = (
+            trade_without_fee.gross_notional
+            if context.order_fee_accrual_before is None
+            else context.order_fee_accrual_before.cumulative_fill_notional + trade_without_fee.gross_notional
+        )
         fee_accrual = OnlyOrderFeeAccrualTradeReducer().reduce(
             context.order_fee_accrual_before,
-            context.fee_instruction,
+            context.fee_assessment,
             trade_without_fee,
+            cumulative_fill_quantity=order.after.filled_quantity,
+            cumulative_fill_notional=cumulative_notional,
+            order_fixed_policy_fingerprint=context.fee_assessment.binding.fingerprint,
             projection_sequence=5,
         )
-        trade = replace(trade_without_fee, authoritative_fee=fee_accrual.incremental_total)
-        incremental_fee_instruction = replace(context.fee_instruction, fee_breakdown=fee_accrual.incremental_breakdown)
+        trade = replace(trade_without_fee, fee_application=fee_accrual.application)
         close_authority = _close_cost_authority(context, trade) if closing else None
         position = OnlyPositionTradeReducer().reduce(
             context.position_before,
@@ -195,7 +200,7 @@ class OnlyTradeExecutionTransactionPlanner:
         )
         fee = OnlyFeeTradeReducer().reduce(
             context.fee_before,
-            incremental_fee_instruction,
+            fee_accrual.application,
             trade.instrument_id,
             record_sequence=context.fee_record_sequence,
             projection_sequence=6,
@@ -236,7 +241,7 @@ class OnlyTradeExecutionTransactionPlanner:
             order.terminal_fill,
             projection_sequence=10 if closing else 11,
         )
-        currency = trade.authoritative_fee.currency
+        currency = trade.gross_notional.currency
         quantum = Decimal(1).scaleb(-currency.precision)
         position_market_value = _money(
             (context.valuation_price.value * position.after.total_quantity.value * trade.multiplier.value).quantize(
@@ -362,7 +367,7 @@ class OnlyTradeExecutionTransactionPlanner:
         fact = self._fact(
             context,
             trade,
-            incremental_fee_instruction,
+            fee_accrual.application,
             order.after,
             position,
             allocation,
@@ -382,7 +387,7 @@ class OnlyTradeExecutionTransactionPlanner:
     def _planned_trade(context: OnlyTradeExecutionPlanningContext) -> OnlyPlannedTrade:
         update = context.update
         order = context.order_before
-        currency = context.fee_instruction.fee_breakdown.currency
+        currency = context.fee_assessment.total_charges.currency
         notional = _money(
             update.fill.price.value * update.fill.quantity.value * context.contract_multiplier.value,
             currency,
@@ -414,7 +419,7 @@ class OnlyTradeExecutionTransactionPlanner:
             context.contract_multiplier,
             notional,
             notional if context.trade_instruction.cash_instruction.settle_notional else zero,
-            context.fee_instruction.fee_breakdown.total,
+            None,
             update.fill,
             update.fill.liquidity_side,
             update.ts_event,
@@ -442,7 +447,6 @@ class OnlyTradeExecutionTransactionPlanner:
         ledger: object,
         close_authority: OnlyAttributedCloseCostAuthority | None,
     ) -> OnlyCommittedExecutionFactDraft:
-        from onlyalpha.fee.models import OnlyFeeInstruction
         from onlyalpha.transaction.projection import OnlySettlementExecutionState
 
         from .execution_state import OnlyOrderExecutionState
@@ -465,7 +469,7 @@ class OnlyTradeExecutionTransactionPlanner:
         assert isinstance(settlement_after, OnlySettlementExecutionState)
         assert isinstance(account, OnlyAccountTradeReduction)
         assert isinstance(ledger, OnlyStrategyLedgerTradeReduction)
-        assert isinstance(fee, OnlyFeeInstruction)
+        assert isinstance(fee, OnlyFeeApplicationInstruction)
         assert isinstance(fee_accrual, OnlyOrderFeeAccrualTradeReduction)
         assert account_reservation is None or isinstance(account_reservation, OnlyAccountCashReservationTradeReduction)
         assert strategy_reservation is None or isinstance(
@@ -474,18 +478,19 @@ class OnlyTradeExecutionTransactionPlanner:
         assert position_reservation is None or isinstance(position_reservation, OnlyPositionReservationTradeReduction)
         assert isinstance(risk_reservation, OnlyRiskReservationTradeReduction)
         update = context.update
-        components = fee.fee_breakdown.components
-        currency = fee.fee_breakdown.currency
+        components = fee.components
+        currency = fee.total_charges.currency
         zero = _money(Decimal(0), currency)
-        market_components = tuple(item for item in components if item.authority is not OnlyFeeAuthority.BROKER)
-        broker_components = tuple(item for item in components if item.authority is OnlyFeeAuthority.BROKER)
+        market_components = tuple(item for item in components if item.identity.authority is not OnlyFeeAuthority.BROKER)
+        broker_components = tuple(item for item in components if item.identity.authority is OnlyFeeAuthority.BROKER)
         market_fee = _sum_fee(currency, market_components)
         broker_fee = _sum_fee(currency, broker_components)
-        tax = _sum_fee(currency, tuple(item for item in components if item.fee_type is OnlyFeeType.STAMP_DUTY))
+        tax = _sum_fee(currency, tuple(item for item in components if item.identity.fee_type is OnlyFeeType.STAMP_DUTY))
         commission = _sum_fee(
-            currency, tuple(item for item in components if item.fee_type is OnlyFeeType.BROKER_COMMISSION)
+            currency,
+            tuple(item for item in components if item.identity.fee_type is OnlyFeeType.BROKER_COMMISSION),
         )
-        other = _money(fee.fee_breakdown.total.amount - tax.amount - commission.amount, currency)
+        other = _money(fee.total_charges.amount - tax.amount - commission.amount, currency)
         direction = Decimal(1) if trade.side is OnlyOrderSide.BUY else Decimal(-1)
         slippage = None
         if trade.fill.reference_price is not None:
@@ -549,26 +554,26 @@ class OnlyTradeExecutionTransactionPlanner:
             contract_multiplier=trade.multiplier,
             gross_notional=trade.gross_notional,
             settled_notional=trade.settled_notional,
-            authoritative_fee_total=trade.authoritative_fee,
+            fee_total_charges=fee.total_charges,
+            fee_total_rebates=fee.total_rebates,
+            fee_signed_cash_effect=fee.signed_cash_effect,
             market_fee=market_fee,
             broker_fee=broker_fee,
             tax=tax,
             commission=commission,
             other_fee=other,
-            reported_broker_fee=trade.fill.reported_fee,
-            fee_reporting_mode=trade.fill.fee_reporting_mode,
             reference_price=trade.fill.reference_price,
             slippage=slippage,
             realized_pnl_delta=position.realized_pnl_delta,
             cash_delta=account.cash_delta,
-            fee_instruction_id=fee.instruction_id,
-            fee_authority="+".join(sorted({item.authority.value for item in components})) or "NONE",
-            fee_status=fee.fee_breakdown.status.value,
+            fee_application_id=fee.application_id,
+            fee_authority="+".join(sorted({item.identity.authority.value for item in components})) or "NONE",
+            fee_status=fee.local_finality.value,
             market_fee_schedule_ids=_schedule_values(market_components, "schedule_id"),
             market_fee_schedule_versions=_schedule_values(market_components, "schedule_version"),
             broker_fee_schedule_ids=_schedule_values(broker_components, "schedule_id"),
             broker_fee_schedule_versions=_schedule_values(broker_components, "schedule_version"),
-            fee_breakdown=fee.fee_breakdown,
+            fee_application=fee,
             market_profile_id=identity.profile_id,
             market_profile_version=identity.profile_version,
             compiled_rule_fingerprint=identity.compiled_rules_fingerprint,
@@ -596,8 +601,10 @@ class OnlyTradeExecutionTransactionPlanner:
             ledger_cash_delta=ledger.cash_delta,
             ledger_fee_delta=ledger.fee_delta,
             ledger_realized_pnl_delta=position.realized_pnl_delta,
-            incremental_fee_total=fee_accrual.incremental_total,
-            order_cumulative_fee_after=fee_accrual.after.cumulative_charged_fee,
+            incremental_fee_charges=fee.total_charges,
+            incremental_fee_rebates=fee.total_rebates,
+            order_cumulative_fee_charges_after=fee_accrual.after.cumulative_charges,
+            order_cumulative_fee_rebates_after=fee_accrual.after.cumulative_rebates,
             account_reservation_consumed_delta=(
                 zero if account_reservation is None else account_reservation.consumed_delta
             ),
@@ -686,7 +693,7 @@ class OnlyTradeExecutionTransactionPlanner:
         order = context.order_before
         scope = context.position_scope
         instruction = context.trade_instruction
-        fee = context.fee_instruction
+        fee = context.fee_assessment
         closing = scope.position_effect is OnlyPositionEffect.CLOSE
         if instruction.compiled_identity.profile_id != _PROFILE_ID:
             _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE, "only GENERIC_T0_CASH is supported")
@@ -803,7 +810,7 @@ class OnlyTradeExecutionTransactionPlanner:
         settlement = instruction.settlement_schedule
         expected_notional = _money(
             update.fill.price.value * update.fill.quantity.value * context.contract_multiplier.value,
-            fee.fee_breakdown.currency,
+            fee.total_charges.currency,
         )
         if (
             position_instruction.instrument_id != str(order.instrument_id)
@@ -817,14 +824,14 @@ class OnlyTradeExecutionTransactionPlanner:
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Market instruction scope disagrees")
         if (
-            fee.runtime_id != str(update.runtime_id)
-            or fee.account_id != str(update.account_id)
-            or fee.cluster_id != str(order.cluster_id)
-            or fee.order_id != str(order.order_id)
-            or fee.trade_id != str(update.fill.trade_id)
+            fee.subject.runtime_id != update.runtime_id
+            or fee.subject.account_id != update.account_id
+            or fee.subject.cluster_id != order.cluster_id
+            or fee.subject.order_id != order.order_id
+            or fee.trade_id != update.fill.trade_id
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, "Fee instruction scope disagrees")
-        currency = fee.fee_breakdown.currency
+        currency = fee.total_charges.currency
         monies: list[OnlyMoney | None] = [
             context.account_before.ledger_cash,
             context.strategy_ledger_before.ledger_cash,
@@ -858,7 +865,7 @@ class OnlyTradeExecutionTransactionPlanner:
         expected_cash = expected_notional.amount if closing else -expected_notional.amount
         if (
             not instruction.cash_instruction.settle_notional
-            or instruction.cash_instruction.amount != expected_cash
+            or _money(instruction.cash_instruction.amount, currency).amount != expected_cash
             or instruction.cash_instruction.available_on != settlement.cash_trade_available_on
         ):
             _fail(
@@ -874,8 +881,8 @@ class OnlyTradeExecutionTransactionPlanner:
                 "Settlement before authority belongs to another instruction",
             )
         if context.fee_before is not None and (
-            context.fee_before.instruction.instruction_id != fee.instruction_id
-            or context.fee_before.instruction.idempotency_key != fee.idempotency_key
+            context.fee_before.application.trade_id != fee.trade_id
+            or context.fee_before.application.subject != fee.subject
         ):
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH,
@@ -1120,9 +1127,9 @@ def _settlement_instruction(
     schedule = context.trade_instruction.settlement_schedule
     cash_credit = trade.side is OnlyOrderSide.SELL
     account_amount = OnlyMoney(
-        trade.gross_notional.amount - trade.authoritative_fee.amount
+        trade.gross_notional.amount - trade.fee_charges.amount + trade.fee_rebates.amount
         if cash_credit
-        else trade.gross_notional.amount + trade.authoritative_fee.amount,
+        else trade.gross_notional.amount + trade.fee_charges.amount - trade.fee_rebates.amount,
         trade.gross_notional.currency,
     )
     net_cash_flow = account_amount if cash_credit else OnlyMoney(-account_amount.amount, account_amount.currency)
@@ -1226,11 +1233,11 @@ def _trade_instruction_id(context: OnlyTradeExecutionPlanningContext) -> str:
     return f"TINSTR-{hashlib.sha256(authority.encode('utf-8')).hexdigest()}"
 
 
-def _schedule_values(components: tuple[OnlyFeeComponent, ...], field: str) -> tuple[str, ...]:
-    return tuple(sorted({value for item in components if (value := getattr(item, field)) is not None}))
+def _schedule_values(components: tuple[OnlyFeeApplicationComponent, ...], field: str) -> tuple[str, ...]:
+    return tuple(sorted(str(getattr(item.identity, field)) for item in components))
 
 
-def _sum_fee(currency: OnlyCurrency, components: tuple[OnlyFeeComponent, ...]) -> OnlyMoney:
+def _sum_fee(currency: OnlyCurrency, components: tuple[OnlyFeeApplicationComponent, ...]) -> OnlyMoney:
     return _money(sum((item.amount.amount for item in components), Decimal(0)), currency)
 
 

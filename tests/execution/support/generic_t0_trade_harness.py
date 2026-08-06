@@ -13,9 +13,6 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.execution import (
     OnlyAllocationCreationAuthority,
-    OnlyFeeExecutionState,
-    OnlyFeeInstructionReplay,
-    OnlyFeeRecordReplay,
     OnlyPositionCreationAuthority,
     OnlyPreparedRuntimeTransaction,
     OnlyRuntimeProjection,
@@ -36,12 +33,11 @@ from onlyalpha.execution import (
     only_strategy_ledger_execution_state,
 )
 from onlyalpha.execution.authority_state import only_settlement_execution_state
-from onlyalpha.fee import OnlyFeeConfigurationMode
-from onlyalpha.fee.resolver import OnlyFeeResolverConfig
 from onlyalpha.market.models import OnlyMarketPositionMode, OnlyMarketProfileId
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.position.enums import OnlyPositionMode
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
+from onlyalpha.transaction.projection import OnlyFeeApplicationState
 from tests.integration_demo.environment import DAY_ONE, OnlyIntegrationEnvironment
 
 from .manager_authority_digest import OnlyTestRuntimeAuthorityDigest, only_test_runtime_authority_digest
@@ -279,6 +275,11 @@ def only_test_real_trade_planning_context(
         else OnlyPositionMode.NETTING
     )
     scope = processor._position_scope_resolver.resolve_trade(order, instruction, position_mode)
+    return runtime._build_trade_execution_planning_context(
+        update,
+        processor._processing_sequence + 1,
+        scope,
+    )
     fee_instruction = processor._resolve_fee_instruction(update, order, scope)
     position_before_snapshot = runtime.position_manager.get_snapshot(scope.position_key)
     allocation_before_snapshot = (
@@ -400,7 +401,7 @@ def only_test_real_trade_planning_context(
             0 if scope.allocation_key is None else runtime.allocation_manager._cycles.get(scope.allocation_key, 0)
         ),
         settlement_record_sequence=runtime.settlement_authority.sequence_head,
-        fee_record_sequence=runtime.fee_manager.sequence_head,
+        fee_record_sequence=runtime.fee_application_ledger.sequence_head,
         account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
         ledger_equity_sequence=runtime.strategy_ledger_manager.equity_sequence_head,
         account_external_cash_flow=(
@@ -441,36 +442,21 @@ def only_test_legacy_projection_states(
         if item.instruction.trade_id == context.update.fill.trade_id
     )
     settlement = only_settlement_execution_state(settlement_authority)
-    fee_records = tuple(
-        OnlyFeeRecordReplay(
-            item.fee_record_id,
-            item.instruction_id,
-            item.account_id,
-            item.order_id,
-            item.trade_id,
-            OnlyMoney(item.charged, account.base_currency),
-            item.fee_type,
-        )
-        for item in runtime.fee_manager.records
-        if item.instruction_id == context.fee_instruction.instruction_id
+    application = next(
+        item
+        for item in runtime.fee_application_ledger._instructions.values()
+        if item.trade_id == context.update.fill.trade_id
     )
-    fee_state = OnlyFeeExecutionState(
-        OnlyFeeInstructionReplay(
-            context.fee_instruction.instruction_id,
-            context.fee_instruction.runtime_id,
-            context.fee_instruction.cluster_id,
-            context.fee_instruction.account_id,
-            context.fee_instruction.order_id,
-            context.fee_instruction.trade_id,
-            context.fee_instruction.calculation_source,
-            context.fee_instruction.idempotency_key,
-            OnlyTimestamp.from_datetime(context.fee_instruction.created_at),
-        ),
+    fee_records = tuple(
+        item for item in runtime.fee_application_ledger.records if item.application_id == application.application_id
+    )
+    fee_state = OnlyFeeApplicationState(
+        application,
         fee_records,
-        context.fee_instruction.fee_breakdown.total,
-        context.fee_instruction.fee_breakdown,
+        application.total_charges,
+        application.total_rebates,
         1,
-        runtime.fee_manager.sequence_head,
+        runtime.fee_application_ledger.sequence_head,
     )
     valuation_time = account.valuation_time or account.updated_at
     return (
@@ -482,7 +468,7 @@ def only_test_legacy_projection_states(
             OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
             runtime.order_fee_accrual_manager.get(order.order_id),
         ),
-        (OnlyRuntimeProjectionComponent.FEE, fee_state),
+        (OnlyRuntimeProjectionComponent.FEE_LEDGER, fee_state),
         (OnlyRuntimeProjectionComponent.ACCOUNT, only_account_execution_state(account)),
         (OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, only_strategy_ledger_execution_state(ledger)),
         (
@@ -521,12 +507,8 @@ def only_test_projection_after(projection: OnlyRuntimeProjection) -> object:
 
 
 def _environment(scenario: OnlyTestGenericT0Scenario) -> OnlyIntegrationEnvironment:
-    fee_config = OnlyFeeResolverConfig(
-        market_mode=(OnlyFeeConfigurationMode.DEFAULT if scenario.fee_enabled else OnlyFeeConfigurationMode.NONE)
-    )
     return OnlyIntegrationEnvironment(
         market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
-        fee_resolver_config=fee_config,
         virtual_broker=scenario.virtual_broker,
     )
 

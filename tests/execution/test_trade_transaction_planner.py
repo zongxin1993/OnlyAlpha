@@ -11,7 +11,7 @@ def test_generic_t0_buy_open_builds_complete_prepared_transaction() -> None:
         OnlyRuntimeProjectionComponent.ALLOCATION,
         OnlyRuntimeProjectionComponent.SETTLEMENT,
         OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
-        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.FEE_LEDGER,
         OnlyRuntimeProjectionComponent.ACCOUNT,
         OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
         OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,

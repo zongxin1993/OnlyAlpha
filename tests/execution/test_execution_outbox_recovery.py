@@ -1,23 +1,17 @@
-from datetime import UTC, datetime, time
-from decimal import Decimal
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
 
-from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
-from onlyalpha.domain.enums import OnlyRuntimeMode, OnlySessionType
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyEngineId, OnlyRuntimeId, OnlyVenueId
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.execution import (
     OnlyExecutionOutboxPublisher,
 )
-from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.events import OnlyRuntimeEventRouter, OnlyRuntimeRecoveryEventGate
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore, OnlyRuntimePersistenceStorePort
-from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
@@ -95,25 +89,9 @@ def test_mark_published_failure_retries_same_event_without_reprojecting() -> Non
 
 
 def test_recovered_outbox_events_are_dispatched_before_runtime_started() -> None:
-    runtime_id = OnlyRuntimeId("runtime")
-    currency = OnlyCurrency("CNY", 2)
-    calendar = OnlyTradingCalendar(
-        OnlyCalendarId("XSHG"),
-        OnlyVenueId("XSHG"),
-        OnlyTimeZone("Asia/Shanghai"),
-        (OnlyTradingSession("day", time(9, 30), time(15), OnlySessionType.CONTINUOUS),),
-    )
-    runtime = OnlyBacktestRuntime(
-        OnlyRuntimeAssemblyConfig(
-            OnlyEngineId("engine"),
-            runtime_id,
-            OnlyRuntimeMode.BACKTEST,
-            account_initial_cash=OnlyMoney(Decimal("1000000.00"), currency),
-        ),
-        calendar,
-        datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
-        runtime_persistence_store=OnlyInMemoryRuntimePersistenceStore(),
-    )
+    from tests.runtime_support.common import only_demo_runtime
+
+    runtime = only_demo_runtime("runtime")
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = cast(OnlyRuntimePersistenceStorePort, runtime._services.execution_transaction_query)
     committed_at = OnlyTimestamp.from_datetime(runtime.clock.now_utc())

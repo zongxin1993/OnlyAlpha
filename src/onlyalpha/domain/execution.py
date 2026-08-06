@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Self
 
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
@@ -33,7 +32,8 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
-from onlyalpha.fee.models import OnlyBrokerFeeReportingMode
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 
 
 def _freeze_metadata(metadata: Mapping[str, str]) -> Mapping[str, str]:
@@ -120,9 +120,6 @@ class OnlyOrderFill(OnlyDomainModel):
     ts_init: OnlyTimestamp
     venue_trade_id: OnlyVenueTradeId | None = None
     venue_order_id: OnlyVenueOrderId | None = None
-    reported_fee: OnlyMoney | None = None
-    fee_reporting_mode: OnlyBrokerFeeReportingMode = OnlyBrokerFeeReportingMode.NONE
-    fee_external_reference: str | None = None
     liquidity_side: OnlyLiquiditySide = OnlyLiquiditySide.UNKNOWN
     external_sequence: int | None = None
     external_event_id: str | None = None
@@ -143,6 +140,8 @@ class OnlyOrderFill(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderSnapshot(OnlyDomainModel):
+    schema_version = 2
+
     order_id: OnlyOrderId
     request_id: OnlyOrderRequestId
     client_order_id: OnlyClientOrderId
@@ -183,6 +182,9 @@ class OnlyOrderSnapshot(OnlyDomainModel):
     cumulative_price_quantity: Decimal = Decimal(0)
     last_trade_id: OnlyTradeId | None = None
     historical_fill_identity_missing: bool = False
+    fee_policy_binding: OnlyOrderFeePolicyBinding | None = None
+    fee_estimate: OnlyOrderFeeEstimate | None = None
+    funding_plan: OnlyOrderFundingPlan | None = None
 
     def __post_init__(self) -> None:
         if self.version < 1:
@@ -214,39 +216,16 @@ class OnlyOrderSnapshot(OnlyDomainModel):
                 raise OnlyValidationError("legacy missing fill identity requires one completed whole fill")
         elif (self.last_trade_id is None) != (self.fill_count == 0):
             raise OnlyValidationError("last_trade_id presence must agree with fill_count")
+        contracts = (self.fee_policy_binding, self.fee_estimate, self.funding_plan)
+        if any(item is not None for item in contracts) and any(item is None for item in contracts):
+            raise OnlyValidationError("Order fee contract must be installed atomically")
+        if self.fee_policy_binding is not None:
+            if self.fee_policy_binding.order_id != self.order_id or self.funding_plan is None:
+                raise OnlyValidationError("Order fee contract scope mismatch")
+            if self.funding_plan.order_id != self.order_id:
+                raise OnlyValidationError("Order funding plan scope mismatch")
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> Self:
-        """Read pre-PR4.3.1 whole-fill snapshots without rewriting history."""
-
-        if "fill_count" in payload:
-            return super(OnlyOrderSnapshot, cls).from_dict(payload)
-        compatible = dict(payload)
-        filled_payload = payload.get("filled_quantity")
-        average_payload = payload.get("average_fill_price")
-        if not isinstance(filled_payload, Mapping):
-            return super(OnlyOrderSnapshot, cls).from_dict(payload)
-        filled_value = Decimal(str(filled_payload.get("value", "0")))
-        if filled_value == 0:
-            compatible.update(
-                fill_count=0,
-                cumulative_price_quantity="0",
-                last_trade_id=None,
-                historical_fill_identity_missing=False,
-            )
-        else:
-            if not isinstance(average_payload, Mapping):
-                return super(OnlyOrderSnapshot, cls).from_dict(payload)
-            average_value = Decimal(str(average_payload.get("value")))
-            compatible.update(
-                fill_count=1,
-                cumulative_price_quantity=str(average_value * filled_value),
-                last_trade_id=None,
-                historical_fill_identity_missing=True,
-            )
-        return super(OnlyOrderSnapshot, cls).from_dict(compatible)
 
 
 @dataclass(frozen=True, slots=True)

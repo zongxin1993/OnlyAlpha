@@ -31,6 +31,7 @@ from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.publisher import OnlyNoOpRiskEventPublisher
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.views import OnlyInstrumentRiskMappingView
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 from ..runtime_support.common import only_demo_runtime
 
@@ -111,6 +112,7 @@ def created_order(order_manager: OnlyOrderManager, order_request: OnlyOrderReque
         OnlyClusterId("cluster-a"),
         OnlyAccountId("account"),
         OnlyTimestamp.from_unix_nanos(1),
+        only_test_zero_fee_contract,
     )
 
 

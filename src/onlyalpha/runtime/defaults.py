@@ -7,9 +7,11 @@ from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 from onlyalpha.factor.factory import OnlyFactorFactory
-from onlyalpha.fee.schedules import (
-    only_builtin_broker_fee_schedule_registry,
-    only_builtin_market_fee_schedule_registry,
+from onlyalpha.fee.packs import (
+    OnlyFeePolicyPackRegistry,
+    only_generic_crypto_spot_fee_pack,
+    only_generic_margin_futures_fee_pack,
+    only_generic_t0_cash_fee_pack,
 )
 from onlyalpha.indicator import only_default_indicator_factories
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
@@ -61,6 +63,13 @@ def only_default_engine_services(
     runtimes.register(OnlyLiveRuntimeFactory())
     runtimes.register(OnlyShadowRuntimeFactory())
     runtimes.register(OnlyResearchRuntimeFactory())
+    fee_packs = OnlyFeePolicyPackRegistry()
+    for pack in (
+        only_generic_t0_cash_fee_pack(),
+        only_generic_margin_futures_fee_pack(),
+        only_generic_crypto_spot_fee_pack(),
+    ):
+        fee_packs.register(pack)
     assembler = OnlyEngineRunAssembler(
         runtimes,
         OnlyComponentFactoryRegistries(
@@ -69,8 +78,7 @@ def only_default_engine_services(
             clusters,
             only_builtin_market_profile_registry(),
             OnlyMarketRuleCompiler(),
-            only_builtin_market_fee_schedule_registry(),
-            only_builtin_broker_fee_schedule_registry(),
+            fee_packs,
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
         ),
     )

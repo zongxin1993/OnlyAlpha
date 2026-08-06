@@ -26,6 +26,8 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.order.enums import OnlyOrderApplyResult, OnlyOrderMutationType
 
 ONLY_OPEN_ORDER_STATUSES = frozenset(
@@ -103,6 +105,9 @@ class OnlyOrder:
         self._venue_trade_ids: set[str] = set()
         self._rejection: OnlyOrderRejection | None = None
         self._failure: OnlyOrderFailure | None = None
+        self._fee_policy_binding: OnlyOrderFeePolicyBinding | None = None
+        self._fee_estimate: OnlyOrderFeeEstimate | None = None
+        self._funding_plan: OnlyOrderFundingPlan | None = None
 
     @classmethod
     def restore(
@@ -164,6 +169,9 @@ class OnlyOrder:
         entity._venue_trade_ids = set(venue_trade_ids)
         entity._rejection = snapshot.rejection
         entity._failure = snapshot.failure
+        entity._fee_policy_binding = snapshot.fee_policy_binding
+        entity._fee_estimate = snapshot.fee_estimate
+        entity._funding_plan = snapshot.funding_plan
         if entity.snapshot() != snapshot:
             raise ValueError("restored Order does not reproduce committed Snapshot")
         return entity
@@ -249,9 +257,32 @@ class OnlyOrder:
             self._cumulative_price_quantity,
             self._last_trade_id,
             self._historical_fill_identity_missing,
+            self._fee_policy_binding,
+            self._fee_estimate,
+            self._funding_plan,
         )
 
+    def install_fee_contract(
+        self,
+        binding: OnlyOrderFeePolicyBinding,
+        estimate: OnlyOrderFeeEstimate,
+        funding_plan: OnlyOrderFundingPlan,
+    ) -> None:
+        current = (self._fee_policy_binding, self._fee_estimate, self._funding_plan)
+        incoming = (binding, estimate, funding_plan)
+        if any(item is not None for item in current):
+            if current != incoming:
+                raise ValueError("ORDER_FEE_BINDING_CONFLICT")
+            return
+        if binding.order_id != self._order_id or funding_plan.order_id != self._order_id:
+            raise ValueError("ORDER_FEE_BINDING_CONFLICT")
+        self._fee_policy_binding = binding
+        self._fee_estimate = estimate
+        self._funding_plan = funding_plan
+
     def mark_submitted(self, timestamp: OnlyTimestamp) -> OnlyOrderEntityResult:
+        if self._fee_policy_binding is None:
+            return self._invalid(OnlyOrderMutationType.SUBMITTED, "ORDER_FEE_BINDING_REQUIRED")
         return self._transition(
             OnlyOrderMutationType.SUBMITTED,
             {OnlyOrderStatus.CREATED},

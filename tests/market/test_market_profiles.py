@@ -3,8 +3,6 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.fee.models import OnlyFeeStatus
-from onlyalpha.fee.schedules import only_builtin_market_fee_schedule_registry
 from onlyalpha.market.models import (
     OnlyLiquidityModelType,
     OnlyMarginState,
@@ -75,20 +73,6 @@ def test_a_share_profiles_freeze_regime_and_session_boundaries() -> None:
         "CONTINUOUS",
         "CLOSING_AUCTION",
     )
-
-
-def test_a_share_profile_references_versioned_market_fee_schedule() -> None:
-    profile = only_cn_a_share_cash_profile("2025.1")
-    schedule = only_builtin_market_fee_schedule_registry().resolve(profile.market_fee_schedule_id, date(2026, 1, 5))
-    components = schedule.calculate(
-        notional=Decimal("1000"),
-        quantity=Decimal(100),
-        side=OnlyOrderSide.SELL.value,
-        offset="CLOSE",
-        liquidity_role=None,
-        status=OnlyFeeStatus.CONFIRMED,
-    )
-    assert sum((item.amount.amount for item in components), Decimal(0)) == Decimal("0.51")
 
 
 def test_shared_bar_liquidity_is_consumable_across_orders() -> None:

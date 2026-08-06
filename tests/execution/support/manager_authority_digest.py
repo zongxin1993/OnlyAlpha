@@ -42,7 +42,7 @@ def only_test_runtime_authority_digest(env: OnlyIntegrationEnvironment) -> OnlyT
     ledgers = runtime.strategy_ledger_manager
     risk = runtime.risk_service
     settlement = runtime.settlement_authority
-    fees = runtime.fee_manager
+    fees = runtime.fee_application_ledger
     processor = runtime.execution_processor
     return OnlyTestRuntimeAuthorityDigest(
         orders=_stable(vars(orders)),
@@ -120,9 +120,8 @@ def only_test_runtime_authority_digest(env: OnlyIntegrationEnvironment) -> OnlyT
         fees=_stable(
             (
                 fees.records,
-                fees._instruction_keys,
-                fees._instructions_by_key,
-                fees._instrument_by_key,
+                fees._instructions,
+                fees._instruments,
                 fees.sequence_head,
             )
         ),

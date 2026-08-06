@@ -21,7 +21,6 @@ from onlyalpha.execution import (
     OnlyTradeExecutionTransactionPlanner,
     only_capture_execution_fill_authority,
 )
-from onlyalpha.fee import OnlyFeeBreakdown, OnlyFeeStatus
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 
@@ -101,8 +100,26 @@ def _scope_mismatch(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExec
 
 def _currency(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
     usd = OnlyCurrency("USD", 2)
-    breakdown = OnlyFeeBreakdown.empty(usd, OnlyFeeStatus.CONFIRMED)
-    return replace(context, fee_instruction=replace(context.fee_instruction, fee_breakdown=breakdown))
+    assessment = context.fee_assessment
+    components = tuple(
+        replace(
+            item,
+            raw_amount=OnlyMoney(item.raw_amount.amount, usd),
+            bounded_amount=OnlyMoney(item.bounded_amount.amount, usd),
+            target_amount=OnlyMoney(item.target_amount.amount, usd),
+        )
+        for item in assessment.components
+    )
+    return replace(
+        context,
+        fee_assessment=replace(
+            assessment,
+            components=components,
+            total_charges=OnlyMoney(assessment.total_charges.amount, usd),
+            total_rebates=OnlyMoney(assessment.total_rebates.amount, usd),
+            binding=replace(assessment.binding, charge_currency=usd),
+        ),
+    )
 
 
 def _missing_before(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:

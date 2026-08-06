@@ -39,6 +39,7 @@ from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.publisher import OnlyInMemoryRiskEventPublisher
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.views import OnlyInstrumentRiskMappingView
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 
 @dataclass(slots=True)
@@ -137,6 +138,7 @@ def build_harness(instrument: OnlyEquity):
             lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
             risk,
             risk.make_evaluation_context,
+            fee_contract_factory=only_test_zero_fee_contract,
         )
         return OnlyRiskHarness(
             clock,

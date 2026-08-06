@@ -12,4 +12,4 @@ reconciliation. They are not Runtime accounting truth. Runtime remains the autho
 positions, allocations, accounts, ledgers, settlement, margin, risk, results, and audit.
 
 The plugin never calculates or reports authoritative Runtime fees. Generated fills use `reported_fee=None` and
-`fee_reporting_mode=NONE`; Core resolves local fees after accepting the Broker update.
+Broker fills carry no fee authority; Core resolves local fees after accepting the update.

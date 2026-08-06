@@ -12,7 +12,7 @@ def test_long_close_account_receives_net_proceeds_fee_and_realized_pnl_once() ->
     fact = prepared.fact_draft
 
     assert projection.after.ledger_cash - projection.before.ledger_cash == fact.net_cash_inflow
-    assert projection.after.fees - projection.before.fees == fact.authoritative_fee_total
+    assert projection.after.fees - projection.before.fees == fact.fee_total_charges - fact.fee_total_rebates
     assert projection.after.realized_pnl - projection.before.realized_pnl == fact.realized_pnl_delta
     assert fact.gross_cash_inflow.amount == Decimal("1200.00")
     assert fact.net_cash_inflow.amount == Decimal("1198.80")

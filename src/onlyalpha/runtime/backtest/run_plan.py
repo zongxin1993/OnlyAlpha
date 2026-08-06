@@ -182,7 +182,11 @@ class OnlyBacktestRunPlan:
             account_initial_equity=account_config.initial_cash,
             ledgers=ledgers,
             committed_trade_fees=tuple(
-                OnlyCommittedTradeFeeAttribution(item.trade_id, item.cluster_id, item.authoritative_fee_total)
+                OnlyCommittedTradeFeeAttribution(
+                    item.trade_id,
+                    item.cluster_id,
+                    item.fee_total_charges - item.fee_total_rebates,
+                )
                 for item in trades
             ),
             ts_event=result_time,

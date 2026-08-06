@@ -20,10 +20,10 @@ def test_multi_fill_reducers_remain_pure_and_authorities_stay_separate() -> None
     for path in reducer_paths:
         imports = _imports(path)
         assert not any("manager" in item or "store" in item or "event.bus" in item for item in imports), path
-    fee_manager = Path("src/onlyalpha/fee/manager.py").read_text(encoding="utf-8")
+    fee_ledger = Path("src/onlyalpha/fee/ledger.py").read_text(encoding="utf-8")
     accrual_manager = Path("src/onlyalpha/fee/accrual_manager.py").read_text(encoding="utf-8")
     order = Path("src/onlyalpha/order/entities.py").read_text(encoding="utf-8")
-    assert "OnlyFeeRateRule" not in fee_manager and "OnlyFeeEngine" not in fee_manager
+    assert "OnlyFeeRateRule" not in fee_ledger and "OnlyFeeEngine" not in fee_ledger
     assert "Schedule" not in accrual_manager and "OnlyFeeRateRule" not in accrual_manager
     assert "FeeAccrual" not in order
     assert OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL.value == "ORDER_FEE_ACCRUAL"

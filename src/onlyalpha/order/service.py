@@ -10,11 +10,12 @@ from onlyalpha.domain.execution import (
 )
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.enums import OnlyOrderFailureCode
 from onlyalpha.order.execution.models import OnlyExecutionCancelRequest, OnlyExecutionSubmissionOutcome
 from onlyalpha.order.execution.service import OnlyExecutionService
-from onlyalpha.order.manager import OnlyOrderManager
+from onlyalpha.order.manager import OnlyOrderFeeContractFactory, OnlyOrderManager
 from onlyalpha.order.margin_port import OnlyOrderMarginReservationPort
 from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
@@ -38,6 +39,8 @@ class OnlyOrderService:
         position_reservations: OnlyOrderPositionReservationPort | None = None,
         cash_reservations: OnlyOrderCashReservationPort | None = None,
         margin_reservations: OnlyOrderMarginReservationPort | None = None,
+        fee_contract_factory: OnlyOrderFeeContractFactory | None = None,
+        fee_reconciliation_risk_gate: OnlyFeeReconciliationRiskGate | None = None,
     ) -> None:
         self._manager = manager
         self._execution = execution
@@ -48,6 +51,8 @@ class OnlyOrderService:
         self._position_reservations = position_reservations
         self._cash_reservations = cash_reservations
         self._margin_reservations = margin_reservations
+        self._fee_contract_factory = fee_contract_factory
+        self._fee_reconciliation_risk_gate = fee_reconciliation_risk_gate
 
     def submit(
         self,
@@ -59,6 +64,8 @@ class OnlyOrderService:
         if request.expire_time is not None and request.expire_time.unix_nanos <= timestamp.unix_nanos:
             raise ValueError("Order expire_time must be later than submission time")
         account_id = request.account_id or default_account_id
+        if self._fee_reconciliation_risk_gate is not None:
+            self._fee_reconciliation_risk_gate.require_order_allowed(account_id, request.side, request.offset)
         risk_decision = self._risk_service.evaluate_order(
             request,
             self._risk_context(cluster_id, account_id, timestamp),
@@ -82,7 +89,13 @@ class OnlyOrderService:
                 message,
                 risk_decision,
             )
-        created = self._manager.create_order(request, cluster_id, account_id, timestamp)
+        created = self._manager.create_order(
+            request,
+            cluster_id,
+            account_id,
+            timestamp,
+            self._fee_contract_factory,
+        )
         if not created.changed:
             return OnlyOrderSubmitResult(
                 False,

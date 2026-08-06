@@ -1,6 +1,6 @@
 schema_version: "1.0"
 cluster: {cluster_id: tushare-daily-demo, enabled: true, runtime_type: BACKTEST, account_id: backtest-account, risk_profile_id: cn-equity-default}
-market: {profile: CN_A_SHARE_CASH}
+market: {profile: CN_A_SHARE_CASH, fees: {pack_id: GENERIC_T0_CASH_CONFORMANCE, pack_version: "1"}}
 runtime:
   start_time: "2024-12-31T16:00:00Z"
   end_time: "2025-12-31T16:00:00Z"
@@ -33,7 +33,6 @@ accounts:
 brokers:
   - gateway_id: virtual-main
     plugin: virtual
-    fees: {mode: NONE}
     extensions: {matching: {type: NEXT_BAR}, slippage: {type: NONE}}
 strategy:
   class_path: examples.strategy.macd.strategy:OnlyMacdStrategy

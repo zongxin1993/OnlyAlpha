@@ -11,6 +11,7 @@ from onlyalpha.runtime.streaming.execution import (
     OnlyExecutionSubmissionCapability,
     OnlyShadowExecutionService,
 )
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 
 def test_shadow_submit_is_suppressed_without_external_identity() -> None:
@@ -43,6 +44,7 @@ def test_shadow_suppression_fails_order_and_releases_every_reservation(
         position_reservations,
         cash_reservations,
         margin_reservations,
+        only_test_zero_fee_contract,
     )
 
     result = service.submit(order_request, OnlyClusterId("cluster-a"), OnlyAccountId("account"))

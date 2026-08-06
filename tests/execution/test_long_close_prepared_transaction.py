@@ -15,7 +15,7 @@ def test_long_close_prepared_transaction_has_fixed_projection_order_and_fact_aut
         OnlyRuntimeProjectionComponent.ALLOCATION,
         OnlyRuntimeProjectionComponent.SETTLEMENT,
         OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
-        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.FEE_LEDGER,
         OnlyRuntimeProjectionComponent.ACCOUNT,
         OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
         OnlyRuntimeProjectionComponent.POSITION_RESERVATION,

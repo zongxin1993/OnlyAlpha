@@ -116,13 +116,10 @@ def only_execution_fill_identity_from_update(update: OnlyBrokerTradeUpdate) -> s
 
 def only_execution_fill_payload_fingerprint(update: OnlyBrokerTradeUpdate) -> str:
     fill = update.fill
-    fee = fill.reported_fee
     payload: dict[str, object] = {
         "account_id": str(update.account_id),
         "external_event_id": fill.external_event_id,
         "external_sequence": fill.external_sequence,
-        "fee_external_reference": fill.fee_external_reference,
-        "fee_reporting_mode": fill.fee_reporting_mode.value,
         "gateway_id": str(update.gateway_id),
         "liquidity_side": fill.liquidity_side.value,
         "metadata": dict(fill.metadata),
@@ -137,9 +134,6 @@ def only_execution_fill_payload_fingerprint(update: OnlyBrokerTradeUpdate) -> st
             else _decimal(fill.reference_price.value, fill.reference_price.precision)
         ),
         "reference_price_precision": None if fill.reference_price is None else fill.reference_price.precision,
-        "reported_fee": None if fee is None else _decimal(fee.amount, fee.currency.precision),
-        "reported_fee_currency": None if fee is None else fee.currency.code,
-        "reported_fee_currency_precision": None if fee is None else fee.currency.precision,
         "runtime_id": str(update.runtime_id),
         "source_sequence": update.source_sequence,
         "trade_id": str(fill.trade_id),

@@ -27,7 +27,10 @@ BASE_CONFIG = ROOT / "tests" / "fixtures" / "legacy_macd" / "cluster_fast.json"
 def _config() -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load(BASE_CONFIG)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
-    payload["market"] = {"profile": "CN_A_SHARE_CASH"}
+    payload["market"] = {
+        "profile": "CN_A_SHARE_CASH",
+        "fees": {"pack_id": "GENERIC_T0_CASH_CONFORMANCE", "pack_version": "1"},
+    }
     payload["runtime"]["start_time"] = "2025-01-02T01:30:00Z"
     payload["runtime"]["end_time"] = "2025-01-13T01:30:00Z"
     instrument = payload["reference_data"]["instruments"][0]

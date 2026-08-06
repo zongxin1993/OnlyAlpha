@@ -70,9 +70,9 @@ class OnlyAccountTradeReducer:
         realized = realized_pnl_delta or OnlyMoney(Decimal(0), before.base_currency)
         cash_delta = OnlyMoney(
             (
-                trade.settled_notional.amount - trade.authoritative_fee.amount
+                trade.settled_notional.amount - trade.fee_charges.amount + trade.fee_rebates.amount
                 if closing
-                else -(trade.settled_notional.amount + trade.authoritative_fee.amount)
+                else -(trade.settled_notional.amount + trade.fee_charges.amount - trade.fee_rebates.amount)
             ),
             before.base_currency,
         )
@@ -116,7 +116,7 @@ class OnlyAccountTradeReducer:
             position_market_value=market_value,
             realized_pnl=before.realized_pnl + realized,
             unrealized_pnl=position_unrealized_pnl,
-            fees=before.fees + trade.authoritative_fee,
+            fees=before.fees + trade.fee_charges - trade.fee_rebates,
             equity=cash + market_value,
             updated_at=trade.ts_init,
             valuation_time=trade.ts_init,
@@ -142,7 +142,7 @@ class OnlyAccountTradeReducer:
             after,
             projection,
             cash_delta,
-            trade.authoritative_fee,
+            trade.fee_charges - trade.fee_rebates,
             (
                 _intent(OnlyRuntimeProjectionComponent.ACCOUNT, "ACCOUNT_TRADE_APPLIED", after),
                 _intent(OnlyRuntimeProjectionComponent.ACCOUNT, "ACCOUNT_VALUED", after),
@@ -172,9 +172,9 @@ class OnlyStrategyLedgerTradeReducer:
         realized = realized_pnl_delta or OnlyMoney(Decimal(0), currency)
         cash_delta = OnlyMoney(
             (
-                trade.settled_notional.amount - trade.authoritative_fee.amount
+                trade.settled_notional.amount - trade.fee_charges.amount + trade.fee_rebates.amount
                 if closing
-                else -(trade.settled_notional.amount + trade.authoritative_fee.amount)
+                else -(trade.settled_notional.amount + trade.fee_charges.amount - trade.fee_rebates.amount)
             ),
             currency,
         )
@@ -219,7 +219,7 @@ class OnlyStrategyLedgerTradeReducer:
             entry_sequence + 1,
         )
         cash_entries = before.cash_entries + (settlement_entry,)
-        if trade.authoritative_fee.amount:
+        if trade.fee_charges.amount or trade.fee_rebates.amount:
             cash_entries += (
                 OnlyStrategyCashEntry(
                     OnlyStrategyCashEntryId(f"SCASH-{before.ledger_id}-{entry_sequence + 2:010d}"),
@@ -227,7 +227,7 @@ class OnlyStrategyLedgerTradeReducer:
                     before.key.account_id,
                     before.key.cluster_id,
                     currency,
-                    OnlyMoney(-trade.authoritative_fee.amount, currency),
+                    OnlyMoney(trade.fee_rebates.amount - trade.fee_charges.amount, currency),
                     OnlyStrategyCashEntryType.FEE,
                     trade.order_id,
                     trade.trade_id,
@@ -261,12 +261,12 @@ class OnlyStrategyLedgerTradeReducer:
         if allocation_after.average_open_price is None and allocation_after.total_quantity.value:
             raise ValueError("open Allocation requires average price")
         fee_entries = before.fee_entries
-        if trade.authoritative_fee.amount:
+        if trade.fee_charges.amount or trade.fee_rebates.amount:
             fee_entries += (
                 OnlyStrategyFeeEntry(
                     OnlyStrategyFeeEntryId(f"SFEE-{trade.runtime_id}-{trade.trade_id}"),
                     before.key,
-                    trade.authoritative_fee,
+                    trade.fee_charges - trade.fee_rebates,
                     OnlyStrategyFeeType.COMMISSION,
                     trade.trade_id,
                     trade.order_id,
@@ -294,7 +294,7 @@ class OnlyStrategyLedgerTradeReducer:
             position_market_value=market_value,
             realized_pnl=before.realized_pnl + realized,
             unrealized_pnl=unrealized,
-            fees=before.fees + trade.authoritative_fee,
+            fees=before.fees + trade.fee_charges - trade.fee_rebates,
             equity=cash + market_value,
             cash_entries=cash_entries,
             fee_entries=fee_entries,
@@ -323,7 +323,7 @@ class OnlyStrategyLedgerTradeReducer:
             after,
             projection,
             cash_delta,
-            trade.authoritative_fee,
+            trade.fee_charges - trade.fee_rebates,
             (
                 _intent(OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, "STRATEGY_TRADE_APPLIED", after),
                 _intent(OnlyRuntimeProjectionComponent.STRATEGY_LEDGER, "STRATEGY_VALUATION_UPDATED", after),

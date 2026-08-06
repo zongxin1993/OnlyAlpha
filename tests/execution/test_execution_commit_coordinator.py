@@ -87,15 +87,15 @@ def test_same_id_with_changed_prepared_payload_is_a_transaction_conflict() -> No
 def test_missing_target_marks_projection_failed_and_hides_outbox() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = OnlyInMemoryRuntimePersistenceStore()
-    coordinator = _coordinator(store, missing=OnlyRuntimeProjectionComponent.FEE)
+    coordinator = _coordinator(store, missing=OnlyRuntimeProjectionComponent.FEE_LEDGER)
 
     result = coordinator.commit(prepared, committed_at=_COMMITTED_AT, projected_at=_PROJECTED_AT)
     persisted = store.get_by_sequence(prepared.runtime_id, 1)
 
     assert result.status is OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED
-    assert result.failure_component is OnlyRuntimeProjectionComponent.FEE
+    assert result.failure_component is OnlyRuntimeProjectionComponent.FEE_LEDGER
     assert persisted is not None and not persisted.projection_ready
-    assert persisted.projection_error == "missing projection target for FEE"
+    assert persisted.projection_error == "missing projection target for FEE_LEDGER"
     assert store.pending(prepared.runtime_id, limit=100) == ()
 
 
@@ -103,7 +103,7 @@ def test_missing_target_marks_projection_failed_and_hides_outbox() -> None:
     "missing",
     (
         OnlyRuntimeProjectionComponent.ORDER,
-        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.FEE_LEDGER,
         OnlyRuntimeProjectionComponent.RISK,
     ),
 )
@@ -153,7 +153,7 @@ def test_recovery_stops_on_first_failed_transaction() -> None:
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store = OnlyInMemoryRuntimePersistenceStore()
     store.commit(prepared, committed_at=_COMMITTED_AT)
-    coordinator = _coordinator(store, missing=OnlyRuntimeProjectionComponent.FEE)
+    coordinator = _coordinator(store, missing=OnlyRuntimeProjectionComponent.FEE_LEDGER)
 
     results = coordinator.recover_unprojected(OnlyRuntimeId("runtime"))
 

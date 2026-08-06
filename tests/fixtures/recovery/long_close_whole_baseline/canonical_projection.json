@@ -8243,16 +8243,17 @@
         "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "contract_multiplier": "1",
         "execution_id": "EXEC-ff05135f9901475b79ebf1d040d36730b4dd9d9e47e17b43e7026b243850af8b",
+        "fee_application_id": "5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669",
         "fee_breakdown": {
           "EXCHANGE_FEE": "10.00"
         },
-        "fee_instruction_id": "3827bae95f55b403d953bec2ae4e708a2553f1fae6e579980812fab4a90c6c19",
-        "fee_reporting_mode": "NONE",
+        "fee_signed_cash_effect": "-10.00",
+        "fee_total_charges": "10.00",
+        "fee_total_rebates": "0",
         "fees": "10.00",
         "instrument_id": "TESTETF.XSHG",
         "liquidity": {
-          "fee_reporting_mode": "NONE",
-          "reported_broker_fee": null,
+          "fee_application_id": "5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669",
           "side": "TAKER"
         },
         "liquidity_side": "TAKER",
@@ -8260,7 +8261,7 @@
         "margin_amount": null,
         "margin_instruction_id": null,
         "market_fee_schedule_ids": [
-          "GENERIC_T0_MARKET_FEES"
+          "GENERIC_T0_CASH_FEES"
         ],
         "market_fee_schedule_versions": [
           "1"
@@ -8277,7 +8278,6 @@
         "realized_pnl_delta": "0",
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "reference_price": "10.00",
-        "reported_broker_fee": null,
         "request_id": "macd-demo-macd-000001-buy",
         "runtime_id": "backtest-c4b4c9774ae21bc5",
         "sequence": 5,
@@ -8301,16 +8301,17 @@
         "compiled_rule_fingerprint": "6b21577be6ad8825b2604f78b8ce92a5f02f2e5c215e3549c1f513ff812a3d5f",
         "contract_multiplier": "1",
         "execution_id": "EXEC-3648783210c4098b3f0b5751363111cdf8d18edf1bbe060497007dbd0afee77b",
+        "fee_application_id": "235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7",
         "fee_breakdown": {
           "EXCHANGE_FEE": "10.00"
         },
-        "fee_instruction_id": "bf4a916766fe13b5837960666f4bf850ab3bc3daa34147b449ad26e00b11f671",
-        "fee_reporting_mode": "NONE",
+        "fee_signed_cash_effect": "-10.00",
+        "fee_total_charges": "10.00",
+        "fee_total_rebates": "0",
         "fees": "10.00",
         "instrument_id": "TESTETF.XSHG",
         "liquidity": {
-          "fee_reporting_mode": "NONE",
-          "reported_broker_fee": null,
+          "fee_application_id": "235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7",
           "side": "TAKER"
         },
         "liquidity_side": "TAKER",
@@ -8318,7 +8319,7 @@
         "margin_amount": null,
         "margin_instruction_id": null,
         "market_fee_schedule_ids": [
-          "GENERIC_T0_MARKET_FEES"
+          "GENERIC_T0_CASH_FEES"
         ],
         "market_fee_schedule_versions": [
           "1"
@@ -8335,7 +8336,6 @@
         "realized_pnl_delta": "0.00",
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "reference_price": "10.00",
-        "reported_broker_fee": null,
         "request_id": "macd-demo-macd-000002-sell",
         "runtime_id": "backtest-c4b4c9774ae21bc5",
         "sequence": 6,
@@ -8358,16 +8358,16 @@
         "authority": "MARKET",
         "charged": "10.00",
         "currency": "CNY",
-        "fee_record_id": "FEE-3827bae95f55b403d953bec2ae4e708a2553f1fae6e579980812fab4a90c6c19-00000001",
+        "fee_record_id": "FEEAPP-5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669-00000001",
         "fee_type": "EXCHANGE_FEE",
-        "idempotency_key": "fee:backtest-c4b4c9774ae21bc5:virtual-trade-00000001:CONFIRMED",
-        "instruction_id": "3827bae95f55b403d953bec2ae4e708a2553f1fae6e579980812fab4a90c6c19",
+        "idempotency_key": "5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669",
+        "instruction_id": "5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669",
         "instrument_id": "TESTETF.XSHG",
         "order_id": "backtest-c4b4c9774ae21bc5-ORDER-000001",
-        "schedule_id": "GENERIC_T0_MARKET_FEES",
+        "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
         "sequence": 54,
-        "status": "CONFIRMED",
+        "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000001"
       },
       {
@@ -8376,16 +8376,16 @@
         "authority": "MARKET",
         "charged": "10.00",
         "currency": "CNY",
-        "fee_record_id": "FEE-bf4a916766fe13b5837960666f4bf850ab3bc3daa34147b449ad26e00b11f671-00000002",
+        "fee_record_id": "FEEAPP-235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7-00000002",
         "fee_type": "EXCHANGE_FEE",
-        "idempotency_key": "fee:backtest-c4b4c9774ae21bc5:virtual-trade-00000002:CONFIRMED",
-        "instruction_id": "bf4a916766fe13b5837960666f4bf850ab3bc3daa34147b449ad26e00b11f671",
+        "idempotency_key": "235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7",
+        "instruction_id": "235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7",
         "instrument_id": "TESTETF.XSHG",
         "order_id": "backtest-c4b4c9774ae21bc5-ORDER-000002",
-        "schedule_id": "GENERIC_T0_MARKET_FEES",
+        "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
         "sequence": 55,
-        "status": "CONFIRMED",
+        "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000002"
       }
     ],
@@ -9729,6 +9729,308 @@
       "expired_at": null,
       "failed_at": null,
       "failure": null,
+      "fee_estimate": {
+        "assumptions_fingerprint": "4272f9fd50bf8d83d1a7d699afbbcc808e2ff366fa01185aaf7c7efea99c7cc3",
+        "estimated_rebate": {
+          "amount": "0",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "expected": {
+          "assessment_id": "a4dadcf984f5c54aae485b166d486f32f7d242388b5e2daee50773d3538ec554",
+          "binding": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "bound_at": {
+              "unix_nanos": 1767577080000000000
+            },
+            "charge_currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "fill_effective_schedule_ids": [
+              "GENERIC_T0_CASH_FEES"
+            ],
+            "fingerprint": "70d613cb9782866a9ee13289cee5fb898ae90eb1cbc68332eeb999faffd4db7f",
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "market_profile_id": "GENERIC_T0_CASH",
+            "market_profile_version": "1",
+            "order_fixed_schedules": [],
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "components": [
+            {
+              "bounded_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "identity": {
+                "authority": "MARKET",
+                "calculation_scope": "FILL",
+                "economic_direction": "CHARGE",
+                "fee_type": "EXCHANGE_FEE",
+                "resolution_policy": "FILL_EFFECTIVE",
+                "rule_fingerprint": "56894aaa8318355c395172f719c061f466df28d0767d165441302bcf1b71a36d",
+                "rule_id": "generic-notional-rate",
+                "schedule_fingerprint": "a72e83c1dc76252c038bd70da86a4ab2ce14c8441c2876c91db38f04be18089a",
+                "schedule_id": "GENERIC_T0_CASH_FEES",
+                "schedule_version": "1",
+                "source_id": "OnlyAlpha Generic Conformance"
+              },
+              "local_finality": "ESTIMATED",
+              "raw_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "target_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              }
+            }
+          ],
+          "local_finality": "ESTIMATED",
+          "policy_fingerprint": "27c7b17144819d35b14e759abb61a63b76d022d269fdeaf7cc19da62ff10800a",
+          "subject": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "total_charges": {
+            "amount": "10.00",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "total_rebates": {
+            "amount": "0",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "trade_id": null
+        },
+        "maximum": {
+          "assessment_id": "3ee182b24c5b43052a4495b13882d362b8257637259baa578b3dc463b699f3eb",
+          "binding": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "bound_at": {
+              "unix_nanos": 1767577080000000000
+            },
+            "charge_currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "fill_effective_schedule_ids": [
+              "GENERIC_T0_CASH_FEES"
+            ],
+            "fingerprint": "70d613cb9782866a9ee13289cee5fb898ae90eb1cbc68332eeb999faffd4db7f",
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "market_profile_id": "GENERIC_T0_CASH",
+            "market_profile_version": "1",
+            "order_fixed_schedules": [],
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "components": [
+            {
+              "bounded_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "identity": {
+                "authority": "MARKET",
+                "calculation_scope": "FILL",
+                "economic_direction": "CHARGE",
+                "fee_type": "EXCHANGE_FEE",
+                "resolution_policy": "FILL_EFFECTIVE",
+                "rule_fingerprint": "56894aaa8318355c395172f719c061f466df28d0767d165441302bcf1b71a36d",
+                "rule_id": "generic-notional-rate",
+                "schedule_fingerprint": "a72e83c1dc76252c038bd70da86a4ab2ce14c8441c2876c91db38f04be18089a",
+                "schedule_id": "GENERIC_T0_CASH_FEES",
+                "schedule_version": "1",
+                "source_id": "OnlyAlpha Generic Conformance"
+              },
+              "local_finality": "ESTIMATED",
+              "raw_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "target_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              }
+            }
+          ],
+          "local_finality": "ESTIMATED",
+          "policy_fingerprint": "27c7b17144819d35b14e759abb61a63b76d022d269fdeaf7cc19da62ff10800a",
+          "subject": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "total_charges": {
+            "amount": "10.00",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "total_rebates": {
+            "amount": "0",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "trade_id": null
+        },
+        "reservation_charge": {
+          "amount": "10.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        }
+      },
+      "fee_policy_binding": {
+        "account_id": {
+          "value": "backtest-account"
+        },
+        "bound_at": {
+          "unix_nanos": 1767577080000000000
+        },
+        "charge_currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        },
+        "cluster_id": {
+          "value": "macd-demo"
+        },
+        "fill_effective_schedule_ids": [
+          "GENERIC_T0_CASH_FEES"
+        ],
+        "fingerprint": "70d613cb9782866a9ee13289cee5fb898ae90eb1cbc68332eeb999faffd4db7f",
+        "instrument_id": {
+          "symbol": {
+            "value": "TESTETF"
+          },
+          "venue": {
+            "value": "XSHG"
+          }
+        },
+        "market_profile_id": "GENERIC_T0_CASH",
+        "market_profile_version": "1",
+        "order_fixed_schedules": [],
+        "order_id": {
+          "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+        },
+        "runtime_id": {
+          "value": "backtest-c4b4c9774ae21bc5"
+        }
+      },
       "fill_count": 1,
       "filled_at": {
         "unix_nanos": 1767577140000000000
@@ -9736,6 +10038,37 @@
       "filled_quantity": {
         "precision": 0,
         "value": "1000"
+      },
+      "funding_plan": {
+        "binding_fingerprint": "70d613cb9782866a9ee13289cee5fb898ae90eb1cbc68332eeb999faffd4db7f",
+        "estimate_fingerprint": "4272f9fd50bf8d83d1a7d699afbbcc808e2ff366fa01185aaf7c7efea99c7cc3",
+        "fee_reservation": {
+          "amount": "10.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "order_id": {
+          "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+        },
+        "principal_reservation": {
+          "amount": "10000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "total_reservation": {
+          "amount": "10010.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        }
       },
       "historical_fill_identity_missing": false,
       "instrument_id": {
@@ -9822,6 +10155,308 @@
       "expired_at": null,
       "failed_at": null,
       "failure": null,
+      "fee_estimate": {
+        "assumptions_fingerprint": "c53f2fa103a886c074122e4355f85e5652002411aa068ce3188cc17691e434c0",
+        "estimated_rebate": {
+          "amount": "0",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "expected": {
+          "assessment_id": "6f5e8ce343ecd13702edae9799dc38a522daceadb9ec31e88d11a0edf549d4b7",
+          "binding": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "bound_at": {
+              "unix_nanos": 1767577140000000000
+            },
+            "charge_currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "fill_effective_schedule_ids": [
+              "GENERIC_T0_CASH_FEES"
+            ],
+            "fingerprint": "45a50a7829567162d38aba53a2b814301ba5ff0d42cbf764eda70ea69ca3da75",
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "market_profile_id": "GENERIC_T0_CASH",
+            "market_profile_version": "1",
+            "order_fixed_schedules": [],
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "components": [
+            {
+              "bounded_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "identity": {
+                "authority": "MARKET",
+                "calculation_scope": "FILL",
+                "economic_direction": "CHARGE",
+                "fee_type": "EXCHANGE_FEE",
+                "resolution_policy": "FILL_EFFECTIVE",
+                "rule_fingerprint": "56894aaa8318355c395172f719c061f466df28d0767d165441302bcf1b71a36d",
+                "rule_id": "generic-notional-rate",
+                "schedule_fingerprint": "a72e83c1dc76252c038bd70da86a4ab2ce14c8441c2876c91db38f04be18089a",
+                "schedule_id": "GENERIC_T0_CASH_FEES",
+                "schedule_version": "1",
+                "source_id": "OnlyAlpha Generic Conformance"
+              },
+              "local_finality": "ESTIMATED",
+              "raw_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "target_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              }
+            }
+          ],
+          "local_finality": "ESTIMATED",
+          "policy_fingerprint": "27c7b17144819d35b14e759abb61a63b76d022d269fdeaf7cc19da62ff10800a",
+          "subject": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "total_charges": {
+            "amount": "10.00",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "total_rebates": {
+            "amount": "0",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "trade_id": null
+        },
+        "maximum": {
+          "assessment_id": "282d8dfb41144e5796f3ed66d42587231852845be6d07cc38495580a2fb92844",
+          "binding": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "bound_at": {
+              "unix_nanos": 1767577140000000000
+            },
+            "charge_currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "fill_effective_schedule_ids": [
+              "GENERIC_T0_CASH_FEES"
+            ],
+            "fingerprint": "45a50a7829567162d38aba53a2b814301ba5ff0d42cbf764eda70ea69ca3da75",
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "market_profile_id": "GENERIC_T0_CASH",
+            "market_profile_version": "1",
+            "order_fixed_schedules": [],
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "components": [
+            {
+              "bounded_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "identity": {
+                "authority": "MARKET",
+                "calculation_scope": "FILL",
+                "economic_direction": "CHARGE",
+                "fee_type": "EXCHANGE_FEE",
+                "resolution_policy": "FILL_EFFECTIVE",
+                "rule_fingerprint": "56894aaa8318355c395172f719c061f466df28d0767d165441302bcf1b71a36d",
+                "rule_id": "generic-notional-rate",
+                "schedule_fingerprint": "a72e83c1dc76252c038bd70da86a4ab2ce14c8441c2876c91db38f04be18089a",
+                "schedule_id": "GENERIC_T0_CASH_FEES",
+                "schedule_version": "1",
+                "source_id": "OnlyAlpha Generic Conformance"
+              },
+              "local_finality": "ESTIMATED",
+              "raw_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              },
+              "target_amount": {
+                "amount": "10.00",
+                "currency": {
+                  "code": "CNY",
+                  "currency_type": "FIAT",
+                  "precision": 2
+                }
+              }
+            }
+          ],
+          "local_finality": "ESTIMATED",
+          "policy_fingerprint": "27c7b17144819d35b14e759abb61a63b76d022d269fdeaf7cc19da62ff10800a",
+          "subject": {
+            "account_id": {
+              "value": "backtest-account"
+            },
+            "cluster_id": {
+              "value": "macd-demo"
+            },
+            "instrument_id": {
+              "symbol": {
+                "value": "TESTETF"
+              },
+              "venue": {
+                "value": "XSHG"
+              }
+            },
+            "order_id": {
+              "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+            },
+            "runtime_id": {
+              "value": "backtest-c4b4c9774ae21bc5"
+            }
+          },
+          "total_charges": {
+            "amount": "10.00",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "total_rebates": {
+            "amount": "0",
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2
+            }
+          },
+          "trade_id": null
+        },
+        "reservation_charge": {
+          "amount": "10.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        }
+      },
+      "fee_policy_binding": {
+        "account_id": {
+          "value": "backtest-account"
+        },
+        "bound_at": {
+          "unix_nanos": 1767577140000000000
+        },
+        "charge_currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        },
+        "cluster_id": {
+          "value": "macd-demo"
+        },
+        "fill_effective_schedule_ids": [
+          "GENERIC_T0_CASH_FEES"
+        ],
+        "fingerprint": "45a50a7829567162d38aba53a2b814301ba5ff0d42cbf764eda70ea69ca3da75",
+        "instrument_id": {
+          "symbol": {
+            "value": "TESTETF"
+          },
+          "venue": {
+            "value": "XSHG"
+          }
+        },
+        "market_profile_id": "GENERIC_T0_CASH",
+        "market_profile_version": "1",
+        "order_fixed_schedules": [],
+        "order_id": {
+          "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+        },
+        "runtime_id": {
+          "value": "backtest-c4b4c9774ae21bc5"
+        }
+      },
       "fill_count": 1,
       "filled_at": {
         "unix_nanos": 1767577200000000000
@@ -9829,6 +10464,37 @@
       "filled_quantity": {
         "precision": 0,
         "value": "1000"
+      },
+      "funding_plan": {
+        "binding_fingerprint": "45a50a7829567162d38aba53a2b814301ba5ff0d42cbf764eda70ea69ca3da75",
+        "estimate_fingerprint": "c53f2fa103a886c074122e4355f85e5652002411aa068ce3188cc17691e434c0",
+        "fee_reservation": {
+          "amount": "10.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "order_id": {
+          "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+        },
+        "principal_reservation": {
+          "amount": "10000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "total_reservation": {
+          "amount": "10010.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        }
       },
       "historical_fill_identity_missing": false,
       "instrument_id": {
@@ -10074,14 +10740,6 @@
       "asset_available_on": {
         "value": "2026-01-05"
       },
-      "authoritative_fee_total": {
-        "amount": "10.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
       "broker_fee": {
         "amount": "0.00",
         "currency": {
@@ -10138,8 +10796,10 @@
       "execution_id": "EXEC-ff05135f9901475b79ebf1d040d36730b4dd9d9e47e17b43e7026b243850af8b",
       "execution_sequence": 1,
       "external_event_id": "virtual-fill-00000001",
-      "fee_authority": "MARKET",
-      "fee_breakdown": {
+      "fee_application": {
+        "accrual_after_fingerprint": "ca213ffbbd02ef2aff7790c32d42538596468d8bbb7b67e9b0f9c78a4920fb77",
+        "accrual_before_fingerprint": null,
+        "application_id": "5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669",
         "components": [
           {
             "amount": {
@@ -10150,42 +10810,131 @@
                 "precision": 2
               }
             },
-            "authority": "MARKET",
-            "calculation_scope": "FILL",
-            "effective_date": "1970-01-01",
-            "fee_type": "EXCHANGE_FEE",
-            "metadata": {
-              "raw_amount": "10.00",
-              "schedule_fingerprint": "b3ca41c8a2997f2a9bcd33bf5f6a6b29f8e509915b7ff3daf8d76e12249ecc81"
+            "cumulative_applied_after": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
             },
-            "schedule_id": "GENERIC_T0_MARKET_FEES",
-            "schedule_version": "1",
-            "source_id": "OnlyAlpha",
-            "status": "CONFIRMED"
+            "cumulative_applied_before": {
+              "amount": "0",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "cumulative_raw_after": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "cumulative_target_after": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "economic_direction": "CHARGE",
+            "fill_raw_amount": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "identity": {
+              "authority": "MARKET",
+              "calculation_scope": "FILL",
+              "economic_direction": "CHARGE",
+              "fee_type": "EXCHANGE_FEE",
+              "resolution_policy": "FILL_EFFECTIVE",
+              "rule_fingerprint": "56894aaa8318355c395172f719c061f466df28d0767d165441302bcf1b71a36d",
+              "rule_id": "generic-notional-rate",
+              "schedule_fingerprint": "a72e83c1dc76252c038bd70da86a4ab2ce14c8441c2876c91db38f04be18089a",
+              "schedule_id": "GENERIC_T0_CASH_FEES",
+              "schedule_version": "1",
+              "source_id": "OnlyAlpha Generic Conformance"
+            }
           }
         ],
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
+        "idempotency_key": "fee-application:backtest-c4b4c9774ae21bc5:virtual-trade-00000001",
+        "local_finality": "MODEL_CONFIRMED",
+        "signed_cash_effect": "-10.00",
+        "subject": {
+          "account_id": {
+            "value": "backtest-account"
+          },
+          "cluster_id": {
+            "value": "macd-demo"
+          },
+          "instrument_id": {
+            "symbol": {
+              "value": "TESTETF"
+            },
+            "venue": {
+              "value": "XSHG"
+            }
+          },
+          "order_id": {
+            "value": "backtest-c4b4c9774ae21bc5-ORDER-000001"
+          },
+          "runtime_id": {
+            "value": "backtest-c4b4c9774ae21bc5"
+          }
         },
-        "status": "CONFIRMED",
-        "total": {
+        "total_charges": {
           "amount": "10.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
             "precision": 2
           }
+        },
+        "total_rebates": {
+          "amount": "0",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "trade_id": {
+          "value": "virtual-trade-00000001"
         }
       },
-      "fee_instruction_id": "3827bae95f55b403d953bec2ae4e708a2553f1fae6e579980812fab4a90c6c19",
-      "fee_reporting_mode": "NONE",
-      "fee_status": "CONFIRMED",
+      "fee_application_id": "5bb38d939a9bbeb96ba63d59ee08a498c58589a4b7e703d656b981322e5f2669",
+      "fee_authority": "MARKET",
+      "fee_signed_cash_effect": "-10.00",
+      "fee_status": "MODEL_CONFIRMED",
+      "fee_total_charges": {
+        "amount": "10.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "fee_total_rebates": {
+        "amount": "0",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
       "fill_count_after": 1,
       "fill_identity": "EFILL-ada53b97bcb2a12e521fb75d0c68fa0d75f79b777b974b94259e35211b6660e9",
       "fill_index": 1,
-      "fill_payload_fingerprint": "1cafe68e53f94c424b7199e7d15458e4c724e41fe9917f7ae64807e8677a8657",
+      "fill_payload_fingerprint": "04236a6782d305cf30003584559ccb4ba2919d90b5c85d5cfa575c35b0605b92",
       "fill_price": {
         "precision": 2,
         "value": "10.00"
@@ -10213,8 +10962,16 @@
           "precision": 2
         }
       },
-      "incremental_fee_total": {
+      "incremental_fee_charges": {
         "amount": "10.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "incremental_fee_rebates": {
+        "amount": "0",
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -10271,7 +11028,7 @@
         }
       },
       "market_fee_schedule_ids": [
-        "GENERIC_T0_MARKET_FEES"
+        "GENERIC_T0_CASH_FEES"
       ],
       "market_fee_schedule_versions": [
         "1"
@@ -10288,8 +11045,16 @@
       },
       "occupied_margin_delta": null,
       "offset": "OPEN",
-      "order_cumulative_fee_after": {
+      "order_cumulative_fee_charges_after": {
         "amount": "10.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "order_cumulative_fee_rebates_after": {
+        "amount": "0",
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -10351,7 +11116,6 @@
         "precision": 0,
         "value": "0"
       },
-      "reported_broker_fee": null,
       "request_id": "macd-demo-macd-000001-buy",
       "reserved_margin_delta": null,
       "risk_reservation_notional_consumed_delta": {
@@ -10496,14 +11260,6 @@
       "asset_available_on": {
         "value": "2026-01-05"
       },
-      "authoritative_fee_total": {
-        "amount": "10.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
       "broker_fee": {
         "amount": "0.00",
         "currency": {
@@ -10560,8 +11316,10 @@
       "execution_id": "EXEC-3648783210c4098b3f0b5751363111cdf8d18edf1bbe060497007dbd0afee77b",
       "execution_sequence": 2,
       "external_event_id": "virtual-fill-00000002",
-      "fee_authority": "MARKET",
-      "fee_breakdown": {
+      "fee_application": {
+        "accrual_after_fingerprint": "d02a891dc10a5b7fb6317d9a925099b19d23da0005872c79cc764eac1c4146a2",
+        "accrual_before_fingerprint": null,
+        "application_id": "235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7",
         "components": [
           {
             "amount": {
@@ -10572,42 +11330,131 @@
                 "precision": 2
               }
             },
-            "authority": "MARKET",
-            "calculation_scope": "FILL",
-            "effective_date": "1970-01-01",
-            "fee_type": "EXCHANGE_FEE",
-            "metadata": {
-              "raw_amount": "10.00",
-              "schedule_fingerprint": "b3ca41c8a2997f2a9bcd33bf5f6a6b29f8e509915b7ff3daf8d76e12249ecc81"
+            "cumulative_applied_after": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
             },
-            "schedule_id": "GENERIC_T0_MARKET_FEES",
-            "schedule_version": "1",
-            "source_id": "OnlyAlpha",
-            "status": "CONFIRMED"
+            "cumulative_applied_before": {
+              "amount": "0",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "cumulative_raw_after": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "cumulative_target_after": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "economic_direction": "CHARGE",
+            "fill_raw_amount": {
+              "amount": "10.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2
+              }
+            },
+            "identity": {
+              "authority": "MARKET",
+              "calculation_scope": "FILL",
+              "economic_direction": "CHARGE",
+              "fee_type": "EXCHANGE_FEE",
+              "resolution_policy": "FILL_EFFECTIVE",
+              "rule_fingerprint": "56894aaa8318355c395172f719c061f466df28d0767d165441302bcf1b71a36d",
+              "rule_id": "generic-notional-rate",
+              "schedule_fingerprint": "a72e83c1dc76252c038bd70da86a4ab2ce14c8441c2876c91db38f04be18089a",
+              "schedule_id": "GENERIC_T0_CASH_FEES",
+              "schedule_version": "1",
+              "source_id": "OnlyAlpha Generic Conformance"
+            }
           }
         ],
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
+        "idempotency_key": "fee-application:backtest-c4b4c9774ae21bc5:virtual-trade-00000002",
+        "local_finality": "MODEL_CONFIRMED",
+        "signed_cash_effect": "-10.00",
+        "subject": {
+          "account_id": {
+            "value": "backtest-account"
+          },
+          "cluster_id": {
+            "value": "macd-demo"
+          },
+          "instrument_id": {
+            "symbol": {
+              "value": "TESTETF"
+            },
+            "venue": {
+              "value": "XSHG"
+            }
+          },
+          "order_id": {
+            "value": "backtest-c4b4c9774ae21bc5-ORDER-000002"
+          },
+          "runtime_id": {
+            "value": "backtest-c4b4c9774ae21bc5"
+          }
         },
-        "status": "CONFIRMED",
-        "total": {
+        "total_charges": {
           "amount": "10.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
             "precision": 2
           }
+        },
+        "total_rebates": {
+          "amount": "0",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "trade_id": {
+          "value": "virtual-trade-00000002"
         }
       },
-      "fee_instruction_id": "bf4a916766fe13b5837960666f4bf850ab3bc3daa34147b449ad26e00b11f671",
-      "fee_reporting_mode": "NONE",
-      "fee_status": "CONFIRMED",
+      "fee_application_id": "235e5392fb151018172086e6a622825a48eabfc0937f49028837030d691f8cb7",
+      "fee_authority": "MARKET",
+      "fee_signed_cash_effect": "-10.00",
+      "fee_status": "MODEL_CONFIRMED",
+      "fee_total_charges": {
+        "amount": "10.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "fee_total_rebates": {
+        "amount": "0",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
       "fill_count_after": 1,
       "fill_identity": "EFILL-20a70fca39a530105b0e1dac5e03b5c5b393dfc120b68d84540636619eff2de4",
       "fill_index": 1,
-      "fill_payload_fingerprint": "748f5bb34287b2fece5da9c73ce5cd7d64a50cc6004ba7d29aa95546a3b578f4",
+      "fill_payload_fingerprint": "36c1195e21bddba1f9cef6ec2ab53455b8d9307543bbda8302c13c3ee6c01539",
       "fill_price": {
         "precision": 2,
         "value": "10.00"
@@ -10635,8 +11482,16 @@
           "precision": 2
         }
       },
-      "incremental_fee_total": {
+      "incremental_fee_charges": {
         "amount": "10.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "incremental_fee_rebates": {
+        "amount": "0",
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -10693,7 +11548,7 @@
         }
       },
       "market_fee_schedule_ids": [
-        "GENERIC_T0_MARKET_FEES"
+        "GENERIC_T0_CASH_FEES"
       ],
       "market_fee_schedule_versions": [
         "1"
@@ -10710,8 +11565,16 @@
       },
       "occupied_margin_delta": null,
       "offset": "CLOSE",
-      "order_cumulative_fee_after": {
+      "order_cumulative_fee_charges_after": {
         "amount": "10.00",
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        }
+      },
+      "order_cumulative_fee_rebates_after": {
+        "amount": "0",
         "currency": {
           "code": "CNY",
           "currency_type": "FIAT",
@@ -10773,7 +11636,6 @@
         "precision": 0,
         "value": "0"
       },
-      "reported_broker_fee": null,
       "request_id": "macd-demo-macd-000002-sell",
       "reserved_margin_delta": null,
       "risk_reservation_notional_consumed_delta": {

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from decimal import Decimal
 from typing import Any
 
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.fee.manager import OnlyFeeRecord
+from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
 from onlyalpha.runtime.checkpoint.codec import only_seal_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
     ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
@@ -21,7 +20,7 @@ from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 from onlyalpha.runtime.recovery.validation import OnlyPostRecoveryValidationContext
 from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot, OnlySettlementInstructionStatus
 from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
-from onlyalpha.transaction.projection import OnlySettlementExecutionProjection
+from onlyalpha.transaction.projection import OnlyFeeApplicationProjection, OnlySettlementExecutionProjection
 from tests.execution.factories.trade_planning_factory import only_test_generic_t0_prepared_transaction
 
 
@@ -41,57 +40,18 @@ class OnlyPostRecoveryAuthorityFixture:
             OnlyMarketDataSourceId("source"), OnlyDataVersion("version"), None, 0, None, 0
         )
         store = OnlyInMemoryRuntimePersistenceStore()
-        fee_records: tuple[OnlyFeeRecord, ...] = ()
+        fee_records: tuple[OnlyFeeApplicationRecord, ...] = ()
         settlement_records: tuple[OnlySettlementInstructionSnapshot, ...] = ()
         covered_sequence = 0
         if with_transaction:
             prepared = only_test_generic_t0_prepared_transaction()
             runtime_id = prepared.runtime_id
-            committed = store.commit(prepared, committed_at=prepared.prepared_at).transaction
+            store.commit(prepared, committed_at=prepared.prepared_at)
             store.mark_projection_ready(runtime_id, 1, projected_at=prepared.prepared_at)
-            fact = committed.fact
-            fee_records = tuple(
-                OnlyFeeRecord(
-                    f"fee-{sequence}",
-                    fact.fee_instruction_id,
-                    fact.fee_instruction_id,
-                    str(fact.account_id),
-                    str(fact.instrument_id),
-                    str(fact.order_id),
-                    str(fact.trade_id),
-                    component.fee_type.value,
-                    component.authority.value,
-                    component.status.value,
-                    component.amount.amount,
-                    component.amount.amount,
-                    component.amount.currency.code,
-                    component.schedule_id,
-                    component.schedule_version,
-                    sequence,
-                )
-                for sequence, component in enumerate(fact.fee_breakdown.components, start=1)
+            fee_projection = next(
+                item for item in prepared.projections if isinstance(item, OnlyFeeApplicationProjection)
             )
-            if not fee_records:
-                fee_records = (
-                    OnlyFeeRecord(
-                        "fee-1",
-                        fact.fee_instruction_id,
-                        fact.fee_instruction_id,
-                        str(fact.account_id),
-                        str(fact.instrument_id),
-                        str(fact.order_id),
-                        str(fact.trade_id),
-                        "NONE",
-                        fact.fee_authority,
-                        fact.fee_status,
-                        Decimal(0),
-                        Decimal(0),
-                        fact.currency.code,
-                        None,
-                        None,
-                        1,
-                    ),
-                )
+            fee_records = fee_projection.after.records
             settlement_projection = next(
                 item for item in prepared.projections if isinstance(item, OnlySettlementExecutionProjection)
             )

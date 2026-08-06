@@ -1,6 +1,7 @@
 schema_version: "1.0"
 market:
   profile: GENERIC_T0_CASH
+  fees: {pack_id: GENERIC_T0_CASH_CONFORMANCE, pack_version: "1"}
 cluster:
   cluster_id: external-plugin-demo
   account_id: backtest-account
@@ -54,7 +55,6 @@ brokers:
   - gateway_id: external-test-broker
     plugin: test-external-broker
     enabled: true
-    fees: {mode: NONE}
     extensions:
       matching: {type: NEXT_BAR}
       slippage: {type: NONE}

@@ -124,6 +124,8 @@ from onlyalpha.execution.terminal_planner import OnlyTerminalExecutionTransactio
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.engine import OnlyFeeEngine
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
@@ -407,14 +409,17 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 else OnlyPositionMode.NETTING
             ),
         )
+        market_rule_engine = runtime_config.market_rule_engine
+        if market_rule_engine is None:
+            raise ValueError("FEE_POLICY_PACK_REQUIRES_MARKET_RULE_ENGINE")
+        if runtime_config.fee_policy_pack is None:
+            raise ValueError("FEE_PACK_NOT_INSTALLED")
         fee_resolver = OnlyFeeResolver(
             OnlyFeeEngine(),
-            runtime_config.market_fee_schedules,
-            runtime_config.broker_fee_schedules,
-            runtime_config.market_rule_engine,
+            runtime_config.fee_policy_pack,
+            market_rule_engine,
             self._instruments,
             selected_calendar.trading_day_at,
-            runtime_config.fee_resolver_config,
         )
         self._fee_resolver = fee_resolver
         strategy_cash_reservations = OnlyOrderStrategyCashReservationAdapter(
@@ -426,7 +431,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if order.cluster_id in self._current_snapshots
                 else None
             ),
-            fee_resolver,
         )
         account_cash_reservations = OnlyRuntimeAccountCashReservationAdapter(
             self._account_manager,
@@ -437,7 +441,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 if order.cluster_id in self._current_snapshots
                 else None
             ),
-            fee_resolver,
         )
         order_cash_reservations = OnlyRuntimeCompositeCashReservationAdapter(
             account_cash_reservations,
@@ -487,6 +490,21 @@ class OnlyBacktestRuntime(OnlyRuntime):
             if selected_broker_gateway is not None
             else OnlyPlaceholderExecutionService()
         )
+
+        def fee_contract(
+            order: OnlyOrderSnapshot, timestamp: OnlyTimestamp
+        ) -> tuple[OnlyOrderFeePolicyBinding, OnlyOrderFeeEstimate, OnlyOrderFundingPlan]:
+            price = order.price or (
+                self._current_snapshots[order.cluster_id].primary_bar.close
+                if order.cluster_id in self._current_snapshots
+                else None
+            )
+            if price is None:
+                raise ValueError("market Order requires a deterministic fee reference price")
+            binding = fee_resolver.bind_order(order, timestamp)
+            estimate = fee_resolver.estimate_order(order, binding, price, timestamp)
+            return binding, estimate, fee_resolver.funding_plan(order, binding, estimate, price)
+
         order_service = OnlyOrderService(
             order_manager,
             selected_execution_service,
@@ -497,6 +515,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             order_position_reservations,
             order_cash_reservations,
             order_margin_reservations,
+            fee_contract,
+            self._fee_reconciliation_risk_gate,
         )
         order_update_processor = OnlyOrderUpdateProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
@@ -529,7 +549,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             allocation_manager=allocation_manager,
             position_reservation_manager=position_reservations,
             settlement_authority=self._settlement_authority,
-            fee_manager=self._fee_manager,
+            fee_application_ledger=self._fee_application_ledger,
             order_fee_accrual_manager=self._order_fee_accrual_manager,
             account_manager=self._account_manager,
             ledger_manager=self._strategy_ledger_manager,
@@ -615,7 +635,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             runtime_config.market_rule_engine,
             self._settlement_authority,
             self._margin_manager,
-            self._fee_manager,
+            self._fee_application_ledger,
             fee_resolver,
             order_margin_reservations.release,
             selected_calendar.trading_day_at,
@@ -764,7 +784,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._strategy_ledger_query,
             self._settlement_authority,
             self._margin_manager,
-            self._fee_manager,
+            self._fee_application_ledger,
             OnlyStrategyValuationService(),
             self._account_manager,
             self._account_performance_projector,
@@ -952,9 +972,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "fee.authority",
-                1,
-                self._fee_manager.capture_checkpoint,
-                self._fee_manager.restore_checkpoint,
+                3,
+                self._fee_application_ledger.capture_checkpoint,
+                self._fee_application_ledger.restore_checkpoint,
             )
         )
         self._checkpoint_registry.register(
@@ -963,6 +983,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 1,
                 self._order_fee_accrual_manager.capture_checkpoint,
                 self._order_fee_accrual_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "fee_reconciliation_risk_gate.authority",
+                1,
+                self._fee_reconciliation_risk_gate.capture_checkpoint,
+                self._fee_reconciliation_risk_gate.restore_checkpoint,
             )
         )
         self._checkpoint_registry.register(
@@ -1163,7 +1191,9 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 ledgers=account_ledgers,
                 committed_trade_fees=tuple(
                     OnlyCommittedTradeFeeAttribution(
-                        item.fact.trade_id, item.fact.cluster_id, item.fact.authoritative_fee_total
+                        item.fact.trade_id,
+                        item.fact.cluster_id,
+                        item.fact.fee_total_charges - item.fact.fee_total_rebates,
                     )
                     for item in ready
                     if isinstance(item.fact, OnlyCommittedExecutionFact) and item.fact.account_id == account.account_id
@@ -1208,7 +1238,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             strategy_reservations=tuple(item for ledger in ledgers for item in ledger.reservations),
             risk_reservations=self._services.risk_service.reservations.snapshot_all(),
             margin_reservations=self._margin_manager.active_reservations,
-            fee_records=self._fee_manager.records,
+            fee_records=self._fee_application_ledger.records,
             settlement_records=self._settlement_authority.records,
             margin_records=self._margin_manager.records,
             broker_view=broker_view,
@@ -1762,16 +1792,17 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 position_scope.position_effect,
             )
         )
-        fee_instruction = self._fee_resolver.resolve_trade(
+        binding = order.fee_policy_binding
+        if binding is None:
+            raise ValueError("ORDER_FEE_POLICY_BINDING_REQUIRED")
+        fee_assessment = self._fee_resolver.assess_trade(
             order,
-            trade_id=str(update.fill.trade_id),
+            binding,
+            trade_id=update.fill.trade_id,
             price=update.fill.price,
             quantity=update.fill.quantity.value,
             timestamp=update.ts_event,
-            liquidity_role=update.fill.liquidity_side.value,
-            created_at=update.ts_init.to_datetime(),
-            reported_fee=update.fill.reported_fee,
-            reporting_mode=update.fill.fee_reporting_mode,
+            liquidity_role=update.fill.liquidity_side,
             cumulative_quantity=order.filled_quantity.value + update.fill.quantity.value,
             cumulative_notional=OnlyMoney(
                 (
@@ -1886,7 +1917,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             valuation_price=max(candidates, key=lambda item: item.ts_event).close,
             position_scope=position_scope,
             trade_instruction=instruction,
-            fee_instruction=fee_instruction,
+            fee_assessment=fee_assessment,
             order_before=only_order_execution_state(order),
             position_before=(
                 None if position_before_snapshot is None else only_position_execution_state(position_before_snapshot)
@@ -1930,7 +1961,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             position_cycle=position_cycle,
             allocation_cycle=allocation_cycle,
             settlement_record_sequence=self._services.settlement_authority.sequence_head,
-            fee_record_sequence=self._services.fee_manager.sequence_head,
+            fee_record_sequence=self._services.fee_application_ledger.sequence_head,
             account_equity_sequence=0 if not account_timeline else account_timeline[-1].sequence,
             ledger_equity_sequence=self._strategy_ledger_manager.equity_sequence_head,
             account_external_cash_flow=(

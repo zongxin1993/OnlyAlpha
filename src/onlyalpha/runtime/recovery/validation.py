@@ -15,7 +15,7 @@ from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
-from onlyalpha.fee.manager import OnlyFeeRecord
+from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
 from onlyalpha.margin.manager import OnlyMarginRecord
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
@@ -112,7 +112,7 @@ class OnlyPostRecoveryValidationContext:
     strategy_reservations: tuple[OnlyStrategyCashReservation, ...] = ()
     risk_reservations: tuple[OnlyRiskReservation, ...] = ()
     margin_reservations: tuple[OnlyMarginReservation, ...] = ()
-    fee_records: tuple[OnlyFeeRecord, ...] = ()
+    fee_records: tuple[OnlyFeeApplicationRecord, ...] = ()
     settlement_records: tuple[OnlySettlementInstructionSnapshot, ...] = ()
     margin_records: tuple[OnlyMarginRecord, ...] = ()
     broker_view: OnlyBrokerRecoveryAuthorityView | None = None
@@ -636,11 +636,11 @@ class OnlyFeeSettlementMarginAuthorityCheck:
             for item in records
             if isinstance(item.fact, OnlyCommittedExecutionFact)
         )
-        fee_keys = {item.instruction_id for item in context.fee_records}
+        fee_keys = {item.application_id for item in context.fee_records}
         settlement_keys = {str(item.instruction.instruction_id) for item in context.settlement_records}
-        fact_by_fee = {fact.fee_instruction_id: fact for _, fact in trade_records}
+        fact_by_fee = {fact.fee_application_id: fact for _, fact in trade_records}
         fact_by_settlement = {fact.settlement_instruction_id: fact for _, fact in trade_records}
-        missing_fee = tuple(sequence for sequence, fact in trade_records if fact.fee_instruction_id not in fee_keys)
+        missing_fee = tuple(sequence for sequence, fact in trade_records if fact.fee_application_id not in fee_keys)
         missing_settlement = tuple(
             sequence for sequence, fact in trade_records if fact.settlement_instruction_id not in settlement_keys
         )
@@ -651,28 +651,34 @@ class OnlyFeeSettlementMarginAuthorityCheck:
         )
         fee_totals = {
             instruction_id: sum(
-                (item.charged for item in context.fee_records if item.instruction_id == instruction_id), Decimal(0)
+                (
+                    item.incremental_amount.amount
+                    for item in context.fee_records
+                    if item.application_id == instruction_id
+                ),
+                Decimal(0),
             )
             for instruction_id in fee_keys
         }
         fee_mismatch = tuple(
             sequence
             for sequence, fact in trade_records
-            if fee_totals.get(fact.fee_instruction_id, Decimal(0)) != fact.authoritative_fee_total.amount
+            if fee_totals.get(fact.fee_application_id, Decimal(0))
+            != fact.fee_total_charges.amount + fact.fee_total_rebates.amount
         )
         fee_scope = tuple(
-            item.fee_record_id
+            item.record_id
             for item in context.fee_records
-            if (fact := fact_by_fee.get(item.instruction_id)) is not None
+            if (fact := fact_by_fee.get(item.application_id)) is not None
             and (
-                item.account_id != str(fact.account_id)
-                or item.instrument_id != str(fact.instrument_id)
-                or item.order_id != str(fact.order_id)
-                or item.trade_id != str(fact.trade_id)
-                or item.currency != fact.currency.code
+                item.account_id != fact.account_id
+                or item.instrument_id != fact.instrument_id
+                or item.order_id != fact.order_id
+                or item.trade_id != fact.trade_id
+                or item.incremental_amount.currency != fact.currency
             )
         )
-        orphan_fee = tuple(item.fee_record_id for item in context.fee_records if item.instruction_id not in fact_by_fee)
+        orphan_fee = tuple(item.record_id for item in context.fee_records if item.application_id not in fact_by_fee)
         settlement_scope = tuple(
             str(item.instruction.instruction_id)
             for item in context.settlement_records

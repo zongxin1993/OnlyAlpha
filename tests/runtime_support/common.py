@@ -23,8 +23,13 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
-from onlyalpha.domain.time import OnlyTimeZone
+from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
+from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
+from onlyalpha.market.models import OnlyMarketProfileId
+from onlyalpha.market.profiles import only_builtin_market_profile_registry
+from onlyalpha.market.registry import OnlyMarketProfileRequest
+from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine, only_instrument_reference
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
@@ -57,6 +62,31 @@ def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster"
         ),
     )
     cny = OnlyCurrency("CNY", 2)
+    instrument_id = only_demo_bar_types()[0].instrument_id
+    instrument = OnlyEquity(
+        instrument_id=instrument_id,
+        raw_symbol=OnlyRawSymbol("600000"),
+        market_type=OnlyMarketType.CASH,
+        quote_currency=cny,
+        settlement_currency=cny,
+        price_precision=2,
+        quantity_precision=0,
+        tick_size=OnlyPrice(Decimal("0.01"), 2),
+        step_size=OnlyQuantity(Decimal("1"), 0),
+        contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
+    )
+    reference = only_instrument_reference(
+        instrument,
+        profile_id=OnlyMarketProfileId.GENERIC_T0_CASH.value,
+    )
+    market_rules = OnlyMarketRuleEngine(
+        registry=only_builtin_market_profile_registry(),
+        compiler=OnlyMarketRuleCompiler(),
+        request=OnlyMarketProfileRequest(OnlyMarketProfileId.GENERIC_T0_CASH),
+        runtime_mode=OnlyRuntimeMode.BACKTEST,
+        references={str(instrument_id): reference},
+        advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
+    )
     capital_amount = Decimal("1000000.00") / Decimal(len(cluster_ids))
     capitals = {OnlyClusterId(cluster_id): OnlyMoney(capital_amount, cny) for cluster_id in cluster_ids}
     runtime = OnlyBacktestRuntime(
@@ -67,26 +97,14 @@ def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster"
             strategy_base_currency=cny,
             strategy_capitals=capitals,
             account_initial_cash=OnlyMoney(Decimal("1000000.00"), cny),
+            market_rule_engine=market_rules,
+            fee_policy_pack=only_generic_t0_cash_fee_pack(),
         ),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
         runtime_persistence_store=OnlyInMemoryRuntimePersistenceStore(),
     )
-    instrument_id = only_demo_bar_types()[0].instrument_id
-    runtime.register_instrument(
-        OnlyEquity(
-            instrument_id=instrument_id,
-            raw_symbol=OnlyRawSymbol("600000"),
-            market_type=OnlyMarketType.CASH,
-            quote_currency=cny,
-            settlement_currency=cny,
-            price_precision=2,
-            quantity_precision=0,
-            tick_size=OnlyPrice(Decimal("0.01"), 2),
-            step_size=OnlyQuantity(Decimal("1"), 0),
-            contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
-        )
-    )
+    runtime.register_instrument(instrument)
     return runtime
 
 

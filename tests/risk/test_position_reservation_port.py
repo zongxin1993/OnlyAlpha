@@ -3,6 +3,7 @@ from onlyalpha.domain.identifiers import OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.order.service import OnlyOrderService
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 
 class OnlyRecordingPositionReservationPort:
@@ -47,6 +48,7 @@ def test_order_service_reserves_position_before_marking_order_submitted(build_ha
         harness.risk,
         harness.risk.make_evaluation_context,
         port,
+        fee_contract_factory=only_test_zero_fee_contract,
     )
 
     result = service.submit(order_request, harness.cluster_id, harness.account_id)

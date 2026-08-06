@@ -61,7 +61,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
-from onlyalpha.fee.resolver import OnlyFeeResolverConfig
+from onlyalpha.fee.packs import OnlyFeePolicyPack, only_generic_t0_cash_fee_pack
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
 from onlyalpha.market.registry import OnlyMarketProfileRequest
@@ -263,7 +263,7 @@ class OnlyIntegrationEnvironment:
         virtual_broker: bool = True,
         cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
         market_profile_id: OnlyMarketProfileId = OnlyMarketProfileId.GENERIC_T0_CASH,
-        fee_resolver_config: OnlyFeeResolverConfig | None = None,
+        fee_policy_pack: OnlyFeePolicyPack | None = None,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
@@ -357,7 +357,7 @@ class OnlyIntegrationEnvironment:
                     {CLUSTER_ID: broker_config.initial_cash} if cluster_capitals is None else cluster_capitals
                 ),
                 market_rule_engine=market_rules,
-                fee_resolver_config=fee_resolver_config or OnlyFeeResolverConfig(),
+                fee_policy_pack=fee_policy_pack or only_generic_t0_cash_fee_pack(),
                 broker_gateway_id=broker_config.gateway_id if virtual_broker else None,
                 account_initial_cash=broker_config.initial_cash,
             ),

@@ -145,7 +145,7 @@ class OnlyAccountCashReservationTradeReducer:
         *,
         projection_sequence: int,
     ) -> OnlyAccountCashReservationTradeReduction:
-        cost = trade.settled_notional + trade.authoritative_fee
+        cost = trade.settled_notional + trade.fee_charges
         available = before.remaining_amount.amount
         if cost.amount > available:
             raise ValueError("Account cash Reservation is smaller than authoritative Trade cost")
@@ -208,7 +208,7 @@ class OnlyStrategyCashReservationTradeReducer:
         *,
         projection_sequence: int,
     ) -> OnlyStrategyCashReservationTradeReduction:
-        cost = trade.settled_notional + trade.authoritative_fee
+        cost = trade.settled_notional + trade.fee_charges
         available = before.remaining_amount.amount
         if cost.amount > available:
             raise ValueError("Strategy cash Reservation is smaller than authoritative Trade cost")

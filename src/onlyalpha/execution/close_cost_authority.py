@@ -126,7 +126,7 @@ def only_build_attributed_close_cost_authority(
         allocation_before.average_open_price,
         trade.price,
     )
-    currency = trade.authoritative_fee.currency
+    currency = trade.gross_notional.currency
     quantum = Decimal(1).scaleb(-currency.precision)
     realized = OnlyMoney(
         (

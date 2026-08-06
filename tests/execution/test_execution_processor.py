@@ -98,12 +98,21 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     assert fact.contract_multiplier.value == Decimal("1")
     assert fact.gross_notional.amount == fact.fill_price.value * fact.fill_quantity.value
     assert result.position_snapshot is not None
-    assert fact.authoritative_fee_total == result.position_snapshot.fees
-    assert fact.account_fee_delta == fact.authoritative_fee_total
-    assert fact.ledger_fee_delta == fact.authoritative_fee_total
+    net_fee = fact.fee_total_charges - fact.fee_total_rebates
+    assert net_fee == result.position_snapshot.fees
+    assert fact.account_fee_delta == net_fee
+    assert fact.ledger_fee_delta == net_fee
     assert (
-        sum((item.charged for item in env.runtime.fee_manager.records), Decimal(0))
-        == fact.authoritative_fee_total.amount
+        sum(
+            (
+                item.incremental_amount.amount
+                if item.component_identity.economic_direction.value == "CHARGE"
+                else -item.incremental_amount.amount
+                for item in env.runtime.fee_application_ledger.records
+            ),
+            Decimal(0),
+        )
+        == net_fee.amount
     )
     assert type(fact).from_json(fact.to_json()) == fact
     non_trade = tuple(

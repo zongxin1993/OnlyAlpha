@@ -11,11 +11,11 @@ from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
-    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
@@ -46,8 +46,8 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         position = _one(prepared.projections, OnlyPositionExecutionProjection)
         allocation = _one(prepared.projections, OnlyAllocationExecutionProjection)
         settlement = _one(prepared.projections, OnlySettlementExecutionProjection)
-        fee = _one(prepared.projections, OnlyFeeExecutionProjection)
-        fee_accrual = _one(prepared.projections, OnlyOrderFeeAccrualExecutionProjection)
+        fee = _one(prepared.projections, OnlyFeeApplicationProjection)
+        fee_accrual = _one(prepared.projections, OnlyOrderFeeAccrualProjection)
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
         ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
         presence = only_expected_execution_reservations(
@@ -90,22 +90,26 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             raise ValueError("Allocation projection realized PnL authority contradicts execution fact")
         position_fee_before = Decimal(0) if position.before is None else position.before.fees.amount
         allocation_fee_before = Decimal(0) if allocation.before is None else allocation.before.fees.amount
-        if position.after.fees.amount - position_fee_before != fact.authoritative_fee_total.amount:
+        net_fee = fact.fee_total_charges.amount - fact.fee_total_rebates.amount
+        if position.after.fees.amount - position_fee_before != net_fee:
             raise ValueError("Position projection cumulative fee contradicts execution fact")
-        if allocation.after.fees.amount - allocation_fee_before != fact.authoritative_fee_total.amount:
+        if allocation.after.fees.amount - allocation_fee_before != net_fee:
             raise ValueError("Allocation projection cumulative fee contradicts execution fact")
 
         if (
-            fee.after.authoritative_total != fact.authoritative_fee_total
-            or fee.after.fee_breakdown != fact.fee_breakdown
-            or fee.after.instruction.instruction_id != fact.fee_instruction_id
-            or fee.after.instruction.trade_id != str(fact.trade_id)
-            or fee.after.fee_breakdown.status.value != fact.fee_status
+            fee.after.total_charges != fact.fee_total_charges
+            or fee.after.total_rebates != fact.fee_total_rebates
+            or fee.after.application != fact.fee_application
+            or fee.after.application.application_id != fact.fee_application_id
+            or fee.after.application.trade_id != fact.trade_id
+            or fee.after.application.local_finality.value != fact.fee_status
         ):
             raise ValueError("Fee projection contradicts execution fact")
         if (
-            fee_accrual.after.cumulative_charged_fee != fact.order_cumulative_fee_after
-            or fee.after.authoritative_total != fact.incremental_fee_total
+            fee_accrual.after.cumulative_charges != fact.order_cumulative_fee_charges_after
+            or fee_accrual.after.cumulative_rebates != fact.order_cumulative_fee_rebates_after
+            or fee.after.total_charges != fact.incremental_fee_charges
+            or fee.after.total_rebates != fact.incremental_fee_rebates
         ):
             raise ValueError("Order fee accrual projection contradicts execution fact")
 
@@ -128,15 +132,16 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         ):
             raise ValueError("Strategy Ledger projection realized PnL contradicts execution fact")
         expected_cash_delta = (
-            -(fact.settled_notional.amount + fact.authoritative_fee_total.amount)
+            -(fact.settled_notional.amount + fact.fee_total_charges.amount - fact.fee_total_rebates.amount)
             if fact.order_side is OnlyOrderSide.BUY
-            else fact.settled_notional.amount - fact.authoritative_fee_total.amount
+            else fact.settled_notional.amount - fact.fee_total_charges.amount + fact.fee_total_rebates.amount
         )
         if fact.cash_delta.amount != expected_cash_delta:
             raise ValueError("execution Fact cash delta contradicts authoritative trade cost")
         if fact.order_side is OnlyOrderSide.SELL and (
             fact.gross_cash_inflow != fact.gross_notional
-            or fact.net_cash_inflow.amount != fact.gross_notional.amount - fact.incremental_fee_total.amount
+            or fact.net_cash_inflow.amount
+            != fact.gross_notional.amount - fact.incremental_fee_charges.amount + fact.incremental_fee_rebates.amount
             or fact.net_cash_inflow != fact.account_cash_delta
         ):
             raise ValueError("SELL execution cash inflow authority is inconsistent")
@@ -334,7 +339,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         if accounts or strategies:
             account = accounts[0]
             strategy = strategies[0]
-            actual_consumption = fact.settled_notional.amount + fact.authoritative_fee_total.amount
+            actual_consumption = fact.settled_notional.amount + fact.fee_total_charges.amount
             for label, projection in (("Account", account), ("Strategy", strategy)):
                 before_consumed = Decimal(0) if projection.before is None else projection.before.consumed_amount.amount
                 consumed_delta = projection.after.consumed_amount.amount - before_consumed
@@ -455,7 +460,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         allocation = _one(prepared.projections, OnlyAllocationExecutionProjection).after
         account = _one(prepared.projections, OnlyAccountExecutionProjection).after
         ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection).after
-        fee = _one(prepared.projections, OnlyFeeExecutionProjection).after
+        fee = _one(prepared.projections, OnlyFeeApplicationProjection).after
         settlement = _one(prepared.projections, OnlySettlementExecutionProjection).after
         risk = _one(prepared.projections, OnlyRiskExecutionProjection).after
         if (
@@ -476,16 +481,16 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
             or ledger.key.account_id != fact.account_id
             or ledger.key.cluster_id != fact.cluster_id
             or ledger.key.base_currency != fact.currency
-            or fee.instruction.runtime_id != str(fact.runtime_id)
-            or fee.instruction.cluster_id != str(fact.cluster_id)
-            or fee.instruction.account_id != str(fact.account_id)
-            or fee.instruction.order_id != str(fact.order_id)
-            or fee.instruction.trade_id != str(fact.trade_id)
+            or fee.application.subject.runtime_id != fact.runtime_id
+            or fee.application.subject.cluster_id != fact.cluster_id
+            or fee.application.subject.account_id != fact.account_id
+            or fee.application.subject.order_id != fact.order_id
+            or fee.application.trade_id != fact.trade_id
             or any(
-                record.account_id != str(fact.account_id)
-                or record.order_id != str(fact.order_id)
-                or record.trade_id != str(fact.trade_id)
-                or record.amount.currency != fact.currency
+                record.account_id != fact.account_id
+                or record.order_id != fact.order_id
+                or record.trade_id != fact.trade_id
+                or record.incremental_amount.currency != fact.currency
                 for record in fee.records
             )
             or settlement.account_id != fact.account_id

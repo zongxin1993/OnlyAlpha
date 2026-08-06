@@ -194,7 +194,6 @@ class OnlyMarketScenarioParser:
                 {
                     "gateway_id": "scenario-broker",
                     "plugin": "virtual",
-                    "fees": {"mode": "NONE"},
                     "extensions": {},
                 }
             ],

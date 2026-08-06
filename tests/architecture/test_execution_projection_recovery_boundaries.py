@@ -42,13 +42,13 @@ def test_targets_do_not_cross_commit_or_business_orchestration_boundaries() -> N
 
 def test_fee_and_settlement_targets_query_manager_authority_for_current_state() -> None:
     source = TARGETS.read_text(encoding="utf-8")
-    fee = source[source.index("class OnlyFeeExecutionProjectionTarget") : source.index("def _account_snapshot")]
+    fee = source[source.index("class OnlyFeeApplicationProjectionTarget") : source.index("def _account_snapshot")]
     settlement = source[
         source.index("class OnlySettlementExecutionProjectionTarget") : source.index(
-            "class OnlyFeeExecutionProjectionTarget"
+            "class OnlyFeeApplicationProjectionTarget"
         )
     ]
-    assert ".get_execution_authority(" in fee
+    assert ".get(" in fee
     assert ".require(" in settlement
     for target in (fee, settlement):
         assert "current = projection.after" not in target

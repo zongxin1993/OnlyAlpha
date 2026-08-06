@@ -1,6 +1,9 @@
 {
     "schema_version": "1.0",
-    "market": { "profile": "GENERIC_T0_CASH" },
+    "market": {
+        "profile": "GENERIC_T0_CASH",
+        "fees": { "pack_id": "GENERIC_T0_CASH_CONFORMANCE", "pack_version": "1" }
+    },
     "cluster": {
         "cluster_id": "macd-fast-demo",
         "account_id": "backtest-account",
@@ -84,7 +87,6 @@
         {
             "gateway_id": "virtual-main",
             "plugin": "virtual",
-            "fees": { "mode": "NONE" },
             "extensions": {
                 "matching": { "type": "NEXT_BAR" },
                 "slippage": { "type": "NONE" }

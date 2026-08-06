@@ -30,7 +30,7 @@ def test_account_cash_reservation_partial_exact_consume_release_and_insufficient
     assert exact.released_delta.amount == 0
     assert len(exact.event_intents) == 1
 
-    cost = first_trade.settled_notional + first_trade.authoritative_fee
+    cost = first_trade.settled_notional + first_trade.fee_charges - first_trade.fee_rebates
     exhausted = replace(
         first.after,
         reserved_amount=first.after.consumed_amount + cost,

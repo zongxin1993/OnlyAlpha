@@ -30,7 +30,7 @@ def test_all_real_target_types_and_single_factory_are_present() -> None:
         "OnlyPositionExecutionProjectionTarget",
         "OnlyAllocationExecutionProjectionTarget",
         "OnlySettlementExecutionProjectionTarget",
-        "OnlyFeeExecutionProjectionTarget",
+        "OnlyFeeApplicationProjectionTarget",
         "OnlyAccountExecutionProjectionTarget",
         "OnlyStrategyLedgerExecutionProjectionTarget",
         "OnlyAccountCashReservationExecutionProjectionTarget",

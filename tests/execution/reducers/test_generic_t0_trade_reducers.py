@@ -10,9 +10,9 @@ from onlyalpha.execution import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyOrderExecutionProjection,
-    OnlyOrderFeeAccrualExecutionProjection,
+    OnlyOrderFeeAccrualProjection,
     OnlyPositionExecutionProjection,
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
@@ -67,7 +67,7 @@ def test_every_reducer_is_byte_deterministic_across_100_fresh_instances() -> Non
 def test_cash_reservation_reducers_reject_insufficient_authority_without_mutation() -> None:
     context = only_test_generic_t0_trade_planning_context()
     trade = OnlyTradeExecutionTransactionPlanner._planned_trade(context)
-    one = OnlyMoney(Decimal("1.00"), trade.authoritative_fee.currency)
+    one = OnlyMoney(Decimal("1.00"), trade.fee_charges.currency)
     account_before = replace(
         context.account_cash_reservation_before,
         reserved_amount=one,
@@ -98,7 +98,7 @@ def test_risk_reducer_rejects_quantity_and_notional_under_reservation() -> None:
         consumed_quantity=before.reserved_quantity,
         consumed_notional=before.reserved_notional,
         remaining_quantity=zero_quantity,
-        remaining_notional=OnlyMoney(Decimal(0), trade.authoritative_fee.currency),
+        remaining_notional=OnlyMoney(Decimal(0), trade.fee_charges.currency),
     )
     with pytest.raises(ValueError, match="quantity"):
         OnlyRiskReservationTradeReducer().reduce(invalid, trade, projection_sequence=10)
@@ -111,8 +111,8 @@ def test_risk_reducer_rejects_quantity_and_notional_under_reservation() -> None:
         OnlyPositionExecutionProjection,
         OnlyAllocationExecutionProjection,
         OnlySettlementExecutionProjection,
-        OnlyOrderFeeAccrualExecutionProjection,
-        OnlyFeeExecutionProjection,
+        OnlyOrderFeeAccrualProjection,
+        OnlyFeeApplicationProjection,
         OnlyAccountExecutionProjection,
         OnlyStrategyLedgerExecutionProjection,
         OnlyAccountCashReservationExecutionProjection,

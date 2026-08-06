@@ -1,205 +1,236 @@
-"""The sole deterministic resolver for market, broker and reported fees."""
+"""Pure market-neutral fee target calculation service."""
 
 from __future__ import annotations
 
-import hashlib
-from dataclasses import dataclass
-from datetime import datetime
-from decimal import Decimal
+from dataclasses import replace
+from decimal import ROUND_HALF_EVEN, Decimal
 
-from onlyalpha.domain.enums import OnlyRuntimeMode
-from onlyalpha.domain.time import only_require_utc
+from onlyalpha.domain.identifiers import OnlyTradeId
 from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
+from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFeeEstimateRequest
+from onlyalpha.fee.formula import OnlyFeeFixedTerm
 from onlyalpha.fee.models import (
-    OnlyBrokerFeeReportingMode,
-    OnlyFeeAuthority,
-    OnlyFeeBreakdown,
-    OnlyFeeCalculationRequest,
-    OnlyFeeComponent,
-    OnlyFeeConfigurationMode,
-    OnlyFeeInstruction,
-    OnlyFeeStatus,
-    OnlyFeeType,
+    OnlyFeeAssessment,
+    OnlyFeeBasisValues,
+    OnlyFeeCalculationScope,
+    OnlyFeeComponentIdentity,
+    OnlyFeeEconomicDirection,
+    OnlyFeeTargetComponent,
+    OnlyLocalFeeFinality,
+    OnlyOrderFeePolicyBinding,
+    only_fee_fingerprint,
 )
-from onlyalpha.fee.schedules import OnlyBrokerFeeSchedule, OnlyMarketFeeSchedule
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyFeeEstimate:
-    expected_fee: OnlyFeeBreakdown
-    maximum_fee: OnlyFeeBreakdown
-    reservation_fee: OnlyMoney
+from onlyalpha.fee.policy import OnlyResolvedFeePolicy, OnlyResolvedFeePolicySet
+from onlyalpha.fee.rounding import only_apply_fee_pipeline
 
 
 class OnlyFeeEngine:
-    """Combines fee sources once; it never reads Runtime-managed state."""
+    """Calculates policy targets and never reads Runtime state or external evidence."""
 
-    def estimate(
-        self,
-        request: OnlyFeeCalculationRequest,
-        *,
-        market_schedule: OnlyMarketFeeSchedule | None,
-        broker_schedule: OnlyBrokerFeeSchedule | None,
-        market_mode: OnlyFeeConfigurationMode,
-        broker_mode: OnlyFeeConfigurationMode,
-        safety_buffer: Decimal = Decimal(0),
-    ) -> OnlyFeeEstimate:
-        breakdown = self._model_breakdown(
-            request, market_schedule, broker_schedule, market_mode, broker_mode, OnlyFeeStatus.ESTIMATED
+    def assess_trade(self, request: OnlyTradeFeeAssessmentRequest) -> OnlyFeeAssessment:
+        self._validate_request_authority(
+            request.binding.fingerprint, request.policies, request.fill_basis.notional.currency
         )
-        if safety_buffer < 0:
-            raise ValueError("fee safety buffer cannot be negative")
-        reservation = OnlyMoney(breakdown.total.amount + safety_buffer, request.currency)
-        return OnlyFeeEstimate(breakdown, breakdown, reservation)
-
-    def resolve_trade_fee(
-        self,
-        request: OnlyFeeCalculationRequest,
-        *,
-        runtime_mode: OnlyRuntimeMode,
-        market_schedule: OnlyMarketFeeSchedule | None,
-        broker_schedule: OnlyBrokerFeeSchedule | None,
-        market_mode: OnlyFeeConfigurationMode,
-        broker_mode: OnlyFeeConfigurationMode,
-    ) -> OnlyFeeBreakdown:
-        if runtime_mode in {OnlyRuntimeMode.BACKTEST, OnlyRuntimeMode.PAPER}:
-            return self._model_breakdown(
-                request, market_schedule, broker_schedule, market_mode, broker_mode, OnlyFeeStatus.CONFIRMED
-            )
-        if request.broker_fee_reporting_mode is OnlyBrokerFeeReportingMode.ORDER_CUMULATIVE:
-            raise ValueError("BROKER_CUMULATIVE_FEE_REPORT_UNSUPPORTED")
-        if request.broker_fee_reporting_mode is OnlyBrokerFeeReportingMode.ALL_IN and request.reported_fee is not None:
-            return self._reported_all_in(request, OnlyFeeStatus.CONFIRMED)
-        if (
-            request.broker_fee_reporting_mode is OnlyBrokerFeeReportingMode.DETAILED
-            and request.reported_breakdown is not None
-        ):
-            return self._with_status(request.reported_breakdown, OnlyFeeStatus.CONFIRMED)
-        if (
-            request.broker_fee_reporting_mode is OnlyBrokerFeeReportingMode.COMMISSION_ONLY
-            and request.reported_fee is not None
-        ):
-            market = self._model_breakdown(
-                request, market_schedule, None, market_mode, OnlyFeeConfigurationMode.NONE, OnlyFeeStatus.CONFIRMED
-            )
-            reported = self._reported_all_in(request, OnlyFeeStatus.CONFIRMED)
-            return self._breakdown(request, market.components + reported.components, OnlyFeeStatus.CONFIRMED)
-        return self._model_breakdown(
-            request, market_schedule, broker_schedule, market_mode, broker_mode, OnlyFeeStatus.PROVISIONAL
-        )
-
-    def instruction(
-        self,
-        request: OnlyFeeCalculationRequest,
-        breakdown: OnlyFeeBreakdown,
-        created_at: datetime,
-        calculation_source: str,
-    ) -> OnlyFeeInstruction:
-        only_require_utc(created_at, "fee instruction created_at")
-        key = f"fee:{request.runtime_id}:{request.trade_id}:{breakdown.status.value}"
-        instruction_id = hashlib.sha256(key.encode()).hexdigest()
-        return OnlyFeeInstruction(
-            instruction_id,
-            request.runtime_id,
-            request.cluster_id,
-            request.account_id,
-            request.order_id,
-            request.trade_id,
-            breakdown,
-            calculation_source,
-            created_at,
-            key,
-        )
-
-    def _model_breakdown(
-        self,
-        request: OnlyFeeCalculationRequest,
-        market_schedule: OnlyMarketFeeSchedule | None,
-        broker_schedule: OnlyBrokerFeeSchedule | None,
-        market_mode: OnlyFeeConfigurationMode,
-        broker_mode: OnlyFeeConfigurationMode,
-        status: OnlyFeeStatus,
-    ) -> OnlyFeeBreakdown:
-        components: tuple[OnlyFeeComponent, ...] = ()
-        if market_mode is not OnlyFeeConfigurationMode.NONE:
-            if market_schedule is None:
-                raise ValueError("market fee configuration requires a resolved schedule")
-            components += market_schedule.calculate(
-                notional=request.notional.amount,
-                quantity=request.quantity,
-                side=request.side,
-                offset=request.offset,
-                liquidity_role=request.liquidity_role,
-                status=status,
-                currency=request.currency,
-                cumulative_notional=(
-                    None if request.cumulative_notional is None else request.cumulative_notional.amount
-                ),
-                cumulative_quantity=request.cumulative_quantity,
-            )
-        if broker_mode is not OnlyFeeConfigurationMode.NONE:
-            if broker_mode is OnlyFeeConfigurationMode.REPORTED:
-                # In live mode this is intentionally provisional until a report arrives.
-                if request.reported_fee is not None:
-                    components += self._reported_all_in(request, status).components
-            else:
-                if broker_schedule is None:
-                    raise ValueError("broker fee configuration requires a resolved schedule")
-                components += broker_schedule.calculate(
-                    notional=request.notional.amount,
-                    quantity=request.quantity,
-                    side=request.side,
-                    offset=request.offset,
-                    liquidity_role=request.liquidity_role,
-                    status=status,
-                    currency=request.currency,
-                    cumulative_notional=(
-                        None if request.cumulative_notional is None else request.cumulative_notional.amount
-                    ),
-                    cumulative_quantity=request.cumulative_quantity,
-                )
-        return self._breakdown(request, components, status)
-
-    @staticmethod
-    def _breakdown(
-        request: OnlyFeeCalculationRequest, components: tuple[OnlyFeeComponent, ...], status: OnlyFeeStatus
-    ) -> OnlyFeeBreakdown:
-        return OnlyFeeBreakdown(
-            request.currency,
-            components,
-            OnlyMoney(sum((x.amount.amount for x in components), Decimal(0)), request.currency),
-            status,
-        )
-
-    @staticmethod
-    def _reported_all_in(request: OnlyFeeCalculationRequest, status: OnlyFeeStatus) -> OnlyFeeBreakdown:
-        if request.reported_fee is None:
-            raise ValueError("reported all-in fee requires reported_fee")
-        component = OnlyFeeComponent(
-            fee_type=OnlyFeeType.OTHER,
-            authority=OnlyFeeAuthority.BROKER,
-            amount=request.reported_fee,
-            status=status,
-            source_id=request.broker_id,
-            metadata={"reported": True, "reporting_mode": request.broker_fee_reporting_mode.value},
-        )
-        return OnlyFeeBreakdown(request.currency, (component,), request.reported_fee, status)
-
-    @staticmethod
-    def _with_status(breakdown: OnlyFeeBreakdown, status: OnlyFeeStatus) -> OnlyFeeBreakdown:
         components = tuple(
-            OnlyFeeComponent(
-                item.fee_type,
-                item.authority,
-                item.amount,
-                status,
-                item.source_id,
-                item.schedule_id,
-                item.schedule_version,
-                item.effective_date,
-                item.metadata,
-                item.calculation_scope,
+            component
+            for policy in request.policies.policies
+            if policy.rule.liquidity_role is None or policy.rule.liquidity_role is request.liquidity_role
+            for component in (
+                self._component(
+                    policy,
+                    request.fill_basis
+                    if policy.rule.calculation_scope is OnlyFeeCalculationScope.FILL
+                    else request.cumulative_order_basis,
+                    request.local_finality,
+                ),
             )
-            for item in breakdown.components
         )
-        return OnlyFeeBreakdown(breakdown.currency, components, breakdown.total, status)
+        return self._assessment(
+            subject=request.subject,
+            trade_id=request.trade_id,
+            components=components,
+            policies=request.policies,
+            finality=request.local_finality,
+            discriminator="trade",
+            binding=request.binding,
+        )
+
+    def estimate_order(self, request: OnlyOrderFeeEstimateRequest) -> OnlyOrderFeeEstimate:
+        self._validate_request_authority(
+            request.binding.fingerprint, request.policies, request.full_order_basis.notional.currency
+        )
+        expected = self._estimate_assessment(request, request.expected_fill_count, maximum=False)
+        maximum_count = request.maximum_fill_count
+        if maximum_count is None and any(_split_sensitive(item) for item in request.policies.policies):
+            raise ValueError("FEE_ESTIMATE_MAXIMUM_FILL_COUNT_REQUIRED")
+        maximum = self._estimate_assessment(request, maximum_count or request.expected_fill_count, maximum=True)
+        assumptions = only_fee_fingerprint(
+            (
+                request.binding.fingerprint,
+                request.policies.fingerprint,
+                request.expected_fill_count,
+                request.maximum_fill_count,
+                request.expected_basis.to_dict(),
+                request.full_order_basis.to_dict(),
+            )
+        )
+        return OnlyOrderFeeEstimate(
+            expected,
+            maximum,
+            maximum.total_charges,
+            expected.total_rebates,
+            assumptions,
+        )
+
+    def _estimate_assessment(
+        self, request: OnlyOrderFeeEstimateRequest, fill_count: int, *, maximum: bool
+    ) -> OnlyFeeAssessment:
+        components = []
+        for policy in request.policies.policies:
+            if not policy.rule.matches(request.side, request.offset, None):
+                continue
+            basis = request.full_order_basis
+            multiplier = 1
+            if _split_sensitive(policy):
+                basis = request.expected_basis
+                multiplier = fill_count
+            component = self._component(policy, basis, OnlyLocalFeeFinality.ESTIMATED)
+            if multiplier != 1:
+                component = replace(
+                    component,
+                    raw_amount=OnlyMoney(component.raw_amount.amount * multiplier, component.raw_amount.currency),
+                    bounded_amount=OnlyMoney(
+                        component.bounded_amount.amount * multiplier, component.bounded_amount.currency
+                    ),
+                    target_amount=OnlyMoney(
+                        component.target_amount.amount * multiplier, component.target_amount.currency
+                    ),
+                )
+            components.append(component)
+        return self._assessment(
+            subject=request.subject,
+            trade_id=None,
+            components=tuple(components),
+            policies=request.policies,
+            finality=OnlyLocalFeeFinality.ESTIMATED,
+            discriminator="maximum" if maximum else "expected",
+            binding=request.binding,
+        )
+
+    @staticmethod
+    def _component(
+        policy: OnlyResolvedFeePolicy,
+        basis: OnlyFeeBasisValues,
+        finality: OnlyLocalFeeFinality,
+    ) -> OnlyFeeTargetComponent:
+        if policy.currency != basis.notional.currency:
+            raise ValueError("FEE_CURRENCY_CONVERSION_UNSUPPORTED")
+        rule = policy.rule
+        raw = rule.formula.evaluate(basis)
+        bounded, target = only_apply_fee_pipeline(
+            raw,
+            minimum=rule.minimum,
+            maximum=rule.maximum,
+            rounding=rule.rounding,
+            pipeline=rule.pipeline,
+        )
+        identity = OnlyFeeComponentIdentity(
+            rule.fee_type,
+            rule.authority,
+            policy.source_id,
+            policy.schedule_id,
+            policy.schedule_version,
+            policy.schedule_fingerprint,
+            rule.rule_id,
+            rule.fingerprint,
+            rule.calculation_scope,
+            rule.resolution_policy,
+            rule.economic_direction,
+        )
+        quantum = Decimal(1).scaleb(-policy.currency.precision)
+        return OnlyFeeTargetComponent(
+            identity,
+            OnlyMoney(raw.quantize(quantum, rounding=ROUND_HALF_EVEN), policy.currency),
+            OnlyMoney(bounded.quantize(quantum, rounding=ROUND_HALF_EVEN), policy.currency),
+            OnlyMoney(target, policy.currency),
+            finality,
+        )
+
+    @staticmethod
+    def _assessment(
+        *,
+        subject: object,
+        trade_id: OnlyTradeId | None,
+        components: tuple[OnlyFeeTargetComponent, ...],
+        policies: OnlyResolvedFeePolicySet,
+        finality: OnlyLocalFeeFinality,
+        discriminator: str,
+        binding: OnlyOrderFeePolicyBinding,
+    ) -> OnlyFeeAssessment:
+        from onlyalpha.fee.models import OnlyFeeSubject
+
+        assert isinstance(subject, OnlyFeeSubject)
+        ordered = tuple(sorted(components, key=lambda item: item.identity.sort_key))
+        if ordered:
+            currency = ordered[0].target_amount.currency
+        else:
+            raise ValueError("FEE_POLICY_SET_HAS_NO_MATCHING_RULE")
+        charges = sum(
+            (
+                item.target_amount.amount
+                for item in ordered
+                if item.identity.economic_direction is OnlyFeeEconomicDirection.CHARGE
+            ),
+            Decimal(0),
+        )
+        rebates = sum(
+            (
+                item.target_amount.amount
+                for item in ordered
+                if item.identity.economic_direction is OnlyFeeEconomicDirection.REBATE
+            ),
+            Decimal(0),
+        )
+        assessment_id = only_fee_fingerprint(
+            (
+                discriminator,
+                subject.to_dict(),
+                None if trade_id is None else str(trade_id),
+                tuple(item.to_dict() for item in ordered),
+                policies.fingerprint,
+            )
+        )
+        return OnlyFeeAssessment(
+            assessment_id,
+            subject,
+            trade_id,
+            ordered,
+            OnlyMoney(charges, currency),
+            OnlyMoney(rebates, currency),
+            policies.fingerprint,
+            finality,
+            binding,
+        )
+
+    @staticmethod
+    def _validate_request_authority(
+        binding_fingerprint: str, policies: OnlyResolvedFeePolicySet, currency: object
+    ) -> None:
+        del binding_fingerprint
+        if not policies.policies:
+            raise ValueError("FEE_PACK_NOT_INSTALLED")
+        if any(item.currency != currency for item in policies.policies):
+            raise ValueError("FEE_CURRENCY_CONVERSION_UNSUPPORTED")
+
+
+def _split_sensitive(policy: OnlyResolvedFeePolicy) -> bool:
+    rule = policy.rule
+    return rule.calculation_scope is OnlyFeeCalculationScope.FILL and (
+        rule.minimum is not None
+        or rule.maximum is not None
+        or any(isinstance(item, OnlyFeeFixedTerm) for item in rule.formula.terms)
+    )
+
+
+__all__ = ["OnlyFeeEngine"]

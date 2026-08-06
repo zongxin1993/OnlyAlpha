@@ -1,21 +1,24 @@
-"""Immutable, auditable fee domain models.
-
-These types deliberately do not depend on Runtime managers.  A fee report is
-external evidence; a fee instruction is the sole local accounting command.
-"""
+"""Market-neutral immutable fee domain vocabulary."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-from datetime import date, datetime
+import hashlib
+import json
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from types import MappingProxyType
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.time import only_require_utc
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.domain.identifiers import (
+    OnlyAccountId,
+    OnlyClusterId,
+    OnlyInstrumentId,
+    OnlyOrderId,
+    OnlyRuntimeId,
+    OnlyTradeId,
+)
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, only_decimal
 
 
 class OnlyFeeAuthority(StrEnum):
@@ -25,10 +28,6 @@ class OnlyFeeAuthority(StrEnum):
     CLEARING = "CLEARING"
     BROKER = "BROKER"
     PLATFORM = "PLATFORM"
-    FINANCING = "FINANCING"
-    BORROW = "BORROW"
-    FUNDING = "FUNDING"
-    OTHER = "OTHER"
 
 
 class OnlyFeeType(StrEnum):
@@ -45,35 +44,17 @@ class OnlyFeeType(StrEnum):
     CLOSE_TODAY_FEE = "CLOSE_TODAY_FEE"
     MAKER_FEE = "MAKER_FEE"
     TAKER_FEE = "TAKER_FEE"
-    BORROW_FEE = "BORROW_FEE"
-    FINANCING_FEE = "FINANCING_FEE"
-    FUNDING = "FUNDING"
-    FX_CONVERSION_FEE = "FX_CONVERSION_FEE"
-    OTHER = "OTHER"
 
 
-class OnlyFeeStatus(StrEnum):
-    ESTIMATED = "ESTIMATED"
-    PROVISIONAL = "PROVISIONAL"
-    CONFIRMED = "CONFIRMED"
-    ADJUSTED = "ADJUSTED"
-    REVERSED = "REVERSED"
+class OnlyFeeCalculationBasis(StrEnum):
+    NOTIONAL = "NOTIONAL"
+    QUANTITY = "QUANTITY"
+    CONTRACTS = "CONTRACTS"
 
 
-class OnlyFeeConfigurationMode(StrEnum):
-    NONE = "NONE"
-    MODEL = "MODEL"
-    DEFAULT = "DEFAULT"
-    REPORTED = "REPORTED"
-
-
-class OnlyBrokerFeeReportingMode(StrEnum):
-    NONE = "NONE"
-    COMMISSION_ONLY = "COMMISSION_ONLY"
-    DETAILED = "DETAILED"
-    ALL_IN = "ALL_IN"
-    DEFERRED_STATEMENT = "DEFERRED_STATEMENT"
-    ORDER_CUMULATIVE = "ORDER_CUMULATIVE"
+class OnlyFeeEconomicDirection(StrEnum):
+    CHARGE = "CHARGE"
+    REBATE = "REBATE"
 
 
 class OnlyFeeCalculationScope(StrEnum):
@@ -81,157 +62,224 @@ class OnlyFeeCalculationScope(StrEnum):
     ORDER_CUMULATIVE = "ORDER_CUMULATIVE"
 
 
+class OnlyFeeResolutionPolicy(StrEnum):
+    FILL_EFFECTIVE = "FILL_EFFECTIVE"
+    ORDER_FIXED = "ORDER_FIXED"
+
+
+class OnlyFeeRoundingMode(StrEnum):
+    HALF_EVEN = "HALF_EVEN"
+    HALF_UP = "HALF_UP"
+    CEILING = "CEILING"
+    FLOOR = "FLOOR"
+
+
+class OnlyFeeCalculationPipeline(StrEnum):
+    BOUNDS_THEN_ROUND = "BOUNDS_THEN_ROUND"
+    ROUND_THEN_BOUNDS = "ROUND_THEN_BOUNDS"
+
+
+class OnlyLocalFeeFinality(StrEnum):
+    ESTIMATED = "ESTIMATED"
+    MODEL_PROVISIONAL = "MODEL_PROVISIONAL"
+    MODEL_CONFIRMED = "MODEL_CONFIRMED"
+
+
 @dataclass(frozen=True, slots=True)
-class OnlyFeeComponent(OnlyDomainModel):
-    fee_type: OnlyFeeType
-    authority: OnlyFeeAuthority
-    amount: OnlyMoney
-    status: OnlyFeeStatus
-    source_id: str
-    schedule_id: str | None = None
-    schedule_version: str | None = None
-    effective_date: date | None = None
-    metadata: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
-    calculation_scope: OnlyFeeCalculationScope = OnlyFeeCalculationScope.FILL
+class OnlyFeeBasisValues(OnlyDomainModel):
+    notional: OnlyMoney
+    quantity: Decimal
+    contracts: Decimal
 
     def __post_init__(self) -> None:
-        if not self.source_id:
-            raise ValueError("fee component source_id cannot be empty")
-        if self.amount.amount < 0:
-            raise ValueError("fee component amount cannot be negative")
-        if (self.schedule_id is None) != (self.schedule_version is None):
-            raise ValueError("fee component schedule identity requires both id and version")
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        quantity = only_decimal(self.quantity)
+        contracts = only_decimal(self.contracts)
+        if self.notional.amount < 0 or quantity < 0 or contracts < 0:
+            raise ValueError("fee basis values cannot be negative")
+        object.__setattr__(self, "quantity", quantity)
+        object.__setattr__(self, "contracts", contracts)
+
+    def value(self, basis: OnlyFeeCalculationBasis) -> Decimal:
+        if basis is OnlyFeeCalculationBasis.NOTIONAL:
+            return self.notional.amount
+        if basis is OnlyFeeCalculationBasis.QUANTITY:
+            return self.quantity
+        return self.contracts
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeSubject(OnlyDomainModel):
+    runtime_id: OnlyRuntimeId
+    account_id: OnlyAccountId
+    cluster_id: OnlyClusterId
+    order_id: OnlyOrderId
+    instrument_id: OnlyInstrumentId
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeScheduleIdentity(OnlyDomainModel):
+    schedule_id: str
+    version: str
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.schedule_id.strip() or not self.version.strip():
+            raise ValueError("fee schedule identity cannot be empty")
+        _require_digest(self.fingerprint, "schedule fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeComponentIdentity(OnlyDomainModel):
+    fee_type: OnlyFeeType
+    authority: OnlyFeeAuthority
+    source_id: str
+    schedule_id: str
+    schedule_version: str
+    schedule_fingerprint: str
+    rule_id: str
+    rule_fingerprint: str
+    calculation_scope: OnlyFeeCalculationScope
+    resolution_policy: OnlyFeeResolutionPolicy
+    economic_direction: OnlyFeeEconomicDirection
+
+    def __post_init__(self) -> None:
+        if not all(
+            (self.source_id.strip(), self.schedule_id.strip(), self.schedule_version.strip(), self.rule_id.strip())
+        ):
+            raise ValueError("fee component identity cannot be empty")
+        _require_digest(self.schedule_fingerprint, "schedule fingerprint")
+        _require_digest(self.rule_fingerprint, "rule fingerprint")
 
     @property
-    def unique_key(self) -> tuple[OnlyFeeType, OnlyFeeAuthority, str, str | None, str | None, OnlyFeeCalculationScope]:
-        return (
-            self.fee_type,
-            self.authority,
-            self.source_id,
-            self.schedule_id,
-            self.schedule_version,
-            self.calculation_scope,
+    def sort_key(self) -> tuple[str, ...]:
+        return tuple(
+            str(value)
+            for value in (
+                self.fee_type.value,
+                self.authority.value,
+                self.source_id,
+                self.schedule_id,
+                self.schedule_version,
+                self.rule_id,
+                self.calculation_scope.value,
+                self.resolution_policy.value,
+                self.economic_direction.value,
+            )
         )
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeBreakdown(OnlyDomainModel):
-    currency: OnlyCurrency
-    components: tuple[OnlyFeeComponent, ...]
-    total: OnlyMoney
-    status: OnlyFeeStatus
+class OnlyFeeTargetComponent(OnlyDomainModel):
+    identity: OnlyFeeComponentIdentity
+    raw_amount: OnlyMoney
+    bounded_amount: OnlyMoney
+    target_amount: OnlyMoney
+    local_finality: OnlyLocalFeeFinality
 
     def __post_init__(self) -> None:
-        if self.total.currency != self.currency:
-            raise ValueError("fee breakdown total currency mismatch")
-        if any(item.amount.currency != self.currency for item in self.components):
-            raise ValueError("fee breakdown component currency mismatch")
-        if len({item.unique_key for item in self.components}) != len(self.components):
-            raise ValueError("fee breakdown contains duplicate component identity")
-        summed = sum((item.amount.amount for item in self.components), Decimal(0))
-        if summed != self.total.amount:
-            raise ValueError("fee breakdown total must equal components")
-        if any(item.status is not self.status for item in self.components):
-            raise ValueError("fee breakdown component statuses must match breakdown status")
-
-    @classmethod
-    def empty(cls, currency: OnlyCurrency, status: OnlyFeeStatus) -> OnlyFeeBreakdown:
-        return cls(currency, (), OnlyMoney(Decimal(0), currency), status)
+        monies = (self.raw_amount, self.bounded_amount, self.target_amount)
+        if len({item.currency for item in monies}) != 1 or any(item.amount < 0 for item in monies):
+            raise ValueError("fee target component currency/amount is invalid")
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeCalculationRequest:
-    runtime_id: str
-    cluster_id: str | None
-    account_id: str
-    order_id: str
-    trade_id: str
-    instrument_id: str
+class OnlyFeeAssessment(OnlyDomainModel):
+    assessment_id: str
+    subject: OnlyFeeSubject
+    trade_id: OnlyTradeId | None
+    components: tuple[OnlyFeeTargetComponent, ...]
+    total_charges: OnlyMoney
+    total_rebates: OnlyMoney
+    policy_fingerprint: str
+    local_finality: OnlyLocalFeeFinality
+    binding: OnlyOrderFeePolicyBinding
+
+    def __post_init__(self) -> None:
+        if not self.assessment_id.strip():
+            raise ValueError("fee assessment identity cannot be empty")
+        _require_digest(self.policy_fingerprint, "policy fingerprint")
+        if self.total_charges.currency != self.total_rebates.currency:
+            raise ValueError("fee assessment currency mismatch")
+        if self.total_charges.amount < 0 or self.total_rebates.amount < 0:
+            raise ValueError("fee assessment totals cannot be negative")
+        if len({item.identity for item in self.components}) != len(self.components):
+            raise ValueError("fee assessment component identity must be unique")
+        currency = self.total_charges.currency
+        if any(item.target_amount.currency != currency for item in self.components):
+            raise ValueError("fee assessment component currency mismatch")
+        charges = sum(
+            (
+                item.target_amount.amount
+                for item in self.components
+                if item.identity.economic_direction is OnlyFeeEconomicDirection.CHARGE
+            ),
+            Decimal(0),
+        )
+        rebates = sum(
+            (
+                item.target_amount.amount
+                for item in self.components
+                if item.identity.economic_direction is OnlyFeeEconomicDirection.REBATE
+            ),
+            Decimal(0),
+        )
+        if charges != self.total_charges.amount or rebates != self.total_rebates.amount:
+            raise ValueError("fee assessment totals disagree with components")
+        if self.binding.order_id != self.subject.order_id:
+            raise ValueError("fee assessment binding scope mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderFeePolicyBinding(OnlyDomainModel):
+    schema_version = 1
+
+    runtime_id: OnlyRuntimeId
+    account_id: OnlyAccountId
+    cluster_id: OnlyClusterId
+    order_id: OnlyOrderId
+    instrument_id: OnlyInstrumentId
     market_profile_id: str
     market_profile_version: str
-    trading_day: date
-    side: str
-    offset: str
-    liquidity_role: str | None
-    price: Decimal
-    quantity: Decimal
-    notional: OnlyMoney
-    contract_multiplier: Decimal
-    currency: OnlyCurrency
-    broker_id: str
-    broker_fee_reporting_mode: OnlyBrokerFeeReportingMode
-    reported_fee: OnlyMoney | None = None
-    reported_breakdown: OnlyFeeBreakdown | None = None
-    cumulative_quantity: Decimal | None = None
-    cumulative_notional: OnlyMoney | None = None
+    order_fixed_schedules: tuple[OnlyFeeScheduleIdentity, ...]
+    fill_effective_schedule_ids: tuple[str, ...]
+    charge_currency: OnlyCurrency
+    bound_at: OnlyTimestamp
+    fingerprint: str
 
     def __post_init__(self) -> None:
-        if not all(
-            (self.runtime_id, self.account_id, self.order_id, self.trade_id, self.instrument_id, self.broker_id)
+        if not self.market_profile_id.strip() or not self.market_profile_version.strip():
+            raise ValueError("order fee binding requires a market profile identity")
+        if any(not item.strip() for item in self.fill_effective_schedule_ids):
+            raise ValueError("fill-effective schedule ID cannot be empty")
+        if len(set(self.fill_effective_schedule_ids)) != len(self.fill_effective_schedule_ids):
+            raise ValueError("fill-effective schedule IDs must be unique")
+        if len({(item.schedule_id, item.version) for item in self.order_fixed_schedules}) != len(
+            self.order_fixed_schedules
         ):
-            raise ValueError("fee calculation request contains an empty identity")
-        if self.price <= 0 or self.quantity <= 0 or self.contract_multiplier <= 0:
-            raise ValueError("fee calculation request price, quantity and multiplier must be positive")
-        if self.notional.currency != self.currency:
-            raise ValueError("fee calculation request notional currency mismatch")
-        if self.reported_fee is not None and self.reported_fee.currency != self.currency:
-            raise ValueError("reported fee currency mismatch")
-        if self.reported_breakdown is not None and self.reported_breakdown.currency != self.currency:
-            raise ValueError("reported fee breakdown currency mismatch")
-        if self.cumulative_quantity is not None and self.cumulative_quantity < self.quantity:
-            raise ValueError("cumulative fee quantity cannot be smaller than Fill quantity")
-        if self.cumulative_notional is not None and self.cumulative_notional.currency != self.currency:
-            raise ValueError("cumulative fee notional currency mismatch")
+            raise ValueError("order-fixed schedule identities must be unique")
+        _require_digest(self.fingerprint, "binding fingerprint")
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyFeeInstruction:
-    instruction_id: str
-    runtime_id: str
-    cluster_id: str | None
-    account_id: str
-    order_id: str
-    trade_id: str
-    fee_breakdown: OnlyFeeBreakdown
-    calculation_source: str
-    created_at: datetime
-    idempotency_key: str
-
-    def __post_init__(self) -> None:
-        if not all(
-            (self.instruction_id, self.runtime_id, self.account_id, self.order_id, self.trade_id, self.idempotency_key)
-        ):
-            raise ValueError("fee instruction contains an empty identity")
-        only_require_utc(self.created_at, "fee instruction created_at")
+def only_fee_fingerprint(payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=_json_default)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-@dataclass(frozen=True, slots=True)
-class OnlyFeeAdjustmentInstruction:
-    adjustment_id: str
-    related_trade_id: str | None
-    settlement_scope: str | None
-    account_id: str
-    cluster_id: str | None
-    currency: OnlyCurrency
-    previous_amount: OnlyMoney
-    reported_amount: OnlyMoney
-    adjustment_amount: OnlyMoney
-    reason: str
-    external_reference: str | None
-    created_at: datetime
-    idempotency_key: str
+def _json_default(value: object) -> object:
+    if isinstance(value, OnlyDomainModel):
+        return value.to_dict()
+    if isinstance(value, StrEnum):
+        return value.value
+    if isinstance(value, Decimal):
+        return str(value)
+    if hasattr(value, "isoformat"):
+        return str(value.isoformat())
+    raise TypeError(f"unsupported fee fingerprint value: {type(value).__name__}")
 
-    def __post_init__(self) -> None:
-        if (self.related_trade_id is None) == (self.settlement_scope is None):
-            raise ValueError("fee adjustment requires exactly one trade or settlement scope")
-        if not all((self.adjustment_id, self.account_id, self.reason, self.idempotency_key)):
-            raise ValueError("fee adjustment contains an empty identity")
-        if any(
-            item.currency != self.currency
-            for item in (self.previous_amount, self.reported_amount, self.adjustment_amount)
-        ):
-            raise ValueError("fee adjustment currency mismatch")
-        if self.adjustment_amount.amount != self.reported_amount.amount - self.previous_amount.amount:
-            raise ValueError("fee adjustment amount must equal reported minus previous")
-        only_require_utc(self.created_at, "fee adjustment created_at")
+
+def _require_digest(value: str, label: str) -> None:
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+
+
+__all__ = [name for name in globals() if name.startswith("Only") or name.startswith("only_")]

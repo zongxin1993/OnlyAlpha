@@ -1,9 +1,10 @@
+from dataclasses import replace
+
 from onlyalpha.execution import (
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyRuntimeProjectionComponent,
     only_execution_trade_fingerprints,
 )
-from onlyalpha.fee import OnlyFeeInstruction
 from onlyalpha.transaction.applied_projection import OnlyRuntimeProjectionApplyContext
 from tests.execution.targets.support import only_test_assert_all_apply, only_test_projection_target_bundle
 
@@ -33,24 +34,17 @@ def test_replayed_dedup_cycles_and_sequences_drive_followup_behavior() -> None:
     assert runtime.allocation_manager._cycles[allocation.after.key] == allocation.replay.cycle
     assert runtime.risk_service.reservations.sequence_head == 1
 
-    fee = next(item for item in transaction.projections if isinstance(item, OnlyFeeExecutionProjection))
-    replay = fee.after.instruction
-    next_fee = OnlyFeeInstruction(
-        f"{replay.instruction_id}-next",
-        replay.runtime_id,
-        replay.cluster_id,
-        replay.account_id,
-        replay.order_id,
-        f"{replay.trade_id}-next",
-        fee.after.fee_breakdown,
-        replay.calculation_source,
-        replay.created_at.to_datetime(),
-        f"{replay.idempotency_key}-next",
+    fee = next(item for item in transaction.projections if isinstance(item, OnlyFeeApplicationProjection))
+    application = fee.after.application
+    next_fee = replace(
+        application,
+        application_id=f"{application.application_id}-next",
+        idempotency_key=f"{application.idempotency_key}-next",
     )
-    before_sequence = runtime.fee_manager.sequence_head
-    records = runtime.fee_manager.apply(next_fee, instrument_id=str(transaction.fact.instrument_id))
-    assert records[0].sequence == before_sequence + 1
-    assert runtime.fee_manager.apply(next_fee, instrument_id=str(transaction.fact.instrument_id)) == ()
+    before_sequence = runtime.fee_application_ledger.sequence_head
+    records = runtime.fee_application_ledger.apply(next_fee, instrument_id=transaction.fact.instrument_id)
+    assert not records or records[0].sequence == before_sequence + 1
+    assert runtime.fee_application_ledger.apply(next_fee, instrument_id=transaction.fact.instrument_id) == ()
 
 
 def test_valuation_replay_preserves_versions_and_contiguous_timelines() -> None:

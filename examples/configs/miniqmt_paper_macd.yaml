@@ -3,7 +3,8 @@ schema_version: "1.0"
 market:
   profile: GENERIC_T0_CASH
   fees:
-    mode: NONE
+    pack_id: GENERIC_T0_CASH_CONFORMANCE
+    pack_version: "1"
 
 cluster:
   cluster_id: miniqmt-paper-macd
@@ -84,8 +85,6 @@ brokers:
   - gateway_id: paper-shadow-no-broker
     plugin: miniqmt
     enabled: false
-    fees:
-      mode: NONE
     extensions: {}
 
 strategy:

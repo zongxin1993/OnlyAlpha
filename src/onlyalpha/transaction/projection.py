@@ -28,8 +28,9 @@ from onlyalpha.execution.execution_state import (
     OnlyStrategyCashReservationExecutionState,
     OnlyStrategyLedgerExecutionState,
 )
-from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState
-from onlyalpha.fee.models import OnlyFeeBreakdown
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualState
+from onlyalpha.fee.application import OnlyFeeApplicationInstruction
+from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
 from onlyalpha.settlement.models import OnlySettlementInstruction
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 from onlyalpha.transaction.state_hash import only_execution_state_hash
@@ -45,7 +46,7 @@ class OnlyRuntimeProjectionComponent(StrEnum):
     SETTLEMENT = "SETTLEMENT"
     MARGIN = "MARGIN"
     ORDER_FEE_ACCRUAL = "ORDER_FEE_ACCRUAL"
-    FEE = "FEE"
+    FEE_LEDGER = "FEE_LEDGER"
     ACCOUNT = "ACCOUNT"
     STRATEGY_LEDGER = "STRATEGY_LEDGER"
     ACCOUNT_CASH_RESERVATION = "ACCOUNT_CASH_RESERVATION"
@@ -64,7 +65,7 @@ class OnlyRuntimeProjectionOrder(IntEnum):
     SETTLEMENT = 4
     MARGIN = 5
     ORDER_FEE_ACCRUAL = 6
-    FEE = 7
+    FEE_LEDGER = 7
     ACCOUNT = 8
     STRATEGY_LEDGER = 9
     ACCOUNT_CASH_RESERVATION = 10
@@ -354,97 +355,41 @@ class OnlyMarginExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeInstructionReplay(OnlyDomainModel):
-    instruction_id: str
-    runtime_id: str
-    cluster_id: str | None
-    account_id: str
-    order_id: str
-    trade_id: str
-    calculation_source: str
-    idempotency_key: str
-    created_at: OnlyTimestamp
-
-    def __post_init__(self) -> None:
-        if not all(
-            (
-                self.instruction_id,
-                self.runtime_id,
-                self.account_id,
-                self.order_id,
-                self.trade_id,
-                self.calculation_source,
-                self.idempotency_key,
-            )
-        ):
-            raise ValueError("Fee instruction replay requires complete scope")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyFeeRecordReplay(OnlyDomainModel):
-    record_id: str
-    instruction_id: str
-    account_id: str
-    order_id: str
-    trade_id: str
-    amount: OnlyMoney
-    component_type: str
-
-    def __post_init__(self) -> None:
-        if not all(
-            (self.record_id, self.instruction_id, self.account_id, self.order_id, self.trade_id, self.component_type)
-        ):
-            raise ValueError("Fee record replay requires complete scope")
-        if self.amount.amount < 0:
-            raise ValueError("Fee record amount cannot be negative")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyFeeExecutionState(OnlyDomainModel):
-    instruction: OnlyFeeInstructionReplay
-    records: tuple[OnlyFeeRecordReplay, ...]
-    authoritative_total: OnlyMoney
-    fee_breakdown: OnlyFeeBreakdown
+class OnlyFeeApplicationState(OnlyDomainModel):
+    application: OnlyFeeApplicationInstruction
+    records: tuple[OnlyFeeApplicationRecord, ...]
+    total_charges: OnlyMoney
+    total_rebates: OnlyMoney
     version: int
     record_sequence_head: int
 
     def __post_init__(self) -> None:
-        if self.authoritative_total != self.fee_breakdown.total or self.version < 1 or self.record_sequence_head < 0:
-            raise ValueError("Fee execution state total/version mismatch")
-        if sum((item.amount.amount for item in self.records), Decimal(0)) != self.authoritative_total.amount:
-            raise ValueError("Fee records must equal authoritative total")
-        scope = (
-            self.instruction.instruction_id,
-            self.instruction.account_id,
-            self.instruction.order_id,
-            self.instruction.trade_id,
-        )
-        if any(
-            item.amount.currency != self.authoritative_total.currency
-            or (item.instruction_id, item.account_id, item.order_id, item.trade_id) != scope
-            for item in self.records
-        ):
-            raise ValueError("Fee record currency/scope mismatch")
+        if self.total_charges != self.application.total_charges or self.total_rebates != self.application.total_rebates:
+            raise ValueError("Fee Application state total mismatch")
+        if self.version < 1 or self.record_sequence_head < 0:
+            raise ValueError("Fee Application state version/sequence is invalid")
+        if any(item.application_id != self.application.application_id for item in self.records):
+            raise ValueError("Fee Application record scope mismatch")
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeExecutionProjection(OnlyDomainModel):
+class OnlyFeeApplicationProjection(OnlyDomainModel):
     identity: OnlyRuntimeProjectionIdentity
-    before: OnlyFeeExecutionState | None
-    after: OnlyFeeExecutionState
+    before: OnlyFeeApplicationState | None
+    after: OnlyFeeApplicationState
 
     def __post_init__(self) -> None:
-        _require_component(self.identity, OnlyRuntimeProjectionComponent.FEE)
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.FEE_LEDGER)
         _require_state_contract(self.identity, self.before, self.after)
-        if self.identity.entity_key != self.after.instruction.instruction_id:
-            raise ValueError("Fee projection entity key mismatch")
+        if self.identity.entity_key != self.after.application.application_id:
+            raise ValueError("Fee Application projection entity key mismatch")
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyOrderFeeAccrualExecutionProjection(OnlyDomainModel):
+class OnlyOrderFeeAccrualProjection(OnlyDomainModel):
     identity: OnlyRuntimeProjectionIdentity
-    before: OnlyOrderFeeAccrualExecutionState | None
-    after: OnlyOrderFeeAccrualExecutionState
+    before: OnlyOrderFeeAccrualState | None
+    after: OnlyOrderFeeAccrualState
 
     def __post_init__(self) -> None:
         _require_component(self.identity, OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL)
@@ -615,8 +560,8 @@ type OnlyRuntimeProjection = (
     | OnlyAllocationExecutionProjection
     | OnlySettlementExecutionProjection
     | OnlyMarginExecutionProjection
-    | OnlyFeeExecutionProjection
-    | OnlyOrderFeeAccrualExecutionProjection
+    | OnlyFeeApplicationProjection
+    | OnlyOrderFeeAccrualProjection
     | OnlyAccountExecutionProjection
     | OnlyStrategyLedgerExecutionProjection
     | OnlyAccountCashReservationExecutionProjection

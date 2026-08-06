@@ -9,7 +9,7 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.plugin.capabilities import OnlyCheckpointCapability as OnlyCheckpointCapability
 
-ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION = 2
+ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from types import MappingProxyType
+from typing import ClassVar
 
 from onlyalpha.domain.time import only_require_utc
 
@@ -144,7 +145,10 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
     compiled_rule_fingerprint: str | None = None
     reference_fingerprint: str | None = None
     trade_instruction_id: str | None = None
-    fee_instruction_id: str | None = None
+    fee_application_id: str | None = None
+    fee_total_charges: Decimal = Decimal(0)
+    fee_total_rebates: Decimal = Decimal(0)
+    fee_signed_cash_effect: Decimal = Decimal(0)
     market_fee_schedule_ids: tuple[str, ...] = ()
     market_fee_schedule_versions: tuple[str, ...] = ()
     broker_fee_schedule_ids: tuple[str, ...] = ()
@@ -154,8 +158,6 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
     margin_instruction_id: str | None = None
     margin_action: str | None = None
     margin_amount: Decimal | None = None
-    reported_broker_fee: Decimal | None = None
-    fee_reporting_mode: str = "NONE"
     liquidity_side: str = "UNKNOWN"
     fee_breakdown: Mapping[str, Decimal] = field(default_factory=dict)
     liquidity: Mapping[str, object] = field(default_factory=dict)
@@ -165,8 +167,10 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
         only_require_utc(self.ts_event, "execution ts_event")
         if self.quantity <= 0 or self.price <= 0:
             raise ValueError("execution price and quantity must be positive")
-        if min(self.turnover, self.commission, self.fees) < 0:
+        if min(self.turnover, self.commission, self.fees, self.fee_total_charges, self.fee_total_rebates) < 0:
             raise ValueError("execution turnover and fees cannot be negative")
+        if self.fee_signed_cash_effect != self.fee_total_rebates - self.fee_total_charges:
+            raise ValueError("execution fee signed cash effect is inconsistent")
         if self.contract_multiplier <= 0:
             raise ValueError("execution contract multiplier must be positive")
         object.__setattr__(self, "fee_breakdown", MappingProxyType(dict(self.fee_breakdown)))
@@ -435,6 +439,8 @@ class OnlyEquityResultRecord(OnlySequencedResultRecord):
 
 @dataclass(frozen=True, slots=True)
 class OnlyBacktestFacts:
+    schema_version: ClassVar[int] = 5
+
     signals: tuple[OnlySignalResultRecord, ...] = ()
     order_requests: tuple[OnlyOrderRequestResultRecord, ...] = ()
     orders: tuple[OnlyOrderResultRecord, ...] = ()

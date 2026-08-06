@@ -73,13 +73,13 @@ def test_recovery_stops_and_preserves_diagnostic_on_projection_failure() -> None
     prepared = only_test_generic_t0_cash_buy_open_transaction()
     store.commit(prepared, committed_at=_NOW)
 
-    result = _service(store, missing=OnlyRuntimeProjectionComponent.FEE).recover(prepared.runtime_id)
+    result = _service(store, missing=OnlyRuntimeProjectionComponent.FEE_LEDGER).recover(prepared.runtime_id)
 
     assert result.status is OnlyExecutionRecoveryStatus.FAILED
     assert not result.succeeded
     assert result.failed_sequence == 1
     assert result.failed_transaction_id == prepared.transaction_id
-    assert result.failure_component is OnlyRuntimeProjectionComponent.FEE
+    assert result.failure_component is OnlyRuntimeProjectionComponent.FEE_LEDGER
     assert result.coordinator_status is OnlyRuntimeTransactionCoordinationStatus.PROJECTION_FAILED
     assert store.ready_records(prepared.runtime_id) == ()
 

@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
-from onlyalpha.fee.manager import OnlyFeeRecord
+from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
 from onlyalpha.margin.manager import OnlyMarginRecord
 from onlyalpha.margin.models import OnlyMarginReservation
 from onlyalpha.runtime.recovery.validation import (
@@ -33,7 +33,13 @@ def test_missing_and_total_mismatched_fee_records_remain_detected() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
     assert "POST_RECOVERY_FEE_RECORD_MISSING" in _failed(fixture.context(fee_records=()))
     record = fixture.context().fee_records[0]
-    changed = replace(record, charged=record.charged + 1)
+    changed = replace(
+        record,
+        incremental_amount=OnlyMoney(
+            record.incremental_amount.amount + 1,
+            record.incremental_amount.currency,
+        ),
+    )
     assert "POST_RECOVERY_FEE_TOTAL_MISMATCH" in _failed(
         fixture.context(fee_records=(changed, *fixture.context().fee_records[1:]))
     )
@@ -46,10 +52,10 @@ def test_missing_and_total_mismatched_fee_records_remain_detected() -> None:
         ("instrument_id", "wrong-instrument"),
         ("order_id", "wrong-order"),
         ("trade_id", "wrong-trade"),
-        ("currency", "USD"),
+        ("incremental_amount", OnlyMoney(Decimal("0"), OnlyCurrency("USD"))),
     ),
 )
-def test_fee_scope_fields_are_compared_to_committed_fact(field: str, value: str) -> None:
+def test_fee_scope_fields_are_compared_to_committed_fact(field: str, value: object) -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
     records = fixture.context().fee_records
     changed = replace(records[0], **{field: value})
@@ -58,7 +64,7 @@ def test_fee_scope_fields_are_compared_to_committed_fact(field: str, value: str)
 
 def test_orphan_fee_record_is_rejected() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create(with_transaction=True)
-    record: OnlyFeeRecord = replace(fixture.context().fee_records[0], instruction_id="orphan")
+    record: OnlyFeeApplicationRecord = replace(fixture.context().fee_records[0], application_id="orphan")
     assert "POST_RECOVERY_ORPHAN_FEE_RECORD" in _failed(
         fixture.context(fee_records=(*fixture.context().fee_records, record))
     )

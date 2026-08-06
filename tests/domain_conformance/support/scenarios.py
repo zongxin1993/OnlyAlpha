@@ -39,6 +39,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
 from onlyalpha.order.manager import OnlyOrderManager
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 from .instruments import build_instruments
 
@@ -110,7 +111,13 @@ def _run(name: str, instrument: OnlyInstrument) -> OnlyScenarioResult:
             OnlySequenceClientOrderIdGenerator(runtime_id),
         )
         timestamp = OnlyTimestamp.from_datetime(now)
-        created = manager.create_order(request, OnlyClusterId("demo"), OnlyAccountId("demo"), timestamp)
+        created = manager.create_order(
+            request,
+            OnlyClusterId("demo"),
+            OnlyAccountId("demo"),
+            timestamp,
+            only_test_zero_fee_contract,
+        )
         manager.mark_submitted(created.order_id, timestamp)
         manager.apply_accepted(created.order_id, timestamp, OnlyVenueOrderId(f"{name}-venue"))
         order = manager.apply_fill(

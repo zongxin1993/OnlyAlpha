@@ -11,14 +11,14 @@ from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice
-from onlyalpha.fee.accrual import OnlyOrderFeeAccrualExecutionState
-from onlyalpha.fee.models import OnlyFeeInstruction
+from onlyalpha.fee.accrual import OnlyOrderFeeAccrualState
+from onlyalpha.fee.models import OnlyFeeAssessment
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint
 from onlyalpha.transaction.projection import (
-    OnlyFeeExecutionState,
+    OnlyFeeApplicationState,
     OnlySettlementExecutionState,
     OnlyValuationExecutionState,
 )
@@ -79,7 +79,7 @@ class OnlyTradeExecutionPlanningContext:
     valuation_price: OnlyPrice
     position_scope: OnlyExecutionPositionScope
     trade_instruction: OnlyTradeApplicationInstruction
-    fee_instruction: OnlyFeeInstruction
+    fee_assessment: OnlyFeeAssessment
     order_before: OnlyOrderExecutionState
     position_before: OnlyPositionExecutionState | None
     allocation_before: OnlyAllocationExecutionState | None
@@ -87,7 +87,7 @@ class OnlyTradeExecutionPlanningContext:
     aggregate_allocation_cumulative_cost_before: Decimal
     account_ledger_parity: bool
     settlement_before: OnlySettlementExecutionState | None
-    fee_before: OnlyFeeExecutionState | None
+    fee_before: OnlyFeeApplicationState | None
     account_before: OnlyAccountExecutionState
     strategy_ledger_before: OnlyStrategyLedgerExecutionState
     account_cash_reservation_before: OnlyAccountCashReservationExecutionState | None
@@ -98,7 +98,7 @@ class OnlyTradeExecutionPlanningContext:
     fill_authority: OnlyExecutionFillAuthority
     position_creation: OnlyPositionCreationAuthority | None
     allocation_creation: OnlyAllocationCreationAuthority | None
-    order_fee_accrual_before: OnlyOrderFeeAccrualExecutionState | None = None
+    order_fee_accrual_before: OnlyOrderFeeAccrualState | None = None
     position_cycle: int = 0
     allocation_cycle: int = 0
     settlement_record_sequence: int = 0

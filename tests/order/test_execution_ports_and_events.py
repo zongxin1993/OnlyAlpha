@@ -14,6 +14,7 @@ from onlyalpha.order.execution.placeholder import OnlyPlaceholderExecutionServic
 from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.publisher import OnlyInMemoryOrderEventPublisher
 from onlyalpha.order.service import OnlyOrderService
+from tests.order.fee_contract import only_test_zero_fee_contract
 
 
 def test_gateway_is_abstract_and_placeholders_generate_no_venue_facts() -> None:
@@ -33,6 +34,7 @@ def test_submit_publishes_created_then_submitted_and_never_accepts(order_manager
         lambda: OnlyTimestamp.from_unix_nanos(1),
         risk_service,
         risk_service.make_evaluation_context,
+        fee_contract_factory=only_test_zero_fee_contract,
     )
     result = service.submit(order_request, OnlyClusterId("cluster-a"), OnlyAccountId("account"))
     assert result.snapshot.status is OnlyOrderStatus.SUBMITTED
@@ -51,6 +53,7 @@ def test_standardized_update_mutates_before_publishing(order_manager, order_requ
         lambda: OnlyTimestamp.from_unix_nanos(1),
         risk_service,
         risk_service.make_evaluation_context,
+        fee_contract_factory=only_test_zero_fee_contract,
     )
     submitted = service.submit(order_request, OnlyClusterId("cluster-a"), OnlyAccountId("account"))
     processor = OnlyOrderUpdateProcessor(OnlyRuntimeId("runtime"), order_manager, publisher)

@@ -37,7 +37,6 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
-from onlyalpha.fee.models import OnlyBrokerFeeReportingMode
 from onlyalpha.position.enums import OnlyPositionSide
 
 from ..mapping.exchange import from_xt_symbol
@@ -214,9 +213,6 @@ class OnlyMiniQmtTraderCallback:
             ts_init=initialized,
             venue_trade_id=OnlyVenueTradeId(str(value.traded_id)),
             venue_order_id=OnlyVenueOrderId(str(value.order_id)),
-            reported_fee=None,
-            fee_reporting_mode=OnlyBrokerFeeReportingMode.NONE,
-            fee_external_reference=None,
             external_sequence=self._sequence + 1,
             external_event_id=str(value.traded_id),
         )

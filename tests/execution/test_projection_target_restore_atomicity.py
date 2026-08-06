@@ -1,7 +1,7 @@
 import pytest
 
 from onlyalpha.execution import (
-    OnlyFeeExecutionProjection,
+    OnlyFeeApplicationProjection,
     OnlyRuntimeProjectionComponent,
     OnlySettlementExecutionProjection,
     only_execution_state_hash,
@@ -40,10 +40,10 @@ def test_repository_failure_leaves_manager_and_applied_ledger_unchanged(
 
 def test_fee_restore_validation_failure_is_atomic() -> None:
     bundle = only_test_projection_target_bundle()
-    component = OnlyRuntimeProjectionComponent.FEE
+    component = OnlyRuntimeProjectionComponent.FEE_LEDGER
     context = only_test_projection_context(bundle, component)
     projection = context.projection
-    assert isinstance(projection, OnlyFeeExecutionProjection)
+    assert isinstance(projection, OnlyFeeApplicationProjection)
     object.__setattr__(projection.after, "record_sequence_head", -1)
     object.__setattr__(projection.identity, "result_state_hash", only_execution_state_hash(projection.after))
     before = only_test_runtime_authority_digest(bundle.environment)

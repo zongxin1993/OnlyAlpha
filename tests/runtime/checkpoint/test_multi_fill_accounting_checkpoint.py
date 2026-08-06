@@ -53,6 +53,7 @@ def test_checkpoint_round_trip_preserves_multi_fill_before_authority_for_next_fi
     )
     prepared = OnlyTradeExecutionTransactionPlanner().prepare(restored_context)
     assert prepared.fact_draft.fill_index == 3
-    assert prepared.fact_draft.order_cumulative_fee_after.amount == Decimal("9.90")
+    assert prepared.fact_draft.order_cumulative_fee_charges_after.amount == Decimal("9.90")
+    assert prepared.fact_draft.order_cumulative_fee_rebates_after.amount == 0
     assert prepared.fact_draft.position_cumulative_open_price_quantity_after == Decimal("9900.00")
     assert prepared.fact_draft.terminal_fill

@@ -32,7 +32,6 @@ from onlyalpha.config.models import (
     _normalize_mapping,
 )
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
-from onlyalpha.fee.models import OnlyFeeConfigurationMode
 from onlyalpha.market.models import OnlyMarketProfileId
 
 
@@ -181,16 +180,12 @@ def _parse_market(parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping) -> 
     version_value = raw.get("version")
     version = None if version_value is None else parser._str(version_value, "$.market.version")
     overrides = parser._map(raw.get("overrides", {}), "$.market.overrides")
-    fees_raw = parser._map(raw.get("fees", {"mode": "DEFAULT"}), "$.market.fees")
-    mode_value = parser._str(fees_raw.get("mode"), "$.market.fees.mode").upper()
-    try:
-        mode = OnlyFeeConfigurationMode(mode_value)
-    except ValueError as exc:
-        raise OnlyClusterConfigError("$.market.fees.mode is invalid") from exc
-    schedule = fees_raw.get("schedule")
+    fees_raw = parser._map(raw.get("fees"), "$.market.fees")
+    pack_id = parser._str(fees_raw.get("pack_id"), "$.market.fees.pack_id")
+    pack_version = parser._str(fees_raw.get("pack_version"), "$.market.fees.pack_version")
     return OnlyMarketConfig(
         profile,
+        OnlyFeeConfig(pack_id, pack_version),
         version,
         overrides,
-        OnlyFeeConfig(mode, None if schedule is None else parser._str(schedule, "$.market.fees.schedule")),
     )

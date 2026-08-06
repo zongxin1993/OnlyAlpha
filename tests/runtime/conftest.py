@@ -9,14 +9,28 @@ from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
     OnlyAggregationSource,
     OnlyBarAggregation,
+    OnlyMarketType,
     OnlyPriceType,
     OnlyRuntimeMode,
     OnlySessionType,
 )
-from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyClusterId, OnlyInstrumentId, OnlySymbol, OnlyVenueId
+from onlyalpha.domain.identifiers import (
+    OnlyCalendarId,
+    OnlyClusterId,
+    OnlyInstrumentId,
+    OnlyRawSymbol,
+    OnlySymbol,
+    OnlyVenueId,
+)
+from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
-from onlyalpha.domain.time import OnlyTimeZone
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
+from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
+from onlyalpha.market.models import OnlyMarketProfileId
+from onlyalpha.market.profiles import only_builtin_market_profile_registry
+from onlyalpha.market.registry import OnlyMarketProfileRequest
+from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine, only_instrument_reference
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
@@ -63,7 +77,32 @@ def make_runtime(
             OnlyClusterId(cluster_id): OnlyMoney(Decimal(amount), currency) for cluster_id, amount in configured.items()
         }
         account_cash = OnlyMoney(sum((item.amount for item in capital.values()), Decimal(0)), currency)
-        return OnlyBacktestRuntime(
+        instrument_id = OnlyInstrumentId(OnlySymbol("600000"), OnlyVenueId("XSHG"))
+        instrument = OnlyEquity(
+            instrument_id=instrument_id,
+            raw_symbol=OnlyRawSymbol("600000"),
+            market_type=OnlyMarketType.CASH,
+            quote_currency=currency,
+            settlement_currency=currency,
+            price_precision=2,
+            quantity_precision=0,
+            tick_size=OnlyPrice(Decimal("0.01"), 2),
+            step_size=OnlyQuantity(Decimal("1"), 0),
+            contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
+        )
+        reference = only_instrument_reference(
+            instrument,
+            profile_id=OnlyMarketProfileId.GENERIC_T0_CASH.value,
+        )
+        market_rules = OnlyMarketRuleEngine(
+            registry=only_builtin_market_profile_registry(),
+            compiler=OnlyMarketRuleCompiler(),
+            request=OnlyMarketProfileRequest(OnlyMarketProfileId.GENERIC_T0_CASH),
+            runtime_mode=OnlyRuntimeMode.BACKTEST,
+            references={str(instrument_id): reference},
+            advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
+        )
+        runtime = OnlyBacktestRuntime(
             OnlyRuntimeAssemblyConfig(
                 "engine",
                 runtime_id,
@@ -71,11 +110,15 @@ def make_runtime(
                 strategy_base_currency=currency,
                 strategy_capitals=capital,
                 account_initial_cash=account_cash,
+                market_rule_engine=market_rules,
+                fee_policy_pack=only_generic_t0_cash_fee_pack(),
             ),
             runtime_calendar,
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),
             runtime_persistence_store=OnlyInMemoryRuntimePersistenceStore(),
         )
+        runtime.register_instrument(instrument)
+        return runtime
 
     return build
 

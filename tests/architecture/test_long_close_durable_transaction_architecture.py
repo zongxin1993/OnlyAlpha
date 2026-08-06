@@ -64,7 +64,7 @@ def test_long_close_projection_order_is_one_fixed_global_order() -> None:
         OnlyRuntimeProjectionComponent.ALLOCATION,
         OnlyRuntimeProjectionComponent.SETTLEMENT,
         OnlyRuntimeProjectionComponent.ORDER_FEE_ACCRUAL,
-        OnlyRuntimeProjectionComponent.FEE,
+        OnlyRuntimeProjectionComponent.FEE_LEDGER,
         OnlyRuntimeProjectionComponent.ACCOUNT,
         OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
         OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
