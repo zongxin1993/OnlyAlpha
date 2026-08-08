@@ -202,16 +202,28 @@ class OnlyBacktestArtifactWriter:
                 ),
                 "external_fee_evidence.parquet": (
                     "EXTERNAL_FEE_EVIDENCE",
-                    _table(_EXTERNAL_FEE_EVIDENCE_SCHEMA, []),
+                    _table(
+                        _EXTERNAL_FEE_EVIDENCE_SCHEMA,
+                        [_record(item) for item in facts.external_fee_evidence],
+                    ),
                 ),
                 "fee_reconciliations.parquet": (
                     "FEE_RECONCILIATIONS",
-                    _table(_FEE_RECONCILIATION_SCHEMA, []),
+                    _table(
+                        _FEE_RECONCILIATION_SCHEMA,
+                        [_record(item) for item in facts.fee_reconciliations],
+                    ),
                 ),
-                "fee_adjustments.parquet": ("FEE_ADJUSTMENTS", _table(_FEE_ADJUSTMENT_SCHEMA, [])),
+                "fee_adjustments.parquet": (
+                    "FEE_ADJUSTMENTS",
+                    _table(_FEE_ADJUSTMENT_SCHEMA, [_record(item) for item in facts.fee_adjustments]),
+                ),
                 "unallocated_external_fees.parquet": (
                     "UNALLOCATED_EXTERNAL_FEES",
-                    _table(_UNALLOCATED_EXTERNAL_FEE_SCHEMA, []),
+                    _table(
+                        _UNALLOCATED_EXTERNAL_FEE_SCHEMA,
+                        [_record(item) for item in facts.unallocated_external_fees],
+                    ),
                 ),
                 "market_rule_decisions.parquet": (
                     "MARKET_RULE_DECISIONS",

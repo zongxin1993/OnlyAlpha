@@ -515,7 +515,7 @@ class OnlyVirtualBrokerGateway:
             )
         # This is an external-account projection, not a second fee authority.
         # Runtime resolves and applies the authoritative local fee.
-        external_reported_fee = Decimal(0)
+        simulated_broker_fee = Decimal(0)
         self._trade_sequence += 1
         trade_id = OnlyTradeId(f"virtual-trade-{self._trade_sequence:08d}")
         venue_trade_id = OnlyVenueTradeId(f"virtual-venue-trade-{self._trade_sequence:08d}")
@@ -545,7 +545,7 @@ class OnlyVirtualBrokerGateway:
                 order.instrument_id,
                 quantity.value,
                 price,
-                external_reported_fee,
+                simulated_broker_fee,
             )
         elif order.side is OnlyOrderSide.BUY:
             self.account_store.apply_buy(
@@ -553,7 +553,7 @@ class OnlyVirtualBrokerGateway:
                 quantity.value,
                 price,
                 reserved,
-                external_reported_fee,
+                simulated_broker_fee,
                 quantity.precision,
                 asset_available=asset_available,
             )
@@ -562,11 +562,11 @@ class OnlyVirtualBrokerGateway:
                 order.instrument_id,
                 quantity.value,
                 price,
-                external_reported_fee,
+                simulated_broker_fee,
                 quantity.precision,
             )
         else:
-            self.account_store.apply_sell(order.instrument_id, quantity.value, price, external_reported_fee)
+            self.account_store.apply_sell(order.instrument_id, quantity.value, price, simulated_broker_fee)
         filled = type(order.filled_quantity)(
             order.filled_quantity.value + quantity.value, order.filled_quantity.precision
         )

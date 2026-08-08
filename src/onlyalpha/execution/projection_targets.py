@@ -17,6 +17,8 @@ from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyMoney, OnlyRate
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
+from onlyalpha.fee.reconciliation_authority import OnlyFeeReconciliationAuthority
+from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
 from onlyalpha.position.enums import OnlyPositionReservationState
@@ -44,7 +46,11 @@ from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
+    OnlyExternalFeeEvidenceProjection,
+    OnlyFeeAdjustmentProjection,
     OnlyFeeApplicationProjection,
+    OnlyFeeReconciliationProjection,
+    OnlyFeeReconciliationRiskGateProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
@@ -59,6 +65,7 @@ from onlyalpha.transaction.projection import (
     OnlySettlementExecutionProjection,
     OnlyStrategyCashReservationExecutionProjection,
     OnlyStrategyLedgerExecutionProjection,
+    OnlyUnallocatedExternalFeeProjection,
     OnlyValuationExecutionProjection,
     OnlyValuationExecutionState,
 )
@@ -204,6 +211,81 @@ class _OnlyProjectionTargetBase:
             only_execution_state_hash(result),
             identity.payload_hash,
         )
+
+
+class OnlyFeeReconciliationAuthorityProjectionTarget(_OnlyProjectionTargetBase):
+    """Installs one of the append-only reconciliation authorities."""
+
+    def __init__(
+        self,
+        component: OnlyRuntimeProjectionComponent,
+        authority: OnlyFeeReconciliationAuthority,
+        applied_ledger: OnlyAppliedRuntimeProjectionLedger,
+    ) -> None:
+        super().__init__(component, applied_ledger)
+        self._authority = authority
+
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
+        projection = context.projection
+        current: OnlyDomainModel | None
+        if isinstance(projection, OnlyExternalFeeEvidenceProjection):
+            current = self._authority.evidence(projection.identity.entity_key)
+        elif isinstance(projection, OnlyFeeReconciliationProjection):
+            current = self._authority.decision(projection.identity.entity_key)
+        elif isinstance(projection, OnlyFeeAdjustmentProjection):
+            current = self._authority.adjustment(projection.identity.entity_key)
+        elif isinstance(projection, OnlyUnallocatedExternalFeeProjection):
+            current = self._authority.unallocated(projection.after.account_id)
+        else:
+            return self._result(OnlyProjectionApplyStatus.INVALID_COMPONENT, context, None)
+        prepared = self._prepare(context, current)
+        if isinstance(prepared, OnlyProjectionApplyResult):
+            return prepared
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            if isinstance(projection, OnlyExternalFeeEvidenceProjection):
+                self._authority.restore_evidence(projection.after)
+            elif isinstance(projection, OnlyFeeReconciliationProjection):
+                self._authority.restore_decision(projection.after)
+            elif isinstance(projection, OnlyFeeAdjustmentProjection):
+                self._authority.restore_adjustment(projection.after)
+            else:
+                assert isinstance(projection, OnlyUnallocatedExternalFeeProjection)
+                self._authority.restore_unallocated(projection.after)
+        installed = (
+            self._authority.evidence(projection.identity.entity_key)
+            if isinstance(projection, OnlyExternalFeeEvidenceProjection)
+            else self._authority.decision(projection.identity.entity_key)
+            if isinstance(projection, OnlyFeeReconciliationProjection)
+            else self._authority.adjustment(projection.identity.entity_key)
+            if isinstance(projection, OnlyFeeAdjustmentProjection)
+            else self._authority.unallocated(projection.after.account_id)
+        )
+        assert installed is not None
+        return self._complete(context, current, installed, prepared)
+
+
+class OnlyFeeReconciliationRiskGateProjectionTarget(_OnlyProjectionTargetBase):
+    def __init__(
+        self,
+        authority: OnlyFeeReconciliationRiskGate,
+        applied_ledger: OnlyAppliedRuntimeProjectionLedger,
+    ) -> None:
+        super().__init__(OnlyRuntimeProjectionComponent.RECONCILIATION_RISK_GATE, applied_ledger)
+        self._authority = authority
+
+    def apply_execution_projection(self, context: OnlyRuntimeProjectionApplyContext) -> OnlyProjectionApplyResult:
+        projection = context.projection
+        if not isinstance(projection, OnlyFeeReconciliationRiskGateProjection):
+            return self._result(OnlyProjectionApplyStatus.INVALID_COMPONENT, context, None)
+        current = self._authority.get(projection.after.account_id)
+        prepared = self._prepare(context, current)
+        if isinstance(prepared, OnlyProjectionApplyResult):
+            return prepared
+        if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
+            self._authority.restore(projection.after)
+        installed = self._authority.get(projection.after.account_id)
+        assert installed is not None
+        return self._complete(context, current, installed, prepared)
 
 
 def _order_snapshot(state: OnlyOrderExecutionState) -> OnlyOrderSnapshot:
@@ -525,19 +607,21 @@ def _ledger_snapshot(
     context: OnlyRuntimeProjectionApplyContext,
     projection: OnlyStrategyLedgerExecutionProjection,
 ) -> OnlyStrategyLedgerSnapshot:
-    if not isinstance(context.fact, OnlyCommittedExecutionFact):
-        raise ValueError("Strategy Ledger projection requires a Trade Fact")
     net = state.realized_pnl + state.unrealized_pnl - state.fees
     quantum = Decimal(1).scaleb(-state.key.base_currency.precision)
-    stage_market_amount = sum(
-        (
-            item.position_market_value.amount
-            if item.mark_price.value == 0
-            else item.position_market_value.amount / item.mark_price.value * context.fact.fill_price.value
-            for item in projection.valuation_lines
-        ),
-        Decimal(0),
-    ).quantize(quantum)
+    stage_market_amount = (
+        sum(
+            (
+                item.position_market_value.amount
+                if item.mark_price.value == 0
+                else item.position_market_value.amount / item.mark_price.value * context.fact.fill_price.value
+                for item in projection.valuation_lines
+            ),
+            Decimal(0),
+        ).quantize(quantum)
+        if isinstance(context.fact, OnlyCommittedExecutionFact)
+        else state.position_market_value.amount
+    )
     stage_equity = state.ledger_cash.amount + stage_market_amount
     stage_high = max(current.equity.high_water_mark.amount, stage_equity)
     stage_drawdown = Decimal(0) if stage_high == 0 else stage_equity / stage_high - Decimal(1)
@@ -592,7 +676,7 @@ def _ledger_snapshot(
         daily_return=equity.daily_return,
         drawdown=drawdown,
         maximum_drawdown=maximum,
-        trade_count=current.performance.trade_count + 1,
+        trade_count=current.performance.trade_count + int(isinstance(context.fact, OnlyCommittedExecutionFact)),
         fees=state.fees,
     )
     return replace(
@@ -657,7 +741,10 @@ class OnlyStrategyLedgerExecutionProjectionTarget(_OnlyProjectionTargetBase):
                 valuation_lines=projection.valuation_lines,
             )
         if prepared.decision is _OnlyProjectionApplyDecision.APPLY:
-            self._manager.restore_execution_event_sequence(self._manager.execution_event_sequence + 4)
+            self._manager.restore_execution_event_sequence(
+                self._manager.execution_event_sequence
+                + (4 if isinstance(context.fact, OnlyCommittedExecutionFact) else 1)
+            )
         installed = self._manager.require_snapshot(projection.after.key)
         return self._complete(context, current, only_strategy_ledger_execution_state(installed), prepared)
 
@@ -921,6 +1008,8 @@ def only_create_generic_t0_execution_projection_targets(
     risk_service: OnlyRiskService,
     valuation_authority: OnlyExecutionValuationAuthority,
     applied_ledger: OnlyAppliedRuntimeProjectionLedger,
+    fee_reconciliation_authority: OnlyFeeReconciliationAuthority | None = None,
+    fee_reconciliation_risk_gate: OnlyFeeReconciliationRiskGate | None = None,
 ) -> Mapping[OnlyRuntimeProjectionComponent, OnlyRuntimeProjectionTarget]:
     targets: tuple[OnlyRuntimeProjectionTarget, ...] = (
         OnlyOrderExecutionProjectionTarget(order_manager, applied_ledger),
@@ -943,8 +1032,20 @@ def only_create_generic_t0_execution_projection_targets(
             applied_ledger,
         ),
     )
+    if fee_reconciliation_authority is not None and fee_reconciliation_risk_gate is not None:
+        targets += tuple(
+            OnlyFeeReconciliationAuthorityProjectionTarget(component, fee_reconciliation_authority, applied_ledger)
+            for component in (
+                OnlyRuntimeProjectionComponent.EXTERNAL_FEE_EVIDENCE,
+                OnlyRuntimeProjectionComponent.FEE_RECONCILIATION,
+                OnlyRuntimeProjectionComponent.FEE_ADJUSTMENT_LEDGER,
+                OnlyRuntimeProjectionComponent.UNALLOCATED_EXTERNAL_FEE,
+            )
+        )
+        targets += (OnlyFeeReconciliationRiskGateProjectionTarget(fee_reconciliation_risk_gate, applied_ledger),)
     result = {target.component: target for target in targets}
-    if len(result) != 14:
+    expected = 19 if fee_reconciliation_authority is not None else 14
+    if len(result) != expected:
         raise RuntimeError("Generic T0 Projection Target registry is incomplete or duplicated")
     return result
 

@@ -13,6 +13,7 @@ from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
+from onlyalpha.fee.facts import OnlyCommittedFeeReconciliationFact
 from onlyalpha.market.runtime_rules import OnlyMarketOrderDecision
 from onlyalpha.result.diagnostics import (
     OnlyBacktestDiagnostics,
@@ -23,6 +24,9 @@ from onlyalpha.result.records import (
     OnlyCompiledMarketRuleResultRecord,
     OnlyEquityResultRecord,
     OnlyExecutionResultRecord,
+    OnlyExternalFeeEvidenceResultRecord,
+    OnlyFeeAdjustmentResultRecord,
+    OnlyFeeReconciliationResultRecord,
     OnlyFeeResultRecord,
     OnlyMarginResultRecord,
     OnlyMarketRuleDecisionResultRecord,
@@ -35,9 +39,11 @@ from onlyalpha.result.records import (
     OnlySettlementInstructionResultRecord,
     OnlySettlementMaturityResultRecord,
     OnlySettlementResultRecord,
+    OnlyUnallocatedExternalFeeResultRecord,
 )
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.settlement.facts import OnlyCommittedSettlementMaturityFact
+from onlyalpha.transaction.projection import OnlyUnallocatedExternalFeeProjection
 
 
 class OnlyResultCollectorLifecycle(StrEnum):
@@ -456,6 +462,84 @@ class OnlyBacktestResultCollector:
             )
             for item in runtime.fee_application_ledger.records
         )
+        reconciliation_transactions = tuple(
+            (item, item.fact) for item in transactions if isinstance(item.fact, OnlyCommittedFeeReconciliationFact)
+        )
+        external_fee_evidence = tuple(
+            OnlyExternalFeeEvidenceResultRecord(
+                sequence=next_sequence(),
+                evidence_id=fact.evidence.evidence_id,
+                broker_id=fact.evidence.broker_id,
+                account_id=str(fact.evidence.account_id),
+                scope=fact.evidence.scope.value,
+                mode=fact.evidence.mode.value,
+                external_reference=fact.evidence.external_reference,
+                report_version=fact.evidence.report_version,
+                content_fingerprint=fact.evidence.content_fingerprint,
+                reported_total=None if fact.evidence.reported_total is None else fact.evidence.reported_total.amount,
+                currency=(
+                    fact.evidence.reported_total.currency.code
+                    if fact.evidence.reported_total is not None
+                    else fact.evidence.reported_components[0].amount.currency.code
+                ),
+                effective_at=fact.evidence.effective_at.to_datetime(),
+                received_at=fact.evidence.received_at.to_datetime(),
+            )
+            for _, fact in reconciliation_transactions
+        )
+        fee_reconciliations = tuple(
+            OnlyFeeReconciliationResultRecord(
+                sequence=next_sequence(),
+                reconciliation_id=fact.decision.reconciliation_id,
+                evidence_id=fact.decision.evidence_id,
+                scope=fact.decision.scope.value,
+                local_model_amount=None
+                if fact.decision.local_model_amount is None
+                else fact.decision.local_model_amount.amount,
+                prior_adjustments=fact.decision.prior_adjustments.amount,
+                current_effective_amount=None
+                if fact.decision.current_effective_amount is None
+                else fact.decision.current_effective_amount.amount,
+                reported_authoritative_amount=None
+                if fact.decision.reported_authoritative_amount is None
+                else fact.decision.reported_authoritative_amount.amount,
+                difference=None if fact.decision.difference is None else fact.decision.difference.amount,
+                currency=fact.decision.prior_adjustments.currency.code,
+                reason="" if fact.decision.reason is None else fact.decision.reason.value,
+                status=fact.decision.status.value,
+                adjustment_id="" if fact.decision.adjustment is None else fact.decision.adjustment.adjustment_id,
+            )
+            for _, fact in reconciliation_transactions
+        )
+        fee_adjustments = tuple(
+            OnlyFeeAdjustmentResultRecord(
+                sequence=next_sequence(),
+                adjustment_id=adjustment.adjustment_id,
+                reconciliation_id=adjustment.reconciliation_id,
+                evidence_id=adjustment.evidence_id,
+                account_id=str(adjustment.account_id),
+                cluster_id="" if adjustment.cluster_id is None else str(adjustment.cluster_id),
+                direction=adjustment.direction.value,
+                amount=adjustment.amount.amount,
+                currency=adjustment.amount.currency.code,
+                reason=adjustment.reason.value,
+            )
+            for _, fact in reconciliation_transactions
+            if (adjustment := fact.decision.adjustment) is not None
+        )
+        unallocated_external_fees = tuple(
+            OnlyUnallocatedExternalFeeResultRecord(
+                sequence=next_sequence(),
+                account_id=str(projection.after.account_id),
+                cumulative_charges=projection.after.cumulative_charges.amount,
+                cumulative_refunds=projection.after.cumulative_refunds.amount,
+                currency=projection.after.cumulative_charges.currency.code,
+                version=projection.after.version,
+            )
+            for item, _ in reconciliation_transactions
+            for projection in item.projections
+            if isinstance(projection, OnlyUnallocatedExternalFeeProjection)
+        )
         failures = list(runtime.result_progress.snapshot().business_failures)
         diagnostics = OnlyBacktestDiagnostics(
             tuple(failures),
@@ -481,6 +565,10 @@ class OnlyBacktestResultCollector:
             runtime_transactions=runtime_transaction_records,
             margin=margin_records,
             fees=fee_records,
+            external_fee_evidence=external_fee_evidence,
+            fee_reconciliations=fee_reconciliations,
+            fee_adjustments=fee_adjustments,
+            unallocated_external_fees=unallocated_external_fees,
         )
         fact_sequence = 0
 
@@ -506,6 +594,10 @@ class OnlyBacktestResultCollector:
             runtime_transactions=normalize(facts.runtime_transactions),
             margin=normalize(facts.margin),
             fees=normalize(facts.fees),
+            external_fee_evidence=normalize(facts.external_fee_evidence),
+            fee_reconciliations=normalize(facts.fee_reconciliations),
+            fee_adjustments=normalize(facts.fee_adjustments),
+            unallocated_external_fees=normalize(facts.unallocated_external_fees),
             market_rule_decisions=normalize(facts.market_rule_decisions),
             profile_timeline=normalize(facts.profile_timeline),
             compiled_market_rules=normalize(facts.compiled_market_rules),

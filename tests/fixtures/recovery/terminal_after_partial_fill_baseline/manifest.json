@@ -99,15 +99,15 @@
   "committed_transaction_ids": [
     "ETX-9470b72a5a17f4e02ee08609297b7dd944e9e915d09b89319dc748405a396fbf"
   ],
-  "configuration_fingerprint": "caa51b0b1153c6d567517b12a362c4e2c01d13fdacf64ab56e993d5ebc999398",
+  "configuration_fingerprint": "82b2a2709dcb8f9bb6fd3c75af2a420ca80f154240736939a7b0224bdb8e93c4",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "799ce54c273a0042bd23c1b629165b5b6357c9965ae8cb92b8dfcd779d1b2c12",
-  "database_template": "terminal_after_partial_fill_baseline-799ce54c273a0042bd23c1b629165b5b6357c9965ae8cb92b8dfcd779d1b2c12.sqlite3",
+  "database_fingerprint": "e191a6c6680fa2b76477d501c56c57eb7b797bfb2b56ee1e033ab9ce90fa7a1d",
+  "database_template": "terminal_after_partial_fill_baseline-e191a6c6680fa2b76477d501c56c57eb7b797bfb2b56ee1e033ab9ce90fa7a1d.sqlite3",
   "fill_count": 1,
   "onlyalpha_version": "0.3.2",
   "order_count": 1,
   "persistence_schema_version": "4",
-  "result_fingerprint": "2fbc54887324f33d10fc772c34f4b5fe59e3b74c5382f19526888e15e0c86832",
-  "scenario_fingerprint": "caa51b0b1153c6d567517b12a362c4e2c01d13fdacf64ab56e993d5ebc999398",
+  "result_fingerprint": "fbe3eaf72bdd433bf24ccc64bde27f16451a7a74b47b37706ff0534cc82fb125",
+  "scenario_fingerprint": "82b2a2709dcb8f9bb6fd3c75af2a420ca80f154240736939a7b0224bdb8e93c4",
   "terminal_count": 1
 }

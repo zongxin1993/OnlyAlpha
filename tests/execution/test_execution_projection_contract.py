@@ -22,6 +22,7 @@ from tests.execution.factories.transaction_factory import (
     only_test_generic_t0_cash_buy_open_transaction,
     only_test_projection_codec_cases,
 )
+from tests.fee.test_fee_reconciliation_transaction import only_test_fee_reconciliation_transaction
 
 
 def test_canonical_state_hash_covers_authority_and_normalizes_mapping_order() -> None:
@@ -38,8 +39,8 @@ def test_canonical_state_hash_covers_authority_and_normalizes_mapping_order() ->
 
 
 def test_projection_union_cases_round_trip_independently_and_schema_v2_is_rejected() -> None:
-    projections = only_test_projection_codec_cases()
-    assert len(projections) == len(OnlyRuntimeProjectionComponent) == 16
+    projections = only_test_projection_codec_cases() + only_test_fee_reconciliation_transaction().projections
+    assert {item.identity.component for item in projections} == set(OnlyRuntimeProjectionComponent)
     for projection in projections:
         payload = only_encode_execution_projection(projection)
         assert only_decode_execution_projection(payload) == projection

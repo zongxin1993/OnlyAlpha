@@ -13,6 +13,18 @@ class OnlyFeeAdjustmentDirection(StrEnum):
     REFUND = "REFUND"
 
 
+class OnlyFeeDifferenceReason(StrEnum):
+    MINIMUM_COMMISSION = "MINIMUM_COMMISSION"
+    ROUNDING = "ROUNDING"
+    BROKER_RATE_MISMATCH = "BROKER_RATE_MISMATCH"
+    MARKET_SCHEDULE_OUTDATED = "MARKET_SCHEDULE_OUTDATED"
+    ALL_IN_REPORT = "ALL_IN_REPORT"
+    DEFERRED_FEE = "DEFERRED_FEE"
+    REFUND = "REFUND"
+    SUPPLEMENTAL_CHARGE = "SUPPLEMENTAL_CHARGE"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyFeeAdjustment(OnlyDomainModel):
     adjustment_id: str
@@ -25,7 +37,7 @@ class OnlyFeeAdjustment(OnlyDomainModel):
     statement_scope: str | None
     evidence_id: str
     reconciliation_id: str
-    reason: object
+    reason: OnlyFeeDifferenceReason
 
     def __post_init__(self) -> None:
         if not all((self.adjustment_id.strip(), self.evidence_id.strip(), self.reconciliation_id.strip())):

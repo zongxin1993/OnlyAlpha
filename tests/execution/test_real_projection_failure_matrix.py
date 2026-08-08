@@ -11,6 +11,11 @@ _COMPONENTS = tuple(
         OnlyRuntimeProjectionComponent.MARGIN,
         OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
         OnlyRuntimeProjectionComponent.MARGIN_RESERVATION,
+        OnlyRuntimeProjectionComponent.EXTERNAL_FEE_EVIDENCE,
+        OnlyRuntimeProjectionComponent.FEE_RECONCILIATION,
+        OnlyRuntimeProjectionComponent.FEE_ADJUSTMENT_LEDGER,
+        OnlyRuntimeProjectionComponent.UNALLOCATED_EXTERNAL_FEE,
+        OnlyRuntimeProjectionComponent.RECONCILIATION_RISK_GATE,
     }
 )
 

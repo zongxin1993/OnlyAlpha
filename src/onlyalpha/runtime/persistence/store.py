@@ -531,7 +531,7 @@ class OnlyInMemoryRuntimePersistenceStore:
             self._by_transaction.get(prepared.transaction_id),
             operation_key,
             self._by_update.get(self._update_key(prepared))
-            if prepared.operation_kind is not OnlyRuntimeOperationKind.SETTLEMENT_MATURITY
+            if prepared.operation_kind in {OnlyRuntimeOperationKind.TRADE_FILL, OnlyRuntimeOperationKind.ORDER_TERMINAL}
             else None,
         )
         existing_keys = {key for key in keys if key is not None}
@@ -588,7 +588,7 @@ class OnlyInMemoryRuntimePersistenceStore:
         fact = prepared.fact_draft
         if isinstance(fact, OnlyCommittedExecutionFactDraft | OnlyCommittedTerminalExecutionFactDraft):
             return prepared.runtime_id, fact.gateway_id, fact.account_id, fact.broker_update_id
-        raise ValueError("Settlement maturity has no Broker update identity")
+        raise ValueError("Runtime operation has no Broker update identity")
 
     def _require_transaction(self, key: tuple[OnlyRuntimeId, int]) -> OnlyCommittedRuntimeTransaction:
         try:

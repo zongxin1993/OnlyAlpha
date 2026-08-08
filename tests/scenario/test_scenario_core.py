@@ -30,7 +30,10 @@ def scenario_payload() -> dict[str, object]:
             "end_time": "2026-01-05T02:00:00Z",
             "base_currency": "CNY",
         },
-        "market": {"profile": "GENERIC_T0_CASH"},
+        "market": {
+            "profile": "GENERIC_T0_CASH",
+            "fees": {"pack_id": "GENERIC_T0_CASH_CONFORMANCE", "pack_version": "1"},
+        },
         "reference": {
             "calendars": [
                 {
@@ -88,7 +91,7 @@ def scenario_payload() -> dict[str, object]:
                     "order_type": "LIMIT",
                     "price": "10.00",
                     "quantity": "0.25",
-                    "position_effect": "AUTO",
+                    "position_effect": "OPEN",
                 },
             }
         ],
@@ -170,7 +173,10 @@ def test_generic_futures_remains_outside_formal_execution_transaction_scope(
         "version": "1.0",
         "description": f"Generic futures {position_side}",
     }
-    payload["market"] = {"profile": "GENERIC_MARGIN_FUTURES"}
+    payload["market"] = {
+        "profile": "GENERIC_MARGIN_FUTURES",
+        "fees": {"pack_id": "GENERIC_MARGIN_FUTURES_CONFORMANCE", "pack_version": "1"},
+    }
     instrument = payload["reference"]["instruments"][0]  # type: ignore[index]
     instrument.update(  # type: ignore[union-attr]
         {
@@ -231,21 +237,9 @@ def test_generic_futures_remains_outside_formal_execution_transaction_scope(
 
     result = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / position_side))
 
-    assert result.status == "PASSED", (
-        result.diagnostics,
-        result.facts[OnlyScenarioFactType.ACTION],
-        result.facts[OnlyScenarioFactType.ORDER],
-        result.facts[OnlyScenarioFactType.EXECUTION],
-    )
-    expected_count = 2
-    assert len(result.facts[OnlyScenarioFactType.ACTION]) == expected_count
-    assert all(item["status"] == "EXECUTED" for item in result.facts[OnlyScenarioFactType.ACTION])
-    # Futures/Margin is a declared post-PR4 migration boundary.  The existing
-    # scenario remains operational, but it must not publish formal execution
-    # facts without passing through the transaction coordinator.
+    assert result.status == "ERROR"
+    assert any("UNSUPPORTED_EXECUTION_CAPABILITY" in item for item in result.diagnostics)
     assert result.facts[OnlyScenarioFactType.EXECUTION] == ()
-    assert len(result.facts[OnlyScenarioFactType.ORDER]) == expected_count
-    assert all(item["status"] == "FILLED" for item in result.facts[OnlyScenarioFactType.ORDER])
 
 
 @pytest.mark.parametrize("mode", ["PAPER", "LIVE", "SHADOW"])

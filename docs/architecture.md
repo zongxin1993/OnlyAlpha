@@ -13,9 +13,9 @@ Market 规则依赖链为 `OnlyMarketConfig → Profile Registry → Resolver �
 OnlyMarketRuleEngine → restricted Runtime Ports`。Profile 不得进入 Risk、Broker、Execution、Position、Settlement、
 Margin、Account 或 Collector。Backtest/Paper/Live/Shadow 共用该语义，详见 ADR 0026。
 
-费用依赖链为 `market/broker fee config → versioned schedule registries → Runtime Assembly → OnlyFeeResolver →
-OnlyFeeInstruction → Order Fee Accrual Reducer → FeeManager`。FILL 与 ORDER_CUMULATIVE Scope 显式区分；订单累计费用由独立
-Runtime-owned Authority 和 Projection 保存，FeeManager 仍只追加已确定事实。详见 ADR 0031 与 ADR 0050。
+费用依赖链为 `explicit Fee Policy Pack → Order Binding → OnlyFeeResolver → Fee Assessment → Order Fee Accrual Authority →
+Fee Application Ledger`。FILL 与 ORDER_CUMULATIVE Scope 显式区分；本地 Application 与外部 Evidence 分离，差额只能通过
+`FEE_RECONCILIATION` Durable Operation 表达。详见 ADR 0059。
 
 正式运行入口通过 `CLI → OnlyEngine → OnlyClusterRunConfig[] → OnlyRuntimePlanner → OnlyRuntimeSession → OnlyRuntime.run()`
 组合既有组件。一个配置文件定义一个 Cluster；Engine 持有 Cluster Definition、Cluster Session 和 Runtime Session，负责

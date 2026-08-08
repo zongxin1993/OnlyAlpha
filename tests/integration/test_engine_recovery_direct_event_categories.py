@@ -51,7 +51,7 @@ def test_recovery_suppresses_direct_categories_and_delivers_only_durable_transac
         "ORDER_FILLED",
         "POSITION_OPENED",
         "SETTLEMENT_UPDATED",
-        "FEE_RECORDED",
+        "FEE_APPLICATION_RECORDED",
         "ACCOUNT_TRADE_APPLIED",
         "ACCOUNT_VALUED",
         "STRATEGY_TRADE_APPLIED",

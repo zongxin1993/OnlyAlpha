@@ -8351,6 +8351,9 @@
         "venue": "XSHG"
       }
     ],
+    "external_fee_evidence": [],
+    "fee_adjustments": [],
+    "fee_reconciliations": [],
     "fees": [
       {
         "account_id": "backtest-account",
@@ -8667,7 +8670,8 @@
         "trade_time": "2026-01-05T01:40:00Z"
       }
     ],
-    "signals": []
+    "signals": [],
+    "unallocated_external_fees": []
   },
   "final_account": {
     "account_id": {

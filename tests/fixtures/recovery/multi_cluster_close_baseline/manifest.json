@@ -177,15 +177,15 @@
     "ETX-850c0969e28310e16508aaa32c2e31e4e7bd23677353a66a192f0864430558aa",
     "ETX-1f51b38a28ded995889717ed78f976128748765281e9cb13cec9243184f7875f"
   ],
-  "configuration_fingerprint": "e92647c7437e1962538cbc98bf59249ad7ffd24b2ca59cf3b726537637fca50a",
+  "configuration_fingerprint": "d7a8b34b26d94dd8f86696ebb73bcdf3a72dd7b36c95bf3a31991c87a25f6ec5",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "06c8d851551df7260732b667cd4f5c6c68c20f57e951c1fcf2ba86dea1e54e21",
-  "database_template": "multi_cluster_close_baseline-06c8d851551df7260732b667cd4f5c6c68c20f57e951c1fcf2ba86dea1e54e21.sqlite3",
+  "database_fingerprint": "fe648366d44dff9c5656fe832bb923a2ab0fa20d1455bf06f697c895ab10a620",
+  "database_template": "multi_cluster_close_baseline-fe648366d44dff9c5656fe832bb923a2ab0fa20d1455bf06f697c895ab10a620.sqlite3",
   "fill_count": 4,
   "onlyalpha_version": "0.3.2",
   "order_count": 4,
   "persistence_schema_version": "4",
-  "result_fingerprint": "b33a22e7b3d204731e7b892d491337cbe413576eb18323a394a05d9101d28a6c",
-  "scenario_fingerprint": "e92647c7437e1962538cbc98bf59249ad7ffd24b2ca59cf3b726537637fca50a",
+  "result_fingerprint": "04184f5baabbdbdb6c3cda82af4b77881ff469a7f3652aa6ecdcdcb572f6a5a4",
+  "scenario_fingerprint": "d7a8b34b26d94dd8f86696ebb73bcdf3a72dd7b36c95bf3a31991c87a25f6ec5",
   "terminal_count": 0
 }

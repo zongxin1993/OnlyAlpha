@@ -76,6 +76,7 @@ from onlyalpha.execution.state import (
 )
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
 from onlyalpha.fee.packs import OnlyFeePolicyPack
+from onlyalpha.fee.reconciliation_authority import OnlyFeeReconciliationAuthority
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.manager import OnlyMarginManager
@@ -564,6 +565,7 @@ class OnlyRuntime:
         self._settlement_authority = OnlySettlementAuthority()
         self._margin_manager = OnlyMarginManager(OnlyRuntimeId(str(config.runtime_id)))
         self._fee_application_ledger = OnlyFeeApplicationLedger()
+        self._fee_reconciliation_authority = OnlyFeeReconciliationAuthority()
         self._fee_reconciliation_risk_gate = OnlyFeeReconciliationRiskGate()
 
     @property
@@ -645,6 +647,10 @@ class OnlyRuntime:
     @property
     def fee_reconciliation_risk_gate(self) -> OnlyFeeReconciliationRiskGate:
         return self._fee_reconciliation_risk_gate
+
+    @property
+    def fee_reconciliation_authority(self) -> OnlyFeeReconciliationAuthority:
+        return self._fee_reconciliation_authority
 
     @property
     def clock(self) -> OnlyClock:

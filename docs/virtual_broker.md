@@ -15,8 +15,6 @@ pip install onlyalpha onlyalpha-plugin-broker-virtual
 brokers:
   - gateway_id: virtual-main
     plugin: virtual
-    fees:
-      mode: NONE
     extensions:
       matching:
         type: NEXT_BAR
@@ -50,8 +48,8 @@ Audit、Reconciliation 和 Result。Broker Update 只能进入 Runtime-owned `On
 Collector、Analytics、Artifact 和 Backtest Result 只读取该权威，`query_trades()` 仅用于 Broker 查询和对账。
 
 Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、
-T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 未收到外部费用时使用
-`reported_fee=None` 与 `fee_reporting_mode=NONE`；插件不持有第二套 Runtime Commission/Fee 公式。
+T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 不携带本地或外部费用权威；插件不持有第二套
+Runtime Commission/Fee 公式。Runtime 通过显式 Fee Policy Pack 评估本地费用。
 
 确定性约束：Matching 只读取当前及已经到达的历史 Bar；Scheduler 按 `(due_ns, sequence)` 稳定排序；不读取系统时间、
 不 sleep、不使用随机隐式状态。同一输入应产生相同 Order/Trade/Update 顺序与结果指纹。

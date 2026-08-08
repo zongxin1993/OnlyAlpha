@@ -258,6 +258,60 @@ class OnlyRuntimeTransactionResultRecord(OnlySequencedResultRecord):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyExternalFeeEvidenceResultRecord(OnlySequencedResultRecord):
+    evidence_id: str
+    broker_id: str
+    account_id: str
+    scope: str
+    mode: str
+    external_reference: str
+    report_version: str
+    content_fingerprint: str
+    reported_total: Decimal | None
+    currency: str
+    effective_at: datetime
+    received_at: datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyFeeReconciliationResultRecord(OnlySequencedResultRecord):
+    reconciliation_id: str
+    evidence_id: str
+    scope: str
+    local_model_amount: Decimal | None
+    prior_adjustments: Decimal
+    current_effective_amount: Decimal | None
+    reported_authoritative_amount: Decimal | None
+    difference: Decimal | None
+    currency: str
+    reason: str
+    status: str
+    adjustment_id: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyFeeAdjustmentResultRecord(OnlySequencedResultRecord):
+    adjustment_id: str
+    reconciliation_id: str
+    evidence_id: str
+    account_id: str
+    cluster_id: str
+    direction: str
+    amount: Decimal
+    currency: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyUnallocatedExternalFeeResultRecord(OnlySequencedResultRecord):
+    account_id: str
+    cumulative_charges: Decimal
+    cumulative_refunds: Decimal
+    currency: str
+    version: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyMarginResultRecord(OnlySequencedResultRecord):
     account_id: str
     instrument_id: str
@@ -454,6 +508,10 @@ class OnlyBacktestFacts:
     runtime_transactions: tuple[OnlyRuntimeTransactionResultRecord, ...] = ()
     margin: tuple[OnlyMarginResultRecord, ...] = ()
     fees: tuple[OnlyFeeResultRecord, ...] = ()
+    external_fee_evidence: tuple[OnlyExternalFeeEvidenceResultRecord, ...] = ()
+    fee_reconciliations: tuple[OnlyFeeReconciliationResultRecord, ...] = ()
+    fee_adjustments: tuple[OnlyFeeAdjustmentResultRecord, ...] = ()
+    unallocated_external_fees: tuple[OnlyUnallocatedExternalFeeResultRecord, ...] = ()
     market_rule_decisions: tuple[OnlyMarketRuleDecisionResultRecord, ...] = ()
     profile_timeline: tuple[OnlyProfileTimelineResultRecord, ...] = ()
     compiled_market_rules: tuple[OnlyCompiledMarketRuleResultRecord, ...] = ()
@@ -473,6 +531,10 @@ class OnlyBacktestFacts:
             "runtime_transactions",
             "margin",
             "fees",
+            "external_fee_evidence",
+            "fee_reconciliations",
+            "fee_adjustments",
+            "unallocated_external_fees",
             "market_rule_decisions",
             "profile_timeline",
             "compiled_market_rules",

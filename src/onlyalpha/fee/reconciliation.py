@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
+from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyOrderId, OnlyTradeId
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.adjustment import OnlyFeeAdjustment, OnlyFeeAdjustmentDirection
+from onlyalpha.fee.adjustment import (
+    OnlyFeeAdjustment,
+    OnlyFeeAdjustmentDirection,
+    OnlyFeeDifferenceReason,
+)
 from onlyalpha.fee.evidence import (
     OnlyExternalFeeEvidence,
     OnlyExternalFeeEvidenceMode,
@@ -27,20 +32,8 @@ class OnlyFeeReconciliationStatus(StrEnum):
     TRADING_BLOCKED = "TRADING_BLOCKED"
 
 
-class OnlyFeeDifferenceReason(StrEnum):
-    MINIMUM_COMMISSION = "MINIMUM_COMMISSION"
-    ROUNDING = "ROUNDING"
-    BROKER_RATE_MISMATCH = "BROKER_RATE_MISMATCH"
-    MARKET_SCHEDULE_OUTDATED = "MARKET_SCHEDULE_OUTDATED"
-    ALL_IN_REPORT = "ALL_IN_REPORT"
-    DEFERRED_FEE = "DEFERRED_FEE"
-    REFUND = "REFUND"
-    SUPPLEMENTAL_CHARGE = "SUPPLEMENTAL_CHARGE"
-    UNKNOWN = "UNKNOWN"
-
-
 @dataclass(frozen=True, slots=True)
-class OnlyLocalFeeReconciliationComponent:
+class OnlyLocalFeeReconciliationComponent(OnlyDomainModel):
     fee_type: OnlyFeeType
     authority: OnlyFeeAuthority
     external_component_id: str | None
@@ -62,7 +55,7 @@ class OnlyFeeReconciliationInput:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeReconciliationDecision:
+class OnlyFeeReconciliationDecision(OnlyDomainModel):
     reconciliation_id: str
     evidence_id: str
     scope: OnlyExternalFeeEvidenceScope
@@ -198,6 +191,7 @@ class OnlyFeeReconciliationPlanner:
                 None if reported is None else reported.to_dict(),
                 None if difference is None else difference.to_dict(),
                 request.reason.value,
+                request.evidence_classification,
             )
         )
 

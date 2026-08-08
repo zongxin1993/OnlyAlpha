@@ -29,8 +29,15 @@ from onlyalpha.execution.execution_state import (
     OnlyStrategyLedgerExecutionState,
 )
 from onlyalpha.fee.accrual import OnlyOrderFeeAccrualState
+from onlyalpha.fee.adjustment import OnlyUnallocatedExternalFeeState
 from onlyalpha.fee.application import OnlyFeeApplicationInstruction
 from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
+from onlyalpha.fee.reconciliation_authority import (
+    OnlyExternalFeeEvidenceState,
+    OnlyFeeAdjustmentState,
+    OnlyFeeReconciliationDecisionState,
+)
+from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGateState
 from onlyalpha.settlement.models import OnlySettlementInstruction
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 from onlyalpha.transaction.state_hash import only_execution_state_hash
@@ -56,6 +63,11 @@ class OnlyRuntimeProjectionComponent(StrEnum):
     RISK_RESERVATION = "RISK_RESERVATION"
     RISK = "RISK"
     VALUATION = "VALUATION"
+    EXTERNAL_FEE_EVIDENCE = "EXTERNAL_FEE_EVIDENCE"
+    FEE_RECONCILIATION = "FEE_RECONCILIATION"
+    FEE_ADJUSTMENT_LEDGER = "FEE_ADJUSTMENT_LEDGER"
+    UNALLOCATED_EXTERNAL_FEE = "UNALLOCATED_EXTERNAL_FEE"
+    RECONCILIATION_RISK_GATE = "RECONCILIATION_RISK_GATE"
 
 
 class OnlyRuntimeProjectionOrder(IntEnum):
@@ -75,6 +87,11 @@ class OnlyRuntimeProjectionOrder(IntEnum):
     RISK_RESERVATION = 14
     RISK = 15
     VALUATION = 16
+    EXTERNAL_FEE_EVIDENCE = 6
+    FEE_RECONCILIATION = 7
+    FEE_ADJUSTMENT_LEDGER = 8
+    UNALLOCATED_EXTERNAL_FEE = 10
+    RECONCILIATION_RISK_GATE = 11
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,6 +570,71 @@ class OnlyValuationExecutionProjection(OnlyDomainModel):
         _require_state_contract(self.identity, self.before, self.after)
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyExternalFeeEvidenceProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: OnlyExternalFeeEvidenceState | None
+    after: OnlyExternalFeeEvidenceState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.EXTERNAL_FEE_EVIDENCE)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != self.after.evidence.evidence_id:
+            raise ValueError("external fee evidence projection entity mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeReconciliationProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: OnlyFeeReconciliationDecisionState | None
+    after: OnlyFeeReconciliationDecisionState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.FEE_RECONCILIATION)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != self.after.decision.reconciliation_id:
+            raise ValueError("fee reconciliation projection entity mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeAdjustmentProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: OnlyFeeAdjustmentState | None
+    after: OnlyFeeAdjustmentState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.FEE_ADJUSTMENT_LEDGER)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != self.after.adjustment.adjustment_id:
+            raise ValueError("fee adjustment projection entity mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyUnallocatedExternalFeeProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: OnlyUnallocatedExternalFeeState | None
+    after: OnlyUnallocatedExternalFeeState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.UNALLOCATED_EXTERNAL_FEE)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != str(self.after.account_id):
+            raise ValueError("unallocated external fee projection entity mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeReconciliationRiskGateProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: OnlyFeeReconciliationRiskGateState | None
+    after: OnlyFeeReconciliationRiskGateState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.RECONCILIATION_RISK_GATE)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != str(self.after.account_id):
+            raise ValueError("fee reconciliation risk gate projection entity mismatch")
+
+
 type OnlyRuntimeProjection = (
     OnlyOrderExecutionProjection
     | OnlyOrderTerminalExecutionProjection
@@ -571,6 +653,11 @@ type OnlyRuntimeProjection = (
     | OnlyRiskReservationExecutionProjection
     | OnlyRiskExecutionProjection
     | OnlyValuationExecutionProjection
+    | OnlyExternalFeeEvidenceProjection
+    | OnlyFeeReconciliationProjection
+    | OnlyFeeAdjustmentProjection
+    | OnlyUnallocatedExternalFeeProjection
+    | OnlyFeeReconciliationRiskGateProjection
 )
 type OnlyExecutionReservationProjection = (
     OnlyAccountCashReservationExecutionProjection

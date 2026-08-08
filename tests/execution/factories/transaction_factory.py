@@ -807,7 +807,7 @@ def only_test_projection_codec_cases() -> tuple[OnlyRuntimeProjection, ...]:
     by_component = {item.identity.component: item for item in base} | extras
     projections = tuple(
         _resequence_projection(by_component[component], sequence)
-        for sequence, component in enumerate(OnlyRuntimeProjectionComponent, start=1)
+        for sequence, component in enumerate(by_component, start=1)
     )
     return projections
 

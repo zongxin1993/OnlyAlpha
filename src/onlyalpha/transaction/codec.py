@@ -23,7 +23,11 @@ from onlyalpha.transaction.projection import (
     OnlyAccountCashReservationExecutionProjection,
     OnlyAccountExecutionProjection,
     OnlyAllocationExecutionProjection,
+    OnlyExternalFeeEvidenceProjection,
+    OnlyFeeAdjustmentProjection,
     OnlyFeeApplicationProjection,
+    OnlyFeeReconciliationProjection,
+    OnlyFeeReconciliationRiskGateProjection,
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
     OnlyOrderExecutionProjection,
@@ -37,6 +41,7 @@ from onlyalpha.transaction.projection import (
     OnlySettlementExecutionProjection,
     OnlyStrategyCashReservationExecutionProjection,
     OnlyStrategyLedgerExecutionProjection,
+    OnlyUnallocatedExternalFeeProjection,
     OnlyValuationExecutionProjection,
 )
 from onlyalpha.transaction.transaction import (
@@ -67,6 +72,11 @@ _PROJECTION_TYPES = {
         OnlyRiskReservationExecutionProjection,
         OnlyRiskExecutionProjection,
         OnlyValuationExecutionProjection,
+        OnlyExternalFeeEvidenceProjection,
+        OnlyFeeReconciliationProjection,
+        OnlyFeeAdjustmentProjection,
+        OnlyUnallocatedExternalFeeProjection,
+        OnlyFeeReconciliationRiskGateProjection,
     )
 }
 

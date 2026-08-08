@@ -123,10 +123,22 @@ from onlyalpha.execution.terminal_identity import (
 from onlyalpha.execution.terminal_planner import OnlyTerminalExecutionTransactionPlanner
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
+from onlyalpha.fee.adjustment import OnlyFeeDifferenceReason
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
+from onlyalpha.fee.evidence import OnlyExternalFeeEvidence
 from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
+from onlyalpha.fee.reconciliation import (
+    OnlyFeeReconciliationDecision,
+    OnlyFeeReconciliationInput,
+    OnlyFeeReconciliationPlanner,
+    OnlyLocalFeeReconciliationComponent,
+)
 from onlyalpha.fee.resolver import OnlyFeeResolver
+from onlyalpha.fee.transaction_planner import (
+    OnlyFeeReconciliationPlanningContext,
+    OnlyFeeReconciliationTransactionPlanner,
+)
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.order_port import OnlyOrderMarginReservationAdapter
 from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
@@ -243,7 +255,10 @@ from onlyalpha.strategy_ledger.publisher import OnlyRuntimeStrategyLedgerEventPu
 from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
 from onlyalpha.strategy_ledger.views import OnlyStrategyLedgerContextView, OnlyStrategyLedgerRiskView
 from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
-from onlyalpha.transaction.coordinator import OnlyRuntimeTransactionCoordinator
+from onlyalpha.transaction.coordinator import (
+    OnlyRuntimeTransactionCoordinationResult,
+    OnlyRuntimeTransactionCoordinator,
+)
 from onlyalpha.transaction.delivery import (
     OnlyExecutionEventDeliveryCoordinator,
     OnlyExecutionEventDeliveryIntent,
@@ -274,6 +289,95 @@ class OnlyBacktestRuntime(OnlyRuntime):
     @property
     def order_fee_accrual_manager(self) -> OnlyOrderFeeAccrualManager:
         return self._order_fee_accrual_manager
+
+    def reconcile_external_fee(
+        self,
+        evidence: OnlyExternalFeeEvidence,
+        *,
+        reason: OnlyFeeDifferenceReason,
+        materiality_threshold: OnlyMoney,
+    ) -> OnlyRuntimeTransactionCoordinationResult:
+        """Plan and commit external fee evidence from Runtime-owned local authorities."""
+
+        records = tuple(
+            item
+            for item in self._fee_application_ledger.records
+            if item.account_id == evidence.account_id
+            and (
+                (evidence.trade_id is not None and item.trade_id == evidence.trade_id)
+                or (evidence.order_id is not None and item.order_id == evidence.order_id)
+                or evidence.statement_scope is not None
+            )
+        )
+        clusters = {item.cluster_id for item in records}
+        cluster_id = next(iter(clusters)) if len(clusters) == 1 else None
+        decision = OnlyFeeReconciliationPlanner().plan(
+            OnlyFeeReconciliationInput(
+                evidence,
+                tuple(
+                    OnlyLocalFeeReconciliationComponent(
+                        item.component_identity.fee_type,
+                        item.component_identity.authority,
+                        item.component_identity.source_id,
+                        item.component_identity.economic_direction,
+                        item.incremental_amount,
+                    )
+                    for item in records
+                ),
+                self._fee_reconciliation_authority.prior_adjustments(evidence),
+                cluster_id,
+                evidence.order_id,
+                evidence.trade_id,
+                reason,
+                materiality_threshold,
+                self._fee_reconciliation_authority.classify(evidence),
+            )
+        )
+        return self._commit_fee_reconciliation(evidence, decision)
+
+    def _commit_fee_reconciliation(
+        self,
+        evidence: OnlyExternalFeeEvidence,
+        decision: OnlyFeeReconciliationDecision,
+    ) -> OnlyRuntimeTransactionCoordinationResult:
+        """Commit an already-planned reconciliation through the Runtime transaction authority."""
+
+        if evidence.account_id != self.config.default_account_id:
+            raise ValueError("FEE_RECONCILIATION_ACCOUNT_SCOPE_CONFLICT")
+        adjustment = decision.adjustment
+        account_state = None
+        ledger_state = None
+        if adjustment is not None:
+            account_state = only_account_execution_state(self._account_manager.require_snapshot(evidence.account_id))
+            if adjustment.cluster_id is not None:
+                matching = tuple(
+                    item
+                    for item in self._strategy_ledger_manager.list_ledgers()
+                    if item.key.account_id == evidence.account_id and item.key.cluster_id == adjustment.cluster_id
+                )
+                if len(matching) != 1:
+                    raise ValueError("FEE_RECONCILIATION_STRATEGY_AUTHORITY_MISSING")
+                ledger_state = only_strategy_ledger_execution_state(matching[0])
+        processed_at = OnlyTimestamp.from_unix_nanos(self.clock.timestamp_ns())
+        context = OnlyFeeReconciliationPlanningContext(
+            OnlyRuntimeId(str(self.config.runtime_id)),
+            evidence,
+            decision,
+            processed_at,
+            self._fee_reconciliation_authority.evidence(evidence.evidence_id),
+            self._fee_reconciliation_authority.decision(decision.reconciliation_id),
+            None if adjustment is None else self._fee_reconciliation_authority.adjustment(adjustment.adjustment_id),
+            account_state,
+            ledger_state,
+            self._fee_reconciliation_authority.unallocated(evidence.account_id),
+            self._fee_reconciliation_risk_gate.get(evidence.account_id),
+        )
+        prepared = OnlyFeeReconciliationTransactionPlanner().prepare(context)
+        return self._runtime_transaction_coordinator.commit(
+            prepared,
+            committed_at=processed_at,
+            projected_at=processed_at,
+        )
 
     def __init__(
         self,
@@ -556,6 +660,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             risk_service=risk_service,
             valuation_authority=execution_valuation_authority,
             applied_ledger=applied_projection_ledger,
+            fee_reconciliation_authority=self._fee_reconciliation_authority,
+            fee_reconciliation_risk_gate=self._fee_reconciliation_risk_gate,
         )
         execution_projection_applier = OnlyRuntimeProjectionApplier(execution_projection_targets)
         execution_commit_coordinator = OnlyRuntimeTransactionCoordinator(
@@ -565,6 +671,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             projection_applier=execution_projection_applier,
             now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
+        self._runtime_transaction_coordinator = execution_commit_coordinator
         self._trading_day_boundary_coordinator = OnlyRuntimeTradingDayBoundaryCoordinator(
             settlement_authority=self._settlement_authority,
             position_manager=position_manager,
@@ -983,6 +1090,14 @@ class OnlyBacktestRuntime(OnlyRuntime):
                 1,
                 self._order_fee_accrual_manager.capture_checkpoint,
                 self._order_fee_accrual_manager.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "fee_reconciliation.authority",
+                1,
+                self._fee_reconciliation_authority.capture_checkpoint,
+                self._fee_reconciliation_authority.restore_checkpoint,
             )
         )
         self._checkpoint_registry.register(
