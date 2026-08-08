@@ -140,7 +140,7 @@ class OnlyOrderFill(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderSnapshot(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     order_id: OnlyOrderId
     request_id: OnlyOrderRequestId

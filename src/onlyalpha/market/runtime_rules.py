@@ -82,6 +82,7 @@ class OnlyMarketRuleStage(StrEnum):
 class OnlyCompiledMarketRuleIdentity:
     profile_id: str
     profile_version: str
+    market: str
     trading_day: date
     runtime_mode: OnlyRuntimeMode
     instrument_id: str
@@ -103,7 +104,6 @@ class OnlyCompiledMarketRules:
     short_policy: OnlyShortSellingRule
     settlement_policy: OnlySettlementModel
     margin_policy: OnlyMarginModel | None
-    market_fee_schedule_id: str
     liquidity_policy: OnlyLiquidityModel
     slippage_policy: OnlySlippageModel
     matching_policy: OnlyMatchingModel
@@ -162,7 +162,6 @@ class OnlyMarketRuleCompiler:
                     "short": asdict(profile.short_selling_rule),
                     "settlement": asdict(profile.settlement_model),
                     "margin": None if profile.margin_model is None else asdict(profile.margin_model),
-                    "market_fee_schedule_id": profile.market_fee_schedule_id,
                     "liquidity": asdict(profile.liquidity_model),
                     "slippage": asdict(profile.slippage_model),
                     "matching": asdict(profile.matching_model),
@@ -175,6 +174,7 @@ class OnlyMarketRuleCompiler:
         identity = OnlyCompiledMarketRuleIdentity(
             profile_id=profile.profile_id.value,
             profile_version=resolved.resolved_version,
+            market=profile.market,
             trading_day=context.trading_day.value,
             runtime_mode=context.runtime_mode,
             instrument_id=reference.instrument_id,
@@ -192,7 +192,6 @@ class OnlyMarketRuleCompiler:
             profile.short_selling_rule,
             profile.settlement_model,
             profile.margin_model,
-            profile.market_fee_schedule_id,
             profile.liquidity_model,
             profile.slippage_model,
             profile.matching_model,
@@ -400,6 +399,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             return {
                 "compiled_rules_fingerprint": identity.compiled_rules_fingerprint,
                 "instrument_id": identity.instrument_id,
+                "market": identity.market,
                 "profile_id": identity.profile_id,
                 "profile_version": identity.profile_version,
                 "reference_fingerprint": identity.reference_fingerprint,
@@ -463,7 +463,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                         "unfilled_reason": item.unfilled_reason,
                     }
                 )
-        payload: dict[str, object] = {"schema_version": 3, "decisions": decisions}
+        payload: dict[str, object] = {"schema_version": 4, "decisions": decisions}
         if self._reference_registry_fingerprint is not None:
             payload["reference_registry_fingerprint"] = self._reference_registry_fingerprint
         return payload
@@ -471,8 +471,8 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
             raise ValueError("Market Rule checkpoint must contain decisions")
-        if payload.get("schema_version") != 3:
-            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 3")
+        if payload.get("schema_version") != 4:
+            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 4")
         if self._reference_registry_fingerprint is not None and (
             payload.get("reference_registry_fingerprint") != self._reference_registry_fingerprint
         ):
@@ -484,6 +484,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             restored_identity = OnlyCompiledMarketRuleIdentity(
                 str(raw["profile_id"]),
                 str(raw["profile_version"]),
+                str(raw["market"]),
                 date.fromisoformat(str(raw["trading_day"])),
                 OnlyRuntimeMode(str(raw["runtime_mode"])),
                 str(raw["instrument_id"]),
@@ -575,7 +576,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
 
     @property
     def checkpoint_schema_version(self) -> int:
-        return 3
+        return 4
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         try:
@@ -829,6 +830,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         identity = OnlyCompiledMarketRuleIdentity(
             resolved.resolved_profile_id.value,
             resolved.resolved_version,
+            resolved.profile.market,
             context.trading_day.value,
             self._runtime_mode,
             context.instrument_id,

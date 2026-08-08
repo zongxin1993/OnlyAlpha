@@ -1,6 +1,6 @@
 # OnlyAlpha 路线图
 
-## 当前状态（2026-07-30）
+## 当前状态（2026-08-08）
 
 OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
 
@@ -68,6 +68,16 @@ Evaluation；Decision、Checkpoint 与 Artifact 均携带权威指纹并在变�
 - 已扩展 Settlement、Margin、Market Rule Decision 的 Result 与零行稳定 Parquet Schema；
 - 已完成 HEDGING LONG/SHORT 生产写入、显式 Risk/Reservation scope 与 Committed Execution 投影；
 - 尚未完成 Futures Daily MTM、Collector 的全部 Market timeline 事实以及 Tushare 对照验收。
+
+## P1 Fee Authority Integrity Closure（完成）
+
+Market Fee Pack 与 Account/Broker Fee Contract 已成为两个独立、版本化 Authority；Schedule namespace、Applicability
+Scope、ORDER_FIXED exact identity、FILL_EFFECTIVE family、Binding v2、Policy Resolution Proof 与 Fee Basis Provider 已接入
+Backtest/Paper composition、durable fact、Result、Artifact 和恢复边界。旧 combined pack、`market.fees`、Market Profile fee
+selector 与隐式 Broker 零费率路径已删除并 fail closed。
+
+这不代表正式 A 股费率或真实券商佣金合同已经完成。P2 Fee Reconciliation Semantic Closure 仍未完成，Detailed component
+reconciliation、statement period、broker fee evidence 与 market-neutral risk-reduction authority 继续属于后续范围。
 
 ## Phase 2D：回测分析与报告（基础阶段已完成）
 

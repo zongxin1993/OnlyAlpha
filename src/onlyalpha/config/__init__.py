@@ -11,6 +11,7 @@ from onlyalpha.config.document import (
 )
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
+    OnlyBrokerFeeContractConfig,
     OnlyBrokerRuntimeConfig,
     OnlyClusterCapitalConfig,
     OnlyClusterCapitalMode,
@@ -21,6 +22,7 @@ from onlyalpha.config.models import (
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyMarketConfig,
+    OnlyMarketFeePackConfig,
     OnlyReferenceDataConfig,
     OnlyStrategyImportConfig,
     OnlyUniverseConfig,
@@ -34,6 +36,7 @@ from onlyalpha.config.persistence import (
 __all__ = [
     "OnlyAccountRuntimeConfig",
     "OnlyBrokerRuntimeConfig",
+    "OnlyBrokerFeeContractConfig",
     "OnlyClusterImportConfig",
     "OnlyClusterCapitalConfig",
     "OnlyClusterCapitalMode",
@@ -44,6 +47,7 @@ __all__ = [
     "OnlyJsonMapping",
     "OnlyJsonValue",
     "OnlyMarketConfig",
+    "OnlyMarketFeePackConfig",
     "OnlyOutputConfig",
     "OnlyReferenceDataConfig",
     "OnlyClusterConfigError",

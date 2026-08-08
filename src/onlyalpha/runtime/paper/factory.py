@@ -135,6 +135,19 @@ class OnlyPaperRuntimeFactory:
                 raise ValueError(f"{issues[0].code}: {issues[0].message}")
             source = data_factory.create(data_request)
             market_rules = self._market_rules(config, components, clock)
+            market_fee_pack = components.market_fee_packs.require(
+                config.market.fee_pack.pack_id,
+                config.market.fee_pack.pack_version,
+            )
+            market_fee_pack.validate_compatibility(config.market.profile.value)
+            broker_fee_contract = components.broker_fee_contracts.require(
+                account.broker_fee_contract.contract_id,
+                account.broker_fee_contract.contract_version,
+            )
+            broker_fee_contract.validate_compatibility(
+                broker_id=config.brokers[0].plugin_id,
+                account_id=account.account_id,
+            )
             runtime_config = OnlyRuntimeAssemblyConfig(
                 config.engine_id,
                 config.runtime_id,
@@ -149,10 +162,10 @@ class OnlyPaperRuntimeFactory:
                 broker_gateway_id=None,
                 account_initial_cash=account.initial_cash,
                 market_rule_engine=market_rules,
-                fee_policy_pack=components.fee_policy_packs.require(
-                    config.market.fees.pack_id,
-                    config.market.fees.pack_version,
-                ),
+                market_fee_pack=market_fee_pack,
+                broker_fee_contract=broker_fee_contract,
+                broker_fee_authority_id=config.brokers[0].plugin_id,
+                fee_basis_providers=components.fee_basis_providers,
             )
             persistence = components.runtime_persistence_stores.create(
                 OnlyRuntimePersistenceStoreCreateRequest(

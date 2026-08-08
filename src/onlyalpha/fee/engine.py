@@ -22,6 +22,7 @@ from onlyalpha.fee.models import (
     only_fee_fingerprint,
 )
 from onlyalpha.fee.policy import OnlyResolvedFeePolicy, OnlyResolvedFeePolicySet
+from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 from onlyalpha.fee.rounding import only_apply_fee_pipeline
 
 
@@ -30,11 +31,12 @@ class OnlyFeeEngine:
 
     def assess_trade(self, request: OnlyTradeFeeAssessmentRequest) -> OnlyFeeAssessment:
         self._validate_request_authority(
-            request.binding.fingerprint, request.policies, request.fill_basis.notional.currency
+            request.binding, request.policy_resolution, request.fill_basis.notional.currency
         )
+        policies = request.policy_resolution.policies
         components = tuple(
             component
-            for policy in request.policies.policies
+            for policy in policies.policies
             if policy.rule.liquidity_role is None or policy.rule.liquidity_role is request.liquidity_role
             for component in (
                 self._component(
@@ -50,7 +52,8 @@ class OnlyFeeEngine:
             subject=request.subject,
             trade_id=request.trade_id,
             components=components,
-            policies=request.policies,
+            policies=policies,
+            resolution=request.policy_resolution,
             finality=request.local_finality,
             discriminator="trade",
             binding=request.binding,
@@ -58,17 +61,18 @@ class OnlyFeeEngine:
 
     def estimate_order(self, request: OnlyOrderFeeEstimateRequest) -> OnlyOrderFeeEstimate:
         self._validate_request_authority(
-            request.binding.fingerprint, request.policies, request.full_order_basis.notional.currency
+            request.binding, request.policy_resolution, request.full_order_basis.notional.currency
         )
+        policies = request.policy_resolution.policies
         expected = self._estimate_assessment(request, request.expected_fill_count, maximum=False)
         maximum_count = request.maximum_fill_count
-        if maximum_count is None and any(_split_sensitive(item) for item in request.policies.policies):
+        if maximum_count is None and any(_split_sensitive(item) for item in policies.policies):
             raise ValueError("FEE_ESTIMATE_MAXIMUM_FILL_COUNT_REQUIRED")
         maximum = self._estimate_assessment(request, maximum_count or request.expected_fill_count, maximum=True)
         assumptions = only_fee_fingerprint(
             (
                 request.binding.fingerprint,
-                request.policies.fingerprint,
+                request.policy_resolution.resolution_fingerprint,
                 request.expected_fill_count,
                 request.maximum_fill_count,
                 request.expected_basis.to_dict(),
@@ -87,7 +91,7 @@ class OnlyFeeEngine:
         self, request: OnlyOrderFeeEstimateRequest, fill_count: int, *, maximum: bool
     ) -> OnlyFeeAssessment:
         components = []
-        for policy in request.policies.policies:
+        for policy in request.policy_resolution.policies.policies:
             if not policy.rule.matches(request.side, request.offset, None):
                 continue
             basis = request.full_order_basis
@@ -112,7 +116,8 @@ class OnlyFeeEngine:
             subject=request.subject,
             trade_id=None,
             components=tuple(components),
-            policies=request.policies,
+            policies=request.policy_resolution.policies,
+            resolution=request.policy_resolution,
             finality=OnlyLocalFeeFinality.ESTIMATED,
             discriminator="maximum" if maximum else "expected",
             binding=request.binding,
@@ -164,6 +169,7 @@ class OnlyFeeEngine:
         trade_id: OnlyTradeId | None,
         components: tuple[OnlyFeeTargetComponent, ...],
         policies: OnlyResolvedFeePolicySet,
+        resolution: OnlyFeePolicyResolution,
         finality: OnlyLocalFeeFinality,
         discriminator: str,
         binding: OnlyOrderFeePolicyBinding,
@@ -199,6 +205,8 @@ class OnlyFeeEngine:
                 None if trade_id is None else str(trade_id),
                 tuple(item.to_dict() for item in ordered),
                 policies.fingerprint,
+                resolution.resolution_fingerprint,
+                binding.fingerprint,
             )
         )
         return OnlyFeeAssessment(
@@ -209,18 +217,27 @@ class OnlyFeeEngine:
             OnlyMoney(charges, currency),
             OnlyMoney(rebates, currency),
             policies.fingerprint,
+            resolution.resolution_fingerprint,
             finality,
             binding,
         )
 
     @staticmethod
     def _validate_request_authority(
-        binding_fingerprint: str, policies: OnlyResolvedFeePolicySet, currency: object
+        binding: OnlyOrderFeePolicyBinding,
+        resolution: OnlyFeePolicyResolution,
+        currency: object,
     ) -> None:
-        del binding_fingerprint
-        if not policies.policies:
-            raise ValueError("FEE_PACK_NOT_INSTALLED")
-        if any(item.currency != currency for item in policies.policies):
+        if (
+            resolution.binding_fingerprint != binding.fingerprint
+            or resolution.market_fee_pack != binding.market_fee_pack
+            or resolution.broker_fee_contract != binding.broker_fee_contract
+            or resolution.scope_fingerprint != binding.applicability_scope.fingerprint
+        ):
+            raise ValueError("ORDER_FEE_POLICY_AUTHORITY_CONFLICT")
+        if not resolution.policies.policies:
+            raise ValueError("FEE_SCHEDULE_NOT_FOUND")
+        if any(item.currency != currency for item in resolution.policies.policies):
             raise ValueError("FEE_CURRENCY_CONVERSION_UNSUPPORTED")
 
 

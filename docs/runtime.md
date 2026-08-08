@@ -96,14 +96,15 @@ Projector 在 Account 创建、成交、估值、结算、保证金、费用、�
 Account return、高水位和最大回撤。Cluster performance 则只来自相应 Strategy Ledger timeline；任何 Cluster 的 return 或
 drawdown 都不能代表 Runtime。
 
-费用不是 Broker 或 Runtime Factory 内部的固定佣金参数。Factory 将 `market.fees`、`brokers[].fees` 和两个版本化
-Schedule Registry 显式放入 `OnlyRuntimeAssemblyConfig`；Runtime 只创建一个 `OnlyFeeResolver`，订单预估和成交应用共用
-该实例。未知 Schedule、重叠版本或 Broker `DEFAULT` 在组装阶段失败。
+费用不是 Broker 或 Runtime Factory 内部的固定佣金参数。Factory 分别解析 `market.fee_pack` 与
+`accounts[].broker_fee_contract`，验证 Market Profile、实际 Broker 与 Account scope 后放入 `OnlyRuntimeAssemblyConfig`；
+Runtime 只创建一个 `OnlyFeeResolver`，订单预估和成交应用共用该实例。未知 Authority、Scope 不兼容、零个或多个适用
+Schedule 均 fail closed。
 
 必须可配置：
 
 - 撮合模型；
-- 市场与 Broker 费用模式及版本化 Schedule；
+- Market Fee Pack、Account Broker Fee Contract 及版本化 Schedule；
 - 滑点模型；
 - 延迟模型；
 - 交易日历；

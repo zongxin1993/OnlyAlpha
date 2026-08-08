@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from typing import Self
 
 from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.errors import OnlySerializationError
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
     OnlyClusterId,
@@ -67,6 +70,16 @@ class OnlyFeeResolutionPolicy(StrEnum):
     ORDER_FIXED = "ORDER_FIXED"
 
 
+class OnlyFeeScheduleAuthority(StrEnum):
+    MARKET = "MARKET"
+    BROKER = "BROKER"
+
+
+class OnlyBrokerFeeAccountScopeType(StrEnum):
+    ALL_ACCOUNTS = "ALL_ACCOUNTS"
+    EXACT_ACCOUNT = "EXACT_ACCOUNT"
+
+
 class OnlyFeeRoundingMode(StrEnum):
     HALF_EVEN = "HALF_EVEN"
     HALF_UP = "HALF_UP"
@@ -118,6 +131,7 @@ class OnlyFeeSubject(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeScheduleIdentity(OnlyDomainModel):
+    authority: OnlyFeeScheduleAuthority
     schedule_id: str
     version: str
     fingerprint: str
@@ -126,6 +140,131 @@ class OnlyFeeScheduleIdentity(OnlyDomainModel):
         if not self.schedule_id.strip() or not self.version.strip():
             raise ValueError("fee schedule identity cannot be empty")
         _require_digest(self.fingerprint, "schedule fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBrokerFeeAccountScope(OnlyDomainModel):
+    scope_type: OnlyBrokerFeeAccountScopeType
+    account_id: OnlyAccountId | None = None
+
+    def __post_init__(self) -> None:
+        if self.scope_type is OnlyBrokerFeeAccountScopeType.ALL_ACCOUNTS and self.account_id is not None:
+            raise ValueError("ALL_ACCOUNTS broker fee scope cannot name an account")
+        if self.scope_type is OnlyBrokerFeeAccountScopeType.EXACT_ACCOUNT and self.account_id is None:
+            raise ValueError("EXACT_ACCOUNT broker fee scope requires an account")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeScheduleFamilyIdentity(OnlyDomainModel):
+    authority: OnlyFeeScheduleAuthority
+    schedule_id: str
+    scope_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.schedule_id.strip():
+            raise ValueError("fee schedule family ID cannot be empty")
+        _require_digest(self.scope_fingerprint, "schedule scope fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketFeePackIdentity(OnlyDomainModel):
+    pack_id: str
+    pack_version: str
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.pack_id.strip() or not self.pack_version.strip():
+            raise ValueError("market fee pack identity cannot be empty")
+        _require_digest(self.fingerprint, "market fee pack fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBrokerFeeContractIdentity(OnlyDomainModel):
+    contract_id: str
+    contract_version: str
+    broker_id: str
+    account_scope: OnlyBrokerFeeAccountScope
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.contract_id.strip() or not self.contract_version.strip() or not self.broker_id.strip():
+            raise ValueError("broker fee contract identity cannot be empty")
+        _require_digest(self.fingerprint, "broker fee contract fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
+    market_profile_id: str
+    market: str
+    venue: str
+    instrument_class: str
+    broker_id: str
+    account_id: OnlyAccountId
+    instrument_id: OnlyInstrumentId
+    charge_currency: OnlyCurrency
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not all(
+            (
+                self.market_profile_id.strip(),
+                self.market.strip(),
+                self.venue.strip(),
+                self.instrument_class.strip(),
+                self.broker_id.strip(),
+            )
+        ):
+            raise ValueError("order fee applicability scope cannot be empty")
+        _require_digest(self.fingerprint, "order fee applicability scope fingerprint")
+        if self.fingerprint != only_fee_fingerprint(self.authority_payload()):
+            raise ValueError("ORDER_FEE_SCOPE_AUTHORITY_CHANGED")
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        market_profile_id: str,
+        market: str,
+        venue: str,
+        instrument_class: str,
+        broker_id: str,
+        account_id: OnlyAccountId,
+        instrument_id: OnlyInstrumentId,
+        charge_currency: OnlyCurrency,
+    ) -> OnlyOrderFeeApplicabilityScopeIdentity:
+        payload = (
+            market_profile_id,
+            market,
+            venue,
+            instrument_class,
+            broker_id,
+            str(account_id),
+            str(instrument_id),
+            charge_currency.to_dict(),
+        )
+        return cls(
+            market_profile_id,
+            market,
+            venue,
+            instrument_class,
+            broker_id,
+            account_id,
+            instrument_id,
+            charge_currency,
+            only_fee_fingerprint(payload),
+        )
+
+    def authority_payload(self) -> tuple[object, ...]:
+        return (
+            self.market_profile_id,
+            self.market,
+            self.venue,
+            self.instrument_class,
+            self.broker_id,
+            str(self.account_id),
+            str(self.instrument_id),
+            self.charge_currency.to_dict(),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +323,8 @@ class OnlyFeeTargetComponent(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeAssessment(OnlyDomainModel):
+    schema_version = 2
+
     assessment_id: str
     subject: OnlyFeeSubject
     trade_id: OnlyTradeId | None
@@ -191,6 +332,7 @@ class OnlyFeeAssessment(OnlyDomainModel):
     total_charges: OnlyMoney
     total_rebates: OnlyMoney
     policy_fingerprint: str
+    resolution_fingerprint: str
     local_finality: OnlyLocalFeeFinality
     binding: OnlyOrderFeePolicyBinding
 
@@ -198,6 +340,7 @@ class OnlyFeeAssessment(OnlyDomainModel):
         if not self.assessment_id.strip():
             raise ValueError("fee assessment identity cannot be empty")
         _require_digest(self.policy_fingerprint, "policy fingerprint")
+        _require_digest(self.resolution_fingerprint, "resolution fingerprint")
         if self.total_charges.currency != self.total_rebates.currency:
             raise ValueError("fee assessment currency mismatch")
         if self.total_charges.amount < 0 or self.total_rebates.amount < 0:
@@ -231,7 +374,7 @@ class OnlyFeeAssessment(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderFeePolicyBinding(OnlyDomainModel):
-    schema_version = 1
+    schema_version = 2
 
     runtime_id: OnlyRuntimeId
     account_id: OnlyAccountId
@@ -240,8 +383,11 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
     instrument_id: OnlyInstrumentId
     market_profile_id: str
     market_profile_version: str
+    market_fee_pack: OnlyMarketFeePackIdentity
+    broker_fee_contract: OnlyBrokerFeeContractIdentity
+    applicability_scope: OnlyOrderFeeApplicabilityScopeIdentity
     order_fixed_schedules: tuple[OnlyFeeScheduleIdentity, ...]
-    fill_effective_schedule_ids: tuple[str, ...]
+    fill_effective_families: tuple[OnlyFeeScheduleFamilyIdentity, ...]
     charge_currency: OnlyCurrency
     bound_at: OnlyTimestamp
     fingerprint: str
@@ -249,15 +395,102 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
     def __post_init__(self) -> None:
         if not self.market_profile_id.strip() or not self.market_profile_version.strip():
             raise ValueError("order fee binding requires a market profile identity")
-        if any(not item.strip() for item in self.fill_effective_schedule_ids):
-            raise ValueError("fill-effective schedule ID cannot be empty")
-        if len(set(self.fill_effective_schedule_ids)) != len(self.fill_effective_schedule_ids):
-            raise ValueError("fill-effective schedule IDs must be unique")
-        if len({(item.schedule_id, item.version) for item in self.order_fixed_schedules}) != len(
+        if len({(item.authority, item.schedule_id) for item in self.fill_effective_families}) != len(
+            self.fill_effective_families
+        ):
+            raise ValueError("fill-effective schedule families must be unique")
+        if len({(item.authority, item.schedule_id, item.version) for item in self.order_fixed_schedules}) != len(
             self.order_fixed_schedules
         ):
             raise ValueError("order-fixed schedule identities must be unique")
+        if self.applicability_scope.account_id != self.account_id:
+            raise ValueError("order fee applicability account conflicts with binding")
+        if self.applicability_scope.instrument_id != self.instrument_id:
+            raise ValueError("order fee applicability instrument conflicts with binding")
+        if self.applicability_scope.market_profile_id != self.market_profile_id:
+            raise ValueError("order fee applicability profile conflicts with binding")
+        if self.applicability_scope.charge_currency != self.charge_currency:
+            raise ValueError("order fee applicability currency conflicts with binding")
         _require_digest(self.fingerprint, "binding fingerprint")
+        if self.fingerprint != only_fee_fingerprint(self.authority_payload()):
+            raise ValueError("ORDER_FEE_BINDING_CONFLICT")
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        runtime_id: OnlyRuntimeId,
+        account_id: OnlyAccountId,
+        cluster_id: OnlyClusterId,
+        order_id: OnlyOrderId,
+        instrument_id: OnlyInstrumentId,
+        market_profile_id: str,
+        market_profile_version: str,
+        market_fee_pack: OnlyMarketFeePackIdentity,
+        broker_fee_contract: OnlyBrokerFeeContractIdentity,
+        applicability_scope: OnlyOrderFeeApplicabilityScopeIdentity,
+        order_fixed_schedules: tuple[OnlyFeeScheduleIdentity, ...],
+        fill_effective_families: tuple[OnlyFeeScheduleFamilyIdentity, ...],
+        charge_currency: OnlyCurrency,
+        bound_at: OnlyTimestamp,
+    ) -> OnlyOrderFeePolicyBinding:
+        payload = (
+            str(runtime_id),
+            str(account_id),
+            str(cluster_id),
+            str(order_id),
+            str(instrument_id),
+            market_profile_id,
+            market_profile_version,
+            market_fee_pack.to_dict(),
+            broker_fee_contract.to_dict(),
+            applicability_scope.to_dict(),
+            tuple(item.to_dict() for item in order_fixed_schedules),
+            tuple(item.to_dict() for item in fill_effective_families),
+            charge_currency.to_dict(),
+            bound_at.to_dict(),
+        )
+        return cls(
+            runtime_id,
+            account_id,
+            cluster_id,
+            order_id,
+            instrument_id,
+            market_profile_id,
+            market_profile_version,
+            market_fee_pack,
+            broker_fee_contract,
+            applicability_scope,
+            order_fixed_schedules,
+            fill_effective_families,
+            charge_currency,
+            bound_at,
+            only_fee_fingerprint(payload),
+        )
+
+    def authority_payload(self) -> tuple[object, ...]:
+        return (
+            str(self.runtime_id),
+            str(self.account_id),
+            str(self.cluster_id),
+            str(self.order_id),
+            str(self.instrument_id),
+            self.market_profile_id,
+            self.market_profile_version,
+            self.market_fee_pack.to_dict(),
+            self.broker_fee_contract.to_dict(),
+            self.applicability_scope.to_dict(),
+            tuple(item.to_dict() for item in self.order_fixed_schedules),
+            tuple(item.to_dict() for item in self.fill_effective_families),
+            self.charge_currency.to_dict(),
+            self.bound_at.to_dict(),
+        )
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        if payload.get("schema_version") != cls.schema_version:
+            raise OnlySerializationError("UNSUPPORTED_ORDER_FEE_BINDING_SCHEMA")
+        return super(OnlyOrderFeePolicyBinding, cls).from_dict(payload)
 
 
 def only_fee_fingerprint(payload: object) -> str:

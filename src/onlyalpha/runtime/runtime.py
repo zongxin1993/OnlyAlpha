@@ -74,8 +74,10 @@ from onlyalpha.execution.state import (
     OnlyInMemoryExecutionAuditStore,
     OnlyInMemoryExecutionReconciliationQueue,
 )
+from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
 from onlyalpha.fee.ledger import OnlyFeeApplicationLedger
-from onlyalpha.fee.packs import OnlyFeePolicyPack
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.fee.reconciliation_authority import OnlyFeeReconciliationAuthority
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
@@ -198,7 +200,10 @@ class OnlyRuntimeAssemblyConfig:
     broker_gateway_id: OnlyBrokerGatewayId | None = None
     account_initial_cash: OnlyMoney | None = None
     market_rule_engine: OnlyMarketRuleEngine | None = None
-    fee_policy_pack: OnlyFeePolicyPack | None = None
+    market_fee_pack: OnlyMarketFeePack | None = None
+    broker_fee_contract: OnlyBrokerFeeContract | None = None
+    broker_fee_authority_id: str | None = None
+    fee_basis_providers: OnlyFeeBasisProviderRegistry | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(

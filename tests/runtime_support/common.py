@@ -25,6 +25,8 @@ from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.market import OnlyBar, OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
+from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
+from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
 from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
@@ -98,7 +100,10 @@ def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster"
             strategy_capitals=capitals,
             account_initial_cash=OnlyMoney(Decimal("1000000.00"), cny),
             market_rule_engine=market_rules,
-            fee_policy_pack=only_generic_t0_cash_fee_pack(),
+            market_fee_pack=only_generic_t0_cash_fee_pack(),
+            broker_fee_contract=only_simulation_zero_broker_fee_contract("virtual"),
+            broker_fee_authority_id="virtual",
+            fee_basis_providers=only_default_fee_basis_provider_registry(),
         ),
         calendar,
         datetime(2026, 1, 5, 1, 30, tzinfo=UTC),

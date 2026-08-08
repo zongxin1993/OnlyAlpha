@@ -1,34 +1,43 @@
-"""Runtime composition boundary for explicit fee packs and order bindings."""
+"""Runtime composition boundary for fee binding, scope resolution and basis authority."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import date
-from decimal import ROUND_HALF_EVEN, Decimal
+from dataclasses import replace
+from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyRuntimeMode
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
-from onlyalpha.domain.instrument import OnlyInstrument
+from onlyalpha.domain.instrument import OnlyCryptoSpot, OnlyFuture, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from onlyalpha.fee.assessment import OnlyTradeFeeAssessmentRequest
+from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFeeEstimateRequest, OnlyOrderFundingPlan
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.fee.models import (
     OnlyFeeAssessment,
     OnlyFeeBasisValues,
     OnlyFeeResolutionPolicy,
+    OnlyFeeScheduleAuthority,
+    OnlyFeeScheduleFamilyIdentity,
+    OnlyFeeScheduleIdentity,
     OnlyFeeSubject,
     OnlyLocalFeeFinality,
+    OnlyOrderFeeApplicabilityScopeIdentity,
     OnlyOrderFeePolicyBinding,
     only_fee_fingerprint,
 )
-from onlyalpha.fee.packs import OnlyFeePolicyPack
 from onlyalpha.fee.policy import OnlyResolvedFeePolicySet
+from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 from onlyalpha.fee.schedules import (
+    OnlyBrokerFeeApplicabilityContext,
     OnlyBrokerFeeSchedule,
     OnlyBrokerFeeScheduleRegistry,
+    OnlyMarketFeeApplicabilityContext,
     OnlyMarketFeeSchedule,
     OnlyMarketFeeScheduleRegistry,
 )
@@ -36,98 +45,113 @@ from onlyalpha.market.runtime_rules import OnlyTradeInstructionPort
 
 
 class OnlyFeeResolver:
-    """Binds schedule versions and prepares strongly typed pure-engine requests."""
+    """Binds immutable authorities and prepares proven pure-engine requests."""
 
     def __init__(
         self,
         engine: OnlyFeeEngine,
-        policy_pack: OnlyFeePolicyPack,
+        market_fee_pack: OnlyMarketFeePack,
+        broker_fee_contract: OnlyBrokerFeeContract,
+        broker_id: str,
         market_rules: OnlyTradeInstructionPort,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
+        basis_providers: OnlyFeeBasisProviderRegistry,
         trading_day: Callable[[OnlyTimestamp], OnlyTradingDay],
     ) -> None:
         self._engine = engine
-        self._pack = policy_pack
+        self._market_pack = market_fee_pack
+        self._broker_contract = broker_fee_contract
+        self._broker_id = broker_id
         self._market_rules = market_rules
         self._instruments = instruments
+        self._basis_providers = basis_providers
         self._trading_day = trading_day
         self._market = OnlyMarketFeeScheduleRegistry()
         self._broker = OnlyBrokerFeeScheduleRegistry()
-        for schedule in policy_pack.market_schedules:
+        for schedule in market_fee_pack.schedules:
             self._market.register(schedule)
-        for broker_schedule in policy_pack.broker_schedules:
+        for broker_schedule in broker_fee_contract.schedules:
             self._broker.register(broker_schedule)
 
     @property
-    def policy_pack(self) -> OnlyFeePolicyPack:
-        return self._pack
+    def market_fee_pack(self) -> OnlyMarketFeePack:
+        return self._market_pack
+
+    @property
+    def broker_fee_contract(self) -> OnlyBrokerFeeContract:
+        return self._broker_contract
 
     def bind_order(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> OnlyOrderFeePolicyBinding:
         day = self._trading_day(timestamp)
         compiled = self._market_rules.compiled_rules(str(order.instrument_id), day)
-        if compiled.identity.profile_id not in self._pack.compatible_market_profiles:
-            raise ValueError("FEE_POLICY_PACK_MARKET_PROFILE_INCOMPATIBLE")
+        self._market_pack.validate_compatibility(compiled.identity.profile_id)
+        self._broker_contract.validate_compatibility(broker_id=self._broker_id, account_id=order.account_id)
         instrument = self._instruments[order.instrument_id]
-        schedules = tuple(self._pack.market_schedules) + tuple(self._pack.broker_schedules)
-        effective = tuple(schedule for schedule in schedules if schedule.applies_on(day.value))
-        if not effective:
-            raise ValueError("FEE_PACK_NOT_INSTALLED")
-        fixed = tuple(
-            sorted(
-                (
-                    schedule.identity
-                    for schedule in effective
-                    if any(rule.resolution_policy is OnlyFeeResolutionPolicy.ORDER_FIXED for rule in schedule.rules)
-                ),
-                key=lambda item: (item.schedule_id, item.version),
-            )
+        scope = self._scope(
+            order, instrument, compiled.identity.profile_id, compiled.identity.market, compiled.identity.venue
         )
-        fill_ids = tuple(
-            sorted(
-                schedule.schedule_id
-                for schedule in schedules
-                if any(rule.resolution_policy is OnlyFeeResolutionPolicy.FILL_EFFECTIVE for rule in schedule.rules)
-            )
-        )
-        payload = (
-            str(order.runtime_id),
-            str(order.account_id),
-            str(order.cluster_id),
-            str(order.order_id),
-            str(order.instrument_id),
-            compiled.identity.profile_id,
-            compiled.identity.profile_version,
-            tuple(item.to_dict() for item in fixed),
-            fill_ids,
-            instrument.settlement_currency.to_dict(),
-            timestamp.to_dict(),
-            self._pack.fingerprint,
-        )
-        return OnlyOrderFeePolicyBinding(
-            order.runtime_id,
-            order.account_id,
-            order.cluster_id,
-            order.order_id,
-            order.instrument_id,
-            compiled.identity.profile_id,
-            compiled.identity.profile_version,
-            fixed,
-            fill_ids,
-            instrument.settlement_currency,
-            timestamp,
-            only_fee_fingerprint(payload),
+        market_context, broker_context = self._contexts(scope, day)
+        fixed: list[OnlyFeeScheduleIdentity] = []
+        families: list[OnlyFeeScheduleFamilyIdentity] = []
+        for schedules in (
+            self._applicable_market_families(market_context),
+            self._applicable_broker_families(broker_context),
+        ):
+            for family_schedules in schedules:
+                effective = tuple(item for item in family_schedules if item.applies_on(day.value))
+                if not effective:
+                    raise ValueError("FEE_SCHEDULE_NOT_FOUND")
+                if len(effective) > 1:
+                    raise ValueError("FEE_SCHEDULE_AMBIGUOUS")
+                schedule = effective[0]
+                resolution_policy = schedule.rules[0].resolution_policy
+                if resolution_policy is OnlyFeeResolutionPolicy.ORDER_FIXED:
+                    fixed.append(schedule.identity)
+                else:
+                    families.append(schedule.family_identity)
+        if not fixed and not families:
+            raise ValueError("FEE_SCHEDULE_NOT_FOUND")
+        ordered_fixed = tuple(sorted(fixed, key=lambda item: (item.authority.value, item.schedule_id, item.version)))
+        ordered_families = tuple(sorted(families, key=lambda item: (item.authority.value, item.schedule_id)))
+        return OnlyOrderFeePolicyBinding.create(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            order_id=order.order_id,
+            instrument_id=order.instrument_id,
+            market_profile_id=compiled.identity.profile_id,
+            market_profile_version=compiled.identity.profile_version,
+            market_fee_pack=self._market_pack.identity,
+            broker_fee_contract=self._broker_contract.identity,
+            applicability_scope=scope,
+            order_fixed_schedules=ordered_fixed,
+            fill_effective_families=ordered_families,
+            charge_currency=instrument.settlement_currency,
+            bound_at=timestamp,
         )
 
     def policies(
         self, order: OnlyOrderSnapshot, binding: OnlyOrderFeePolicyBinding, trading_day: OnlyTradingDay
-    ) -> OnlyResolvedFeePolicySet:
-        if binding.order_id != order.order_id or binding.instrument_id != order.instrument_id:
-            raise ValueError("ORDER_FEE_BINDING_CONFLICT")
+    ) -> OnlyFeePolicyResolution:
+        self._validate_binding(order, binding)
+        market_context, broker_context = self._contexts(binding.applicability_scope, trading_day)
         schedules: list[OnlyMarketFeeSchedule | OnlyBrokerFeeSchedule] = []
         for identity in binding.order_fixed_schedules:
-            schedules.append(self._resolve_exact(identity.schedule_id, identity.version, identity.fingerprint))
-        for schedule_id in binding.fill_effective_schedule_ids:
-            schedules.append(self._resolve_effective(schedule_id, trading_day.value))
+            if identity.authority is OnlyFeeScheduleAuthority.MARKET:
+                market_schedule = self._market.resolve_version(identity)
+                if not market_schedule.matches_scope(market_context):
+                    raise ValueError("ORDER_FEE_SCOPE_AUTHORITY_CHANGED")
+                schedules.append(market_schedule)
+            else:
+                broker_schedule = self._broker.resolve_version(identity)
+                if not broker_schedule.matches_scope(broker_context):
+                    raise ValueError("ORDER_FEE_SCOPE_AUTHORITY_CHANGED")
+                schedules.append(broker_schedule)
+        for family in binding.fill_effective_families:
+            if family.authority is OnlyFeeScheduleAuthority.MARKET:
+                schedules.append(self._market.resolve_family(family, market_context))
+            else:
+                schedules.append(self._broker.resolve_family(family, broker_context))
         policies = tuple(
             policy
             for schedule in schedules
@@ -139,7 +163,15 @@ class OnlyFeeResolver:
             raise ValueError("FEE_POLICY_SET_HAS_NO_MATCHING_RULE")
         if any(item.currency != binding.charge_currency for item in policies):
             raise ValueError("FEE_CURRENCY_CONVERSION_UNSUPPORTED")
-        return OnlyResolvedFeePolicySet.create(policies)
+        return OnlyFeePolicyResolution.create(
+            binding_fingerprint=binding.fingerprint,
+            market_fee_pack=binding.market_fee_pack,
+            broker_fee_contract=binding.broker_fee_contract,
+            scope_fingerprint=binding.applicability_scope.fingerprint,
+            resolved_schedules=tuple(schedule.identity for schedule in schedules),
+            policies=OnlyResolvedFeePolicySet.create(policies),
+            trading_day=trading_day,
+        )
 
     def estimate_order(
         self,
@@ -205,10 +237,9 @@ class OnlyFeeResolver:
             else OnlyLocalFeeFinality.MODEL_CONFIRMED
         )
         fill_basis = self._basis(order, price, quantity)
-        cumulative_basis = OnlyFeeBasisValues(
-            cumulative_notional,
-            cumulative_quantity,
-            cumulative_quantity,
+        cumulative_basis = replace(
+            self._basis(order, price, cumulative_quantity),
+            notional=cumulative_notional,
         )
         return self._engine.assess_trade(
             OnlyTradeFeeAssessmentRequest(
@@ -226,36 +257,96 @@ class OnlyFeeResolver:
 
     def _basis(self, order: OnlyOrderSnapshot, price: OnlyPrice, quantity: Decimal) -> OnlyFeeBasisValues:
         instrument = self._instruments[order.instrument_id]
-        currency = instrument.settlement_currency
-        quantum = Decimal(1).scaleb(-currency.precision)
-        notional = OnlyMoney(
-            (price.value * quantity * instrument.contract_multiplier.value).quantize(quantum, ROUND_HALF_EVEN), currency
+        return self._basis_providers.require(instrument).resolve(
+            instrument=instrument,
+            price=price,
+            quantity=quantity,
         )
-        return OnlyFeeBasisValues(notional, quantity, quantity)
 
     @staticmethod
     def _subject(order: OnlyOrderSnapshot) -> OnlyFeeSubject:
         return OnlyFeeSubject(order.runtime_id, order.account_id, order.cluster_id, order.order_id, order.instrument_id)
 
-    def _resolve_exact(
-        self, schedule_id: str, version: str, fingerprint: str
-    ) -> OnlyMarketFeeSchedule | OnlyBrokerFeeSchedule:
-        try:
-            return self._market.resolve_version(schedule_id, version, fingerprint)
-        except ValueError as market_error:
-            try:
-                return self._broker.resolve_version(schedule_id, version, fingerprint)
-            except ValueError:
-                raise market_error from None
+    def _scope(
+        self,
+        order: OnlyOrderSnapshot,
+        instrument: OnlyInstrument,
+        profile_id: str,
+        market: str,
+        venue: str,
+    ) -> OnlyOrderFeeApplicabilityScopeIdentity:
+        instrument_class = _instrument_class(instrument)
+        return OnlyOrderFeeApplicabilityScopeIdentity.create(
+            market_profile_id=profile_id,
+            market=market,
+            venue=venue,
+            instrument_class=instrument_class,
+            broker_id=self._broker_id,
+            account_id=order.account_id,
+            instrument_id=order.instrument_id,
+            charge_currency=instrument.settlement_currency,
+        )
 
-    def _resolve_effective(self, schedule_id: str, trading_day: date) -> OnlyMarketFeeSchedule | OnlyBrokerFeeSchedule:
-        try:
-            return self._market.resolve(schedule_id, trading_day)
-        except ValueError as market_error:
-            try:
-                return self._broker.resolve(schedule_id, trading_day)
-            except ValueError:
-                raise market_error from None
+    @staticmethod
+    def _contexts(
+        scope: OnlyOrderFeeApplicabilityScopeIdentity, day: OnlyTradingDay
+    ) -> tuple[OnlyMarketFeeApplicabilityContext, OnlyBrokerFeeApplicabilityContext]:
+        return (
+            OnlyMarketFeeApplicabilityContext(
+                day,
+                scope.market_profile_id,
+                scope.market,
+                scope.venue,
+                scope.instrument_class,
+                scope.instrument_id,
+            ),
+            OnlyBrokerFeeApplicabilityContext(day, scope.broker_id, scope.account_id, scope.instrument_id),
+        )
+
+    def _applicable_market_families(
+        self, context: OnlyMarketFeeApplicabilityContext
+    ) -> tuple[tuple[OnlyMarketFeeSchedule, ...], ...]:
+        applicable = tuple(item for item in self._market_pack.schedules if item.matches_scope(context))
+        grouped: dict[str, list[OnlyMarketFeeSchedule]] = {}
+        for item in applicable:
+            grouped.setdefault(item.schedule_id, []).append(item)
+        return tuple(tuple(grouped[key]) for key in sorted(grouped))
+
+    def _applicable_broker_families(
+        self, context: OnlyBrokerFeeApplicabilityContext
+    ) -> tuple[tuple[OnlyBrokerFeeSchedule, ...], ...]:
+        applicable = tuple(item for item in self._broker_contract.schedules if item.matches_scope(context))
+        grouped: dict[str, list[OnlyBrokerFeeSchedule]] = {}
+        for item in applicable:
+            grouped.setdefault(item.schedule_id, []).append(item)
+        return tuple(tuple(grouped[key]) for key in sorted(grouped))
+
+    def _validate_binding(self, order: OnlyOrderSnapshot, binding: OnlyOrderFeePolicyBinding) -> None:
+        if (
+            binding.runtime_id != order.runtime_id
+            or binding.account_id != order.account_id
+            or binding.cluster_id != order.cluster_id
+            or binding.order_id != order.order_id
+            or binding.instrument_id != order.instrument_id
+        ):
+            raise ValueError("ORDER_FEE_BINDING_CONFLICT")
+        if binding.market_fee_pack != self._market_pack.identity:
+            raise ValueError("ORDER_FEE_POLICY_AUTHORITY_CONFLICT")
+        if binding.broker_fee_contract != self._broker_contract.identity:
+            raise ValueError("ORDER_FEE_POLICY_AUTHORITY_CONFLICT")
+        scope = binding.applicability_scope
+        if scope.fingerprint != only_fee_fingerprint(scope.authority_payload()):
+            raise ValueError("ORDER_FEE_SCOPE_AUTHORITY_CHANGED")
+        if binding.fingerprint != only_fee_fingerprint(binding.authority_payload()):
+            raise ValueError("ORDER_FEE_BINDING_CONFLICT")
+
+
+def _instrument_class(instrument: OnlyInstrument) -> str:
+    if isinstance(instrument, OnlyFuture):
+        return "FUTURES"
+    if isinstance(instrument, OnlyCryptoSpot):
+        return "CRYPTO_SPOT"
+    return "CASH"
 
 
 __all__ = ["OnlyFeeResolver"]

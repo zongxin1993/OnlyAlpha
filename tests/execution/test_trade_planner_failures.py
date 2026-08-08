@@ -117,7 +117,6 @@ def _currency(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionP
             components=components,
             total_charges=OnlyMoney(assessment.total_charges.amount, usd),
             total_rebates=OnlyMoney(assessment.total_rebates.amount, usd),
-            binding=replace(assessment.binding, charge_currency=usd),
         ),
     )
 

@@ -7,8 +7,11 @@ from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 from onlyalpha.factor.factory import OnlyFactorFactory
+from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
+from onlyalpha.fee.market_pack import OnlyMarketFeePackRegistry
 from onlyalpha.fee.packs import (
-    OnlyFeePolicyPackRegistry,
+    only_cn_a_share_conformance_fee_pack,
     only_generic_crypto_spot_fee_pack,
     only_generic_margin_futures_fee_pack,
     only_generic_t0_cash_fee_pack,
@@ -38,6 +41,8 @@ class OnlyEngineServices:
     assembler: OnlyEngineRunAssembler
     data_sources: OnlyDataSourceFactoryRegistry = field(default_factory=OnlyDataSourceFactoryRegistry)
     brokers: OnlyBrokerFactoryRegistry = field(default_factory=OnlyBrokerFactoryRegistry)
+    market_fee_packs: OnlyMarketFeePackRegistry = field(default_factory=OnlyMarketFeePackRegistry)
+    broker_fee_contracts: OnlyBrokerFeeContractRegistry = field(default_factory=OnlyBrokerFeeContractRegistry)
     plugin_discovery: OnlyPluginDiscoveryReport = field(default_factory=lambda: OnlyPluginDiscoveryReport((), ()))
 
 
@@ -51,7 +56,8 @@ def only_default_engine_services(
     data_sources.register(OnlySyntheticDataSourceFactory(), origin=builtin)
     data_sources.register(OnlyScenarioDataSourceFactory(), origin=builtin)
     brokers = OnlyBrokerFactoryRegistry()
-    discovery = only_discover_plugins(data_sources, brokers, fail_fast=fail_fast)
+    broker_contracts = OnlyBrokerFeeContractRegistry()
+    discovery = only_discover_plugins(data_sources, brokers, broker_contracts, fail_fast=fail_fast)
     clusters = OnlyClusterFactory(
         OnlyStrategyFactory(),
         OnlyFactorFactory(),
@@ -63,11 +69,12 @@ def only_default_engine_services(
     runtimes.register(OnlyLiveRuntimeFactory())
     runtimes.register(OnlyShadowRuntimeFactory())
     runtimes.register(OnlyResearchRuntimeFactory())
-    fee_packs = OnlyFeePolicyPackRegistry()
+    fee_packs = OnlyMarketFeePackRegistry()
     for pack in (
         only_generic_t0_cash_fee_pack(),
         only_generic_margin_futures_fee_pack(),
         only_generic_crypto_spot_fee_pack(),
+        only_cn_a_share_conformance_fee_pack(),
     ):
         fee_packs.register(pack)
     assembler = OnlyEngineRunAssembler(
@@ -79,7 +86,9 @@ def only_default_engine_services(
             only_builtin_market_profile_registry(),
             OnlyMarketRuleCompiler(),
             fee_packs,
+            broker_contracts,
+            only_default_fee_basis_provider_registry(),
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
         ),
     )
-    return OnlyEngineServices(assembler, data_sources, brokers, discovery)
+    return OnlyEngineServices(assembler, data_sources, brokers, fee_packs, broker_contracts, discovery)

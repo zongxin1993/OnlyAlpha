@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+Fee authority input and Binding-v1 portions are superseded by ADR 0060. Durable assessment, accrual, application,
+transaction and reconciliation decisions remain accepted.
+
 ## Context
 
 The previous unified fee implementation mixed local policy assessment with broker-reported evidence, used a synthetic Trade

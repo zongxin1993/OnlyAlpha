@@ -2,6 +2,8 @@ from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
+import pyarrow.parquet as pq
+
 from onlyalpha.config import OnlyClusterCapitalConfig, OnlyClusterCapitalMode, OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
@@ -45,6 +47,26 @@ def test_cli_equivalent_single_cluster_full_backtest(tmp_path: Path) -> None:
     assert projection["data"]["processed_bar_count"] == 720  # type: ignore[index]
     assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 2}
     assert result.manifest_path is not None and result.manifest_path.is_file()
+    run_root = result.manifest_path.parent
+    market_pack = pq.read_table(next(run_root.rglob("market_fee_packs.parquet"))).to_pylist()
+    broker_contract = pq.read_table(next(run_root.rglob("broker_fee_contracts.parquet"))).to_pylist()
+    schedules = pq.read_table(next(run_root.rglob("fee_schedules.parquet"))).to_pylist()
+    bindings = pq.read_table(next(run_root.rglob("order_fee_bindings.parquet"))).to_pylist()
+    assert market_pack == [
+        {
+            "pack_id": "GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE",
+            "pack_version": "1",
+            "market_profile_id": "GENERIC_T0_CASH",
+            "fingerprint": market_pack[0]["fingerprint"],
+        }
+    ]
+    assert broker_contract[0]["contract_id"] == "VIRTUAL_SIMULATION_ZERO_BROKER_FEES"
+    assert broker_contract[0]["broker_id"] == "virtual"
+    assert broker_contract[0]["account_scope"] is not None
+    assert schedules and {item["authority"] for item in schedules} == {"MARKET"}
+    assert len(bindings) == 2
+    assert all(item["binding_fingerprint"] == item["fingerprint"] for item in bindings)
+    assert all(item["scope_fingerprint"] for item in bindings)
 
 
 def test_two_clusters_are_isolated_and_share_registry_resources(tmp_path: Path) -> None:

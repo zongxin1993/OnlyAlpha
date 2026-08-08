@@ -61,7 +61,10 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
-from onlyalpha.fee.packs import OnlyFeePolicyPack, only_generic_t0_cash_fee_pack
+from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
+from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
+from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
 from onlyalpha.market.registry import OnlyMarketProfileRequest
@@ -263,7 +266,7 @@ class OnlyIntegrationEnvironment:
         virtual_broker: bool = True,
         cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
         market_profile_id: OnlyMarketProfileId = OnlyMarketProfileId.GENERIC_T0_CASH,
-        fee_policy_pack: OnlyFeePolicyPack | None = None,
+        market_fee_pack: OnlyMarketFeePack | None = None,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
@@ -357,7 +360,10 @@ class OnlyIntegrationEnvironment:
                     {CLUSTER_ID: broker_config.initial_cash} if cluster_capitals is None else cluster_capitals
                 ),
                 market_rule_engine=market_rules,
-                fee_policy_pack=fee_policy_pack or only_generic_t0_cash_fee_pack(),
+                market_fee_pack=market_fee_pack or only_generic_t0_cash_fee_pack(),
+                broker_fee_contract=only_simulation_zero_broker_fee_contract("virtual"),
+                broker_fee_authority_id="virtual",
+                fee_basis_providers=only_default_fee_basis_provider_registry(),
                 broker_gateway_id=broker_config.gateway_id if virtual_broker else None,
                 account_initial_cash=broker_config.initial_cash,
             ),

@@ -2,10 +2,10 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.fee.formula import OnlyFeeFormula, OnlyFeePerUnitTerm
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.fee.models import (
     OnlyFeeAuthority,
     OnlyFeeCalculationBasis,
@@ -20,13 +20,8 @@ from onlyalpha.fee.policy import OnlyFeeRule
 from onlyalpha.fee.rounding import OnlyFeeRoundingPolicy
 from onlyalpha.fee.schedules import OnlyMarketFeeSchedule
 
-if TYPE_CHECKING:
-    from onlyalpha.fee.packs import OnlyFeePolicyPack
 
-
-def only_generic_margin_futures_fee_pack() -> "OnlyFeePolicyPack":
-    from onlyalpha.fee.packs import OnlyFeePolicyPack
-
+def only_generic_margin_futures_fee_pack() -> OnlyMarketFeePack:
     schedule = OnlyMarketFeeSchedule(
         "GENERIC_FUTURES_FEES",
         "1",
@@ -54,13 +49,13 @@ def only_generic_margin_futures_fee_pack() -> "OnlyFeePolicyPack":
         ),
         "GENERIC",
         None,
-        "FUTURE",
+        "FUTURES",
     )
-    return OnlyFeePolicyPack.create(
-        pack_id="GENERIC_MARGIN_FUTURES_CONFORMANCE",
+    return OnlyMarketFeePack.create(
+        pack_id="GENERIC_MARGIN_FUTURES_MARKET_FEE_PACK_CONFORMANCE",
         pack_version="1",
         compatible_market_profiles=("GENERIC_MARGIN_FUTURES",),
-        market_schedules=(schedule,),
+        schedules=(schedule,),
     )
 
 

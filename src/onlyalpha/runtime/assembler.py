@@ -9,7 +9,9 @@ from typing import cast
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
-from onlyalpha.fee.packs import OnlyFeePolicyPackRegistry
+from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
+from onlyalpha.fee.market_pack import OnlyMarketFeePackRegistry
 from onlyalpha.market.registry import OnlyMarketProfileRegistry
 from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult, OnlyRuntimeFactoryRegistry
@@ -24,7 +26,9 @@ class OnlyComponentFactoryRegistries:
     clusters: OnlyClusterFactory
     market_profiles: OnlyMarketProfileRegistry
     market_rule_compiler: OnlyMarketRuleCompiler
-    fee_policy_packs: OnlyFeePolicyPackRegistry
+    market_fee_packs: OnlyMarketFeePackRegistry
+    broker_fee_contracts: OnlyBrokerFeeContractRegistry
+    fee_basis_providers: OnlyFeeBasisProviderRegistry
     runtime_persistence_stores: OnlyRuntimePersistenceStoreFactory
 
 

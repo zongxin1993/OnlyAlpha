@@ -17,6 +17,7 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBarSpecificationConfig,
+    OnlyBrokerFeeContractConfig,
     OnlyBrokerRuntimeConfig,
     OnlyClusterCapitalConfig,
     OnlyClusterCapitalMode,
@@ -500,6 +501,7 @@ class _OnlyClusterDocumentParser:
             p = f"$.accounts[{i}]"
             raw = self._map(value, p)
             cash = self._map(raw.get("initial_cash"), f"{p}.initial_cash")
+            contract = self._map(raw.get("broker_fee_contract"), f"{p}.broker_fee_contract")
             currency = OnlyCurrency(
                 self._str(cash.get("currency", base_currency.code), f"{p}.initial_cash.currency"),
                 base_currency.precision,
@@ -512,6 +514,13 @@ class _OnlyClusterDocumentParser:
                     OnlyMoney(
                         self._decimal(cash.get("value"), f"{p}.initial_cash.value", non_negative=True),
                         currency,
+                    ),
+                    OnlyBrokerFeeContractConfig(
+                        self._str(contract.get("contract_id"), f"{p}.broker_fee_contract.contract_id"),
+                        self._str(
+                            contract.get("contract_version"),
+                            f"{p}.broker_fee_contract.contract_version",
+                        ),
                     ),
                 )
             )

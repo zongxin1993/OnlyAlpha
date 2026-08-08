@@ -68,7 +68,7 @@ def _metadata(value: Mapping[str, str]) -> Mapping[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderExecutionState(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     order_id: OnlyOrderId
     request_id: OnlyOrderRequestId
@@ -155,6 +155,8 @@ class OnlyOrderExecutionState(OnlyDomainModel):
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        if payload.get("schema_version") != cls.schema_version:
+            raise ValueError("ORDER_EXECUTION_STATE_SCHEMA_UNSUPPORTED")
         compatible = dict(payload)
         compatible["schema_version"] = OnlyOrderSnapshot.schema_version
         compatible.setdefault("fee_policy_binding", None)

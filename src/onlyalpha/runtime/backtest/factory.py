@@ -274,12 +274,19 @@ class OnlyBacktestRuntimeFactory:
                 else None
             ),
         )
-        fee_policy_pack = components.fee_policy_packs.require(
-            config.market.fees.pack_id,
-            config.market.fees.pack_version,
+        market_fee_pack = components.market_fee_packs.require(
+            config.market.fee_pack.pack_id,
+            config.market.fee_pack.pack_version,
         )
-        if config.market.profile.value not in fee_policy_pack.compatible_market_profiles:
-            raise ValueError("FEE_POLICY_PACK_MARKET_PROFILE_INCOMPATIBLE")
+        market_fee_pack.validate_compatibility(config.market.profile.value)
+        broker_fee_contract = components.broker_fee_contracts.require(
+            account.broker_fee_contract.contract_id,
+            account.broker_fee_contract.contract_version,
+        )
+        broker_fee_contract.validate_compatibility(
+            broker_id=broker_common.plugin_id,
+            account_id=account.account_id,
+        )
         runtime_config = OnlyRuntimeAssemblyConfig(
             config.engine_id,
             config.runtime_id,
@@ -293,7 +300,10 @@ class OnlyBacktestRuntimeFactory:
             broker_gateway_id=broker_common.gateway_id,
             account_initial_cash=account.initial_cash,
             market_rule_engine=market_rule_engine,
-            fee_policy_pack=fee_policy_pack,
+            market_fee_pack=market_fee_pack,
+            broker_fee_contract=broker_fee_contract,
+            broker_fee_authority_id=broker_common.plugin_id,
+            fee_basis_providers=components.fee_basis_providers,
         )
         clock = OnlyBacktestClock(config.start_time)
         event_bus = OnlyEventBus(

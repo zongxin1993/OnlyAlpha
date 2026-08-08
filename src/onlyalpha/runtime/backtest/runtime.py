@@ -515,14 +515,21 @@ class OnlyBacktestRuntime(OnlyRuntime):
         )
         market_rule_engine = runtime_config.market_rule_engine
         if market_rule_engine is None:
-            raise ValueError("FEE_POLICY_PACK_REQUIRES_MARKET_RULE_ENGINE")
-        if runtime_config.fee_policy_pack is None:
-            raise ValueError("FEE_PACK_NOT_INSTALLED")
+            raise ValueError("FEE_AUTHORITY_REQUIRES_MARKET_RULE_ENGINE")
+        if runtime_config.market_fee_pack is None:
+            raise ValueError("MARKET_FEE_PACK_NOT_INSTALLED")
+        if runtime_config.broker_fee_contract is None or runtime_config.broker_fee_authority_id is None:
+            raise ValueError("BROKER_FEE_CONTRACT_NOT_INSTALLED")
+        if runtime_config.fee_basis_providers is None:
+            raise ValueError("FEE_BASIS_UNSUPPORTED")
         fee_resolver = OnlyFeeResolver(
             OnlyFeeEngine(),
-            runtime_config.fee_policy_pack,
+            runtime_config.market_fee_pack,
+            runtime_config.broker_fee_contract,
+            runtime_config.broker_fee_authority_id,
             market_rule_engine,
             self._instruments,
+            runtime_config.fee_basis_providers,
             selected_calendar.trading_day_at,
         )
         self._fee_resolver = fee_resolver
@@ -1039,7 +1046,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._checkpoint_registry.register(
             OnlyJsonRuntimeCheckpointParticipant(
                 "order.authority",
-                1,
+                2,
                 order_manager.capture_checkpoint,
                 order_manager.restore_checkpoint,
             )

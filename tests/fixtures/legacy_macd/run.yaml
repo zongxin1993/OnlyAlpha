@@ -1,7 +1,7 @@
 schema_version: "1.0"
 market:
     profile: GENERIC_T0_CASH
-    fees: {pack_id: GENERIC_T0_CASH_CONFORMANCE, pack_version: "1"}
+    fee_pack: {pack_id: GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE, pack_version: "1"}
 
 engine:
     engine_id: onlyalpha-demo
@@ -65,6 +65,7 @@ data_sources:
 accounts:
     - account_id: macd-backtest-demo-DEFAULT
       gateway_id: virtual-macd-demo
+      broker_fee_contract: {contract_id: VIRTUAL_SIMULATION_ZERO_BROKER_FEES, contract_version: "1"}
       initial_cash:
           value: "1000000.00"
           currency: CNY

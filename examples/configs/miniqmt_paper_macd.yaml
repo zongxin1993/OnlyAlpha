@@ -2,8 +2,8 @@ schema_version: "1.0"
 
 market:
   profile: GENERIC_T0_CASH
-  fees:
-    pack_id: GENERIC_T0_CASH_CONFORMANCE
+  fee_pack:
+    pack_id: GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE
     pack_version: "1"
 
 cluster:
@@ -77,6 +77,9 @@ data_sources:
 accounts:
   - account_id: paper-shadow-authority
     gateway_id: paper-shadow-no-broker
+    broker_fee_contract:
+      contract_id: MINIQMT_SIMULATION_ZERO_BROKER_FEES
+      contract_version: "1"
     initial_cash:
       value: "1000000.00"
       currency: CNY

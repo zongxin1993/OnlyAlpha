@@ -123,7 +123,7 @@ class OnlyBacktestResult:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "run": {
                 "runtime_id": str(self.run.runtime_id),
                 "status": self.run.status.value,

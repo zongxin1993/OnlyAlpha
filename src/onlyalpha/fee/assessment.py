@@ -11,7 +11,7 @@ from onlyalpha.fee.models import (
     OnlyLocalFeeFinality,
     OnlyOrderFeePolicyBinding,
 )
-from onlyalpha.fee.policy import OnlyResolvedFeePolicySet
+from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +24,7 @@ class OnlyTradeFeeAssessmentRequest:
     liquidity_role: OnlyLiquiditySide | None
     local_finality: OnlyLocalFeeFinality
     binding: OnlyOrderFeePolicyBinding
-    policies: OnlyResolvedFeePolicySet
+    policy_resolution: OnlyFeePolicyResolution
 
 
 __all__ = ["OnlyTradeFeeAssessmentRequest"]

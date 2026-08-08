@@ -109,13 +109,6 @@ class OnlyMatchingModelType(StrEnum):
     EXCHANGE_NATIVE = "EXCHANGE_NATIVE"
 
 
-class OnlyFeeBasis(StrEnum):
-    NOTIONAL = "NOTIONAL"
-    QUANTITY = "QUANTITY"
-    CONTRACT = "CONTRACT"
-    FIXED = "FIXED"
-
-
 @dataclass(frozen=True, slots=True)
 class OnlySettlementRule:
     timing: OnlySettlementTiming
@@ -412,7 +405,6 @@ class OnlyMarketProfile:
     margin_model: OnlyMarginModel | None
     price_rule: OnlyPriceRule
     quantity_rule: OnlyQuantityRule
-    market_fee_schedule_id: str
     liquidity_model: OnlyLiquidityModel
     slippage_model: OnlySlippageModel
     matching_model: OnlyMatchingModel

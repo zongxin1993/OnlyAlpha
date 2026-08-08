@@ -32,7 +32,7 @@ def scenario_payload() -> dict[str, object]:
         },
         "market": {
             "profile": "GENERIC_T0_CASH",
-            "fees": {"pack_id": "GENERIC_T0_CASH_CONFORMANCE", "pack_version": "1"},
+            "fee_pack": {"pack_id": "GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE", "pack_version": "1"},
         },
         "reference": {
             "calendars": [
@@ -175,7 +175,7 @@ def test_generic_futures_remains_outside_formal_execution_transaction_scope(
     }
     payload["market"] = {
         "profile": "GENERIC_MARGIN_FUTURES",
-        "fees": {"pack_id": "GENERIC_MARGIN_FUTURES_CONFORMANCE", "pack_version": "1"},
+        "fee_pack": {"pack_id": "GENERIC_MARGIN_FUTURES_MARKET_FEE_PACK_CONFORMANCE", "pack_version": "1"},
     }
     instrument = payload["reference"]["instruments"][0]  # type: ignore[index]
     instrument.update(  # type: ignore[union-attr]

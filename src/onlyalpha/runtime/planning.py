@@ -43,6 +43,10 @@ class OnlyRuntimeCompatibilityKey:
                     "account_id": str(item.account_id),
                     "gateway_id": str(item.gateway_id),
                     "initial_cash": item.initial_cash.to_dict(),
+                    "broker_fee_contract": {
+                        "contract_id": item.broker_fee_contract.contract_id,
+                        "contract_version": item.broker_fee_contract.contract_version,
+                    },
                 }
                 for item in config.accounts
             )
@@ -52,6 +56,10 @@ class OnlyRuntimeCompatibilityKey:
             "profile": config.market.profile.value,
             "version": config.market.version,
             "overrides": dict(config.market.overrides),
+            "fee_pack": {
+                "pack_id": config.market.fee_pack.pack_id,
+                "pack_version": config.market.fee_pack.pack_version,
+            },
         }
         if config.market.profile.value == "CN_A_SHARE_CASH":
             market_environment["reference_registry_fingerprint"] = config.reference_data.reference_registry_fingerprint

@@ -14,6 +14,9 @@ classifiers = [
 [project.entry-points."onlyalpha.brokers"]
 virtual = "onlyalpha_plugin_broker_virtual.factory:OnlyVirtualBrokerFactory"
 
+[project.entry-points."onlyalpha.broker_fee_contracts"]
+virtual-simulation-zero = "onlyalpha_plugin_broker_virtual.fee_contract:fee_contract"
+
 [dependency-groups]
 dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.11"]
 

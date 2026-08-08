@@ -21,6 +21,7 @@ from onlyalpha.execution import (
     OnlyExecutionProcessingResult,
     OnlyExecutionProcessingStatus,
 )
+from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.api import (
     ONLYALPHA_PLUGIN_API_VERSION,
@@ -173,6 +174,10 @@ def _same_bar_config() -> OnlyClusterRunConfig:
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["end_time"] = "2026-01-05T01:40:00Z"
     payload["brokers"][0]["plugin"] = _SAME_BAR_DESCRIPTOR.plugin_id
+    payload["accounts"][0]["broker_fee_contract"] = {
+        "contract_id": "TEST_SAME_BAR_BROKER_SIMULATION_ZERO_BROKER_FEES",
+        "contract_version": "1",
+    }
     payload["strategy"]["class_path"] = (
         "tests.integration.test_engine_recovery_same_bar_continuation:OnlyPositionTriggeredContinuationStrategy"
     )
@@ -187,6 +192,7 @@ def _services(*, with_fault: bool = False) -> OnlyEngineServices:
         OnlySameBarContinuationTestBrokerFactory(),
         origin=OnlyPluginOrigin(OnlyPluginOriginType.TEST, __name__),
     )
+    services.broker_fee_contracts.register(only_simulation_zero_broker_fee_contract(_SAME_BAR_DESCRIPTOR.plugin_id))
     return services
 
 

@@ -187,6 +187,10 @@ class OnlyMarketScenarioParser:
                 {
                     "account_id": "scenario-account",
                     "gateway_id": "scenario-broker",
+                    "broker_fee_contract": {
+                        "contract_id": "VIRTUAL_SIMULATION_ZERO_BROKER_FEES",
+                        "contract_version": "1",
+                    },
                     "initial_cash": {"value": "1000000", "currency": runtime["base_currency"]},
                 }
             ],

@@ -243,7 +243,9 @@ class OnlyInMemoryRuntimePersistenceStore:
                     self._by_terminal,
                     self._outbox,
                 ) = snapshots
-                raise OnlyRuntimePersistenceStoreError("in-memory execution transaction commit failed") from exc
+                raise OnlyRuntimePersistenceStoreError(
+                    f"in-memory execution transaction commit failed: {type(exc).__name__}: {exc}"
+                ) from exc
 
     def get_by_sequence(
         self, runtime_id: OnlyRuntimeId, execution_sequence: int

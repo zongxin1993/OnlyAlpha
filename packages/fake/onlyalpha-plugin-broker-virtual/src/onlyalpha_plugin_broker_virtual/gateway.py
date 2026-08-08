@@ -344,9 +344,9 @@ class OnlyVirtualBrokerGateway:
         return (
             OnlyBrokerBalanceSnapshot(
                 self.config.base_currency,
-                snapshot.cash_balance,
-                snapshot.available_cash,
-                snapshot.frozen_cash,
+                snapshot.ledger_cash,
+                snapshot.trade_available_cash,
+                snapshot.order_reserved_cash,
             ),
         )
 

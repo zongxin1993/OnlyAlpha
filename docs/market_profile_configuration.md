@@ -1,10 +1,13 @@
 # Market Profile Configuration
 
-最简必填配置：
+最简必填配置必须同时显式选择 Market Fee Pack。以下 A 股 Pack 仅用于测试/Conformance，不代表正式费率：
 
 ```yaml
 market:
   profile: CN_A_SHARE_CASH
+  fee_pack:
+    pack_id: CN_A_SHARE_TEST_MARKET_FEE_PACK
+    pack_version: "1"
 ```
 
 固定版本与允许的有限覆盖：
@@ -13,6 +16,9 @@ market:
 market:
   profile: CN_A_SHARE_CASH
   version: "2025.1"
+  fee_pack:
+    pack_id: CN_A_SHARE_TEST_MARKET_FEE_PACK
+    pack_version: "1"
   overrides:
     liquidity:
       maximum_participation_rate: "0.05"

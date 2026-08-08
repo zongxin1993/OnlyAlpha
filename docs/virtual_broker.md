@@ -49,7 +49,7 @@ Collector、Analytics、Artifact 和 Backtest Result 只读取该权威，`query
 
 Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、
 T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 不携带本地或外部费用权威；插件不持有第二套
-Runtime Commission/Fee 公式。Runtime 通过显式 Fee Policy Pack 评估本地费用。
+Runtime Commission/Fee 公式。Runtime 通过显式 Market Fee Pack 与 Account Broker Fee Contract 评估本地费用。
 
 确定性约束：Matching 只读取当前及已经到达的历史 Bar；Scheduler 按 `(due_ns, sequence)` 稳定排序；不读取系统时间、
 不 sleep、不使用随机隐式状态。同一输入应产生相同 Order/Trade/Update 顺序与结果指纹。

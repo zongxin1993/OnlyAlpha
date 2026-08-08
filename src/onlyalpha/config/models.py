@@ -130,18 +130,29 @@ class OnlyAccountRuntimeConfig:
     account_id: OnlyAccountId
     gateway_id: OnlyBrokerGatewayId
     initial_cash: OnlyMoney
+    broker_fee_contract: "OnlyBrokerFeeContractConfig"
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyFeeConfig:
-    """Exact Policy Pack identity; omission never installs a default."""
+class OnlyMarketFeePackConfig:
+    """Exact Market fee-pack identity; omission never installs a default."""
 
     pack_id: str
     pack_version: str
 
     def __post_init__(self) -> None:
         if not self.pack_id.strip() or not self.pack_version.strip():
-            raise OnlyConfigError("fee Policy Pack identity cannot be empty")
+            raise OnlyConfigError("Market fee-pack identity cannot be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBrokerFeeContractConfig:
+    contract_id: str
+    contract_version: str
+
+    def __post_init__(self) -> None:
+        if not self.contract_id.strip() or not self.contract_version.strip():
+            raise OnlyConfigError("Broker fee-contract identity cannot be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +168,7 @@ class OnlyMarketConfig:
     """Required market definition shared by every Runtime mode."""
 
     profile: OnlyMarketProfileId
-    fees: OnlyFeeConfig
+    fee_pack: OnlyMarketFeePackConfig
     version: str | None = None
     overrides: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
 

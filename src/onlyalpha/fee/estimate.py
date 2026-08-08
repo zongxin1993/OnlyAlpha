@@ -8,7 +8,7 @@ from onlyalpha.domain.identifiers import OnlyOrderId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.fee.models import OnlyFeeAssessment, OnlyFeeBasisValues, OnlyFeeSubject, OnlyOrderFeePolicyBinding
-from onlyalpha.fee.policy import OnlyResolvedFeePolicySet
+from onlyalpha.fee.resolution import OnlyFeePolicyResolution
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +22,7 @@ class OnlyOrderFeeEstimateRequest:
     maximum_fill_count: int | None
     trading_day: OnlyTradingDay
     binding: OnlyOrderFeePolicyBinding
-    policies: OnlyResolvedFeePolicySet
+    policy_resolution: OnlyFeePolicyResolution
 
     def __post_init__(self) -> None:
         if self.expected_fill_count < 1:
@@ -33,6 +33,8 @@ class OnlyOrderFeeEstimateRequest:
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderFeeEstimate(OnlyDomainModel):
+    schema_version = 2
+
     expected: OnlyFeeAssessment
     maximum: OnlyFeeAssessment
     reservation_charge: OnlyMoney

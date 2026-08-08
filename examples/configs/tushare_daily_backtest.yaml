@@ -1,6 +1,6 @@
 schema_version: "1.0"
 cluster: {cluster_id: tushare-daily-demo, enabled: true, runtime_type: BACKTEST, account_id: backtest-account, risk_profile_id: cn-equity-default}
-market: {profile: CN_A_SHARE_CASH, fees: {pack_id: GENERIC_T0_CASH_CONFORMANCE, pack_version: "1"}}
+market: {profile: CN_A_SHARE_CASH, fee_pack: {pack_id: CN_A_SHARE_TEST_MARKET_FEE_PACK, pack_version: "1"}}
 runtime:
   start_time: "2024-12-31T16:00:00Z"
   end_time: "2025-12-31T16:00:00Z"
@@ -29,7 +29,10 @@ data_sources:
     coverage: {universe_ids: [tushare-demo-universe]}
     extensions: {mode: historical, token_env: ONLYALPHA_TUSHARE_TOKEN, frequency: 1d, adjustment: none, cache_policy: prefer_cache, strict_validation: true}
 accounts:
-  - {account_id: backtest-account, gateway_id: virtual-main, initial_cash: {value: "1000000.00", currency: CNY}}
+  - account_id: backtest-account
+    gateway_id: virtual-main
+    initial_cash: {value: "1000000.00", currency: CNY}
+    broker_fee_contract: {contract_id: VIRTUAL_SIMULATION_ZERO_BROKER_FEES, contract_version: "1"}
 brokers:
   - gateway_id: virtual-main
     plugin: virtual

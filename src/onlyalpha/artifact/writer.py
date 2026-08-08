@@ -80,7 +80,7 @@ class OnlyBacktestArtifactWriter:
         descriptors: list[OnlyArtifactDescriptor] = []
         try:
             summary = {
-                "schema_version": 5,
+                "schema_version": 6,
                 "result_fingerprint": result_fingerprint,
                 "analysis_fingerprint": analysis.analysis_fingerprint,
                 "fact_counts": {
@@ -120,7 +120,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "market_rule_decisions.json",
                 "MARKET_RULE_DECISIONS_JSON",
-                {"schema_version": 5, "decisions": _json_value(facts.market_rule_decisions)},
+                {"schema_version": 6, "decisions": _json_value(facts.market_rule_decisions)},
                 descriptors,
             )
             self._write_json(
@@ -128,7 +128,7 @@ class OnlyBacktestArtifactWriter:
                 "diagnostics.json",
                 "DIAGNOSTICS",
                 {
-                    "schema_version": 5,
+                    "schema_version": 6,
                     "failure_count": 0 if diagnostics is None else diagnostics.total_failure_count,
                     "warning_count": len(analysis.warnings),
                     "truncated": False if diagnostics is None else diagnostics.truncated,
@@ -142,7 +142,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "data_manifest.json",
                 "DATA_MANIFEST",
-                {"schema_version": 5, "data": _json_value(data)},
+                {"schema_version": 6, "data": _json_value(data)},
                 descriptors,
             )
             tables = {
@@ -190,9 +190,22 @@ class OnlyBacktestArtifactWriter:
                 ),
                 "margin.parquet": ("MARGIN", _table(_MARGIN_SCHEMA, [_record(item) for item in facts.margin])),
                 "fees.parquet": ("FEES", _table(_FEE_SCHEMA, [_record(item) for item in facts.fees])),
-                "fee_schedules.parquet": ("FEE_SCHEDULES", _table(_FEE_SCHEDULE_SCHEMA, [])),
-                "fee_policy_packs.parquet": ("FEE_POLICY_PACKS", _table(_FEE_POLICY_PACK_SCHEMA, [])),
-                "order_fee_bindings.parquet": ("ORDER_FEE_BINDINGS", _table(_ORDER_FEE_BINDING_SCHEMA, [])),
+                "fee_schedules.parquet": (
+                    "FEE_SCHEDULES",
+                    _table(_FEE_SCHEDULE_SCHEMA, _fee_schedule_rows(facts)),
+                ),
+                "market_fee_packs.parquet": (
+                    "MARKET_FEE_PACKS",
+                    _table(_MARKET_FEE_PACK_SCHEMA, _market_fee_pack_rows(facts)),
+                ),
+                "broker_fee_contracts.parquet": (
+                    "BROKER_FEE_CONTRACTS",
+                    _table(_BROKER_FEE_CONTRACT_SCHEMA, _broker_fee_contract_rows(facts)),
+                ),
+                "order_fee_bindings.parquet": (
+                    "ORDER_FEE_BINDINGS",
+                    _table(_ORDER_FEE_BINDING_SCHEMA, _order_fee_binding_rows(facts)),
+                ),
                 "order_fee_estimates.parquet": ("ORDER_FEE_ESTIMATES", _table(_ORDER_FEE_ESTIMATE_SCHEMA, [])),
                 "order_funding_plans.parquet": ("ORDER_FUNDING_PLANS", _table(_ORDER_FUNDING_PLAN_SCHEMA, [])),
                 "order_fee_accruals.parquet": ("ORDER_FEE_ACCRUALS", _table(_ORDER_FEE_ACCRUAL_SCHEMA, [])),
@@ -474,13 +487,26 @@ _EXECUTION_SCHEMA = pa.schema(
         ("reference_fingerprint", pa.string()),
         ("trade_instruction_id", pa.string()),
         ("fee_application_id", pa.string()),
+        ("market_fee_pack_id", pa.string()),
+        ("market_fee_pack_version", pa.string()),
+        ("market_fee_pack_fingerprint", pa.string()),
+        ("broker_fee_contract_id", pa.string()),
+        ("broker_fee_contract_version", pa.string()),
+        ("broker_fee_contract_broker_id", pa.string()),
+        ("broker_fee_contract_account_scope", pa.string()),
+        ("broker_fee_contract_fingerprint", pa.string()),
+        ("fee_binding_fingerprint", pa.string()),
+        ("fee_scope_fingerprint", pa.string()),
+        ("fee_resolution_fingerprint", pa.string()),
         ("fee_total_charges", _DECIMAL),
         ("fee_total_rebates", _DECIMAL),
         ("fee_signed_cash_effect", _DECIMAL),
         ("market_fee_schedule_ids", pa.list_(pa.string())),
         ("market_fee_schedule_versions", pa.list_(pa.string())),
+        ("market_fee_schedule_fingerprints", pa.list_(pa.string())),
         ("broker_fee_schedule_ids", pa.list_(pa.string())),
         ("broker_fee_schedule_versions", pa.list_(pa.string())),
+        ("broker_fee_schedule_fingerprints", pa.list_(pa.string())),
         ("settlement_instruction_id", pa.string()),
         ("settlement_status", pa.string()),
         ("margin_instruction_id", pa.string()),
@@ -706,7 +732,7 @@ _FEE_SCHEMA = pa.schema(
 _FEE_SCHEDULE_SCHEMA = pa.schema(
     [("schedule_id", pa.string()), ("version", pa.string()), ("authority", pa.string()), ("fingerprint", pa.string())]
 )
-_FEE_POLICY_PACK_SCHEMA = pa.schema(
+_MARKET_FEE_PACK_SCHEMA = pa.schema(
     [
         ("pack_id", pa.string()),
         ("pack_version", pa.string()),
@@ -714,12 +740,26 @@ _FEE_POLICY_PACK_SCHEMA = pa.schema(
         ("fingerprint", pa.string()),
     ]
 )
+_BROKER_FEE_CONTRACT_SCHEMA = pa.schema(
+    [
+        ("contract_id", pa.string()),
+        ("contract_version", pa.string()),
+        ("broker_id", pa.string()),
+        ("account_scope", pa.string()),
+        ("fingerprint", pa.string()),
+    ]
+)
 _ORDER_FEE_BINDING_SCHEMA = pa.schema(
     [
         ("order_id", pa.string()),
-        ("binding_id", pa.string()),
-        ("pack_id", pa.string()),
-        ("pack_version", pa.string()),
+        ("binding_fingerprint", pa.string()),
+        ("market_fee_pack_id", pa.string()),
+        ("market_fee_pack_version", pa.string()),
+        ("broker_fee_contract_id", pa.string()),
+        ("broker_fee_contract_version", pa.string()),
+        ("market_fee_pack_fingerprint", pa.string()),
+        ("broker_fee_contract_fingerprint", pa.string()),
+        ("scope_fingerprint", pa.string()),
         ("fingerprint", pa.string()),
     ]
 )
@@ -861,6 +901,103 @@ _COMPILED_MARKET_RULE_SCHEMA = pa.schema(
         ("schema_version", pa.string()),
     ]
 )
+
+
+def _market_fee_pack_rows(facts: OnlyBacktestFacts) -> list[dict[str, object]]:
+    values: dict[tuple[str, str, str], dict[str, object]] = {}
+    for execution in facts.executions:
+        if (
+            execution.market_fee_pack_id is None
+            or execution.market_fee_pack_version is None
+            or execution.market_fee_pack_fingerprint is None
+        ):
+            continue
+        key = (
+            execution.market_fee_pack_id,
+            execution.market_fee_pack_version,
+            execution.market_fee_pack_fingerprint,
+        )
+        values[key] = {
+            "pack_id": key[0],
+            "pack_version": key[1],
+            "market_profile_id": execution.market_profile_id,
+            "fingerprint": key[2],
+        }
+    return [values[key] for key in sorted(values)]
+
+
+def _broker_fee_contract_rows(facts: OnlyBacktestFacts) -> list[dict[str, object]]:
+    values: dict[tuple[str, str, str], dict[str, object]] = {}
+    for execution in facts.executions:
+        if (
+            execution.broker_fee_contract_id is None
+            or execution.broker_fee_contract_version is None
+            or execution.broker_fee_contract_fingerprint is None
+        ):
+            continue
+        key = (
+            execution.broker_fee_contract_id,
+            execution.broker_fee_contract_version,
+            execution.broker_fee_contract_fingerprint,
+        )
+        values[key] = {
+            "contract_id": key[0],
+            "contract_version": key[1],
+            "broker_id": execution.broker_fee_contract_broker_id,
+            "account_scope": execution.broker_fee_contract_account_scope,
+            "fingerprint": key[2],
+        }
+    return [values[key] for key in sorted(values)]
+
+
+def _fee_schedule_rows(facts: OnlyBacktestFacts) -> list[dict[str, object]]:
+    values: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    for execution in facts.executions:
+        groups = (
+            (
+                "MARKET",
+                execution.market_fee_schedule_ids,
+                execution.market_fee_schedule_versions,
+                execution.market_fee_schedule_fingerprints,
+            ),
+            (
+                "BROKER",
+                execution.broker_fee_schedule_ids,
+                execution.broker_fee_schedule_versions,
+                execution.broker_fee_schedule_fingerprints,
+            ),
+        )
+        for authority, schedule_ids, versions, fingerprints in groups:
+            for schedule_id, version, fingerprint in zip(schedule_ids, versions, fingerprints, strict=True):
+                key = (authority, schedule_id, version, fingerprint)
+                values[key] = {
+                    "schedule_id": schedule_id,
+                    "version": version,
+                    "authority": authority,
+                    "fingerprint": fingerprint,
+                }
+    return [values[key] for key in sorted(values)]
+
+
+def _order_fee_binding_rows(facts: OnlyBacktestFacts) -> list[dict[str, object]]:
+    values: dict[tuple[str, str], dict[str, object]] = {}
+    for execution in facts.executions:
+        if execution.fee_binding_fingerprint is None:
+            continue
+        key = (str(execution.order_id), execution.fee_binding_fingerprint)
+        values[key] = {
+            "order_id": key[0],
+            "binding_fingerprint": key[1],
+            "market_fee_pack_id": execution.market_fee_pack_id,
+            "market_fee_pack_version": execution.market_fee_pack_version,
+            "broker_fee_contract_id": execution.broker_fee_contract_id,
+            "broker_fee_contract_version": execution.broker_fee_contract_version,
+            "market_fee_pack_fingerprint": execution.market_fee_pack_fingerprint,
+            "broker_fee_contract_fingerprint": execution.broker_fee_contract_fingerprint,
+            "scope_fingerprint": execution.fee_scope_fingerprint,
+            "fingerprint": key[1],
+        }
+    return [values[key] for key in sorted(values)]
 
 
 def _record(value: object) -> dict[str, object]:

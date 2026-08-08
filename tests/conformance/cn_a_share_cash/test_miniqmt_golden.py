@@ -29,7 +29,7 @@ def _config() -> OnlyClusterRunConfig:
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["market"] = {
         "profile": "CN_A_SHARE_CASH",
-        "fees": {"pack_id": "GENERIC_T0_CASH_CONFORMANCE", "pack_version": "1"},
+        "fee_pack": {"pack_id": "CN_A_SHARE_TEST_MARKET_FEE_PACK", "pack_version": "1"},
     }
     payload["runtime"]["start_time"] = "2025-01-02T01:30:00Z"
     payload["runtime"]["end_time"] = "2025-01-13T01:30:00Z"

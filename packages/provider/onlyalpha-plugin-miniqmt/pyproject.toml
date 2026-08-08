@@ -26,6 +26,9 @@ miniqmt = "onlyalpha_plugin_miniqmt.data_source.factory:factory"
 [project.entry-points."onlyalpha.brokers"]
 miniqmt = "onlyalpha_plugin_miniqmt.broker.factory:factory"
 
+[project.entry-points."onlyalpha.broker_fee_contracts"]
+miniqmt-simulation-zero = "onlyalpha_plugin_miniqmt.fee_contract:fee_contract"
+
 
 [project.scripts]
 onlyalpha-miniqmt = "onlyalpha_plugin_miniqmt.doctor:main"

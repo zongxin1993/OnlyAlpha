@@ -221,6 +221,8 @@ class OnlyOrderFeeAccrualAuthority:
             rebates - charges,
             before_fingerprint,
             after.fingerprint,
+            assessment.binding.fingerprint,
+            assessment.resolution_fingerprint,
             assessment.local_finality,
             f"fee-application:{subject.runtime_id}:{assessment.trade_id}",
         )

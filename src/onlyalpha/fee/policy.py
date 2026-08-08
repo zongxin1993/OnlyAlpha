@@ -14,6 +14,7 @@ from onlyalpha.fee.models import (
     OnlyFeeCalculationScope,
     OnlyFeeEconomicDirection,
     OnlyFeeResolutionPolicy,
+    OnlyFeeScheduleAuthority,
     OnlyFeeType,
     only_fee_fingerprint,
 )
@@ -81,6 +82,7 @@ class OnlyFeeRule:
 
 @dataclass(frozen=True, slots=True)
 class OnlyResolvedFeePolicy:
+    schedule_authority: OnlyFeeScheduleAuthority
     schedule_id: str
     schedule_version: str
     schedule_fingerprint: str
@@ -96,11 +98,29 @@ class OnlyResolvedFeePolicySet:
 
     @classmethod
     def create(cls, policies: tuple[OnlyResolvedFeePolicy, ...]) -> OnlyResolvedFeePolicySet:
-        ordered = tuple(sorted(policies, key=lambda item: (item.schedule_id, item.schedule_version, item.rule.rule_id)))
+        ordered = tuple(
+            sorted(
+                policies,
+                key=lambda item: (
+                    item.schedule_authority.value,
+                    item.schedule_id,
+                    item.schedule_version,
+                    item.rule.rule_id,
+                ),
+            )
+        )
         return cls(
             ordered,
             only_fee_fingerprint(
-                tuple((item.schedule_fingerprint, item.rule.fingerprint, item.currency.code) for item in ordered)
+                tuple(
+                    (
+                        item.schedule_authority.value,
+                        item.schedule_fingerprint,
+                        item.rule.fingerprint,
+                        item.currency.code,
+                    )
+                    for item in ordered
+                )
             ),
         )
 

@@ -21,10 +21,10 @@ from onlyalpha.config.models import (
     OnlyClusterImportConfig,
     OnlyDataSourceRuntimeConfig,
     OnlyFactorImportConfig,
-    OnlyFeeConfig,
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyMarketConfig,
+    OnlyMarketFeePackConfig,
     OnlyReferenceDataConfig,
     OnlyStrategyImportConfig,
     OnlyUniverseConfig,
@@ -180,12 +180,14 @@ def _parse_market(parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping) -> 
     version_value = raw.get("version")
     version = None if version_value is None else parser._str(version_value, "$.market.version")
     overrides = parser._map(raw.get("overrides", {}), "$.market.overrides")
-    fees_raw = parser._map(raw.get("fees"), "$.market.fees")
-    pack_id = parser._str(fees_raw.get("pack_id"), "$.market.fees.pack_id")
-    pack_version = parser._str(fees_raw.get("pack_version"), "$.market.fees.pack_version")
+    if "fees" in raw:
+        raise OnlyClusterConfigError("UNKNOWN_FIELD: $.market.fees; use $.market.fee_pack")
+    fee_pack_raw = parser._map(raw.get("fee_pack"), "$.market.fee_pack")
+    pack_id = parser._str(fee_pack_raw.get("pack_id"), "$.market.fee_pack.pack_id")
+    pack_version = parser._str(fee_pack_raw.get("pack_version"), "$.market.fee_pack.pack_version")
     return OnlyMarketConfig(
         profile,
-        OnlyFeeConfig(pack_id, pack_version),
+        OnlyMarketFeePackConfig(pack_id, pack_version),
         version,
         overrides,
     )

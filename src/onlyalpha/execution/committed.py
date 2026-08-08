@@ -31,7 +31,7 @@ from onlyalpha.strategy.identifiers import OnlyStrategyId
 class OnlyCommittedExecutionFact(OnlyDomainModel):
     """Self-contained result of one fully committed local execution transaction."""
 
-    schema_version = 3
+    schema_version = 4
 
     execution_id: str
     execution_sequence: int
@@ -92,12 +92,25 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     realized_pnl_delta: OnlyMoney
     cash_delta: OnlyMoney
     fee_application_id: str
+    market_fee_pack_id: str
+    market_fee_pack_version: str
+    market_fee_pack_fingerprint: str
+    broker_fee_contract_id: str
+    broker_fee_contract_version: str
+    broker_fee_contract_broker_id: str
+    broker_fee_contract_account_scope: str
+    broker_fee_contract_fingerprint: str
+    fee_binding_fingerprint: str
+    fee_scope_fingerprint: str
+    fee_resolution_fingerprint: str
     fee_authority: str
     fee_status: str
     market_fee_schedule_ids: tuple[str, ...]
     market_fee_schedule_versions: tuple[str, ...]
+    market_fee_schedule_fingerprints: tuple[str, ...]
     broker_fee_schedule_ids: tuple[str, ...]
     broker_fee_schedule_versions: tuple[str, ...]
+    broker_fee_schedule_fingerprints: tuple[str, ...]
     fee_application: OnlyFeeApplicationInstruction
     market_profile_id: str
     market_profile_version: str

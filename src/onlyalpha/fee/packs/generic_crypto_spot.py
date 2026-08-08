@@ -2,11 +2,11 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.fee.formula import OnlyFeeFormula, OnlyFeeRateTerm
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.fee.models import (
     OnlyFeeAuthority,
     OnlyFeeCalculationBasis,
@@ -21,13 +21,8 @@ from onlyalpha.fee.policy import OnlyFeeRule
 from onlyalpha.fee.rounding import OnlyFeeRoundingPolicy
 from onlyalpha.fee.schedules import OnlyMarketFeeSchedule
 
-if TYPE_CHECKING:
-    from onlyalpha.fee.packs import OnlyFeePolicyPack
 
-
-def only_generic_crypto_spot_fee_pack() -> "OnlyFeePolicyPack":
-    from onlyalpha.fee.packs import OnlyFeePolicyPack
-
+def only_generic_crypto_spot_fee_pack() -> OnlyMarketFeePack:
     def rule(
         rule_id: str, fee_type: OnlyFeeType, role: OnlyLiquiditySide, direction: OnlyFeeEconomicDirection, rate: str
     ) -> OnlyFeeRule:
@@ -71,15 +66,15 @@ def only_generic_crypto_spot_fee_pack() -> "OnlyFeePolicyPack":
                 "0.0005",
             ),
         ),
-        "GENERIC",
+        "CRYPTO",
         None,
         "CRYPTO_SPOT",
     )
-    return OnlyFeePolicyPack.create(
-        pack_id="GENERIC_CRYPTO_SPOT_CONFORMANCE",
+    return OnlyMarketFeePack.create(
+        pack_id="GENERIC_CRYPTO_SPOT_MARKET_FEE_PACK_CONFORMANCE",
         pack_version="1",
         compatible_market_profiles=("GENERIC_24X7_CRYPTO_SPOT",),
-        market_schedules=(schedule,),
+        schedules=(schedule,),
     )
 
 

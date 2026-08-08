@@ -44,6 +44,8 @@ class OnlyFeeApplicationComponent(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeApplicationInstruction(OnlyDomainModel):
+    schema_version = 2
+
     application_id: str
     subject: OnlyFeeSubject
     trade_id: OnlyTradeId
@@ -53,12 +55,16 @@ class OnlyFeeApplicationInstruction(OnlyDomainModel):
     signed_cash_effect: Decimal
     accrual_before_fingerprint: str | None
     accrual_after_fingerprint: str
+    binding_fingerprint: str
+    resolution_fingerprint: str
     local_finality: OnlyLocalFeeFinality
     idempotency_key: str
 
     def __post_init__(self) -> None:
         if not self.application_id.strip() or not self.idempotency_key.strip():
             raise ValueError("fee application identity cannot be empty")
+        if len(self.binding_fingerprint) != 64 or len(self.resolution_fingerprint) != 64:
+            raise ValueError("fee application authority fingerprint is invalid")
         if self.total_charges.currency != self.total_rebates.currency:
             raise ValueError("fee application total currency mismatch")
         charges = sum(

@@ -105,7 +105,7 @@ def regenerate(name: str, generated_at: str) -> None:
         write_canonical_json(staging / "canonical_projection.json", projection)
         manifest = {
             "fixture_schema_version": 1,
-            "onlyalpha_version": "0.3.2",
+            "onlyalpha_version": "0.3.4",
             "scenario": name,
             "generation_command": f"uv run python scripts/regenerate_result_fixtures.py --scenario {name}",
             "market_profile": [str(config.market.profile) for config in configs],
@@ -129,7 +129,7 @@ def regenerate(name: str, generated_at: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Regenerate immutable results from formal OnlyEngine runs")
     parser.add_argument("--scenario", action="append", choices=SCENARIOS)
-    parser.add_argument("--generated-at", default="2026-08-02T00:00:00Z")
+    parser.add_argument("--generated-at", default="2026-08-08T00:00:00Z")
     args = parser.parse_args()
     for scenario in args.scenario or SCENARIOS:
         regenerate(scenario, args.generated_at)

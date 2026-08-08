@@ -10,6 +10,9 @@ test-external-data = "onlyalpha_test_plugin.data_source:factory"
 [project.entry-points."onlyalpha.brokers"]
 test-external-broker = "onlyalpha_test_plugin.broker:factory"
 
+[project.entry-points."onlyalpha.broker_fee_contracts"]
+test-external-broker-simulation-zero = "onlyalpha_test_plugin.fee_contract:fee_contract"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
