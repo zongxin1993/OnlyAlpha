@@ -10,8 +10,7 @@ from onlyalpha.cache.historical import (
 )
 from onlyalpha.cache.historical.models import OnlyCachePolicy, OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
-
-from .support import OnlyFakeFrame, row
+from tests.support.provider_frames import OnlyFakeFrame, row
 
 
 class OnlyCountingClient:

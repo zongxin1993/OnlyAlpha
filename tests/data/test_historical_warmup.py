@@ -15,7 +15,7 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 
-pytestmark = [pytest.mark.unit, pytest.mark.contract]
+pytestmark = pytest.mark.contract
 
 
 def _request() -> OnlyHistoricalWarmupRequest:

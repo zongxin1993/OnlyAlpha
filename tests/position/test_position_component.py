@@ -298,9 +298,9 @@ def test_events_follow_success_and_serialization_is_exact() -> None:
     assert OnlyPositionTrade.from_json(item.to_json()) == item
 
 
-def test_runtime_isolation_and_100_replays_are_deterministic() -> None:
+def _assert_runtime_isolation_and_determinism(repetitions: int) -> None:
     outputs: list[tuple[str, str, str, int]] = []
-    for _ in range(100):
+    for _ in range(repetitions):
         positions = OnlyPositionManager(RUNTIME)
         allocations = OnlyPositionAllocationManager(RUNTIME)
         for item in (
@@ -323,6 +323,15 @@ def test_runtime_isolation_and_100_replays_are_deterministic() -> None:
     other = OnlyPositionManager(OnlyRuntimeId("other-runtime"))
     with pytest.raises(ValueError):
         other.apply_trade(trade(99, OnlyOrderSide.BUY, "1", "1"))
+
+
+def test_runtime_isolation_and_replays_are_deterministic() -> None:
+    _assert_runtime_isolation_and_determinism(3)
+
+
+@pytest.mark.exhaustive
+def test_runtime_isolation_and_100_replays_are_deterministic() -> None:
+    _assert_runtime_isolation_and_determinism(100)
 
 
 def test_runtime_instances_own_distinct_position_domains() -> None:

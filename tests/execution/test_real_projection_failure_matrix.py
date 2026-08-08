@@ -3,6 +3,8 @@ import pytest
 from onlyalpha.execution import OnlyExecutionRecoveryStatus, OnlyRuntimeProjectionComponent
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 
+pytestmark = [pytest.mark.recovery, pytest.mark.exhaustive]
+
 _COMPONENTS = tuple(
     component
     for component in OnlyRuntimeProjectionComponent

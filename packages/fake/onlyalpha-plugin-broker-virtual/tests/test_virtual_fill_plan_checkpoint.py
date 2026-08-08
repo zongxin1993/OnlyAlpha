@@ -3,9 +3,11 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from conftest import ACCOUNT, bar
 from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillScheduleStepSpec
-from test_virtual_fill_schedule_matching import _accept, _gateway
+
+from tests.support.virtual_broker import ACCOUNT, bar
+from tests.support.virtual_broker import accept_scheduled_order as _accept
+from tests.support.virtual_broker import schedule_gateway as _gateway
 
 
 def _partially_filled_gateway():  # type: ignore[no-untyped-def]

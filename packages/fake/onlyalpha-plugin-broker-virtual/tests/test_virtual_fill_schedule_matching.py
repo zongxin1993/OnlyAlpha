@@ -2,7 +2,6 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
-from conftest import ACCOUNT, CNY, START, bar, order
 from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillDispatchMode,
@@ -16,6 +15,7 @@ from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice
+from tests.support.virtual_broker import ACCOUNT, CNY, START, bar, order
 
 
 def _gateway(*, steps, dispatch=OnlyVirtualFillDispatchMode.ONE_PER_BAR):  # type: ignore[no-untyped-def]

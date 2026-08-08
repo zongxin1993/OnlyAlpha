@@ -280,10 +280,10 @@ def test_odd_lot_sell_requires_full_unreserved_liquidation(quantity: Decimal, ex
     assert decision.reason_code == expected_reason
 
 
-def test_first_failed_evaluation_is_stable_and_remaining_rules_are_not_evaluated() -> None:
+def _assert_first_failed_evaluation_is_stable(repetitions: int) -> None:
     engine = _ashare_engine()
     payloads = []
-    for _ in range(100):
+    for _ in range(repetitions):
         decision = _decision(
             engine,
             date(2026, 7, 5),
@@ -297,6 +297,15 @@ def test_first_failed_evaluation_is_stable_and_remaining_rules_are_not_evaluated
     assert payloads[0].reason_code == "MIDDAY_BREAK"
     assert payloads[0].evaluations[3].status is OnlyMarketRuleEvaluationStatus.FAILED
     assert all(item.status is OnlyMarketRuleEvaluationStatus.NOT_EVALUATED for item in payloads[0].evaluations[4:])
+
+
+def test_first_failed_evaluation_is_stable_and_remaining_rules_are_not_evaluated() -> None:
+    _assert_first_failed_evaluation_is_stable(3)
+
+
+@pytest.mark.exhaustive
+def test_first_failed_evaluation_is_stable_across_100_runs() -> None:
+    _assert_first_failed_evaluation_is_stable(100)
 
 
 def test_checkpoint_round_trip_is_lossless_and_validates_authorities() -> None:

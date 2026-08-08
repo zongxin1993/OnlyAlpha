@@ -25,7 +25,8 @@ class OnlyTestLane(StrEnum):
     RECOVERY = "recovery"
     MINIQMT_CONTRACT = "miniqmt-contract"
     MINIQMT_LOCAL = "miniqmt-local"
-    FULL = "full"
+    CORE_FULL = "core-full"
+    EXHAUSTIVE = "exhaustive"
     RELEASE = "release"
 
 
@@ -41,20 +42,18 @@ class Lane:
 LANES = {
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
-        "(unit or contract or architecture) and not (external or slow or performance or recovery)",
+        "(unit or contract or architecture) and not (recovery or conformance or external or performance or exhaustive or slow)",
         "8",
         "worksteal",
     ),
     OnlyTestLane.INTEGRATION: Lane(
         ("tests",),
-        "(integration or scenario) and not (recovery or external or slow or performance or conformance)",
+        "(integration or scenario) and not (recovery or conformance or external or performance or exhaustive or slow)",
         "6",
         "worksteal",
     ),
-    OnlyTestLane.ASHARE: Lane(
-        ("tests", "packages/provider/onlyalpha-plugin-miniqmt/tests"), "conformance and not external", "4", "worksteal"
-    ),
-    OnlyTestLane.RECOVERY: Lane(("tests",), "recovery and not external", "8", "worksteal", 100),
+    OnlyTestLane.ASHARE: Lane(WORKSPACE_TESTS, "conformance and not external and not exhaustive", "4", "worksteal"),
+    OnlyTestLane.RECOVERY: Lane(WORKSPACE_TESTS, "recovery and not external and not exhaustive", "8", "worksteal", 100),
     OnlyTestLane.MINIQMT_CONTRACT: Lane(
         ("packages/provider/onlyalpha-plugin-miniqmt/tests",),
         "contract and miniqmt and not external",
@@ -67,13 +66,14 @@ LANES = {
         "0",
         "no",
     ),
-    OnlyTestLane.FULL: Lane(
+    OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
-        "not (external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance)",
+        "not (recovery or conformance or external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
         "8",
         "worksteal",
         100,
     ),
+    OnlyTestLane.EXHAUSTIVE: Lane(WORKSPACE_TESTS, "exhaustive and not external", "8", "worksteal", 100),
 }
 
 
@@ -109,7 +109,12 @@ def release(args: argparse.Namespace) -> int:
         code = run(command)
         if code:
             return code
-    for lane in (OnlyTestLane.FULL, OnlyTestLane.RECOVERY, OnlyTestLane.ASHARE):
+    for lane in (
+        OnlyTestLane.CORE_FULL,
+        OnlyTestLane.RECOVERY,
+        OnlyTestLane.ASHARE,
+        OnlyTestLane.MINIQMT_CONTRACT,
+    ):
         code = execute(lane, args)
         if code:
             return code
@@ -132,84 +137,48 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         except ImportError:
             print("miniqmt-local requires an importable xtquant SDK", file=sys.stderr)
             return 2
-    groups = tuple((path,) for path in lane.paths)
-    metric_paths: list[Path] = []
-    for index, paths in enumerate(groups):
-        if not paths:
-            continue
-        command = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "pytest",
-            "-c",
-            str(ROOT / "pyproject.toml"),
-            *paths,
-            "-q",
-            "-m",
-            lane.expression,
-            f"--durations={args.durations or lane.durations}",
-            "-p",
-            "scripts.pytest_layering",
-            "-p",
-            "scripts.pytest_metrics",
-        ]
-        if workers != "0":
-            command.extend(["-n", workers, "--dist", dist])
-        metric_path = ROOT / ".test-metrics" / f"{name.value}.part{index}.json"
-        metric_paths.append(metric_path)
-        env = os.environ.copy()
-        env.update(
-            {
-                "ONLYALPHA_TEST_LANE": name.value,
-                "ONLYALPHA_TEST_METRICS": str(metric_path),
-                "ONLYALPHA_TEST_WORKERS": workers,
-                "ONLYALPHA_TEST_DIST": dist if workers != "0" else "no",
-            }
-        )
-        code = run(command, env)
-        if code not in (0, 5):
-            return code
-    payloads = [json.loads(path.read_text(encoding="utf-8")) for path in metric_paths]
-    if payloads:
-        merged = payloads[0]
-        for key in (
-            "collected",
-            "passed",
-            "failed",
-            "skipped",
-            "total_seconds",
-            "setup_seconds",
-            "call_seconds",
-            "teardown_seconds",
-            "cache_hit_count",
-            "engine_run_count",
-            "sqlite_database_count",
-            "parquet_write_count",
-        ):
-            merged[key] = sum(payload[key] for payload in payloads)
-        merged["slowest_tests"] = sorted(
-            (test for payload in payloads for test in payload["slowest_tests"]),
-            key=lambda item: item["seconds"],
-            reverse=True,
-        )[:20]
-        for key in ("marker_counts", "path_counts"):
-            merged[key] = {
-                item: sum(payload[key].get(item, 0) for payload in payloads)
-                for item in sorted({item for payload in payloads for item in payload[key]})
-            }
-        merged["tests"] = {
-            nodeid: seconds for payload in payloads for nodeid, seconds in payload.get("tests", {}).items()
+    command = [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "pytest",
+        "-c",
+        str(ROOT / "pyproject.toml"),
+        *lane.paths,
+        "--import-mode=importlib",
+        "-q",
+        "-m",
+        lane.expression,
+        f"--durations={args.durations or lane.durations}",
+        "-p",
+        "scripts.pytest_layering",
+        "-p",
+        "scripts.pytest_metrics",
+    ]
+    if workers != "0":
+        command.extend(["-n", workers, "--dist", dist])
+    metric_path = ROOT / "test-results" / "metrics" / f"{name.value}.json"
+    env = os.environ.copy()
+    env.update(
+        {
+            "ONLYALPHA_TEST_LANE": name.value,
+            "ONLYALPHA_TEST_METRICS": str(metric_path),
+            "ONLYALPHA_TEST_WORKERS": workers,
+            "ONLYALPHA_TEST_DIST": dist if workers != "0" else "no",
         }
-        (ROOT / ".test-metrics" / f"{name.value}.json").write_text(
-            json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        print(f"Lane {name.value}: {merged['collected']} collected in {merged['total_seconds']:.2f}s")
-        if merged["collected"] == 0:
-            print(f"Lane {name.value} selected no tests", file=sys.stderr)
-            return 5
-    return 0
+    )
+    code = run(command, env)
+    if metric_path.is_file():
+        metrics = json.loads(metric_path.read_text(encoding="utf-8"))
+        print(f"Lane {name.value}: {metrics['collected']} collected in {metrics['total_seconds']:.2f}s")
+        if metrics["collected"] == 0 and code == 0:
+            code = 5
+    else:
+        print(f"Lane {name.value}: metrics were not produced", file=sys.stderr)
+        if code == 0:
+            code = 2
+    return code
 
 
 def main() -> int:

@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from scripts.pytest_layering import CONCERN_MARKERS, LAYER_MARKERS, path_concerns, path_layer
+from scripts.test_suite import LANES, OnlyTestLane
+
+pytestmark = pytest.mark.architecture
+
+
+def test_layer_and_concern_taxonomies_are_orthogonal() -> None:
+    assert LAYER_MARKERS == {"unit", "contract", "architecture", "integration", "scenario"}
+    assert CONCERN_MARKERS == {"recovery", "conformance", "external", "performance", "exhaustive", "miniqmt"}
+    assert LAYER_MARKERS.isdisjoint(CONCERN_MARKERS)
+
+
+@pytest.mark.parametrize(
+    ("path", "layer"),
+    (
+        ("tests/architecture/test_boundary.py", "architecture"),
+        ("tests/scenario/test_run.py", "scenario"),
+        ("tests/integration/test_engine_recovery.py", "integration"),
+        ("packages/provider/plugin/tests/test_adapter.py", "contract"),
+        ("tests/order/test_order.py", "unit"),
+    ),
+)
+def test_every_path_resolves_to_exactly_one_layer(path: str, layer: str) -> None:
+    assert path_layer(Path(path)) == layer
+
+
+def test_recovery_and_conformance_are_independent_concerns() -> None:
+    assert path_concerns(Path("tests/integration/test_engine_checkpoint_restart.py")) == {"recovery"}
+    assert path_concerns(Path("tests/conformance/cn_a_share_cash/test_rules.py")) == {"conformance"}
+
+
+def test_lane_expressions_keep_concerns_separate() -> None:
+    core = LANES[OnlyTestLane.CORE_FULL].expression
+    assert core.startswith("not (")
+    assert all(concern in core for concern in ("recovery", "conformance", "exhaustive"))
+    assert LANES[OnlyTestLane.RECOVERY].expression == "recovery and not external and not exhaustive"
+    assert LANES[OnlyTestLane.ASHARE].expression == "conformance and not external and not exhaustive"
+    assert LANES[OnlyTestLane.EXHAUSTIVE].expression == "exhaustive and not external"
+
+
+def test_every_regular_lane_uses_one_workspace_pytest_session() -> None:
+    for name, lane in LANES.items():
+        if name is OnlyTestLane.MINIQMT_LOCAL:
+            continue
+        assert lane.paths

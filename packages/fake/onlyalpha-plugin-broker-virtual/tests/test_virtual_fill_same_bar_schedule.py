@@ -1,12 +1,14 @@
 from datetime import date
 from decimal import Decimal
 
-from conftest import ACCOUNT, bar
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillDispatchMode,
     OnlyVirtualFillScheduleStepSpec,
 )
-from test_virtual_fill_schedule_matching import _accept, _gateway
+
+from tests.support.virtual_broker import ACCOUNT, bar
+from tests.support.virtual_broker import accept_scheduled_order as _accept
+from tests.support.virtual_broker import schedule_gateway as _gateway
 
 
 def test_all_due_executes_two_independent_fills_on_same_bar() -> None:

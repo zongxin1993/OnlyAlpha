@@ -2,8 +2,8 @@
 
 ## 正式测试分层与统一入口
 
-测试按 `unit`、`contract`、`architecture`、`integration`、`scenario`、`conformance`、`recovery`、
-`external`、`performance` 九个主层级组织；`slow`、`miniqmt`、`requires_network`、`requires_tushare`、
+测试层级为 `unit`、`contract`、`architecture`、`integration`、`scenario`，每个测试必须恰好属于一个层级。
+`recovery`、`conformance`、`external`、`performance`、`exhaustive`、`miniqmt` 是可正交附加的关注点；`slow`、`requires_network`、`requires_tushare`、
 `requires_local_qmt`、`requires_broker_account`、`windows` 是附加属性。根 `conftest.py` 根据明确目录和文件语义
 补充缺失的主 Marker，并在收集期拒绝不完整的 External/Broker Account 标记。显式 Marker 始终优先。
 
@@ -16,16 +16,17 @@ uv run python scripts/test_suite.py ashare
 uv run python scripts/test_suite.py recovery
 uv run python scripts/test_suite.py miniqmt-contract
 uv run python scripts/test_suite.py miniqmt-local
-uv run python scripts/test_suite.py full
+uv run python scripts/test_suite.py core-full
+uv run python scripts/test_suite.py exhaustive
 uv run python scripts/test_suite.py release
 ```
 
 所有通道打印实际 pytest 参数、返回真实退出码，并将计数、耗时、最慢测试、Marker 和路径分布写入
-`.test-metrics/<lane>.json`。可用 `--workers N`、`--dist worksteal`、`--durations N` 或 `--no-parallel`
+`test-results/metrics/<lane>.json`。即使测试失败，指标仍会写出并保留真实 pytest 退出码。可用 `--workers N`、`--dist worksteal`、`--durations N` 或 `--no-parallel`
 覆盖并行策略；定位进程级、SQLite 锁、顺序敏感或调试器问题时关闭 xdist。
 
 `fast` 证明纯组件、公共合同和架构边界；`integration` 证明最短离线纵切面与 scenario smoke；`ashare` 只运行
-离线 A 股 conformance；`recovery` 独立运行 checkpoint/restart/fault 覆盖；`full` 覆盖全部 Workspace 离线测试。
+离线 A 股 conformance；`recovery` 独立运行普通 checkpoint/restart/fault correctness；`core-full` 覆盖全部普通 Workspace 离线 correctness；`exhaustive` 保留 100-run 和完整组合矩阵。
 长测试必须标记 `slow` 或 `recovery`。产品纵切面必须经过 `OnlyEngine`；Analytics、Report、Artifact、Collector
 应优先复用固定 Result/Snapshot fixture。
 
@@ -38,7 +39,7 @@ Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 
 `ONLYALPHA_MINIQMT_PATH`）和可导入的 `xtquant`。真实查询必须显式 opt-in；真实下单还必须具有
 `requires_broker_account`，且永不进入普通 pytest、离线或 `miniqmt-local` 通道。
 
-`release` 依次运行 Ruff、Ruff format check、Core mypy、版本一致性、Full Offline、Recovery、A-share 和包构建。
+`release` 依次运行 Ruff、Ruff format check、Core/Provider mypy、版本一致性、Core Full、Recovery、A-share、MiniQMT Contract 和包构建。
 日常修改运行最窄的正确通道；执行交易/恢复变更时必须运行 Recovery；发布前运行 Release。外部环境不满足时应记录
 “未执行”，不得记为通过。当前人工基线见 `docs/reports/test_suite_performance_baseline.md`。
 
@@ -72,18 +73,18 @@ uv run python scripts/capture_miniqmt_golden.py --userdata-mini "C:\path\userdat
 
 ### 性能测量与比较
 
-Lane metrics 写入 `.test-metrics/`，包括阶段耗时、Worker/分发模式、机器与 Git 信息，以及测试侧观测到的缓存命中、
+Lane metrics 写入 `test-results/metrics/`，包括阶段耗时、Worker/分发模式、机器与 Git 信息，以及测试侧观测到的缓存命中、
 Engine Run、SQLite 创建和 Parquet 写入计数。完整 Worker 矩阵使用三次运行中位数：
 
 ```powershell
-uv run python scripts/benchmark_test_lanes.py --lanes fast integration recovery full `
+uv run python scripts/benchmark_test_lanes.py --lanes fast integration recovery core-full `
   --workers 4 6 8 auto --dist load worksteal --repeat 3
 uv run python scripts/compare_test_metrics.py `
-  docs/reports/test_suite_performance_targets.json .test-metrics/recovery.json --lane recovery
+  docs/reports/test_suite_performance_targets.json test-results/metrics/recovery.json --lane recovery
 ```
 
-性能阈值当前是软警告，不得自动覆盖人工确认的目标文件。PR 运行静态检查、Fast、Integration 和 MiniQMT Contract；Main
-增加 Full、Recovery 与 A-share；Nightly 运行完整离线、Recovery、确定性与指标采集。真实 MiniQMT 查询仅在自托管 Windows
+性能阈值当前是软警告，不得自动覆盖人工确认的目标文件。PR/Main 的 Static、各测试 lane 和 Build 独立并行，最终由
+Quality Gate 汇总；Nightly 额外运行 Exhaustive 和指标采集。真实 MiniQMT 查询仅在自托管 Windows
 Runner 串行运行；真实订单属于独立手动工作流，P0 不自动提交订单。原跨平台 distribution/install Smoke 保留在
 `ci.yml`，但只允许手动触发，避免在 PR 重复运行三平台 Full/Recovery。
 

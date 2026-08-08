@@ -81,6 +81,7 @@ markers = [
     "recovery: checkpoint, restart, fault injection, or projection recovery test",
     "external: external service integration test",
     "performance: explicit performance or scale test",
+    "exhaustive: combinatorial, 100-run, or full fault-matrix verification",
     "miniqmt: MiniQMT adapter or environment test",
     "requires_network: requires network access",
     "requires_tushare: requires Tushare token",

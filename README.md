@@ -486,7 +486,7 @@ uv run python scripts/test_suite.py ashare
 uv run python scripts/test_suite.py recovery
 uv run python scripts/test_suite.py miniqmt-contract
 uv run python scripts/test_suite.py miniqmt-local
-uv run python scripts/test_suite.py full
+uv run python scripts/test_suite.py core-full
 uv run python scripts/test_suite.py release
 ```
 

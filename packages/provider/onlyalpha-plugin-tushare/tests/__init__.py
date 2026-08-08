@@ -1,1 +1,0 @@
-"""Tushare plugin tests."""

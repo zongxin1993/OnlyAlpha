@@ -20,7 +20,7 @@ def _run_scenario() -> tuple[tuple[str, int, int], ...]:
     return tuple(observed)
 
 
-def test_timer_order_is_deadline_then_registration_sequence_for_100_runs() -> None:
+def _assert_timer_determinism(repetitions: int) -> None:
     expected = _run_scenario()
     assert [item[0] for item in expected] == [
         "periodic",
@@ -32,7 +32,16 @@ def test_timer_order_is_deadline_then_registration_sequence_for_100_runs() -> No
         "periodic",
     ]
     assert all(deadline == observed_now for _, deadline, observed_now in expected)
-    assert all(_run_scenario() == expected for _ in range(99))
+    assert all(_run_scenario() == expected for _ in range(repetitions - 1))
+
+
+def test_timer_order_is_deadline_then_registration_sequence() -> None:
+    _assert_timer_determinism(3)
+
+
+@pytest.mark.exhaustive
+def test_timer_order_is_deadline_then_registration_sequence_for_100_runs() -> None:
+    _assert_timer_determinism(100)
 
 
 def test_callback_can_register_and_cancel_at_same_deadline() -> None:

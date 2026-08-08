@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import yaml
 from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
 from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
 from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
@@ -80,6 +81,12 @@ def _acceptance_config(tmp_path: Path) -> OnlyClusterRunConfig:
     userdata.mkdir(parents=True)
     payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
     return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+
+
+def _write_cli_config(tmp_path: Path, config: OnlyClusterRunConfig) -> Path:
+    path = tmp_path / "miniqmt_paper_test.yaml"
+    path.write_text(yaml.safe_dump(dict(config.normalized_payload), sort_keys=False), encoding="utf-8")
+    return path
 
 
 def _patch_source_factory(
@@ -324,12 +331,16 @@ def test_snapshot_cli_publishes_historical_node_and_exits(
             )
         ),
     )
+    config = _config(tmp_path)
+    config_path = _write_cli_config(tmp_path, config)
+    userdata_path = Path(str(config.normalized_payload["data_sources"][0]["extensions"]["userdata_mini_path"]))  # type: ignore[index]
+    assert userdata_path.is_relative_to(tmp_path)
     assert (
         main(
             [
                 "snapshot",
                 "--config",
-                "examples/configs/miniqmt_paper_macd.yaml",
+                str(config_path),
                 "--user-data",
                 str(tmp_path / "user_data"),
             ]

@@ -34,6 +34,7 @@ _KNOWN_MARKERS = frozenset(
         "recovery",
         "external",
         "performance",
+        "exhaustive",
         "slow",
         "miniqmt",
         "requires_network",
@@ -149,6 +150,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         "slowest_tests": sorted(_reports, key=lambda item: item["seconds"], reverse=True)[:20],
         "marker_counts": dict(sorted(_markers.items())),
         "path_counts": dict(sorted(_paths.items())),
+        "exhaustive_test_count": _markers["exhaustive"],
+        "recovery_test_count": _markers["recovery"],
+        "conformance_test_count": _markers["conformance"],
         "exit_code": exitstatus,
         "tests": {
             report["nodeid"]: round(report["seconds"], 6)

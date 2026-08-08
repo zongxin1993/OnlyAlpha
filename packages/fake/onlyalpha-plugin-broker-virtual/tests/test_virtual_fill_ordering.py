@@ -1,7 +1,7 @@
 from dataclasses import replace
 from datetime import date
 
-from conftest import ACCOUNT, bar, order
+from tests.support.virtual_broker import ACCOUNT, bar, order
 
 
 def test_order_and_trade_queries_use_explicit_stable_keys(virtual_broker) -> None:

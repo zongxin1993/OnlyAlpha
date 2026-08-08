@@ -10,7 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / ".test-metrics" / "worker-matrix.json"
+METRICS_DIR = ROOT / "test-results" / "metrics"
+DEFAULT_OUTPUT = METRICS_DIR / "worker-matrix.json"
 
 
 def _git_commit() -> str:
@@ -32,7 +33,7 @@ def benchmark(args: argparse.Namespace) -> int:
         for worker in args.workers:
             for dist in args.dist:
                 for run_number in range(1, args.repeat + 1):
-                    metric_path = ROOT / ".test-metrics" / f"{lane}.json"
+                    metric_path = METRICS_DIR / f"{lane}.json"
                     metric_path.unlink(missing_ok=True)
                     command = [
                         "uv",

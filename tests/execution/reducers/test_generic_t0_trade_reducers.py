@@ -58,10 +58,19 @@ def test_every_reducer_matches_complete_prepared_projection_and_keeps_inputs_imm
         assert len(projection.identity.payload_hash) == 64
 
 
-def test_every_reducer_is_byte_deterministic_across_100_fresh_instances() -> None:
+def _assert_reducer_determinism(repetitions: int) -> None:
     baseline = tuple(only_encode_execution_projection(item.projection) for item in _reductions())
-    for _ in range(100):
+    for _ in range(repetitions):
         assert tuple(only_encode_execution_projection(item.projection) for item in _reductions()) == baseline
+
+
+def test_every_reducer_is_byte_deterministic() -> None:
+    _assert_reducer_determinism(3)
+
+
+@pytest.mark.exhaustive
+def test_every_reducer_is_byte_deterministic_across_100_fresh_instances() -> None:
+    _assert_reducer_determinism(100)
 
 
 def test_cash_reservation_reducers_reject_insufficient_authority_without_mutation() -> None:

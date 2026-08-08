@@ -10,6 +10,8 @@ from onlyalpha.execution import (
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 from tests.execution.targets.support import only_test_projection_context
 
+pytestmark = [pytest.mark.recovery, pytest.mark.exhaustive]
+
 _COMPONENTS = tuple(
     component
     for component in OnlyRuntimeProjectionComponent

@@ -1,7 +1,6 @@
 from datetime import date
 from decimal import Decimal
 
-from conftest import ACCOUNT, CNY, START, bar, order
 from onlyalpha_plugin_broker_virtual import OnlyFixedLatencyModel, OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillScheduleMode, OnlyVirtualFillScheduleStepSpec
 
@@ -9,6 +8,7 @@ from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerTradeUpdate
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.value import OnlyMoney
+from tests.support.virtual_broker import ACCOUNT, CNY, START, bar, order
 
 
 def test_broker_execute_before_publish_checkpoint_restores_publish_only() -> None:

@@ -1,5 +1,7 @@
 from collections.abc import Callable
 
+import pytest
+
 from onlyalpha.cluster.base import OnlyClusterConfig
 from onlyalpha.cluster.demo import OnlyDemoCluster
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
@@ -43,11 +45,29 @@ def test_two_runtimes_are_isolated(
     assert first[1:] == second[1:]
 
 
+def _assert_replay_is_identical(
+    make_runtime: Callable[[str], OnlyBacktestRuntime],
+    make_runtime_bar: Callable[[int, str], OnlyBar],
+    runtime_types: tuple[OnlyBarType, OnlyBarType],
+    repetitions: int,
+) -> None:
+    expected = _replay(make_runtime, make_runtime_bar, runtime_types, "runtime-0", "10.00")
+    for index in range(1, repetitions):
+        assert _replay(make_runtime, make_runtime_bar, runtime_types, f"runtime-{index}", "10.00") == expected
+
+
+def test_replay_is_identical(
+    make_runtime: Callable[[str], OnlyBacktestRuntime],
+    make_runtime_bar: Callable[[int, str], OnlyBar],
+    runtime_types: tuple[OnlyBarType, OnlyBarType],
+) -> None:
+    _assert_replay_is_identical(make_runtime, make_runtime_bar, runtime_types, 3)
+
+
+@pytest.mark.exhaustive
 def test_replay_is_identical_one_hundred_times(
     make_runtime: Callable[[str], OnlyBacktestRuntime],
     make_runtime_bar: Callable[[int, str], OnlyBar],
     runtime_types: tuple[OnlyBarType, OnlyBarType],
 ) -> None:
-    expected = _replay(make_runtime, make_runtime_bar, runtime_types, "runtime-0", "10.00")
-    for index in range(1, 100):
-        assert _replay(make_runtime, make_runtime_bar, runtime_types, f"runtime-{index}", "10.00") == expected
+    _assert_replay_is_identical(make_runtime, make_runtime_bar, runtime_types, 100)

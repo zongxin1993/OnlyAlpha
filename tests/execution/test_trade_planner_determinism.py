@@ -1,15 +1,17 @@
 from dataclasses import replace
 from datetime import timedelta
 
+import pytest
+
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import OnlyTradeExecutionTransactionPlanner, only_encode_prepared_execution_transaction
 
 from .factories.trade_planning_factory import only_test_generic_t0_trade_planning_context
 
 
-def test_planner_is_byte_deterministic_across_one_hundred_runs() -> None:
+def _assert_planner_determinism(repetitions: int) -> None:
     context = only_test_generic_t0_trade_planning_context()
-    prepared = tuple(OnlyTradeExecutionTransactionPlanner().prepare(context) for _ in range(100))
+    prepared = tuple(OnlyTradeExecutionTransactionPlanner().prepare(context) for _ in range(repetitions))
     encoded = {only_encode_prepared_execution_transaction(item) for item in prepared}
     assert len(encoded) == 1
     assert len({item.transaction_id for item in prepared}) == 1
@@ -17,6 +19,15 @@ def test_planner_is_byte_deterministic_across_one_hundred_runs() -> None:
     assert len({item.payload_hash for item in prepared}) == 1
     assert len({tuple(projection.identity.payload_hash for projection in item.projections) for item in prepared}) == 1
     assert len({tuple(str(event.event_id) for event in item.outbox_events) for item in prepared}) == 1
+
+
+def test_planner_is_byte_deterministic() -> None:
+    _assert_planner_determinism(3)
+
+
+@pytest.mark.exhaustive
+def test_planner_is_byte_deterministic_across_one_hundred_runs() -> None:
+    _assert_planner_determinism(100)
 
 
 def test_prepared_at_changes_payload_but_not_business_authority() -> None:

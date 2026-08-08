@@ -6,12 +6,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      recovery_exhaustive:
-        description: Run the complete Recovery lane
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -43,13 +37,13 @@ jobs:
       - run: uv run python scripts/version_sync.py check
 
   pr-lanes:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        lane: [fast, integration, miniqmt-contract]
+        lane: [fast, integration, recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -60,37 +54,50 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: pr-${{ matrix.lane }}-metrics
-          path: .test-metrics/*.json
+          name: ${{ matrix.lane }}-metrics
+          path: test-results/metrics/*.json
 
-  recovery-smoke:
-    if: github.event_name == 'workflow_dispatch' && inputs.recovery_exhaustive
+  main-lanes:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [core-full, recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py recovery
-
-  main-gate:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py full
-      - run: uv run python scripts/test_suite.py recovery
-      - run: uv run python scripts/test_suite.py ashare
-      - run: uv build --all-packages
+      - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: main-offline-metrics
-          path: .test-metrics/*.json
+          name: ${{ matrix.lane }}-metrics
+          path: test-results/metrics/*.json
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv build --all-packages
+
+  quality-gate:
+    if: always()
+    needs: [static, pr-lanes, main-lanes, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every independent gate
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          PR_RESULT: ${{ needs.pr-lanes.result }}
+          MAIN_RESULT: ${{ needs.main-lanes.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$STATIC_RESULT" = success -a "$BUILD_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

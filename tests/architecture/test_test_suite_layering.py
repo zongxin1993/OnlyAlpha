@@ -6,18 +6,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.pytest_layering import path_marker  # noqa: E402
+from scripts.pytest_layering import path_concerns, path_layer  # noqa: E402
 from scripts.test_suite import LANES, WORKSPACE_TESTS, OnlyTestLane  # noqa: E402
 
 
-def test_full_lane_covers_every_workspace_test_distribution() -> None:
-    assert LANES[OnlyTestLane.FULL].paths == WORKSPACE_TESTS
-    assert "external" in LANES[OnlyTestLane.FULL].expression
-    assert "performance" in LANES[OnlyTestLane.FULL].expression
+def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
+    assert LANES[OnlyTestLane.CORE_FULL].paths == WORKSPACE_TESTS
+    assert "external" in LANES[OnlyTestLane.CORE_FULL].expression
+    assert "performance" in LANES[OnlyTestLane.CORE_FULL].expression
+    assert "recovery" in LANES[OnlyTestLane.CORE_FULL].expression
+    assert "conformance" in LANES[OnlyTestLane.CORE_FULL].expression
+    assert "exhaustive" in LANES[OnlyTestLane.CORE_FULL].expression
 
 
 def test_external_and_real_order_tests_are_excluded_from_offline_lanes() -> None:
-    for name in (OnlyTestLane.FAST, OnlyTestLane.INTEGRATION, OnlyTestLane.ASHARE, OnlyTestLane.FULL):
+    for name in (OnlyTestLane.FAST, OnlyTestLane.INTEGRATION, OnlyTestLane.ASHARE, OnlyTestLane.CORE_FULL):
         assert "external" in LANES[name].expression
     assert "not requires_broker_account" in LANES[OnlyTestLane.MINIQMT_LOCAL].expression
 
@@ -41,9 +44,10 @@ def test_xdist_is_a_development_dependency_only() -> None:
 
 
 def test_unknown_component_paths_are_classified_without_guessing_unit_for_special_layers() -> None:
-    assert path_marker(Path("tests/architecture/test_gate.py")) == "architecture"
-    assert path_marker(Path("tests/integration/test_engine_restart.py")) == "recovery"
-    assert path_marker(Path("packages/provider/plugin/tests/test_adapter.py")) == "contract"
+    assert path_layer(Path("tests/architecture/test_gate.py")) == "architecture"
+    assert path_layer(Path("tests/integration/test_engine_restart.py")) == "integration"
+    assert path_concerns(Path("tests/integration/test_engine_restart.py")) == {"recovery"}
+    assert path_layer(Path("packages/provider/plugin/tests/test_adapter.py")) == "contract"
 
 
 def test_miniqmt_golden_reader_is_offline_test_support() -> None:
@@ -69,7 +73,12 @@ def test_ashare_lane_selects_offline_miniqmt_golden_conformance() -> None:
 
 def test_release_and_local_runner_boundaries_are_explicit() -> None:
     source = (ROOT / "scripts/test_suite.py").read_text(encoding="utf-8")
-    for lane in ("OnlyTestLane.FULL", "OnlyTestLane.RECOVERY", "OnlyTestLane.ASHARE"):
+    for lane in (
+        "OnlyTestLane.CORE_FULL",
+        "OnlyTestLane.RECOVERY",
+        "OnlyTestLane.ASHARE",
+        "OnlyTestLane.MINIQMT_CONTRACT",
+    ):
         assert lane in source
     assert LANES[OnlyTestLane.MINIQMT_LOCAL].workers == "0"
     assert "not requires_broker_account" in LANES[OnlyTestLane.MINIQMT_LOCAL].expression

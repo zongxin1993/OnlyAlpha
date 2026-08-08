@@ -4,7 +4,7 @@ import pytest
 from onlyalpha_plugin_tushare.data_source.validation import only_validate_response
 from onlyalpha_plugin_tushare.errors import OnlyTushareError
 
-from .support import OnlyFakeFrame, row
+from tests.support.provider_frames import OnlyFakeFrame, row
 
 
 @pytest.mark.parametrize(
