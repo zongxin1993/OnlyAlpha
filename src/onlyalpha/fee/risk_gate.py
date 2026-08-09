@@ -14,6 +14,8 @@ from onlyalpha.risk.enums import OnlyOrderRiskChange
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationBlocker(OnlyDomainModel):
+    schema_version = 2
+
     blocker_id: str
     account_id: OnlyAccountId
     evidence_family_fingerprint: str
@@ -81,7 +83,7 @@ class OnlyFeeReconciliationBlocker(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationRiskGateState(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     account_id: OnlyAccountId
     active_blockers: tuple[OnlyFeeReconciliationBlocker, ...]
@@ -124,14 +126,14 @@ class OnlyFeeReconciliationRiskGate:
 
     def capture_checkpoint(self) -> object:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "states": [
                 state.to_json() for state in sorted(self._states.values(), key=lambda item: str(item.account_id))
             ],
         }
 
     def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, dict) or payload.get("schema_version") != 2:
+        if not isinstance(payload, dict) or payload.get("schema_version") != 3:
             raise ValueError("UNSUPPORTED_FEE_CHECKPOINT_SCHEMA")
         values = payload.get("states")
         if not isinstance(values, list):

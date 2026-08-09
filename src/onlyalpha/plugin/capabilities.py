@@ -42,6 +42,7 @@ class OnlyBrokerPluginCapabilities:
     query_trades: bool = False
     query_account: bool = False
     query_positions: bool = False
+    query_fee_evidence: bool = False
     live_execution: bool = False
     simulated_execution: bool = False
     supports_runtime_checkpoint: OnlyCheckpointCapability | None = None

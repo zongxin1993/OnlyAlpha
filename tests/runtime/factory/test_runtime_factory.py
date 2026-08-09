@@ -1,7 +1,10 @@
 import json
 
+import pytest
+
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 
@@ -21,6 +24,24 @@ def test_backtest_factory_is_selected_through_runtime_assembler() -> None:
     assert build.runtime is not None
     assert build.runtime.runtime_type == "BACKTEST"
     build.runtime.close()
+
+
+def test_default_composition_installs_only_the_verified_cny_policy() -> None:
+    first = only_default_engine_services()
+    second = only_default_engine_services()
+    cny = OnlyCurrency("CNY", 2)
+
+    first_policy = first.fee_reconciliation_policies.require("STANDARD_FEE_RECONCILIATION", "1", cny)
+    second_policy = second.fee_reconciliation_policies.require("STANDARD_FEE_RECONCILIATION", "1", cny)
+
+    assert first.fee_reconciliation_policies is not second.fee_reconciliation_policies
+    assert first_policy.identity == second_policy.identity
+    with pytest.raises(ValueError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
+        first.fee_reconciliation_policies.require(
+            "STANDARD_FEE_RECONCILIATION",
+            "1",
+            OnlyCurrency("USD", 2),
+        )
 
 
 def test_unimplemented_runtime_factories_return_structured_unsupported_results() -> None:

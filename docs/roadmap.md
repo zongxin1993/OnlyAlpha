@@ -5,8 +5,9 @@
 OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
 
 Scenario Framework 已完成 exact DataSource、Action Strategy、正式 Engine Runner、标准事实 Assertion、Artifact 和重复运行
-fingerprint。Runtime Committed Execution 已成为 Result/Analytics/Artifact 的逐笔成交权威；Generic T0、期货 LONG/SHORT
-开平仓已有产品纵切面。Futures Daily MTM、完整五 Pack 与 Cross-Version 仍是后续门禁。
+fingerprint。Runtime Committed Execution 已成为 Result/Analytics/Artifact 的逐笔成交权威；当前正式 Durable Execution
+产品纵切面仅覆盖 Generic T0 Cash LONG/NETTING。期货 LONG/SHORT/HEDGING 已有 Domain 与 Conformance 基础，但正式 Durable
+Futures Product Execution 尚未启用；Futures Daily MTM、完整五 Pack 与 Cross-Version 仍是后续门禁。
 
 ## Phase 0：分析与架构基线（已完成）
 
@@ -86,6 +87,15 @@ Broker Evidence Port 与既有 Durable Transaction/Forward Recovery 已形成语
 
 P3 CN A-Share Production Fee Product 尚未完成。P2 也不代表真实 MiniQMT statement/fee ingestion、正式 A 股费率或
 真实券商账户佣金合同已经接入。
+
+## P2.1 Reconciliation Composition Stabilization（完成）
+
+Reconciliation Policy Registry 已进入统一 Composition Root；Backtest/Paper Runtime Factory 只按配置与 Account Currency
+精确选择已安装 Authority，不再创建或回退 Policy。Policy Identity 已纳入 Currency，Broker Fee Evidence 采用显式
+`QUERY_FEE_EVIDENCE` capability 与 Optional Port 双重契约。MiniQMT 当前未实现该查询并准确声明不支持。
+
+下一阶段为 P3 — CN A-Share Production Fee Product。P2.1 不包含正式 A 股佣金、印花税、过户费 Schedule，真实券商
+佣金 provisioning、statement ingestion 或 MiniQMT Fee Evidence 接入。
 
 ## Phase 2D：回测分析与报告（基础阶段已完成）
 

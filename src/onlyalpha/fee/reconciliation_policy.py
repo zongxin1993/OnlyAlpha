@@ -16,8 +16,11 @@ class OnlyFeeReconciliationAction(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationPolicyIdentity(OnlyDomainModel):
+    schema_version = 2
+
     policy_id: str
     policy_version: str
+    currency: OnlyCurrency
     fingerprint: str
 
     def __post_init__(self) -> None:
@@ -91,15 +94,20 @@ class OnlyFeeReconciliationPolicy(OnlyDomainModel):
 
     @property
     def identity(self) -> OnlyFeeReconciliationPolicyIdentity:
-        return OnlyFeeReconciliationPolicyIdentity(self.policy_id, self.policy_version, self.fingerprint)
+        return OnlyFeeReconciliationPolicyIdentity(
+            self.policy_id,
+            self.policy_version,
+            self.currency,
+            self.fingerprint,
+        )
 
 
 class OnlyFeeReconciliationPolicyRegistry:
     def __init__(self) -> None:
-        self._items: dict[tuple[str, str], OnlyFeeReconciliationPolicy] = {}
+        self._items: dict[tuple[str, str, OnlyCurrency], OnlyFeeReconciliationPolicy] = {}
 
     def register(self, policy: OnlyFeeReconciliationPolicy) -> None:
-        key = (policy.policy_id, policy.policy_version)
+        key = (policy.policy_id, policy.policy_version, policy.currency)
         current = self._items.get(key)
         if current is not None:
             if current.fingerprint != policy.fingerprint:
@@ -107,9 +115,14 @@ class OnlyFeeReconciliationPolicyRegistry:
             raise ValueError("FEE_RECONCILIATION_POLICY_DUPLICATE_VERSION")
         self._items[key] = policy
 
-    def require(self, policy_id: str, policy_version: str) -> OnlyFeeReconciliationPolicy:
+    def require(
+        self,
+        policy_id: str,
+        policy_version: str,
+        currency: OnlyCurrency,
+    ) -> OnlyFeeReconciliationPolicy:
         try:
-            return self._items[(policy_id, policy_version)]
+            return self._items[(policy_id, policy_version, currency)]
         except KeyError as exc:
             raise ValueError("FEE_RECONCILIATION_POLICY_NOT_INSTALLED") from exc
 

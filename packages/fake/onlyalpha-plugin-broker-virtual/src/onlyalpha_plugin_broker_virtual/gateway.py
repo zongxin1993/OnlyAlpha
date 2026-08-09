@@ -47,6 +47,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+from onlyalpha.fee.evidence import OnlyExternalFeeEvidence
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
 from onlyalpha.plugin.lifecycle import (
     OnlyPluginHealth,
@@ -137,6 +138,12 @@ class OnlyVirtualBrokerGateway:
     @property
     def capabilities(self) -> OnlyBrokerCapabilities:
         return OnlyBrokerCapabilities(frozenset(OnlyBrokerCapability))
+
+    def query_fee_evidence(self, account_id: OnlyAccountId) -> tuple[OnlyExternalFeeEvidence, ...]:
+        self.capabilities.require(OnlyBrokerCapability.QUERY_FEE_EVIDENCE)
+        if account_id != self.config.account_id:
+            raise ValueError("Virtual Broker account scope mismatch")
+        return ()
 
     def connect(self) -> OnlyBrokerConnectionResult:
         if self._plugin_state is OnlyPluginLifecycleState.CREATED:

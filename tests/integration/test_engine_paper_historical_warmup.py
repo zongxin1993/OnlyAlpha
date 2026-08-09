@@ -5,6 +5,7 @@ import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
@@ -19,9 +20,15 @@ from onlyalpha.cli import main
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.fee.reconciliation_policy import (
+    OnlyFeeReconciliationAction,
+    OnlyFeeReconciliationPolicy,
+)
 from onlyalpha.observation import OnlyObservationSource
 from onlyalpha.plugin.errors import OnlyPluginLifecycleError
+from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.runtime import OnlyRuntimeState
 from onlyalpha.runtime.streaming.phase import OnlyStreamingPhase
 
@@ -127,6 +134,67 @@ def test_paper_factory_assembles_at_any_market_session_state(
     engine.initialize()
     assert engine.runtimes
     engine.stop()
+
+
+def test_custom_reconciliation_policy_is_selected_by_paper_factory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xtdata = _FakeLiveXtData()
+    _patch_source_factory(monkeypatch, xtdata)
+    config = _config(tmp_path)
+    payload = json.loads(json.dumps(dict(config.normalized_payload)))
+    payload["accounts"][0]["fee_reconciliation_policy"] = {  # type: ignore[index]
+        "policy_id": "CUSTOM_STRICT",
+        "policy_version": "1",
+    }
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path=config.source_path)
+    currency = config.accounts[0].initial_cash.currency
+    policy = OnlyFeeReconciliationPolicy.create(
+        policy_id="CUSTOM_STRICT",
+        policy_version="1",
+        currency=currency,
+        materiality_threshold=OnlyMoney(Decimal("0.00"), currency),
+        unknown_difference_action=OnlyFeeReconciliationAction.BLOCK,
+        incomplete_evidence_action=OnlyFeeReconciliationAction.BLOCK,
+        component_mismatch_action=OnlyFeeReconciliationAction.BLOCK,
+    )
+    services = only_default_engine_services()
+    services.fee_reconciliation_policies.register(policy)
+    engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("paper-reconciliation-policy-custom"), tmp_path / "user_data"),
+        services=services,
+    )
+    engine.add_cluster(config)
+
+    engine.initialize()
+    try:
+        assert engine.runtimes[0].config.fee_reconciliation_policy is policy
+    finally:
+        engine.stop()
+
+
+def test_missing_reconciliation_policy_fails_paper_factory_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xtdata = _FakeLiveXtData()
+    _patch_source_factory(monkeypatch, xtdata)
+    config = _config(tmp_path)
+    payload = json.loads(json.dumps(dict(config.normalized_payload)))
+    payload["accounts"][0]["fee_reconciliation_policy"] = {  # type: ignore[index]
+        "policy_id": "NOT_INSTALLED",
+        "policy_version": "1",
+    }
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path=config.source_path)
+    engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("paper-reconciliation-policy-missing"), tmp_path / "user_data"),
+        services=only_default_engine_services(),
+    )
+    engine.add_cluster(config)
+
+    with pytest.raises(RuntimeError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
+        engine.initialize()
 
 
 def test_engine_replays_isolated_warmup_and_establishes_watermark(

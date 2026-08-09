@@ -13,7 +13,7 @@ from onlyalpha.fee.reconciliation import OnlyFeeReconciliationDecision
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationFactDraft(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     runtime_id: OnlyRuntimeId
     account_id: OnlyAccountId
@@ -41,7 +41,7 @@ class OnlyFeeReconciliationFactDraft(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyCommittedFeeReconciliationFact(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     runtime_id: OnlyRuntimeId
     account_id: OnlyAccountId

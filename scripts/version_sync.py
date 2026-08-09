@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,8 @@ from tomlkit import dumps, parse
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_PYPROJECT = ROOT / "pyproject.toml"
+README = ROOT / "README.md"
+README_VERSION_PATTERN = re.compile(r"(?m)^\| Version \| `([^`]+)` \|$")
 
 FORMAL_PACKAGES = (
     ROOT / "packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml",
@@ -112,6 +115,12 @@ def set_versions(version: str) -> None:
         )
         write_document(path, document)
 
+    readme = README.read_text(encoding="utf-8")
+    updated_readme, replacements = README_VERSION_PATTERN.subn(f"| Version | `{version}` |", readme)
+    if replacements != 1:
+        raise VersionSyncError(f"{README}: expected exactly one Version table row")
+    README.write_text(updated_readme, encoding="utf-8")
+
     subprocess.run(
         ["uv", "lock", "--python", "3.12"],
         cwd=ROOT,
@@ -146,6 +155,10 @@ def check_dependency(
 def check_versions() -> None:
     version = root_version()
     errors: list[str] = []
+
+    readme_versions = README_VERSION_PATTERN.findall(README.read_text(encoding="utf-8"))
+    if readme_versions != [version]:
+        errors.append(f"{README}: Version rows={readme_versions!r}, expected={[version]!r}")
 
     for path in FORMAL_PACKAGES:
         document = read_document(path)

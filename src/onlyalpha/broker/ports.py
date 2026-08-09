@@ -1,6 +1,6 @@
 """Small composable Broker boundary Ports."""
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from onlyalpha.broker.capabilities import OnlyBrokerCapabilities
 from onlyalpha.broker.models import (
@@ -66,6 +66,7 @@ class OnlyBrokerTradeQueryPort(Protocol):
     ) -> tuple[OnlyBrokerTradeSnapshot, ...]: ...
 
 
+@runtime_checkable
 class OnlyBrokerFeeEvidencePort(Protocol):
     """Returns normalized domain evidence; provider DTOs end at the adapter."""
 

@@ -5,7 +5,12 @@ from importlib import metadata
 
 from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory
 
-from onlyalpha.broker import OnlyBoundedBrokerInboundQueue, OnlyBrokerGatewayId
+from onlyalpha.broker import (
+    OnlyBoundedBrokerInboundQueue,
+    OnlyBrokerCapability,
+    OnlyBrokerGatewayId,
+    only_require_broker_fee_evidence_port,
+)
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
@@ -35,7 +40,7 @@ def test_factory_parses_extensions_and_returns_explicit_driver_component() -> No
         OnlyBrokerGatewayId("virtual"),
         config,
         "BACKTEST",
-        OnlyBrokerPluginCapabilities(simulated_execution=True),
+        OnlyBrokerPluginCapabilities(simulated_execution=True, query_fee_evidence=True),
         OnlyBacktestClock(datetime(2026, 1, 1, tzinfo=UTC)),
         OnlyEventBus(),
         OnlyBoundedBrokerInboundQueue(),
@@ -49,3 +54,6 @@ def test_factory_parses_extensions_and_returns_explicit_driver_component() -> No
     component = factory.create(request)
     assert component.deterministic_driver is component.gateway
     assert component.resource is component.gateway
+    assert component.gateway.capabilities.supports(OnlyBrokerCapability.QUERY_FEE_EVIDENCE)
+    fee_evidence = only_require_broker_fee_evidence_port(component.gateway)
+    assert fee_evidence.query_fee_evidence(request.account_id) == ()

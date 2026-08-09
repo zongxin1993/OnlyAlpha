@@ -21,10 +21,7 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
-from onlyalpha.fee.reconciliation_policy import (
-    OnlyFeeReconciliationPolicyRegistry,
-    only_standard_fee_reconciliation_policy,
-)
+from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicy
 from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
 from onlyalpha.market.runtime_rules import (
     OnlyMarketRuleEngine,
@@ -73,7 +70,7 @@ class OnlyPaperRuntimeFactory:
         clock: OnlyLiveClock | None = None
         event_bus: OnlyEventBus | None = None
         try:
-            components, streaming = self._validate(request)
+            components, streaming, reconciliation_policy = self._validate(request)
             config = request.config
             source_common = next(item for item in config.data_sources if item.enabled)
             account = config.accounts[0]
@@ -151,12 +148,6 @@ class OnlyPaperRuntimeFactory:
             broker_fee_contract.validate_compatibility(
                 broker_id=config.brokers[0].plugin_id,
                 account_id=account.account_id,
-            )
-            reconciliation_policies = OnlyFeeReconciliationPolicyRegistry()
-            reconciliation_policies.register(only_standard_fee_reconciliation_policy(account.initial_cash.currency))
-            reconciliation_policy = reconciliation_policies.require(
-                account.fee_reconciliation_policy.policy_id,
-                account.fee_reconciliation_policy.policy_version,
             )
             runtime_config = OnlyRuntimeAssemblyConfig(
                 config.engine_id,
@@ -264,7 +255,11 @@ class OnlyPaperRuntimeFactory:
     @staticmethod
     def _validate(
         request: OnlyRuntimeBuildRequest,
-    ) -> tuple[OnlyComponentFactoryRegistries, OnlyStreamingRuntimeConfig]:
+    ) -> tuple[
+        OnlyComponentFactoryRegistries,
+        OnlyStreamingRuntimeConfig,
+        OnlyFeeReconciliationPolicy,
+    ]:
         components = request.components
         if not isinstance(components, OnlyComponentFactoryRegistries):
             raise TypeError("Paper factory requires OnlyComponentFactoryRegistries")
@@ -280,7 +275,13 @@ class OnlyPaperRuntimeFactory:
             raise ValueError("current schema requires one read-only Shadow authority Account")
         if any(item.enabled for item in config.brokers):
             raise ValueError("PAPER + SHADOW forbids enabled Broker adapters")
-        return components, streaming
+        account = config.accounts[0]
+        policy = components.fee_reconciliation_policies.require(
+            account.fee_reconciliation_policy.policy_id,
+            account.fee_reconciliation_policy.policy_version,
+            account.initial_cash.currency,
+        )
+        return components, streaming, policy
 
     @staticmethod
     def _market_rules(

@@ -6,6 +6,7 @@ from onlyalpha_plugin_miniqmt.config import (
     OnlyMiniQmtConfig,
 )
 from onlyalpha_plugin_miniqmt.data_source.reference import ashare_reference
+from onlyalpha_plugin_miniqmt.descriptor import BROKER_CAPABILITIES
 from onlyalpha_plugin_miniqmt.errors import OnlyMiniQmtError
 from onlyalpha_plugin_miniqmt.mapping.exchange import from_xt_symbol, to_xt_symbol
 from onlyalpha_plugin_miniqmt.mapping.order import (
@@ -16,6 +17,7 @@ from onlyalpha_plugin_miniqmt.mapping.order import (
 )
 from onlyalpha_plugin_miniqmt.mapping.status import map_order_status
 
+from onlyalpha.broker.enums import OnlyBrokerCapability
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 
@@ -45,6 +47,11 @@ def test_import_does_not_require_xtquant() -> None:
     import onlyalpha_plugin_miniqmt
 
     assert onlyalpha_plugin_miniqmt.PLUGIN_ID == "miniqmt"
+
+
+def test_miniqmt_does_not_claim_unimplemented_fee_evidence_query() -> None:
+    assert not BROKER_CAPABILITIES.query_fee_evidence
+    assert OnlyBrokerCapability.QUERY_FEE_EVIDENCE.value == "QUERY_FEE_EVIDENCE"
 
 
 def test_enriched_frozen_reference_maps_without_xtquant_import() -> None:

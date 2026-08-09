@@ -585,6 +585,8 @@ class OnlyExternalFeeEvidenceProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationProjection(OnlyDomainModel):
+    schema_version = 2
+
     identity: OnlyRuntimeProjectionIdentity
     before: OnlyFeeReconciliationDecisionState | None
     after: OnlyFeeReconciliationDecisionState
@@ -598,6 +600,8 @@ class OnlyFeeReconciliationProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeAdjustmentProjection(OnlyDomainModel):
+    schema_version = 2
+
     identity: OnlyRuntimeProjectionIdentity
     before: OnlyFeeAdjustmentState | None
     after: OnlyFeeAdjustmentState
@@ -624,6 +628,8 @@ class OnlyUnallocatedExternalFeeProjection(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationRiskGateProjection(OnlyDomainModel):
+    schema_version = 2
+
     identity: OnlyRuntimeProjectionIdentity
     before: OnlyFeeReconciliationRiskGateState | None
     after: OnlyFeeReconciliationRiskGateState

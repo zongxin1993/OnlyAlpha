@@ -76,7 +76,7 @@ class OnlyFeeReconciliationInput:
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationDecision(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     reconciliation_id: str
     evidence_id: str

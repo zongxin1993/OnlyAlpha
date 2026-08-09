@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -6,7 +7,13 @@ import pytest
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.config.document import OnlyClusterConfigError
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.fee.reconciliation_policy import (
+    OnlyFeeReconciliationAction,
+    OnlyFeeReconciliationPolicy,
+)
+from onlyalpha.runtime.defaults import only_default_engine_services
 
 
 def _payload() -> dict[str, object]:
@@ -64,6 +71,38 @@ def test_unknown_reconciliation_policy_fails_runtime_build(tmp_path) -> None:
     result = engine.run()
     assert result.status == "FAILED"
     assert any("FEE_RECONCILIATION_POLICY_NOT_INSTALLED" in failure for failure in result.failures)
+
+
+def test_custom_reconciliation_policy_is_selected_by_backtest_factory(tmp_path) -> None:
+    payload = _payload()
+    payload["accounts"][0]["fee_reconciliation_policy"] = {  # type: ignore[index]
+        "policy_id": "CUSTOM_STRICT",
+        "policy_version": "1",
+    }
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+    currency = config.accounts[0].initial_cash.currency
+    policy = OnlyFeeReconciliationPolicy.create(
+        policy_id="CUSTOM_STRICT",
+        policy_version="1",
+        currency=currency,
+        materiality_threshold=OnlyMoney(Decimal("0.00"), currency),
+        unknown_difference_action=OnlyFeeReconciliationAction.BLOCK,
+        incomplete_evidence_action=OnlyFeeReconciliationAction.BLOCK,
+        component_mismatch_action=OnlyFeeReconciliationAction.BLOCK,
+    )
+    services = only_default_engine_services()
+    services.fee_reconciliation_policies.register(policy)
+    engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("reconciliation-policy-custom"), tmp_path),
+        services=services,
+    )
+    engine.add_cluster(config)
+
+    engine.initialize()
+    try:
+        assert engine.runtimes[0].config.fee_reconciliation_policy is policy
+    finally:
+        engine.stop()
 
 
 def test_unknown_broker_fee_contract_fails_runtime_build(tmp_path) -> None:

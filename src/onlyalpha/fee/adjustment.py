@@ -25,7 +25,7 @@ class OnlyFeeDifferenceReason(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeAdjustment(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     adjustment_id: str
     component_identity: OnlyFeeReconciliationComponentIdentity

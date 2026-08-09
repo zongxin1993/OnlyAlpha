@@ -6,6 +6,7 @@ from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
+from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.factor.factory import OnlyFactorFactory
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
@@ -15,6 +16,10 @@ from onlyalpha.fee.packs import (
     only_generic_crypto_spot_fee_pack,
     only_generic_margin_futures_fee_pack,
     only_generic_t0_cash_fee_pack,
+)
+from onlyalpha.fee.reconciliation_policy import (
+    OnlyFeeReconciliationPolicyRegistry,
+    only_standard_fee_reconciliation_policy,
 )
 from onlyalpha.indicator import only_default_indicator_factories
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
@@ -43,6 +48,9 @@ class OnlyEngineServices:
     brokers: OnlyBrokerFactoryRegistry = field(default_factory=OnlyBrokerFactoryRegistry)
     market_fee_packs: OnlyMarketFeePackRegistry = field(default_factory=OnlyMarketFeePackRegistry)
     broker_fee_contracts: OnlyBrokerFeeContractRegistry = field(default_factory=OnlyBrokerFeeContractRegistry)
+    fee_reconciliation_policies: OnlyFeeReconciliationPolicyRegistry = field(
+        default_factory=OnlyFeeReconciliationPolicyRegistry
+    )
     plugin_discovery: OnlyPluginDiscoveryReport = field(default_factory=lambda: OnlyPluginDiscoveryReport((), ()))
 
 
@@ -77,6 +85,8 @@ def only_default_engine_services(
         only_cn_a_share_conformance_fee_pack(),
     ):
         fee_packs.register(pack)
+    reconciliation_policies = OnlyFeeReconciliationPolicyRegistry()
+    reconciliation_policies.register(only_standard_fee_reconciliation_policy(OnlyCurrency("CNY", 2)))
     assembler = OnlyEngineRunAssembler(
         runtimes,
         OnlyComponentFactoryRegistries(
@@ -88,7 +98,16 @@ def only_default_engine_services(
             fee_packs,
             broker_contracts,
             only_default_fee_basis_provider_registry(),
+            reconciliation_policies,
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
         ),
     )
-    return OnlyEngineServices(assembler, data_sources, brokers, fee_packs, broker_contracts, discovery)
+    return OnlyEngineServices(
+        assembler,
+        data_sources,
+        brokers,
+        fee_packs,
+        broker_contracts,
+        reconciliation_policies,
+        discovery,
+    )

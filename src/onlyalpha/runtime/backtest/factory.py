@@ -21,10 +21,6 @@ from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
-from onlyalpha.fee.reconciliation_policy import (
-    OnlyFeeReconciliationPolicyRegistry,
-    only_standard_fee_reconciliation_policy,
-)
 from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
 from onlyalpha.market.runtime_rules import (
     OnlyMarketRuleEngine,
@@ -291,11 +287,10 @@ class OnlyBacktestRuntimeFactory:
             broker_id=broker_common.plugin_id,
             account_id=account.account_id,
         )
-        reconciliation_policies = OnlyFeeReconciliationPolicyRegistry()
-        reconciliation_policies.register(only_standard_fee_reconciliation_policy(account.initial_cash.currency))
-        reconciliation_policy = reconciliation_policies.require(
+        reconciliation_policy = components.fee_reconciliation_policies.require(
             account.fee_reconciliation_policy.policy_id,
             account.fee_reconciliation_policy.policy_version,
+            account.initial_cash.currency,
         )
         runtime_config = OnlyRuntimeAssemblyConfig(
             config.engine_id,

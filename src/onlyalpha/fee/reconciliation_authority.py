@@ -25,6 +25,8 @@ class OnlyExternalFeeEvidenceState(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeReconciliationDecisionState(OnlyDomainModel):
+    schema_version = 2
+
     decision: OnlyFeeReconciliationDecision
     version: int
 
@@ -35,6 +37,8 @@ class OnlyFeeReconciliationDecisionState(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeAdjustmentState(OnlyDomainModel):
+    schema_version = 2
+
     adjustment: OnlyFeeAdjustment
     version: int
 
@@ -44,7 +48,7 @@ class OnlyFeeAdjustmentState(OnlyDomainModel):
 
 
 class OnlyFeeReconciliationAuthority:
-    schema_version = 2
+    schema_version = 3
 
     def __init__(self) -> None:
         self._evidence: dict[str, OnlyExternalFeeEvidenceState] = {}
