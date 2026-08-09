@@ -18,7 +18,7 @@ OnlyAlpha 当前处于 **Alpha** 阶段。确定性回测已经形成完整产�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.3.4` |
+| Version | `0.3.5` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
