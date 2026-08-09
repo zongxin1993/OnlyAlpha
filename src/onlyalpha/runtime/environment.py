@@ -17,7 +17,10 @@ from onlyalpha.config import (
     OnlyBrokerRuntimeConfig,
     OnlyClusterRunConfig,
     OnlyDataSourceRuntimeConfig,
+    OnlyUniverseConfig,
 )
+from onlyalpha.domain.calendar import OnlyTradingCalendar
+from onlyalpha.domain.instrument import OnlyInstrument
 
 
 def only_canonical_payload(value: object) -> object:
@@ -198,12 +201,25 @@ class OnlyRuntimeEnvironmentBuilder:
             "CN_A_SHARE_REFERENCE" if config.market.profile.value == "CN_A_SHARE_CASH" else "GENERIC_REFERENCE",
             only_canonical_fingerprint(
                 {
-                    "calendars": tuple(sorted(config.reference_data.calendars, key=lambda item: str(item.calendar_id))),
+                    "calendars": tuple(
+                        sorted(
+                            config.reference_data.calendars,
+                            key=lambda item: str(cast(OnlyTradingCalendar, item).calendar_id),
+                        )
+                    ),
                     "instruments": tuple(
-                        sorted(config.reference_data.instruments, key=lambda item: str(item.instrument_id))
+                        sorted(
+                            config.reference_data.instruments,
+                            key=lambda item: str(cast(OnlyInstrument, item).instrument_id),
+                        )
                     ),
                     "ashare_instruments": config.reference_data.ashare_registry.records,
-                    "universes": tuple(sorted(config.universes, key=lambda item: item.universe_id)),
+                    "universes": tuple(
+                        sorted(
+                            config.universes,
+                            key=lambda item: cast(OnlyUniverseConfig, item).universe_id,
+                        )
+                    ),
                 }
             ),
         )
