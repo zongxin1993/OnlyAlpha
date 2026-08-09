@@ -15,6 +15,7 @@ from onlyalpha.artifact import OnlyBacktestArtifactWriter, OnlyRunArtifactTarget
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyClusterId
+from onlyalpha.engine.composition import OnlyClusterComposition
 from onlyalpha.engine.infrastructure import OnlyInfrastructureRegistry
 from onlyalpha.engine.models import (
     OnlyClusterHandle,
@@ -31,14 +32,13 @@ from onlyalpha.engine.models import (
     OnlyEngineValidationResult,
     OnlyRuntimeSession,
 )
-from onlyalpha.fee.provisioning import only_provision_broker_fee_contract
 from onlyalpha.output import OnlyEngineResultExporter, OnlyUserDataLayout
 from onlyalpha.report import OnlyConsoleBacktestReport, OnlyJsonBacktestReport, OnlyMarkdownBacktestReport
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
+from onlyalpha.runtime.environment import OnlyRuntimeEnvironmentBuilder
 from onlyalpha.runtime.planning import (
     OnlyEngineExecutionPlan,
-    OnlyRuntimeCompatibilityKey,
     OnlyRuntimePlanner,
 )
 from onlyalpha.runtime.result import OnlyRuntimeResult
@@ -69,7 +69,8 @@ class OnlyEngine:
         self._runtime_sessions: dict[str, OnlyRuntimeSession] = {}
         self._handles: dict[OnlyClusterId, OnlyClusterHandle] = {}
         self._infrastructure = OnlyInfrastructureRegistry()
-        self._planner = OnlyRuntimePlanner()
+        self._environment_builder = OnlyRuntimeEnvironmentBuilder()
+        self._planner = OnlyRuntimePlanner(self._environment_builder)
         self._execution_plan: OnlyEngineExecutionPlan | None = None
         self._stop_attempted = False
 
@@ -109,14 +110,15 @@ class OnlyEngine:
             raise OnlyDuplicateIdError(f"cluster already registered: {config.cluster_id}")
         previous = self.state
         self.state = OnlyEngineState.CONFIGURING
-        acquired = False
         try:
             services = self._require_services()
-            for contract in config.broker_fee_contract_authorities:
-                only_provision_broker_fee_contract(contract, services.broker_fee_contracts)
-            resources = self._infrastructure.acquire(config)
-            acquired = True
             self._validate_extension_types(config)
+            composition = OnlyClusterComposition(
+                self._infrastructure,
+                services.assembler.components,
+                self._environment_builder,
+            )
+            plan = composition.plan(config)
             fingerprint = self._config_fingerprint(config)
             handle = OnlyClusterHandle(
                 config.cluster_id,
@@ -124,6 +126,7 @@ class OnlyEngine:
                 OnlyEngineClusterStatus.LOADED,
                 fingerprint,
             )
+            resources = composition.commit(plan)
             self._cluster_definitions[config.cluster_id] = config
             self._handles[config.cluster_id] = handle
             if resources != self._infrastructure.references_for(config.cluster_id):
@@ -131,8 +134,6 @@ class OnlyEngine:
             self.state = OnlyEngineState.READY
             return handle
         except Exception:
-            if acquired:
-                self._infrastructure.release(config.cluster_id)
             self.state = previous
             raise
 
@@ -228,7 +229,7 @@ class OnlyEngine:
                 runtime_session = OnlyRuntimeSession(
                     runtime_plan.runtime_id,
                     runtime,
-                    runtime_plan.compatibility_key,
+                    runtime_plan.environment,
                     runtime_plan.cluster_ids,
                     "READY",
                 )
@@ -501,7 +502,8 @@ class OnlyEngine:
     @staticmethod
     def _plugin_descriptions(services: OnlyEngineServices) -> tuple[str, ...]:
         values = []
-        for record in (*services.data_sources.records(), *services.brokers.records()):
+        components = services.assembler.components
+        for record in (*components.data_sources.records(), *components.brokers.records()):
             descriptor = record.descriptor
             values.append(
                 f"{descriptor.plugin_type.value}:{descriptor.plugin_id}@{descriptor.plugin_version} "
@@ -537,7 +539,7 @@ class OnlyEngine:
         payload = {
             "clusters": [str(item.cluster_id) for item in sorted(configs, key=lambda item: str(item.cluster_id))],
             "runtime_groups": [
-                OnlyRuntimeCompatibilityKey.from_config(item)
+                OnlyRuntimeEnvironmentBuilder().build(item)
                 for item in sorted(configs, key=lambda item: str(item.cluster_id))
             ],
             "results": sorted(str(item.get("determinism_fingerprint", "")) for item in projections),

@@ -5,7 +5,8 @@ import pytest
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.runtime.planning import OnlyRuntimeCompatibilityKey, OnlyRuntimePlanner
+from onlyalpha.runtime.environment import OnlyRuntimeEnvironmentBuilder
+from onlyalpha.runtime.planning import OnlyRuntimePlanner
 
 CONFIG = "examples/configs/tushare_daily_backtest.yaml"
 
@@ -22,7 +23,7 @@ def test_explicit_ashare_schema_is_canonical_and_order_independent() -> None:
     payload["reference_data"]["ashare_instruments"] = list(reversed(records))
     second = OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
     assert first.reference_data.reference_registry_fingerprint == second.reference_data.reference_registry_fingerprint
-    assert OnlyRuntimeCompatibilityKey.from_config(first) == OnlyRuntimeCompatibilityKey.from_config(second)
+    assert OnlyRuntimeEnvironmentBuilder().build(first) == OnlyRuntimeEnvironmentBuilder().build(second)
 
 
 @pytest.mark.parametrize("field", ["board", "st_status", "suspended", "previous_close"])

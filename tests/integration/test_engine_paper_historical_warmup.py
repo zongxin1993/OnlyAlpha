@@ -160,7 +160,7 @@ def test_custom_reconciliation_policy_is_selected_by_paper_factory(
         component_mismatch_action=OnlyFeeReconciliationAction.BLOCK,
     )
     services = only_default_engine_services()
-    services.fee_reconciliation_policies.register(policy)
+    services.assembler.components.fee_reconciliation_policies.register(policy)
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId("paper-reconciliation-policy-custom"), tmp_path / "user_data"),
         services=services,
@@ -191,10 +191,10 @@ def test_missing_reconciliation_policy_fails_paper_factory_closed(
         OnlyEngineConfig(OnlyEngineId("paper-reconciliation-policy-missing"), tmp_path / "user_data"),
         services=only_default_engine_services(),
     )
-    engine.add_cluster(config)
-
-    with pytest.raises(RuntimeError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
-        engine.initialize()
+    before = engine.snapshot()
+    with pytest.raises(ValueError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
+        engine.add_cluster(config)
+    assert engine.snapshot() == before
 
 
 def test_engine_replays_isolated_warmup_and_establishes_watermark(

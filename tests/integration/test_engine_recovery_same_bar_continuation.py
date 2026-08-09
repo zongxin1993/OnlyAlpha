@@ -188,11 +188,13 @@ def _services(*, with_fault: bool = False) -> OnlyEngineServices:
     services = only_default_engine_services(
         runtime_persistence_store_factory=OnlyFirstCommitTailFaultFactory() if with_fault else None
     )
-    services.brokers.register(
+    services.assembler.components.brokers.register(
         OnlySameBarContinuationTestBrokerFactory(),
         origin=OnlyPluginOrigin(OnlyPluginOriginType.TEST, __name__),
     )
-    services.broker_fee_contracts.register(only_simulation_zero_broker_fee_contract(_SAME_BAR_DESCRIPTOR.plugin_id))
+    services.assembler.components.broker_fee_contracts.register(
+        only_simulation_zero_broker_fee_contract(_SAME_BAR_DESCRIPTOR.plugin_id)
+    )
     return services
 
 

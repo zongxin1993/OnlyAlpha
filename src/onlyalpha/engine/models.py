@@ -11,7 +11,7 @@ from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntim
 
 if TYPE_CHECKING:
     from onlyalpha.cluster.base import OnlyCluster
-    from onlyalpha.runtime.planning import OnlyRuntimeCompatibilityKey
+    from onlyalpha.runtime.environment import OnlyRuntimeEnvironmentIdentity
     from onlyalpha.runtime.runtime import OnlyRuntime
 
 
@@ -83,7 +83,7 @@ class OnlyClusterSession:
 class OnlyRuntimeSession:
     runtime_id: OnlyRuntimeId
     runtime: OnlyRuntime
-    compatibility_key: OnlyRuntimeCompatibilityKey
+    environment: OnlyRuntimeEnvironmentIdentity
     bound_cluster_ids: tuple[OnlyClusterId, ...]
     state: str
 

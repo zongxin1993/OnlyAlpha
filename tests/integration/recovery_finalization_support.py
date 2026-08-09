@@ -75,11 +75,13 @@ class OnlyValidationMismatchStoreFactory:
 
 def only_recovery_services(factory: object | None = None):  # type: ignore[no-untyped-def]
     services = only_default_engine_services(runtime_persistence_store_factory=factory)  # type: ignore[arg-type]
-    services.brokers.register(
+    services.assembler.components.brokers.register(
         OnlySameBarContinuationTestBrokerFactory(),
         origin=OnlyPluginOrigin(OnlyPluginOriginType.TEST, __name__),
     )
-    services.broker_fee_contracts.register(only_simulation_zero_broker_fee_contract("test-same-bar-broker"))
+    services.assembler.components.broker_fee_contracts.register(
+        only_simulation_zero_broker_fee_contract("test-same-bar-broker")
+    )
     return services
 
 

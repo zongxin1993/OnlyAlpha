@@ -93,13 +93,34 @@ class OnlyBrokerFeeContractRegistry:
         self._contracts: dict[tuple[str, str], OnlyBrokerFeeContract] = {}
 
     def register(self, contract: OnlyBrokerFeeContract) -> None:
+        self.validate_registration(contract)
+        self._contracts[(contract.contract_id, contract.contract_version)] = contract
+
+    def validate_registration(self, contract: OnlyBrokerFeeContract) -> None:
         key = (contract.contract_id, contract.contract_version)
         current = self._contracts.get(key)
         if current is not None:
             if current.fingerprint != contract.fingerprint:
                 raise ValueError("BROKER_FEE_CONTRACT_FINGERPRINT_CONFLICT")
             raise ValueError("BROKER_FEE_CONTRACT_DUPLICATE_VERSION")
-        self._contracts[key] = contract
+
+    def validate_installations(self, contracts: tuple[OnlyBrokerFeeContract, ...]) -> None:
+        staged: dict[tuple[str, str], OnlyBrokerFeeContract] = {}
+        for contract in contracts:
+            key = (contract.contract_id, contract.contract_version)
+            current = staged.get(key)
+            if current is not None:
+                if current.fingerprint != contract.fingerprint:
+                    raise ValueError("BROKER_FEE_CONTRACT_FINGERPRINT_CONFLICT")
+                raise ValueError("BROKER_FEE_CONTRACT_DUPLICATE_VERSION")
+            self.validate_registration(contract)
+            staged[key] = contract
+
+    def install_all(self, contracts: tuple[OnlyBrokerFeeContract, ...]) -> None:
+        self.validate_installations(contracts)
+        updated = dict(self._contracts)
+        updated.update({(item.contract_id, item.contract_version): item for item in contracts})
+        self._contracts = updated
 
     def require(self, contract_id: str, contract_version: str) -> OnlyBrokerFeeContract:
         try:

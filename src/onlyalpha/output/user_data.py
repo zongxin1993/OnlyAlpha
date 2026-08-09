@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntimeId
+from onlyalpha.runtime.environment import only_canonical_payload
 
 if TYPE_CHECKING:
     from onlyalpha.runtime.planning import OnlyEngineExecutionPlan
@@ -106,10 +107,8 @@ class OnlyEngineResultExporter:
                         runtime_root / "summary.json",
                         {
                             "runtime_id": str(runtime_plan.runtime_id),
-                            "compatibility_key": {
-                                field: str(getattr(runtime_plan.compatibility_key, field))
-                                for field in runtime_plan.compatibility_key.__dataclass_fields__
-                            },
+                            "runtime_environment": only_canonical_payload(runtime_plan.environment),
+                            "runtime_environment_fingerprint": runtime_plan.environment.fingerprint,
                             "cluster_ids": [str(item) for item in runtime_plan.cluster_ids],
                         },
                     )

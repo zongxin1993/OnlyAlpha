@@ -67,17 +67,15 @@ def test_old_combined_fee_schema_is_rejected() -> None:
         OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
 
 
-def test_unknown_market_fee_pack_fails_runtime_build(tmp_path) -> None:
+def test_unknown_market_fee_pack_fails_composition_without_residue(tmp_path) -> None:
     payload = _payload()
     payload["market"]["fee_pack"] = {"pack_id": "UNKNOWN", "pack_version": "1"}  # type: ignore[index]
     config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("fee-unknown"), tmp_path))
-    engine.add_cluster(config)
-
-    result = engine.run()
-
-    assert result.status == "FAILED"
-    assert any("MARKET_FEE_PACK_NOT_INSTALLED" in failure for failure in result.failures)
+    before = engine.snapshot()
+    with pytest.raises(ValueError, match="MARKET_FEE_PACK_NOT_INSTALLED"):
+        engine.add_cluster(config)
+    assert engine.snapshot() == before
 
 
 def test_missing_broker_fee_contract_is_rejected_by_config_schema() -> None:
@@ -94,7 +92,7 @@ def test_missing_reconciliation_policy_is_rejected_by_config_schema() -> None:
         OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
 
 
-def test_unknown_reconciliation_policy_fails_runtime_build(tmp_path) -> None:
+def test_unknown_reconciliation_policy_fails_composition_without_residue(tmp_path) -> None:
     payload = _payload()
     payload["accounts"][0]["fee_reconciliation_policy"] = {  # type: ignore[index]
         "policy_id": "UNKNOWN",
@@ -102,10 +100,10 @@ def test_unknown_reconciliation_policy_fails_runtime_build(tmp_path) -> None:
     }
     config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("reconciliation-policy-unknown"), tmp_path))
-    engine.add_cluster(config)
-    result = engine.run()
-    assert result.status == "FAILED"
-    assert any("FEE_RECONCILIATION_POLICY_NOT_INSTALLED" in failure for failure in result.failures)
+    before = engine.snapshot()
+    with pytest.raises(ValueError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
+        engine.add_cluster(config)
+    assert engine.snapshot() == before
 
 
 def test_custom_reconciliation_policy_is_selected_by_backtest_factory(tmp_path) -> None:
@@ -126,7 +124,7 @@ def test_custom_reconciliation_policy_is_selected_by_backtest_factory(tmp_path) 
         component_mismatch_action=OnlyFeeReconciliationAction.BLOCK,
     )
     services = only_default_engine_services()
-    services.fee_reconciliation_policies.register(policy)
+    services.assembler.components.fee_reconciliation_policies.register(policy)
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId("reconciliation-policy-custom"), tmp_path),
         services=services,
@@ -140,7 +138,7 @@ def test_custom_reconciliation_policy_is_selected_by_backtest_factory(tmp_path) 
         engine.stop()
 
 
-def test_unknown_broker_fee_contract_fails_runtime_build(tmp_path) -> None:
+def test_unknown_broker_fee_contract_fails_composition_without_residue(tmp_path) -> None:
     payload = _payload()
     payload["accounts"][0]["broker_fee_contract"] = {  # type: ignore[index]
         "contract_id": "UNKNOWN",
@@ -148,10 +146,10 @@ def test_unknown_broker_fee_contract_fails_runtime_build(tmp_path) -> None:
     }
     config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-fee-unknown"), tmp_path))
-    engine.add_cluster(config)
-    result = engine.run()
-    assert result.status == "FAILED"
-    assert any("BROKER_FEE_CONTRACT_NOT_INSTALLED" in failure for failure in result.failures)
+    before = engine.snapshot()
+    with pytest.raises(ValueError, match="BROKER_FEE_CONTRACT_NOT_INSTALLED"):
+        engine.add_cluster(config)
+    assert engine.snapshot() == before
 
 
 def test_inline_broker_contract_is_installed_by_engine_composition(tmp_path) -> None:
@@ -166,7 +164,9 @@ def test_inline_broker_contract_is_installed_by_engine_composition(tmp_path) -> 
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-fee-inline"), tmp_path), services=services)
     engine.add_cluster(config)
 
-    installed = services.broker_fee_contracts.require("VIRTUAL:BACKTEST-ACCOUNT:COMMISSION", "2025.01")
+    installed = services.assembler.components.broker_fee_contracts.require(
+        "VIRTUAL:BACKTEST-ACCOUNT:COMMISSION", "2025.01"
+    )
     assert installed == config.broker_fee_contract_authorities[0]
     assert engine.validate().valid
 
@@ -179,7 +179,7 @@ def test_broker_fee_contract_must_match_actual_broker_authority(tmp_path) -> Non
     }
     config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-fee-incompatible"), tmp_path))
-    engine.add_cluster(config)
-    result = engine.run()
-    assert result.status == "FAILED"
-    assert any("BROKER_FEE_CONTRACT_BROKER_INCOMPATIBLE" in failure for failure in result.failures)
+    before = engine.snapshot()
+    with pytest.raises(ValueError, match="BROKER_FEE_CONTRACT_BROKER_INCOMPATIBLE"):
+        engine.add_cluster(config)
+    assert engine.snapshot() == before

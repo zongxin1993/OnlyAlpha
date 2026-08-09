@@ -31,13 +31,20 @@ def test_default_composition_installs_only_the_verified_cny_policy() -> None:
     second = only_default_engine_services()
     cny = OnlyCurrency("CNY", 2)
 
-    first_policy = first.fee_reconciliation_policies.require("STANDARD_FEE_RECONCILIATION", "1", cny)
-    second_policy = second.fee_reconciliation_policies.require("STANDARD_FEE_RECONCILIATION", "1", cny)
+    first_policy = first.assembler.components.fee_reconciliation_policies.require(
+        "STANDARD_FEE_RECONCILIATION", "1", cny
+    )
+    second_policy = second.assembler.components.fee_reconciliation_policies.require(
+        "STANDARD_FEE_RECONCILIATION", "1", cny
+    )
 
-    assert first.fee_reconciliation_policies is not second.fee_reconciliation_policies
+    assert (
+        first.assembler.components.fee_reconciliation_policies
+        is not second.assembler.components.fee_reconciliation_policies
+    )
     assert first_policy.identity == second_policy.identity
     with pytest.raises(ValueError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
-        first.fee_reconciliation_policies.require(
+        first.assembler.components.fee_reconciliation_policies.require(
             "STANDARD_FEE_RECONCILIATION",
             "1",
             OnlyCurrency("USD", 2),

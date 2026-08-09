@@ -13,10 +13,10 @@ Pre-Trade、Match-Time 或 Instruction Port，不得接收 Profile/Resolved Prof
 
 ## Runtime Planning
 
-`OnlyRuntimePlanner` 使用 Runtime 类型、起止时间、Clock/Replay policy、Data Version、Broker Environment 和 Account
-Environment 生成 `OnlyRuntimeCompatibilityKey`。兼容 Cluster 进入同一个 `OnlyRuntimePlan`，不兼容 Cluster 必须进入不同
-Runtime Session。`OnlyEngineRunAssembler` 只接受明确的 `OnlyRuntimePlan` 并负责对象装配，不读取配置文件、不执行生命周期、
-不汇总或导出结果。
+`OnlyRuntimeEnvironmentBuilder` 是 Runtime shared environment 的唯一语义权威，生成结构化
+`OnlyRuntimeEnvironmentIdentity` 与 canonical fingerprint。`OnlyRuntimePlanner` 只按该 Identity 分组并从 fingerprint 派生
+Runtime ID；不同环境进入不同 Runtime Session。相同 Account/Broker/DataSource mutable key 若 fingerprint 不同则全局 Fail
+Closed，不能借分 Runtime 绕过。`OnlyEngineRunAssembler` 只装配已验证的 `OnlyRuntimePlan`。
 
 当前多 Cluster 会计模型固定为单 Account、单 Base Currency、`FIXED_CAPITAL`。Assembly 在 Runtime 创建前验证每个 Cluster
 资本及其严格总和；Runtime 通过完整 scope Ledger Locator 连接 Order、Risk、Execution、Valuation、Result 与 Reconciliation，
@@ -128,8 +128,8 @@ Schedule 均 fail closed。
 Backtest 数据按历史 Calendar 与 Instrument 版本解析。当前已实现最小 Next-Bar Virtual Broker 撮合；完整历史数据驱动与
 更复杂撮合仍必须遵守 `docs/time_model.md` 和 `docs/virtual_broker.md`。
 
-Engine 使用 `OnlyRuntimeCompatibilityKey` 按 Runtime 类型、时间范围、Clock/Replay、数据版本、Broker 与 Account 环境分组。
-仅环境兼容且资源 Fingerprint 一致的 Cluster 才进入同一 Backtest Runtime；不兼容配置创建独立 Runtime。共享 Runtime
+Engine 使用 canonical Runtime Environment 按 Runtime 类型、时间范围、Clock/Replay、DataSource、Broker、Account、Market、
+Reference 与 Persistence 分组。仅环境 Identity 完全相同的 Cluster 才进入同一 Backtest Runtime；合法的不兼容配置创建独立 Runtime。共享 Runtime
 仍保持一个 Order/Position/Account 单写入者状态域，而 Strategy、Factor、Indicator、Allocation 与 Ledger 按 Cluster 隔离。
 
 每个 Runtime 独占并在关闭时关闭自己的 `OnlyClock`。Cluster Context 只接收只读

@@ -1,6 +1,6 @@
 """Trusted local composition root for built-in factories."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
@@ -44,14 +44,7 @@ from onlyalpha.strategy.factory import OnlyStrategyFactory
 @dataclass(frozen=True, slots=True)
 class OnlyEngineServices:
     assembler: OnlyEngineRunAssembler
-    data_sources: OnlyDataSourceFactoryRegistry = field(default_factory=OnlyDataSourceFactoryRegistry)
-    brokers: OnlyBrokerFactoryRegistry = field(default_factory=OnlyBrokerFactoryRegistry)
-    market_fee_packs: OnlyMarketFeePackRegistry = field(default_factory=OnlyMarketFeePackRegistry)
-    broker_fee_contracts: OnlyBrokerFeeContractRegistry = field(default_factory=OnlyBrokerFeeContractRegistry)
-    fee_reconciliation_policies: OnlyFeeReconciliationPolicyRegistry = field(
-        default_factory=OnlyFeeReconciliationPolicyRegistry
-    )
-    plugin_discovery: OnlyPluginDiscoveryReport = field(default_factory=lambda: OnlyPluginDiscoveryReport((), ()))
+    plugin_discovery: OnlyPluginDiscoveryReport = OnlyPluginDiscoveryReport((), ())
 
 
 def only_default_engine_services(
@@ -102,12 +95,4 @@ def only_default_engine_services(
             runtime_persistence_store_factory or OnlyDefaultRuntimePersistenceStoreFactory(),
         ),
     )
-    return OnlyEngineServices(
-        assembler,
-        data_sources,
-        brokers,
-        fee_packs,
-        broker_contracts,
-        reconciliation_policies,
-        discovery,
-    )
+    return OnlyEngineServices(assembler, discovery)

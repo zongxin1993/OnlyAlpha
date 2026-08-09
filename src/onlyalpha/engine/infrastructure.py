@@ -1,17 +1,10 @@
-"""Shared infrastructure compatibility and reference accounting."""
+"""Shared-resource claim conflict and reference-count authority."""
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 
-from onlyalpha.config import (
-    OnlyAccountRuntimeConfig,
-    OnlyBrokerRuntimeConfig,
-    OnlyClusterRunConfig,
-    OnlyDataSourceRuntimeConfig,
-)
+from onlyalpha.runtime.environment import OnlyResourceClaim
 
 
 class OnlyResourceConfigurationConflict(ValueError):
@@ -25,34 +18,46 @@ class _OnlyResourceRecord:
 
 
 class OnlyInfrastructureRegistry:
-    """Rejects conflicting IDs and releases resources only at zero references."""
+    """Claim/refcount registry; resource semantics are canonicalized upstream."""
 
     def __init__(self) -> None:
         self._records: dict[str, _OnlyResourceRecord] = {}
         self._cluster_resources: dict[str, tuple[str, ...]] = {}
 
-    def acquire(self, config: OnlyClusterRunConfig) -> tuple[str, ...]:
-        cluster_key = str(config.cluster_id)
+    def validate(self, cluster_id: object, claims: tuple[OnlyResourceClaim, ...]) -> None:
+        cluster_key = str(cluster_id)
         if cluster_key in self._cluster_resources:
             raise ValueError(f"resources already acquired for {cluster_key}")
-        resources = self._resource_projections(config)
         conflicts = [
-            key
-            for key, projection in resources
-            if key in self._records and self._records[key].fingerprint != _fingerprint(projection)
+            claim
+            for claim in claims
+            if claim.key in self._records and self._records[claim.key].fingerprint != claim.fingerprint
         ]
         if conflicts:
-            raise OnlyResourceConfigurationConflict(f"RESOURCE_CONFIGURATION_CONFLICT: {', '.join(sorted(conflicts))}")
+            details = ", ".join(
+                f"{claim.key}[existing={self._records[claim.key].fingerprint},requested={claim.fingerprint}]"
+                for claim in conflicts
+            )
+            raise OnlyResourceConfigurationConflict(f"RESOURCE_CONFIGURATION_CONFLICT: {details}")
+
+    def acquire(self, cluster_id: object, claims: tuple[OnlyResourceClaim, ...]) -> tuple[str, ...]:
+        self.validate(cluster_id, claims)
+        records = {
+            key: _OnlyResourceRecord(record.fingerprint, record.reference_count)
+            for key, record in self._records.items()
+        }
         keys = []
-        for key, projection in resources:
-            fingerprint = _fingerprint(projection)
-            record = self._records.get(key)
+        for claim in claims:
+            record = records.get(claim.key)
             if record is None:
-                self._records[key] = _OnlyResourceRecord(fingerprint, 1)
+                records[claim.key] = _OnlyResourceRecord(claim.fingerprint, 1)
             else:
                 record.reference_count += 1
-            keys.append(key)
-        self._cluster_resources[cluster_key] = tuple(keys)
+            keys.append(claim.key)
+        cluster_resources = dict(self._cluster_resources)
+        cluster_resources[str(cluster_id)] = tuple(keys)
+        self._records = records
+        self._cluster_resources = cluster_resources
         return tuple(keys)
 
     def release(self, cluster_id: object) -> tuple[str, ...]:
@@ -72,48 +77,3 @@ class OnlyInfrastructureRegistry:
 
     def references_for(self, cluster_id: object) -> tuple[str, ...]:
         return self._cluster_resources.get(str(cluster_id), ())
-
-    @staticmethod
-    def _resource_projections(config: OnlyClusterRunConfig) -> tuple[tuple[str, object], ...]:
-        values: list[tuple[str, object]] = []
-        values.extend((f"calendar:{item.calendar_id}", item.to_dict()) for item in config.reference_data.calendars)
-        values.extend(
-            (f"instrument:{item.instrument_id}", item.to_dict()) for item in config.reference_data.instruments
-        )
-        values.extend((f"data_source:{item.source_id}", _source_projection(item)) for item in config.data_sources)
-        values.extend((f"broker:{item.gateway_id}", _broker_projection(item)) for item in config.brokers)
-        values.extend((f"account:{item.account_id}", _account_projection(item)) for item in config.accounts)
-        return tuple(values)
-
-
-def _fingerprint(value: object) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
-
-
-def _source_projection(value: OnlyDataSourceRuntimeConfig) -> object:
-    return {
-        "plugin": value.plugin_id,
-        "enabled": value.enabled,
-        "version": str(value.data_version),
-        "coverage": value.coverage,
-        "extensions": dict(value.extensions),
-    }
-
-
-def _broker_projection(value: OnlyBrokerRuntimeConfig) -> object:
-    return {
-        "plugin": value.plugin_id,
-        "enabled": value.enabled,
-        "extensions": dict(value.extensions),
-    }
-
-
-def _account_projection(value: OnlyAccountRuntimeConfig) -> object:
-    return {
-        "gateway_id": str(value.gateway_id),
-        "initial_cash": value.initial_cash.to_dict(),
-        "fee_reconciliation_policy": {
-            "policy_id": value.fee_reconciliation_policy.policy_id,
-            "policy_version": value.fee_reconciliation_policy.policy_version,
-        },
-    }

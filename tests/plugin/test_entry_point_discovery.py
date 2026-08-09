@@ -13,9 +13,17 @@ def test_installed_distribution_is_discovered_through_real_entry_points() -> Non
         "virtual-simulation-zero",
     }
     services = only_default_engine_services()
-    assert services.data_sources.resolve("test-external-data").descriptor.plugin_id == "test-external-data"
-    assert services.brokers.resolve("test-external-broker").descriptor.plugin_id == "test-external-broker"
     assert (
-        services.broker_fee_contracts.require("TEST_EXTERNAL_BROKER_SIMULATION_ZERO_BROKER_FEES", "1").broker_id
+        services.assembler.components.data_sources.resolve("test-external-data").descriptor.plugin_id
+        == "test-external-data"
+    )
+    assert (
+        services.assembler.components.brokers.resolve("test-external-broker").descriptor.plugin_id
+        == "test-external-broker"
+    )
+    assert (
+        services.assembler.components.broker_fee_contracts.require(
+            "TEST_EXTERNAL_BROKER_SIMULATION_ZERO_BROKER_FEES", "1"
+        ).broker_id
         == "test-external-broker"
     )

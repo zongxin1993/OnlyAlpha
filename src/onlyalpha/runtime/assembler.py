@@ -41,23 +41,23 @@ class OnlyEngineRunAssembler:
         component_factories: OnlyComponentFactoryRegistries,
     ) -> None:
         self._runtime_factories = runtime_factories
-        self._component_factories = component_factories
+        self.components = component_factories
 
     def build(self, plan: OnlyRuntimePlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
         try:
-            factory = self._runtime_factories.require(plan.compatibility_key.runtime_type)
+            factory = self._runtime_factories.require(plan.environment.runtime_type)
         except ValueError as exc:
             return OnlyRuntimeBuildResult(
                 failure_code="RUNTIME_FACTORY_NOT_AVAILABLE",
                 failure_message=str(exc),
             )
-        return factory.create(OnlyRuntimeBuildRequest(plan, self._component_factories, user_data_root))
+        return factory.create(OnlyRuntimeBuildRequest(plan, self.components, user_data_root))
 
     def validate(self, plan: OnlyRuntimePlan) -> OnlyRuntimeBuildResult:
         """Validate factory availability without constructing Runtime objects."""
 
         try:
-            factory = self._runtime_factories.require(plan.compatibility_key.runtime_type)
+            factory = self._runtime_factories.require(plan.environment.runtime_type)
         except ValueError as exc:
             return OnlyRuntimeBuildResult(
                 failure_code="RUNTIME_FACTORY_NOT_AVAILABLE",
@@ -65,5 +65,5 @@ class OnlyEngineRunAssembler:
             )
         validate = getattr(factory, "validate", None)
         if callable(validate):
-            return cast(OnlyRuntimeBuildResult, validate(OnlyRuntimeBuildRequest(plan, self._component_factories)))
+            return cast(OnlyRuntimeBuildResult, validate(OnlyRuntimeBuildRequest(plan, self.components)))
         return OnlyRuntimeBuildResult()
