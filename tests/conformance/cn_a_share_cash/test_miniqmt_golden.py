@@ -9,6 +9,7 @@ import pytest
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.fee.testing import only_cn_a_share_conformance_fee_pack
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from tests.support.golden_data import (
@@ -84,6 +85,7 @@ def _config() -> OnlyClusterRunConfig:
 
 def _services() -> OnlyEngineServices:
     services = only_default_engine_services()
+    services.market_fee_packs.register(only_cn_a_share_conformance_fee_pack())
     services.data_sources.register(
         OnlyMiniQmtGoldenDataSourceFactory(),
         origin=OnlyPluginOrigin(OnlyPluginOriginType.TEST, "tests.support.golden_data"),

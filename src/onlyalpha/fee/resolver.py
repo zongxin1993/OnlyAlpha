@@ -152,9 +152,17 @@ class OnlyFeeResolver:
                 schedules.append(self._market.resolve_family(family, market_context))
             else:
                 schedules.append(self._broker.resolve_family(family, broker_context))
+        applicable_schedules = tuple(
+            schedule
+            for schedule in schedules
+            if any(
+                (rule.side is None or rule.side is order.side) and (rule.offset is None or rule.offset is order.offset)
+                for rule in schedule.rules
+            )
+        )
         policies = tuple(
             policy
-            for schedule in schedules
+            for schedule in applicable_schedules
             for policy in schedule.resolved_policies()
             if policy.rule.side is None or policy.rule.side is order.side
             if policy.rule.offset is None or policy.rule.offset is order.offset
@@ -168,7 +176,7 @@ class OnlyFeeResolver:
             market_fee_pack=binding.market_fee_pack,
             broker_fee_contract=binding.broker_fee_contract,
             scope_fingerprint=binding.applicability_scope.fingerprint,
-            resolved_schedules=tuple(schedule.identity for schedule in schedules),
+            resolved_schedules=tuple(schedule.identity for schedule in applicable_schedules),
             policies=OnlyResolvedFeePolicySet.create(policies),
             trading_day=trading_day,
         )

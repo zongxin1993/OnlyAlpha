@@ -134,6 +134,7 @@ class OnlyRuntimePlanner:
             first.output,
             first.source_path,
             first.normalized_payload,
+            tuple(contract for config in configs for contract in config.broker_fee_contract_authorities),
         )
         assembly.validate_capital_allocation()
         return OnlyRuntimePlan(

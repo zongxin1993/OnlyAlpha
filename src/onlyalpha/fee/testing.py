@@ -1,4 +1,4 @@
-"""Architecture-only generic cash fee pack."""
+"""Testing-only Fee Authorities; never install these in production composition."""
 
 from datetime import date
 from decimal import Decimal
@@ -21,14 +21,14 @@ from onlyalpha.fee.rounding import OnlyFeeRoundingPolicy
 from onlyalpha.fee.schedules import OnlyMarketFeeSchedule
 
 
-def _cash_pack(*, pack_id: str, profile_id: str, market: str) -> OnlyMarketFeePack:
+def only_cn_a_share_conformance_fee_pack() -> OnlyMarketFeePack:
     schedule = OnlyMarketFeeSchedule(
-        "GENERIC_T0_CASH_FEES",
+        "CN_A_SHARE_TEST_FEES",
         "1",
         date(1970, 1, 1),
         None,
         OnlyCurrency("CNY"),
-        "OnlyAlpha Generic Conformance",
+        "OnlyAlpha Test Conformance",
         (
             OnlyFeeRule(
                 "generic-notional-rate",
@@ -47,24 +47,16 @@ def _cash_pack(*, pack_id: str, profile_id: str, market: str) -> OnlyMarketFeePa
                 OnlyFeeCalculationPipeline.ROUND_THEN_BOUNDS,
             ),
         ),
-        market,
+        "CN_A_SHARE",
         None,
         "CASH",
     )
     return OnlyMarketFeePack.create(
-        pack_id=pack_id,
+        pack_id="CN_A_SHARE_TEST_MARKET_FEE_PACK",
         pack_version="1",
-        compatible_market_profiles=(profile_id,),
+        compatible_market_profiles=("CN_A_SHARE_CASH",),
         schedules=(schedule,),
     )
 
 
-def only_generic_t0_cash_fee_pack() -> OnlyMarketFeePack:
-    return _cash_pack(
-        pack_id="GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE",
-        profile_id="GENERIC_T0_CASH",
-        market="GENERIC",
-    )
-
-
-__all__ = ["only_generic_t0_cash_fee_pack"]
+__all__ = ["only_cn_a_share_conformance_fee_pack"]

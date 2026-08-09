@@ -31,6 +31,7 @@ from onlyalpha.engine.models import (
     OnlyEngineValidationResult,
     OnlyRuntimeSession,
 )
+from onlyalpha.fee.provisioning import only_provision_broker_fee_contract
 from onlyalpha.output import OnlyEngineResultExporter, OnlyUserDataLayout
 from onlyalpha.report import OnlyConsoleBacktestReport, OnlyJsonBacktestReport, OnlyMarkdownBacktestReport
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
@@ -110,6 +111,9 @@ class OnlyEngine:
         self.state = OnlyEngineState.CONFIGURING
         acquired = False
         try:
+            services = self._require_services()
+            for contract in config.broker_fee_contract_authorities:
+                only_provision_broker_fee_contract(contract, services.broker_fee_contracts)
             resources = self._infrastructure.acquire(config)
             acquired = True
             self._validate_extension_types(config)

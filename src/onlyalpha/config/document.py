@@ -76,6 +76,7 @@ from onlyalpha.domain.value import (
     OnlyRate,
 )
 from onlyalpha.factor.identifiers import OnlyFactorId
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 from onlyalpha.reference import (
     OnlyAshareInstrumentReference,
@@ -135,6 +136,7 @@ class OnlyRuntimeAssemblyPlan:
     output: OnlyOutputConfig
     source_path: Path
     normalized_payload: OnlyJsonMapping
+    broker_fee_contract_authorities: tuple[OnlyBrokerFeeContract, ...] = ()
 
     @property
     def engine_id(self) -> OnlyEngineId:

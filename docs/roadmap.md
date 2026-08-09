@@ -140,6 +140,14 @@ Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
 ## Phase 8：性能与分布式（未完成）
 
 多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。
+
+## P0–P3 Fee Product Closure（完成）
+
+P0 Test/CI Governance、P1 Fee Authority、P2 Reconciliation、P2.1 Reconciliation Composition 与 P3 CN A-share
+Production Fee Product 已完成。P3 覆盖从 2025-06-30 开始的普通 CNY A 股 XSHG/XSHE 印花税/过户费 Authority、严格
+Broker Contract Snapshot、独立 Reference Vectors 与既有 Recovery/Reconciliation 兼容性。
+
+下一阶段为 **P4 — CN A-Share Durable Execution Product Closure**。P3 未修改 Execution Capability Resolver。
 ## PR4.2 Runtime Checkpoint 与连续 Engine Restart
 
 已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、完整 Bar completion 后原子 checkpoint、checkpointable Result Progress、完整 Participant Registry、精确 MarketData cursor、Broker Update 因果点 Ready rehydration/未投影 Coordinator recovery、Stored Prepared 全量验证、Open Order/Virtual Broker/Strategy/Factor/Indicator 恢复，以及独立 Engine 连续重启和 canonical business projection 基线等价测试。PR4.2.2a 分离 persisted tail resolved 与 exact MarketData boundary completed，并支持正式 continuation transaction。PR4.2.2b 已增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator、fail-closed Finalizer、checkpoint durable read-back 以及 Engine A→B→C after-commit 故障矩阵。PR4.2.2c Unified Recovery Event Gate 已完成：Direct、Durable Outbox 与 Lifecycle 统一经 Runtime Router，恢复历史 Direct Event 被抑制，fresh bootstrap 有界暂存，recovery bootstrap 丢弃，continuation Outbox 仅在 OPEN 后交付，Runtime EventBus 对外只读。Paper/Live recovery、Partial/Multi-Close、Futures/Margin、Non-Trade Transaction、exactly-once Outbox、Direct Durable Journal、Delivery Watermark、Subscriber ACK、schema migration 与分布式 checkpoint 仍未完成。

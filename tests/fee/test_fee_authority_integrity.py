@@ -243,9 +243,8 @@ def test_effective_family_requires_exactly_one_version() -> None:
     registry = OnlyMarketFeeScheduleRegistry()
     first = _market_schedule("1")
     registry.register(first)
-    registry.register(_market_schedule("2"))
     with pytest.raises(ValueError, match="FEE_SCHEDULE_AMBIGUOUS"):
-        registry.resolve_family(first.family_identity, context)
+        registry.register(_market_schedule("2"))
 
     empty = OnlyMarketFeeScheduleRegistry()
     with pytest.raises(ValueError, match="FEE_SCHEDULE_NOT_FOUND"):

@@ -1,8 +1,34 @@
 schema_version: "1.0"
+authorities:
+  broker_fee_contracts:
+    - schema_version: "1"
+      contract_id: "VIRTUAL:BACKTEST-ACCOUNT:CASH-EQUITY-COMMISSION"
+      contract_version: "2025.01"
+      broker_id: virtual
+      account_scope: {scope_type: EXACT_ACCOUNT, account_id: backtest-account}
+      schedules:
+        - schedule_id: VIRTUAL_CASH_EQUITY_COMMISSION
+          version: "1"
+          effective_from: "2025-01-01"
+          currency: {code: CNY, precision: 2}
+          source: "BROKER_CONTRACT:VIRTUAL:BACKTEST-ACCOUNT:CASH-EQUITY-COMMISSION:2025.01"
+          rules:
+            - rule_id: cash-equity-commission
+              fee_type: BROKER_COMMISSION
+              authority: BROKER
+              economic_direction: CHARGE
+              basis: NOTIONAL
+              rate: "0.0003"
+              calculation_scope: ORDER_CUMULATIVE
+              resolution_policy: ORDER_FIXED
+              minimum: "5.00"
+              rounding_quantum: "0.01"
+              rounding_mode: HALF_UP
+              pipeline: ROUND_THEN_BOUNDS
 cluster: {cluster_id: tushare-daily-demo, enabled: true, runtime_type: BACKTEST, account_id: backtest-account, risk_profile_id: cn-equity-default}
-market: {profile: CN_A_SHARE_CASH, fee_pack: {pack_id: CN_A_SHARE_TEST_MARKET_FEE_PACK, pack_version: "1"}}
+market: {profile: CN_A_SHARE_CASH, fee_pack: {pack_id: CN_A_SHARE_PRODUCTION_MARKET_FEES, pack_version: "2025.06.30"}}
 runtime:
-  start_time: "2024-12-31T16:00:00Z"
+  start_time: "2025-06-29T16:00:00Z"
   end_time: "2025-12-31T16:00:00Z"
   base_currency: CNY
   extensions: {replay: {stop_on_data_error: true}}
@@ -32,7 +58,7 @@ accounts:
   - account_id: backtest-account
     gateway_id: virtual-main
     initial_cash: {value: "1000000.00", currency: CNY}
-    broker_fee_contract: {contract_id: VIRTUAL_SIMULATION_ZERO_BROKER_FEES, contract_version: "1"}
+    broker_fee_contract: {contract_id: "VIRTUAL:BACKTEST-ACCOUNT:CASH-EQUITY-COMMISSION", contract_version: "2025.01"}
     fee_reconciliation_policy: {policy_id: STANDARD_FEE_RECONCILIATION, policy_version: "1"}
 brokers:
   - gateway_id: virtual-main

@@ -26,3 +26,7 @@ Transaction 表达 Supplemental Charge 或 Refund。Broker 返回的是独立 `O
 `ORDER_FEE_ACCRUAL` 与单笔 `FEE` 是不同 Projection Component：前者 entity scope 是 Order，保存每个 component 的累计
 raw/target/applied 以及 Fill count/version；后者 entity scope 是 Fee Application。两者都支持 codec、Projection replay 和
 checkpoint。Authority 输入侧详细决策见 ADR 0060；durable accrual/application 决策见 ADR 0059。
+
+`CN_A_SHARE_PRODUCTION_MARKET_FEES@2025.06.30` 是普通 CNY A 股现金股票的生产 Market Authority，覆盖 XSHG/XSHE
+且从 2025-06-30 开始。它包含 SELL-only 印花税与双边过户费；Broker 佣金（含最低佣金）只能由严格的 Account Contract
+Snapshot 提供。测试 Pack 不在默认 Composition 或公共 Pack export 中。该费用产品不开放 A 股 Durable Execution。

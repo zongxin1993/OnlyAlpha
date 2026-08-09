@@ -172,7 +172,7 @@ OnlyAlpha 内置以下 Market Profile：
 - 主板、风险警示、创业板和科创板的版本化涨跌幅矩阵与 Tick 对齐上下限；
 - 主板/创业板整手以及科创板最低 200、1 股递增；
 - 零股仅允许清仓；
-- 测试/Conformance 用费用 Authority、Binding 与 Reconciliation 架构；
+- 覆盖窗口从 2025-06-30 开始的生产级印花税/过户费 Authority，以及静态 Broker Contract Provisioning；
 - Bar 成交量参与率；
 - Next-Bar Open 撮合模型。
 
@@ -182,9 +182,10 @@ A 股版本化 Reference Authority 已完成：板块、历史 ST、停牌、交
 Instrument + Trading Day 唯一解析，并参与配置校验、Runtime 兼容性、Artifact 和恢复指纹。A 股 Durable
 Execution、完整 T+1、费用与撮合闭环仍未完成。
 
-当前内置 A 股 Fee Pack 仅用于测试和 Conformance，不是正式市场费率。生产级佣金、印花税、过户费 Schedule，
-真实券商佣金合同及 MiniQMT Fee Evidence 查询均未实现。版本化 Fee Authority、外部证据对账语义和统一
-Reconciliation Policy Composition 已就绪，但不代表正式 A 股费用产品已经完成。
+`CN_A_SHARE_PRODUCTION_MARKET_FEES@2025.06.30` 已提供普通 CNY A 股现金股票在 XSHG/XSHE 的生产印花税和过户费
+Authority；窗口外 Fail Closed。真实账户佣金通过严格静态 Contract Snapshot 在 Composition 阶段安装，Account 只选择
+Identity。MiniQMT Fee Evidence 查询、Broker 自动佣金发现和 A 股 Durable Execution 仍未实现；费用产品完成不等于交易
+产品闭环，Execution Capability Resolver 未开放 A 股 Durable Trade。
 
 `OnlyMarketRuleEngine.evaluate_pre_trade()` 是 Runtime 唯一申报前市场规则权威。其结构化 Decision 固定记录制度版本、
 Reference/编译指纹、交易阶段、数量政策、价格带和有序 Evaluation；Risk 与 Order 只消费该结果，不复制市场制度规则。

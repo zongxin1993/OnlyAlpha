@@ -24,6 +24,41 @@ def _payload() -> dict[str, object]:
 SOURCE_PATH = Path("tests/fixtures/legacy_macd/cluster.json")
 
 
+def _inline_contract() -> dict[str, object]:
+    return {
+        "schema_version": "1",
+        "contract_id": "VIRTUAL:BACKTEST-ACCOUNT:COMMISSION",
+        "contract_version": "2025.01",
+        "broker_id": "virtual",
+        "account_scope": {"scope_type": "EXACT_ACCOUNT", "account_id": "backtest-account"},
+        "schedules": [
+            {
+                "schedule_id": "VIRTUAL_BACKTEST_COMMISSION",
+                "version": "1",
+                "effective_from": "2025-01-01",
+                "currency": {"code": "CNY", "precision": 2},
+                "source": "BROKER_CONTRACT:VIRTUAL:BACKTEST-ACCOUNT:COMMISSION:2025.01",
+                "rules": [
+                    {
+                        "rule_id": "cash-equity-commission",
+                        "fee_type": "BROKER_COMMISSION",
+                        "authority": "BROKER",
+                        "economic_direction": "CHARGE",
+                        "basis": "NOTIONAL",
+                        "rate": "0.0003",
+                        "calculation_scope": "ORDER_CUMULATIVE",
+                        "resolution_policy": "ORDER_FIXED",
+                        "minimum": "5.00",
+                        "rounding_quantum": "0.01",
+                        "rounding_mode": "HALF_UP",
+                        "pipeline": "ROUND_THEN_BOUNDS",
+                    }
+                ],
+            }
+        ],
+    }
+
+
 def test_old_combined_fee_schema_is_rejected() -> None:
     payload = _payload()
     payload["market"]["fees"] = {}  # type: ignore[index]
@@ -117,6 +152,23 @@ def test_unknown_broker_fee_contract_fails_runtime_build(tmp_path) -> None:
     result = engine.run()
     assert result.status == "FAILED"
     assert any("BROKER_FEE_CONTRACT_NOT_INSTALLED" in failure for failure in result.failures)
+
+
+def test_inline_broker_contract_is_installed_by_engine_composition(tmp_path) -> None:
+    payload = _payload()
+    payload["authorities"] = {"broker_fee_contracts": [_inline_contract()]}
+    payload["accounts"][0]["broker_fee_contract"] = {  # type: ignore[index]
+        "contract_id": "VIRTUAL:BACKTEST-ACCOUNT:COMMISSION",
+        "contract_version": "2025.01",
+    }
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+    services = only_default_engine_services()
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-fee-inline"), tmp_path), services=services)
+    engine.add_cluster(config)
+
+    installed = services.broker_fee_contracts.require("VIRTUAL:BACKTEST-ACCOUNT:COMMISSION", "2025.01")
+    assert installed == config.broker_fee_contract_authorities[0]
+    assert engine.validate().valid
 
 
 def test_broker_fee_contract_must_match_actual_broker_authority(tmp_path) -> None:

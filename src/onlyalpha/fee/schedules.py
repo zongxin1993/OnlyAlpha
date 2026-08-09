@@ -211,6 +211,8 @@ class _OnlyFeeScheduleRegistry:
             raise ValueError(code)
         if any(item.scope_fingerprint != schedule.scope_fingerprint for item in values):
             raise ValueError("FEE_SCHEDULE_SCOPE_DRIFT")
+        if any(_effective_ranges_overlap(item, schedule) for item in values):
+            raise ValueError("FEE_SCHEDULE_AMBIGUOUS")
         values.append(schedule)
         values.sort(key=lambda item: (item.effective_from, item.version))
 
@@ -233,6 +235,12 @@ class _OnlyFeeScheduleRegistry:
             for schedule_id in sorted(self._schedules)
             for item in sorted(self._schedules[schedule_id], key=lambda value: (value.effective_from, value.version))
         )
+
+
+def _effective_ranges_overlap(first: _OnlyBaseFeeSchedule, second: _OnlyBaseFeeSchedule) -> bool:
+    first_to = first.effective_to or date.max
+    second_to = second.effective_to or date.max
+    return first.effective_from < second_to and second.effective_from < first_to
 
 
 class OnlyMarketFeeScheduleRegistry(_OnlyFeeScheduleRegistry):

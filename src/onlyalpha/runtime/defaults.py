@@ -12,7 +12,7 @@ from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.fee.market_pack import OnlyMarketFeePackRegistry
 from onlyalpha.fee.packs import (
-    only_cn_a_share_conformance_fee_pack,
+    only_cn_a_share_production_fee_pack,
     only_generic_crypto_spot_fee_pack,
     only_generic_margin_futures_fee_pack,
     only_generic_t0_cash_fee_pack,
@@ -82,7 +82,7 @@ def only_default_engine_services(
         only_generic_t0_cash_fee_pack(),
         only_generic_margin_futures_fee_pack(),
         only_generic_crypto_spot_fee_pack(),
-        only_cn_a_share_conformance_fee_pack(),
+        only_cn_a_share_production_fee_pack(),
     ):
         fee_packs.register(pack)
     reconciliation_policies = OnlyFeeReconciliationPolicyRegistry()

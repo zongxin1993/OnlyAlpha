@@ -32,6 +32,8 @@ from onlyalpha.config.models import (
     _normalize_mapping,
 )
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
+from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
+from onlyalpha.fee.provisioning import OnlyBrokerFeeContractDocumentLoader
 from onlyalpha.market.models import OnlyMarketProfileId
 
 
@@ -53,6 +55,7 @@ class OnlyClusterRunConfig:
     market: OnlyMarketConfig
     source_path: Path
     normalized_payload: OnlyJsonMapping
+    broker_fee_contract_authorities: tuple[OnlyBrokerFeeContract, ...] = ()
 
     @property
     def cluster_id(self) -> OnlyClusterId:
@@ -121,6 +124,7 @@ class OnlyClusterRunConfig:
         brokers = parser._brokers(parser._list(root.get("brokers"), "$.brokers"))
         output = parser._output(parser._map(root.get("output", {}), "$.output"))
         market = _parse_market(parser, root)
+        broker_fee_contract_authorities = _parse_broker_fee_contract_authorities(parser, root)
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
         normalized_root: dict[str, object] = dict(root)
         normalized_reference = dict(parser._map(root.get("reference_data"), "$.reference_data"))
@@ -149,6 +153,7 @@ class OnlyClusterRunConfig:
             output,
             source,
             normalized_payload,
+            broker_fee_contract_authorities,
         )
         return cls(
             schema_version,
@@ -165,6 +170,7 @@ class OnlyClusterRunConfig:
             market,
             source,
             normalized_payload,
+            broker_fee_contract_authorities,
         )
 
 
@@ -191,3 +197,21 @@ def _parse_market(parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping) -> 
         version,
         overrides,
     )
+
+
+def _parse_broker_fee_contract_authorities(
+    parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping
+) -> tuple[OnlyBrokerFeeContract, ...]:
+    raw = parser._map(root.get("authorities", {}), "$.authorities")
+    unknown = sorted(set(raw) - {"broker_fee_contracts"})
+    if unknown:
+        raise OnlyClusterConfigError(f"UNKNOWN_FIELD: $.authorities.{unknown[0]}")
+    documents = parser._list(raw.get("broker_fee_contracts", []), "$.authorities.broker_fee_contracts")
+    contracts = tuple(
+        OnlyBrokerFeeContractDocumentLoader.load(parser._map(value, f"$.authorities.broker_fee_contracts[{index}]"))
+        for index, value in enumerate(documents)
+    )
+    identities = [(item.contract_id, item.contract_version) for item in contracts]
+    if len(set(identities)) != len(identities):
+        raise OnlyClusterConfigError("BROKER_FEE_CONTRACT_DUPLICATE_VERSION")
+    return contracts
