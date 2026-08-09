@@ -20,10 +20,15 @@ from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
+from .capability import (
+    ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
+    OnlyExecutionCapability,
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
-    schema_version = 1
+    schema_version = 2
 
     operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
@@ -35,6 +40,9 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     cluster_id: OnlyClusterId
     instrument_id: OnlyInstrumentId
     order_id: OnlyOrderId
+    execution_capability: OnlyExecutionCapability
+    execution_support_schema_version: str
+    execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
     correlation_id: str
@@ -59,6 +67,12 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     def __post_init__(self) -> None:
         if self.operation_kind is not OnlyRuntimeOperationKind.ORDER_TERMINAL:
             raise ValueError("terminal fact requires ORDER_TERMINAL operation kind")
+        if (
+            self.execution_capability is not OnlyExecutionCapability.DURABLE_TERMINAL
+            or self.execution_support_schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or len(self.execution_support_fingerprint) != 64
+        ):
+            raise ValueError("terminal fact requires a valid durable Terminal support proof")
         if not self.terminal_identity.startswith("ETERM-") or len(self.terminal_payload_fingerprint) != 64:
             raise ValueError("terminal fact requires stable identity authority")
         if self.terminal_status not in {
@@ -103,7 +117,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
-    schema_version = 1
+    schema_version = 2
 
     operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
@@ -115,6 +129,9 @@ class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
     cluster_id: OnlyClusterId
     instrument_id: OnlyInstrumentId
     order_id: OnlyOrderId
+    execution_capability: OnlyExecutionCapability
+    execution_support_schema_version: str
+    execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
     correlation_id: str

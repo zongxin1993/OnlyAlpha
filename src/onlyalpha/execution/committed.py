@@ -26,12 +26,17 @@ from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 
+from .capability import (
+    ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
+    OnlyExecutionCapability,
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedExecutionFact(OnlyDomainModel):
     """Self-contained result of one fully committed local execution transaction."""
 
-    schema_version = 4
+    schema_version = 5
 
     execution_id: str
     execution_sequence: int
@@ -48,6 +53,9 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     strategy_id: OnlyStrategyId
     instrument_id: OnlyInstrumentId
     venue_id: str
+    execution_capability: OnlyExecutionCapability
+    execution_support_schema_version: str
+    execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
     correlation_id: str
@@ -168,6 +176,12 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     def __post_init__(self) -> None:
         if not self.execution_id or self.execution_sequence < 1:
             raise ValueError("committed execution requires a stable identity and positive sequence")
+        if (
+            self.execution_capability is not OnlyExecutionCapability.DURABLE_TRADE
+            or self.execution_support_schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or len(self.execution_support_fingerprint) != 64
+        ):
+            raise ValueError("committed execution requires a valid durable Trade support proof")
         if self.fill_quantity.value <= 0 or self.fill_price.value <= 0:
             raise ValueError("committed execution requires positive price and quantity")
         expected = _money(

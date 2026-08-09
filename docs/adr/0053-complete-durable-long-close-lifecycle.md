@@ -1,5 +1,8 @@
 # ADR 0053: Complete Durable Long Close Lifecycle
 
+> Capability admission portions are superseded by ADR 0065. Long Close transaction, projection, and recovery decisions remain
+> in force; Market Profile identity no longer grants permission and planners no longer resolve capability.
+
 - Status: Accepted
 - Date: 2026-07-30
 - Supersedes: ADR 0052 中关于首个 whole Fill 与 Partial/Multi-Close gate 的当前产品限制

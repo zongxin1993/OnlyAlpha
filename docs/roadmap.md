@@ -11,7 +11,8 @@ Bar 与 3m 内部聚合、Warmup/Observation、Shadow Execution Suppression、Re
 市场观察与 Shadow Execution，不具备生产恢复、真实 Broker 提交或长期运行闭环。
 
 `LIVE`、Standalone `SHADOW` 和 `RESEARCH` Runtime Factory 仍不可用。所有内置 Market Profile 仍为 Experimental。
-`CN_A_SHARE_CASH` 已有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，但 Durable Execution 仍未开放。
+`CN_A_SHARE_CASH` 已有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority。其 Cash-Long 经济 shape 可由统一
+Durable Kernel 识别，但完整产品纵切面与 Conformance 仍未完成，因此不得声明 A 股 Durable Product 已开放。
 
 ## 已完成阶段
 
@@ -23,6 +24,8 @@ Bar 与 3m 内部聚合、Warmup/Observation、Shadow Execution Suppression、Re
   兼容性。
 - P4-0 — Runtime Composition & Execution Hygiene Closure：canonical Runtime Environment、全局 mutable identity 冲突、
   单一 Component Registry ownership、staged/atomic Cluster composition、Execution 历史路径删除与 CI 工具链确定性。
+- P4.1 — Durable Execution Capability Semantic Authority：Market identity 退出 permission authority；唯一 pure Resolver 按
+  immutable economic shape、精确 Reservation shape 与 Account/Ledger parity 决定支持，并将版本化 proof 写入 committed fact。
 
 此前完成且仍有效的内核包括：统一 Market Runtime、版本化 A 股 Reference/Rule Decision、Prepared Transaction、Durable
 Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果
@@ -30,7 +33,7 @@ Forward Recovery。阶段细节保存在 `docs/adr/` 与 `docs/reports/`，不�
 
 ## 下一阶段
 
-P4 — CN A-Share Durable Execution Product Closure。
+P4.2/P4.3 — Residual Planner Semantic Cleanup 与 BUY OPEN Durable Terminal Closure。
 
 P4 只应处理 Market Instruction、Production Fee、Settlement、Account/Position Shape 与 Canonical Durable Trading Kernel 的
 capability-driven 接入，包括 A 股 BUY OPEN、SELL CLOSE 与 T+1 产品 Conformance；不再重做 Runtime grouping、Account identity、

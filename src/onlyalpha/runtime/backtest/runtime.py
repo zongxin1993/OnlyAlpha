@@ -77,7 +77,7 @@ from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
-from onlyalpha.execution.capability import OnlyExecutionCapability, only_resolve_execution_capability
+from onlyalpha.execution.capability import OnlyExecutionSupportDecision
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
@@ -269,7 +269,6 @@ from onlyalpha.transaction.delivery import (
     OnlyExecutionOutboxPublisher,
     OnlyRoutedDirectExecutionPublisher,
 )
-from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.projection import (
     OnlyValuationExecutionState,
 )
@@ -1924,6 +1923,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         update: OnlyBrokerTradeUpdate,
         processing_sequence: int,
         position_scope: OnlyExecutionPositionScope,
+        support_decision: OnlyExecutionSupportDecision,
     ) -> OnlyTradeExecutionPlanningContext:
         order = self._services.order_manager.require_snapshot(update.order_id)
         market_rules = self.config.market_rule_engine
@@ -1985,21 +1985,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             cluster_id=order.cluster_id,
             currency=account_snapshot.base_currency,
         )
-        capability = only_resolve_execution_capability(
-            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
-            market_profile_id=instruction.compiled_identity.profile_id,
-            account_type=account_snapshot.account_type,
-            order_type=order.order_type,
-            order_side=order.side,
-            offset=order.offset,
-            position_side=position_scope.position_side,
-            position_effect=position_scope.position_effect,
-            position_mode=position_scope.position_mode,
-            has_margin=instruction.margin_instruction is not None,
-            account_ledger_parity=self._has_account_ledger_parity(account_snapshot),
-        )
-        if capability is not OnlyExecutionCapability.DURABLE_TRADE:
-            raise ValueError(f"prepared Trade capability is {capability.value}")
         account_reservation = next(
             (item for item in account_snapshot.reservations if item.order_id == order.order_id),
             None,
@@ -2069,6 +2054,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             valuation_price=max(candidates, key=lambda item: item.ts_event).close,
             position_scope=position_scope,
             trade_instruction=instruction,
+            support_decision=support_decision,
             fee_assessment=fee_assessment,
             order_before=only_order_execution_state(order),
             position_before=(
@@ -2137,68 +2123,30 @@ class OnlyBacktestRuntime(OnlyRuntime):
         update: OnlyBrokerOrderTerminalUpdate,
         processing_sequence: int,
         position_scope: OnlyExecutionPositionScope,
+        support_decision: OnlyExecutionSupportDecision,
     ) -> OnlyTerminalExecutionPlanningContext:
         order = self._services.order_manager.require_snapshot(update.order_id)
         account = self._services.account_manager.get_snapshot(order.account_id)
         if account is None:
             raise KeyError(f"Account not found: {order.account_id}")
-        trading_day = self._selected_calendar.trading_day_at(update.ts_event)
-        market_rules = self.config.market_rule_engine
-        if market_rules is None:
-            raise ValueError("prepared Terminal planning requires compiled market rules")
-        compiled = market_rules.compiled_rules(str(order.instrument_id), trading_day)
-        ledger = self._strategy_ledger_locator.require_snapshot(
-            runtime_id=order.runtime_id,
-            account_id=order.account_id,
-            cluster_id=order.cluster_id,
-            currency=account.base_currency,
-        )
-        capability = only_resolve_execution_capability(
-            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
-            market_profile_id=compiled.identity.profile_id,
-            account_type=account.account_type,
-            order_type=order.order_type,
-            order_side=order.side,
-            offset=order.offset,
-            position_side=position_scope.position_side,
-            position_effect=position_scope.position_effect,
-            position_mode=position_scope.position_mode,
-            has_margin=compiled.margin_policy is not None,
-            account_ledger_parity=self._has_account_ledger_parity(account),
-        )
-        if capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
-            raise ValueError(f"prepared Terminal capability is {capability.value}")
         position_reservation = self._position_reservation_manager.get(order.order_id)
         if position_reservation is None:
             raise ValueError("prepared Terminal planning requires Position Reservation")
         risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
         if risk_reservation is None:
             raise ValueError("prepared Terminal planning requires Risk Reservation")
-        account_reservation = next(
-            (item for item in account.reservations if item.order_id == order.order_id),
-            None,
-        )
-        strategy_reservation = next(
-            (item for item in ledger.reservations if item.order_id == order.order_id),
-            None,
-        )
         return OnlyTerminalExecutionPlanningContext(
             update=update,
             prepared_at=update.ts_init,
             engine_id=OnlyEngineId(str(self.config.engine_id)),
             processing_sequence=processing_sequence,
-            market_profile_id=compiled.identity.profile_id,
-            account_type=account.account_type,
             position_scope=position_scope,
+            support_decision=support_decision,
             terminal_authority=only_capture_execution_terminal_authority(update),
             order_before=only_order_execution_state(order),
             position_reservation_before=only_position_reservation_execution_state(position_reservation),
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
-            account_ledger_parity=self._has_account_ledger_parity(account),
-            account_cash_reservation_present=account_reservation is not None,
-            strategy_cash_reservation_present=strategy_reservation is not None,
-            margin_reservation_present=self._margin_manager.get(str(order.order_id)) is not None,
         )
 
     def _execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:

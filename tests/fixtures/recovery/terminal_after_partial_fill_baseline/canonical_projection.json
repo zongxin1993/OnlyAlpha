@@ -9824,8 +9824,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-fe5ab9d5c8e446c72e8003190b02512a25ded7c2d9ff4c4207bedb3842907466",
       "execution_sequence": 1,
+      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
         "accrual_after_fingerprint": "4144b9f68e5caa2d77e10c45f369f754aabf877d5c5cb02d34f772418bc405cf",

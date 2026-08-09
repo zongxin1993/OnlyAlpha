@@ -9,20 +9,16 @@ from typing import Any, cast
 import pytest
 
 from onlyalpha.account.enums import OnlyAccountReservationState
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
+from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
 from onlyalpha.execution import (
-    OnlyExecutionPositionScope,
-    OnlyPositionScopeResolutionSource,
     OnlyTradeExecutionPlanningContext,
     OnlyTradeExecutionPlanningError,
     OnlyTradeExecutionPlanningErrorCode,
     OnlyTradeExecutionTransactionPlanner,
     only_capture_execution_fill_authority,
 )
-from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
-from onlyalpha.position.keys import OnlyPositionAllocationKey, OnlyPositionKey
 
 from .support.generic_t0_trade_harness import (
     OnlyTestGenericT0Scenario,
@@ -34,59 +30,6 @@ from .support.generic_t0_trade_harness import (
 from .support.manager_authority_digest import only_test_runtime_authority_digest
 
 Mutation = Callable[[OnlyTradeExecutionPlanningContext], OnlyTradeExecutionPlanningContext]
-
-
-def _unsupported_profile(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    identity = replace(context.trade_instruction.compiled_identity, profile_id="OTHER")
-    return replace(context, trade_instruction=replace(context.trade_instruction, compiled_identity=identity))
-
-
-def _order_type(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, order_before=replace(context.order_before, order_type=OnlyOrderType.MARKET))
-
-
-def _order_side(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, order_before=replace(context.order_before, side=OnlyOrderSide.SELL))
-
-
-def _offset(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, order_before=replace(context.order_before, offset=OnlyOffset.CLOSE))
-
-
-def _scope(
-    context: OnlyTradeExecutionPlanningContext,
-    side: OnlyPositionSide,
-    mode: OnlyPositionMode,
-) -> OnlyExecutionPositionScope:
-    order = context.order_before
-    return OnlyExecutionPositionScope(
-        order.runtime_id,
-        order.account_id,
-        order.cluster_id,
-        order.instrument_id,
-        side,
-        context.position_scope.position_effect,
-        mode,
-        OnlyPositionKey(order.runtime_id, order.account_id, order.instrument_id, side, mode),
-        OnlyPositionAllocationKey(order.runtime_id, order.account_id, order.cluster_id, order.instrument_id, side),
-        OnlyPositionScopeResolutionSource.MARKET_RULE_INSTRUCTION,
-    )
-
-
-def _position_side(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, position_scope=_scope(context, OnlyPositionSide.SHORT, OnlyPositionMode.NETTING))
-
-
-def _position_mode(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, position_scope=_scope(context, OnlyPositionSide.LONG, OnlyPositionMode.HEDGING))
-
-
-def _margin(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, margin_reservation_before=cast(Any, object()))
-
-
-def _position_reservation(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    return replace(context, position_reservation_before=cast(Any, object()))
 
 
 def _partial_fill(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
@@ -169,14 +112,6 @@ def _reduction_failure(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeE
 
 
 CASES: tuple[tuple[OnlyTradeExecutionPlanningErrorCode, Mutation], ...] = (
-    (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE, _unsupported_profile),
-    (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_TYPE, _order_type),
-    (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_SIDE, _order_side),
-    (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_OFFSET, _offset),
-    (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_SIDE, _position_side),
-    (OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_MODE, _position_mode),
-    (OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, _margin),
-    (OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN, _position_reservation),
     (OnlyTradeExecutionPlanningErrorCode.SCOPE_MISMATCH, _scope_mismatch),
     (OnlyTradeExecutionPlanningErrorCode.CURRENCY_MISMATCH, _currency),
     (OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, _missing_before),
@@ -247,7 +182,7 @@ def test_every_planning_stage_failure_has_no_partial_result_or_external_side_eff
     context = only_test_real_trade_planning_context(env, _trade_update(env, scenario))
     before = only_test_runtime_authority_digest(env)
     if stage == "context_validation":
-        context = _unsupported_profile(context)
+        context = _missing_before(context)
     else:
         _inject_failure(stage, monkeypatch)
 

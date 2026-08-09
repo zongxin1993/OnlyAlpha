@@ -9,15 +9,51 @@ def test_long_close_is_routed_to_prepared_transaction_without_parallel_entrypoin
     runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
     capability = Path("src/onlyalpha/execution/capability.py").read_text(encoding="utf-8")
 
-    assert "def only_resolve_execution_capability(" in capability
+    assert "class OnlyExecutionCapabilityResolver" in capability
+    assert "def only_resolve_execution_capability(" not in capability
     assert "OnlyExecutionCapability.DURABLE_TRADE" in capability
     assert "OnlyExecutionCapability.DURABLE_TERMINAL" in capability
-    assert "only_resolve_execution_capability(" in processor
-    assert "only_resolve_execution_capability(" in planner
-    assert "only_resolve_execution_capability(" in runtime
-    assert "if isinstance(update, OnlyBrokerTradeUpdate) and self._uses_prepared_trade_path" in processor
+    assert processor.count("._execution_capability_resolver.resolve(") == 1
+    assert "OnlyExecutionCapabilityResolver" not in planner
+    assert "OnlyExecutionCapabilityResolver" not in runtime
+    assert "trade_support.capability is OnlyExecutionCapability.DURABLE_TRADE" in processor
     assert "OnlyTradeExecutionTransactionPlanner" in planner
     assert "OnlyLongClose" not in processor + planner + runtime
+
+
+def test_execution_support_and_planners_have_no_market_permission_gate() -> None:
+    paths = (
+        Path("src/onlyalpha/execution/capability.py"),
+        Path("src/onlyalpha/execution/support.py"),
+        Path("src/onlyalpha/execution/trade_planner.py"),
+        Path("src/onlyalpha/execution/terminal_planner.py"),
+    )
+    forbidden = ("GENERIC_T0_CASH", "CN_A_SHARE_CASH", "OnlyMarketProfileId", "market_profile_id")
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        assert not any(item in source for item in forbidden), path
+
+
+def test_planners_cannot_resolve_or_recreate_execution_support_policy() -> None:
+    planner_paths = (
+        Path("src/onlyalpha/execution/trade_planner.py"),
+        Path("src/onlyalpha/execution/terminal_planner.py"),
+        *Path("src/onlyalpha/execution/reducers").glob("*.py"),
+    )
+    for path in planner_paths:
+        source = path.read_text(encoding="utf-8")
+        assert "OnlyExecutionCapabilityResolver" not in source, path
+        assert "only_resolve_execution_capability" not in source, path
+    production = "\n".join(path.read_text(encoding="utf-8") for path in Path("src").rglob("*.py"))
+    assert "only_resolve_execution_capability" not in production
+
+
+def test_support_projection_is_pure_and_does_not_read_runtime_authorities() -> None:
+    source = Path("src/onlyalpha/execution/support.py").read_text(encoding="utf-8")
+    forbidden = (".manager", "onlyalpha.runtime", "Registry", "Broker", "Gateway", ".get(", ".require(")
+    assert not any(item in source for item in forbidden)
+    assert "only_execution_reservation_shape" in source
+    assert "only_execution_support_context" in source
 
 
 def test_formal_long_close_has_no_legacy_trade_path_and_terminal_has_no_fake_trade() -> None:

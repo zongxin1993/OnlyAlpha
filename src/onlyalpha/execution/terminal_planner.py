@@ -1,4 +1,4 @@
-"""Pure durable planner for Generic T0 Cash Long Close terminal operations."""
+"""Pure durable planner for Cash-Long SELL CLOSE terminal operations."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from onlyalpha.transaction.projection import (
 from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
 
-from .capability import OnlyExecutionCapability, only_resolve_execution_capability
+from .capability import OnlyExecutionCapability
 from .planning_context import OnlyTerminalExecutionPlanningContext
 from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft
 
@@ -209,6 +209,9 @@ class OnlyTerminalExecutionTransactionPlanner:
             cluster_id=context.order_before.cluster_id,
             instrument_id=context.order_before.instrument_id,
             order_id=update.order_id,
+            execution_capability=context.support_decision.capability,
+            execution_support_schema_version=context.support_decision.schema_version,
+            execution_support_fingerprint=context.support_decision.fingerprint,
             source_sequence=update.source_sequence,
             processing_sequence=context.processing_sequence,
             correlation_id=update.correlation_id,
@@ -263,21 +266,10 @@ class OnlyTerminalExecutionTransactionPlanner:
         update = context.update
         order = context.order_before
         scope = context.position_scope
-        capability = only_resolve_execution_capability(
-            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
-            market_profile_id=context.market_profile_id,
-            account_type=context.account_type,
-            order_type=order.order_type,
-            order_side=order.side,
-            offset=order.offset,
-            position_side=scope.position_side,
-            position_effect=scope.position_effect,
-            position_mode=scope.position_mode,
-            has_margin=context.margin_reservation_present,
-            account_ledger_parity=context.account_ledger_parity,
-        )
-        if capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
-            raise ValueError(f"terminal execution capability is {capability.value}")
+        if context.support_decision.capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
+            raise ValueError(
+                f"terminal capability routing invariant failed: {context.support_decision.capability.value}"
+            )
         if update.order_id != order.order_id or update.runtime_id != order.runtime_id:
             raise ValueError("Terminal update scope disagrees with Order")
         if update.account_id != order.account_id or scope.cluster_id != order.cluster_id:
@@ -319,12 +311,6 @@ class OnlyTerminalExecutionTransactionPlanner:
             raise ValueError("Risk Reservation remaining authority disagrees with Order")
         if risk.state is not OnlyRiskReservationState.ACTIVE:
             raise ValueError("Risk Reservation is already terminal")
-        if (
-            context.account_cash_reservation_present
-            or context.strategy_cash_reservation_present
-            or context.margin_reservation_present
-        ):
-            raise ValueError("Long Close terminal operation forbids Cash and Margin Reservations")
         if context.risk_before.active_order_count < 1 or context.risk_before.cluster_active_order_count < 1:
             raise ValueError("Terminal Risk active Order count would underflow")
         if context.risk_before.reserved_quantity < risk.remaining_quantity.value:

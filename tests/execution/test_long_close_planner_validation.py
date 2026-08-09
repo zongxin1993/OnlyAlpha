@@ -8,7 +8,6 @@ from onlyalpha.execution import (
     OnlyTradeExecutionPlanningErrorCode,
     OnlyTradeExecutionTransactionPlanner,
 )
-from tests.execution.factories.trade_planning_factory import only_test_generic_t0_trade_planning_context
 from tests.execution.support.generic_t0_trade_harness import only_test_generic_t0_long_close_context
 
 
@@ -29,16 +28,6 @@ def test_long_close_requires_position_allocation_and_position_reservation_author
     _assert_code(
         replace(context, position_reservation_before=None),
         OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_RESERVATION_REQUIRED,
-    )
-
-
-def test_long_close_forbids_cash_reservation_authority() -> None:
-    _, context, _ = only_test_generic_t0_long_close_context()
-    open_context = only_test_generic_t0_trade_planning_context()
-
-    _assert_code(
-        replace(context, account_cash_reservation_before=open_context.account_cash_reservation_before),
-        OnlyTradeExecutionPlanningErrorCode.CLOSE_CASH_RESERVATION_FORBIDDEN,
     )
 
 

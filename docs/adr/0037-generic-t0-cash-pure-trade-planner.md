@@ -1,5 +1,8 @@
 # ADR 0037: Generic T0 Cash Pure Trade Planner
 
+> The profile-specific support gate and planner naming are superseded by ADR 0065. The immutable planning and reduction
+> boundaries remain in force.
+
 - Status: Accepted
 - Date: 2026-07-27
 

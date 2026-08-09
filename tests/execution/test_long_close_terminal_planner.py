@@ -11,6 +11,7 @@ from onlyalpha.broker.updates import (
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderRejection
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.execution.capability import OnlyExecutionCapability
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
 from onlyalpha.execution.terminal_identity import only_capture_execution_terminal_authority
@@ -88,6 +89,9 @@ def test_partial_long_close_terminal_is_one_durable_transaction(
     assert committed.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
     assert not hasattr(committed.fact, "trade_id")
     assert isinstance(committed.fact, OnlyCommittedTerminalExecutionFact)
+    assert committed.fact.execution_capability is OnlyExecutionCapability.DURABLE_TERMINAL
+    assert committed.fact.execution_support_schema_version == "1"
+    assert len(committed.fact.execution_support_fingerprint) == 64
     assert tuple(item.identity.component for item in committed.projections) == (
         OnlyRuntimeProjectionComponent.ORDER,
         OnlyRuntimeProjectionComponent.POSITION_RESERVATION,

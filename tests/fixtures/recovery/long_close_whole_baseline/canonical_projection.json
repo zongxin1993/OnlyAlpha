@@ -11095,8 +11095,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-300aaaeabcdd9c5aa275255f97551e95989f25ec76d52c2cb2ad131d97bf8811",
       "execution_sequence": 1,
+      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
         "accrual_after_fingerprint": "f2a3452c6933f2bb5b50bec3cccb8a4da71bbd2fb2e8d63285660be8dc8622d7",
@@ -11632,8 +11635,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-e27fbe1761f37a706911fd4ff611c93e7a4bef97a790beeeb77ac42339c7dd93",
       "execution_sequence": 2,
+      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000002",
       "fee_application": {
         "accrual_after_fingerprint": "7613cecaff5233a89ee1f0634a396005975c8f1cd3d3d9bb5f1c066a959d5d4d",

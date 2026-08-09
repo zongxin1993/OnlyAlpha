@@ -4,6 +4,7 @@ from decimal import Decimal
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyQuantity
+from onlyalpha.execution import OnlyExecutionCapability
 from tests.execution.factories.transaction_factory import only_test_execution_fact_draft
 
 
@@ -31,6 +32,9 @@ def test_committed_fact_carries_complete_multi_fill_audit_authority() -> None:
     ).finalize(2, OnlyTimestamp(base.ts_init.unix_nanos + 1))
     assert partial.fill_identity.startswith("EFILL-")
     assert len(partial.fill_payload_fingerprint) == 64
+    assert partial.execution_capability is OnlyExecutionCapability.DURABLE_TRADE
+    assert partial.execution_support_schema_version == "1"
+    assert len(partial.execution_support_fingerprint) == 64
     assert (partial.fill_index, partial.fill_count_after, partial.terminal_fill) == (1, 1, False)
     assert partial.order_status_after is OnlyOrderStatus.PARTIALLY_FILLED
     assert (final.fill_index, final.fill_count_after, final.terminal_fill) == (2, 2, True)

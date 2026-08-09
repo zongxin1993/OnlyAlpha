@@ -18647,8 +18647,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-0e057355e82d96f24bd35baa24e22467fdfb7d98a6d47ab0f4c676a1bfd1b61e",
       "execution_sequence": 1,
+      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
         "accrual_after_fingerprint": "2b4241f139558f2bbf5c1878bfef5e394f96e1c7c4a0057d3742e57b0d8aee24",
@@ -19184,8 +19187,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-09e084265a70128f834dd1802ec6f12d78f41977fbfa00f68c6d5994486721a4",
       "execution_sequence": 2,
+      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000002",
       "fee_application": {
         "accrual_after_fingerprint": "2393caa17775c207162309b7bf152770f47cca458b1c880c477a4d453efa65cf",
@@ -19721,8 +19727,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-bec453354733c9692ed6ca871ed45ed07effc57c22f25e9fe8d6f62878702dce",
       "execution_sequence": 3,
+      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000003",
       "fee_application": {
         "accrual_after_fingerprint": "582dc6543004c42d514fa8994e9ce9e6211e10139a08bd4df00fb2870777fd8e",
@@ -20258,8 +20267,11 @@
         "currency_type": "FIAT",
         "precision": 2
       },
+      "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-6135f9b3847707344dfed28cc75964c8edbff894a345af91de4b2e8a8196f4d0",
       "execution_sequence": 4,
+      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
+      "execution_support_schema_version": "1",
       "external_event_id": "virtual-fill-00000004",
       "fee_application": {
         "accrual_after_fingerprint": "408dac1d6ca02d55328012d2f99937bd787f4b855cb284bac570b23ebb09c866",

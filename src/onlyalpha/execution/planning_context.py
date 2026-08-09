@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from onlyalpha.account.enums import OnlyAccountType
 from onlyalpha.account.performance import OnlyAccountEquityPoint
 from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
@@ -23,6 +22,7 @@ from onlyalpha.transaction.projection import (
     OnlyValuationExecutionState,
 )
 
+from .capability import OnlyExecutionSupportDecision
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
     OnlyAccountExecutionState,
@@ -79,6 +79,7 @@ class OnlyTradeExecutionPlanningContext:
     valuation_price: OnlyPrice
     position_scope: OnlyExecutionPositionScope
     trade_instruction: OnlyTradeApplicationInstruction
+    support_decision: OnlyExecutionSupportDecision
     fee_assessment: OnlyFeeAssessment
     order_before: OnlyOrderExecutionState
     position_before: OnlyPositionExecutionState | None
@@ -134,18 +135,13 @@ class OnlyTerminalExecutionPlanningContext:
     prepared_at: OnlyTimestamp
     engine_id: OnlyEngineId
     processing_sequence: int
-    market_profile_id: str
-    account_type: OnlyAccountType
     position_scope: OnlyExecutionPositionScope
+    support_decision: OnlyExecutionSupportDecision
     terminal_authority: OnlyExecutionTerminalAuthority
     order_before: OnlyOrderExecutionState
     position_reservation_before: OnlyPositionReservationExecutionState
     risk_reservation_before: OnlyRiskReservationExecutionState
     risk_before: OnlyRiskExecutionState
-    account_ledger_parity: bool
-    account_cash_reservation_present: bool = False
-    strategy_cash_reservation_present: bool = False
-    margin_reservation_present: bool = False
 
     def __post_init__(self) -> None:
         if self.processing_sequence < 0:

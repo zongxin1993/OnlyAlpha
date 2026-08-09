@@ -31,10 +31,13 @@ def _prepared_terminal(terminal: str):  # type: ignore[no-untyped-def]
     runtime = environment.runtime
     processor = runtime.execution_processor
     scope = processor._resolve_position_scope(update)
+    assert scope is not None
+    decision = processor._resolve_execution_support(update, scope)
     planning = runtime._build_terminal_execution_planning_context(
         update,
         processor._processing_sequence + 1,
         scope,
+        decision,
     )
     return environment, context, update, OnlyTerminalExecutionTransactionPlanner().prepare(planning)
 

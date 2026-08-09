@@ -26,12 +26,17 @@ from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.transaction.facts import OnlyCommittedRuntimeFact
 
+from .capability import (
+    ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
+    OnlyExecutionCapability,
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     """Complete committed-fact authority before Store-owned sequence and time are assigned."""
 
-    schema_version = 3
+    schema_version = 4
 
     execution_id: str
     trade_id: OnlyTradeId
@@ -47,6 +52,9 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     strategy_id: OnlyStrategyId
     instrument_id: OnlyInstrumentId
     venue_id: str
+    execution_capability: OnlyExecutionCapability
+    execution_support_schema_version: str
+    execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
     correlation_id: str
@@ -166,6 +174,12 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     def __post_init__(self) -> None:
         if not self.execution_id or self.source_sequence < 0 or self.processing_sequence < 0:
             raise ValueError("execution fact draft requires stable identity and non-negative sequences")
+        if (
+            self.execution_capability is not OnlyExecutionCapability.DURABLE_TRADE
+            or self.execution_support_schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or len(self.execution_support_fingerprint) != 64
+        ):
+            raise ValueError("execution fact draft requires a valid durable Trade support proof")
         if self.fill_quantity.value <= 0 or self.fill_price.value <= 0:
             raise ValueError("execution fact draft requires positive price and quantity")
         if self.ts_init < self.ts_event:

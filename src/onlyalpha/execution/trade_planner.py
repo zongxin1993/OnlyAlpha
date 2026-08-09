@@ -1,4 +1,4 @@
-"""Deterministic, side-effect-free Generic T0 Cash Trade transaction planner."""
+"""Deterministic, side-effect-free durable Cash-Long Trade transaction planner."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import NoReturn
 
-from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus, OnlyAccountType
+from onlyalpha.account.enums import OnlyAccountReservationState, OnlyAccountStatus
 from onlyalpha.account.performance import OnlyAccountEquityPoint, OnlyAccountValuationSource
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
+from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity, OnlyRate
 from onlyalpha.event.model import OnlyEvent
@@ -17,9 +17,7 @@ from onlyalpha.fee.application import OnlyFeeApplicationComponent, OnlyFeeApplic
 from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
 from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import (
-    OnlyPositionMode,
     OnlyPositionReservationState,
-    OnlyPositionSide,
     OnlyPositionStatus,
     OnlySettlementBucket,
 )
@@ -46,7 +44,7 @@ from onlyalpha.transaction.projection import (
 from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
 
-from .capability import OnlyExecutionCapability, only_resolve_execution_capability
+from .capability import OnlyExecutionCapability
 from .close_cost_authority import (
     OnlyAttributedCloseCostAuthority,
     only_build_attributed_close_cost_authority,
@@ -57,6 +55,7 @@ from .execution_state import (
     OnlyStrategyCashReservationExecutionState,
 )
 from .fill_identity import only_execution_fill_identity_from_update, only_execution_fill_payload_fingerprint
+from .market_evidence import only_execution_market_evidence
 from .planned_trade import OnlyPlannedTrade
 from .planning_context import OnlyTradeExecutionPlanningContext
 from .planning_results import (
@@ -81,8 +80,6 @@ from .reducers import (
     OnlyValuationTradeReducer,
 )
 from .trade_fact import OnlyCommittedExecutionFactDraft
-
-_PROFILE_ID = "GENERIC_T0_CASH"
 
 
 @dataclass(frozen=True, slots=True)
@@ -525,6 +522,9 @@ class OnlyTradeExecutionTransactionPlanner:
             strategy_id=context.strategy_id,
             instrument_id=trade.instrument_id,
             venue_id=identity.venue,
+            execution_capability=context.support_decision.capability,
+            execution_support_schema_version=context.support_decision.schema_version,
+            execution_support_fingerprint=context.support_decision.fingerprint,
             source_sequence=trade.source_sequence,
             processing_sequence=context.processing_sequence,
             correlation_id=update.correlation_id,
@@ -588,10 +588,7 @@ class OnlyTradeExecutionTransactionPlanner:
             broker_fee_schedule_versions=_schedule_values(broker_components, "schedule_version"),
             broker_fee_schedule_fingerprints=_schedule_values(broker_components, "schedule_fingerprint"),
             fee_application=fee,
-            market_profile_id=identity.profile_id,
-            market_profile_version=identity.profile_version,
-            compiled_rule_fingerprint=identity.compiled_rules_fingerprint,
-            reference_fingerprint=identity.reference_fingerprint,
+            **only_execution_market_evidence(identity),
             trade_instruction_id=_trade_instruction_id(context),
             settlement_instruction_id=settlement_after.instruction_id,
             settlement_status=settlement_status,
@@ -709,70 +706,12 @@ class OnlyTradeExecutionTransactionPlanner:
         instruction = context.trade_instruction
         fee = context.fee_assessment
         closing = scope.position_effect is OnlyPositionEffect.CLOSE
-        if instruction.compiled_identity.profile_id != _PROFILE_ID:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE, "only GENERIC_T0_CASH is supported")
-        if context.account_before.account_type is not OnlyAccountType.CASH:
+        opening = not closing
+        if context.support_decision.capability is not OnlyExecutionCapability.DURABLE_TRADE:
             _fail(
-                OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE,
-                "Generic T0 planning requires a cash Account",
+                OnlyTradeExecutionPlanningErrorCode.CAPABILITY_ROUTING_INVARIANT_FAILED,
+                f"Trade Planner received {context.support_decision.capability.value}",
             )
-        if order.order_type is not OnlyOrderType.LIMIT:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_TYPE, "only LIMIT is supported")
-        expected_side = OnlyOrderSide.SELL if closing else OnlyOrderSide.BUY
-        expected_offset = OnlyOffset.CLOSE if closing else OnlyOffset.OPEN
-        if order.side is not expected_side:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_ORDER_SIDE, "unsupported Order side")
-        if order.offset is not expected_offset:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_OFFSET, "unsupported Order offset")
-        supported_open = not closing
-        supported_close = closing
-        if scope.position_side is not OnlyPositionSide.LONG:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_SIDE, "only LONG is supported")
-        if scope.position_mode is not OnlyPositionMode.NETTING:
-            _fail(OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_POSITION_MODE, "only NETTING is supported")
-        if instruction.margin_instruction is not None or context.margin_reservation_before is not None:
-            _fail(OnlyTradeExecutionPlanningErrorCode.MARGIN_UNSUPPORTED, "Margin is not supported")
-        capability = only_resolve_execution_capability(
-            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
-            market_profile_id=instruction.compiled_identity.profile_id,
-            account_type=context.account_before.account_type,
-            order_type=order.order_type,
-            order_side=order.side,
-            offset=order.offset,
-            position_side=scope.position_side,
-            position_effect=scope.position_effect,
-            position_mode=scope.position_mode,
-            has_margin=False,
-            account_ledger_parity=context.account_ledger_parity,
-        )
-        if capability is not OnlyExecutionCapability.DURABLE_TRADE:
-            _fail(
-                OnlyTradeExecutionPlanningErrorCode.UNSUPPORTED_MARKET_PROFILE,
-                f"execution capability is {capability.value}",
-            )
-        if supported_open and context.position_reservation_before is not None:
-            _fail(
-                OnlyTradeExecutionPlanningErrorCode.POSITION_RESERVATION_FORBIDDEN,
-                "BUY OPEN cannot carry a Position Reservation",
-            )
-        if supported_open and (
-            context.account_cash_reservation_before is None or context.strategy_cash_reservation_before is None
-        ):
-            _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "BUY OPEN requires cash Reservations")
-        if supported_close:
-            if (
-                context.account_cash_reservation_before is not None
-                or context.strategy_cash_reservation_before is not None
-            ):
-                _fail(
-                    OnlyTradeExecutionPlanningErrorCode.CLOSE_CASH_RESERVATION_FORBIDDEN,
-                    "SELL CLOSE cannot carry cash Reservations",
-                )
-            if context.position_reservation_before is None:
-                _fail(
-                    OnlyTradeExecutionPlanningErrorCode.CLOSE_POSITION_RESERVATION_REQUIRED,
-                    "SELL CLOSE requires Position Reservation",
-                )
         if update.fill.quantity.value > order.remaining_quantity.value:
             _fail(
                 OnlyTradeExecutionPlanningErrorCode.FILL_EXCEEDS_REMAINING_QUANTITY,
@@ -911,14 +850,14 @@ class OnlyTradeExecutionTransactionPlanner:
             _fail(OnlyTradeExecutionPlanningErrorCode.MISSING_BEFORE_STATE, "Strategy Ledger is not processable")
         if context.risk_reservation_before.state is not OnlyRiskReservationState.ACTIVE:
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Reservation is not ACTIVE")
-        if supported_open and (
+        if opening and (
             _require_account_reservation(context).state
             not in {OnlyAccountReservationState.ACTIVE, OnlyAccountReservationState.PARTIALLY_CONSUMED}
             or _require_strategy_reservation(context).state
             not in {OnlyStrategyCashReservationState.ACTIVE, OnlyStrategyCashReservationState.PARTIALLY_CONSUMED}
         ):
             _fail(OnlyTradeExecutionPlanningErrorCode.INVALID_RESERVATION_STATE, "Cash Reservation is not ACTIVE")
-        if supported_close:
+        if closing:
             _validate_close_authority(context)
         stable_order = (update.source_sequence, update.ts_event.unix_nanos, str(update.fill.trade_id))
         if any(
@@ -934,7 +873,7 @@ class OnlyTradeExecutionTransactionPlanner:
                 "Trade stable order must advance all before states",
             )
         _validate_reservation_scope(context)
-        if supported_open:
+        if opening:
             _validate_creation(context)
         elif context.position_creation is not None or context.allocation_creation is not None:
             _fail(
@@ -1182,10 +1121,7 @@ def _settlement_instruction(
             schedule.cash_withdrawable_on,
             schedule.legal_settlement_on,
         ),
-        market_profile_id=identity.profile_id,
-        market_profile_version=identity.profile_version,
-        compiled_rule_fingerprint=identity.compiled_rules_fingerprint,
-        reference_fingerprint=identity.reference_fingerprint,
+        **only_execution_market_evidence(identity),
         content_fingerprint="0" * 64,
     )
     fingerprinted = replace(

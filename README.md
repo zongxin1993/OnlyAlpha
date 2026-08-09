@@ -99,7 +99,7 @@ Result → Analytics → Artifact → Report
 
 | 维度 | 当前支持 |
 |---|---|
-| Market profile | `GENERIC_T0_CASH` |
+| Product-certified market profile | `GENERIC_T0_CASH` |
 | Account | Cash |
 | Order type | Limit |
 | Position side | Long |
@@ -109,6 +109,10 @@ Result → Analytics → Artifact → Report
 | Fill | Whole / Partial / Multi-Fill |
 | Terminal | Cancel / Reject / Expire |
 | Persistence | Memory / SQLite |
+
+Durable admission 本身不再由 Market Profile 名称授权，而由冻结的经济语义决定。当前 canonical kernel 只支持
+Cash + Limit + Long + Netting 的 BUY OPEN / SELL CLOSE Trade shape，以及 SELL CLOSE Terminal shape；Market identity 继续作为
+审计证据。相同 shape 可复用同一内核不等于对应 Market Product 已完成端到端 Conformance。
 
 每个成交 Fill 都形成独立、不可变的事务事实：
 

@@ -275,10 +275,12 @@ def only_test_real_trade_planning_context(
         else OnlyPositionMode.NETTING
     )
     scope = processor._position_scope_resolver.resolve_trade(order, instruction, position_mode)
+    support_decision = processor._resolve_execution_support(update, scope)
     return runtime._build_trade_execution_planning_context(
         update,
         processor._processing_sequence + 1,
         scope,
+        support_decision,
     )
     fee_instruction = processor._resolve_fee_instruction(update, order, scope)
     position_before_snapshot = runtime.position_manager.get_snapshot(scope.position_key)

@@ -25,10 +25,12 @@ def _prepared_terminal() -> OnlyPreparedRuntimeTransaction:
     environment, _, update = _terminal_update("CANCELLED")
     scope = environment.runtime.execution_processor._resolve_position_scope(update)
     assert scope is not None
+    decision = environment.runtime.execution_processor._resolve_execution_support(update, scope)
     context = environment.runtime._build_terminal_execution_planning_context(
         update,
         environment.runtime.execution_processor._processing_sequence + 1,
         scope,
+        decision,
     )
     return OnlyTerminalExecutionTransactionPlanner().prepare(context)
 

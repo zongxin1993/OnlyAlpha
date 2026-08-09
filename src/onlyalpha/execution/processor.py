@@ -86,7 +86,11 @@ from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionQueryP
 from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction
 
-from .capability import OnlyExecutionCapability, only_resolve_execution_capability
+from .capability import (
+    OnlyExecutionCapability,
+    OnlyExecutionCapabilityResolver,
+    OnlyExecutionSupportDecision,
+)
 from .causal_recovery import (
     OnlyExecutionRecoveryDecision,
     OnlyExecutionRecoveryDecisionKind,
@@ -127,6 +131,7 @@ from .state import (
     OnlyExecutionSequenceTracker,
     OnlyExecutionUpdateDeduplicator,
 )
+from .support import only_execution_reservation_shape, only_execution_support_context
 from .terminal_fact import OnlyCommittedTerminalExecutionFact
 from .terminal_identity import (
     OnlyBrokerOrderTerminalUpdate,
@@ -142,11 +147,11 @@ OnlyAccountReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyConnectionStateConsumer = Callable[[object], None]
 OnlyMarginReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyTradePlanningContextBuilder = Callable[
-    [OnlyBrokerTradeUpdate, int, OnlyExecutionPositionScope],
+    [OnlyBrokerTradeUpdate, int, OnlyExecutionPositionScope, OnlyExecutionSupportDecision],
     OnlyTradeExecutionPlanningContext,
 ]
 OnlyTerminalPlanningContextBuilder = Callable[
-    [OnlyBrokerOrderTerminalUpdate, int, OnlyExecutionPositionScope],
+    [OnlyBrokerOrderTerminalUpdate, int, OnlyExecutionPositionScope, OnlyExecutionSupportDecision],
     OnlyTerminalExecutionPlanningContext,
 ]
 OnlyExecutionDispatchPayload = tuple[
@@ -253,6 +258,7 @@ class OnlyExecutionProcessor:
         self._release_margin_reservation = release_margin_reservation
         self._trading_day = trading_day
         self._trade_instructions: dict[str, OnlyTradeApplicationInstruction] = {}
+        self._execution_capability_resolver = OnlyExecutionCapabilityResolver()
         self._position_scope_resolver = OnlyExecutionPositionScopeResolver(config.runtime_id)
         self._processing_sequence = 0
 
@@ -429,7 +435,16 @@ class OnlyExecutionProcessor:
                 quality_flags=("OUT_OF_ORDER",),
                 position_scope=position_scope,
             )
-        if isinstance(update, OnlyBrokerTradeUpdate) and self._uses_prepared_trade_path(update, position_scope):
+        trade_support = (
+            None
+            if not isinstance(update, OnlyBrokerTradeUpdate) or position_scope is None
+            else self._resolve_execution_support(update, position_scope)
+        )
+        if (
+            isinstance(update, OnlyBrokerTradeUpdate)
+            and trade_support is not None
+            and trade_support.capability is OnlyExecutionCapability.DURABLE_TRADE
+        ):
             if position_scope is None:
                 failure = OnlyExecutionFailure(
                     OnlyExecutionFailureCode.INVALID_UPDATE,
@@ -450,11 +465,25 @@ class OnlyExecutionProcessor:
                 sequence_scope,
                 mode,
                 recovery_session,
+                trade_support,
             )
-        if isinstance(
-            update,
-            OnlyBrokerOrderCancelledUpdate | OnlyBrokerOrderRejectedUpdate | OnlyBrokerOrderExpiredUpdate,
-        ) and self._uses_prepared_terminal_path(update, position_scope):
+        terminal_support = (
+            self._resolve_execution_support(update, position_scope)
+            if isinstance(
+                update,
+                OnlyBrokerOrderCancelledUpdate | OnlyBrokerOrderRejectedUpdate | OnlyBrokerOrderExpiredUpdate,
+            )
+            and position_scope is not None
+            else None
+        )
+        if (
+            isinstance(
+                update,
+                OnlyBrokerOrderCancelledUpdate | OnlyBrokerOrderRejectedUpdate | OnlyBrokerOrderExpiredUpdate,
+            )
+            and terminal_support is not None
+            and terminal_support.capability is OnlyExecutionCapability.DURABLE_TERMINAL
+        ):
             if position_scope is None:
                 raise AssertionError("Durable terminal capability lost its Position Scope")
             return self._prepared_terminal(
@@ -464,6 +493,7 @@ class OnlyExecutionProcessor:
                 sequence_scope,
                 mode,
                 recovery_session,
+                terminal_support,
             )
         self._events.begin()
         steps: list[OnlyExecutionMutationRecord] = [
@@ -577,6 +607,7 @@ class OnlyExecutionProcessor:
         sequence_scope: tuple[str, ...],
         mode: OnlyExecutionProcessingMode,
         recovery_session: OnlyExecutionRecoverySession | None,
+        support_decision: OnlyExecutionSupportDecision,
     ) -> OnlyExecutionProcessingResult:
         steps = [
             OnlyExecutionMutationRecord(
@@ -590,6 +621,7 @@ class OnlyExecutionProcessor:
                 update,
                 context.processing_sequence,
                 position_scope,
+                support_decision,
             )
             prepared = self._trade_planner.prepare(planning_context)
         except OnlyTradeExecutionPlanningError as exc:
@@ -644,6 +676,7 @@ class OnlyExecutionProcessor:
         sequence_scope: tuple[str, ...],
         mode: OnlyExecutionProcessingMode,
         recovery_session: OnlyExecutionRecoverySession | None,
+        support_decision: OnlyExecutionSupportDecision,
     ) -> OnlyExecutionProcessingResult:
         steps = [
             OnlyExecutionMutationRecord(
@@ -657,6 +690,7 @@ class OnlyExecutionProcessor:
                 update,
                 context.processing_sequence,
                 position_scope,
+                support_decision,
             )
             prepared = self._terminal_planner.prepare(planning_context)
         except (KeyError, RuntimeError, TypeError, ValueError) as exc:
@@ -987,7 +1021,11 @@ class OnlyExecutionProcessor:
         direct_order = self._orders.get(update.order_id)
         if direct_order is not None:
             direct_scope = self._position_scope_resolver.resolve_order(direct_order)
-            if self._uses_prepared_terminal_path(update, direct_scope):
+            if (
+                direct_scope is not None
+                and self._resolve_execution_support(update, direct_scope).capability
+                is OnlyExecutionCapability.DURABLE_TERMINAL
+            ):
                 raise RuntimeError("DURABLE_TERMINAL_REQUIRED: formal Long Close cannot use direct terminal mutation")
         gateway_update: OnlyGatewayOrderUpdate
         if rejected:
@@ -1384,62 +1422,52 @@ class OnlyExecutionProcessor:
             values.append(f"venue_trade:{update.fill.venue_trade_id}")
         return tuple(values)
 
-    def _uses_prepared_trade_path(
+    def _resolve_execution_support(
         self,
-        update: OnlyBrokerTradeUpdate,
-        position_scope: OnlyExecutionPositionScope | None = None,
-    ) -> bool:
-        instruction = self._trade_instructions.get(str(update.fill.trade_id))
+        update: OnlyBrokerTradeUpdate | OnlyBrokerOrderTerminalUpdate,
+        position_scope: OnlyExecutionPositionScope,
+    ) -> OnlyExecutionSupportDecision:
         order = self._orders.get(update.order_id)
         account = None if order is None else self._accounts.get_snapshot(order.account_id)
-        capability = (
-            OnlyExecutionCapability.UNSUPPORTED
-            if instruction is None or order is None or account is None or position_scope is None
-            else only_resolve_execution_capability(
-                operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
-                market_profile_id=instruction.compiled_identity.profile_id,
-                account_type=account.account_type,
-                order_type=order.order_type,
-                order_side=order.side,
-                offset=order.offset,
-                position_side=position_scope.position_side,
-                position_effect=position_scope.position_effect,
-                position_mode=position_scope.position_mode,
-                has_margin=instruction.margin_instruction is not None,
-                account_ledger_parity=self._has_account_ledger_parity(order, account),
-            )
+        if order is None or account is None:
+            raise ValueError("execution support capture requires Order and Account authority")
+        ledger = self._ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account.base_currency,
         )
-        return capability is OnlyExecutionCapability.DURABLE_TRADE
-
-    def _uses_prepared_terminal_path(
-        self,
-        update: OnlyBrokerOrderTerminalUpdate,
-        position_scope: OnlyExecutionPositionScope | None = None,
-    ) -> bool:
-        order = self._orders.get(update.order_id)
-        account = None if order is None else self._accounts.get_snapshot(order.account_id)
-        if order is None or account is None or position_scope is None or self._market_rules is None:
-            return False
-        trading_day = (
-            self._trading_day(update.ts_event)
-            if self._trading_day is not None
-            else OnlyTradingDay(update.ts_event.to_datetime().date())
+        instruction = (
+            self._trade_instructions.get(str(update.fill.trade_id))
+            if isinstance(update, OnlyBrokerTradeUpdate)
+            else None
         )
-        compiled = self._market_rules.compiled_rules(str(order.instrument_id), trading_day)
-        capability = only_resolve_execution_capability(
-            operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
-            market_profile_id=compiled.identity.profile_id,
-            account_type=account.account_type,
-            order_type=order.order_type,
-            order_side=order.side,
-            offset=order.offset,
-            position_side=position_scope.position_side,
-            position_effect=position_scope.position_effect,
-            position_mode=position_scope.position_mode,
-            has_margin=compiled.margin_policy is not None,
+        account_cash = next((item for item in account.reservations if item.order_id == order.order_id), None)
+        strategy_cash = next((item for item in ledger.reservations if item.order_id == order.order_id), None)
+        position = self._position_reservations.get(order.order_id)
+        margin = None if self._margin_manager is None else self._margin_manager.get(str(order.order_id))
+        risk = self._risk.reservations.get_for_order(order.order_id)
+        reservations = only_execution_reservation_shape(
+            account_cash_authority=account_cash,
+            strategy_cash_authority=strategy_cash,
+            position_authority=position,
+            margin_authority=margin,
+            risk_authority=risk,
+        )
+        support_context = only_execution_support_context(
+            operation_kind=(
+                OnlyRuntimeOperationKind.TRADE_FILL
+                if isinstance(update, OnlyBrokerTradeUpdate)
+                else OnlyRuntimeOperationKind.ORDER_TERMINAL
+            ),
+            account=account,
+            order=order,
+            position_scope=position_scope,
+            has_margin=margin is not None or (instruction is not None and instruction.margin_instruction is not None),
             account_ledger_parity=self._has_account_ledger_parity(order, account),
+            reservations=reservations,
         )
-        return capability is OnlyExecutionCapability.DURABLE_TERMINAL
+        return self._execution_capability_resolver.resolve(support_context)
 
     def _has_account_ledger_parity(self, order: OnlyOrderSnapshot, account: OnlyAccountSnapshot) -> bool:
         ledgers = tuple(
