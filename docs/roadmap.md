@@ -1,208 +1,49 @@
 # OnlyAlpha 路线图
 
-## 当前状态（2026-08-08）
+## 当前产品事实（2026-08-09）
 
-OnlyAlpha 已完成模块化单体的确定性回测内核纵切面，但尚未完成真实 A 股回测产品。完成标记仅代表现有源码、测试和公开边界覆盖的能力。
+OnlyAlpha 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与
+SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、
+单/多 Cluster、Result/Analytics/Artifact/Report。
 
-Scenario Framework 已完成 exact DataSource、Action Strategy、正式 Engine Runner、标准事实 Assertion、Artifact 和重复运行
-fingerprint。Runtime Committed Execution 已成为 Result/Analytics/Artifact 的逐笔成交权威；当前正式 Durable Execution
-产品纵切面仅覆盖 Generic T0 Cash LONG/NETTING。期货 LONG/SHORT/HEDGING 已有 Domain 与 Conformance 基础，但正式 Durable
-Futures Product Execution 尚未启用；Futures Daily MTM、完整五 Pack 与 Cross-Version 仍是后续门禁。
+Paper 已完成真实 MiniQMT 当前 Profile 的 Historical Bootstrap、Open-Market Bootstrap、Historical→Live Handoff、1m 外部
+Bar 与 3m 内部聚合、Warmup/Observation、Shadow Execution Suppression、Reservation 生命周期和有序停止。Paper 仍是只读
+市场观察与 Shadow Execution，不具备生产恢复、真实 Broker 提交或长期运行闭环。
 
-## Phase 0：分析与架构基线（已完成）
+`LIVE`、Standalone `SHADOW` 和 `RESEARCH` Runtime Factory 仍不可用。所有内置 Market Profile 仍为 Experimental。
+`CN_A_SHARE_CASH` 已有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，但 Durable Execution 仍未开放。
 
-- MyQuant 行为分析与 NautilusTrader 领域模型研究；
-- Engine / Runtime / Cluster、Event、Clock、Cache / Storage 架构与 ADR；
-- 三仓职责和核心仓独立依赖方向。
+## 已完成阶段
 
-## Phase 1：核心运行骨架（已完成）
+- P0 — Test Baseline & Feedback Loop Closure：正式 test lanes、metrics、分层 marker 与质量门禁。
+- P1 — Fee Authority Integrity Closure：Market Fee Pack 与 Broker Fee Contract 独立版本化 authority。
+- P2 — Fee Reconciliation Semantic Closure：Evidence、Policy、Correction、Blocker 与 Recovery 语义。
+- P2.1 — Reconciliation Composition Stabilization：统一 Policy Registry、Currency identity 与 Broker optional port。
+- P3 — CN A-Share Production Fee Product：普通 CNY A 股印花税、过户费、Broker Contract Snapshot 与 Recovery/Reconciliation
+  兼容性。
+- P4-0 — Runtime Composition & Execution Hygiene Closure：canonical Runtime Environment、全局 mutable identity 冲突、
+  单一 Component Registry ownership、staged/atomic Cluster composition、Execution 历史路径删除与 CI 工具链确定性。
 
-- Engine / Runtime / Cluster 生命周期；
-- Cluster Definition、Session 与 Runtime Session；
-- Runtime 兼容性分组和多 Cluster 隔离；
-- 有界 Event Bus、确定性 Clock、配置、Cache 与 Storage；
-- Strategy / Factor / Indicator 分层及受限 Context；
-- DataSource / Broker Plugin SPI 与 Entry Point 发现。
+此前完成且仍有效的内核包括：统一 Market Runtime、版本化 A 股 Reference/Rule Decision、Prepared Transaction、Durable
+Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果
+Forward Recovery。阶段细节保存在 `docs/adr/` 与 `docs/reports/`，不在本文件重复维护历史“当前状态”。
 
-## Phase 2A：确定性回测内核（基本完成）
+## 下一阶段
 
-- Synthetic Historical Replay；
-- Virtual Broker 与基础 Next-Bar 撮合；
-- Risk / Order / ExecutionProcessor；
-- Position / Allocation、Strategy Ledger / Account；
-- 单 Cluster、多 Cluster与共享 Runtime 分组；
-- user_data 输出、完整纵切面和确定性重放。
+P4 — CN A-Share Durable Execution Product Closure。
 
-“基本完成”不表示具备完整市场仿真：当前实现用于验证正式产品链和交易不变量。
+P4 只应处理 Market Instruction、Production Fee、Settlement、Account/Position Shape 与 Canonical Durable Trading Kernel 的
+capability-driven 接入，包括 A 股 BUY OPEN、SELL CLOSE 与 T+1 产品 Conformance；不再重做 Runtime grouping、Account identity、
+Registry ownership、Composition atomicity 或 legacy execution cleanup。
 
-## Phase 2B：真实历史数据（部分完成）
+## 后续阶段
 
-- 已有 Tushare 日线 DataSource、严格校验、Parquet Cache 与 CACHE_ONLY 正式示例；
-- 数据版本、质量、缺口和交易日历治理；
-- 复权、公司行为与参考数据；
-- 大规模数据读取和回放验证。
+- Reference Provider neutralization 与更广 A 股规则覆盖；
+- Paper reconnect、realtime gap recovery、streaming checkpoint/restart；
+- Durable Broker outbound command、Broker account/order/trade/position synchronization；
+- Live Runtime 与生产运维；
+- Research 工作流、Web、更多市场产品；
+- Multi-account、Multi-broker、Multi-data-source 产品；
+- Futures/Margin durable product、Vectorized/Distributed backtest。
 
-## Phase 2C：A 股市场规则（部分完成）
-
-已完成按交易日生效的 `CN_A_SHARE_CASH@2025.1` / `CN_A_SHARE_CASH@2026.07` 申报前规则闭环：
-`OnlyMarketRuleEngine` 是唯一权威，Reference 与制度版本共同编译 Tick 对齐价格带、板块数量政策、明确交易阶段和结构化
-Evaluation；Decision、Checkpoint 与 Artifact 均携带权威指纹并在变化时 Fail Closed。T+1 instruction、Long-only、
-禁止裸卖空与基础税费模型仍存在，但尚缺 A 股 Durable Runtime 纵切面：
-
-已建立版本化 A 股 Reference Authority：显式交易所/证券类型/板块、历史 ST、停牌、交易单位、价格精度、
-正式前收盘价、生效区间、来源版本与内容指纹形成唯一 Registry/Query，并进入 Runtime 分组、Artifact 和恢复校验。
-这不代表 A 股 Durable Execution 已接线。
-
-- 新股、退市整理、北交所、动态价格笼子等扩展申报规则；
-- 跨部分成交最低佣金累计；
-- Profile 驱动的 Broker/ExecutionProcessor 状态更新；
-- 历史规则版本化验证。
-
-## Unified Market Runtime Foundation（进行中）
-
-- 已完成 Market Profile、Settlement、Position Mode/Effect、Short、Margin、Session、Price、Quantity、Fee、
-  Liquidity、Slippage、Matching 的核心不可变抽象；
-- 已完成 Generic T0 Cash、Generic Margin Futures、Generic 24×7 Crypto Spot 的领域级确定性验证；
-- 已完成必填 `market`、Profile Registry → Compiler → Rule Engine 的 Backtest Composition Root 装配；
-- Risk 已使用 Pre-Trade Port，旧 Market Rule Mapping 已删除；Virtual Broker 不再写死 T+1 日切；
-- 已新增 Instruction-driven Settlement/Margin Manager；
-- 已扩展 Settlement、Margin、Market Rule Decision 的 Result 与零行稳定 Parquet Schema；
-- 已完成 HEDGING LONG/SHORT 生产写入、显式 Risk/Reservation scope 与 Committed Execution 投影；
-- 尚未完成 Futures Daily MTM、Collector 的全部 Market timeline 事实以及 Tushare 对照验收。
-
-## P1 Fee Authority Integrity Closure（完成）
-
-Market Fee Pack 与 Account/Broker Fee Contract 已成为两个独立、版本化 Authority；Schedule namespace、Applicability
-Scope、ORDER_FIXED exact identity、FILL_EFFECTIVE family、Binding v2、Policy Resolution Proof 与 Fee Basis Provider 已接入
-Backtest/Paper composition、durable fact、Result、Artifact 和恢复边界。旧 combined pack、`market.fees`、Market Profile fee
-selector 与隐式 Broker 零费率路径已删除并 fail closed。
-
-这不代表正式 A 股费率或真实券商佣金合同已经完成。
-
-## P2 Fee Reconciliation Semantic Closure（完成）
-
-外部 Broker Fee Evidence、版本化 Reconciliation Policy、typed Trade/Order/Statement Scope、逐 Component 对账、
-component-aware Forward Correction、Evidence Revision Lineage、Active Blocker Set、market-neutral Risk Change、
-Broker Evidence Port 与既有 Durable Transaction/Forward Recovery 已形成语义闭环。
-
-P3 CN A-Share Production Fee Product 尚未完成。P2 也不代表真实 MiniQMT statement/fee ingestion、正式 A 股费率或
-真实券商账户佣金合同已经接入。
-
-## P2.1 Reconciliation Composition Stabilization（完成）
-
-Reconciliation Policy Registry 已进入统一 Composition Root；Backtest/Paper Runtime Factory 只按配置与 Account Currency
-精确选择已安装 Authority，不再创建或回退 Policy。Policy Identity 已纳入 Currency，Broker Fee Evidence 采用显式
-`QUERY_FEE_EVIDENCE` capability 与 Optional Port 双重契约。MiniQMT 当前未实现该查询并准确声明不支持。
-
-下一阶段为 P3 — CN A-Share Production Fee Product。P2.1 不包含正式 A 股佣金、印花税、过户费 Schedule，真实券商
-佣金 provisioning、statement ingestion 或 MiniQMT Fee Evidence 接入。
-
-## Phase 2D：回测分析与报告（基础阶段已完成）
-
-- 已完成标准事实、结构化诊断、FIFO Trade、基础收益/回撤/交易/Exposure 统计；
-- 已完成原子 JSON/Parquet Artifact、Manifest、CLI/Console/Markdown Report 和稳定指纹；
-- 未完成高级风险、归因、图表、批量参数实验和结果比较。
-
-## Phase 3：Paper 产品循环（未完成）
-
-实时行情、模拟成交、状态恢复和可操作产品入口尚未闭环。
-
-PR5.1.1 已建立 MiniQMT Historical Warmup 的短生命周期进程隔离、版本化原子协议、双层校验、显式 Compatibility Profile、Cache 维度和 fail-closed 启动边界。该实现只解决主进程安全性；真实 MiniQMT Compatibility、完整 CATCH_UP、恢复与 Paper 产品验收仍未完成。
-
-PR5.1.2 已建立任意市场时间装配、Calendar Session/Completed Boundary Authority、订阅先于 Required Warmup、Historical
-Watermark/Catch-up 重叠去重、Bootstrap/Catch-up 订单副作用抑制、Latest Observation Store、异步 Console/JSONL、
-Session-aware Health、长生命周期 CLI Runner 与一次性 `snapshot` 命令。真实 MiniQMT Historical Compatibility、实时 Gap
-Recovery、重连、Streaming Checkpoint/Recovery 与 Paper 产品验收仍未完成。
-
-PR5.1.3/PR5.1.3b 已完成冻结 Profile 的真实 OPEN Historical Bootstrap 与 Live Handoff 验收：Historical Boundary 在
-Bootstrap 起点冻结，Worker/Parent 双层拒绝超界数据，Replay/Watermark/Observation 使用最后成功 Pipeline Bar 作为唯一
-Authority；真实 MiniQMT 形成 6 根 1m、2 根 3m、Live Observation、Shadow Intent、Reservation Release 与有序停止。
-Paper Runtime 仍为部分完成；Reconnect、Gap Recovery、Streaming Checkpoint/Recovery、广泛兼容性与真实交易继续未完成。
-
-## Phase 4：Live 产品循环（未完成）
-
-真实行情/交易 Gateway、重连、同步和生产级对账尚未闭环。本阶段开始前继续保持真实交易禁用。
-
-## Phase 5：Research 工作流（未完成）
-
-因子接口已有基础边界；数据探索、IC/分组分析、实验管理、统计和绘图工作流尚未形成产品循环。
-
-## Phase 6：Web（未完成）
-
-Application Service、REST、WebSocket/SSE、权限和控制台尚未实现。
-
-## Phase 7：多市场（基础边界已开始）
-
-核心 Profile/规则边界与三个 Generic Profile 已建立；港股、美股、中国期货、数字资产衍生品、外汇和期权正式产品适配尚未开始。
-版本化 Registry、Auto/Pinned 解析、Capability、受限 Override 和 Conformance coverage gate 已建立；正式 Engine Scenario
-Runner 与四个完整 Pack 未完成，因此内建版本仍为 Experimental。
-
-## Phase 8：性能与分布式（未完成）
-
-多进程回测、大规模因子、远程 Worker 和分布式任务不在当前阶段。在真实 A 股回测闭环和性能基线建立前不提前引入。
-
-## P0–P3 Fee Product Closure（完成）
-
-P0 Test/CI Governance、P1 Fee Authority、P2 Reconciliation、P2.1 Reconciliation Composition 与 P3 CN A-share
-Production Fee Product 已完成。P3 覆盖从 2025-06-30 开始的普通 CNY A 股 XSHG/XSHE 印花税/过户费 Authority、严格
-Broker Contract Snapshot、独立 Reference Vectors 与既有 Recovery/Reconciliation 兼容性。
-
-下一阶段为 **P4 — CN A-Share Durable Execution Product Closure**。P3 未修改 Execution Capability Resolver。
-## PR4.2 Runtime Checkpoint 与连续 Engine Restart
-
-已完成统一 Runtime Persistence MEMORY/SQLITE 配置、schema version 2、完整 Bar completion 后原子 checkpoint、checkpointable Result Progress、完整 Participant Registry、精确 MarketData cursor、Broker Update 因果点 Ready rehydration/未投影 Coordinator recovery、Stored Prepared 全量验证、Open Order/Virtual Broker/Strategy/Factor/Indicator 恢复，以及独立 Engine 连续重启和 canonical business projection 基线等价测试。PR4.2.2a 分离 persisted tail resolved 与 exact MarketData boundary completed，并支持正式 continuation transaction。PR4.2.2b 已增加 Recovery Outcome、`RECOVERY_FINALIZING`、完整只读 Authority Validator、fail-closed Finalizer、checkpoint durable read-back 以及 Engine A→B→C after-commit 故障矩阵。PR4.2.2c Unified Recovery Event Gate 已完成：Direct、Durable Outbox 与 Lifecycle 统一经 Runtime Router，恢复历史 Direct Event 被抑制，fresh bootstrap 有界暂存，recovery bootstrap 丢弃，continuation Outbox 仅在 OPEN 后交付，Runtime EventBus 对外只读。Paper/Live recovery、Partial/Multi-Close、Futures/Margin、Non-Trade Transaction、exactly-once Outbox、Direct Durable Journal、Delivery Watermark、Subscriber ACK、schema migration 与分布式 checkpoint 仍未完成。
-
-## PR4.1 Projection Ready Query 与 Runtime Recovery（Historical）
-
-本节记录此前只覆盖 transaction-tail forward recovery 的历史阶段；其单笔 bootstrap、旧 Store 命名与 schema 已由 PR4.2/ADR 0044
-整体替代，不再是当前产品边界。
-
-## PR4.2.2c Failure Semantics Test Hardening
-
-PR4.2.2c 已通过 Failure Semantics Test Hardening 冻结：OPEN 前失败完全静默，OPEN 后保留 EventBus 已接受事件
-并允许 cleanup 单次 drain；Bootstrap flush 使用原子批量入队；Outbox 保持 at-least-once，Direct Event 保持
-best-effort。没有实现 Subscriber ACK、Delivery Watermark、Direct Durable Journal 或 exactly-once。下一阶段直接进入
-PR4.3 Partial / Multi-Fill Durable Transaction，不新增 4.2.2d 架构阶段。
-
-## PR4.3.1 Partial-Fill Order Authority 与 Durable Fill Identity（完成）
-
-已完成纯 Order Partial-Fill Authority、精确累计成交价值、Fill Count/Last Trade ID、canonical Fill Identity、稳定 Payload
-Fingerprint、durable per-Order Fill Index、Committed Fact 审计字段以及 Memory/SQLite Fill/Order Query。旧 whole-fill Snapshot
-和 committed payload 可兼容读取，不新增表或 Checkpoint schema migration。该阶段的 Runtime Product Partial Fill gate
-已由后续 PR4.3.2 在完整增量记账接线后移除。
-
-## PR4.3.2 Incremental Reservation and Accounting for Multi-Fill（完成）
-
-已完成 Position/Allocation 精确累计开仓价值、FILL/ORDER_CUMULATIVE Fee Scope、独立 Order Fee Accrual Authority、
-Account/Strategy/Risk Reservation 分段消费，以及 Account/Ledger/Risk 的显式增量记账。Generic T0 Cash LIMIT BUY OPEN
-的外部 Partial Fill 现按一个 Fill 一个 Projection Ready Transaction 正式提交；duplicate/conflict 仍由 durable Fill
-identity fail closed。Virtual Broker Partial Fill Schedule 与完整 Multi-Fill Recovery 仍由 PR4.3.3 完成。
-
-## PR4.3.3 Virtual Broker Partial Fill Plan 与 End-to-End Multi-Fill Recovery（完成）
-
-已完成 WHOLE/MAX_PER_BAR/SCHEDULE、ONE_PER_BAR/ALL_DUE、quantity/ratio 精确归一化、稳定 Plan ID/Fingerprint、
-Plan Store/Cursor、确定性 Order/Trade 排序、部分成交后撤单，以及 Gateway checkpoint/participant schema version 2。
-正式 Engine 已证明跨 Bar与同 Bar多 Fill 每笔形成独立 transaction，并覆盖 Broker execute/publish、Commit、Projection、
-Outbox、部分 Plan checkpoint 和 A→B→C restart 等价性。没有新增 Recovery Phase，Commit Coordinator、Event Gate、
-Fill Identity/Index 与 PR4.3.2 accounting 保持不变。
-
-## PR4.4.1 Generic T0 Cash Long Close Durable Transaction（完成）
-
-`LIMIT SELL CLOSE LONG NETTING` 的首个 whole Fill 已复用统一 Planner、Transaction Store、Projection Targets、Recovery 与
-durable Outbox。Position 可部分保留或完全关闭；Position 是 Realized PnL 唯一权威，Allocation、Account、Strategy Ledger
-和 Committed Fact 消费同一增量；Position Reservation 在同一事务内消费。未修改 Fill Identity/Index、Commit Coordinator、
-Recovery Phase、Event Gate 或 Outbox 语义。Partial/Multi-Close、Short、Hedging、CloseToday/CloseYesterday、Futures/Margin
-与 Paper/Live 仍未实现；下一阶段 PR4.4.2 为 Partial / Multi-Fill CLOSE Incremental Accounting。
-
-## PR4.4.2 Complete Durable Long Close Lifecycle（完成）
-
-Generic T0 Cash `LIMIT SELL CLOSE LONG NETTING` 已支持任意合法多 Fill，每个 Fill 独立 durable commit。Position 与
-Allocation 共用 Exact Close Cost Reducer，最终成本严格归零；Position/Risk Reservation 分段消费，Risk Active Count 只在
-Final Fill 减少。Virtual Broker 已验证同 Bar和跨 Bar `300 → 400 → 300`、execute-before-publish、Commit、Projection、
-Outbox、Fill 1/2 checkpoint 与 A→B→C 等价恢复。Partial Fill 后 Cancel/Reject/Expire 使用无伪 Trade ID 的
-`ORDER_TERMINAL` Transaction。Runtime Persistence schema 升至 3 并明确拒绝旧 schema 2；Commit Coordinator、Recovery
-Phase、Event Gate、Fill Identity/Index 与 Virtual Broker checkpoint schema 2 保持不变。下一阶段为 PR4.5 CN A-share Cash
-Product Closure；Short、Hedging、CloseToday/CloseYesterday、Futures/Margin 和 Paper/Live 仍未实现。
-# 已完成：Multi-Cluster Close Cost Authority
-
-Generic T0 Cash 的不同成本 Multi-Cluster Long Close 已进入正式 durable transaction 路径，覆盖 whole/partial/multi-fill、注册顺序确定性与 checkpoint/restart。Unallocated Close、Cross-Cluster Close、FIFO/LIFO、Short、Hedging、Futures、Margin 和 FX 仍不在支持范围。
+领域对象、Profile、Factory、Manager、测试 Fixture 或单组件测试的存在不代表对应产品已经可用。
