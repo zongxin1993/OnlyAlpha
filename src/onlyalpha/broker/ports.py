@@ -20,6 +20,7 @@ from onlyalpha.broker.models import (
     OnlyBrokerTradeSnapshot,
 )
 from onlyalpha.domain.identifiers import OnlyAccountId
+from onlyalpha.fee.evidence import OnlyExternalFeeEvidence
 
 
 class OnlyBrokerConnectionPort(Protocol):
@@ -63,6 +64,12 @@ class OnlyBrokerTradeQueryPort(Protocol):
     def query_trades(
         self, account_id: OnlyAccountId, query: OnlyBrokerQuery | None = None
     ) -> tuple[OnlyBrokerTradeSnapshot, ...]: ...
+
+
+class OnlyBrokerFeeEvidencePort(Protocol):
+    """Returns normalized domain evidence; provider DTOs end at the adapter."""
+
+    def query_fee_evidence(self, account_id: OnlyAccountId) -> tuple[OnlyExternalFeeEvidence, ...]: ...
 
 
 class OnlyBrokerGateway(

@@ -112,4 +112,8 @@ def _account_projection(value: OnlyAccountRuntimeConfig) -> object:
     return {
         "gateway_id": str(value.gateway_id),
         "initial_cash": value.initial_cash.to_dict(),
+        "fee_reconciliation_policy": {
+            "policy_id": value.fee_reconciliation_policy.policy_id,
+            "policy_version": value.fee_reconciliation_policy.policy_version,
+        },
     }

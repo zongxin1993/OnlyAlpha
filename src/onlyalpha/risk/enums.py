@@ -3,6 +3,13 @@
 from enum import StrEnum
 
 
+class OnlyOrderRiskChange(StrEnum):
+    RISK_INCREASING = "RISK_INCREASING"
+    RISK_REDUCING = "RISK_REDUCING"
+    RISK_NEUTRAL = "RISK_NEUTRAL"
+    UNKNOWN = "UNKNOWN"
+
+
 class OnlyRiskRuleScope(StrEnum):
     SYSTEM = "SYSTEM"
     RUNTIME = "RUNTIME"

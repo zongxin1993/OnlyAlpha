@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from onlyalpha.domain.enums import OnlyOrderStatus
-from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.event.model import OnlyEventSource, OnlyEventType
 from onlyalpha.fee.application import OnlyFeeApplicationInstruction
@@ -626,6 +626,7 @@ class OnlyFeeTradeReducer:
         before: OnlyFeeApplicationState | None,
         instruction: OnlyFeeApplicationInstruction,
         instrument_id: object,
+        effective_at: OnlyTimestamp,
         *,
         record_sequence: int,
         projection_sequence: int,
@@ -652,6 +653,7 @@ class OnlyFeeTradeReducer:
                 component.amount,
                 component.cumulative_applied_after,
                 instruction.local_finality,
+                effective_at,
                 record_sequence + index,
             )
             for index, component in enumerate(instruction.components, start=1)

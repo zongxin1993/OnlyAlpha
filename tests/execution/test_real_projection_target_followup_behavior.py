@@ -42,9 +42,16 @@ def test_replayed_dedup_cycles_and_sequences_drive_followup_behavior() -> None:
         idempotency_key=f"{application.idempotency_key}-next",
     )
     before_sequence = runtime.fee_application_ledger.sequence_head
-    records = runtime.fee_application_ledger.apply(next_fee, instrument_id=transaction.fact.instrument_id)
+    records = runtime.fee_application_ledger.apply(
+        next_fee, instrument_id=transaction.fact.instrument_id, effective_at=transaction.fact.ts_event
+    )
     assert not records or records[0].sequence == before_sequence + 1
-    assert runtime.fee_application_ledger.apply(next_fee, instrument_id=transaction.fact.instrument_id) == ()
+    assert (
+        runtime.fee_application_ledger.apply(
+            next_fee, instrument_id=transaction.fact.instrument_id, effective_at=transaction.fact.ts_event
+        )
+        == ()
+    )
 
 
 def test_valuation_replay_preserves_versions_and_contiguous_timelines() -> None:

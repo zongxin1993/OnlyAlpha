@@ -1,20 +1,15 @@
-"""Versioned authorities installed only by durable fee-reconciliation projections."""
+"""Append-only evidence lineage, decisions, and component adjustment authority."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.adjustment import (
-    OnlyFeeAdjustment,
-    OnlyFeeAdjustmentDirection,
-    OnlyUnallocatedExternalFeeState,
-)
+from onlyalpha.fee.adjustment import OnlyFeeAdjustment, OnlyFeeAdjustmentDirection, OnlyUnallocatedExternalFeeState
 from onlyalpha.fee.evidence import OnlyExternalFeeEvidence
-from onlyalpha.fee.reconciliation import OnlyFeeReconciliationDecision
+from onlyalpha.fee.reconciliation import OnlyFeeReconciliationDecision, OnlyPriorFeeAdjustment
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,13 +44,11 @@ class OnlyFeeAdjustmentState(OnlyDomainModel):
 
 
 class OnlyFeeReconciliationAuthority:
-    """Append-only evidence, decision, adjustment, and unallocated authorities."""
-
-    schema_version = 1
+    schema_version = 2
 
     def __init__(self) -> None:
         self._evidence: dict[str, OnlyExternalFeeEvidenceState] = {}
-        self._evidence_identity: dict[tuple[str, OnlyAccountId, str, str], str] = {}
+        self._evidence_versions: dict[tuple[str, int], str] = {}
         self._decisions: dict[str, OnlyFeeReconciliationDecisionState] = {}
         self._adjustments: dict[str, OnlyFeeAdjustmentState] = {}
         self._unallocated: dict[OnlyAccountId, OnlyUnallocatedExternalFeeState] = {}
@@ -73,64 +66,78 @@ class OnlyFeeReconciliationAuthority:
         return self._unallocated.get(account_id)
 
     def classify(self, evidence: OnlyExternalFeeEvidence) -> str | None:
-        key = (evidence.broker_id, evidence.account_id, evidence.external_reference, evidence.report_version)
-        fingerprint = self._evidence_identity.get(key)
-        if fingerprint is None:
-            return None
-        return (
-            "DUPLICATE_EVIDENCE"
-            if fingerprint == evidence.content_fingerprint
-            else "EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT"
+        family = evidence.family_identity.fingerprint
+        current_id = self._evidence_versions.get((family, evidence.revision_sequence))
+        if current_id is not None:
+            current = self._evidence[current_id].evidence
+            return (
+                "DUPLICATE_EVIDENCE"
+                if current.content_fingerprint == evidence.content_fingerprint
+                else "EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT"
+            )
+        family_items = sorted(
+            (
+                state.evidence
+                for state in self._evidence.values()
+                if state.identity_authority and state.evidence.family_identity.fingerprint == family
+            ),
+            key=lambda item: item.revision_sequence,
         )
+        if not family_items:
+            return (
+                None
+                if evidence.revision_sequence == 1 and evidence.supersedes_evidence_id is None
+                else "EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT"
+            )
+        latest = family_items[-1]
+        if (
+            evidence.revision_sequence != latest.revision_sequence + 1
+            or evidence.supersedes_evidence_id != latest.evidence_id
+        ):
+            return "EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT"
+        return None
 
-    def prior_adjustments(self, evidence: OnlyExternalFeeEvidence) -> OnlyMoney:
-        currency = (
-            evidence.reported_total.currency
-            if evidence.reported_total is not None
-            else evidence.reported_components[0].amount.currency
-        )
-        signed = Decimal(0)
+    def prior_adjustments(self, evidence: OnlyExternalFeeEvidence) -> tuple[OnlyPriorFeeAdjustment, ...]:
+        result = []
         for state in self._adjustments.values():
             item = state.adjustment
-            same_scope = (
-                (evidence.trade_id is not None and item.trade_id == evidence.trade_id)
-                or (evidence.order_id is not None and item.order_id == evidence.order_id)
-                or (
-                    evidence.statement_scope is not None
-                    and item.statement_scope == evidence.statement_scope
-                    and item.account_id == evidence.account_id
+            if item.account_id != evidence.account_id or item.scope.fingerprint != evidence.scope.fingerprint:
+                continue
+            if item.amount.currency != evidence.currency:
+                raise ValueError("FEE_RECONCILIATION_ADJUSTMENT_CURRENCY_CONFLICT")
+            increases_component = (
+                item.component_identity.economic_direction.value == "CHARGE"
+                and item.direction is OnlyFeeAdjustmentDirection.SUPPLEMENTAL_CHARGE
+            ) or (
+                item.component_identity.economic_direction.value == "REBATE"
+                and item.direction is OnlyFeeAdjustmentDirection.REFUND
+            )
+            signed = item.amount.amount if increases_component else -item.amount.amount
+            result.append(
+                OnlyPriorFeeAdjustment(
+                    item.adjustment_id,
+                    item.component_identity,
+                    OnlyMoney(signed, item.amount.currency),
                 )
             )
-            if same_scope:
-                if item.amount.currency != currency:
-                    raise ValueError("FEE_RECONCILIATION_ADJUSTMENT_CURRENCY_CONFLICT")
-                signed += (
-                    item.amount.amount
-                    if item.direction is OnlyFeeAdjustmentDirection.SUPPLEMENTAL_CHARGE
-                    else -item.amount.amount
-                )
-        return OnlyMoney(signed, currency)
+        return tuple(sorted(result, key=lambda item: item.adjustment_id))
 
     def restore_evidence(self, state: OnlyExternalFeeEvidenceState) -> None:
         current = self._evidence.get(state.evidence.evidence_id)
-        if current is not None and (current.evidence != state.evidence or state.version < current.version):
+        if current is not None and current != state:
             raise ValueError("EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT")
-        key = (
-            state.evidence.broker_id,
-            state.evidence.account_id,
-            state.evidence.external_reference,
-            state.evidence.report_version,
-        )
+        classification = self.classify(state.evidence)
+        if state.identity_authority and classification not in {None, "DUPLICATE_EVIDENCE"}:
+            raise ValueError(classification)
         self._evidence[state.evidence.evidence_id] = state
-        current_identity = self._evidence_identity.get(key)
         if state.identity_authority:
-            if current_identity is not None and current_identity != state.evidence.content_fingerprint:
-                raise ValueError("EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT")
-            self._evidence_identity[key] = state.evidence.content_fingerprint
+            self._evidence_versions[(state.evidence.family_identity.fingerprint, state.evidence.revision_sequence)] = (
+                state.evidence.evidence_id
+            )
 
     def restore_decision(self, state: OnlyFeeReconciliationDecisionState) -> None:
         current = self._decisions.get(state.decision.reconciliation_id)
-        if current is not None and (current.decision != state.decision or state.version < current.version):
+        if current is not None and current != state:
             raise ValueError("FEE_RECONCILIATION_DECISION_CONFLICT")
         self._decisions[state.decision.reconciliation_id] = state
 
@@ -166,32 +173,20 @@ class OnlyFeeReconciliationAuthority:
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("fee reconciliation checkpoint is invalid") from exc
         self._evidence = {}
-        self._evidence_identity = {}
+        self._evidence_versions = {}
         self._decisions = {}
         self._adjustments = {}
         self._unallocated = {}
-        for evidence_state in sorted(
-            evidence,
-            key=lambda item: (item.evidence.received_at.unix_nanos, item.evidence.evidence_id),
+        for item in sorted(
+            evidence, key=lambda value: (value.evidence.family_identity.fingerprint, value.evidence.revision_sequence)
         ):
-            self.restore_evidence(evidence_state)
+            self.restore_evidence(item)
         for decision_state in decisions:
             self.restore_decision(decision_state)
         for adjustment_state in adjustments:
             self.restore_adjustment(adjustment_state)
         for unallocated_state in unallocated:
             self.restore_unallocated(unallocated_state)
-        identity_keys = {
-            (
-                state.evidence.broker_id,
-                state.evidence.account_id,
-                state.evidence.external_reference,
-                state.evidence.report_version,
-            )
-            for state in self._evidence.values()
-        }
-        if identity_keys != set(self._evidence_identity):
-            raise ValueError("fee reconciliation checkpoint lacks evidence identity authority")
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

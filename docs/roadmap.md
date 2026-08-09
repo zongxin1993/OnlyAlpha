@@ -76,8 +76,16 @@ Scope、ORDER_FIXED exact identity、FILL_EFFECTIVE family、Binding v2、Policy
 Backtest/Paper composition、durable fact、Result、Artifact 和恢复边界。旧 combined pack、`market.fees`、Market Profile fee
 selector 与隐式 Broker 零费率路径已删除并 fail closed。
 
-这不代表正式 A 股费率或真实券商佣金合同已经完成。P2 Fee Reconciliation Semantic Closure 仍未完成，Detailed component
-reconciliation、statement period、broker fee evidence 与 market-neutral risk-reduction authority 继续属于后续范围。
+这不代表正式 A 股费率或真实券商佣金合同已经完成。
+
+## P2 Fee Reconciliation Semantic Closure（完成）
+
+外部 Broker Fee Evidence、版本化 Reconciliation Policy、typed Trade/Order/Statement Scope、逐 Component 对账、
+component-aware Forward Correction、Evidence Revision Lineage、Active Blocker Set、market-neutral Risk Change、
+Broker Evidence Port 与既有 Durable Transaction/Forward Recovery 已形成语义闭环。
+
+P3 CN A-Share Production Fee Product 尚未完成。P2 也不代表真实 MiniQMT statement/fee ingestion、正式 A 股费率或
+真实券商账户佣金合同已经接入。
 
 ## Phase 2D：回测分析与报告（基础阶段已完成）
 

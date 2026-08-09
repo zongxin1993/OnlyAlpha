@@ -45,6 +45,27 @@ def test_missing_broker_fee_contract_is_rejected_by_config_schema() -> None:
         OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
 
 
+def test_missing_reconciliation_policy_is_rejected_by_config_schema() -> None:
+    payload = _payload()
+    del payload["accounts"][0]["fee_reconciliation_policy"]  # type: ignore[index]
+    with pytest.raises(OnlyClusterConfigError, match=r"fee_reconciliation_policy"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+
+
+def test_unknown_reconciliation_policy_fails_runtime_build(tmp_path) -> None:
+    payload = _payload()
+    payload["accounts"][0]["fee_reconciliation_policy"] = {  # type: ignore[index]
+        "policy_id": "UNKNOWN",
+        "policy_version": "1",
+    }
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("reconciliation-policy-unknown"), tmp_path))
+    engine.add_cluster(config)
+    result = engine.run()
+    assert result.status == "FAILED"
+    assert any("FEE_RECONCILIATION_POLICY_NOT_INSTALLED" in failure for failure in result.failures)
+
+
 def test_unknown_broker_fee_contract_fails_runtime_build(tmp_path) -> None:
     payload = _payload()
     payload["accounts"][0]["broker_fee_contract"] = {  # type: ignore[index]

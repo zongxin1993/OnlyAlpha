@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 
 from onlyalpha.domain.base import OnlyDomainModel
@@ -13,13 +14,16 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
     OnlyTradeId,
 )
-from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.fee.application import OnlyFeeApplicationInstruction
 from onlyalpha.fee.models import OnlyFeeComponentIdentity, OnlyLocalFeeFinality
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeApplicationRecord(OnlyDomainModel):
+    schema_version = 2
+
     record_id: str
     application_id: str
     runtime_id: OnlyRuntimeId
@@ -36,6 +40,7 @@ class OnlyFeeApplicationRecord(OnlyDomainModel):
     incremental_amount: OnlyMoney
     cumulative_applied_after: OnlyMoney
     local_finality: OnlyLocalFeeFinality
+    effective_at: OnlyTimestamp
     sequence: int
 
 
@@ -53,6 +58,9 @@ class OnlyFeeApplicationLedger:
         self._records: list[OnlyFeeApplicationRecord] = []
         self._instructions: dict[str, OnlyFeeApplicationInstruction] = {}
         self._instruments: dict[str, OnlyInstrumentId] = {}
+        self._by_trade: dict[tuple[OnlyAccountId, OnlyTradeId], list[OnlyFeeApplicationRecord]] = {}
+        self._by_order: dict[tuple[OnlyAccountId, OnlyOrderId], list[OnlyFeeApplicationRecord]] = {}
+        self._by_account_currency: dict[tuple[OnlyAccountId, OnlyCurrency], list[OnlyFeeApplicationRecord]] = {}
         self._sequence = 0
 
     @property
@@ -76,7 +84,11 @@ class OnlyFeeApplicationLedger:
         )
 
     def apply(
-        self, instruction: OnlyFeeApplicationInstruction, *, instrument_id: OnlyInstrumentId
+        self,
+        instruction: OnlyFeeApplicationInstruction,
+        *,
+        instrument_id: OnlyInstrumentId,
+        effective_at: OnlyTimestamp,
     ) -> tuple[OnlyFeeApplicationRecord, ...]:
         key = instruction.idempotency_key
         current = self._instructions.get(key)
@@ -105,10 +117,12 @@ class OnlyFeeApplicationLedger:
                     component.amount,
                     component.cumulative_applied_after,
                     instruction.local_finality,
+                    effective_at,
                     self._sequence,
                 )
             )
         self._records.extend(emitted)
+        self._index_records(emitted)
         self._instructions[key] = instruction
         self._instruments[key] = instrument_id
         return tuple(emitted)
@@ -140,13 +154,14 @@ class OnlyFeeApplicationLedger:
         merged.extend(item for item in records if item.record_id not in existing_ids)
         merged.sort(key=lambda item: item.sequence)
         self._records = merged
+        self._rebuild_indexes()
         self._instructions[key] = instruction
         self._instruments[key] = instrument_id
         self._sequence = max(self._sequence, sequence_head)
 
     def capture_checkpoint(self) -> object:
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "authorities": [
                 {
                     "instruction": instruction.to_json(),
@@ -161,7 +176,7 @@ class OnlyFeeApplicationLedger:
         }
 
     def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, dict) or payload.get("schema_version") != 3:
+        if not isinstance(payload, dict) or payload.get("schema_version") != 4:
             raise ValueError("UNSUPPORTED_FEE_CHECKPOINT_SCHEMA")
         authorities = payload.get("authorities")
         if not isinstance(authorities, list):
@@ -183,7 +198,42 @@ class OnlyFeeApplicationLedger:
         self._records = list(restored._records)
         self._instructions = dict(restored._instructions)
         self._instruments = dict(restored._instruments)
+        self._by_trade = {key: list(value) for key, value in restored._by_trade.items()}
+        self._by_order = {key: list(value) for key, value in restored._by_order.items()}
+        self._by_account_currency = {key: list(value) for key, value in restored._by_account_currency.items()}
         self._sequence = restored._sequence
+
+    def query_trade(self, account_id: OnlyAccountId, trade_id: OnlyTradeId) -> tuple[OnlyFeeApplicationRecord, ...]:
+        return tuple(self._by_trade.get((account_id, trade_id), ()))
+
+    def query_order(self, account_id: OnlyAccountId, order_id: OnlyOrderId) -> tuple[OnlyFeeApplicationRecord, ...]:
+        return tuple(self._by_order.get((account_id, order_id), ()))
+
+    def query_statement(
+        self,
+        account_id: OnlyAccountId,
+        currency: OnlyCurrency,
+        period_start: OnlyTimestamp,
+        period_end: OnlyTimestamp,
+    ) -> tuple[OnlyFeeApplicationRecord, ...]:
+        values = self._by_account_currency.get((account_id, currency), ())
+        start = bisect_left(values, period_start.unix_nanos, key=lambda item: item.effective_at.unix_nanos)
+        end = bisect_left(values, period_end.unix_nanos, key=lambda item: item.effective_at.unix_nanos)
+        return tuple(values[start:end])
+
+    def _index_records(self, records: list[OnlyFeeApplicationRecord]) -> None:
+        for item in records:
+            self._by_trade.setdefault((item.account_id, item.trade_id), []).append(item)
+            self._by_order.setdefault((item.account_id, item.order_id), []).append(item)
+            self._by_account_currency.setdefault((item.account_id, item.incremental_amount.currency), []).append(item)
+        for values in self._by_account_currency.values():
+            values.sort(key=lambda item: (item.effective_at.unix_nanos, item.sequence, item.record_id))
+
+    def _rebuild_indexes(self) -> None:
+        self._by_trade = {}
+        self._by_order = {}
+        self._by_account_currency = {}
+        self._index_records(self._records)
 
 
 __all__ = ["OnlyFeeApplicationAuthoritySnapshot", "OnlyFeeApplicationLedger", "OnlyFeeApplicationRecord"]

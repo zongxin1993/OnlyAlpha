@@ -1,4 +1,4 @@
-"""Immutable reconciliation adjustment and account-level unallocated authority."""
+"""Immutable component-attributed forward fee corrections."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -6,6 +6,9 @@ from enum import StrEnum
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderId, OnlyTradeId
 from onlyalpha.domain.value import OnlyMoney
+from onlyalpha.fee.evidence import OnlyFeeReconciliationComponentIdentity
+from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
+from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicyIdentity
 
 
 class OnlyFeeAdjustmentDirection(StrEnum):
@@ -14,29 +17,28 @@ class OnlyFeeAdjustmentDirection(StrEnum):
 
 
 class OnlyFeeDifferenceReason(StrEnum):
-    MINIMUM_COMMISSION = "MINIMUM_COMMISSION"
-    ROUNDING = "ROUNDING"
-    BROKER_RATE_MISMATCH = "BROKER_RATE_MISMATCH"
-    MARKET_SCHEDULE_OUTDATED = "MARKET_SCHEDULE_OUTDATED"
-    ALL_IN_REPORT = "ALL_IN_REPORT"
-    DEFERRED_FEE = "DEFERRED_FEE"
-    REFUND = "REFUND"
-    SUPPLEMENTAL_CHARGE = "SUPPLEMENTAL_CHARGE"
-    UNKNOWN = "UNKNOWN"
+    REPORTED_VARIANCE = "REPORTED_VARIANCE"
+    COMPONENT_MISMATCH = "COMPONENT_MISMATCH"
+    INCOMPLETE_EVIDENCE = "INCOMPLETE_EVIDENCE"
+    UNKNOWN_COMPONENT = "UNKNOWN_COMPONENT"
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyFeeAdjustment(OnlyDomainModel):
+    schema_version = 2
+
     adjustment_id: str
+    component_identity: OnlyFeeReconciliationComponentIdentity
     direction: OnlyFeeAdjustmentDirection
     amount: OnlyMoney
     account_id: OnlyAccountId
     cluster_id: OnlyClusterId | None
     order_id: OnlyOrderId | None
     trade_id: OnlyTradeId | None
-    statement_scope: str | None
+    scope: OnlyExternalFeeEvidenceScope
     evidence_id: str
     reconciliation_id: str
+    policy_identity: OnlyFeeReconciliationPolicyIdentity
     reason: OnlyFeeDifferenceReason
 
     def __post_init__(self) -> None:
@@ -60,4 +62,4 @@ class OnlyUnallocatedExternalFeeState(OnlyDomainModel):
             raise ValueError("unallocated external fee totals cannot be negative")
 
 
-__all__ = ["OnlyFeeAdjustment", "OnlyFeeAdjustmentDirection", "OnlyUnallocatedExternalFeeState"]
+__all__ = [name for name in globals() if name.startswith("Only")]

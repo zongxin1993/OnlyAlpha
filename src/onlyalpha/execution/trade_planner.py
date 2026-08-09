@@ -202,6 +202,7 @@ class OnlyTradeExecutionTransactionPlanner:
             context.fee_before,
             fee_accrual.application,
             trade.instrument_id,
+            trade.ts_event,
             record_sequence=context.fee_record_sequence,
             projection_sequence=6,
         )

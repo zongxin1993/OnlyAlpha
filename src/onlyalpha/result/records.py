@@ -279,6 +279,9 @@ class OnlyExternalFeeEvidenceResultRecord(OnlySequencedResultRecord):
     mode: str
     external_reference: str
     report_version: str
+    revision_sequence: int
+    supersedes_evidence_id: str
+    scope_fingerprint: str
     content_fingerprint: str
     reported_total: Decimal | None
     currency: str
@@ -290,6 +293,7 @@ class OnlyExternalFeeEvidenceResultRecord(OnlySequencedResultRecord):
 class OnlyFeeReconciliationResultRecord(OnlySequencedResultRecord):
     reconciliation_id: str
     evidence_id: str
+    evidence_family_fingerprint: str
     scope: str
     local_model_amount: Decimal | None
     prior_adjustments: Decimal
@@ -300,6 +304,13 @@ class OnlyFeeReconciliationResultRecord(OnlySequencedResultRecord):
     reason: str
     status: str
     adjustment_id: str
+    policy_id: str
+    policy_version: str
+    policy_fingerprint: str
+    local_facts_fingerprint: str
+    prior_adjustments_fingerprint: str
+    component_rows_json: str
+    resolves_blocker_id: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -313,6 +324,10 @@ class OnlyFeeAdjustmentResultRecord(OnlySequencedResultRecord):
     amount: Decimal
     currency: str
     reason: str
+    component_id: str
+    component_fee_type: str
+    component_authority: str
+    policy_fingerprint: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

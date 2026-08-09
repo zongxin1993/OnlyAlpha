@@ -131,6 +131,7 @@ class OnlyAccountRuntimeConfig:
     gateway_id: OnlyBrokerGatewayId
     initial_cash: OnlyMoney
     broker_fee_contract: "OnlyBrokerFeeContractConfig"
+    fee_reconciliation_policy: "OnlyFeeReconciliationPolicyConfig"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,16 @@ class OnlyBrokerFeeContractConfig:
     def __post_init__(self) -> None:
         if not self.contract_id.strip() or not self.contract_version.strip():
             raise OnlyConfigError("Broker fee-contract identity cannot be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyFeeReconciliationPolicyConfig:
+    policy_id: str
+    policy_version: str
+
+    def __post_init__(self) -> None:
+        if not self.policy_id.strip() or not self.policy_version.strip():
+            raise OnlyConfigError("Fee reconciliation policy identity cannot be empty")
 
 
 @dataclass(frozen=True, slots=True)

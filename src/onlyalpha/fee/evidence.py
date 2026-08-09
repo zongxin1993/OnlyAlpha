@@ -1,15 +1,17 @@
-"""Immutable external broker fee evidence and append-only identity authority."""
+"""Immutable normalized broker fee evidence and revision lineage."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyTradeId
+from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType, only_fee_fingerprint
+from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
+from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
+from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeEconomicDirection, OnlyFeeType, only_fee_fingerprint
 
 
 class OnlyExternalFeeEvidenceMode(StrEnum):
@@ -20,26 +22,72 @@ class OnlyExternalFeeEvidenceMode(StrEnum):
     DEFERRED_STATEMENT = "DEFERRED_STATEMENT"
 
 
-class OnlyExternalFeeEvidenceScope(StrEnum):
-    TRADE = "TRADE"
-    ORDER = "ORDER"
-    STATEMENT = "STATEMENT"
+@dataclass(frozen=True, order=True, slots=True)
+class OnlyFeeReconciliationComponentIdentity(OnlyDomainModel):
+    fee_type: OnlyFeeType
+    authority: OnlyFeeAuthority
+    economic_direction: OnlyFeeEconomicDirection
+    normalized_component_id: str
+
+    def __post_init__(self) -> None:
+        if not self.normalized_component_id.strip():
+            raise ValueError("fee reconciliation component identity cannot be empty")
+
+    @property
+    def sort_key(self) -> tuple[str, str, str, str]:
+        return (
+            self.fee_type.value,
+            self.authority.value,
+            self.economic_direction.value,
+            self.normalized_component_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyExternalFeeComponent(OnlyDomainModel):
-    external_component_id: str
-    fee_type: OnlyFeeType
-    authority: OnlyFeeAuthority
+    component_identity: OnlyFeeReconciliationComponentIdentity
     amount: OnlyMoney
+    fingerprint: str
 
     def __post_init__(self) -> None:
-        if not self.external_component_id.strip() or self.amount.amount < 0:
-            raise ValueError("external fee component identity/amount is invalid")
+        if self.amount.amount < 0 or self.fingerprint != only_fee_fingerprint(
+            (self.component_identity.to_dict(), self.amount.to_dict())
+        ):
+            raise ValueError("external fee component is invalid")
+
+    @classmethod
+    def create(
+        cls, component_identity: OnlyFeeReconciliationComponentIdentity, amount: OnlyMoney
+    ) -> OnlyExternalFeeComponent:
+        return cls(
+            component_identity,
+            amount,
+            only_fee_fingerprint((component_identity.to_dict(), amount.to_dict())),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyExternalFeeEvidenceFamilyIdentity(OnlyDomainModel):
+    broker_id: str
+    account_id: OnlyAccountId
+    external_reference: str
+    scope_fingerprint: str
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        payload = (self.broker_id, str(self.account_id), self.external_reference, self.scope_fingerprint)
+        if (
+            not self.broker_id.strip()
+            or not self.external_reference.strip()
+            or self.fingerprint != only_fee_fingerprint(payload)
+        ):
+            raise ValueError("EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT")
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyExternalFeeEvidence(OnlyDomainModel):
+    schema_version = 2
+
     evidence_id: str
     broker_id: str
     account_id: OnlyAccountId
@@ -47,10 +95,9 @@ class OnlyExternalFeeEvidence(OnlyDomainModel):
     mode: OnlyExternalFeeEvidenceMode
     external_reference: str
     report_version: str
+    revision_sequence: int
+    supersedes_evidence_id: str | None
     content_fingerprint: str
-    trade_id: OnlyTradeId | None
-    order_id: OnlyOrderId | None
-    statement_scope: str | None
     reported_total: OnlyMoney | None
     reported_components: tuple[OnlyExternalFeeComponent, ...]
     effective_at: OnlyTimestamp
@@ -66,24 +113,48 @@ class OnlyExternalFeeEvidence(OnlyDomainModel):
             )
         ):
             raise ValueError("external fee evidence identity cannot be empty")
-        if self.scope is OnlyExternalFeeEvidenceScope.TRADE and self.trade_id is None:
-            raise ValueError("TRADE fee evidence requires trade_id")
-        if self.scope is OnlyExternalFeeEvidenceScope.ORDER and self.order_id is None:
-            raise ValueError("ORDER fee evidence requires order_id")
-        if self.scope is OnlyExternalFeeEvidenceScope.STATEMENT and not (self.statement_scope or "").strip():
-            raise ValueError("STATEMENT fee evidence requires statement_scope")
-        if self.mode is OnlyExternalFeeEvidenceMode.DETAILED and not self.reported_components:
-            raise ValueError("DETAILED fee evidence requires components")
+        if self.revision_sequence < 1 or (self.revision_sequence == 1) != (self.supersedes_evidence_id is None):
+            raise ValueError("EXTERNAL_FEE_EVIDENCE_REVISION_INVALID")
+        ordered = tuple(sorted(self.reported_components, key=lambda item: item.component_identity.sort_key))
+        if ordered != self.reported_components:
+            raise ValueError("external fee components must use deterministic order")
+        identities = tuple(item.component_identity for item in ordered)
+        if len(set(identities)) != len(identities):
+            raise ValueError("FEE_COMPONENT_MAPPING_AMBIGUOUS")
+        if self.mode is OnlyExternalFeeEvidenceMode.DETAILED and not ordered:
+            raise ValueError("FEE_COMPONENT_INCOMPLETE")
         if self.mode is not OnlyExternalFeeEvidenceMode.DETAILED and self.reported_total is None:
             raise ValueError("aggregate fee evidence requires reported_total")
-        monies = tuple(item.amount for item in self.reported_components) + (
+        monies = tuple(item.amount for item in ordered) + (
             () if self.reported_total is None else (self.reported_total,)
         )
         if any(item.amount < 0 for item in monies) or len({item.currency for item in monies}) > 1:
-            raise ValueError("external fee evidence currency/amount is invalid")
-        expected = only_fee_fingerprint(self.content_payload())
-        if self.content_fingerprint != expected:
+            raise ValueError("FEE_EVIDENCE_CURRENCY_CONFLICT")
+        if self.mode is OnlyExternalFeeEvidenceMode.DETAILED and self.reported_total is not None:
+            signed = sum(
+                (
+                    item.amount.amount
+                    if item.component_identity.economic_direction is OnlyFeeEconomicDirection.CHARGE
+                    else -item.amount.amount
+                    for item in ordered
+                ),
+                Decimal(0),
+            )
+            if signed != self.reported_total.amount:
+                raise ValueError("EXTERNAL_FEE_EVIDENCE_INTERNAL_CONFLICT")
+        if self.scope.statement is not None:
+            statement = self.scope.statement
+            if statement.broker_id != self.broker_id or statement.account_id != self.account_id:
+                raise ValueError("FEE_EVIDENCE_SCOPE_INVALID")
+            if monies and any(item.currency != statement.currency for item in monies):
+                raise ValueError("FEE_EVIDENCE_CURRENCY_CONFLICT")
+        if self.content_fingerprint != only_fee_fingerprint(self.content_payload()):
             raise ValueError("EXTERNAL_FEE_EVIDENCE_CONTENT_FINGERPRINT_CONFLICT")
+        expected_id = only_fee_fingerprint(
+            (self.family_identity.fingerprint, self.revision_sequence, self.report_version, self.content_fingerprint)
+        )
+        if self.evidence_id != expected_id:
+            raise ValueError("EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT")
 
     @classmethod
     def create(
@@ -95,32 +166,31 @@ class OnlyExternalFeeEvidence(OnlyDomainModel):
         mode: OnlyExternalFeeEvidenceMode,
         external_reference: str,
         report_version: str,
-        trade_id: OnlyTradeId | None,
-        order_id: OnlyOrderId | None,
-        statement_scope: str | None,
+        revision_sequence: int,
+        supersedes_evidence_id: str | None,
         reported_total: OnlyMoney | None,
         reported_components: tuple[OnlyExternalFeeComponent, ...],
         effective_at: OnlyTimestamp,
         received_at: OnlyTimestamp,
     ) -> OnlyExternalFeeEvidence:
+        components = tuple(sorted(reported_components, key=lambda item: item.component_identity.sort_key))
+        family_payload = (broker_id, str(account_id), external_reference, scope.fingerprint)
+        family_fingerprint = only_fee_fingerprint(family_payload)
         payload = (
             broker_id,
             str(account_id),
-            scope.value,
+            scope.to_dict(),
             mode.value,
             external_reference,
             report_version,
-            None if trade_id is None else str(trade_id),
-            None if order_id is None else str(order_id),
-            statement_scope,
+            revision_sequence,
+            supersedes_evidence_id,
             None if reported_total is None else reported_total.to_dict(),
-            tuple(item.to_dict() for item in reported_components),
+            tuple(item.to_dict() for item in components),
             effective_at.to_dict(),
         )
-        fingerprint = only_fee_fingerprint(payload)
-        evidence_id = only_fee_fingerprint(
-            (broker_id, str(account_id), external_reference, report_version, fingerprint)
-        )
+        content_fingerprint = only_fee_fingerprint(payload)
+        evidence_id = only_fee_fingerprint((family_fingerprint, revision_sequence, report_version, content_fingerprint))
         return cls(
             evidence_id,
             broker_id,
@@ -129,63 +199,46 @@ class OnlyExternalFeeEvidence(OnlyDomainModel):
             mode,
             external_reference,
             report_version,
-            fingerprint,
-            trade_id,
-            order_id,
-            statement_scope,
+            revision_sequence,
+            supersedes_evidence_id,
+            content_fingerprint,
             reported_total,
-            reported_components,
+            components,
             effective_at,
             received_at,
         )
+
+    @property
+    def family_identity(self) -> OnlyExternalFeeEvidenceFamilyIdentity:
+        payload = (self.broker_id, str(self.account_id), self.external_reference, self.scope.fingerprint)
+        return OnlyExternalFeeEvidenceFamilyIdentity(
+            self.broker_id,
+            self.account_id,
+            self.external_reference,
+            self.scope.fingerprint,
+            only_fee_fingerprint(payload),
+        )
+
+    @property
+    def currency(self) -> OnlyCurrency:
+        if self.reported_total is not None:
+            return self.reported_total.currency
+        return self.reported_components[0].amount.currency
 
     def content_payload(self) -> tuple[object, ...]:
         return (
             self.broker_id,
             str(self.account_id),
-            self.scope.value,
+            self.scope.to_dict(),
             self.mode.value,
             self.external_reference,
             self.report_version,
-            None if self.trade_id is None else str(self.trade_id),
-            None if self.order_id is None else str(self.order_id),
-            self.statement_scope,
+            self.revision_sequence,
+            self.supersedes_evidence_id,
             None if self.reported_total is None else self.reported_total.to_dict(),
             tuple(item.to_dict() for item in self.reported_components),
             self.effective_at.to_dict(),
         )
-
-
-class OnlyExternalFeeEvidenceLedger:
-    def __init__(self) -> None:
-        self._items: dict[str, OnlyExternalFeeEvidence] = {}
-        self._identity: dict[tuple[str, OnlyAccountId, str, str], str] = {}
-
-    @property
-    def evidence(self) -> tuple[OnlyExternalFeeEvidence, ...]:
-        return tuple(sorted(self._items.values(), key=lambda item: (item.received_at.unix_nanos, item.evidence_id)))
-
-    def classify(self, evidence: OnlyExternalFeeEvidence) -> str | None:
-        key = (evidence.broker_id, evidence.account_id, evidence.external_reference, evidence.report_version)
-        current = self._identity.get(key)
-        if current is None:
-            return None
-        return (
-            "DUPLICATE_EVIDENCE"
-            if current == evidence.content_fingerprint
-            else "EXTERNAL_FEE_EVIDENCE_IDENTITY_CONFLICT"
-        )
-
-    def apply(self, evidence: OnlyExternalFeeEvidence) -> bool:
-        classification = self.classify(evidence)
-        if classification == "DUPLICATE_EVIDENCE":
-            return False
-        if classification is not None:
-            raise ValueError(classification)
-        key = (evidence.broker_id, evidence.account_id, evidence.external_reference, evidence.report_version)
-        self._identity[key] = evidence.content_fingerprint
-        self._items[evidence.evidence_id] = evidence
-        return True
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

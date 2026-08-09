@@ -471,10 +471,13 @@ class OnlyBacktestResultCollector:
                 evidence_id=fact.evidence.evidence_id,
                 broker_id=fact.evidence.broker_id,
                 account_id=str(fact.evidence.account_id),
-                scope=fact.evidence.scope.value,
+                scope=fact.evidence.scope.scope_type.value,
                 mode=fact.evidence.mode.value,
                 external_reference=fact.evidence.external_reference,
                 report_version=fact.evidence.report_version,
+                revision_sequence=fact.evidence.revision_sequence,
+                supersedes_evidence_id=fact.evidence.supersedes_evidence_id or "",
+                scope_fingerprint=fact.evidence.scope.fingerprint,
                 content_fingerprint=fact.evidence.content_fingerprint,
                 reported_total=None if fact.evidence.reported_total is None else fact.evidence.reported_total.amount,
                 currency=(
@@ -492,22 +495,31 @@ class OnlyBacktestResultCollector:
                 sequence=next_sequence(),
                 reconciliation_id=fact.decision.reconciliation_id,
                 evidence_id=fact.decision.evidence_id,
-                scope=fact.decision.scope.value,
-                local_model_amount=None
-                if fact.decision.local_model_amount is None
-                else fact.decision.local_model_amount.amount,
-                prior_adjustments=fact.decision.prior_adjustments.amount,
-                current_effective_amount=None
-                if fact.decision.current_effective_amount is None
-                else fact.decision.current_effective_amount.amount,
-                reported_authoritative_amount=None
-                if fact.decision.reported_authoritative_amount is None
-                else fact.decision.reported_authoritative_amount.amount,
-                difference=None if fact.decision.difference is None else fact.decision.difference.amount,
-                currency=fact.decision.prior_adjustments.currency.code,
+                evidence_family_fingerprint=fact.decision.evidence_family_fingerprint,
+                scope=fact.evidence.scope.scope_type.value,
+                local_model_amount=fact.decision.aggregate_local.amount,
+                prior_adjustments=fact.decision.aggregate_prior_adjustment.amount,
+                current_effective_amount=(
+                    fact.decision.aggregate_local.amount + fact.decision.aggregate_prior_adjustment.amount
+                ),
+                reported_authoritative_amount=fact.decision.aggregate_reported.amount,
+                difference=fact.decision.aggregate_difference.amount,
+                currency=fact.decision.aggregate_difference.currency.code,
                 reason="" if fact.decision.reason is None else fact.decision.reason.value,
                 status=fact.decision.status.value,
-                adjustment_id="" if fact.decision.adjustment is None else fact.decision.adjustment.adjustment_id,
+                adjustment_id=",".join(item.adjustment_id for item in fact.decision.adjustments),
+                policy_id=fact.decision.policy_identity.policy_id,
+                policy_version=fact.decision.policy_identity.policy_version,
+                policy_fingerprint=fact.decision.policy_identity.fingerprint,
+                local_facts_fingerprint=fact.decision.local_facts_fingerprint,
+                prior_adjustments_fingerprint=fact.decision.prior_adjustments_fingerprint,
+                component_rows_json=json.dumps(
+                    [item.to_dict() for item in fact.decision.component_reconciliations],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                resolves_blocker_id=fact.decision.resolves_blocker_id or "",
             )
             for _, fact in reconciliation_transactions
         )
@@ -523,9 +535,13 @@ class OnlyBacktestResultCollector:
                 amount=adjustment.amount.amount,
                 currency=adjustment.amount.currency.code,
                 reason=adjustment.reason.value,
+                component_id=adjustment.component_identity.normalized_component_id,
+                component_fee_type=adjustment.component_identity.fee_type.value,
+                component_authority=adjustment.component_identity.authority.value,
+                policy_fingerprint=adjustment.policy_identity.fingerprint,
             )
             for _, fact in reconciliation_transactions
-            if (adjustment := fact.decision.adjustment) is not None
+            for adjustment in fact.decision.adjustments
         )
         unallocated_external_fees = tuple(
             OnlyUnallocatedExternalFeeResultRecord(

@@ -29,6 +29,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, Only
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
 from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
+from onlyalpha.fee.reconciliation_policy import only_standard_fee_reconciliation_policy
 from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.market.profiles import only_builtin_market_profile_registry
 from onlyalpha.market.registry import OnlyMarketProfileRequest
@@ -117,6 +118,7 @@ def make_runtime(
                 broker_fee_contract=only_simulation_zero_broker_fee_contract("virtual"),
                 broker_fee_authority_id="virtual",
                 fee_basis_providers=only_default_fee_basis_provider_registry(),
+                fee_reconciliation_policy=only_standard_fee_reconciliation_policy(currency),
             ),
             runtime_calendar,
             datetime(2026, 1, 5, 1, 30, tzinfo=UTC),

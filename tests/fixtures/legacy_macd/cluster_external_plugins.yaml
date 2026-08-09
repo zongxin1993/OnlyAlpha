@@ -51,6 +51,7 @@ accounts:
   - account_id: backtest-account
     gateway_id: external-test-broker
     broker_fee_contract: {contract_id: TEST_EXTERNAL_BROKER_SIMULATION_ZERO_BROKER_FEES, contract_version: "1"}
+    fee_reconciliation_policy: {policy_id: STANDARD_FEE_RECONCILIATION, policy_version: "1"}
     initial_cash: {value: "1000000.00", currency: CNY}
 brokers:
   - gateway_id: external-test-broker

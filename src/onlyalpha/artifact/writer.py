@@ -800,6 +800,9 @@ _EXTERNAL_FEE_EVIDENCE_SCHEMA = pa.schema(
         ("mode", pa.string()),
         ("external_reference", pa.string()),
         ("report_version", pa.string()),
+        ("revision_sequence", pa.int64()),
+        ("supersedes_evidence_id", pa.string()),
+        ("scope_fingerprint", pa.string()),
         ("content_fingerprint", pa.string()),
         ("reported_total", _DECIMAL),
         ("currency", pa.string()),
@@ -811,6 +814,7 @@ _FEE_RECONCILIATION_SCHEMA = pa.schema(
     [
         ("reconciliation_id", pa.string()),
         ("evidence_id", pa.string()),
+        ("evidence_family_fingerprint", pa.string()),
         ("scope", pa.string()),
         ("local_model_amount", _DECIMAL),
         ("prior_adjustments", _DECIMAL),
@@ -821,6 +825,13 @@ _FEE_RECONCILIATION_SCHEMA = pa.schema(
         ("reason", pa.string()),
         ("status", pa.string()),
         ("adjustment_id", pa.string()),
+        ("policy_id", pa.string()),
+        ("policy_version", pa.string()),
+        ("policy_fingerprint", pa.string()),
+        ("local_facts_fingerprint", pa.string()),
+        ("prior_adjustments_fingerprint", pa.string()),
+        ("component_rows_json", pa.string()),
+        ("resolves_blocker_id", pa.string()),
     ]
 )
 _FEE_ADJUSTMENT_SCHEMA = pa.schema(
@@ -834,6 +845,10 @@ _FEE_ADJUSTMENT_SCHEMA = pa.schema(
         ("amount", _DECIMAL),
         ("currency", pa.string()),
         ("reason", pa.string()),
+        ("component_id", pa.string()),
+        ("component_fee_type", pa.string()),
+        ("component_authority", pa.string()),
+        ("policy_fingerprint", pa.string()),
     ]
 )
 _UNALLOCATED_EXTERNAL_FEE_SCHEMA = pa.schema(

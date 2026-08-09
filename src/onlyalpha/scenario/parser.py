@@ -191,6 +191,10 @@ class OnlyMarketScenarioParser:
                         "contract_id": "VIRTUAL_SIMULATION_ZERO_BROKER_FEES",
                         "contract_version": "1",
                     },
+                    "fee_reconciliation_policy": {
+                        "policy_id": "STANDARD_FEE_RECONCILIATION",
+                        "policy_version": "1",
+                    },
                     "initial_cash": {"value": "1000000", "currency": runtime["base_currency"]},
                 }
             ],

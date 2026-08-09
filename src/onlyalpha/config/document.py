@@ -26,6 +26,7 @@ from onlyalpha.config.models import (
     OnlyDataSourceCoverageConfig,
     OnlyDataSourceRuntimeConfig,
     OnlyFactorImportConfig,
+    OnlyFeeReconciliationPolicyConfig,
     OnlyIndicatorSpecConfig,
     OnlyInstrumentBarSubscriptionConfig,
     OnlyJsonMapping,
@@ -502,6 +503,10 @@ class _OnlyClusterDocumentParser:
             raw = self._map(value, p)
             cash = self._map(raw.get("initial_cash"), f"{p}.initial_cash")
             contract = self._map(raw.get("broker_fee_contract"), f"{p}.broker_fee_contract")
+            reconciliation = self._map(
+                raw.get("fee_reconciliation_policy"),
+                f"{p}.fee_reconciliation_policy",
+            )
             currency = OnlyCurrency(
                 self._str(cash.get("currency", base_currency.code), f"{p}.initial_cash.currency"),
                 base_currency.precision,
@@ -520,6 +525,16 @@ class _OnlyClusterDocumentParser:
                         self._str(
                             contract.get("contract_version"),
                             f"{p}.broker_fee_contract.contract_version",
+                        ),
+                    ),
+                    OnlyFeeReconciliationPolicyConfig(
+                        self._str(
+                            reconciliation.get("policy_id"),
+                            f"{p}.fee_reconciliation_policy.policy_id",
+                        ),
+                        self._str(
+                            reconciliation.get("policy_version"),
+                            f"{p}.fee_reconciliation_policy.policy_version",
                         ),
                     ),
                 )

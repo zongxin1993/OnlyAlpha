@@ -30,6 +30,7 @@ from onlyalpha.risk.audit import OnlyOrderIntentAudit, OnlyRiskDecisionAudit
 from onlyalpha.risk.contexts import OnlyRiskEvaluationContext, OnlyRiskStateUpdateContext
 from onlyalpha.risk.decisions import OnlyRiskDecision, OnlyRiskRejection
 from onlyalpha.risk.enums import (
+    OnlyOrderRiskChange,
     OnlyRiskLevel,
     OnlyRiskOutcome,
     OnlyRiskRejectionCode,
@@ -85,6 +86,30 @@ from onlyalpha.risk.views import (
 
 class OnlyRiskService:
     """Unique Risk Pipeline and mutable Risk State owner for one Runtime."""
+
+    def classify_order_change(
+        self,
+        request: OnlyOrderRequest,
+        context: OnlyRiskEvaluationContext | None,
+    ) -> OnlyOrderRiskChange:
+        """Classify exposure direction at the Risk/Position boundary."""
+
+        del context
+        effect = {
+            OnlyOffset.OPEN: OnlyPositionEffect.OPEN,
+            OnlyOffset.CLOSE: OnlyPositionEffect.CLOSE,
+            OnlyOffset.CLOSE_TODAY: OnlyPositionEffect.CLOSE_TODAY,
+            OnlyOffset.CLOSE_YESTERDAY: OnlyPositionEffect.CLOSE_YESTERDAY,
+        }.get(request.offset, OnlyPositionEffect.AUTO)
+        if effect is OnlyPositionEffect.OPEN:
+            return OnlyOrderRiskChange.RISK_INCREASING
+        if effect in {
+            OnlyPositionEffect.CLOSE,
+            OnlyPositionEffect.CLOSE_TODAY,
+            OnlyPositionEffect.CLOSE_YESTERDAY,
+        }:
+            return OnlyOrderRiskChange.RISK_REDUCING
+        return OnlyOrderRiskChange.UNKNOWN
 
     def __init__(
         self,

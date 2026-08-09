@@ -21,6 +21,10 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
+from onlyalpha.fee.reconciliation_policy import (
+    OnlyFeeReconciliationPolicyRegistry,
+    only_standard_fee_reconciliation_policy,
+)
 from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
 from onlyalpha.market.runtime_rules import (
     OnlyMarketRuleEngine,
@@ -148,6 +152,12 @@ class OnlyPaperRuntimeFactory:
                 broker_id=config.brokers[0].plugin_id,
                 account_id=account.account_id,
             )
+            reconciliation_policies = OnlyFeeReconciliationPolicyRegistry()
+            reconciliation_policies.register(only_standard_fee_reconciliation_policy(account.initial_cash.currency))
+            reconciliation_policy = reconciliation_policies.require(
+                account.fee_reconciliation_policy.policy_id,
+                account.fee_reconciliation_policy.policy_version,
+            )
             runtime_config = OnlyRuntimeAssemblyConfig(
                 config.engine_id,
                 config.runtime_id,
@@ -166,6 +176,7 @@ class OnlyPaperRuntimeFactory:
                 broker_fee_contract=broker_fee_contract,
                 broker_fee_authority_id=config.brokers[0].plugin_id,
                 fee_basis_providers=components.fee_basis_providers,
+                fee_reconciliation_policy=reconciliation_policy,
             )
             persistence = components.runtime_persistence_stores.create(
                 OnlyRuntimePersistenceStoreCreateRequest(

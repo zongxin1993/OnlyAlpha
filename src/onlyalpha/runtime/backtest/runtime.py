@@ -123,10 +123,12 @@ from onlyalpha.execution.terminal_identity import (
 from onlyalpha.execution.terminal_planner import OnlyTerminalExecutionTransactionPlanner
 from onlyalpha.execution.trade_planner import OnlyTradeExecutionTransactionPlanner
 from onlyalpha.fee.accrual_manager import OnlyOrderFeeAccrualManager
-from onlyalpha.fee.adjustment import OnlyFeeDifferenceReason
 from onlyalpha.fee.engine import OnlyFeeEngine
 from onlyalpha.fee.estimate import OnlyOrderFeeEstimate, OnlyOrderFundingPlan
-from onlyalpha.fee.evidence import OnlyExternalFeeEvidence
+from onlyalpha.fee.evidence import (
+    OnlyExternalFeeEvidence,
+    OnlyFeeReconciliationComponentIdentity,
+)
 from onlyalpha.fee.models import OnlyOrderFeePolicyBinding
 from onlyalpha.fee.reconciliation import (
     OnlyFeeReconciliationDecision,
@@ -134,6 +136,7 @@ from onlyalpha.fee.reconciliation import (
     OnlyFeeReconciliationPlanner,
     OnlyLocalFeeReconciliationComponent,
 )
+from onlyalpha.fee.reconciliation_query import OnlyFeeApplicationLocalFactQuery
 from onlyalpha.fee.resolver import OnlyFeeResolver
 from onlyalpha.fee.transaction_planner import (
     OnlyFeeReconciliationPlanningContext,
@@ -290,47 +293,70 @@ class OnlyBacktestRuntime(OnlyRuntime):
     def order_fee_accrual_manager(self) -> OnlyOrderFeeAccrualManager:
         return self._order_fee_accrual_manager
 
-    def reconcile_external_fee(
+    def submit_fee_evidence(
         self,
         evidence: OnlyExternalFeeEvidence,
-        *,
-        reason: OnlyFeeDifferenceReason,
-        materiality_threshold: OnlyMoney,
     ) -> OnlyRuntimeTransactionCoordinationResult:
-        """Plan and commit external fee evidence from Runtime-owned local authorities."""
+        """Validate and durably reconcile one normalized external fact."""
 
-        records = tuple(
-            item
-            for item in self._fee_application_ledger.records
-            if item.account_id == evidence.account_id
-            and (
-                (evidence.trade_id is not None and item.trade_id == evidence.trade_id)
-                or (evidence.order_id is not None and item.order_id == evidence.order_id)
-                or evidence.statement_scope is not None
-            )
-        )
+        if evidence.account_id != self.config.default_account_id:
+            raise ValueError("FEE_EVIDENCE_ACCOUNT_AUTHORITY_CONFLICT")
+        broker_contract = self.config.broker_fee_contract
+        broker_id = self.config.broker_fee_authority_id
+        if (
+            broker_contract is None
+            or broker_id is None
+            or evidence.broker_id != broker_id
+            or evidence.broker_id != broker_contract.identity.broker_id
+        ):
+            raise ValueError("FEE_EVIDENCE_BROKER_AUTHORITY_CONFLICT")
+        policy = self.config.fee_reconciliation_policy
+        if policy is None:
+            raise ValueError("FEE_RECONCILIATION_POLICY_NOT_INSTALLED")
+        if evidence.currency != policy.currency:
+            raise ValueError("FEE_RECONCILIATION_POLICY_CURRENCY_MISMATCH")
+        classification = self._fee_reconciliation_authority.classify(evidence)
+        if classification == "DUPLICATE_EVIDENCE":
+            raise ValueError("DUPLICATE_EVIDENCE")
+        records = OnlyFeeApplicationLocalFactQuery(
+            self._fee_application_ledger,
+            broker_id=broker_id,
+            account_id=evidence.account_id,
+        ).query(evidence)
         clusters = {item.cluster_id for item in records}
         cluster_id = next(iter(clusters)) if len(clusters) == 1 else None
+        gate = self._fee_reconciliation_risk_gate.get(evidence.account_id)
+        family_blockers = (
+            ()
+            if gate is None
+            else tuple(
+                item
+                for item in gate.active_blockers
+                if item.evidence_family_fingerprint == evidence.family_identity.fingerprint
+            )
+        )
+        if len(family_blockers) > 1:
+            raise ValueError("FEE_RECONCILIATION_BLOCKER_CONFLICT")
         decision = OnlyFeeReconciliationPlanner().plan(
             OnlyFeeReconciliationInput(
                 evidence,
                 tuple(
                     OnlyLocalFeeReconciliationComponent(
-                        item.component_identity.fee_type,
-                        item.component_identity.authority,
-                        item.component_identity.source_id,
-                        item.component_identity.economic_direction,
+                        OnlyFeeReconciliationComponentIdentity(
+                            item.component_identity.fee_type,
+                            item.component_identity.authority,
+                            item.component_identity.economic_direction,
+                            item.component_identity.source_id,
+                        ),
                         item.incremental_amount,
                     )
                     for item in records
                 ),
                 self._fee_reconciliation_authority.prior_adjustments(evidence),
                 cluster_id,
-                evidence.order_id,
-                evidence.trade_id,
-                reason,
-                materiality_threshold,
-                self._fee_reconciliation_authority.classify(evidence),
+                policy,
+                classification,
+                None if not family_blockers else family_blockers[0].blocker_id,
             )
         )
         return self._commit_fee_reconciliation(evidence, decision)
@@ -344,16 +370,20 @@ class OnlyBacktestRuntime(OnlyRuntime):
 
         if evidence.account_id != self.config.default_account_id:
             raise ValueError("FEE_RECONCILIATION_ACCOUNT_SCOPE_CONFLICT")
-        adjustment = decision.adjustment
+        adjustments = decision.adjustments
         account_state = None
         ledger_state = None
-        if adjustment is not None:
+        if adjustments:
             account_state = only_account_execution_state(self._account_manager.require_snapshot(evidence.account_id))
-            if adjustment.cluster_id is not None:
+            cluster_ids = {item.cluster_id for item in adjustments}
+            if len(cluster_ids) != 1:
+                raise ValueError("FEE_RECONCILIATION_STRATEGY_AUTHORITY_MISSING")
+            adjustment_cluster_id = next(iter(cluster_ids))
+            if adjustment_cluster_id is not None:
                 matching = tuple(
                     item
                     for item in self._strategy_ledger_manager.list_ledgers()
-                    if item.key.account_id == evidence.account_id and item.key.cluster_id == adjustment.cluster_id
+                    if item.key.account_id == evidence.account_id and item.key.cluster_id == adjustment_cluster_id
                 )
                 if len(matching) != 1:
                     raise ValueError("FEE_RECONCILIATION_STRATEGY_AUTHORITY_MISSING")
@@ -366,7 +396,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
             processed_at,
             self._fee_reconciliation_authority.evidence(evidence.evidence_id),
             self._fee_reconciliation_authority.decision(decision.reconciliation_id),
-            None if adjustment is None else self._fee_reconciliation_authority.adjustment(adjustment.adjustment_id),
+            tuple(self._fee_reconciliation_authority.adjustment(item.adjustment_id) for item in adjustments),
             account_state,
             ledger_state,
             self._fee_reconciliation_authority.unallocated(evidence.account_id),

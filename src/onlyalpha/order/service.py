@@ -65,7 +65,11 @@ class OnlyOrderService:
             raise ValueError("Order expire_time must be later than submission time")
         account_id = request.account_id or default_account_id
         if self._fee_reconciliation_risk_gate is not None:
-            self._fee_reconciliation_risk_gate.require_order_allowed(account_id, request.side, request.offset)
+            risk_change = self._risk_service.classify_order_change(
+                request,
+                self._risk_context(cluster_id, account_id, timestamp),
+            )
+            self._fee_reconciliation_risk_gate.require_order_allowed(account_id, risk_change)
         risk_decision = self._risk_service.evaluate_order(
             request,
             self._risk_context(cluster_id, account_id, timestamp),

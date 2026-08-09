@@ -24,7 +24,10 @@ from onlyalpha.fee.reconciliation_authority import (
     OnlyFeeAdjustmentState,
     OnlyFeeReconciliationDecisionState,
 )
-from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGateState
+from onlyalpha.fee.risk_gate import (
+    OnlyFeeReconciliationBlocker,
+    OnlyFeeReconciliationRiskGateState,
+)
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.projection import (
     OnlyAccountExecutionProjection,
@@ -49,7 +52,7 @@ class OnlyFeeReconciliationPlanningContext:
     processed_at: OnlyTimestamp
     evidence_before: OnlyExternalFeeEvidenceState | None
     decision_before: OnlyFeeReconciliationDecisionState | None
-    adjustment_before: OnlyFeeAdjustmentState | None
+    adjustment_before: tuple[OnlyFeeAdjustmentState | None, ...]
     account_before: OnlyAccountExecutionState | None
     strategy_ledger_before: OnlyStrategyLedgerExecutionState | None
     unallocated_before: OnlyUnallocatedExternalFeeState | None
@@ -58,21 +61,16 @@ class OnlyFeeReconciliationPlanningContext:
 
 class OnlyFeeReconciliationTransactionPlanner:
     def prepare(self, context: OnlyFeeReconciliationPlanningContext) -> OnlyPreparedRuntimeTransaction:
-        if (
-            context.decision.adjustment is not None
-            and context.evidence.account_id != context.decision.adjustment.account_id
-        ):
+        if any(context.evidence.account_id != adjustment.account_id for adjustment in context.decision.adjustments):
             raise ValueError("FEE_RECONCILIATION_ACCOUNT_SCOPE_CONFLICT")
+        if len(context.adjustment_before) != len(context.decision.adjustments):
+            raise ValueError("FEE_RECONCILIATION_ADJUSTMENT_AUTHORITY_MISSING")
         builder = OnlyRuntimeProjectionBuilder()
         projections: list[OnlyRuntimeProjection] = []
 
         evidence_after = OnlyExternalFeeEvidenceState(
             context.evidence,
-            context.decision.status
-            not in {
-                OnlyFeeReconciliationStatus.DUPLICATE_EVIDENCE,
-                OnlyFeeReconciliationStatus.EVIDENCE_CONFLICT,
-            },
+            context.decision.status is not OnlyFeeReconciliationStatus.EVIDENCE_CONFLICT,
             1 if context.evidence_before is None else context.evidence_before.version + 1,
         )
         identity = builder.identity(
@@ -100,31 +98,49 @@ class OnlyFeeReconciliationTransactionPlanner:
             builder.finalize(OnlyFeeReconciliationProjection(identity, context.decision_before, decision_after))
         )
 
-        adjustment = context.decision.adjustment
-        if adjustment is not None:
+        signed_total = Decimal(0)
+        total_charges = Decimal(0)
+        total_refunds = Decimal(0)
+        for adjustment, adjustment_before in zip(
+            context.decision.adjustments,
+            context.adjustment_before,
+            strict=True,
+        ):
             adjustment_after = OnlyFeeAdjustmentState(
                 adjustment,
-                1 if context.adjustment_before is None else context.adjustment_before.version + 1,
+                1 if adjustment_before is None else adjustment_before.version + 1,
             )
             identity = builder.identity(
                 component=OnlyRuntimeProjectionComponent.FEE_ADJUSTMENT_LEDGER,
                 entity_key=adjustment.adjustment_id,
-                before=context.adjustment_before,
+                before=adjustment_before,
                 after=adjustment_after,
                 projection_sequence=len(projections) + 1,
             )
             projections.append(
-                builder.finalize(OnlyFeeAdjustmentProjection(identity, context.adjustment_before, adjustment_after))
+                builder.finalize(OnlyFeeAdjustmentProjection(identity, adjustment_before, adjustment_after))
             )
             signed = (
                 adjustment.amount.amount
                 if adjustment.direction is OnlyFeeAdjustmentDirection.SUPPLEMENTAL_CHARGE
                 else -adjustment.amount.amount
             )
+            signed_total += signed
+            total_charges += adjustment.amount.amount if signed > 0 else Decimal(0)
+            total_refunds += adjustment.amount.amount if signed < 0 else Decimal(0)
+
+        adjustments = context.decision.adjustments
+        if adjustments:
             if context.account_before is None:
                 raise ValueError("FEE_RECONCILIATION_ACCOUNT_AUTHORITY_MISSING")
+            currency = adjustments[0].amount.currency
+            if any(item.amount.currency != currency for item in adjustments):
+                raise ValueError("FEE_EVIDENCE_CURRENCY_CONFLICT")
             account_after = self._adjust_account(
-                context.account_before, signed, adjustment.amount, context.processed_at
+                context.account_before,
+                signed_total,
+                OnlyMoney(abs(signed_total), currency),
+                context.processed_at,
             )
             identity = builder.identity(
                 component=OnlyRuntimeProjectionComponent.ACCOUNT,
@@ -136,11 +152,18 @@ class OnlyFeeReconciliationTransactionPlanner:
             projections.append(
                 builder.finalize(OnlyAccountExecutionProjection(identity, context.account_before, account_after))
             )
-            if adjustment.cluster_id is not None:
+            cluster_ids = {item.cluster_id for item in adjustments}
+            if len(cluster_ids) != 1:
+                raise ValueError("FEE_RECONCILIATION_STRATEGY_AUTHORITY_MISSING")
+            cluster_id = next(iter(cluster_ids))
+            if cluster_id is not None:
                 if context.strategy_ledger_before is None:
                     raise ValueError("FEE_RECONCILIATION_STRATEGY_AUTHORITY_MISSING")
                 ledger_after = self._adjust_strategy(
-                    context.strategy_ledger_before, signed, adjustment.amount, context.processed_at
+                    context.strategy_ledger_before,
+                    signed_total,
+                    OnlyMoney(abs(signed_total), currency),
+                    context.processed_at,
                 )
                 identity = builder.identity(
                     component=OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
@@ -155,19 +178,19 @@ class OnlyFeeReconciliationTransactionPlanner:
                     )
                 )
             else:
-                zero = OnlyMoney(Decimal(0), adjustment.amount.currency)
+                zero = OnlyMoney(Decimal(0), currency)
                 before = context.unallocated_before
                 charges = zero if before is None else before.cumulative_charges
                 refunds = zero if before is None else before.cumulative_refunds
                 unallocated_after = OnlyUnallocatedExternalFeeState(
-                    adjustment.account_id,
-                    charges + adjustment.amount if signed > 0 else charges,
-                    refunds + adjustment.amount if signed < 0 else refunds,
+                    context.evidence.account_id,
+                    charges + OnlyMoney(total_charges, currency),
+                    refunds + OnlyMoney(total_refunds, currency),
                     1 if before is None else before.version + 1,
                 )
                 identity = builder.identity(
                     component=OnlyRuntimeProjectionComponent.UNALLOCATED_EXTERNAL_FEE,
-                    entity_key=str(adjustment.account_id),
+                    entity_key=str(context.evidence.account_id),
                     before=before,
                     after=unallocated_after,
                     projection_sequence=len(projections) + 1,
@@ -177,38 +200,32 @@ class OnlyFeeReconciliationTransactionPlanner:
                 )
 
         gate_before = context.risk_gate_before
-        resolved = context.decision.status in {
-            OnlyFeeReconciliationStatus.MATCHED,
-            OnlyFeeReconciliationStatus.RECONCILED_WITH_ADJUSTMENT,
-        }
-        blocked = context.decision.status is OnlyFeeReconciliationStatus.TRADING_BLOCKED or (
-            gate_before is not None and gate_before.blocked and not resolved
-        )
-        blocking_decision = context.decision.status is OnlyFeeReconciliationStatus.TRADING_BLOCKED
+        blockers = list(() if gate_before is None else gate_before.active_blockers)
+        if context.decision.resolves_blocker_id is not None:
+            blockers = [item for item in blockers if item.blocker_id != context.decision.resolves_blocker_id]
+        if context.decision.status is OnlyFeeReconciliationStatus.TRADING_BLOCKED:
+            blockers = [
+                item
+                for item in blockers
+                if item.evidence_family_fingerprint != context.decision.evidence_family_fingerprint
+            ]
+            if context.decision.reason is None:
+                raise ValueError("FEE_RECONCILIATION_BLOCKER_CONFLICT")
+            blockers.append(
+                OnlyFeeReconciliationBlocker.create(
+                    account_id=context.evidence.account_id,
+                    evidence_family_fingerprint=context.decision.evidence_family_fingerprint,
+                    evidence_id=context.evidence.evidence_id,
+                    reconciliation_id=context.decision.reconciliation_id,
+                    reason=context.decision.reason,
+                    scope=context.evidence.scope,
+                    policy_identity=context.decision.policy_identity,
+                    created_at=context.processed_at,
+                )
+            )
         gate_after = OnlyFeeReconciliationRiskGateState(
             context.evidence.account_id,
-            blocked,
-            (
-                context.decision.reason.value
-                if blocking_decision and context.decision.reason is not None
-                else gate_before.reason
-                if blocked and gate_before is not None
-                else None
-            ),
-            (
-                context.evidence.evidence_id
-                if blocking_decision
-                else gate_before.evidence_id
-                if blocked and gate_before is not None
-                else None
-            ),
-            (
-                context.decision.reconciliation_id
-                if blocking_decision
-                else gate_before.reconciliation_id
-                if blocked and gate_before is not None
-                else None
-            ),
+            tuple(sorted(blockers, key=lambda item: item.blocker_id)),
             1 if gate_before is None else gate_before.version + 1,
         )
         identity = builder.identity(
