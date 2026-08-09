@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
@@ -41,6 +42,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv run python scripts/benchmark_test_lanes.py --lanes fast integration --workers 6 auto --dist worksteal --repeat 3
@@ -56,6 +58,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages

@@ -58,10 +58,6 @@ python_version = "3.12"
 strict = true
 files = ["src/onlyalpha"]
 
-[[tool.uv.index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-default = true
-
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
 

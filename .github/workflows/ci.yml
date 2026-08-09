@@ -31,6 +31,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Check synchronized package versions
@@ -111,6 +112,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Synchronize workspace
@@ -152,6 +154,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Synchronize workspace
         run: uv sync --frozen --all-packages --all-groups
@@ -186,6 +189,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Synchronize workspace
@@ -235,6 +239,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Synchronize workspace
@@ -288,6 +293,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Synchronize workspace
@@ -394,6 +400,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
+          version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Synchronize workspace
