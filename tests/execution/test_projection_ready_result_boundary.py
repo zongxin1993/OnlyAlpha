@@ -1,5 +1,6 @@
 from onlyalpha.collector import OnlyBacktestResultCollector
 from onlyalpha.execution import OnlyExecutionProcessingStatus
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.real_execution_recovery_harness import OnlyRealExecutionRecoveryHarness
 from tests.execution.test_long_close_terminal_planner import _terminal_update
 
@@ -45,5 +46,8 @@ def test_projection_ready_terminal_fact_does_not_enter_trade_result() -> None:
 
     collected = collector.seal(environment.runtime, environment.runtime.clusters)
 
-    assert len(environment.runtime.ready_execution_query.ready_records(update.runtime_id)) == 3
+    ready = environment.runtime.ready_execution_query.ready_records(update.runtime_id)
+    assert len(ready) == 5
+    assert tuple(item.operation_kind for item in ready).count(OnlyRuntimeOperationKind.ORDER_ACCEPTED) == 2
+    assert tuple(item.operation_kind for item in ready).count(OnlyRuntimeOperationKind.ORDER_TERMINAL) == 1
     assert len(collected.facts.executions) == 2

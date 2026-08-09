@@ -33,6 +33,10 @@ def test_projection_targets_use_restore_authority_not_business_mutations() -> No
         ".apply_trade_cash_flow(",
         ".consume_order_fill(",
         ".submit_order(",
+        ".release(",
+        ".consume(",
+        ".acknowledged(",
+        ".reserve(",
     ):
         assert forbidden not in source
     assert ".restore_execution_authority(" in source
@@ -43,6 +47,9 @@ def test_product_supported_trade_path_has_one_transaction_authority_and_no_switc
     runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
     execution = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha/execution").glob("*.py"))
     assert "def _trade(" not in processor
+    assert "def _accepted(" not in processor
+    assert "def _terminal_order(" not in processor
+    assert "coordinate_reservations" not in processor
     assert "self._execution_commit_coordinator.commit(" in processor
     assert "runtime_persistence_store" in runtime
     assert "OnlyInMemoryRuntimePersistenceStore()" not in runtime

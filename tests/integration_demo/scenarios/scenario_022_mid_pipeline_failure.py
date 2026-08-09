@@ -3,6 +3,7 @@ from onlyalpha.execution import (
     OnlyExecutionProcessingStatus,
     OnlyRuntimeProjectionComponent,
 )
+from onlyalpha.transaction import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import OnlyFailOnceExecutionProjectionTarget
 
 from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
@@ -33,8 +34,13 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert "ORDER_FILLED" not in event_types
     assert "STRATEGY_TRADE_APPLIED" not in event_types
     committed = failed.runtime.execution_transaction_query.records(failed.runtime.config.runtime_id)
-    assert len(committed) == 1 and not committed[0].projection_ready
-    assert failed.runtime.ready_execution_query.ready_records(failed.runtime.config.runtime_id) == ()
+    assert tuple(item.operation_kind for item in committed) == (
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+    )
+    assert committed[0].projection_ready
+    assert not committed[1].projection_ready
+    assert failed.runtime.ready_execution_query.ready_records(failed.runtime.config.runtime_id) == (committed[0],)
     assert failed.runtime.execution_reconciliation_queue.requests() == (result.reconciliation_request,)
     return env.report_builder.scenario(
         "022",

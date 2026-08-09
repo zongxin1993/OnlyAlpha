@@ -1,146 +1,66 @@
-"""Pure durable planner for Cash-Long SELL CLOSE terminal operations."""
+"""Pure durable planner for supported cash-long Order terminal operations."""
 
 from __future__ import annotations
 
-from dataclasses import replace
 from decimal import Decimal
 
 from onlyalpha.broker.updates import OnlyBrokerOrderRejectedUpdate
-from onlyalpha.domain.enums import OnlyOrderStatus
-from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
+from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.event.model import OnlyEvent, OnlyEventSource, OnlyEventType
-from onlyalpha.position.enums import (
-    OnlyPositionReservationStage,
-    OnlyPositionReservationState,
-)
-from onlyalpha.risk.enums import OnlyRiskReleaseReason, OnlyRiskReservationState
+from onlyalpha.position.enums import OnlyPositionReservationStage
+from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.event_identity import OnlyExecutionTransactionEventFactory
 from onlyalpha.transaction.projection import (
+    OnlyAccountCashReservationExecutionProjection,
+    OnlyAccountExecutionProjection,
+    OnlyAllocationExecutionProjection,
+    OnlyAllocationExecutionReplayMetadata,
     OnlyOrderTerminalExecutionProjection,
+    OnlyPositionExecutionProjection,
+    OnlyPositionExecutionReplayMetadata,
     OnlyPositionReservationExecutionProjection,
     OnlyRiskExecutionProjection,
     OnlyRiskReservationExecutionProjection,
     OnlyRuntimeProjection,
     OnlyRuntimeProjectionComponent,
+    OnlyStrategyCashReservationExecutionProjection,
+    OnlyStrategyLedgerExecutionProjection,
 )
 from onlyalpha.transaction.projection_builder import OnlyRuntimeProjectionBuilder
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction, OnlyRuntimePrecondition
 
 from .capability import OnlyExecutionCapability
+from .lifecycle_reducers import (
+    only_reduce_account_cash_reservation_terminal,
+    only_reduce_account_terminal_release,
+    only_reduce_allocation_hold_release,
+    only_reduce_order_terminal,
+    only_reduce_position_hold_release,
+    only_reduce_position_reservation_terminal,
+    only_reduce_risk_reservation_terminal,
+    only_reduce_strategy_cash_reservation_terminal,
+    only_reduce_strategy_ledger_terminal_release,
+    only_reduce_terminal_risk_snapshot,
+)
 from .planning_context import OnlyTerminalExecutionPlanningContext
-from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft
+from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft, OnlyTerminalEconomicReleaseKind
 
 
 class OnlyTerminalExecutionTransactionPlanner:
-    """Compile one Long Close terminal update into the shared transaction protocol."""
+    """Compile BUY OPEN or SELL CLOSE terminal facts into one transaction."""
 
     def prepare(self, context: OnlyTerminalExecutionPlanningContext) -> OnlyPreparedRuntimeTransaction:
         self._validate(context)
-        authority = context.terminal_authority
         update = context.update
-        terminal_status = authority.terminal_status
+        authority = context.terminal_authority
         reason, release_reason = _terminal_reasons(context)
-
-        order_after = replace(
-            context.order_before,
-            status=terminal_status,
-            updated_at=update.ts_event,
-            cancelled_at=(
-                update.ts_event if terminal_status is OnlyOrderStatus.CANCELLED else context.order_before.cancelled_at
-            ),
-            rejected_at=(
-                update.ts_event if terminal_status is OnlyOrderStatus.REJECTED else context.order_before.rejected_at
-            ),
-            expired_at=(
-                update.ts_event if terminal_status is OnlyOrderStatus.EXPIRED else context.order_before.expired_at
-            ),
-            rejection=(
-                update.rejection
-                if isinstance(update, OnlyBrokerOrderRejectedUpdate)
-                else context.order_before.rejection
-            ),
-            version=context.order_before.version + 1,
-            last_external_sequence=update.source_sequence,
-        )
-        position_before = context.position_reservation_before
-        if position_before.consumed_quantity is None or position_before.released_quantity is None:
-            raise ValueError("Terminal Position Reservation authority is incomplete")
-        position_release = position_before.remaining_quantity
-        position_after = replace(
-            position_before,
-            remaining_quantity=_zero_quantity(position_before.quantity),
-            released_quantity=OnlyQuantity(
-                position_before.released_quantity.value + position_release.value,
-                position_before.quantity.precision,
-            ),
-            stage=OnlyPositionReservationStage.RELEASED,
-            state=OnlyPositionReservationState.RELEASED,
-            updated_at=update.ts_init,
-            version=position_before.version + 1,
-        )
-        risk_before = context.risk_reservation_before
-        if risk_before.released_quantity is None:
-            raise ValueError("Terminal Risk Reservation released authority is incomplete")
-        risk_release_quantity = risk_before.remaining_quantity
-        risk_release_notional = risk_before.remaining_notional
-        risk_after = replace(
-            risk_before,
-            remaining_quantity=_zero_quantity(risk_before.reserved_quantity),
-            remaining_notional=(
-                None
-                if risk_before.reserved_notional is None
-                else OnlyMoney(
-                    risk_before.reserved_notional.amount - risk_before.reserved_notional.amount,
-                    risk_before.reserved_notional.currency,
-                )
-            ),
-            released_quantity=OnlyQuantity(
-                risk_before.released_quantity.value + risk_release_quantity.value,
-                risk_before.reserved_quantity.precision,
-            ),
-            released_notional=(
-                None
-                if risk_before.reserved_notional is None
-                else OnlyMoney(
-                    (Decimal(0) if risk_before.released_notional is None else risk_before.released_notional.amount)
-                    + (Decimal(0) if risk_release_notional is None else risk_release_notional.amount),
-                    risk_before.reserved_notional.currency,
-                )
-            ),
-            state=OnlyRiskReservationState.RELEASED,
-            release_reason=release_reason,
-            updated_at=update.ts_init,
-            version=risk_before.version + 1,
-        )
-        risk_snapshot_before = context.risk_before
-        released_notional_amount = Decimal(0) if risk_release_notional is None else risk_release_notional.amount
-        reserved_notional_after = risk_snapshot_before.reserved_notional
-        remaining_notional_after = risk_snapshot_before.remaining_order_notional
-        if reserved_notional_after is not None:
-            reserved_notional_after = OnlyMoney(
-                reserved_notional_after.amount - released_notional_amount,
-                reserved_notional_after.currency,
-            )
-        if remaining_notional_after is not None:
-            remaining_notional_after = OnlyMoney(
-                remaining_notional_after.amount - released_notional_amount,
-                remaining_notional_after.currency,
-            )
-        risk_snapshot_after = replace(
-            risk_snapshot_before,
-            ts_event=update.ts_init,
-            ts_init=update.ts_init,
-            active_order_count=risk_snapshot_before.active_order_count - 1,
-            cluster_active_order_count=risk_snapshot_before.cluster_active_order_count - 1,
-            reserved_quantity=risk_snapshot_before.reserved_quantity - risk_release_quantity.value,
-            reserved_notional=reserved_notional_after,
-            remaining_order_notional=remaining_notional_after,
-            version=risk_snapshot_before.version + 1,
-        )
-
         builder = OnlyRuntimeProjectionBuilder()
-        projections: tuple[OnlyRuntimeProjection, ...] = (
+        projections: list[OnlyRuntimeProjection] = []
+
+        order_after = only_reduce_order_terminal(context.order_before, update, authority)
+        projections.append(
             builder.finalize(
                 OnlyOrderTerminalExecutionProjection(
                     builder.identity(
@@ -154,23 +74,177 @@ class OnlyTerminalExecutionTransactionPlanner:
                     order_after,
                     update.update_id,
                     authority.terminal_identity,
-                    terminal_status,
+                    authority.terminal_status,
                     reason,
                 )
-            ),
-            builder.finalize(
-                OnlyPositionReservationExecutionProjection(
-                    builder.identity(
-                        component=OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
-                        entity_key=str(position_after.reservation_id),
-                        before=position_before,
-                        after=position_after,
-                        projection_sequence=2,
-                    ),
-                    position_before,
-                    position_after,
+            )
+        )
+
+        released_cash: OnlyMoney | None = None
+        released_quantity = None
+        if context.order_before.side is OnlyOrderSide.SELL:
+            reservation_before = context.position_reservation_before
+            allocation_before = context.allocation_before
+            if reservation_before is None or allocation_before is None:
+                raise ValueError("SELL CLOSE terminal requires Position Reservation and Allocation authority")
+            released_quantity = reservation_before.remaining_quantity
+            if reservation_before.stage in {
+                OnlyPositionReservationStage.LOCAL_ONLY,
+                OnlyPositionReservationStage.SENT_TO_BROKER,
+            }:
+                position_before = context.position_before
+                if position_before is None:
+                    raise ValueError("unacknowledged SELL CLOSE terminal requires Position authority")
+                position_after = only_reduce_position_hold_release(position_before, released_quantity)
+                projections.append(
+                    builder.finalize(
+                        OnlyPositionExecutionProjection(
+                            builder.identity(
+                                component=OnlyRuntimeProjectionComponent.POSITION,
+                                entity_key=str(position_after.position_id),
+                                before=position_before,
+                                after=position_after,
+                                projection_sequence=len(projections) + 1,
+                            ),
+                            position_before,
+                            position_after,
+                            OnlyMoney(Decimal(0), position_before.realized_pnl.currency),
+                            OnlyPositionExecutionReplayMetadata(context.position_cycle),
+                        )
+                    )
                 )
-            ),
+            allocation_after = only_reduce_allocation_hold_release(allocation_before, released_quantity)
+            projections.append(
+                builder.finalize(
+                    OnlyAllocationExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.ALLOCATION,
+                            entity_key=str(allocation_after.allocation_id),
+                            before=allocation_before,
+                            after=allocation_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        allocation_before,
+                        allocation_after,
+                        OnlyMoney(Decimal(0), allocation_before.realized_pnl.currency),
+                        OnlyAllocationExecutionReplayMetadata(context.allocation_cycle),
+                    )
+                )
+            )
+        else:
+            account_reservation = context.account_cash_reservation_before
+            strategy_reservation = context.strategy_cash_reservation_before
+            if account_reservation is None or strategy_reservation is None:
+                raise ValueError("BUY OPEN terminal requires both cash Reservation authorities")
+            if account_reservation.remaining_amount != strategy_reservation.remaining_amount:
+                raise ValueError("Account and Strategy cash release authority differs")
+            released_cash = account_reservation.remaining_amount
+            account_after = only_reduce_account_terminal_release(
+                context.account_before,
+                released_cash,
+                update.ts_init,
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyAccountExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.ACCOUNT,
+                            entity_key=str(account_after.account_id),
+                            before=context.account_before,
+                            after=account_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        context.account_before,
+                        account_after,
+                    )
+                )
+            )
+            ledger_after = only_reduce_strategy_ledger_terminal_release(
+                context.strategy_ledger_before,
+                strategy_reservation,
+                update.ts_init,
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyStrategyLedgerExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.STRATEGY_LEDGER,
+                            entity_key=str(ledger_after.ledger_id),
+                            before=context.strategy_ledger_before,
+                            after=ledger_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        context.strategy_ledger_before,
+                        ledger_after,
+                        context.strategy_valuation_lines,
+                    )
+                )
+            )
+            account_reservation_after = only_reduce_account_cash_reservation_terminal(
+                account_reservation,
+                update.ts_init,
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyAccountCashReservationExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.ACCOUNT_CASH_RESERVATION,
+                            entity_key=account_reservation_after.reservation_id,
+                            before=account_reservation,
+                            after=account_reservation_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        account_reservation,
+                        account_reservation_after,
+                    )
+                )
+            )
+            strategy_reservation_after = only_reduce_strategy_cash_reservation_terminal(
+                strategy_reservation,
+                update.ts_init,
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyStrategyCashReservationExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.STRATEGY_CASH_RESERVATION,
+                            entity_key=str(strategy_reservation_after.reservation_id),
+                            before=strategy_reservation,
+                            after=strategy_reservation_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        strategy_reservation,
+                        strategy_reservation_after,
+                    )
+                )
+            )
+
+        if context.order_before.side is OnlyOrderSide.SELL:
+            position_reservation = context.position_reservation_before
+            assert position_reservation is not None
+            position_reservation_after = only_reduce_position_reservation_terminal(
+                position_reservation,
+                update.ts_init,
+            )
+            projections.append(
+                builder.finalize(
+                    OnlyPositionReservationExecutionProjection(
+                        builder.identity(
+                            component=OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
+                            entity_key=str(position_reservation_after.reservation_id),
+                            before=position_reservation,
+                            after=position_reservation_after,
+                            projection_sequence=len(projections) + 1,
+                        ),
+                        position_reservation,
+                        position_reservation_after,
+                    )
+                )
+            )
+
+        risk_before = context.risk_reservation_before
+        risk_after = only_reduce_risk_reservation_terminal(risk_before, release_reason, update.ts_init)
+        projections.append(
             builder.finalize(
                 OnlyRiskReservationExecutionProjection(
                     builder.identity(
@@ -178,26 +252,31 @@ class OnlyTerminalExecutionTransactionPlanner:
                         entity_key=str(risk_after.reservation_id),
                         before=risk_before,
                         after=risk_after,
-                        projection_sequence=3,
+                        projection_sequence=len(projections) + 1,
                     ),
                     risk_before,
                     risk_after,
                 )
-            ),
+            )
+        )
+        risk_snapshot_after = only_reduce_terminal_risk_snapshot(context.risk_before, risk_before, update.ts_init)
+        projections.append(
             builder.finalize(
                 OnlyRiskExecutionProjection(
                     builder.identity(
                         component=OnlyRuntimeProjectionComponent.RISK,
                         entity_key=str(risk_snapshot_after.cluster_id),
-                        before=risk_snapshot_before,
+                        before=context.risk_before,
                         after=risk_snapshot_after,
-                        projection_sequence=4,
+                        projection_sequence=len(projections) + 1,
                     ),
-                    risk_snapshot_before,
+                    context.risk_before,
                     risk_snapshot_after,
                 )
-            ),
+            )
         )
+
+        frozen = tuple(projections)
         fact = OnlyCommittedTerminalExecutionFactDraft(
             operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL,
             terminal_identity=authority.terminal_identity,
@@ -210,7 +289,7 @@ class OnlyTerminalExecutionTransactionPlanner:
             instrument_id=context.order_before.instrument_id,
             order_id=update.order_id,
             execution_capability=context.support_decision.capability,
-            execution_support_schema_version=context.support_decision.schema_version,
+            execution_support_policy_version=context.support_decision.policy_version,
             execution_support_fingerprint=context.support_decision.fingerprint,
             source_sequence=update.source_sequence,
             processing_sequence=context.processing_sequence,
@@ -218,18 +297,20 @@ class OnlyTerminalExecutionTransactionPlanner:
             causation_id=update.causation_id,
             ts_event=update.ts_event,
             ts_init=update.ts_init,
-            terminal_status=terminal_status,
+            terminal_status=authority.terminal_status,
             terminal_reason=reason,
             risk_release_reason=release_reason,
             filled_quantity_before=context.order_before.filled_quantity,
             order_remaining_quantity=context.order_before.remaining_quantity,
-            position_reservation_consumed_before=position_before.consumed_quantity,
-            position_reservation_released_delta=position_release,
-            position_reservation_remaining_after=position_after.remaining_quantity,
-            risk_reservation_consumed_quantity_before=risk_before.consumed_quantity,
-            risk_reservation_released_quantity_delta=risk_release_quantity,
-            risk_reservation_released_notional_delta=risk_release_notional,
-            risk_reservation_remaining_quantity_after=risk_after.remaining_quantity,
+            economic_release_kind=(
+                OnlyTerminalEconomicReleaseKind.CASH_RESERVATION
+                if released_cash is not None
+                else OnlyTerminalEconomicReleaseKind.POSITION_RESERVATION
+            ),
+            reservation_released_quantity=released_quantity,
+            reservation_released_cash=released_cash,
+            risk_released_quantity=risk_before.remaining_quantity,
+            risk_released_notional=risk_before.remaining_notional,
             active_order_count_delta=-1,
             cluster_active_order_count_delta=-1,
         )
@@ -240,9 +321,8 @@ class OnlyTerminalExecutionTransactionPlanner:
                 item.identity.expected_version,
                 item.identity.expected_state_hash,
             )
-            for item in projections
+            for item in frozen
         )
-        events = _events(context, authority.terminal_identity, projections)
         prepared = OnlyPreparedRuntimeTransaction(
             transaction_id=authority.terminal_identity,
             runtime_id=update.runtime_id,
@@ -252,8 +332,8 @@ class OnlyTerminalExecutionTransactionPlanner:
             effective_time=update.ts_event,
             prepared_at=context.prepared_at,
             fact_draft=fact,
-            projections=projections,
-            outbox_events=events,
+            projections=frozen,
+            outbox_events=_events(context, frozen),
             preconditions=preconditions,
         )
         from .economic_invariants import OnlyPreparedExecutionEconomicInvariantValidator
@@ -263,56 +343,14 @@ class OnlyTerminalExecutionTransactionPlanner:
 
     @staticmethod
     def _validate(context: OnlyTerminalExecutionPlanningContext) -> None:
-        update = context.update
         order = context.order_before
-        scope = context.position_scope
-        if context.support_decision.capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
-            raise ValueError(
-                f"terminal capability routing invariant failed: {context.support_decision.capability.value}"
-            )
-        if update.order_id != order.order_id or update.runtime_id != order.runtime_id:
-            raise ValueError("Terminal update scope disagrees with Order")
-        if update.account_id != order.account_id or scope.cluster_id != order.cluster_id:
-            raise ValueError("Terminal update Account/Cluster scope disagrees")
-        if context.terminal_authority.terminal_status is OnlyOrderStatus.CANCELLED:
-            allowed = {
-                OnlyOrderStatus.SUBMITTED,
-                OnlyOrderStatus.ACCEPTED,
-                OnlyOrderStatus.PARTIALLY_FILLED,
-                OnlyOrderStatus.PENDING_CANCEL,
-            }
-        elif context.terminal_authority.terminal_status is OnlyOrderStatus.REJECTED:
-            allowed = {
-                OnlyOrderStatus.SUBMITTED,
-                OnlyOrderStatus.ACCEPTED,
-                OnlyOrderStatus.PARTIALLY_FILLED,
-                OnlyOrderStatus.PENDING_CANCEL,
-            }
-        else:
-            allowed = {
-                OnlyOrderStatus.ACCEPTED,
-                OnlyOrderStatus.PARTIALLY_FILLED,
-                OnlyOrderStatus.PENDING_CANCEL,
-            }
-        if order.status not in allowed:
-            raise ValueError("Order state does not accept this terminal operation")
-        if order.last_external_sequence is not None and update.source_sequence <= order.last_external_sequence:
-            raise ValueError("Terminal Broker sequence must advance")
-        position = context.position_reservation_before
         risk = context.risk_reservation_before
-        if position.order_id != order.order_id or position.remaining_quantity != order.remaining_quantity:
-            raise ValueError("Position Reservation remaining authority disagrees with Order")
-        if position.state not in {
-            OnlyPositionReservationState.ACTIVE,
-            OnlyPositionReservationState.PARTIALLY_CONSUMED,
-        }:
-            raise ValueError("Position Reservation is already terminal")
+        if context.support_decision.capability is not OnlyExecutionCapability.DURABLE_TERMINAL:
+            raise ValueError("Terminal capability routing invariant failed")
+        if context.update.account_id != order.account_id or context.position_scope.cluster_id != order.cluster_id:
+            raise ValueError("Terminal Account/Cluster scope disagrees")
         if risk.order_id != order.order_id or risk.remaining_quantity != order.remaining_quantity:
             raise ValueError("Risk Reservation remaining authority disagrees with Order")
-        if risk.state is not OnlyRiskReservationState.ACTIVE:
-            raise ValueError("Risk Reservation is already terminal")
-        if context.risk_before.active_order_count < 1 or context.risk_before.cluster_active_order_count < 1:
-            raise ValueError("Terminal Risk active Order count would underflow")
         if context.risk_before.reserved_quantity < risk.remaining_quantity.value:
             raise ValueError("Terminal Risk reserved quantity would underflow")
 
@@ -329,19 +367,14 @@ def _terminal_reasons(
     return update.metadata.get("reason", "ORDER_EXPIRED"), OnlyRiskReleaseReason.ORDER_EXPIRED
 
 
-def _zero_quantity(authority: OnlyQuantity) -> OnlyQuantity:
-    return OnlyQuantity(Decimal(0), authority.precision)
-
-
 def _events(
     context: OnlyTerminalExecutionPlanningContext,
-    transaction_id: str,
     projections: tuple[OnlyRuntimeProjection, ...],
 ) -> tuple[OnlyEvent, ...]:
     factory = OnlyExecutionTransactionEventFactory()
     return tuple(
         factory.create(
-            transaction_id=transaction_id,
+            transaction_id=context.terminal_authority.terminal_identity,
             event_sequence=index,
             event_type=OnlyEventType(f"{projection.identity.component.value}_TERMINAL_APPLIED"),
             timestamp=context.update.ts_event.to_datetime(),
@@ -350,7 +383,7 @@ def _events(
             cluster_id=context.order_before.cluster_id,
             source=OnlyEventSource("execution.terminal_planner"),
             payload={
-                "terminal_identity": transaction_id,
+                "terminal_identity": context.terminal_authority.terminal_identity,
                 "terminal_status": context.terminal_authority.terminal_status.value,
                 "component": projection.identity.component.value,
             },

@@ -45,6 +45,7 @@ def test_recovery_suppresses_direct_categories_and_delivers_only_durable_transac
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     durable_records = reader.outbox_records(runtime_id)
+    transactions = {item.execution_sequence: item for item in reader.records(runtime_id)}
     reader.close()
     durable_types = {item.event.event_type.value for item in durable_records}
     assert {
@@ -57,7 +58,12 @@ def test_recovery_suppresses_direct_categories_and_delivers_only_durable_transac
         "STRATEGY_TRADE_APPLIED",
         "STRATEGY_VALUATION_UPDATED",
     } <= durable_types
-    assert all(not item.published for item in durable_records)
+    assert all(
+        item.published
+        if transactions[item.key.execution_sequence].operation_kind.value == "ORDER_ACCEPTED"
+        else not item.published
+        for item in durable_records
+    )
 
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
     engine_b.add_cluster(_same_bar_config())

@@ -110,11 +110,13 @@ Result → Analytics → Artifact → Report
 | Terminal | Cancel / Reject / Expire |
 | Persistence | Memory / SQLite |
 
-Durable admission 本身不再由 Market Profile 名称授权，而由冻结的经济语义决定。当前 canonical kernel 只支持
-Cash + Limit + Long + Netting 的 BUY OPEN / SELL CLOSE Trade shape，以及 SELL CLOSE Terminal shape；Market identity 继续作为
-审计证据。相同 shape 可复用同一内核不等于对应 Market Product 已完成端到端 Conformance。
+Durable admission 本身不再由 Market Profile 名称授权，而由冻结的经济语义决定。P4.1 已完成 Execution Support
+Authority；P4.2 已将 Cash + Limit + Long + Netting 的 BUY OPEN / SELL CLOSE Broker `Accepted`、`Trade`、
+`Cancelled`、`Rejected`、`Expired` 全部纳入同一 Prepared Transaction → Durable Commit → Ordered Projection →
+Forward Recovery 链。Market identity 继续作为审计证据；相同 shape 可复用同一内核不等于对应 Market Product 已完成端到端
+Conformance。
 
-每个成交 Fill 都形成独立、不可变的事务事实：
+每个 Broker 生命周期事实和每个成交 Fill 都形成独立、不可变的事务事实：
 
 ```text
 Broker Update

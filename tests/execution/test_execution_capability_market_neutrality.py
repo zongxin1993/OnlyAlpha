@@ -69,7 +69,7 @@ def test_same_market_with_different_semantic_shape_has_different_decision() -> N
     assert supported.support_decision != unsupported
 
 
-def test_buy_open_terminal_remains_unsupported_and_never_enters_terminal_planner(
+def test_buy_open_terminal_is_durable_and_enters_terminal_planner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     scenario = OnlyTestGenericT0Scenario("buy-open-terminal")
@@ -94,16 +94,21 @@ def test_buy_open_terminal_remains_unsupported_and_never_enters_terminal_planner
     scope = environment.runtime.execution_processor._resolve_position_scope(update)
     assert scope is not None
     decision = environment.runtime.execution_processor._resolve_execution_support(update, scope)
-    assert decision.capability is OnlyExecutionCapability.UNSUPPORTED
+    assert decision.capability is OnlyExecutionCapability.DURABLE_TERMINAL
 
-    def fail_if_called(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        pytest.fail("unsupported BUY OPEN terminal entered durable Terminal Planner")
+    original_prepare = environment.runtime.execution_processor._terminal_planner.prepare
+    called = False
 
-    monkeypatch.setattr(environment.runtime.execution_processor._terminal_planner, "prepare", fail_if_called)
+    def observe_prepare(*args: object, **kwargs: object) -> object:
+        nonlocal called
+        called = True
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(environment.runtime.execution_processor._terminal_planner, "prepare", observe_prepare)
     before = environment.runtime.execution_transaction_query.records(order.runtime_id)
     result = environment.runtime.execution_processor.process(update)
     after = environment.runtime.execution_transaction_query.records(order.runtime_id)
 
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
-    assert after == before
+    assert called
+    assert len(after) == len(before) + 1

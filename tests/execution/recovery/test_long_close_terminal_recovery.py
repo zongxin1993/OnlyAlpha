@@ -1,6 +1,7 @@
 import pytest
 
 from onlyalpha.execution import (
+    OnlyAllocationExecutionProjectionTarget,
     OnlyExecutionOutboxPublisher,
     OnlyExecutionProcessingStatus,
     OnlyExecutionRecoveryPlanBuilder,
@@ -71,6 +72,7 @@ def test_terminal_committed_before_projection_replays_through_existing_causal_se
     "component",
     (
         OnlyRuntimeProjectionComponent.ORDER,
+        OnlyRuntimeProjectionComponent.ALLOCATION,
         OnlyRuntimeProjectionComponent.POSITION_RESERVATION,
         OnlyRuntimeProjectionComponent.RISK_RESERVATION,
         OnlyRuntimeProjectionComponent.RISK,
@@ -88,6 +90,10 @@ def test_terminal_mid_projection_failure_forward_recovers_exactly_once(
     ledger = OnlyInMemoryAppliedRuntimeProjectionLedger()
     targets = {
         OnlyRuntimeProjectionComponent.ORDER: OnlyOrderExecutionProjectionTarget(runtime.order_manager, ledger),
+        OnlyRuntimeProjectionComponent.ALLOCATION: OnlyAllocationExecutionProjectionTarget(
+            runtime.allocation_manager,
+            ledger,
+        ),
         OnlyRuntimeProjectionComponent.POSITION_RESERVATION: OnlyPositionReservationExecutionProjectionTarget(
             runtime.position_reservation_manager,
             ledger,

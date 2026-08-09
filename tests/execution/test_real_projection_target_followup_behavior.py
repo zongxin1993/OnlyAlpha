@@ -63,7 +63,7 @@ def test_valuation_replay_preserves_versions_and_contiguous_timelines() -> None:
     valuation = bundle.valuation_authority.get(account.account_id)
     assert valuation is not None
     assert account.version == 10
-    assert ledger.version == 12
+    assert ledger.version == 13
     assert runtime.account_manager._valuation_versions[account.account_id] == valuation.version
     assert runtime.strategy_ledger_manager._valuation_versions[ledger.key] == valuation.version
     account_points = runtime.account_performance_projector.timeline(account.account_id)

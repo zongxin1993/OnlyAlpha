@@ -77,10 +77,6 @@ class OnlyRuntimeTransactionQueryPort(Protocol):
         self, runtime_id: OnlyRuntimeId, fill_identity: str
     ) -> OnlyCommittedRuntimeTransaction | None: ...
 
-    def get_by_terminal_identity(
-        self, runtime_id: OnlyRuntimeId, terminal_identity: str
-    ) -> OnlyCommittedRuntimeTransaction | None: ...
-
     def transactions_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
     ) -> tuple[OnlyCommittedRuntimeTransaction, ...]: ...

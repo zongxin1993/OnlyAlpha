@@ -51,7 +51,7 @@ def test_engine_restart_retries_same_ready_outbox_event_without_projection_repla
     runtime_id = engine_a.runtime_sessions[0].runtime_id
     path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(path)
-    assert reader.ready_count(runtime_id) == 1
+    assert reader.ready_count(runtime_id) == 2
     before = reader.outbox_records(runtime_id)
     assert before and all(not item.published for item in before)
     assert any(item.attempt_count >= 1 for item in before)
@@ -67,7 +67,7 @@ def test_engine_restart_retries_same_ready_outbox_event_without_projection_repla
 
     reopened = OnlySqliteRuntimePersistenceStore(path)
     after = reopened.outbox_records(runtime_id)
-    assert reopened.ready_count(runtime_id) == 1
+    assert reopened.ready_count(runtime_id) == 2
     assert reopened.pending_count(runtime_id) == 0
     assert tuple(item.event.event_id for item in after) == event_ids
     assert all(item.published for item in after)

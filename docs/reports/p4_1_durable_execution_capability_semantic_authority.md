@@ -78,7 +78,7 @@ This is kernel semantic reuse only. It does not certify the CN A-share durable p
 ## Persistence, fact schema, and recovery impact
 
 Trade draft schema advanced from 3 to 4, committed Trade fact from 4 to 5, and Terminal draft/committed fact from 1 to 2. Each
-persists `execution_capability`, `execution_support_schema_version`, and `execution_support_fingerprint`. The generic Runtime
+persists `execution_capability`, `execution_support_policy_version`, and `execution_support_fingerprint`. The generic Runtime
 transaction envelope and Runtime persistence schema did not change.
 
 Codec, Memory/SQLite store, committed facts, result projection, and recovery round trips preserve the proof. Recovery never calls

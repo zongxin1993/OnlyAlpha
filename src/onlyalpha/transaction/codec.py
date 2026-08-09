@@ -11,6 +11,10 @@ from typing import cast
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.execution.accepted_fact import (
+    OnlyCommittedOrderAcceptedFact,
+    OnlyCommittedOrderAcceptedFactDraft,
+)
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.terminal_fact import (
     OnlyCommittedTerminalExecutionFact,
@@ -30,6 +34,7 @@ from onlyalpha.transaction.projection import (
     OnlyFeeReconciliationRiskGateProjection,
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
+    OnlyOrderAcceptedExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
@@ -55,6 +60,7 @@ from .enums import OnlyRuntimeOperationKind
 _PROJECTION_TYPES = {
     projection_type.__name__: projection_type
     for projection_type in (
+        OnlyOrderAcceptedExecutionProjection,
         OnlyOrderExecutionProjection,
         OnlyOrderTerminalExecutionProjection,
         OnlyPositionExecutionProjection,
@@ -228,7 +234,9 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedRunt
         effective_time=OnlyTimestamp.from_unix_nanos(int(str(value["effective_time_ns"]))),
         prepared_at=OnlyTimestamp.from_unix_nanos(int(str(value["prepared_at_ns"]))),
         fact_draft=(
-            OnlyCommittedExecutionFactDraft.from_dict(fact_payload)
+            OnlyCommittedOrderAcceptedFactDraft.from_dict(fact_payload)
+            if operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
+            else OnlyCommittedExecutionFactDraft.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
             else OnlyCommittedTerminalExecutionFactDraft.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
@@ -298,7 +306,9 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedRu
         account_id=None if value.get("account_id") is None else OnlyAccountId(str(value["account_id"])),
         effective_time=OnlyTimestamp.from_unix_nanos(int(str(value["effective_time_ns"]))),
         fact=(
-            OnlyCommittedExecutionFact.from_dict(fact_payload)
+            OnlyCommittedOrderAcceptedFact.from_dict(fact_payload)
+            if operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
+            else OnlyCommittedExecutionFact.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
             else OnlyCommittedTerminalExecutionFact.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
@@ -337,7 +347,7 @@ def _load_object(payload: str) -> Mapping[str, object]:
 
 
 def _require_schema(value: Mapping[str, object]) -> None:
-    if value.get("schema_version") != 6:
+    if value.get("schema_version") != 7:
         raise ValueError("UNSUPPORTED_RUNTIME_TRANSACTION_SCHEMA: unsupported schema version")
 
 

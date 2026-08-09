@@ -65,7 +65,9 @@ def test_three_fills_commit_three_incremental_transactions() -> None:
                 OnlyStrategyCashReservationState.RELEASED,
             }
 
-    records = env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id)
+    all_records = env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id)
+    assert len(all_records) == 4
+    records = tuple(item for item in all_records if item.operation_kind.value == "TRADE_FILL")
     assert len(records) == 3
     assert tuple(item.fact.fill_index for item in records) == (1, 2, 3)
     assert all(item.projection_ready for item in records)
@@ -114,7 +116,7 @@ def test_three_fills_commit_three_incremental_transactions() -> None:
     )
     duplicate = env.runtime.execution_processor.process(updates[-1])
     assert duplicate.status.value == "DUPLICATE"
-    assert len(env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id)) == 3
+    assert len(env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id)) == 4
     conflict_update = replace(
         updates[-1],
         update_id=OnlyBrokerUpdateId("three-fill-conflict"),

@@ -523,7 +523,7 @@ class OnlyTradeExecutionTransactionPlanner:
             instrument_id=trade.instrument_id,
             venue_id=identity.venue,
             execution_capability=context.support_decision.capability,
-            execution_support_schema_version=context.support_decision.schema_version,
+            execution_support_policy_version=context.support_decision.policy_version,
             execution_support_fingerprint=context.support_decision.fingerprint,
             source_sequence=trade.source_sequence,
             processing_sequence=context.processing_sequence,

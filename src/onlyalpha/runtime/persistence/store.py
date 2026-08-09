@@ -15,6 +15,7 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
+from onlyalpha.execution.accepted_fact import OnlyCommittedOrderAcceptedFactDraft
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFactDraft
 from onlyalpha.execution.trade_fact import OnlyCommittedExecutionFactDraft
@@ -55,7 +56,7 @@ from onlyalpha.transaction.transaction import (
     OnlyStoredRuntimeTransaction,
 )
 
-ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "4"
+ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "5"
 
 
 class OnlyRuntimePersistenceIdentityMismatch(OnlyRuntimePersistenceStoreError):
@@ -158,7 +159,6 @@ class OnlyInMemoryRuntimePersistenceStore:
         self._by_update: dict[
             tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyAccountId, OnlyBrokerUpdateId], tuple[OnlyRuntimeId, int]
         ] = {}
-        self._by_terminal: dict[str, tuple[OnlyRuntimeId, int]] = {}
         self._outbox: dict[tuple[OnlyRuntimeId, int, int], OnlyRuntimeTransactionOutboxRecord] = {}
         self._checkpoints: dict[tuple[OnlyRuntimeId, int], OnlyRuntimeCheckpoint] = {}
         self._participant_registry_fingerprint: str | None = None
@@ -174,7 +174,6 @@ class OnlyInMemoryRuntimePersistenceStore:
                 dict(self._by_operation),
                 dict(self._by_trade),
                 dict(self._by_update),
-                dict(self._by_terminal),
                 dict(self._outbox),
             )
             try:
@@ -226,7 +225,8 @@ class OnlyInMemoryRuntimePersistenceStore:
                     self._by_trade[self._trade_key(prepared)] = key
                     self._by_update[self._update_key(prepared)] = key
                 elif prepared.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL:
-                    self._by_terminal[prepared.operation_identity] = key
+                    self._by_update[self._update_key(prepared)] = key
+                elif prepared.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED:
                     self._by_update[self._update_key(prepared)] = key
                 self._outbox.update(outbox_records)
                 return OnlyRuntimeTransactionCommitResult(transaction, True)
@@ -240,7 +240,6 @@ class OnlyInMemoryRuntimePersistenceStore:
                     self._by_operation,
                     self._by_trade,
                     self._by_update,
-                    self._by_terminal,
                     self._outbox,
                 ) = snapshots
                 raise OnlyRuntimePersistenceStoreError(
@@ -294,15 +293,6 @@ class OnlyInMemoryRuntimePersistenceStore:
                 ),
                 None,
             )
-
-    def get_by_terminal_identity(
-        self, runtime_id: OnlyRuntimeId, terminal_identity: str
-    ) -> OnlyCommittedRuntimeTransaction | None:
-        with self._lock:
-            key = self._by_terminal.get(terminal_identity)
-            if key is None or key[0] != runtime_id:
-                return None
-            return self._records[key]
 
     def transactions_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
@@ -533,7 +523,12 @@ class OnlyInMemoryRuntimePersistenceStore:
             self._by_transaction.get(prepared.transaction_id),
             operation_key,
             self._by_update.get(self._update_key(prepared))
-            if prepared.operation_kind in {OnlyRuntimeOperationKind.TRADE_FILL, OnlyRuntimeOperationKind.ORDER_TERMINAL}
+            if prepared.operation_kind
+            in {
+                OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+                OnlyRuntimeOperationKind.TRADE_FILL,
+                OnlyRuntimeOperationKind.ORDER_TERMINAL,
+            }
             else None,
         )
         existing_keys = {key for key in keys if key is not None}
@@ -588,7 +583,12 @@ class OnlyInMemoryRuntimePersistenceStore:
         prepared: OnlyPreparedRuntimeTransaction,
     ) -> tuple[OnlyRuntimeId, OnlyBrokerGatewayId, OnlyAccountId, OnlyBrokerUpdateId]:
         fact = prepared.fact_draft
-        if isinstance(fact, OnlyCommittedExecutionFactDraft | OnlyCommittedTerminalExecutionFactDraft):
+        if isinstance(
+            fact,
+            OnlyCommittedOrderAcceptedFactDraft
+            | OnlyCommittedExecutionFactDraft
+            | OnlyCommittedTerminalExecutionFactDraft,
+        ):
             return prepared.runtime_id, fact.gateway_id, fact.account_id, fact.broker_update_id
         raise ValueError("Runtime operation has no Broker update identity")
 
@@ -838,14 +838,6 @@ class OnlySqliteRuntimePersistenceStore:
                 if isinstance(item.fact, OnlyCommittedExecutionFact) and item.fact.fill_identity == fill_identity
             ),
             None,
-        )
-
-    def get_by_terminal_identity(
-        self, runtime_id: OnlyRuntimeId, terminal_identity: str
-    ) -> OnlyCommittedRuntimeTransaction | None:
-        return self._find(
-            "runtime_id=? AND operation_kind=? AND operation_identity=?",
-            (str(runtime_id), OnlyRuntimeOperationKind.ORDER_TERMINAL.value, terminal_identity),
         )
 
     def transactions_for_order(

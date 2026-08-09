@@ -35,10 +35,15 @@ def test_engine_virtual_broker_runs_complete_long_close_multi_fill(tmp_path, sam
     )
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     records = reader.transactions_for_order(runtime.config.runtime_id, sell.order_id)
-    assert len(records) == 3
-    assert all(item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL for item in records)
-    assert all(isinstance(item.fact, OnlyCommittedExecutionFact) for item in records)
-    facts = tuple(item.fact for item in records if isinstance(item.fact, OnlyCommittedExecutionFact))
+    assert tuple(item.operation_kind for item in records) == (
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+    )
+    trade_records = tuple(item for item in records if item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL)
+    assert all(isinstance(item.fact, OnlyCommittedExecutionFact) for item in trade_records)
+    facts = tuple(item.fact for item in trade_records if isinstance(item.fact, OnlyCommittedExecutionFact))
     assert tuple(item.fill_index for item in facts) == (1, 2, 3)
     assert tuple(item.fill_quantity.value for item in facts) == (Decimal("300"), Decimal("400"), Decimal("300"))
     assert tuple(item.position_quantity_after for item in facts) == (
@@ -55,7 +60,7 @@ def test_engine_virtual_broker_runs_complete_long_close_multi_fill(tmp_path, sam
     assert risk_reservation is not None
     assert risk_reservation.state is OnlyRiskReservationState.CONSUMED
     assert risk_reservation.remaining_quantity.value == 0
-    final_risk = next(item for item in records[-1].projections if isinstance(item, OnlyRiskExecutionProjection))
+    final_risk = next(item for item in trade_records[-1].projections if isinstance(item, OnlyRiskExecutionProjection))
     assert final_risk.after.active_order_count == 0
     assert isinstance(runtime.broker_gateway, OnlyVirtualBrokerGateway)
     plan = runtime.broker_gateway.fill_plan_store.require(sell.order_id)

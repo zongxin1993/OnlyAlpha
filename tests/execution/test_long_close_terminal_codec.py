@@ -58,12 +58,12 @@ def test_terminal_operation_store_round_trip_and_admin_query(tmp_path: Path, sql
     )
     assert not hasattr(committed.fact, "trade_id")
     assert isinstance(committed.fact, OnlyCommittedTerminalExecutionFact)
-    assert store.get_by_terminal_identity(prepared.runtime_id, committed.fact.terminal_identity) == committed
+    assert store.get_by_transaction_id(committed.fact.terminal_identity) == committed
     store.close()
 
     if sqlite:
         reopened = OnlySqliteRuntimePersistenceStore(path)
-        assert reopened.get_by_terminal_identity(prepared.runtime_id, committed.fact.terminal_identity) == committed
+        assert reopened.get_by_transaction_id(committed.fact.terminal_identity) == committed
         assert reopened.records(prepared.runtime_id) == (committed,)
         reopened.close()
 
@@ -80,7 +80,7 @@ def test_runtime_schema_two_is_rejected_without_migration_or_deletion(tmp_path: 
 
     with pytest.raises(
         OnlyRuntimePersistenceSchemaUnsupported,
-        match=r"expected='4', actual='2'",
+        match=r"expected='5', actual='2'",
     ):
         OnlySqliteRuntimePersistenceStore(path)
 

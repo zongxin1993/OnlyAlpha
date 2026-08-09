@@ -12,6 +12,7 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
 )
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
@@ -29,6 +30,7 @@ class OnlyFaultInjectingRuntimePersistenceStoreFactory:
         return OnlyFailOnceRuntimePersistenceStore(
             self._delegate.create(request),
             OnlyTestRuntimePersistenceFault.AFTER_COMMIT,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
         )
 
 
@@ -60,9 +62,12 @@ def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
     assert path.is_file()
     reader = OnlySqliteRuntimePersistenceStore(path)
     committed = reader.records(runtime_id)
-    assert len(committed) == 1
-    assert not committed[0].projection_ready
-    assert reader.ready_count(runtime_id) == 0
+    assert len(committed) == 2
+    assert committed[0].operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
+    assert committed[0].projection_ready
+    assert committed[1].operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
+    assert not committed[1].projection_ready
+    assert reader.ready_count(runtime_id) == 1
     assert len(reader.outbox_records(runtime_id)) > 0
     assert reader.pending_count(runtime_id) == 0
     reader.close()
@@ -100,9 +105,9 @@ def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
     assert only_backtest_business_projection(recovered_runtime) == only_backtest_business_projection(baseline_runtime)
 
     reopened = OnlySqliteRuntimePersistenceStore(path)
-    assert reopened.ready_count(runtime_id) == 1
+    assert reopened.ready_count(runtime_id) == 2
     assert reopened.pending_count(runtime_id) == 0
-    assert reopened.records(runtime_id)[0].transaction_id == committed[0].transaction_id
+    assert reopened.records(runtime_id)[1].transaction_id == committed[1].transaction_id
     reopened.close()
 
 

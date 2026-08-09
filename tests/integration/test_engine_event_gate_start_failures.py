@@ -77,6 +77,13 @@ def test_outbox_failure_stops_at_first_error_and_preserves_suffix(
     engine.add_cluster(_same_bar_config())
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
+    state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime.runtime_id)
+    before_reader = OnlySqliteRuntimePersistenceStore(state_path)
+    published_prefix = sum(
+        item.published
+        for item in before_reader.outbox_records(runtime.config.runtime_id)  # type: ignore[arg-type]
+    )
+    before_reader.close()
     original = OnlyRuntimeEventRouter.publish_durable
     calls = 0
 
@@ -90,13 +97,13 @@ def test_outbox_failure_stops_at_first_error_and_preserves_suffix(
     monkeypatch.setattr(OnlyRuntimeEventRouter, "publish_durable", fail_nth)
     with pytest.raises(Exception, match=f"TEST_OUTBOX_FAILURE_{fail_on}"):
         engine.start()
-    state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime.runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     records = reader.outbox_records(runtime.config.runtime_id)  # type: ignore[arg-type]
     reader.close()
-    assert sum(item.published for item in records) == fail_on - 1
-    assert records[fail_on - 1].last_error is not None
-    assert all(not item.published for item in records[fail_on - 1 :])
+    failed_index = published_prefix + fail_on - 1
+    assert sum(item.published for item in records) == published_prefix + fail_on - 1
+    assert records[failed_index].last_error is not None
+    assert all(not item.published for item in records[failed_index:])
     assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
     assert "RUNTIME_STARTED" not in _event_types(runtime)
     engine.stop()

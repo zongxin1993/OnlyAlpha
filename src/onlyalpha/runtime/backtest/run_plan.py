@@ -15,7 +15,7 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
-from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
+from onlyalpha.execution.enums import OnlyExecutionFailureCode, OnlyExecutionProcessingStatus
 from onlyalpha.execution.models import OnlyExecutionProcessingResult
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
 from onlyalpha.result import only_backtest_business_projection
@@ -112,6 +112,11 @@ class OnlyBacktestRunPlan:
             if isinstance(item, OnlyExecutionProcessingResult)
             and (
                 item.status is OnlyExecutionProcessingStatus.FAILED
+                or (
+                    item.status is OnlyExecutionProcessingStatus.REJECTED
+                    and item.failure is not None
+                    and item.failure.code is OnlyExecutionFailureCode.UNSUPPORTED_UPDATE_TYPE
+                )
                 or (
                     item.status is OnlyExecutionProcessingStatus.RECONCILIATION_REQUIRED
                     and any("ERROR" in summary for summary in item.audit_record.mutation_summary)

@@ -4,6 +4,7 @@ from decimal import Decimal
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.market.models import OnlyMarketProfileId
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
 from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
 
@@ -30,9 +31,12 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert risk_reservation.remaining_quantity.value == Decimal("60")
     assert risk_reservation.remaining_notional.amount == Decimal("600.00")
     committed = partial.runtime.ready_execution_query.ready_records(partial.runtime.config.runtime_id)
-    assert len(committed) == 1
-    assert committed[0].projection_ready
-    assert committed[0].fact.fill_index == 1
+    assert tuple(item.operation_kind for item in committed) == (
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+    )
+    assert all(item.projection_ready for item in committed)
+    assert committed[1].fact.fill_index == 1
     assert partial.runtime.broker_gateway is not None
     assert partial.runtime.broker_gateway.query_account(snapshot.account_id).order_reserved_cash.amount == Decimal(
         "600.00"

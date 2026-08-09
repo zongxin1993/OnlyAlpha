@@ -13,6 +13,7 @@ from onlyalpha.execution import (
     OnlyCommittedRuntimeTransaction,
     OnlyPreparedRuntimeTransaction,
     OnlyProjectionApplyResult,
+    OnlyRuntimeOperationKind,
     OnlyRuntimeProjectionApplyContext,
     OnlyRuntimeProjectionComponent,
     OnlyRuntimeProjectionTarget,
@@ -95,11 +96,13 @@ class OnlyFailOnceRuntimePersistenceStore:
         fault: OnlyTestRuntimePersistenceFault,
         *,
         fault_after: int = 0,
+        operation_kind: OnlyRuntimeOperationKind | None = None,
     ) -> None:
         self._delegate = delegate
         self._fault = fault
         self._failed = False
         self._fault_after = fault_after
+        self._operation_kind = operation_kind
         self._operation_counts: dict[OnlyTestRuntimePersistenceFault, int] = {}
 
     def _raise_once(self, operation: OnlyTestRuntimePersistenceFault) -> None:
@@ -109,12 +112,31 @@ class OnlyFailOnceRuntimePersistenceStore:
             self._failed = True
             raise OnlyRuntimePersistenceStoreError(f"injected {operation.value} failure")
 
+    def _raise_once_for_operation(
+        self,
+        operation: OnlyTestRuntimePersistenceFault,
+        operation_kind: OnlyRuntimeOperationKind,
+    ) -> None:
+        if self._operation_kind is None or operation_kind is self._operation_kind:
+            self._raise_once(operation)
+
+    def _raise_once_for_sequence(
+        self,
+        operation: OnlyTestRuntimePersistenceFault,
+        runtime_id: OnlyRuntimeId,
+        execution_sequence: int,
+    ) -> None:
+        transaction = self._delegate.get_by_sequence(runtime_id, execution_sequence)
+        if transaction is None:
+            raise RuntimeError("fault decorator could not resolve transaction sequence")
+        self._raise_once_for_operation(operation, transaction.operation_kind)
+
     def commit(
         self, prepared: OnlyPreparedRuntimeTransaction, *, committed_at: OnlyTimestamp
     ) -> OnlyRuntimeTransactionCommitResult:
-        self._raise_once(OnlyTestRuntimePersistenceFault.COMMIT)
+        self._raise_once_for_operation(OnlyTestRuntimePersistenceFault.COMMIT, prepared.operation_kind)
         result = self._delegate.commit(prepared, committed_at=committed_at)
-        self._raise_once(OnlyTestRuntimePersistenceFault.AFTER_COMMIT)
+        self._raise_once_for_operation(OnlyTestRuntimePersistenceFault.AFTER_COMMIT, prepared.operation_kind)
         return result
 
     def get_by_sequence(
@@ -152,12 +174,6 @@ class OnlyFailOnceRuntimePersistenceStore:
     ) -> OnlyCommittedRuntimeTransaction | None:
         self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
         return self._delegate.get_by_fill_identity(runtime_id, fill_identity)
-
-    def get_by_terminal_identity(
-        self, runtime_id: OnlyRuntimeId, terminal_identity: str
-    ) -> OnlyCommittedRuntimeTransaction | None:
-        self._raise_once(OnlyTestRuntimePersistenceFault.QUERY)
-        return self._delegate.get_by_terminal_identity(runtime_id, terminal_identity)
 
     def transactions_for_order(
         self, runtime_id: OnlyRuntimeId, order_id: OnlyOrderId
@@ -208,7 +224,11 @@ class OnlyFailOnceRuntimePersistenceStore:
         *,
         projected_at: OnlyTimestamp,
     ) -> None:
-        self._raise_once(OnlyTestRuntimePersistenceFault.MARK_READY)
+        self._raise_once_for_sequence(
+            OnlyTestRuntimePersistenceFault.MARK_READY,
+            runtime_id,
+            execution_sequence,
+        )
         self._delegate.mark_projection_ready(runtime_id, execution_sequence, projected_at=projected_at)
 
     def mark_projection_failed(
@@ -219,7 +239,11 @@ class OnlyFailOnceRuntimePersistenceStore:
         failed_at: OnlyTimestamp,
         error: str,
     ) -> None:
-        self._raise_once(OnlyTestRuntimePersistenceFault.MARK_FAILED)
+        self._raise_once_for_sequence(
+            OnlyTestRuntimePersistenceFault.MARK_FAILED,
+            runtime_id,
+            execution_sequence,
+        )
         self._delegate.mark_projection_failed(runtime_id, execution_sequence, failed_at=failed_at, error=error)
 
     def unprojected(
@@ -235,15 +259,27 @@ class OnlyFailOnceRuntimePersistenceStore:
     def begin_attempt(
         self, key: OnlyRuntimeTransactionOutboxKey, attempted_at: OnlyTimestamp
     ) -> OnlyRuntimeTransactionOutboxRecord:
-        self._raise_once(OnlyTestRuntimePersistenceFault.OUTBOX_BEGIN_ATTEMPT)
+        self._raise_once_for_sequence(
+            OnlyTestRuntimePersistenceFault.OUTBOX_BEGIN_ATTEMPT,
+            key.runtime_id,
+            key.execution_sequence,
+        )
         return self._delegate.begin_attempt(key, attempted_at)
 
     def mark_published(self, key: OnlyRuntimeTransactionOutboxKey, published_at: OnlyTimestamp) -> None:
-        self._raise_once(OnlyTestRuntimePersistenceFault.OUTBOX_MARK_PUBLISHED)
+        self._raise_once_for_sequence(
+            OnlyTestRuntimePersistenceFault.OUTBOX_MARK_PUBLISHED,
+            key.runtime_id,
+            key.execution_sequence,
+        )
         self._delegate.mark_published(key, published_at)
 
     def mark_failed(self, key: OnlyRuntimeTransactionOutboxKey, failed_at: OnlyTimestamp, error: str) -> None:
-        self._raise_once(OnlyTestRuntimePersistenceFault.OUTBOX_MARK_FAILED)
+        self._raise_once_for_sequence(
+            OnlyTestRuntimePersistenceFault.OUTBOX_MARK_FAILED,
+            key.runtime_id,
+            key.execution_sequence,
+        )
         self._delegate.mark_failed(key, failed_at, error)
 
     def pending_count(self, runtime_id: OnlyRuntimeId) -> int:

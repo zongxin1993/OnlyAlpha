@@ -42,6 +42,7 @@ from onlyalpha.runtime.persistence.factory import (
 )
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from onlyalpha.strategy.context import OnlyStrategyBarContext
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
@@ -166,6 +167,7 @@ class OnlyFirstCommitTailFaultFactory:
         return OnlyFailOnceRuntimePersistenceStore(
             self._delegate.create(request),
             OnlyTestRuntimePersistenceFault.AFTER_COMMIT,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
         )
 
 
@@ -209,8 +211,12 @@ def test_engine_recovers_tail_then_commits_same_bar_continuation(tmp_path: Path)
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     original_tail = reader.records(runtime_id)
-    assert len(original_tail) == 1
-    original_transaction_id = original_tail[0].transaction_id
+    assert len(original_tail) == 2
+    assert original_tail[0].operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
+    assert original_tail[0].projection_ready
+    assert original_tail[1].operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
+    assert not original_tail[1].projection_ready
+    original_transaction_id = original_tail[1].transaction_id
     reader.close()
 
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
@@ -220,24 +226,30 @@ def test_engine_recovers_tail_then_commits_same_bar_continuation(tmp_path: Path)
 
     reopened = OnlySqliteRuntimePersistenceStore(state_path)
     transactions = reopened.records(runtime_id)
-    assert tuple(item.execution_sequence for item in transactions[:2]) == (1, 2)
-    assert transactions[0].transaction_id == original_transaction_id
-    assert transactions[1].projection_ready
+    assert tuple(item.execution_sequence for item in transactions[:4]) == (1, 2, 3, 4)
+    assert transactions[1].transaction_id == original_transaction_id
+    assert all(item.projection_ready for item in transactions[:4])
     continuation_outbox = tuple(
-        item for item in reopened.outbox_records(runtime_id) if item.key.execution_sequence == 2
+        item for item in reopened.outbox_records(runtime_id) if item.key.execution_sequence in {3, 4}
     )
     assert continuation_outbox
     reopened.close()
-    continuation_result = next(
+    continuation_results = tuple(
         item
         for item in engine_b.runtime_sessions[0].runtime.broker_results
-        if isinstance(item, OnlyExecutionProcessingResult) and item.update_id == transactions[1].fact.broker_update_id
+        if isinstance(item, OnlyExecutionProcessingResult)
+        and item.update_id in {transactions[2].fact.broker_update_id, transactions[3].fact.broker_update_id}
     )
-    assert continuation_result.status is OnlyExecutionProcessingStatus.APPLIED
-    assert continuation_result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.NONE
-    assert all(item.status is OnlyExecutionMutationStatus.APPLIED for item in continuation_result.mutation_bundle.steps)
+    assert len(continuation_results) == 2
+    assert all(item.status is OnlyExecutionProcessingStatus.APPLIED for item in continuation_results)
+    assert all(item.delivery_intent.mode is OnlyExecutionEventDeliveryMode.NONE for item in continuation_results)
+    assert all(
+        step.status is OnlyExecutionMutationStatus.APPLIED
+        for item in continuation_results
+        for step in item.mutation_bundle.steps
+    )
     diagnostic = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
-    assert diagnostic.continuation_transaction_count == 1
+    assert diagnostic.continuation_transaction_count == 2
 
     baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"), services=_services())
     baseline_engine.add_cluster(config)

@@ -5576,7 +5576,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 13,
+        "ledger_version": 14,
         "maximum_drawdown": {
           "precision": 8,
           "value": "0"
@@ -5676,7 +5676,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 14,
+        "ledger_version": 15,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -5776,7 +5776,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 15,
+        "ledger_version": 16,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -5876,7 +5876,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 16,
+        "ledger_version": 17,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -5976,7 +5976,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 17,
+        "ledger_version": 18,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6076,7 +6076,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 18,
+        "ledger_version": 19,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6176,7 +6176,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 19,
+        "ledger_version": 20,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000700"
@@ -6276,7 +6276,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 20,
+        "ledger_version": 21,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000700"
@@ -6376,7 +6376,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 21,
+        "ledger_version": 22,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000700"
@@ -6476,7 +6476,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 22,
+        "ledger_version": 23,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000700"
@@ -6576,7 +6576,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 23,
+        "ledger_version": 24,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000700"
@@ -6676,7 +6676,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 24,
+        "ledger_version": 25,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001000"
@@ -6776,7 +6776,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 25,
+        "ledger_version": 26,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001000"
@@ -6876,7 +6876,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 26,
+        "ledger_version": 27,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001000"
@@ -6976,7 +6976,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 27,
+        "ledger_version": 28,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001000"
@@ -7076,7 +7076,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 28,
+        "ledger_version": 29,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001000"
@@ -7176,7 +7176,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 29,
+        "ledger_version": 30,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001300"
@@ -7276,7 +7276,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 30,
+        "ledger_version": 31,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001300"
@@ -7376,7 +7376,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 31,
+        "ledger_version": 32,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001300"
@@ -7476,7 +7476,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 32,
+        "ledger_version": 33,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001300"
@@ -7576,7 +7576,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 33,
+        "ledger_version": 34,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001300"
@@ -7676,7 +7676,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 34,
+        "ledger_version": 35,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001700"
@@ -7776,7 +7776,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 35,
+        "ledger_version": 36,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001700"
@@ -7876,7 +7876,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 36,
+        "ledger_version": 37,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001700"
@@ -7976,7 +7976,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 37,
+        "ledger_version": 38,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001700"
@@ -8076,7 +8076,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 38,
+        "ledger_version": 39,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00001700"
@@ -8176,7 +8176,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 39,
+        "ledger_version": 40,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8276,7 +8276,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 40,
+        "ledger_version": 41,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8376,7 +8376,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 41,
+        "ledger_version": 42,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8476,7 +8476,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 42,
+        "ledger_version": 43,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8576,7 +8576,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 43,
+        "ledger_version": 44,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8676,7 +8676,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 44,
+        "ledger_version": 45,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8776,7 +8776,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 45,
+        "ledger_version": 46,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8876,7 +8876,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 46,
+        "ledger_version": 47,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -8976,7 +8976,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 47,
+        "ledger_version": 48,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9076,7 +9076,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 48,
+        "ledger_version": 49,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9176,7 +9176,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 49,
+        "ledger_version": 50,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9276,7 +9276,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 50,
+        "ledger_version": 51,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9376,7 +9376,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 51,
+        "ledger_version": 52,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9476,7 +9476,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 52,
+        "ledger_version": 53,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9576,7 +9576,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 53,
+        "ledger_version": 54,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9676,7 +9676,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 54,
+        "ledger_version": 55,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9776,7 +9776,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 55,
+        "ledger_version": 56,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9876,7 +9876,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 56,
+        "ledger_version": 57,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -9976,7 +9976,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 57,
+        "ledger_version": 58,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -10218,7 +10218,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "runtime_mode": "BACKTEST",
         "schema_version": "1",
-        "sequence": 95,
+        "sequence": 97,
         "trading_day": "2026-01-05",
         "venue_id": "XSHG"
       }
@@ -11859,7 +11859,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 86,
+        "sequence": 88,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000001"
       },
@@ -11877,7 +11877,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 87,
+        "sequence": 89,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000002"
       },
@@ -11895,7 +11895,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 88,
+        "sequence": 90,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000003"
       },
@@ -11913,7 +11913,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000002",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 89,
+        "sequence": 91,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000004"
       },
@@ -11931,7 +11931,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000002",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 90,
+        "sequence": 92,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000005"
       },
@@ -11949,7 +11949,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000002",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 91,
+        "sequence": 93,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000006"
       }
@@ -11973,7 +11973,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 92,
+        "sequence": 94,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -11998,7 +11998,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 93,
+        "sequence": 95,
         "side": "SELL",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -12115,11 +12115,22 @@
         "resolved_rules_fingerprint": "36a4aff26ba2cf129f387a46519a17e6ffddf46381e316f2b31273144285a5c8",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
         "runtime_mode": "BACKTEST",
-        "sequence": 94,
+        "sequence": 96,
         "trading_day": "2026-01-05"
       }
     ],
     "runtime_transactions": [
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:38:00Z",
+        "operation_identity": "EACK-04de8c8f564e50d63dfbaaa049b5e9ffd63981f9764ddd971f9d8a6bc0d2bce9",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-2ae9ba8ded4ed023",
+        "runtime_sequence": 1,
+        "sequence": 80,
+        "transaction_id": "EACK-04de8c8f564e50d63dfbaaa049b5e9ffd63981f9764ddd971f9d8a6bc0d2bce9"
+      },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:39:00Z",
@@ -12127,8 +12138,8 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 1,
-        "sequence": 80,
+        "runtime_sequence": 2,
+        "sequence": 81,
         "transaction_id": "ETX-b9b8bbd81ebb8b7c344257cb2e8da7a6f1c5bd9b06f64d1bb2dd022647ada292"
       },
       {
@@ -12138,8 +12149,8 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 2,
-        "sequence": 81,
+        "runtime_sequence": 3,
+        "sequence": 82,
         "transaction_id": "ETX-e7a30b5e380111bcb125419f46d7cbf4e275758c89edd0c7706b996ee355cc88"
       },
       {
@@ -12149,9 +12160,20 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 3,
-        "sequence": 82,
+        "runtime_sequence": 4,
+        "sequence": 83,
         "transaction_id": "ETX-295518120c612e9ad9ffc63bc8beab525caa569abed0fc8b3c7be8383c77de40"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:41:00Z",
+        "operation_identity": "EACK-8c8c08b12ce08eab5ce5102c8cf922ce60c30a656bfe492c95b084e85e504626",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-2ae9ba8ded4ed023",
+        "runtime_sequence": 5,
+        "sequence": 84,
+        "transaction_id": "EACK-8c8c08b12ce08eab5ce5102c8cf922ce60c30a656bfe492c95b084e85e504626"
       },
       {
         "account_id": "backtest-account",
@@ -12160,8 +12182,8 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 4,
-        "sequence": 83,
+        "runtime_sequence": 6,
+        "sequence": 85,
         "transaction_id": "ETX-9be552dfca04839658495abddb9eeae8a01fbc28e069b0ce834ae5c346db2f80"
       },
       {
@@ -12171,8 +12193,8 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 5,
-        "sequence": 84,
+        "runtime_sequence": 7,
+        "sequence": 86,
         "transaction_id": "ETX-06c2b740cf3123d841bcb9893cc87bda62432dc0e59aca46b77f770d7800daca"
       },
       {
@@ -12182,8 +12204,8 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 6,
-        "sequence": 85,
+        "runtime_sequence": 8,
+        "sequence": 87,
         "transaction_id": "ETX-b0575b27c2702395a5aae15aa2492ae4da5d89a8aafa531bcb6451ff28ec49b6"
       }
     ],
@@ -12678,7 +12700,7 @@
           }
         },
         "mode": "FIXED_CAPITAL",
-        "version": 57
+        "version": 58
       },
       "cash": {
         "cash_available": {
@@ -13523,7 +13545,7 @@
             "precision": 2
           }
         },
-        "version": 57
+        "version": 58
       },
       "fee_entries": [
         {
@@ -13997,12 +14019,12 @@
               "precision": 2
             }
           },
-          "stage": "SENT_TO_BROKER",
+          "stage": "BROKER_ACKNOWLEDGED",
           "state": "CONSUMED",
           "updated_at": {
             "unix_nanos": 1767577260000000000
           },
-          "version": 5
+          "version": 6
         }
       ],
       "status": "ACTIVE",
@@ -14012,7 +14034,7 @@
       "valuation_time": {
         "unix_nanos": 1767578340000000000
       },
-      "version": 57
+      "version": 58
     }
   ],
   "final_positions": [],
@@ -15385,9 +15407,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-fe5ab9d5c8e446c72e8003190b02512a25ded7c2d9ff4c4207bedb3842907466",
-      "execution_sequence": 1,
-      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 2,
+      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
         "accrual_after_fingerprint": "4144b9f68e5caa2d77e10c45f369f754aabf877d5c5cb02d34f772418bc405cf",
@@ -15925,9 +15947,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-20274c553d13c6e6dc72bb803d745131d8aae6a9da97bdbbf02187c2c42d9633",
-      "execution_sequence": 2,
-      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 3,
+      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000002",
       "fee_application": {
         "accrual_after_fingerprint": "6869366345b478eae6975393c3dcc1330cf40cb88473748017a8205d7fd16505",
@@ -16465,9 +16487,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-76853bc0dae5f18ec55894a7cae47ca82ad7d61529cb3f7aeaff794b2fe31f6a",
-      "execution_sequence": 3,
-      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 4,
+      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000003",
       "fee_application": {
         "accrual_after_fingerprint": "25e02acc791f52c308c3972a2c67c670128b818ebaee6465dc843f918cdb2e48",
@@ -17005,9 +17027,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-a51bebf46065cce98f697a613280f6ab662c3fcd0ca50d61e082822e9d15b6a7",
-      "execution_sequence": 4,
-      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 6,
+      "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000004",
       "fee_application": {
         "accrual_after_fingerprint": "7236d59d280a4bee33af849fabf1fb9a70ba1a67c17c8ab1e1de5d1e7394b3f9",
@@ -17545,9 +17567,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-14439a02a972cbbed125c53dd401e2dbf9eaf1dd113306c7ffe41c4407a562ac",
-      "execution_sequence": 5,
-      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 7,
+      "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000005",
       "fee_application": {
         "accrual_after_fingerprint": "772c5f5d0f449f71d0474904e658d4993e2918e03e0bb00dbb842497cee51a8c",
@@ -18085,9 +18107,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-a1c2cba056f31f3ca004f017b992c524044bc95a55f69438c9220f1227dfab2a",
-      "execution_sequence": 6,
-      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 8,
+      "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000006",
       "fee_application": {
         "accrual_after_fingerprint": "2802bc54a83ff330b2a12d9cbf51d9de24106626ea4a3b7beb8b69cb8e60f7ee",

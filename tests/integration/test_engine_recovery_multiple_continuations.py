@@ -75,14 +75,14 @@ def test_engine_commits_three_contiguous_continuations_in_recovery_boundary(tmp_
     recovered = engine_b.run()
     assert recovered.status == "COMPLETED", recovered.failures
     diagnostic = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
-    assert diagnostic.continuation_transaction_count == 3
+    assert diagnostic.continuation_transaction_count == 6
 
     runtime_id = engine_b.runtime_sessions[0].runtime_id
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     transactions = reader.records(runtime_id)
-    assert tuple(item.execution_sequence for item in transactions[:4]) == (1, 2, 3, 4)
-    assert all(item.projection_ready for item in transactions[:4])
+    assert tuple(item.execution_sequence for item in transactions[:8]) == tuple(range(1, 9))
+    assert all(item.projection_ready for item in transactions[:8])
     reader.close()
 
     baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"), services=_services())

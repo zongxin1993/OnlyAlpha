@@ -61,7 +61,8 @@ def test_formal_long_close_has_no_legacy_trade_path_and_terminal_has_no_fake_tra
     terminal = Path("src/onlyalpha/execution/terminal_fact.py").read_text(encoding="utf-8")
     assert "_unmigrated_trade" not in processor
     assert "LEGACY_UNMIGRATED" not in processor
-    assert "DURABLE_TERMINAL_REQUIRED" in processor
+    assert "DURABLE_EXECUTION_REQUIRED" in processor
+    assert "def _terminal_order(" not in processor
     assert "terminal_identity" in terminal
     assert "trade_id" not in terminal
 

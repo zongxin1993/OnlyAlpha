@@ -53,7 +53,7 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     instrument_id: OnlyInstrumentId
     venue_id: str
     execution_capability: OnlyExecutionCapability
-    execution_support_schema_version: str
+    execution_support_policy_version: str
     execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
@@ -176,7 +176,7 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
             raise ValueError("execution fact draft requires stable identity and non-negative sequences")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_TRADE
-            or self.execution_support_schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
             or len(self.execution_support_fingerprint) != 64
         ):
             raise ValueError("execution fact draft requires a valid durable Trade support proof")

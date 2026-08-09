@@ -20,7 +20,7 @@ from onlyalpha.broker.execution import OnlyBrokerExecutionService
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue, OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
-from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
+from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
 from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
@@ -77,6 +77,8 @@ from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyRate
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
+from onlyalpha.execution.accepted_identity import only_capture_execution_order_accepted_authority
+from onlyalpha.execution.accepted_planner import OnlyOrderAcceptedExecutionTransactionPlanner
 from onlyalpha.execution.capability import OnlyExecutionSupportDecision
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
@@ -100,6 +102,7 @@ from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
 from onlyalpha.execution.planning_context import (
     OnlyAllocationCreationAuthority,
+    OnlyOrderAcceptedExecutionPlanningContext,
     OnlyPositionCreationAuthority,
     OnlyTerminalExecutionPlanningContext,
     OnlyTradeExecutionPlanningContext,
@@ -662,9 +665,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             runtime_config.runtime_id,  # type: ignore[arg-type]
             order_manager,
             order_publisher,
-            risk_service,
-            order_position_reservations,
-            order_cash_reservations,
         )
         account_reconciliation = OnlyAccountReconciliationService(self._account_manager)
         position_reconciliation = OnlyPositionReconciliationService(
@@ -746,7 +746,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             clock,
             self._instruments,
             order_query,
-            order_update_processor,
             position_manager,
             allocation_manager,
             self._strategy_ledger_manager,
@@ -754,9 +753,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._account_manager,
             risk_service,
             position_reservations,
-            order_position_reservations,
-            account_cash_reservations.consume_confirmed,
-            account_cash_reservations.release,
             position_reconciliation,
             account_reconciliation,
             execution_invariant_checker,
@@ -764,6 +760,8 @@ class OnlyBacktestRuntime(OnlyRuntime):
             execution_audit_store,
             self._build_trade_execution_planning_context,
             OnlyTradeExecutionTransactionPlanner(),
+            self._build_order_accepted_execution_planning_context,
+            OnlyOrderAcceptedExecutionTransactionPlanner(),
             self._build_terminal_execution_planning_context,
             OnlyTerminalExecutionTransactionPlanner(),
             execution_commit_coordinator,
@@ -780,7 +778,6 @@ class OnlyBacktestRuntime(OnlyRuntime):
             self._margin_manager,
             self._fee_application_ledger,
             fee_resolver,
-            order_margin_reservations.release,
             selected_calendar.trading_day_at,
         )
         self._broker_results: list[object] = []
@@ -2130,11 +2127,23 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if account is None:
             raise KeyError(f"Account not found: {order.account_id}")
         position_reservation = self._position_reservation_manager.get(order.order_id)
-        if position_reservation is None:
-            raise ValueError("prepared Terminal planning requires Position Reservation")
         risk_reservation = self._services.risk_service.reservations.get_for_order(order.order_id)
         if risk_reservation is None:
             raise ValueError("prepared Terminal planning requires Risk Reservation")
+        ledger = self._strategy_ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account.base_currency,
+        )
+        account_reservation = next((item for item in account.reservations if item.order_id == order.order_id), None)
+        strategy_reservation = next((item for item in ledger.reservations if item.order_id == order.order_id), None)
+        position = self._services.position_manager.get_snapshot(position_scope.position_key)
+        allocation = (
+            None
+            if position_scope.allocation_key is None
+            else self._services.allocation_manager.get_snapshot(position_scope.allocation_key)
+        )
         return OnlyTerminalExecutionPlanningContext(
             update=update,
             prepared_at=update.ts_init,
@@ -2144,9 +2153,77 @@ class OnlyBacktestRuntime(OnlyRuntime):
             support_decision=support_decision,
             terminal_authority=only_capture_execution_terminal_authority(update),
             order_before=only_order_execution_state(order),
-            position_reservation_before=only_position_reservation_execution_state(position_reservation),
+            position_before=None if position is None else only_position_execution_state(position),
+            allocation_before=None if allocation is None else only_allocation_execution_state(allocation),
+            position_cycle=self._services.position_manager.creation_cycle_head(position_scope.position_key),
+            allocation_cycle=(
+                0
+                if position_scope.allocation_key is None
+                else self._services.allocation_manager.creation_cycle_head(position_scope.allocation_key)
+            ),
+            account_before=only_account_execution_state(account),
+            strategy_ledger_before=only_strategy_ledger_execution_state(ledger),
+            account_cash_reservation_before=(
+                None
+                if account_reservation is None
+                else only_account_cash_reservation_execution_state(account_reservation)
+            ),
+            strategy_cash_reservation_before=(
+                None
+                if strategy_reservation is None
+                else only_strategy_cash_reservation_execution_state(strategy_reservation)
+            ),
+            strategy_valuation_lines=self._strategy_ledger_manager.execution_valuation_lines(ledger.key),
+            position_reservation_before=(
+                None
+                if position_reservation is None
+                else only_position_reservation_execution_state(position_reservation)
+            ),
             risk_reservation_before=only_risk_reservation_execution_state(risk_reservation),
             risk_before=only_risk_execution_state(self._services.risk_service.get_snapshot(order.cluster_id)),
+        )
+
+    def _build_order_accepted_execution_planning_context(
+        self,
+        update: OnlyBrokerOrderAcceptedUpdate,
+        processing_sequence: int,
+        position_scope: OnlyExecutionPositionScope,
+        support_decision: OnlyExecutionSupportDecision,
+    ) -> OnlyOrderAcceptedExecutionPlanningContext:
+        order = self._services.order_manager.require_snapshot(update.order_id)
+        account = self._services.account_manager.require_snapshot(order.account_id)
+        ledger = self._strategy_ledger_locator.require_snapshot(
+            runtime_id=order.runtime_id,
+            account_id=order.account_id,
+            cluster_id=order.cluster_id,
+            currency=account.base_currency,
+        )
+        position = self._services.position_manager.get_snapshot(position_scope.position_key)
+        position_reservation = self._position_reservation_manager.get(order.order_id)
+        strategy_reservation = next((item for item in ledger.reservations if item.order_id == order.order_id), None)
+        return OnlyOrderAcceptedExecutionPlanningContext(
+            update=update,
+            accepted_authority=only_capture_execution_order_accepted_authority(update),
+            prepared_at=update.ts_init,
+            engine_id=OnlyEngineId(str(self.config.engine_id)),
+            processing_sequence=processing_sequence,
+            position_scope=position_scope,
+            support_decision=support_decision,
+            order_before=only_order_execution_state(order),
+            position_before=None if position is None else only_position_execution_state(position),
+            position_cycle=self._services.position_manager.creation_cycle_head(position_scope.position_key),
+            position_reservation_before=(
+                None
+                if position_reservation is None
+                else only_position_reservation_execution_state(position_reservation)
+            ),
+            strategy_ledger_before=only_strategy_ledger_execution_state(ledger),
+            strategy_cash_reservation_before=(
+                None
+                if strategy_reservation is None
+                else only_strategy_cash_reservation_execution_state(strategy_reservation)
+            ),
+            strategy_valuation_lines=self._strategy_ledger_manager.execution_valuation_lines(ledger.key),
         )
 
     def _execution_valuation_state(self, account_id: OnlyAccountId) -> OnlyValuationExecutionState | None:

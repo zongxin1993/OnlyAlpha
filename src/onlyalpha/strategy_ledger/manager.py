@@ -359,6 +359,12 @@ class OnlyStrategyLedgerManager:
         self._require_entity(key)
         return self._valuation_versions.get(key, 0)
 
+    def execution_valuation_lines(self, key: OnlyStrategyLedgerKey) -> tuple[OnlyStrategyValuationLine, ...]:
+        """Capture immutable valuation authority for durable lifecycle planning."""
+
+        ledger = self._require_entity(key)
+        return tuple(sorted(ledger._valuation_lines.values(), key=lambda item: str(item.instrument_id)))
+
     @property
     def execution_event_sequence(self) -> int:
         return self._event_sequence

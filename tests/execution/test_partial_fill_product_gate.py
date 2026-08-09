@@ -38,9 +38,10 @@ def test_product_partial_fill_commits_and_reaches_projection_ready() -> None:
     result = env.runtime.execution_processor.process(partial)
     assert result.status.value == "APPLIED", result.failure
     records = env.runtime.execution_transaction_query.records(env.runtime.config.runtime_id)
-    assert len(records) == 1
-    assert records[0].projection_ready
-    assert not records[0].fact.terminal_fill
+    assert len(records) == 2
+    trade = records[-1]
+    assert trade.projection_ready
+    assert not trade.fact.terminal_fill
 
 
 def test_product_whole_fill_still_builds_complete_transaction() -> None:

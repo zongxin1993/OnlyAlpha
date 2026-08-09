@@ -1,9 +1,10 @@
-"""Facts for durable Order terminal operations that create no Trade."""
+"""Minimal business facts for durable Order terminal operations."""
 
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, fields
+from enum import StrEnum
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.domain.base import OnlyDomainModel
@@ -20,15 +21,17 @@ from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.risk.enums import OnlyRiskReleaseReason
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
-from .capability import (
-    ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
-    OnlyExecutionCapability,
-)
+from .capability import ONLY_EXECUTION_SUPPORT_POLICY_VERSION, OnlyExecutionCapability
+
+
+class OnlyTerminalEconomicReleaseKind(StrEnum):
+    CASH_RESERVATION = "CASH_RESERVATION"
+    POSITION_RESERVATION = "POSITION_RESERVATION"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
@@ -41,7 +44,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     instrument_id: OnlyInstrumentId
     order_id: OnlyOrderId
     execution_capability: OnlyExecutionCapability
-    execution_support_schema_version: str
+    execution_support_policy_version: str
     execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
@@ -54,13 +57,11 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
     risk_release_reason: OnlyRiskReleaseReason
     filled_quantity_before: OnlyQuantity
     order_remaining_quantity: OnlyQuantity
-    position_reservation_consumed_before: OnlyQuantity
-    position_reservation_released_delta: OnlyQuantity
-    position_reservation_remaining_after: OnlyQuantity
-    risk_reservation_consumed_quantity_before: OnlyQuantity
-    risk_reservation_released_quantity_delta: OnlyQuantity
-    risk_reservation_released_notional_delta: OnlyMoney | None
-    risk_reservation_remaining_quantity_after: OnlyQuantity
+    economic_release_kind: OnlyTerminalEconomicReleaseKind
+    reservation_released_quantity: OnlyQuantity | None
+    reservation_released_cash: OnlyMoney | None
+    risk_released_quantity: OnlyQuantity
+    risk_released_notional: OnlyMoney | None
     active_order_count_delta: int
     cluster_active_order_count_delta: int
 
@@ -69,10 +70,10 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
             raise ValueError("terminal fact requires ORDER_TERMINAL operation kind")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_TERMINAL
-            or self.execution_support_schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
             or len(self.execution_support_fingerprint) != 64
         ):
-            raise ValueError("terminal fact requires a valid durable Terminal support proof")
+            raise ValueError("terminal fact requires a valid durable support proof")
         if not self.terminal_identity.startswith("ETERM-") or len(self.terminal_payload_fingerprint) != 64:
             raise ValueError("terminal fact requires stable identity authority")
         if self.terminal_status not in {
@@ -83,22 +84,20 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
             raise ValueError("terminal fact status is unsupported")
         if self.source_sequence < 0 or self.processing_sequence < 0 or self.ts_init < self.ts_event:
             raise ValueError("terminal fact sequence/timestamps are invalid")
-        quantities = (
-            self.filled_quantity_before,
-            self.order_remaining_quantity,
-            self.position_reservation_consumed_before,
-            self.position_reservation_released_delta,
-            self.position_reservation_remaining_after,
-            self.risk_reservation_consumed_quantity_before,
-            self.risk_reservation_released_quantity_delta,
-            self.risk_reservation_remaining_quantity_after,
-        )
-        if any(item.value < 0 for item in quantities):
+        if (
+            min(
+                self.filled_quantity_before.value,
+                self.order_remaining_quantity.value,
+                self.risk_released_quantity.value,
+            )
+            < 0
+        ):
             raise ValueError("terminal fact quantities cannot be negative")
-        if self.position_reservation_remaining_after.value != 0:
-            raise ValueError("terminal fact must release the remaining Position Reservation")
-        if self.risk_reservation_remaining_quantity_after.value != 0:
-            raise ValueError("terminal fact must release the remaining Risk Reservation")
+        cash_release = self.economic_release_kind is OnlyTerminalEconomicReleaseKind.CASH_RESERVATION
+        if cash_release != (self.reservation_released_cash is not None):
+            raise ValueError("terminal fact cash release shape is inconsistent")
+        if cash_release == (self.reservation_released_quantity is not None):
+            raise ValueError("terminal fact quantity release shape is inconsistent")
         if self.active_order_count_delta != -1 or self.cluster_active_order_count_delta != -1:
             raise ValueError("terminal fact must close exactly one active Order")
 
@@ -117,7 +116,7 @@ class OnlyCommittedTerminalExecutionFactDraft(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     operation_kind: OnlyRuntimeOperationKind
     terminal_identity: str
@@ -130,7 +129,7 @@ class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
     instrument_id: OnlyInstrumentId
     order_id: OnlyOrderId
     execution_capability: OnlyExecutionCapability
-    execution_support_schema_version: str
+    execution_support_policy_version: str
     execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
@@ -143,13 +142,11 @@ class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
     risk_release_reason: OnlyRiskReleaseReason
     filled_quantity_before: OnlyQuantity
     order_remaining_quantity: OnlyQuantity
-    position_reservation_consumed_before: OnlyQuantity
-    position_reservation_released_delta: OnlyQuantity
-    position_reservation_remaining_after: OnlyQuantity
-    risk_reservation_consumed_quantity_before: OnlyQuantity
-    risk_reservation_released_quantity_delta: OnlyQuantity
-    risk_reservation_released_notional_delta: OnlyMoney | None
-    risk_reservation_remaining_quantity_after: OnlyQuantity
+    economic_release_kind: OnlyTerminalEconomicReleaseKind
+    reservation_released_quantity: OnlyQuantity | None
+    reservation_released_cash: OnlyMoney | None
+    risk_released_quantity: OnlyQuantity
+    risk_released_notional: OnlyMoney | None
     active_order_count_delta: int
     cluster_active_order_count_delta: int
     execution_sequence: int
@@ -173,4 +170,5 @@ class OnlyCommittedTerminalExecutionFact(OnlyDomainModel):
 __all__ = [
     "OnlyCommittedTerminalExecutionFact",
     "OnlyCommittedTerminalExecutionFactDraft",
+    "OnlyTerminalEconomicReleaseKind",
 ]

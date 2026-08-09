@@ -5,6 +5,9 @@ from __future__ import annotations
 from importlib import import_module
 
 _EXPORT_MODULES = (
+    "onlyalpha.execution.accepted_fact",
+    "onlyalpha.execution.accepted_identity",
+    "onlyalpha.execution.accepted_planner",
     "onlyalpha.execution.authority_state",
     "onlyalpha.execution.capability",
     "onlyalpha.execution.causal_recovery",
@@ -16,6 +19,7 @@ _EXPORT_MODULES = (
     "onlyalpha.execution.execution_state",
     "onlyalpha.execution.fill_identity",
     "onlyalpha.execution.invariants",
+    "onlyalpha.execution.lifecycle_reducers",
     "onlyalpha.execution.market_evidence",
     "onlyalpha.execution.models",
     "onlyalpha.execution.planned_trade",

@@ -19,6 +19,7 @@ from onlyalpha.runtime.persistence.factory import (
 )
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.strategy.context import OnlyStrategyBarContext
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
@@ -202,6 +203,7 @@ class OnlyMultiFillFaultStoreFactory:
             self._delegate.create(request),
             self._fault,
             fault_after=self._fault_after,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
         )
 
 

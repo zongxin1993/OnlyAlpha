@@ -21,7 +21,6 @@ from onlyalpha.fee.reconciliation_authority import OnlyFeeReconciliationAuthorit
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
-from onlyalpha.position.enums import OnlyPositionReservationState
 from onlyalpha.position.manager import OnlyPositionManager
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.position.reservations import OnlyPositionReservation, OnlyPositionReservationManager
@@ -51,6 +50,7 @@ from onlyalpha.transaction.projection import (
     OnlyFeeApplicationProjection,
     OnlyFeeReconciliationProjection,
     OnlyFeeReconciliationRiskGateProjection,
+    OnlyOrderAcceptedExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
@@ -71,6 +71,7 @@ from onlyalpha.transaction.projection import (
 )
 from onlyalpha.transaction.state_hash import only_execution_state_hash
 
+from .accepted_fact import OnlyCommittedOrderAcceptedFact
 from .authority_state import (
     only_fee_application_state,
     only_settlement_execution_state,
@@ -311,16 +312,27 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
         projection = context.projection
         current_snapshot = (
             self._manager.get_snapshot(projection.after.order_id)
-            if isinstance(projection, OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection)
+            if isinstance(
+                projection,
+                OnlyOrderAcceptedExecutionProjection
+                | OnlyOrderExecutionProjection
+                | OnlyOrderTerminalExecutionProjection,
+            )
             else None
         )
         current = None if current_snapshot is None else only_order_execution_state(current_snapshot)
         prepared = self._prepare(context, current)
         if isinstance(prepared, OnlyProjectionApplyResult):
             return prepared
-        assert isinstance(projection, OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection)
+        assert isinstance(
+            projection,
+            OnlyOrderAcceptedExecutionProjection | OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection,
+        )
         snapshot = _order_snapshot(projection.after)
-        if not isinstance(context.fact, OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact):
+        if not isinstance(
+            context.fact,
+            OnlyCommittedOrderAcceptedFact | OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact,
+        ):
             return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
         external_ids = frozenset({str(context.fact.broker_update_id)})
         trade_ids = (
@@ -840,11 +852,6 @@ class OnlyPositionReservationExecutionProjectionTarget(_OnlyProjectionTargetBase
             return prepared
         assert isinstance(projection, OnlyPositionReservationExecutionProjection)
         state: OnlyPositionReservationExecutionState = projection.after
-        if (
-            prepared.decision is _OnlyProjectionApplyDecision.APPLY
-            and state.state is OnlyPositionReservationState.RELEASED
-        ):
-            self._manager.release(state.order_id, state.updated_at, broker_confirmed=True)
         reservation = OnlyPositionReservation(
             **{name: getattr(state, name) for name in OnlyPositionReservation.__dataclass_fields__}
         )

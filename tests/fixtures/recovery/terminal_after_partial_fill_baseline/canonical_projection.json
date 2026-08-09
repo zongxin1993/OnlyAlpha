@@ -1159,83 +1159,6 @@
       "account_id": {
         "value": "backtest-account"
       },
-      "account_version": 16,
-      "cash": {
-        "amount": "996997.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "currency": {
-        "code": "CNY",
-        "currency_type": "FIAT",
-        "precision": 2
-      },
-      "equity": {
-        "amount": "999997.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "external_cash_flow": {
-        "amount": "0",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "fees": {
-        "amount": "3.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "position_market_value": {
-        "amount": "3000.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "quality_flags": [],
-      "realized_pnl": {
-        "amount": "0",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      },
-      "runtime_id": {
-        "value": "backtest-2ae9ba8ded4ed023"
-      },
-      "sequence": 16,
-      "source": "STATE_CHANGE",
-      "trading_day": null,
-      "ts_event": {
-        "unix_nanos": 1767577140000000000
-      },
-      "unrealized_pnl": {
-        "amount": "0.00",
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        }
-      }
-    },
-    {
-      "account_id": {
-        "value": "backtest-account"
-      },
       "account_version": 17,
       "cash": {
         "amount": "996997.00",
@@ -1294,7 +1217,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 17,
+      "sequence": 16,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1371,7 +1294,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 18,
+      "sequence": 17,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1448,7 +1371,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 19,
+      "sequence": 18,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1525,7 +1448,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 20,
+      "sequence": 19,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1602,7 +1525,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 21,
+      "sequence": 20,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1679,7 +1602,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 22,
+      "sequence": 21,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1756,7 +1679,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 23,
+      "sequence": 22,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1833,7 +1756,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 24,
+      "sequence": 23,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1910,7 +1833,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 25,
+      "sequence": 24,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -1987,7 +1910,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 26,
+      "sequence": 25,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2064,7 +1987,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 27,
+      "sequence": 26,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2141,7 +2064,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 28,
+      "sequence": 27,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2218,7 +2141,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 29,
+      "sequence": 28,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2295,7 +2218,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 30,
+      "sequence": 29,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2372,7 +2295,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 31,
+      "sequence": 30,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2449,7 +2372,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 32,
+      "sequence": 31,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2526,7 +2449,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 33,
+      "sequence": 32,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2603,7 +2526,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 34,
+      "sequence": 33,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2680,7 +2603,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 35,
+      "sequence": 34,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2757,7 +2680,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 36,
+      "sequence": 35,
       "source": "MARKET_VALUATION",
       "trading_day": null,
       "ts_event": {
@@ -2834,7 +2757,7 @@
       "runtime_id": {
         "value": "backtest-2ae9ba8ded4ed023"
       },
-      "sequence": 37,
+      "sequence": 36,
       "source": "FINAL_SEAL",
       "trading_day": null,
       "ts_event": {
@@ -4113,7 +4036,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 13,
+        "ledger_version": 14,
         "maximum_drawdown": {
           "precision": 8,
           "value": "0"
@@ -4213,7 +4136,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 14,
+        "ledger_version": 15,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -4313,7 +4236,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 15,
+        "ledger_version": 16,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -4413,7 +4336,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 16,
+        "ledger_version": 17,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -4513,7 +4436,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 17,
+        "ledger_version": 18,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -4613,7 +4536,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 18,
+        "ledger_version": 20,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -4641,207 +4564,7 @@
         },
         "sequence": 18,
         "ts_event": {
-          "unix_nanos": 1767577140000000000
-        },
-        "unrealized_pnl": {
-          "amount": "0.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        }
-      },
-      {
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        },
-        "current_drawdown": {
-          "precision": 8,
-          "value": "-0.00000300"
-        },
-        "equity": {
-          "amount": "999997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "fees": {
-          "amount": "3.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "initial_equity": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "key": {
-          "account_id": {
-            "value": "backtest-account"
-          },
-          "base_currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          },
-          "cluster_id": {
-            "value": "macd-demo"
-          },
-          "runtime_id": {
-            "value": "backtest-2ae9ba8ded4ed023"
-          }
-        },
-        "ledger_cash": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "ledger_id": {
-          "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
-        },
-        "ledger_version": 19,
-        "maximum_drawdown": {
-          "precision": 8,
-          "value": "-0.00000300"
-        },
-        "position_market_value": {
-          "amount": "3000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "quality_flags": [],
-        "realized_pnl": {
-          "amount": "0",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "return_since_start": {
-          "precision": 8,
-          "value": "-0.00000300"
-        },
-        "sequence": 19,
-        "ts_event": {
           "unix_nanos": 1767577200000000000
-        },
-        "unrealized_pnl": {
-          "amount": "0.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        }
-      },
-      {
-        "currency": {
-          "code": "CNY",
-          "currency_type": "FIAT",
-          "precision": 2
-        },
-        "current_drawdown": {
-          "precision": 8,
-          "value": "-0.00000300"
-        },
-        "equity": {
-          "amount": "999997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "fees": {
-          "amount": "3.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "initial_equity": {
-          "amount": "1000000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "key": {
-          "account_id": {
-            "value": "backtest-account"
-          },
-          "base_currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          },
-          "cluster_id": {
-            "value": "macd-demo"
-          },
-          "runtime_id": {
-            "value": "backtest-2ae9ba8ded4ed023"
-          }
-        },
-        "ledger_cash": {
-          "amount": "996997.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "ledger_id": {
-          "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
-        },
-        "ledger_version": 20,
-        "maximum_drawdown": {
-          "precision": 8,
-          "value": "-0.00000300"
-        },
-        "position_market_value": {
-          "amount": "3000.00",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "quality_flags": [],
-        "realized_pnl": {
-          "amount": "0",
-          "currency": {
-            "code": "CNY",
-            "currency_type": "FIAT",
-            "precision": 2
-          }
-        },
-        "return_since_start": {
-          "precision": 8,
-          "value": "-0.00000300"
-        },
-        "sequence": 20,
-        "ts_event": {
-          "unix_nanos": 1767577260000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -4939,9 +4662,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 21,
+        "sequence": 19,
         "ts_event": {
-          "unix_nanos": 1767577320000000000
+          "unix_nanos": 1767577260000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5039,9 +4762,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 22,
+        "sequence": 20,
         "ts_event": {
-          "unix_nanos": 1767577380000000000
+          "unix_nanos": 1767577320000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5139,9 +4862,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 23,
+        "sequence": 21,
         "ts_event": {
-          "unix_nanos": 1767577440000000000
+          "unix_nanos": 1767577380000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5239,9 +4962,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 24,
+        "sequence": 22,
         "ts_event": {
-          "unix_nanos": 1767577500000000000
+          "unix_nanos": 1767577440000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5339,9 +5062,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 25,
+        "sequence": 23,
         "ts_event": {
-          "unix_nanos": 1767577560000000000
+          "unix_nanos": 1767577500000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5439,9 +5162,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 26,
+        "sequence": 24,
         "ts_event": {
-          "unix_nanos": 1767577620000000000
+          "unix_nanos": 1767577560000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5539,9 +5262,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 27,
+        "sequence": 25,
         "ts_event": {
-          "unix_nanos": 1767577680000000000
+          "unix_nanos": 1767577620000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5639,9 +5362,9 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 28,
+        "sequence": 26,
         "ts_event": {
-          "unix_nanos": 1767577740000000000
+          "unix_nanos": 1767577680000000000
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -5739,7 +5462,107 @@
           "precision": 8,
           "value": "-0.00000300"
         },
-        "sequence": 29,
+        "sequence": 27,
+        "ts_event": {
+          "unix_nanos": 1767577740000000000
+        },
+        "unrealized_pnl": {
+          "amount": "0.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        }
+      },
+      {
+        "currency": {
+          "code": "CNY",
+          "currency_type": "FIAT",
+          "precision": 2
+        },
+        "current_drawdown": {
+          "precision": 8,
+          "value": "-0.00000300"
+        },
+        "equity": {
+          "amount": "999997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "fees": {
+          "amount": "3.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "initial_equity": {
+          "amount": "1000000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "key": {
+          "account_id": {
+            "value": "backtest-account"
+          },
+          "base_currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          },
+          "cluster_id": {
+            "value": "macd-demo"
+          },
+          "runtime_id": {
+            "value": "backtest-2ae9ba8ded4ed023"
+          }
+        },
+        "ledger_cash": {
+          "amount": "996997.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "ledger_id": {
+          "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
+        },
+        "ledger_version": 30,
+        "maximum_drawdown": {
+          "precision": 8,
+          "value": "-0.00000300"
+        },
+        "position_market_value": {
+          "amount": "3000.00",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "quality_flags": [],
+        "realized_pnl": {
+          "amount": "0",
+          "currency": {
+            "code": "CNY",
+            "currency_type": "FIAT",
+            "precision": 2
+          }
+        },
+        "return_since_start": {
+          "precision": 8,
+          "value": "-0.00000300"
+        },
+        "sequence": 28,
         "ts_event": {
           "unix_nanos": 1767577800000000000
         },
@@ -5813,7 +5636,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 30,
+        "ledger_version": 31,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -5839,7 +5662,7 @@
           "precision": 8,
           "value": "0.00000900"
         },
-        "sequence": 30,
+        "sequence": 29,
         "ts_event": {
           "unix_nanos": 1767577860000000000
         },
@@ -5913,7 +5736,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 31,
+        "ledger_version": 32,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -5939,7 +5762,7 @@
           "precision": 8,
           "value": "0.00002100"
         },
-        "sequence": 31,
+        "sequence": 30,
         "ts_event": {
           "unix_nanos": 1767577920000000000
         },
@@ -6013,7 +5836,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 32,
+        "ledger_version": 33,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6039,7 +5862,7 @@
           "precision": 8,
           "value": "0.00003300"
         },
-        "sequence": 32,
+        "sequence": 31,
         "ts_event": {
           "unix_nanos": 1767577980000000000
         },
@@ -6113,7 +5936,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 33,
+        "ledger_version": 34,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6139,7 +5962,7 @@
           "precision": 8,
           "value": "0.00004500"
         },
-        "sequence": 33,
+        "sequence": 32,
         "ts_event": {
           "unix_nanos": 1767578040000000000
         },
@@ -6213,7 +6036,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 34,
+        "ledger_version": 35,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6239,7 +6062,7 @@
           "precision": 8,
           "value": "0.00005700"
         },
-        "sequence": 34,
+        "sequence": 33,
         "ts_event": {
           "unix_nanos": 1767578100000000000
         },
@@ -6313,7 +6136,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 35,
+        "ledger_version": 36,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6339,7 +6162,7 @@
           "precision": 8,
           "value": "0.00006900"
         },
-        "sequence": 35,
+        "sequence": 34,
         "ts_event": {
           "unix_nanos": 1767578160000000000
         },
@@ -6413,7 +6236,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 36,
+        "ledger_version": 37,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6439,7 +6262,7 @@
           "precision": 8,
           "value": "0.00008100"
         },
-        "sequence": 36,
+        "sequence": 35,
         "ts_event": {
           "unix_nanos": 1767578220000000000
         },
@@ -6513,7 +6336,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 37,
+        "ledger_version": 38,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6539,7 +6362,7 @@
           "precision": 8,
           "value": "0.00009300"
         },
-        "sequence": 37,
+        "sequence": 36,
         "ts_event": {
           "unix_nanos": 1767578280000000000
         },
@@ -6613,7 +6436,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-2ae9ba8ded4ed023-backtest-account-macd-demo-CNY"
         },
-        "ledger_version": 38,
+        "ledger_version": 39,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00000300"
@@ -6639,7 +6462,7 @@
           "precision": 8,
           "value": "0.00010500"
         },
-        "sequence": 38,
+        "sequence": 37,
         "ts_event": {
           "unix_nanos": 1767578340000000000
         },
@@ -6847,7 +6670,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "runtime_mode": "BACKTEST",
         "schema_version": "1",
-        "sequence": 49,
+        "sequence": 50,
         "trading_day": "2026-01-05",
         "venue_id": "XSHG"
       }
@@ -7184,27 +7007,6 @@
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
         "sequence": 21,
-        "snapshot_phase": "STATE_CHANGE",
-        "trading_day": "2026-01-05",
-        "ts_event": "2026-01-05T01:39:00Z",
-        "unrealized_pnl": "0.00"
-      },
-      {
-        "account_id": "backtest-account",
-        "cash": "996997.00",
-        "cluster_id": null,
-        "commission": "0",
-        "complete": true,
-        "currency": "CNY",
-        "equity": "999997.00",
-        "fees": "3.00",
-        "gross_exposure": "3000.00",
-        "market_value": "3000.00",
-        "net_exposure": "3000.00",
-        "position_count": 1,
-        "realized_pnl": "0",
-        "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 22,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:40:00Z",
@@ -7225,7 +7027,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 23,
+        "sequence": 22,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:41:00Z",
@@ -7246,7 +7048,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 24,
+        "sequence": 23,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:42:00Z",
@@ -7267,7 +7069,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 25,
+        "sequence": 24,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:43:00Z",
@@ -7288,7 +7090,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 26,
+        "sequence": 25,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:44:00Z",
@@ -7309,7 +7111,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 27,
+        "sequence": 26,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:45:00Z",
@@ -7330,7 +7132,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 28,
+        "sequence": 27,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:46:00Z",
@@ -7351,7 +7153,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 29,
+        "sequence": 28,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:47:00Z",
@@ -7372,7 +7174,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 30,
+        "sequence": 29,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:48:00Z",
@@ -7393,7 +7195,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 31,
+        "sequence": 30,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:49:00Z",
@@ -7414,7 +7216,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 32,
+        "sequence": 31,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:50:00Z",
@@ -7435,7 +7237,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 33,
+        "sequence": 32,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:51:00Z",
@@ -7456,7 +7258,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 34,
+        "sequence": 33,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:52:00Z",
@@ -7477,7 +7279,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 35,
+        "sequence": 34,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:53:00Z",
@@ -7498,7 +7300,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 36,
+        "sequence": 35,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:54:00Z",
@@ -7519,7 +7321,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 37,
+        "sequence": 36,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:55:00Z",
@@ -7540,7 +7342,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 38,
+        "sequence": 37,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:56:00Z",
@@ -7561,7 +7363,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 39,
+        "sequence": 38,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:57:00Z",
@@ -7582,7 +7384,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 40,
+        "sequence": 39,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:58:00Z",
@@ -7603,7 +7405,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 41,
+        "sequence": 40,
         "snapshot_phase": "MARKET_VALUATION",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:59:00Z",
@@ -7624,7 +7426,7 @@
         "position_count": 1,
         "realized_pnl": "0",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 42,
+        "sequence": 41,
         "snapshot_phase": "FINAL_SEAL",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:59:00Z",
@@ -7724,7 +7526,7 @@
         "order_id": "backtest-2ae9ba8ded4ed023-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 46,
+        "sequence": 47,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000001"
       }
@@ -7748,7 +7550,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 47,
+        "sequence": 48,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -7839,11 +7641,22 @@
         "resolved_rules_fingerprint": "36a4aff26ba2cf129f387a46519a17e6ffddf46381e316f2b31273144285a5c8",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
         "runtime_mode": "BACKTEST",
-        "sequence": 48,
+        "sequence": 49,
         "trading_day": "2026-01-05"
       }
     ],
     "runtime_transactions": [
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:38:00Z",
+        "operation_identity": "EACK-04de8c8f564e50d63dfbaaa049b5e9ffd63981f9764ddd971f9d8a6bc0d2bce9",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-2ae9ba8ded4ed023",
+        "runtime_sequence": 1,
+        "sequence": 44,
+        "transaction_id": "EACK-04de8c8f564e50d63dfbaaa049b5e9ffd63981f9764ddd971f9d8a6bc0d2bce9"
+      },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:39:00Z",
@@ -7851,9 +7664,20 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "runtime_sequence": 1,
+        "runtime_sequence": 2,
         "sequence": 45,
         "transaction_id": "ETX-b9b8bbd81ebb8b7c344257cb2e8da7a6f1c5bd9b06f64d1bb2dd022647ada292"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:39:00Z",
+        "operation_identity": "ETERM-f457f8a7bf5e9704ca1bcefa4c779dbbc5c5c14c6129b7354b953d2a88ac75b6",
+        "operation_kind": "ORDER_TERMINAL",
+        "projection_ready": true,
+        "runtime_id": "backtest-2ae9ba8ded4ed023",
+        "runtime_sequence": 3,
+        "sequence": 46,
+        "transaction_id": "ETERM-f457f8a7bf5e9704ca1bcefa4c779dbbc5c5c14c6129b7354b953d2a88ac75b6"
       }
     ],
     "settlement_instructions": [
@@ -7878,7 +7702,7 @@
         "quantity": "300",
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "runtime_id": "backtest-2ae9ba8ded4ed023",
-        "sequence": 44,
+        "sequence": 43,
         "side": "BUY",
         "status": "COMPLETED",
         "trade_id": "virtual-trade-00000001",
@@ -7896,7 +7720,7 @@
         "cash_available_time": "2026-01-05T00:00:00Z",
         "execution_id": "virtual-trade-00000001",
         "instrument_id": "TESTETF.XSHG",
-        "sequence": 43,
+        "sequence": 42,
         "settlement_model_id": "GENERIC_T0",
         "settlement_time": "2026-01-05T00:00:00Z",
         "status": "COMPLETED",
@@ -8222,7 +8046,7 @@
           }
         },
         "mode": "FIXED_CAPITAL",
-        "version": 38
+        "version": 39
       },
       "cash": {
         "cash_available": {
@@ -8653,7 +8477,7 @@
             "precision": 2
           }
         },
-        "version": 38
+        "version": 39
       },
       "fee_entries": [
         {
@@ -8912,7 +8736,7 @@
           "updated_at": {
             "unix_nanos": 1767577140000000000
           },
-          "version": 4
+          "version": 5
         }
       ],
       "status": "ACTIVE",
@@ -8922,7 +8746,7 @@
       "valuation_time": {
         "unix_nanos": 1767578340000000000
       },
-      "version": 38
+      "version": 39
     }
   ],
   "final_positions": [
@@ -9701,7 +9525,7 @@
         "precision": 2
       }
     },
-    "valuation_count": 37
+    "valuation_count": 36
   },
   "trades": [
     {
@@ -9826,9 +9650,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-fe5ab9d5c8e446c72e8003190b02512a25ded7c2d9ff4c4207bedb3842907466",
-      "execution_sequence": 1,
-      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 2,
+      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
         "accrual_after_fingerprint": "4144b9f68e5caa2d77e10c45f369f754aabf877d5c5cb02d34f772418bc405cf",

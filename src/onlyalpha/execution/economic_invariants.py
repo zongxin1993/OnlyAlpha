@@ -14,6 +14,7 @@ from onlyalpha.transaction.projection import (
     OnlyFeeApplicationProjection,
     OnlyMarginExecutionProjection,
     OnlyMarginReservationExecutionProjection,
+    OnlyOrderAcceptedExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
     OnlyOrderTerminalExecutionProjection,
@@ -38,6 +39,9 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
     """Reject a prepared transaction whose facts and authority states disagree."""
 
     def validate(self, prepared: OnlyPreparedRuntimeTransaction) -> None:
+        if prepared.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED:
+            self._validate_accepted(prepared)
+            return
         if prepared.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL:
             self._validate_terminal(prepared)
             return
@@ -264,72 +268,138 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         self._validate_risk_reservations(prepared)
 
     @staticmethod
+    def _validate_accepted(prepared: OnlyPreparedRuntimeTransaction) -> None:
+        from .accepted_fact import OnlyCommittedOrderAcceptedFactDraft
+
+        fact = prepared.fact_draft
+        if not isinstance(fact, OnlyCommittedOrderAcceptedFactDraft):
+            raise ValueError("Accepted transaction requires Accepted Fact")
+        order = _one(prepared.projections, OnlyOrderAcceptedExecutionProjection)
+        components = tuple(item.identity.component.value for item in prepared.projections)
+        expected = (
+            ("ORDER", "STRATEGY_LEDGER", "STRATEGY_CASH_RESERVATION")
+            if order.before.side is OnlyOrderSide.BUY
+            else ("ORDER", "POSITION", "POSITION_RESERVATION")
+        )
+        if components != expected:
+            raise ValueError("Accepted transaction projection set is incomplete")
+        if (
+            order.accepted_identity != fact.accepted_identity
+            or order.broker_update_id != fact.broker_update_id
+            or order.after.venue_order_id != fact.venue_order_id
+            or order.after.quantity != order.before.quantity
+            or order.after.filled_quantity != order.before.filled_quantity
+            or order.after.remaining_quantity != order.before.remaining_quantity
+        ):
+            raise ValueError("Accepted Order projection contradicts fact")
+        if order.before.side is OnlyOrderSide.BUY:
+            ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
+            cash_reservation = _one(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
+            if (
+                cash_reservation.before is None
+                or cash_reservation.before.remaining_amount != cash_reservation.after.remaining_amount
+                or cash_reservation.before.consumed_amount != cash_reservation.after.consumed_amount
+                or ledger.before.ledger_cash != ledger.after.ledger_cash
+                or ledger.before.cash_reserved != ledger.after.cash_reserved
+                or ledger.before.fees != ledger.after.fees
+            ):
+                raise ValueError("BUY Accepted changed economic cash authority")
+        else:
+            position = _one(prepared.projections, OnlyPositionExecutionProjection)
+            position_reservation = _one(prepared.projections, OnlyPositionReservationExecutionProjection)
+            if (
+                position_reservation.before is None
+                or position_reservation.before.remaining_quantity != position_reservation.after.remaining_quantity
+                or position.before is None
+                or position.before.total_quantity != position.after.total_quantity
+                or position.before.risk_reserved_quantity.value - position.after.risk_reserved_quantity.value
+                != position_reservation.before.remaining_quantity.value
+            ):
+                raise ValueError("SELL Accepted hold release authority is inconsistent")
+
+    @staticmethod
     def _validate_terminal(prepared: OnlyPreparedRuntimeTransaction) -> None:
-        from .terminal_fact import OnlyCommittedTerminalExecutionFactDraft
+        from .terminal_fact import (
+            OnlyCommittedTerminalExecutionFactDraft,
+            OnlyTerminalEconomicReleaseKind,
+        )
 
         fact = prepared.fact_draft
         if not isinstance(fact, OnlyCommittedTerminalExecutionFactDraft):
             raise ValueError("terminal transaction requires Terminal Fact")
-        if len(prepared.projections) != 4:
-            raise ValueError("terminal transaction requires exactly four projections")
         order = _one(prepared.projections, OnlyOrderTerminalExecutionProjection)
-        position = _one(prepared.projections, OnlyPositionReservationExecutionProjection)
         risk_reservation = _one(prepared.projections, OnlyRiskReservationExecutionProjection)
         risk = _one(prepared.projections, OnlyRiskExecutionProjection)
-        if position.before is None or risk_reservation.before is None:
-            raise ValueError("terminal transaction requires existing Reservation authority")
-        position_before_consumed = position.before.consumed_quantity
-        position_after_consumed = position.after.consumed_quantity
-        if position_before_consumed is None or position_after_consumed is None:
-            raise ValueError("terminal Position Reservation lacks consumed authority")
-        position_before_released = position.before.released_quantity
-        position_after_released = position.after.released_quantity
-        if position_before_released is None or position_after_released is None:
-            raise ValueError("terminal Position Reservation lacks released authority")
-        risk_before_released = risk_reservation.before.released_quantity
-        risk_after_released = risk_reservation.after.released_quantity
-        if risk_before_released is None or risk_after_released is None:
-            raise ValueError("terminal Risk Reservation lacks released authority")
-        released_notional = (
-            Decimal(0)
-            if risk_reservation.after.released_notional is None
-            else risk_reservation.after.released_notional.amount
-        ) - (
-            Decimal(0)
-            if risk_reservation.before.released_notional is None
-            else risk_reservation.before.released_notional.amount
-        )
-        expected_released_notional = (
-            Decimal(0)
-            if fact.risk_reservation_released_notional_delta is None
-            else fact.risk_reservation_released_notional_delta.amount
-        )
+        if risk_reservation.before is None:
+            raise ValueError("terminal transaction requires Risk Reservation authority")
+        risk_released = risk_reservation.before.remaining_quantity
         if (
             order.terminal_identity != fact.terminal_identity
             or order.broker_update_id != fact.broker_update_id
             or order.after.status is not fact.terminal_status
             or order.after.filled_quantity != fact.filled_quantity_before
             or order.after.remaining_quantity != fact.order_remaining_quantity
-            or position.after.order_id != fact.order_id
-            or position_before_consumed != fact.position_reservation_consumed_before
-            or position_after_consumed != position_before_consumed
-            or position_after_released.value - position_before_released.value
-            != fact.position_reservation_released_delta.value
-            or position.after.remaining_quantity != fact.position_reservation_remaining_after
-            or risk_reservation.after.order_id != fact.order_id
-            or risk_reservation.before.consumed_quantity != fact.risk_reservation_consumed_quantity_before
+            or risk_released != fact.risk_released_quantity
+            or risk_reservation.after.remaining_quantity.value != 0
             or risk_reservation.after.consumed_quantity != risk_reservation.before.consumed_quantity
-            or risk_after_released.value - risk_before_released.value
-            != fact.risk_reservation_released_quantity_delta.value
-            or released_notional != expected_released_notional
-            or risk_reservation.after.remaining_quantity != fact.risk_reservation_remaining_quantity_after
             or risk.after.active_order_count - risk.before.active_order_count != fact.active_order_count_delta
             or risk.after.cluster_active_order_count - risk.before.cluster_active_order_count
             != fact.cluster_active_order_count_delta
-            or risk.after.reserved_quantity
-            != risk.before.reserved_quantity - fact.risk_reservation_released_quantity_delta.value
+            or risk.after.reserved_quantity != risk.before.reserved_quantity - risk_released.value
         ):
             raise ValueError("terminal projections contradict Terminal Fact")
+        components = tuple(item.identity.component.value for item in prepared.projections)
+        if fact.economic_release_kind is OnlyTerminalEconomicReleaseKind.CASH_RESERVATION:
+            expected = (
+                "ORDER",
+                "ACCOUNT",
+                "STRATEGY_LEDGER",
+                "ACCOUNT_CASH_RESERVATION",
+                "STRATEGY_CASH_RESERVATION",
+                "RISK_RESERVATION",
+                "RISK",
+            )
+            if components != expected:
+                raise ValueError("BUY terminal projection set is incomplete")
+            account = _one(prepared.projections, OnlyAccountExecutionProjection)
+            ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
+            account_reservation = _one(prepared.projections, OnlyAccountCashReservationExecutionProjection)
+            strategy_reservation = _one(prepared.projections, OnlyStrategyCashReservationExecutionProjection)
+            release = fact.reservation_released_cash
+            if (
+                release is None
+                or account_reservation.before is None
+                or strategy_reservation.before is None
+                or account_reservation.before.remaining_amount != release
+                or strategy_reservation.before.remaining_amount != release
+                or account_reservation.after.remaining_amount.amount != 0
+                or strategy_reservation.after.remaining_amount.amount != 0
+                or account.before.order_reserved_cash.amount - account.after.order_reserved_cash.amount
+                != release.amount
+                or ledger.before.cash_reserved.amount - ledger.after.cash_reserved.amount != release.amount
+                or account.before.ledger_cash != account.after.ledger_cash
+                or ledger.before.ledger_cash != ledger.after.ledger_cash
+            ):
+                raise ValueError("BUY terminal cash conservation failed")
+        else:
+            if components not in {
+                ("ORDER", "POSITION", "ALLOCATION", "POSITION_RESERVATION", "RISK_RESERVATION", "RISK"),
+                ("ORDER", "ALLOCATION", "POSITION_RESERVATION", "RISK_RESERVATION", "RISK"),
+            }:
+                raise ValueError("SELL terminal projection set is incomplete")
+            allocation = _one(prepared.projections, OnlyAllocationExecutionProjection)
+            reservation = _one(prepared.projections, OnlyPositionReservationExecutionProjection)
+            release_quantity = fact.reservation_released_quantity
+            if (
+                release_quantity is None
+                or reservation.before is None
+                or reservation.before.remaining_quantity != release_quantity
+                or reservation.after.remaining_quantity.value != 0
+                or allocation.before is None
+                or allocation.before.risk_reserved_quantity.value - allocation.after.risk_reserved_quantity.value
+                != release_quantity.value
+            ):
+                raise ValueError("SELL terminal Allocation/Reservation conservation failed")
 
     @staticmethod
     def _validate_cash_reservations(prepared: OnlyPreparedRuntimeTransaction) -> None:

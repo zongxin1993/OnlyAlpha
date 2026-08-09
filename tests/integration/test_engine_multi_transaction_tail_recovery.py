@@ -21,6 +21,7 @@ from onlyalpha.runtime.persistence.factory import (
 )
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from onlyalpha.strategy.context import OnlyStrategyBarContext
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
@@ -105,6 +106,7 @@ class OnlySecondCommitFaultFactory:
             self._delegate.create(request),
             OnlyTestRuntimePersistenceFault.AFTER_COMMIT,
             fault_after=1,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
         )
 
 
@@ -137,8 +139,14 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(path)
     tail = reader.records(runtime_id)
-    assert tuple(item.execution_sequence for item in tail) == (1, 2)
-    assert tuple(item.projection_ready for item in tail) == (True, False)
+    assert tuple(item.execution_sequence for item in tail) == (1, 2, 3, 4)
+    assert tuple(item.operation_kind for item in tail) == (
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+    )
+    assert tuple(item.projection_ready for item in tail) == (True, True, True, False)
     reader.close()
 
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))

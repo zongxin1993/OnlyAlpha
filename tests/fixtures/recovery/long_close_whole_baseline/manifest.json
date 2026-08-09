@@ -110,22 +110,26 @@
   },
   "checkpoint_id": "backtest-e938e41f9730d707:30",
   "committed_fact_ids": [
+    "EACK-9e234ccaed232974db10b3d9f0efea622d4e2fe2f3b7ac980f425a8477aa29d7",
     "EFILL-6c810668fdba5536f464050e5b62c67ac6bf3ddd5fe5615065cbab004450d93f",
+    "EACK-f4592aba4880c8cd99c255a13cee5f5744e5cc43f0fa35da21ad86519b96b9c6",
     "EFILL-2b6ae4c51b0a9f062746247931a1c759e9e351fefb48cc12faa61f9c2fa376f8"
   ],
   "committed_transaction_ids": [
+    "EACK-9e234ccaed232974db10b3d9f0efea622d4e2fe2f3b7ac980f425a8477aa29d7",
     "ETX-29f1e1d261d1e606641e44ad0363789664c9f49243223d18a6fa6e5b83b4a875",
+    "EACK-f4592aba4880c8cd99c255a13cee5f5744e5cc43f0fa35da21ad86519b96b9c6",
     "ETX-08e012c140ac278610a674c0b586b784d80b67be44dd867a8e08c2cd2431c96b"
   ],
-  "configuration_fingerprint": "ae256b188c1bfc45f7693a328c32b286546caeb4a5ab740cb96fb78cc2aeb4b9",
+  "configuration_fingerprint": "6fcee45cd5897fa79d4373044a8fa8af2c0550cc27f0cfda2e719e5324591814",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "0ce2531721e712b7c8a85bbd1671887187f91f65ccbbdb86c3f20f5db25809f5",
-  "database_template": "long_close_whole_baseline-0ce2531721e712b7c8a85bbd1671887187f91f65ccbbdb86c3f20f5db25809f5.sqlite3",
+  "database_fingerprint": "a4e92f2c532bcbed1a3f4e6dffa5610da1ffcb4ee80d9d4b5081cb8e25210469",
+  "database_template": "long_close_whole_baseline-a4e92f2c532bcbed1a3f4e6dffa5610da1ffcb4ee80d9d4b5081cb8e25210469.sqlite3",
   "fill_count": 2,
   "onlyalpha_version": "0.3.5",
   "order_count": 2,
-  "persistence_schema_version": "4",
-  "result_fingerprint": "9cf2a3a39435edd422bb35f00c063a8a7291f9049a1aed31c32eb67aeca18871",
-  "scenario_fingerprint": "ae256b188c1bfc45f7693a328c32b286546caeb4a5ab740cb96fb78cc2aeb4b9",
+  "persistence_schema_version": "5",
+  "result_fingerprint": "e8b9a0ec1abcac579c0de1c31b8f01339922b7c961687bdec2ffb1ca620c9af3",
+  "scenario_fingerprint": "6fcee45cd5897fa79d4373044a8fa8af2c0550cc27f0cfda2e719e5324591814",
   "terminal_count": 0
 }

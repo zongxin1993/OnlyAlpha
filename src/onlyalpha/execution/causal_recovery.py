@@ -9,6 +9,7 @@ from typing import NoReturn
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate
 from onlyalpha.domain.identifiers import OnlyRuntimeId, OnlyTradeId
+from onlyalpha.execution.accepted_fact import OnlyCommittedOrderAcceptedFact
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFact
 from onlyalpha.transaction.codec import (
@@ -274,7 +275,10 @@ class OnlyExecutionRecoverySession:
             self._fail("RECOVERY_CONTINUATION_TRANSACTION_NOT_READY")
         if transaction.runtime_id != self._plan.runtime_id:
             self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
-        if not isinstance(transaction.fact, OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact):
+        if not isinstance(
+            transaction.fact,
+            OnlyCommittedOrderAcceptedFact | OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact,
+        ):
             self._fail("RECOVERY_TRANSACTION_IS_NOT_BROKER_DRIVEN")
         continuation = OnlyExecutionRecoveryContinuation(
             transaction.execution_sequence,

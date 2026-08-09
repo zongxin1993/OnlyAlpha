@@ -5037,7 +5037,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 13,
+        "ledger_version": 14,
         "maximum_drawdown": {
           "precision": 8,
           "value": "0"
@@ -5137,7 +5137,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 14,
+        "ledger_version": 15,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5237,7 +5237,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 15,
+        "ledger_version": 16,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5337,7 +5337,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 16,
+        "ledger_version": 17,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5437,7 +5437,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 17,
+        "ledger_version": 18,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5537,7 +5537,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 18,
+        "ledger_version": 19,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5637,7 +5637,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 19,
+        "ledger_version": 20,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5737,7 +5737,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 20,
+        "ledger_version": 21,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5837,7 +5837,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 21,
+        "ledger_version": 22,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -5937,7 +5937,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 22,
+        "ledger_version": 23,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6037,7 +6037,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 23,
+        "ledger_version": 24,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6137,7 +6137,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 24,
+        "ledger_version": 25,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6237,7 +6237,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 25,
+        "ledger_version": 26,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6337,7 +6337,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 26,
+        "ledger_version": 27,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6437,7 +6437,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 27,
+        "ledger_version": 28,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6537,7 +6537,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 28,
+        "ledger_version": 29,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6637,7 +6637,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 29,
+        "ledger_version": 30,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6737,7 +6737,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 30,
+        "ledger_version": 31,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6837,7 +6837,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 31,
+        "ledger_version": 32,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -6937,7 +6937,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 32,
+        "ledger_version": 33,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -7037,7 +7037,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 33,
+        "ledger_version": 34,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -7137,7 +7137,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 34,
+        "ledger_version": 35,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002000"
@@ -7237,7 +7237,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 35,
+        "ledger_version": 36,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -7337,7 +7337,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 36,
+        "ledger_version": 37,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -7437,7 +7437,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 37,
+        "ledger_version": 38,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -7537,7 +7537,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 38,
+        "ledger_version": 39,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -7637,7 +7637,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 39,
+        "ledger_version": 40,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -7737,7 +7737,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 40,
+        "ledger_version": 41,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -7837,7 +7837,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-a-CNY"
         },
-        "ledger_version": 41,
+        "ledger_version": 42,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010035"
@@ -10539,7 +10539,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 27,
+        "ledger_version": 28,
         "maximum_drawdown": {
           "precision": 8,
           "value": "0"
@@ -10639,7 +10639,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 28,
+        "ledger_version": 29,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -10739,7 +10739,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 29,
+        "ledger_version": 30,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -10839,7 +10839,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 30,
+        "ledger_version": 31,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -10939,7 +10939,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 31,
+        "ledger_version": 32,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -11039,7 +11039,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 32,
+        "ledger_version": 33,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -11139,7 +11139,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 33,
+        "ledger_version": 34,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -11239,7 +11239,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 34,
+        "ledger_version": 35,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -11339,7 +11339,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 35,
+        "ledger_version": 36,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -11439,7 +11439,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 36,
+        "ledger_version": 37,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00002016"
@@ -11539,7 +11539,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 37,
+        "ledger_version": 38,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010051"
@@ -11639,7 +11639,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 38,
+        "ledger_version": 39,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010051"
@@ -11739,7 +11739,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 39,
+        "ledger_version": 40,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010051"
@@ -11839,7 +11839,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 40,
+        "ledger_version": 41,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010051"
@@ -11939,7 +11939,7 @@
         "ledger_id": {
           "value": "SLEDGER-backtest-b041d7c2ec6fe31d-backtest-account-close-b-CNY"
         },
-        "ledger_version": 41,
+        "ledger_version": 42,
         "maximum_drawdown": {
           "precision": 8,
           "value": "-0.00010051"
@@ -12326,7 +12326,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "runtime_mode": "BACKTEST",
         "schema_version": "1",
-        "sequence": 84,
+        "sequence": 88,
         "trading_day": "2026-01-05",
         "venue_id": "XSHG"
       }
@@ -13674,7 +13674,7 @@
         "order_id": "backtest-b041d7c2ec6fe31d-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 75,
+        "sequence": 79,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000001"
       },
@@ -13692,7 +13692,7 @@
         "order_id": "backtest-b041d7c2ec6fe31d-ORDER-000002",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 76,
+        "sequence": 80,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000002"
       },
@@ -13710,7 +13710,7 @@
         "order_id": "backtest-b041d7c2ec6fe31d-ORDER-000003",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 77,
+        "sequence": 81,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000003"
       },
@@ -13728,7 +13728,7 @@
         "order_id": "backtest-b041d7c2ec6fe31d-ORDER-000004",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 78,
+        "sequence": 82,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000004"
       }
@@ -13752,7 +13752,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 79,
+        "sequence": 83,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -13777,7 +13777,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 80,
+        "sequence": 84,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -13802,7 +13802,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 81,
+        "sequence": 85,
         "side": "SELL",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -13827,7 +13827,7 @@
         "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
         "rule_set_id": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 82,
+        "sequence": 86,
         "side": "SELL",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -14036,11 +14036,22 @@
         "resolved_rules_fingerprint": "36a4aff26ba2cf129f387a46519a17e6ffddf46381e316f2b31273144285a5c8",
         "runtime_id": "backtest-b041d7c2ec6fe31d",
         "runtime_mode": "BACKTEST",
-        "sequence": 83,
+        "sequence": 87,
         "trading_day": "2026-01-05"
       }
     ],
     "runtime_transactions": [
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:38:00Z",
+        "operation_identity": "EACK-2086fba38873be03932610a0bba555f7a86357dcc5379c1253e8df77d5d9666a",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-b041d7c2ec6fe31d",
+        "runtime_sequence": 1,
+        "sequence": 71,
+        "transaction_id": "EACK-2086fba38873be03932610a0bba555f7a86357dcc5379c1253e8df77d5d9666a"
+      },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:39:00Z",
@@ -14048,9 +14059,20 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-b041d7c2ec6fe31d",
-        "runtime_sequence": 1,
-        "sequence": 71,
+        "runtime_sequence": 2,
+        "sequence": 72,
         "transaction_id": "ETX-d0c33cf5b1b55ee148da61ec8ec5c65e513bbd713ac758431a36d6a6985af616"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:52:00Z",
+        "operation_identity": "EACK-a68e208f156420ad7450d1de1e68fbf9ee4898e8c8d4c92024097a3abfe7cedb",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-b041d7c2ec6fe31d",
+        "runtime_sequence": 3,
+        "sequence": 73,
+        "transaction_id": "EACK-a68e208f156420ad7450d1de1e68fbf9ee4898e8c8d4c92024097a3abfe7cedb"
       },
       {
         "account_id": "backtest-account",
@@ -14059,9 +14081,20 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-b041d7c2ec6fe31d",
-        "runtime_sequence": 2,
-        "sequence": 72,
+        "runtime_sequence": 4,
+        "sequence": 74,
         "transaction_id": "ETX-a1128a50221dcfc7a86685d6ecdc86afee87818a9e71f1271f0705bc069b8128"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:55:00Z",
+        "operation_identity": "EACK-99239c3cc95c8e9d8adf2cf3862300bd96a1d3d49c3b270a88785fdde993dcce",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-b041d7c2ec6fe31d",
+        "runtime_sequence": 5,
+        "sequence": 75,
+        "transaction_id": "EACK-99239c3cc95c8e9d8adf2cf3862300bd96a1d3d49c3b270a88785fdde993dcce"
       },
       {
         "account_id": "backtest-account",
@@ -14070,9 +14103,20 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-b041d7c2ec6fe31d",
-        "runtime_sequence": 3,
-        "sequence": 73,
+        "runtime_sequence": 6,
+        "sequence": 76,
         "transaction_id": "ETX-57da18f32af562f568401e9ad91a9420ab4b8fce3da957fef497d25b4befed57"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:57:00Z",
+        "operation_identity": "EACK-49bc39fc9a38de5076f5a388879704a3985a14d22a780286cd5e7e8702cc7fa5",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-b041d7c2ec6fe31d",
+        "runtime_sequence": 7,
+        "sequence": 77,
+        "transaction_id": "EACK-49bc39fc9a38de5076f5a388879704a3985a14d22a780286cd5e7e8702cc7fa5"
       },
       {
         "account_id": "backtest-account",
@@ -14081,8 +14125,8 @@
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-b041d7c2ec6fe31d",
-        "runtime_sequence": 4,
-        "sequence": 74,
+        "runtime_sequence": 8,
+        "sequence": 78,
         "transaction_id": "ETX-3530966467e70b690549afe2e5d892752e07565f3bf464099b7a5e2ab80fb88f"
       }
     ],
@@ -14539,7 +14583,7 @@
           }
         },
         "mode": "FIXED_CAPITAL",
-        "version": 41
+        "version": 42
       },
       "cash": {
         "cash_available": {
@@ -15016,7 +15060,7 @@
             "precision": 2
           }
         },
-        "version": 41
+        "version": 42
       },
       "fee_entries": [
         {
@@ -15314,12 +15358,12 @@
               "precision": 2
             }
           },
-          "stage": "SENT_TO_BROKER",
+          "stage": "BROKER_ACKNOWLEDGED",
           "state": "CONSUMED",
           "updated_at": {
             "unix_nanos": 1767577140000000000
           },
-          "version": 3
+          "version": 4
         }
       ],
       "status": "ACTIVE",
@@ -15329,7 +15373,7 @@
       "valuation_time": {
         "unix_nanos": 1767578340000000000
       },
-      "version": 41
+      "version": 42
     },
     {
       "capital": {
@@ -15369,7 +15413,7 @@
           }
         },
         "mode": "FIXED_CAPITAL",
-        "version": 41
+        "version": 42
       },
       "cash": {
         "cash_available": {
@@ -15846,7 +15890,7 @@
             "precision": 2
           }
         },
-        "version": 41
+        "version": 42
       },
       "fee_entries": [
         {
@@ -16144,12 +16188,12 @@
               "precision": 2
             }
           },
-          "stage": "SENT_TO_BROKER",
+          "stage": "BROKER_ACKNOWLEDGED",
           "state": "CONSUMED",
           "updated_at": {
             "unix_nanos": 1767577980000000000
           },
-          "version": 3
+          "version": 4
         }
       ],
       "status": "ACTIVE",
@@ -16159,7 +16203,7 @@
       "valuation_time": {
         "unix_nanos": 1767578340000000000
       },
-      "version": 41
+      "version": 42
     }
   ],
   "final_positions": [],
@@ -18649,9 +18693,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-0e057355e82d96f24bd35baa24e22467fdfb7d98a6d47ab0f4c676a1bfd1b61e",
-      "execution_sequence": 1,
-      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 2,
+      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000001",
       "fee_application": {
         "accrual_after_fingerprint": "2b4241f139558f2bbf5c1878bfef5e394f96e1c7c4a0057d3742e57b0d8aee24",
@@ -19189,9 +19233,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-09e084265a70128f834dd1802ec6f12d78f41977fbfa00f68c6d5994486721a4",
-      "execution_sequence": 2,
-      "execution_support_fingerprint": "a75215bdaf939e3f529a2bfc76a0ad77500defee69fd1ddfff828cc5d024073e",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 4,
+      "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000002",
       "fee_application": {
         "accrual_after_fingerprint": "2393caa17775c207162309b7bf152770f47cca458b1c880c477a4d453efa65cf",
@@ -19729,9 +19773,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-bec453354733c9692ed6ca871ed45ed07effc57c22f25e9fe8d6f62878702dce",
-      "execution_sequence": 3,
-      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 6,
+      "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000003",
       "fee_application": {
         "accrual_after_fingerprint": "582dc6543004c42d514fa8994e9ce9e6211e10139a08bd4df00fb2870777fd8e",
@@ -20269,9 +20313,9 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-6135f9b3847707344dfed28cc75964c8edbff894a345af91de4b2e8a8196f4d0",
-      "execution_sequence": 4,
-      "execution_support_fingerprint": "d0aee2c2dc46c844f38bf76eac00fb1efd477a1c57607da6bca447c021560b24",
-      "execution_support_schema_version": "1",
+      "execution_sequence": 8,
+      "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+      "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000004",
       "fee_application": {
         "accrual_after_fingerprint": "408dac1d6ca02d55328012d2f99937bd787f4b855cb284bac570b23ebb09c866",

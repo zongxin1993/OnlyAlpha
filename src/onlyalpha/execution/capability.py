@@ -13,10 +13,11 @@ from onlyalpha.market.models import OnlyPositionEffect
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
-ONLY_EXECUTION_SUPPORT_POLICY_VERSION = "1"
+ONLY_EXECUTION_SUPPORT_POLICY_VERSION = "2"
 
 
 class OnlyExecutionCapability(StrEnum):
+    DURABLE_ORDER_ACCEPTED = "DURABLE_ORDER_ACCEPTED"
     DURABLE_TRADE = "DURABLE_TRADE"
     DURABLE_TERMINAL = "DURABLE_TERMINAL"
     UNSUPPORTED = "UNSUPPORTED"
@@ -70,14 +71,14 @@ class OnlyExecutionSupportDecision:
 
     capability: OnlyExecutionCapability
     reason: OnlyExecutionSupportReason | None
-    schema_version: str
+    policy_version: str
     fingerprint: str
 
     def __post_init__(self) -> None:
         supported = self.capability is not OnlyExecutionCapability.UNSUPPORTED
         if supported != (self.reason is None):
             raise ValueError("supported execution decisions require no reason; unsupported decisions require one")
-        if self.schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION:
+        if self.policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION:
             raise ValueError("execution support decision policy version is unsupported")
         if len(self.fingerprint) != 64:
             raise ValueError("execution support decision requires a SHA-256 fingerprint")
@@ -89,7 +90,7 @@ class OnlyExecutionCapabilityResolver:
     def resolve(self, context: OnlyExecutionSupportContext) -> OnlyExecutionSupportDecision:
         capability, reason = self._resolve(context)
         payload = {
-            "schema_version": ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
+            "policy_version": ONLY_EXECUTION_SUPPORT_POLICY_VERSION,
             "context": _canonical_context(context),
             "capability": capability.value,
             "reason": None if reason is None else reason.value,
@@ -109,6 +110,7 @@ class OnlyExecutionCapabilityResolver:
         context: OnlyExecutionSupportContext,
     ) -> tuple[OnlyExecutionCapability, OnlyExecutionSupportReason | None]:
         if context.operation_kind not in {
+            OnlyRuntimeOperationKind.ORDER_ACCEPTED,
             OnlyRuntimeOperationKind.TRADE_FILL,
             OnlyRuntimeOperationKind.ORDER_TERMINAL,
         }:
@@ -143,16 +145,13 @@ class OnlyExecutionCapabilityResolver:
 
         buy_open_reservations = OnlyExecutionReservationShape(True, True, False, False, True)
         sell_close_reservations = OnlyExecutionReservationShape(False, False, True, False, True)
-        if context.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL:
-            expected = buy_open_reservations if buy_open else sell_close_reservations
-            if context.reservations != expected:
-                return _unsupported(OnlyExecutionSupportReason.RESERVATION_SHAPE_UNSUPPORTED)
-            return OnlyExecutionCapability.DURABLE_TRADE, None
-
-        if not sell_close:
-            return _unsupported(OnlyExecutionSupportReason.TERMINAL_SHAPE_UNSUPPORTED)
-        if context.reservations != sell_close_reservations:
+        expected = buy_open_reservations if buy_open else sell_close_reservations
+        if context.reservations != expected:
             return _unsupported(OnlyExecutionSupportReason.RESERVATION_SHAPE_UNSUPPORTED)
+        if context.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED:
+            return OnlyExecutionCapability.DURABLE_ORDER_ACCEPTED, None
+        if context.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL:
+            return OnlyExecutionCapability.DURABLE_TRADE, None
         return OnlyExecutionCapability.DURABLE_TERMINAL, None
 
 

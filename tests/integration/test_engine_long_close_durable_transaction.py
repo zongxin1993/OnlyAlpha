@@ -1,17 +1,23 @@
 from decimal import Decimal
 
 from onlyalpha.execution import OnlyExecutionEventDeliveryMode, OnlyExecutionProcessingStatus
+from onlyalpha.transaction import OnlyRuntimeOperationKind
 from tests.execution.support.generic_t0_trade_harness import only_test_generic_t0_long_close_context
 
 
-def test_engine_runtime_long_close_commits_one_durable_transaction_and_projects_all_authorities() -> None:
+def test_engine_runtime_long_close_commits_broker_lifecycle_durably_and_projects_all_authorities() -> None:
     environment, context, prepared = only_test_generic_t0_long_close_context(open_quantity="200", close_quantity="100")
     result = environment.runtime.execution_processor.process(context.update)
 
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
     assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX
     records = environment.runtime.execution_transaction_query.records(environment.runtime.config.runtime_id)
-    assert len(records) == 2
+    assert tuple(item.operation_kind for item in records) == (
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+    )
     close = records[-1]
     assert close.fact == prepared.fact_draft.finalize(close.execution_sequence, close.committed_at)
     assert close.projection_ready

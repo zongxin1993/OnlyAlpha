@@ -155,6 +155,39 @@ class OnlyOrderExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyOrderAcceptedExecutionProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: OnlyOrderExecutionState
+    after: OnlyOrderExecutionState
+    broker_update_id: OnlyBrokerUpdateId
+    accepted_identity: str
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ORDER)
+        _require_state_contract(self.identity, self.before, self.after)
+        if _order_scope(self.before) != _order_scope(self.after) or self.identity.entity_key != str(
+            self.after.order_id
+        ):
+            raise ValueError("Order Accepted projection before/after scope mismatch")
+        if not self.accepted_identity.startswith("EACK-") or not str(self.broker_update_id).strip():
+            raise ValueError("Order Accepted projection requires accepted/update identity")
+        if self.after.venue_order_id is None:
+            raise ValueError("Order Accepted projection requires Venue Order identity")
+        unchanged = (
+            self.before.quantity == self.after.quantity,
+            self.before.filled_quantity == self.after.filled_quantity,
+            self.before.remaining_quantity == self.after.remaining_quantity,
+            self.before.average_fill_price == self.after.average_fill_price,
+            self.before.fill_count == self.after.fill_count,
+            self.before.cumulative_price_quantity == self.after.cumulative_price_quantity,
+            self.before.last_trade_id == self.after.last_trade_id,
+        )
+        if not all(unchanged):
+            raise ValueError("Order Accepted projection cannot create or alter Fill authority")
+        _require_external_sequence(self.before.last_external_sequence, self.after.last_external_sequence)
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyOrderTerminalExecutionProjection(OnlyDomainModel):
     identity: OnlyRuntimeProjectionIdentity
     before: OnlyOrderExecutionState
@@ -643,6 +676,7 @@ class OnlyFeeReconciliationRiskGateProjection(OnlyDomainModel):
 
 type OnlyRuntimeProjection = (
     OnlyOrderExecutionProjection
+    | OnlyOrderAcceptedExecutionProjection
     | OnlyOrderTerminalExecutionProjection
     | OnlyPositionExecutionProjection
     | OnlyAllocationExecutionProjection
@@ -742,7 +776,8 @@ def _require_account_cash_reservation_transition(
         != (after.runtime_id, after.account_id, after.order_id, after.reserved_amount)
         or after.consumed_amount.amount < before.consumed_amount.amount
         or after.remaining_amount.amount > before.remaining_amount.amount
-        or after.version != before.version + 1 + int(after.state.value == "RELEASED")
+        or after.version
+        != before.version + 1 + int(after.state.value == "RELEASED" and after.consumed_amount != before.consumed_amount)
     ):
         raise ValueError("Account cash Reservation authority changed")
     _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)
@@ -757,7 +792,8 @@ def _require_strategy_cash_reservation_transition(
         != (after.key, after.order_id, after.estimated_notional, after.estimated_fee, after.reserved_amount)
         or after.consumed_amount.amount < before.consumed_amount.amount
         or after.remaining_amount.amount > before.remaining_amount.amount
-        or after.version != before.version + 1 + int(after.state.value == "RELEASED")
+        or after.version
+        != before.version + 1 + int(after.state.value == "RELEASED" and after.consumed_amount != before.consumed_amount)
     ):
         raise ValueError("Strategy cash Reservation authority changed")
     _require_reservation_lifecycle(before.state.value, after.state.value, before.updated_at, after.updated_at)

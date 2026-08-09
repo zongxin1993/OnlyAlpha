@@ -22,7 +22,7 @@ from onlyalpha.broker.updates import (
     OnlyBrokerTradeUpdate,
 )
 from onlyalpha.core.clock import OnlyClock
-from onlyalpha.domain.execution import OnlyOrderFill, OnlyOrderSnapshot
+from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
@@ -37,15 +37,6 @@ from onlyalpha.market.runtime_rules import (
     OnlyTradeApplicationRequest,
     OnlyTradeInstructionPort,
 )
-from onlyalpha.order.enums import OnlyOrderApplyResult
-from onlyalpha.order.execution.models import (
-    OnlyGatewayOrderAcceptedUpdate,
-    OnlyGatewayOrderCancelledUpdate,
-    OnlyGatewayOrderExpiredUpdate,
-    OnlyGatewayOrderRejectedUpdate,
-    OnlyGatewayOrderUpdate,
-)
-from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.query import OnlyOrderQueryService
 from onlyalpha.order.results import OnlyOrderMutationResult
 from onlyalpha.position.allocation_manager import OnlyPositionAllocationManager
@@ -63,8 +54,7 @@ from onlyalpha.position.models import (
     OnlyPositionTrade,
 )
 from onlyalpha.position.reconciliation import OnlyPositionReconciliationService
-from onlyalpha.position.reservations import OnlyOrderPositionReservationAdapter, OnlyPositionReservationManager
-from onlyalpha.risk.enums import OnlyRiskReleaseReason
+from onlyalpha.position.reservations import OnlyPositionReservationManager
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.settlement.authority import OnlySettlementAuthority
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
@@ -86,6 +76,9 @@ from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionQueryP
 from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction
 
+from .accepted_fact import OnlyCommittedOrderAcceptedFact
+from .accepted_identity import only_capture_execution_order_accepted_authority
+from .accepted_planner import OnlyOrderAcceptedExecutionTransactionPlanner
 from .capability import (
     OnlyExecutionCapability,
     OnlyExecutionCapabilityResolver,
@@ -122,7 +115,11 @@ from .models import (
     OnlyExecutionReconciliationRequest,
     OnlyExecutionSnapshotBundle,
 )
-from .planning_context import OnlyTerminalExecutionPlanningContext, OnlyTradeExecutionPlanningContext
+from .planning_context import (
+    OnlyOrderAcceptedExecutionPlanningContext,
+    OnlyTerminalExecutionPlanningContext,
+    OnlyTradeExecutionPlanningContext,
+)
 from .planning_results import OnlyTradeExecutionPlanningError
 from .scope import OnlyExecutionPositionScope, OnlyExecutionPositionScopeResolver
 from .state import (
@@ -142,13 +139,14 @@ from .trade_planner import OnlyTradeExecutionTransactionPlanner
 
 OnlyExecutionValuation = Callable[[OnlyStrategyLedgerKey, OnlyPositionTrade], None]
 OnlyAccountValuation = Callable[[OnlyPositionTrade], None]
-OnlyAccountReservationConsumer = Callable[[OnlyOrderFill, OnlyMoney, OnlyTimestamp], None]
-OnlyAccountReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyConnectionStateConsumer = Callable[[object], None]
-OnlyMarginReservationReleaser = Callable[[OnlyOrderId, OnlyTimestamp], None]
 OnlyTradePlanningContextBuilder = Callable[
     [OnlyBrokerTradeUpdate, int, OnlyExecutionPositionScope, OnlyExecutionSupportDecision],
     OnlyTradeExecutionPlanningContext,
+]
+OnlyOrderAcceptedPlanningContextBuilder = Callable[
+    [OnlyBrokerOrderAcceptedUpdate, int, OnlyExecutionPositionScope, OnlyExecutionSupportDecision],
+    OnlyOrderAcceptedExecutionPlanningContext,
 ]
 OnlyTerminalPlanningContextBuilder = Callable[
     [OnlyBrokerOrderTerminalUpdate, int, OnlyExecutionPositionScope, OnlyExecutionSupportDecision],
@@ -180,7 +178,6 @@ class OnlyExecutionProcessor:
         clock: OnlyClock,
         instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
         orders: OnlyOrderQueryService,
-        order_updates: OnlyOrderUpdateProcessor,
         positions: OnlyPositionManager,
         allocations: OnlyPositionAllocationManager,
         ledgers: OnlyStrategyLedgerManager,
@@ -188,9 +185,6 @@ class OnlyExecutionProcessor:
         accounts: OnlyAccountManager,
         risk: OnlyRiskService,
         position_reservations: OnlyPositionReservationManager,
-        position_reservation_port: OnlyOrderPositionReservationAdapter,
-        consume_account_reservation: OnlyAccountReservationConsumer,
-        release_account_reservation: OnlyAccountReservationReleaser,
         position_reconciliation: OnlyPositionReconciliationService,
         account_reconciliation: OnlyAccountReconciliationService,
         invariant_checker: OnlyExecutionInvariantChecker,
@@ -198,6 +192,8 @@ class OnlyExecutionProcessor:
         audit_store: OnlyExecutionAuditStore,
         trade_planning_context_builder: OnlyTradePlanningContextBuilder,
         trade_planner: OnlyTradeExecutionTransactionPlanner,
+        accepted_planning_context_builder: OnlyOrderAcceptedPlanningContextBuilder,
+        accepted_planner: OnlyOrderAcceptedExecutionTransactionPlanner,
         terminal_planning_context_builder: OnlyTerminalPlanningContextBuilder,
         terminal_planner: OnlyTerminalExecutionTransactionPlanner,
         execution_commit_coordinator: OnlyRuntimeTransactionCoordinator,
@@ -214,14 +210,12 @@ class OnlyExecutionProcessor:
         margin_manager: OnlyMarginManager | None = None,
         fee_application_ledger: OnlyFeeApplicationLedger | None = None,
         fee_resolver: OnlyFeeResolver | None = None,
-        release_margin_reservation: OnlyMarginReservationReleaser | None = None,
         trading_day: Callable[[OnlyTimestamp], OnlyTradingDay] | None = None,
     ) -> None:
         self.config = config
         self._clock = clock
         self._instruments = instruments
         self._orders = orders
-        self._order_updates = order_updates
         self._positions = positions
         self._allocations = allocations
         self._ledgers = ledgers
@@ -229,9 +223,6 @@ class OnlyExecutionProcessor:
         self._accounts = accounts
         self._risk = risk
         self._position_reservations = position_reservations
-        self._position_reservation_port = position_reservation_port
-        self._consume_account_reservation = consume_account_reservation
-        self._release_account_reservation = release_account_reservation
         self._position_reconciliation = position_reconciliation
         self._account_reconciliation = account_reconciliation
         self._invariants = invariant_checker
@@ -239,6 +230,8 @@ class OnlyExecutionProcessor:
         self._audit = audit_store
         self._trade_planning_context_builder = trade_planning_context_builder
         self._trade_planner = trade_planner
+        self._accepted_planning_context_builder = accepted_planning_context_builder
+        self._accepted_planner = accepted_planner
         self._terminal_planning_context_builder = terminal_planning_context_builder
         self._terminal_planner = terminal_planner
         self._execution_commit_coordinator = execution_commit_coordinator
@@ -255,7 +248,6 @@ class OnlyExecutionProcessor:
         self._margin_manager = margin_manager
         self._fee_application_ledger = fee_application_ledger
         self._fee_resolver = fee_resolver
-        self._release_margin_reservation = release_margin_reservation
         self._trading_day = trading_day
         self._trade_instructions: dict[str, OnlyTradeApplicationInstruction] = {}
         self._execution_capability_resolver = OnlyExecutionCapabilityResolver()
@@ -295,6 +287,7 @@ class OnlyExecutionProcessor:
         if isinstance(
             update,
             OnlyBrokerTradeUpdate
+            | OnlyBrokerOrderAcceptedUpdate
             | OnlyBrokerOrderCancelledUpdate
             | OnlyBrokerOrderRejectedUpdate
             | OnlyBrokerOrderExpiredUpdate,
@@ -366,6 +359,36 @@ class OnlyExecutionProcessor:
                         OnlyExecutionProcessingStatus.DUPLICATE,
                         position_scope=position_scope,
                     )
+        if isinstance(update, OnlyBrokerOrderAcceptedUpdate) and mode is OnlyExecutionProcessingMode.NORMAL:
+            accepted_authority = only_capture_execution_order_accepted_authority(update)
+            existing_accepted = self._execution_transaction_query.get_by_transaction_id(
+                accepted_authority.accepted_identity
+            )
+            if existing_accepted is not None:
+                existing_fact = existing_accepted.fact
+                if (
+                    not isinstance(existing_fact, OnlyCommittedOrderAcceptedFact)
+                    or existing_fact.accepted_payload_fingerprint != accepted_authority.payload_fingerprint
+                ):
+                    failure = OnlyExecutionFailure(
+                        OnlyExecutionFailureCode.INVALID_UPDATE,
+                        "ACCEPTED_IDENTITY_CONFLICT: durable Accepted identity has a different payload",
+                        OnlyExecutionMutationStep.VALIDATION,
+                    )
+                    return self._terminal(
+                        update,
+                        context,
+                        OnlyExecutionProcessingStatus.REJECTED,
+                        failure=failure,
+                        position_scope=position_scope,
+                    )
+                if existing_accepted.projection_ready:
+                    return self._terminal(
+                        update,
+                        context,
+                        OnlyExecutionProcessingStatus.DUPLICATE,
+                        position_scope=position_scope,
+                    )
         if (
             isinstance(
                 update,
@@ -374,9 +397,8 @@ class OnlyExecutionProcessor:
             and mode is OnlyExecutionProcessingMode.NORMAL
         ):
             terminal_authority = only_capture_execution_terminal_authority(update)
-            existing_terminal = self._execution_transaction_query.get_by_terminal_identity(
-                update.runtime_id,
-                terminal_authority.terminal_identity,
+            existing_terminal = self._execution_transaction_query.get_by_transaction_id(
+                terminal_authority.terminal_identity
             )
             if existing_terminal is not None:
                 existing_fact = existing_terminal.fact
@@ -415,6 +437,15 @@ class OnlyExecutionProcessor:
             )
         sequence_scope = self._sequence_scope(update)
         stale = self._sequences.is_stale(sequence_scope, update.source_sequence)
+        if stale and isinstance(update, OnlyBrokerOrderAcceptedUpdate):
+            self._deduplicator.remember(update.update_id)
+            return self._terminal(
+                update,
+                context,
+                OnlyExecutionProcessingStatus.STALE,
+                quality_flags=("OUT_OF_ORDER_ACCEPTED",),
+                position_scope=position_scope,
+            )
         if stale and isinstance(update, OnlyBrokerTradeUpdate):
             failure = OnlyExecutionFailure(
                 OnlyExecutionFailureCode.OUT_OF_ORDER_TRADE,
@@ -434,6 +465,27 @@ class OnlyExecutionProcessor:
                 reconciliation=request,
                 quality_flags=("OUT_OF_ORDER",),
                 position_scope=position_scope,
+            )
+        accepted_support = (
+            None
+            if not isinstance(update, OnlyBrokerOrderAcceptedUpdate) or position_scope is None
+            else self._resolve_execution_support(update, position_scope)
+        )
+        if (
+            isinstance(update, OnlyBrokerOrderAcceptedUpdate)
+            and accepted_support is not None
+            and accepted_support.capability is OnlyExecutionCapability.DURABLE_ORDER_ACCEPTED
+        ):
+            if position_scope is None:
+                raise AssertionError("Durable Accepted capability lost its Position Scope")
+            return self._prepared_accepted(
+                update,
+                context,
+                position_scope,
+                sequence_scope,
+                mode,
+                recovery_session,
+                accepted_support,
             )
         trade_support = (
             None
@@ -494,6 +546,31 @@ class OnlyExecutionProcessor:
                 mode,
                 recovery_session,
                 terminal_support,
+            )
+        if isinstance(
+            update,
+            OnlyBrokerOrderAcceptedUpdate
+            | OnlyBrokerTradeUpdate
+            | OnlyBrokerOrderCancelledUpdate
+            | OnlyBrokerOrderRejectedUpdate
+            | OnlyBrokerOrderExpiredUpdate,
+        ):
+            decision = accepted_support or trade_support or terminal_support
+            detail = (
+                "POSITION_SCOPE_UNRESOLVED" if decision is None or decision.reason is None else decision.reason.value
+            )
+            failure = OnlyExecutionFailure(
+                OnlyExecutionFailureCode.UNSUPPORTED_UPDATE_TYPE,
+                f"UNSUPPORTED_EXECUTION_CAPABILITY: {detail}",
+                OnlyExecutionMutationStep.VALIDATION,
+            )
+            return self._terminal(
+                update,
+                context,
+                OnlyExecutionProcessingStatus.REJECTED,
+                failure=failure,
+                quality_flags=("UNSUPPORTED_BROKER_LIFECYCLE",),
+                position_scope=position_scope,
             )
         self._events.begin()
         steps: list[OnlyExecutionMutationRecord] = [
@@ -660,6 +737,60 @@ class OnlyExecutionProcessor:
             context,
             position_scope,
             trade_fingerprints,
+            sequence_scope,
+            mode,
+            recovery_session,
+            prepared,
+            planning_context.order_before.instrument_id,
+            steps,
+        )
+
+    def _prepared_accepted(
+        self,
+        update: OnlyBrokerOrderAcceptedUpdate,
+        context: OnlyExecutionProcessingContext,
+        position_scope: OnlyExecutionPositionScope,
+        sequence_scope: tuple[str, ...],
+        mode: OnlyExecutionProcessingMode,
+        recovery_session: OnlyExecutionRecoverySession | None,
+        support_decision: OnlyExecutionSupportDecision,
+    ) -> OnlyExecutionProcessingResult:
+        steps = [
+            OnlyExecutionMutationRecord(
+                OnlyExecutionMutationStep.VALIDATION,
+                OnlyExecutionMutationStatus.APPLIED,
+                "Accepted scope resolved for prepared transaction planning",
+            )
+        ]
+        try:
+            planning_context = self._accepted_planning_context_builder(
+                update,
+                context.processing_sequence,
+                position_scope,
+                support_decision,
+            )
+            prepared = self._accepted_planner.prepare(planning_context)
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+            failure = OnlyExecutionFailure(
+                OnlyExecutionFailureCode.INVALID_UPDATE,
+                f"{type(exc).__name__}: {exc}",
+                OnlyExecutionMutationStep.VALIDATION,
+                type(exc).__name__,
+            )
+            return self._terminal(
+                update,
+                context,
+                OnlyExecutionProcessingStatus.REJECTED,
+                steps=tuple(steps),
+                failure=failure,
+                quality_flags=("INVALID_DURABLE_ACCEPTED_SCOPE",),
+                position_scope=position_scope,
+            )
+        return self._coordinate_prepared_operation(
+            update,
+            context,
+            position_scope,
+            (),
             sequence_scope,
             mode,
             recovery_session,
@@ -906,16 +1037,15 @@ class OnlyExecutionProcessor:
         steps: list[OnlyExecutionMutationRecord],
         position_scope: OnlyExecutionPositionScope | None,
     ) -> OnlyExecutionDispatchPayload:
-        if isinstance(update, OnlyBrokerOrderAcceptedUpdate):
-            return self._accepted(update, stale, steps)
-        if isinstance(update, OnlyBrokerOrderRejectedUpdate):
-            return self._terminal_order(update, steps, rejected=True)
-        if isinstance(update, OnlyBrokerOrderCancelledUpdate):
-            return self._terminal_order(update, steps, rejected=False)
-        if isinstance(update, OnlyBrokerOrderExpiredUpdate):
-            return self._terminal_order(update, steps, rejected=False)
-        if isinstance(update, OnlyBrokerTradeUpdate):
-            raise ValueError("UNSUPPORTED_EXECUTION_CAPABILITY: Trade requires durable planning")
+        if isinstance(
+            update,
+            OnlyBrokerTradeUpdate
+            | OnlyBrokerOrderAcceptedUpdate
+            | OnlyBrokerOrderCancelledUpdate
+            | OnlyBrokerOrderRejectedUpdate
+            | OnlyBrokerOrderExpiredUpdate,
+        ):
+            raise RuntimeError("DURABLE_EXECUTION_REQUIRED: lifecycle update escaped durable planning")
         if isinstance(update, OnlyBrokerPositionUpdate):
             result = self._position_reconciliation.reconcile(self._local_broker_position(update))
             steps.append(
@@ -974,142 +1104,6 @@ class OnlyExecutionProcessor:
                 (),
             )
         raise TypeError(f"unsupported Broker update: {type(update).__name__}")
-
-    def _accepted(
-        self,
-        update: OnlyBrokerOrderAcceptedUpdate,
-        stale: bool,
-        steps: list[OnlyExecutionMutationRecord],
-    ) -> OnlyExecutionDispatchPayload:
-        order_update = OnlyGatewayOrderAcceptedUpdate(
-            runtime_id=self.config.runtime_id,
-            order_id=update.order_id,
-            ts_event=update.ts_event,
-            ts_init=update.ts_init,
-            external_sequence=update.source_sequence,
-            external_event_id=str(update.update_id),
-            metadata=update.metadata,
-            venue_order_id=update.venue_order_id,
-        )
-        result = self._order_updates.process(order_update, publish_events=False, coordinate_reservations=False)
-        if result.apply_result is OnlyOrderApplyResult.CONFLICT:
-            raise ValueError(result.error or "Accepted conflicts with Order")
-        status = OnlyExecutionProcessingStatus.APPLIED
-        if not result.changed:
-            status = (
-                OnlyExecutionProcessingStatus.STALE if result.stale or stale else OnlyExecutionProcessingStatus.IGNORED
-            )
-            mutation_status = OnlyExecutionMutationStatus.SKIPPED
-        else:
-            self._events.extend(result.events)
-            self._position_reservation_port.acknowledged(result.order_id, update.ts_init)
-            mutation_status = OnlyExecutionMutationStatus.APPLIED
-        steps.append(
-            OnlyExecutionMutationRecord(OnlyExecutionMutationStep.ORDER, mutation_status, result.apply_result.value)
-        )
-        instrument_id = result.snapshot.instrument_id
-        invariant = self._invariants.check(update.account_id, instrument_id)
-        return status, result, None, None, None, invariant, None, ()
-
-    def _terminal_order(
-        self,
-        update: OnlyBrokerOrderRejectedUpdate | OnlyBrokerOrderCancelledUpdate | OnlyBrokerOrderExpiredUpdate,
-        steps: list[OnlyExecutionMutationRecord],
-        *,
-        rejected: bool,
-    ) -> OnlyExecutionDispatchPayload:
-        direct_order = self._orders.get(update.order_id)
-        if direct_order is not None:
-            direct_scope = self._position_scope_resolver.resolve_order(direct_order)
-            if (
-                direct_scope is not None
-                and self._resolve_execution_support(update, direct_scope).capability
-                is OnlyExecutionCapability.DURABLE_TERMINAL
-            ):
-                raise RuntimeError("DURABLE_TERMINAL_REQUIRED: formal Long Close cannot use direct terminal mutation")
-        gateway_update: OnlyGatewayOrderUpdate
-        if rejected:
-            assert isinstance(update, OnlyBrokerOrderRejectedUpdate)
-            gateway_update = OnlyGatewayOrderRejectedUpdate(
-                runtime_id=self.config.runtime_id,
-                order_id=update.order_id,
-                ts_event=update.ts_event,
-                ts_init=update.ts_init,
-                external_sequence=update.source_sequence,
-                external_event_id=str(update.update_id),
-                metadata=update.metadata,
-                rejection=update.rejection,
-            )
-            reason = OnlyRiskReleaseReason.ORDER_REJECTED
-        else:
-            update_type = (
-                OnlyGatewayOrderExpiredUpdate
-                if isinstance(update, OnlyBrokerOrderExpiredUpdate)
-                else OnlyGatewayOrderCancelledUpdate
-            )
-            gateway_update = update_type(
-                runtime_id=self.config.runtime_id,
-                order_id=update.order_id,
-                ts_event=update.ts_event,
-                ts_init=update.ts_init,
-                external_sequence=update.source_sequence,
-                external_event_id=str(update.update_id),
-                metadata=update.metadata,
-            )
-            reason = (
-                OnlyRiskReleaseReason.ORDER_EXPIRED
-                if isinstance(update, OnlyBrokerOrderExpiredUpdate)
-                else OnlyRiskReleaseReason.ORDER_CANCELLED
-            )
-        result = self._order_updates.process(gateway_update, publish_events=False, coordinate_reservations=False)
-        steps.append(
-            OnlyExecutionMutationRecord(
-                OnlyExecutionMutationStep.ORDER,
-                OnlyExecutionMutationStatus.APPLIED if result.changed else OnlyExecutionMutationStatus.SKIPPED,
-                result.apply_result.value,
-            )
-        )
-        reservations: list[str] = []
-        if result.changed:
-            self._events.extend(result.events)
-            self._position_reservation_port.release(result.order_id, update.ts_init, broker_confirmed=True)
-            self._release_account_reservation(result.order_id, update.ts_init)
-            if self._release_margin_reservation is not None:
-                self._release_margin_reservation(result.order_id, update.ts_init)
-            ledger_key = self._ledger_locator.require_key(
-                runtime_id=self.config.runtime_id,
-                account_id=update.account_id,
-                cluster_id=result.snapshot.cluster_id,
-                currency=self._base_currency,
-            )
-            ledger = self._ledgers.require_snapshot(ledger_key)
-            if any(item.order_id == result.order_id for item in ledger.reservations):
-                self._ledgers.release_cash_reservation(ledger_key, result.order_id, update.ts_init)
-            self._risk.release_order(
-                result.order_id, result.snapshot.cluster_id, update.account_id, reason, update.ts_init
-            )
-            reservations.append("REMAINING_RELEASED")
-        steps.append(
-            OnlyExecutionMutationRecord(
-                OnlyExecutionMutationStep.RESERVATION,
-                OnlyExecutionMutationStatus.APPLIED if reservations else OnlyExecutionMutationStatus.SKIPPED,
-                ",".join(reservations) or "none",
-            )
-        )
-        steps.append(
-            OnlyExecutionMutationRecord(
-                OnlyExecutionMutationStep.RISK,
-                OnlyExecutionMutationStatus.APPLIED if result.changed else OnlyExecutionMutationStatus.SKIPPED,
-                reason.value,
-            )
-        )
-        invariant = self._invariants.check(update.account_id, result.snapshot.instrument_id)
-        status = (
-            OnlyExecutionProcessingStatus.APPLIED
-            if result.changed
-            else (OnlyExecutionProcessingStatus.STALE if result.stale else OnlyExecutionProcessingStatus.IGNORED)
-        )
-        return status, result, None, None, None, invariant, None, tuple(reservations)
 
     def _validate(
         self, update: OnlyBrokerInboundUpdate, context: OnlyExecutionProcessingContext
@@ -1424,7 +1418,7 @@ class OnlyExecutionProcessor:
 
     def _resolve_execution_support(
         self,
-        update: OnlyBrokerTradeUpdate | OnlyBrokerOrderTerminalUpdate,
+        update: OnlyBrokerOrderAcceptedUpdate | OnlyBrokerTradeUpdate | OnlyBrokerOrderTerminalUpdate,
         position_scope: OnlyExecutionPositionScope,
     ) -> OnlyExecutionSupportDecision:
         order = self._orders.get(update.order_id)
@@ -1456,7 +1450,9 @@ class OnlyExecutionProcessor:
         )
         support_context = only_execution_support_context(
             operation_kind=(
-                OnlyRuntimeOperationKind.TRADE_FILL
+                OnlyRuntimeOperationKind.ORDER_ACCEPTED
+                if isinstance(update, OnlyBrokerOrderAcceptedUpdate)
+                else OnlyRuntimeOperationKind.TRADE_FILL
                 if isinstance(update, OnlyBrokerTradeUpdate)
                 else OnlyRuntimeOperationKind.ORDER_TERMINAL
             ),

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.account.performance import OnlyAccountEquityPoint
-from onlyalpha.broker.updates import OnlyBrokerTradeUpdate
+from onlyalpha.broker.updates import OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyPositionId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.domain.value import OnlyMoney, OnlyMultiplier, OnlyPrice
@@ -15,13 +15,14 @@ from onlyalpha.fee.models import OnlyFeeAssessment
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationInstruction
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
 from onlyalpha.strategy.identifiers import OnlyStrategyId
-from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint
+from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerEquityPoint, OnlyStrategyValuationLine
 from onlyalpha.transaction.projection import (
     OnlyFeeApplicationState,
     OnlySettlementExecutionState,
     OnlyValuationExecutionState,
 )
 
+from .accepted_identity import OnlyExecutionOrderAcceptedAuthority
 from .capability import OnlyExecutionSupportDecision
 from .execution_state import (
     OnlyAccountCashReservationExecutionState,
@@ -139,7 +140,16 @@ class OnlyTerminalExecutionPlanningContext:
     support_decision: OnlyExecutionSupportDecision
     terminal_authority: OnlyExecutionTerminalAuthority
     order_before: OnlyOrderExecutionState
-    position_reservation_before: OnlyPositionReservationExecutionState
+    position_before: OnlyPositionExecutionState | None
+    allocation_before: OnlyAllocationExecutionState | None
+    position_cycle: int
+    allocation_cycle: int
+    account_before: OnlyAccountExecutionState
+    strategy_ledger_before: OnlyStrategyLedgerExecutionState
+    account_cash_reservation_before: OnlyAccountCashReservationExecutionState | None
+    strategy_cash_reservation_before: OnlyStrategyCashReservationExecutionState | None
+    strategy_valuation_lines: tuple[OnlyStrategyValuationLine, ...]
+    position_reservation_before: OnlyPositionReservationExecutionState | None
     risk_reservation_before: OnlyRiskReservationExecutionState
     risk_before: OnlyRiskExecutionState
 
@@ -150,8 +160,35 @@ class OnlyTerminalExecutionPlanningContext:
             raise ValueError("Terminal prepared_at precedes Broker event")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OnlyOrderAcceptedExecutionPlanningContext:
+    """Complete immutable before-authority for one Broker Accepted update."""
+
+    update: OnlyBrokerOrderAcceptedUpdate
+    accepted_authority: OnlyExecutionOrderAcceptedAuthority
+    prepared_at: OnlyTimestamp
+    engine_id: OnlyEngineId
+    processing_sequence: int
+    position_scope: OnlyExecutionPositionScope
+    support_decision: OnlyExecutionSupportDecision
+    order_before: OnlyOrderExecutionState
+    position_before: OnlyPositionExecutionState | None
+    position_cycle: int
+    position_reservation_before: OnlyPositionReservationExecutionState | None
+    strategy_ledger_before: OnlyStrategyLedgerExecutionState
+    strategy_cash_reservation_before: OnlyStrategyCashReservationExecutionState | None
+    strategy_valuation_lines: tuple[OnlyStrategyValuationLine, ...]
+
+    def __post_init__(self) -> None:
+        if self.processing_sequence < 0:
+            raise ValueError("Accepted planning sequence cannot be negative")
+        if self.prepared_at < self.update.ts_event:
+            raise ValueError("Accepted prepared_at precedes Broker event")
+
+
 __all__ = [
     "OnlyAllocationCreationAuthority",
+    "OnlyOrderAcceptedExecutionPlanningContext",
     "OnlyPositionCreationAuthority",
     "OnlyTerminalExecutionPlanningContext",
     "OnlyTradeExecutionPlanningContext",

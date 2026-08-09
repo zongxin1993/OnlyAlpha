@@ -13,6 +13,7 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
 )
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort, OnlySqliteRuntimePersistenceStore
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
@@ -24,7 +25,12 @@ class OnlyTwoBoundaryTailRuntimePersistenceStore(OnlyFailOnceRuntimePersistenceS
     """Keep the last stable checkpoint while two later Bar transactions form the tail."""
 
     def __init__(self, delegate: OnlyRuntimePersistenceStorePort) -> None:
-        super().__init__(delegate, OnlyTestRuntimePersistenceFault.AFTER_COMMIT, fault_after=1)
+        super().__init__(
+            delegate,
+            OnlyTestRuntimePersistenceFault.AFTER_COMMIT,
+            fault_after=1,
+            operation_kind=OnlyRuntimeOperationKind.TRADE_FILL,
+        )
         self._checkpoint_write_count = 0
 
     def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
@@ -68,9 +74,15 @@ def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> N
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     transactions = reader.records(runtime_id)
-    assert tuple(item.execution_sequence for item in transactions) == (1, 2)
-    assert tuple(item.projection_ready for item in transactions) == (True, False)
-    assert transactions[0].fact.ts_event < transactions[1].fact.ts_event
+    assert tuple(item.execution_sequence for item in transactions) == (1, 2, 3, 4)
+    assert tuple(item.operation_kind for item in transactions) == (
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        OnlyRuntimeOperationKind.TRADE_FILL,
+    )
+    assert tuple(item.projection_ready for item in transactions) == (True, True, True, False)
+    assert transactions[1].fact.ts_event < transactions[3].fact.ts_event
     checkpoint_before_tail = reader.latest_checkpoint(runtime_id)
     assert checkpoint_before_tail is not None
     reader.close()
@@ -81,7 +93,7 @@ def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> N
     assert recovered.status == "COMPLETED", recovered.failures
     diagnostic = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
     assert diagnostic.catch_up_bar_count >= 2
-    assert diagnostic.rehydrated_transaction_count == 1
+    assert diagnostic.rehydrated_transaction_count == 3
     assert diagnostic.recovered_transaction_count == 1
     assert diagnostic.final_boundary_update_id is not None
 

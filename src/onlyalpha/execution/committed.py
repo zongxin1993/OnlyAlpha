@@ -54,7 +54,7 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     instrument_id: OnlyInstrumentId
     venue_id: str
     execution_capability: OnlyExecutionCapability
-    execution_support_schema_version: str
+    execution_support_policy_version: str
     execution_support_fingerprint: str
     source_sequence: int
     processing_sequence: int
@@ -178,7 +178,7 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
             raise ValueError("committed execution requires a stable identity and positive sequence")
         if (
             self.execution_capability is not OnlyExecutionCapability.DURABLE_TRADE
-            or self.execution_support_schema_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
+            or self.execution_support_policy_version != ONLY_EXECUTION_SUPPORT_POLICY_VERSION
             or len(self.execution_support_fingerprint) != 64
         ):
             raise ValueError("committed execution requires a valid durable Trade support proof")

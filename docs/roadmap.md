@@ -26,6 +26,10 @@ Durable Kernel 识别，但完整产品纵切面与 Conformance 仍未完成，�
   单一 Component Registry ownership、staged/atomic Cluster composition、Execution 历史路径删除与 CI 工具链确定性。
 - P4.1 — Durable Execution Capability Semantic Authority：Market identity 退出 permission authority；唯一 pure Resolver 按
   immutable economic shape、精确 Reservation shape 与 Account/Ledger parity 决定支持，并将版本化 proof 写入 committed fact。
+- P4.2 — Durable Broker-Driven Order Lifecycle Closure：`ORDER_ACCEPTED`、`TRADE_FILL`、`ORDER_TERMINAL` 统一进入
+  Prepared Transaction / Durable Commit / Ordered Projection / Forward Recovery；BUY OPEN 与 SELL CLOSE 的
+  Accepted、Cancel、Reject、Expire 均显式声明 Order、Cash/Position、Allocation、Reservation、Ledger 与 Risk Authority，旧的
+  direct lifecycle mutation 和 Reservation 协调旁路已删除。
 
 此前完成且仍有效的内核包括：统一 Market Runtime、版本化 A 股 Reference/Rule Decision、Prepared Transaction、Durable
 Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果
@@ -33,7 +37,7 @@ Forward Recovery。阶段细节保存在 `docs/adr/` 与 `docs/reports/`，不�
 
 ## 下一阶段
 
-P4.2/P4.3 — Residual Planner Semantic Cleanup 与 BUY OPEN Durable Terminal Closure。
+P4.3 — Residual Planner Semantic Cleanup 与 CN A-share 产品 Conformance 接入。
 
 P4 只应处理 Market Instruction、Production Fee、Settlement、Account/Position Shape 与 Canonical Durable Trading Kernel 的
 capability-driven 接入，包括 A 股 BUY OPEN、SELL CLOSE 与 T+1 产品 Conformance；不再重做 Runtime grouping、Account identity、

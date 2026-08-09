@@ -1,7 +1,6 @@
 """Runtime-thread application of standardized Gateway updates."""
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
 from onlyalpha.order.execution.models import (
     OnlyGatewayOrderAcceptedUpdate,
     OnlyGatewayOrderCancelledUpdate,
@@ -12,11 +11,8 @@ from onlyalpha.order.execution.models import (
     OnlyGatewayOrderUpdate,
 )
 from onlyalpha.order.manager import OnlyOrderManager
-from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
 from onlyalpha.order.publisher import OnlyOrderEventPublisher
 from onlyalpha.order.results import OnlyOrderMutationResult
-from onlyalpha.risk.enums import OnlyRiskReleaseReason
-from onlyalpha.risk.service import OnlyRiskService
 
 
 class OnlyOrderUpdateProcessor:
@@ -25,24 +21,16 @@ class OnlyOrderUpdateProcessor:
         runtime_id: OnlyRuntimeId,
         manager: OnlyOrderManager,
         publisher: OnlyOrderEventPublisher,
-        risk_service: OnlyRiskService | None = None,
-        position_reservations: OnlyOrderPositionReservationPort | None = None,
-        cash_reservations: OnlyOrderCashReservationPort | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._manager = manager
         self._publisher = publisher
-        self._risk_service = risk_service
-        self._position_reservations = position_reservations
-        self._cash_reservations = cash_reservations
 
     def process(
         self,
         update: OnlyGatewayOrderUpdate,
         *,
-        consume_cash_reservation: bool = True,
         publish_events: bool = True,
-        coordinate_reservations: bool = True,
     ) -> OnlyOrderMutationResult:
         if update.runtime_id != self._runtime_id:
             raise ValueError("Gateway update belongs to another Runtime")
@@ -88,43 +76,4 @@ class OnlyOrderUpdateProcessor:
         if result.changed:
             if publish_events:
                 self._publisher.publish_many(result.events)
-            if coordinate_reservations and self._position_reservations is not None:
-                if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
-                    self._position_reservations.acknowledged(result.order_id, update.ts_init)
-                elif isinstance(update, OnlyGatewayOrderFillUpdate):
-                    self._position_reservations.consume(
-                        result.order_id,
-                        update.fill.quantity,
-                        update.ts_init,
-                    )
-            if coordinate_reservations and self._cash_reservations is not None:
-                if isinstance(update, OnlyGatewayOrderAcceptedUpdate):
-                    self._cash_reservations.acknowledged(result.order_id, update.ts_init)
-                elif isinstance(update, OnlyGatewayOrderFillUpdate) and consume_cash_reservation:
-                    self._cash_reservations.consume(update.fill, update.ts_init)
-            release_reason = None
-            if isinstance(update, OnlyGatewayOrderCancelledUpdate):
-                release_reason = OnlyRiskReleaseReason.ORDER_CANCELLED
-            elif isinstance(update, OnlyGatewayOrderRejectedUpdate):
-                release_reason = OnlyRiskReleaseReason.ORDER_REJECTED
-            elif isinstance(update, OnlyGatewayOrderFailedUpdate):
-                release_reason = OnlyRiskReleaseReason.ORDER_FAILED
-            elif isinstance(update, OnlyGatewayOrderExpiredUpdate):
-                release_reason = OnlyRiskReleaseReason.ORDER_EXPIRED
-            if coordinate_reservations and release_reason is not None and self._risk_service is not None:
-                self._risk_service.release_order(
-                    result.order_id,
-                    result.snapshot.cluster_id,
-                    result.snapshot.account_id,
-                    release_reason,
-                    update.ts_init,
-                )
-            if coordinate_reservations and release_reason is not None and self._position_reservations is not None:
-                self._position_reservations.release(
-                    result.order_id,
-                    update.ts_init,
-                    broker_confirmed=not isinstance(update, OnlyGatewayOrderCancelledUpdate),
-                )
-            if coordinate_reservations and release_reason is not None and self._cash_reservations is not None:
-                self._cash_reservations.release(result.order_id, update.ts_init)
         return result

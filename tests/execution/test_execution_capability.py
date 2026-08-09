@@ -49,7 +49,7 @@ def test_cash_long_netting_trade_shapes_are_durable(context: OnlyExecutionSuppor
     decision = OnlyExecutionCapabilityResolver().resolve(context)
     assert decision.capability is OnlyExecutionCapability.DURABLE_TRADE
     assert decision.reason is None
-    assert decision.schema_version == "1"
+    assert decision.policy_version == "2"
     assert len(decision.fingerprint) == 64
 
 
@@ -125,14 +125,24 @@ def test_unsupported_side_offset_combinations_fail_closed(context: OnlyExecution
     assert decision.reason is OnlyExecutionSupportReason.ORDER_SEMANTICS_UNSUPPORTED
 
 
-def test_only_sell_close_terminal_is_durable() -> None:
+def test_buy_open_and_sell_close_terminal_are_durable() -> None:
     resolver = OnlyExecutionCapabilityResolver()
     sell_close = resolver.resolve(_sell_close(operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL))
     buy_open = resolver.resolve(_buy_open(operation_kind=OnlyRuntimeOperationKind.ORDER_TERMINAL))
     assert sell_close.capability is OnlyExecutionCapability.DURABLE_TERMINAL
     assert sell_close.reason is None
-    assert buy_open.capability is OnlyExecutionCapability.UNSUPPORTED
-    assert buy_open.reason is OnlyExecutionSupportReason.TERMINAL_SHAPE_UNSUPPORTED
+    assert buy_open.capability is OnlyExecutionCapability.DURABLE_TERMINAL
+    assert buy_open.reason is None
+
+
+@pytest.mark.parametrize("context", (_buy_open(), _sell_close()))
+def test_buy_open_and_sell_close_accepted_are_durable(context: OnlyExecutionSupportContext) -> None:
+    decision = OnlyExecutionCapabilityResolver().resolve(
+        replace(context, operation_kind=OnlyRuntimeOperationKind.ORDER_ACCEPTED)
+    )
+    assert decision.capability is OnlyExecutionCapability.DURABLE_ORDER_ACCEPTED
+    assert decision.reason is None
+    assert decision.policy_version == "2"
 
 
 def test_support_decision_is_deterministic_and_has_no_market_identity_input() -> None:
