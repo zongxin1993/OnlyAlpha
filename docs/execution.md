@@ -18,7 +18,8 @@ PR4.4.2 completes the deliberately narrow Close slice in that same chain: `GENER
 NETTING`, cash account, one currency and Margin disabled. Every partial or final Fill is an independent transaction. The Planner captures existing Position, Allocation,
 Position Reservation, Risk Reservation, Account, Strategy Ledger, fee, settlement and valuation authority before producing one
 immutable transaction. Its projection order is Order, Position, Allocation, Settlement, Order Fee Accrual, Fee, Account,
-Strategy Ledger, Position Reservation, Risk Reservation, Risk and Valuation. SELL/CLOSE no longer enters `_unmigrated_trade()`.
+Strategy Ledger, Position Reservation, Risk Reservation, Risk and Valuation. Removed non-durable execution source is absent;
+unsupported shapes fail closed.
 
 Position is the single realized-PnL authority: `(fill price × fill quantity - exact released cost) × multiplier`. Position and
 Allocation use one cumulative-cost reducer; partial fills release `cumulative cost × fill quantity / quantity before`, while the

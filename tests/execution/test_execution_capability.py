@@ -13,8 +13,8 @@ from onlyalpha.transaction import OnlyRuntimeOperationKind
     (
         (OnlyRuntimeOperationKind.TRADE_FILL, True, OnlyExecutionCapability.DURABLE_TRADE),
         (OnlyRuntimeOperationKind.ORDER_TERMINAL, True, OnlyExecutionCapability.DURABLE_TERMINAL),
-        (OnlyRuntimeOperationKind.TRADE_FILL, False, OnlyExecutionCapability.LEGACY_UNMIGRATED),
-        (OnlyRuntimeOperationKind.ORDER_TERMINAL, False, OnlyExecutionCapability.LEGACY_UNMIGRATED),
+        (OnlyRuntimeOperationKind.TRADE_FILL, False, OnlyExecutionCapability.UNSUPPORTED),
+        (OnlyRuntimeOperationKind.ORDER_TERMINAL, False, OnlyExecutionCapability.UNSUPPORTED),
     ),
 )
 def test_generic_t0_long_close_requires_single_account_ledger_authority(

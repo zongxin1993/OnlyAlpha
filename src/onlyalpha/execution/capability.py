@@ -14,7 +14,6 @@ from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 class OnlyExecutionCapability(StrEnum):
     DURABLE_TRADE = "DURABLE_TRADE"
     DURABLE_TERMINAL = "DURABLE_TERMINAL"
-    LEGACY_UNMIGRATED = "LEGACY_UNMIGRATED"
     UNSUPPORTED = "UNSUPPORTED"
 
 
@@ -49,7 +48,7 @@ def only_resolve_execution_capability(
     )
 
     if generic_cash and not account_ledger_parity:
-        return OnlyExecutionCapability.LEGACY_UNMIGRATED
+        return OnlyExecutionCapability.UNSUPPORTED
 
     if generic_cash:
         if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL and long_netting_limit and (buy_open or sell_close):
@@ -59,9 +58,9 @@ def only_resolve_execution_capability(
         return OnlyExecutionCapability.UNSUPPORTED
 
     if has_margin or account_type is not OnlyAccountType.CASH:
-        return OnlyExecutionCapability.LEGACY_UNMIGRATED
+        return OnlyExecutionCapability.UNSUPPORTED
     if position_side is OnlyPositionSide.SHORT or position_mode is OnlyPositionMode.HEDGING:
-        return OnlyExecutionCapability.LEGACY_UNMIGRATED
+        return OnlyExecutionCapability.UNSUPPORTED
     return OnlyExecutionCapability.UNSUPPORTED
 
 

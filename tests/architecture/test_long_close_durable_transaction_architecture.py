@@ -20,10 +20,11 @@ def test_long_close_is_routed_to_prepared_transaction_without_parallel_entrypoin
     assert "OnlyLongClose" not in processor + planner + runtime
 
 
-def test_formal_long_close_legacy_methods_are_guarded_and_terminal_has_no_fake_trade() -> None:
+def test_formal_long_close_has_no_legacy_trade_path_and_terminal_has_no_fake_trade() -> None:
     processor = Path("src/onlyalpha/execution/processor.py").read_text(encoding="utf-8")
     terminal = Path("src/onlyalpha/execution/terminal_fact.py").read_text(encoding="utf-8")
-    assert "DURABLE_TRADE_REQUIRED" in processor
+    assert "_unmigrated_trade" not in processor
+    assert "LEGACY_UNMIGRATED" not in processor
     assert "DURABLE_TERMINAL_REQUIRED" in processor
     assert "terminal_identity" in terminal
     assert "trade_id" not in terminal

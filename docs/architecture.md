@@ -40,8 +40,8 @@ Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量�
 `Broker Update → Prepared Transaction → Durable Commit → Projection Ready Query → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
 Manager 最终状态来重建逐笔成交。详见 ADR 0033。
 
-Generic T0 Cash 的 `LIMIT SELL CLOSE LONG NETTING` 每个 Fill 现与 BUY OPEN 共用该唯一链路，不再进入
-`_unmigrated_trade()`。Close 的固定 Projection 顺序为 Order → Position → Allocation → Settlement → Order Fee Accrual →
+Generic T0 Cash 的 `LIMIT SELL CLOSE LONG NETTING` 每个 Fill 现与 BUY OPEN 共用该唯一 durable 链路；已删除的非 durable
+历史实现不再保留于生产源码。Close 的固定 Projection 顺序为 Order → Position → Allocation → Settlement → Order Fee Accrual →
 Fee → Account → Strategy Ledger → Position Reservation → Risk Reservation → Risk → Valuation。Position 与 Allocation 共用
 Exact Close Cost Reducer；Position Reservation 是正式 Projection Target 和 checkpoint participant。Partial Fill 后的
 Cancel/Reject/Expire 作为 `ORDER_TERMINAL`，按 Order → Position Reservation → Risk Reservation → Risk 投影，不走直接跨
