@@ -1,11 +1,14 @@
 # OnlyExecutionProcessor
 
-ExecutionProcessor 对当前受支持的 Generic T0 Cash、LIMIT BUY OPEN 每个 whole/partial Fill 先调用纯 Planner，随后交给 Runtime-owned `OnlyRuntimeTransactionCoordinator`。Coordinator 先将独立 Prepared Transaction durable commit 到唯一 Transaction Store，再应用有序增量 Projection；全部成功并标记 Projection Ready 后才返回 durable Outbox intent。
+ExecutionProcessor 对当前受支持的 Generic T0 Cash、LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING，每个
+whole/partial/multi Fill 先调用纯 Planner，随后交给 Runtime-owned `OnlyRuntimeTransactionCoordinator`。Coordinator 先将
+独立 Prepared Transaction durable commit 到唯一 Transaction Store，再应用有序增量 Projection；全部成功并标记
+Projection Ready 后才返回 durable Outbox intent。
 重复、拒绝、乱序对账、Store 失败和未完成 Projection 不会形成可发布成功事实；Result 不从 Broker Query 重建本地交易历史。
 
 ## 1. 职责与统一入口
 
-每个可交易 Runtime 独占一个 `OnlyExecutionProcessor`。它是所有 immutable `OnlyBrokerInboundUpdate` 在 Runtime
+每个 Trading Runtime 独占一个 `OnlyExecutionProcessor`。它是所有 immutable `OnlyBrokerInboundUpdate` 在 Runtime
 Inbound Queue 之后的唯一业务处理入口；Gateway、Broker callback、Cluster、Web 和 EventBus 都不能直接调用 Manager
 形成成交工作流。统一 API 为 `processor.process(update)`，Runtime 只负责 FIFO drain 和生命周期门禁。
 
@@ -61,7 +64,7 @@ Cancelled 只释放未消费部分。各 Reservation 状态域仍物理独立，
 
 ## 6. 幂等、迟到与乱序
 
-每个 Runtime 独占 `OnlyExecutionUpdateDeduplicator` 和 `OnlyExecutionSequenceTracker`。update ID 重复返回 DUPLICATE；不同
+每个 Trading Runtime 独占 `OnlyExecutionUpdateDeduplicator` 和 `OnlyExecutionSequenceTracker`。update ID 重复返回 DUPLICATE；不同
 update ID 但相同 trade/venue trade ID 仍返回 DUPLICATE，所有版本和事实不变。迟到 Accepted 可补充合法绑定但不得让终态回退，
 通常返回 STALE/IGNORED。会改变成本/PnL 历史的乱序 Trade 在任何 Manager Mutation 前进入 Reconciliation。
 
@@ -99,7 +102,8 @@ Position、Allocation、Ledger、Account、Risk Snapshot Bundle。内存 Audit S
 ## 10. 并发、确定性与 Demo
 
 第一版是 Runtime 单线程、单写入者、FIFO。Processor 不开线程、不并行 Manager、不读取系统时间；时间全部来自 Runtime Clock，
-processing/audit/reconciliation ID 按 Runtime sequence 生成。Backtest、Virtual Broker、未来 Paper/Live 共用相同 API。
+processing/audit/reconciliation ID 按 Runtime sequence 生成。目标 Backtest、Sim 与 Live 共用相同 API；Virtual Broker 只产生
+标准 Broker Update。当前 legacy `PAPER` 的 Shadow execution 尚未进入该完整链，必须在 Sim 迁移时被替换。
 
 专项 Demo 位于 `examples/execution_processor_demo/`；统一 23 场景位于 `examples/integration_demo/`。
 
@@ -107,9 +111,12 @@ processing/audit/reconciliation ID 按 Runtime sequence 生成。Backtest、Virt
 
 - SQLite Transaction Store 可持久化事务与 Outbox，但尚无持久 Audit/Reconciliation Queue 或完整 Runtime bootstrap orchestrator；
 - Connection Update 第一版只保存 Runtime-owned 状态，尚未建立完整重连状态机；
-- Live/Paper Runtime 资源装配与真实 Broker SDK 尚未实现；
-- Coordinator 当前覆盖 Generic T0 Cash、LIMIT BUY OPEN 的 whole/partial Fill；SELL/CLOSE、Virtual Broker Partial Fill Schedule、完整 Multi-Fill Recovery、Futures/Margin 与多 Cluster 固定资金归约明确待迁移。
-- 当前恢复是 committed transaction tail 的 forward recovery，不等于 Full Runtime Recovery；Outbox 是 at-least-once，不是 exactly-once。
+- 目标 Sim/Live 的完整 Trading Runtime 装配尚未实现；Real Broker SDK 仅属于未来 Live 边界，当前 legacy `PAPER` 仍是
+  read-only observation + Shadow execution；
+- Coordinator 当前覆盖 Generic T0 Cash、LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING 的 whole/partial/multi Fill、
+  Terminal Transaction 和当前正式多 Cluster 固定资金归约；Short/Hedging、Futures/Margin 仍不支持；
+- 当前正式 Backtest 恢复由 checkpoint、committed transaction tail 与 forward recovery 组成；streaming Sim/Live recovery
+  尚未实现。Outbox 是 at-least-once，不是 exactly-once。
 
 Runtime 生命周期通过 `OnlyExecutionRecoveryService` 在 READY 前调用 Coordinator 的 tail recovery。Processor 不解释恢复结果，也不在
 失败后继续接收 Broker update。全部 committed transaction 由 Admin Query 查询；Processor 下游的 Result/Collector 只通过 Projection

@@ -30,7 +30,8 @@ is consumed inside the same ordered projection batch. Existing Fill identity/ind
 at-least-once Outbox semantics are unchanged. Partial Fill Cancel/Reject/Expire uses an `ORDER_TERMINAL` transaction with stable
 `ETERM-...` identity, no Trade ID and four ordered projections. Same identity/same payload is idempotent; a conflicting payload
 fails closed. Terminal Facts are excluded from Trade Results. Short, Hedging, CloseToday/CloseYesterday, Futures/Margin and
-Paper/Live remain outside this scope. See ADR 0053.
+the current legacy `PAPER` path plus target Sim/Live products remain outside this implemented Backtest scope. `PAPER` is only a
+Sim Migration Source; standalone Shadow is not a target Runtime. See ADR 0053 and ADR 0068.
 # Attributed Close Cost
 
 `OnlyTradeExecutionTransactionPlanner` 在 reducer 前创建 `OnlyAttributedCloseCostAuthority`。只有 builder 调用平均成本归约函数；Position 和 Allocation reducer 安装 Authority 给出的 after state，不再独立计算 released cost 或 PnL。缺失 Allocation、scope 冲突、数量不足或 Position 成本无法由 Allocation 聚合解释时，在 commit 前 fail closed。

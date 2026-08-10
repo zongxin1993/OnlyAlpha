@@ -5,9 +5,11 @@ CLOSED）时默认 Fail Closed；View 提供 Equity、Cash Available/Reserved、
 
 ## 1. 职责与边界
 
-每个 Runtime 独占一个 `OnlyRiskService`。它拥有 Rule Pipeline、Cluster Risk Profile 绑定、Risk State、
+每个 Trading Runtime 独占一个 `OnlyRiskService`。它拥有 Rule Pipeline、Cluster Risk Profile 绑定、Risk State、
 不可变 Snapshot、Reservation、Kill Switch 状态和审计记录。Cluster 只得到 `ctx.risk` 的只读 Snapshot View，
 订单仍只能经 `ctx.orders.submit()` 提交。
+
+Research Runtime 不拥有交易 Risk 或 Reservation authority；研究过滤与统计约束不得冒充 Pre-Trade Risk。
 
 本阶段不实现账户、持仓、撮合、强平、自动撤单、真实券商 Risk 或策略 `on_risk_xxx` 回调。Account 和 Position
 仅提供只读 Port 与明确的 unavailable 占位，绝不伪造无限资金或充足持仓。
@@ -72,7 +74,7 @@ Account、Position Port。跨 Runtime Context 被拒绝。
 Snapshot 是带版本、时间、Scope、活动订单数、预占金额/数量、剩余额度、拒绝计数、Kill Switch 和数据质量标记
 的 frozen 值。`ctx.risk` 不暴露 evaluate、reserve、release、disable rule、Cache 或 Gateway 能力。
 
-Reservation 由 Runtime 单写管理，ID 和遍历顺序确定；创建按 OrderId 幂等，释放校验 Runtime/Cluster Scope 且
+Reservation 由 Trading Runtime 单写管理，ID 和遍历顺序确定；创建按 OrderId 幂等，释放校验 Runtime/Cluster Scope 且
 幂等。订单 Cancelled、Rejected、Failed、Expired、Execution 拒收或 Cluster 停止时释放。有效 Fill 按数量和实际
 名义金额分段消费，只有 Order 判定的最终 Fill 才进入 `CONSUMED` 并减少 Active Order Count。
 
@@ -81,7 +83,7 @@ Reservation 由 Runtime 单写管理，ID 和遍历顺序确定；创建按 Orde
 
 ## 6. Kill Switch、Event 与审计
 
-Kill Switch 是 Runtime 管理能力，可作用于 Runtime、Cluster 或 Account；Cluster 只看到 Snapshot 中的布尔值。
+Kill Switch 是 Trading Runtime 管理能力，可作用于 Runtime、Cluster 或 Account；Cluster 只看到 Snapshot 中的布尔值。
 Risk Accepted/Rejected/RuleFailed、Reservation Created/Released 和 State Updated 都是判定或状态成功变化后的事实。
 Event 只用于审计、监控和未来扩展，不驱动 Rule 执行，也没有策略 Risk 回调。
 
@@ -90,13 +92,13 @@ Event 只用于审计、监控和未来扩展，不驱动 Rule 执行，也没�
 
 ## 7. 隔离、Demo 与限制
 
-Risk State、Profile、Permission、Reservation、Kill Switch、审计和序列均按 Runtime 隔离；Cluster 之间的 Profile、
+Risk State、Profile、Permission、Reservation、Kill Switch、审计和序列均按 Trading Runtime 隔离；Cluster 之间的 Profile、
 Snapshot 和权限也隔离。`examples/risk_demo` 覆盖 ACCEPT、非法 tick、额度拒绝、不同 Profile、连续预占、
 Fail Closed 和 Snapshot。
 
-已知限制：Position/Allocation 只读数据源已接入，完整 Account 数据源仍不可用；Market Order 在需要名义金额规则时
-因缺少可靠价格而 Fail Closed；尚未实现 Risk Reservation 的持久化恢复、Live Runtime 外部回报串行化及真实券商
-适配。未来若增加策略风险通知，
+已知限制：当前正式 Backtest 已接入 Position/Allocation/Account 只读数据源，并把 Risk Reservation 纳入 checkpoint 与
+forward recovery。Market Order 在需要名义金额规则且缺少可靠价格时仍 Fail Closed；目标 Sim/Live 的完整 realtime
+装配、Live Runtime 外部回报串行化及真实券商适配尚未实现。未来若增加策略风险通知，
 只能订阅已经生成的 Risk Fact，并在独立 ADR 中定义；不得让回调参与当前订单判定或反向修改 Risk State。
 
 ## 8. Position Risk View
@@ -121,4 +123,4 @@ Cancel/Reject/Expire 通过 durable Terminal Transaction 释放 remaining，并�
 
 Risk 通过 `OnlyAccountManagerRiskView` 读取 immutable Account Snapshot。BUY 使用 Limit Price 或当前 MarketData Snapshot
 参考价检查可用现金；Account 非 ACTIVE、币种余额缺失或快照不可用时 Fail Closed。Risk Reservation 与 Account/Strategy
-Reservation 状态独立，Runtime 负责同一命令内的确定顺序。
+Reservation 状态独立，Trading Runtime 负责同一命令内的确定顺序。

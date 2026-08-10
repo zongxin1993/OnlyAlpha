@@ -8,7 +8,7 @@ OnlyAlpha 不把回测、实时模拟和实盘设计成三套独立交易系统�
 
 > **Research 为研究效率服务；Backtest、Sim、Live 为交易语义一致性服务。**
 
-Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Risk、Order、Execution、Fee、Position、Account、Settlement 与 Durable Transaction Kernel，仅在 **时间驱动、MarketData Driver 和 Broker Adapter** 等外部驱动层存在差异。
+Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Risk、Order、Execution、Fee、Position、Account、Settlement 与 Durable Transaction Kernel，仅在 **Clock、MarketData Driver、Broker Adapter 和 Lifecycle Driver** 等外部驱动层存在差异。
 
 ## 当前版本
 
@@ -52,7 +52,8 @@ OnlyAlpha 的长期目标包括：
 
    * 一个 `OnlyEngine` 作为产品级唯一运行入口；
    * 一个 Engine 可以管理多个 Runtime；
-   * Runtime 内可以承载多个相互隔离的 Cluster。
+   * Trading Runtime 内可以承载多个相互隔离的 Cluster；
+   * Research Runtime 承载 Research Job / Plan，不被强制包装成交易 Cluster。
 
 2. **四种明确的 Runtime**
 
@@ -96,15 +97,19 @@ OnlyAlpha 的长期目标包括：
 
 # 3. Runtime 模型
 
-OnlyAlpha 最终只保留四种 Runtime：
+OnlyAlpha 的目标产品架构只保留四种 Runtime。这里定义长期语义，不代表当前源码已经全部实现：
 
 ```text
 OnlyEngine
 │
 ├── Research Runtime
+│   └── Research Job / Plan
 ├── Backtest Runtime
+│   └── Cluster workload(s)
 ├── Sim Runtime
+│   └── Cluster workload(s)
 └── Live Runtime
+    └── Cluster workload(s)
 ```
 
 ## 3.1 Research
@@ -143,6 +148,8 @@ Web Visualization
 Research 的目标是：
 
 > **快速发现值得进一步验证的策略、因子和参数。**
+
+Research Runtime 只拥有 research execution、dataset、calculation、Research Result 和 Artifact state。它不会仅为结构对称而创建正式 Order、Position、Account、Broker、Reservation 或 Trading Transaction authority；Research Job 也不伪装成 Trading Cluster。
 
 ---
 
@@ -348,22 +355,26 @@ Same Economic Result
 
 未来应建立正式的 **Runtime Trading Semantic Conformance** 测试证明这一性质。
 
+`Runtime Type != Execution Permission`：Runtime type 可以参与 Driver 选择、Runtime identity、planning/grouping 和生命周期组合，但不能成为经济能力、市场合法性或 Execution Support authority。Strategy 与 Trading Kernel 不得按 Runtime type 改变交易语义。
+
 ---
 
 # 5. Engine / Runtime / Cluster 关系
 
-顶层关系：
+长期顶层关系：
 
 ```text
 OnlyEngine
-│
-├── Runtime A
-│   ├── Cluster A1
-│   └── Cluster A2
-│
-└── Runtime B
-    ├── Cluster B1
-    └── Cluster B2
+├── Research Runtime
+│   ├── Research Job A
+│   └── Research Job B
+├── Backtest Runtime
+│   ├── Cluster A
+│   └── Cluster B
+├── Sim Runtime
+│   └── Cluster C
+└── Live Runtime
+    └── Cluster D
 ```
 
 职责：
@@ -373,7 +384,7 @@ OnlyEngine
 负责：
 
 * 产品级生命周期；
-* Cluster Definition；
+* 当前 Trading product 的 Cluster Definition；
 * Runtime Planning；
 * Runtime grouping；
 * Runtime Session；
@@ -386,11 +397,11 @@ Engine 不直接拥有交易状态。
 
 ---
 
-## Runtime
+## Trading Runtime
 
-Runtime 是可变交易 Authority 的拥有者。
+Trading Runtime（Backtest / Sim / Live）是 mutable trading authorities 的所有者。
 
-Runtime 独占：
+每个 Trading Runtime 独占：
 
 * Order Manager；
 * Position Manager；
@@ -401,15 +412,25 @@ Runtime 独占：
 * Risk Manager；
 * Settlement Manager；
 * Execution Processor；
-* Transaction Coordinator；
+* Runtime Transaction Store；
+* Applied Projection Ledger；
+* Transaction Coordinator / Outbox；
 * Broker inbound queue；
 * MarketData processing state。
 
 ---
 
+## Research Runtime
+
+Research Runtime 拥有 research execution、dataset、calculation、result 与 artifact state。它不承担 formal Trading Kernel，也不为共享父类或形式统一创建没有业务意义的 Trading Manager。
+
+当前源码的公共 Runtime 基类仍是 trading-shaped，Research Factory 也尚未实现；这是后续源码迁移边界，不是目标 Research ownership。
+
+---
+
 ## Cluster
 
-Cluster 是策略隔离容器。
+Cluster 是 Trading Runtime 的策略隔离 workload，不是 Research Job。
 
 ```text
 Cluster
@@ -487,6 +508,12 @@ OnlyAlpha 采用：
 主要状态域：
 
 ```text
+Runtime Transaction History
+    → Transaction Store
+
+Projection Progress
+    → Applied Projection Ledger
+
 Order
     → Order Authority
 
@@ -505,15 +532,23 @@ Strategy Virtual Capital
 Risk
     → Risk Authority
 
+Risk Reservation
+    → Risk Reservation Authority
+
+Cash Reservation
+    → Cash Reservation Authority
+
+Position Reservation
+    → Position Reservation Authority
+
 Settlement
     → Settlement Authority
 
-Fee Application
-    → Fee Authority
-
-Runtime Transaction
-    → Transaction Store
+Market Fee / Broker Fee Application
+    → Fee Authorities / Ledgers
 ```
+
+这些 mutable trading authorities 由各自的 Trading Runtime 独占。Research Runtime 不为结构对称创建它们。
 
 禁止：
 
@@ -1472,6 +1507,8 @@ Live
     真实执行
 ```
 
+这是产品能力关系和推荐验证路径，不是要求所有策略依次经过每个 Runtime 的强制发布状态机。
+
 ---
 
 # 35. 时间模型
@@ -1662,7 +1699,7 @@ legacy / old / deprecated wrapper 长期保留
 
 # 39. Runtime Vocabulary
 
-最终 Runtime 只保留：
+目标 Runtime 只保留：
 
 ```text
 RESEARCH
@@ -1686,11 +1723,13 @@ Execution Capability
 
 而不是正式 Runtime Product。
 
+当前源码仍含 `PAPER` 和 standalone `SHADOW` spelling：前者是 Sim 的 streaming migration source，后者是待删除的 unsupported Factory。它们是实现债务，不是 public compatibility promise；迁移不保留 alias 或 wrapper。
+
 ---
 
 # 40. Finite 与 Streaming Runtime
 
-Runtime 生命周期进一步分成两个族：
+目标 Runtime 生命周期进一步分成两个族：
 
 ## Finite
 
@@ -1706,6 +1745,8 @@ engine.run()
 ```
 
 存在明确结束条件。
+
+当前 `OnlyEngine.run()` 仍只支持有限 `BACKTEST`；Research Job 的正式产品入口尚未实现，不能由上述目标生命周期推断为可用。
 
 ---
 
@@ -1737,7 +1778,22 @@ engine.close()
 
 ---
 
-# 41. 当前产品状态
+# 41. Current Runtime Migration State
+
+| Runtime / source spelling | 当前事实 | 目标处理 |
+|---|---|---|
+| `BACKTEST` | 已实现，是当前 primary Runtime | 保留 event-driven + Virtual Broker + full Trading Kernel |
+| `PAPER` | 已实现受限 streaming/observation + Shadow execution | 迁移 useful streaming infrastructure 到 Sim 后删除 |
+| standalone `SHADOW` | Factory unsupported | 非目标 Runtime，迁移后删除 |
+| `SIM` | 当前 enum、配置和 Factory 均不存在 | P6 接入 Virtual Broker 与完整 Trading Kernel |
+| `RESEARCH` | Factory unsupported | P7 实现 vectorized Research Job/Result/Artifact workflow |
+| `LIVE` | Factory unsupported | P8/P9 补齐 Broker durability、同步、恢复和运维 |
+
+当前 `PAPER` 已具备 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、realtime queue、aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并完成当前 Profile 下的真实 MiniQMT 验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产闭环。
+
+Runtime mode 中立化也尚未全仓完成：当前 Position authority、Fee finality 和 compiled Market Rule identity 仍有历史 mode 分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和暴露面是后续迁移债务，不能作为新增 Runtime-specific economics 的先例。
+
+## 当前 Alpha 产品能力
 
 OnlyAlpha 当前处于 **Alpha** 阶段。
 
@@ -1757,7 +1813,7 @@ Product Conformance
 * 模块化单体架构；
 * Engine / Runtime / Cluster 生命周期；
 * Strategy / Factor / Indicator 分层；
-* Runtime-owned trading authority；
+* Trading Runtime-owned authority；
 * Market Rule；
 * Risk；
 * Order / Reservation；
@@ -1810,32 +1866,28 @@ Live 已生产完成
 
 # 43. 当前主要工程演进方向
 
-下一阶段工程重点依次围绕：
+后续阶段按同一 taxonomy 迁移：
 
 ```text
-Market Product Composition Neutralization
+P5  Market Product Composition Authority Neutralization
 
-Runtime Vocabulary:
-RESEARCH / BACKTEST / SIM / LIVE
+P6  Sim Streaming Runtime Closure
+    PAPER streaming infrastructure
+    → Virtual Broker + Full Trading Kernel
+    → gap/reconnect/checkpoint/restart
+    → delete PAPER and standalone SHADOW
 
-Sim Streaming Runtime
+P7  Vectorized Research Runtime
+    + Research Artifact
+    + Web Research Boundary
 
-Realtime Gap Recovery
+P8  Durable Broker Outbound Command
+    + Broker Synchronization / Reconciliation
 
-Streaming Checkpoint / Restart
-
-Vectorized Research Runtime
-
-Research Artifact / Web
-
-Durable Broker Outbound Command
-
-Broker Synchronization
-
-Live Runtime
+P9  Live Runtime Foundation
 ```
 
-展开。
+详细迁移范围和非目标见 [Roadmap](docs/roadmap.md)。
 
 ---
 
@@ -1848,7 +1900,11 @@ One Engine
 
 Multiple Runtime
 
-Multiple Isolated Cluster
+Trading Runtime
+→ Multiple Isolated Cluster
+
+Research Runtime
+→ Research Job / Plan
 
 One Domain
 → One Write Authority
@@ -1875,6 +1931,9 @@ Share Trading Semantics
 
 Runtime Difference
 Belongs to Driver Layer
+
+Runtime Type
+Is Not Execution Permission
 
 Unsupported
 → Fail Closed

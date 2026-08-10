@@ -36,7 +36,8 @@ Pure Reducers、Generic T0 Trade/Terminal Planner、Real Manager Targets、Commi
 独立 `TRADE_FILL` Transaction，再应用增量 Projection。Long Close 的 Position/Allocation 共用 Exact Close Cost Reducer，
 Position/Risk Reservation 分段消费。部分成交后的 Cancel/Reject/Expire 生成 `ORDER_TERMINAL` Transaction，只投影 Order、
 Position Reservation、Risk Reservation 与 Risk。Transaction Store 是唯一 durable authority。当前不支持 Short、Hedging、
-Futures/Margin、Paper/Live Recovery 或多 Cluster 固定资金归约。
+Futures/Margin，以及 legacy `PAPER` 或目标 Sim/Live 的 streaming recovery；当前正式多 Cluster 固定资金归约已由同一
+Committed Economic Fact 支持。
 
 Prepared/Committed 不等于可供业务读取。只有 Store 持久标记 Projection Ready 后，Transaction 才进入独立的 Business Query；未 Ready
 记录只能由 Coordinator、Recovery、Admin 与 Diagnostic 查询。Runtime startup recovery 重放 committed projection payload，不重新生成

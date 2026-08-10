@@ -2,9 +2,12 @@
 
 ## 1. 边界与所有权
 
-每个 Runtime 独占一个 `OnlyStrategyLedgerManager`，每个 Cluster 按
+每个 Trading Runtime 独占一个 `OnlyStrategyLedgerManager`，每个 Cluster 按
 `RuntimeId / AccountId / ClusterId / BaseCurrency` 拥有独立 Ledger。券商账户是真实现金和合并持仓的外部事实；Strategy
 Ledger 是策略虚拟账，不修改券商现金，也不把账户合并均价或账户总收益按比例分摊给策略。
+
+Research Runtime 不拥有 Strategy Ledger；Research Job 的收益或资金曲线属于 immutable Research Result，不构成 Cluster
+资本归因或正式交易账务。
 
 第一版只实现 Fixed Capital、单 Account、单币种、Long-only 股票/ETF、Average Cost Allocation 和 Linear PnL。它不实现
 Shared Pool、动态资本再分配、多币种换汇、融资、分红、System Ledger 或策略间资金转移。
@@ -67,13 +70,13 @@ Trade 按 trade/execution/venue trade ID 去重，Fee、Cash Flow、Reservation 
 
 Manager 先完成状态修改和持久化，再发布事实 Event。内存 Repository 保存 Snapshot、Cash/Fee Entry、Reservation 和 Event，
 不暴露实体。Replay Entry 保存连续序号、操作类型和无损 JSON command；Replay Service 从初始资金重新执行命令，不恢复可变
-实体。Money/Decimal 不转换为 float。第一版并发约束为 Runtime 单写入者；Gateway 线程和 Cluster 都不能直接修改 Ledger。
+实体。Money/Decimal 不转换为 float。第一版并发约束为 Trading Runtime 单写入者；Gateway 线程和 Cluster 都不能直接修改 Ledger。
 
 ## 7. Demo 与限制
 
 `examples/strategy_ledger_demo/` 包含九个示例。当前胜负统计按 realized delta 更新，尚未建立 Closed Position Result，因此不把
-每个 Fill 宣称为完整交易；Backtest Runtime 已通过内存 ExecutionProcessor 完成标准化 Fill 到 Ledger 的同步纵切面编排，
-但持久化事务、Recovery Orchestrator 和真实券商同步仍留给后续阶段。
+每个 Fill 宣称为完整交易；Backtest Runtime 已通过 Runtime Transaction Store、ordered Projection 与 checkpoint/forward
+recovery 完成标准化 Fill 到 Ledger 的 durable 纵切面。目标 Sim/Live 的 streaming recovery 与 Live 真实券商同步仍待后续阶段。
 
 Processor 调用 Trade Accounting 时延后 Strategy Cash Reservation 消费：Ledger 先验证 Reservation 身份并完成 Allocation-
 authoritative accounting，Account 更新后再由 Processor 按实际 notional+fee 统一消费。Ledger 独立调用仍保持原有默认原子语义。

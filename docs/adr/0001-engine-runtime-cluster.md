@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-13
 - 关联模块：engine、runtime、cluster
+- 澄清：[ADR 0068](0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 保留 `Engine → Runtime → workload` 分层，但将 Cluster 限定为 Trading Runtime workload；Research Runtime 使用 Research Job / Plan，不要求拥有交易 Cluster。
 
 ## 背景
 

@@ -24,8 +24,9 @@ therefore cannot skip same-timestamp updates and never uses transaction time as 
 
 ## Participant inventory
 
-Participants use their explicitly registered schema version; `broker.virtual` is version 2 and remaining current participants are
-version 1. `capture_checkpoint()` returns canonical JSON-compatible owned state;
+Runtime Checkpoint envelope schema is version 3. Participants use their explicitly registered schema version;
+`broker.virtual` is version 3, while every other participant version comes from its formal registration rather than inference.
+`capture_checkpoint()` returns canonical JSON-compatible owned state;
 `restore_checkpoint()` validates and installs that same authority without business events.
 
 | Component ID | Snapshot authority | Capability |
@@ -40,7 +41,7 @@ version 1. `capture_checkpoint()` returns canonical JSON-compatible owned state;
 | `strategy-ledger.authority` | Per-Cluster ledgers, reservations, entries and equity/valuation timelines | CHECKPOINTABLE |
 | `risk.authority`, `settlement.authority`, `fee.authority`, `margin.authority` | Dynamic rule state, decisions, reservations, records and sequence heads | CHECKPOINTABLE |
 | `execution.dedup`, `.sequence`, `.processor`, `.audit`, `.reconciliation` | Broker-update processing identity, diagnostics and recovery work | CHECKPOINTABLE |
-| `broker.virtual` (v2) | Orders, account/positions, Fill Plans/cursors, pending scheduler work and venue/update/trade sequences | CHECKPOINTABLE |
+| `broker.virtual` (v3) | Orders, account/positions, Fill Plans/cursors, pending scheduler work, submission controls and venue/update/trade sequences | CHECKPOINTABLE |
 | `cluster.<id>.10.indicator.<factor>.<indicator>` | Declared rolling Indicator state and last snapshot | declared CHECKPOINTABLE or STATELESS |
 | `cluster.<id>.20.factor.<factor>` | Declared Factor state, snapshot and trace | declared CHECKPOINTABLE or STATELESS |
 | `cluster.<id>.30.strategy.<strategy>` | Declared Strategy counters, intent and signal history | declared CHECKPOINTABLE or STATELESS |
@@ -51,7 +52,7 @@ DataSource, Broker, Strategy, Factor or Indicator without an explicit capability
 
 ## Recovery order
 
-1. Open and validate the schema-version-3 Runtime store and stable Runtime identity. Schema 1/2 stores fail fast without
+1. Open and validate the schema-version-5 Runtime Persistence Store and stable Runtime identity. Schema 1–4 stores fail fast without
    migration, deletion or Memory fallback.
 2. Load the latest complete checkpoint and verify aggregate/component hashes, schema versions, configuration fingerprint and
    Participant Registry fingerprint.
@@ -97,9 +98,10 @@ runtime:
 The single file is
 `user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`. Checkpoint header, components, transactions and
 Outbox share the same connection and identity. Retention happens in the same transaction as insertion, so a failed new write
-does not delete the previous complete checkpoint. SQLite Runtime Persistence schema version 3 supports discriminated
-`TRADE_FILL` and `ORDER_TERMINAL` rows; versions 1 and 2 are unsupported and are never migrated automatically. Virtual Broker
-checkpoint schema remains version 2.
+does not delete the previous complete checkpoint. SQLite Runtime Persistence schema version 5 supports discriminated
+`TRADE_FILL` and `ORDER_TERMINAL` rows plus the current checkpoint/outbox contract; versions 1–4 are unsupported and are never
+migrated automatically. Runtime Checkpoint envelope schema is version 3. Virtual Broker checkpoint schema is also version 3,
+but remains an independently versioned participant contract.
 
 `MEMORY` requires checkpoint to be disabled and is not restartable.
 
@@ -119,9 +121,10 @@ Risk accounting incremental and checkpoints Order Fee Accrual authority. PR4.3.3
 and proves restart recovery across execute-before-publish, Commit, Projection, Outbox, partial-plan checkpoint and A→B→C
 boundaries without a new Recovery Phase. PR4.4.2 extends that exact recovery protocol to multi-fill Long Close and durable
 Cancel/Reject/Expire `ORDER_TERMINAL` operations. Close Fill 1/2 checkpoints, execute-before-publish, Commit, mid-Projection,
-Outbox and A→B→C failures are compared with a no-fault baseline. Short/Hedging, Futures/Margin transactions, Paper/Live recovery,
-exactly-once Outbox, full Broker reconciliation, schema migration, distributed checkpointing and remote stores remain outside
-this phase.
+Outbox and A→B→C failures are compared with a no-fault baseline. Short/Hedging, Futures/Margin transactions, legacy `PAPER`
+streaming recovery, target Sim/Live streaming recovery, exactly-once Outbox, full Broker reconciliation, schema migration,
+distributed checkpointing and remote stores remain outside this phase. Current `PAPER` is only a Sim Migration Source;
+standalone Shadow is not a target Runtime.
 
 ## Event delivery failure semantics
 

@@ -1,232 +1,440 @@
-﻿# OnlyAlpha 总体架构
+# OnlyAlpha Current Architecture
 
-正式成交主链为 `Prepared Transaction → Transaction Store commit → Runtime sequence gate → ordered Projection Targets → Projection Ready → durable Outbox`。Transaction Store 是唯一 durable Trade authority；Applied Ledger 只是可重建的幂等索引。Coordinator 采用 forward recovery，不提供跨 Manager rollback，也不等于 Empty Runtime Full Recovery。详细边界由 ADR 0038–0042、`execution_projection_targets.md` 与 `execution_runtime_recovery.md` 规定。
+本文档描述当前系统如何组织，并标明当前实现与已接受目标架构之间的差距。历史阶段、PR 编号和完成记录由 `docs/adr/`、`docs/reports/` 与 Git history 保存，不在此维护。
 
-Virtual Broker 已从 Core 提取为独立 `onlyalpha-plugin-broker-virtual` distribution。依赖方向固定为插件到
-`onlyalpha.plugin.api`/公共 Domain 与 Broker Port；`src/onlyalpha` 不导入、注册或回退到任何 Virtual Broker 实现。
-Backtest Runtime 通过 `OnlyBrokerComponent` 获取 Gateway 与显式 `OnlyDeterministicBrokerDriver`。
+Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定。任何“目标”描述都不是实现完成声明；当前能力必须由可执行源码、正式测试和产品认证证明。
 
-产品验证依赖固定为 `CLI/Application → Conformance Runner → Scenario Runner → OnlyEngine`。Conformance 不依赖交易 Manager，
-Scenario Runner 不直接操作交易组件，Collector 只读正式 query/audit，Query 不执行 Command。
+## 1. Architecture Principles
 
-Market 规则依赖链为 `OnlyMarketConfig → Profile Registry → Resolver → Rule Compiler →
-OnlyMarketRuleEngine → restricted Runtime Ports`。Profile 不得进入 Risk、Broker、Execution、Position、Settlement、
-Margin、Account 或 Collector。Backtest/Paper/Live/Shadow 共用该语义，详见 ADR 0026。
+OnlyAlpha 当前采用 Monorepo + 模块化单体 Core + 插件化 DataSource/Broker + 配置驱动 Engine/Runtime 组合。
 
-费用依赖链为 `Market Fee Pack + Broker Fee Contract → Order Binding v2 → Policy Resolution Proof → Fee Assessment → Order Fee Accrual Authority →
-Fee Application Ledger`。FILL 与 ORDER_CUMULATIVE Scope 显式区分；本地 Application 与外部 Evidence 分离，差额只能通过
-`FEE_RECONCILIATION` Durable Operation 表达。详见 ADR 0059。
+核心不变量：
 
-正式运行入口通过 `CLI → OnlyEngine → OnlyClusterRunConfig[] → OnlyRuntimePlanner → OnlyRuntimeSession → OnlyRuntime.run()`
-组合既有组件。一个配置文件定义一个 Cluster；Engine 持有 Cluster Definition、Cluster Session 和 Runtime Session，负责
-完整生命周期、Runtime 兼容性分组、共享资源冲突/引用计数和 user_data。
-通用配置与装配层只依赖抽象 Factory；BACKTEST 的 Replay/RunPlan 保留在 `runtime/backtest/`，Synthetic 与 Virtual Broker
-位于父组件子目录。标准 Indicator 位于核心指标库，全部官方 Factor/Strategy、扩展组件和 Cluster 配置归属并列的
-`OnlyAlpha-plugins` 项目，官方示例入口及其生成结果归属 `OnlyAlpha-examples`。成交仍经过 Virtual Broker Queue
-与 ExecutionProcessor。详见 `docs/backtest.md`、ADR 0019 与 ADR 0020。
+```text
+One Engine → Multiple Runtime
 
-策略运行关系固定为 `Engine → Runtime → Cluster(one Strategy, zero-or-more Factors) → Indicator`。Cluster 是隔离容器，
-不是 Strategy；Factor 组合 Indicator 且没有交易权限；Strategy 只读取 Factor Snapshot/Score 并通过受限 Context 下单。
+Trading Runtime → Mutable Trading Authority Owner
 
-Account 是 Runtime-owned 账户级本地真值，Strategy Ledger 是 Cluster 虚拟账，两者不共享状态。Runtime 独占 Manager，
-Cluster 分别只通过 `ctx.accounts` 与 `ctx.ledger` 读取 immutable Snapshot。Broker Gateway 不持有 Manager，所有异步回报先
-进入 Runtime inbound queue。详见 `docs/account.md`、`docs/broker_gateway.md`、`docs/virtual_broker.md` 与 ADR 0015。
+One Domain → One Write Authority
 
-Runtime 还独占 `OnlyExecutionProcessor`。它是 Queue 后所有 Broker Update 的唯一业务入口，固定编排 Order、Position、
-Allocation、Strategy Ledger、Account、Reservation 与 Risk，并在不变量通过后提交缓冲事实。详见
-`docs/execution_processor.md` 与 ADR 0016。
+Planner Calculates → Projection Installs
 
-受支持的 Trade 先由纯 Planner 形成 Prepared Transaction，再由 Runtime-owned Transaction Store durable commit；只有顺序 Projection 全部完成并标记 Ready 后，Outbox Event 才可发布。本地历史链为
-`Broker Update → Prepared Transaction → Durable Commit → Projection Ready Query → Result/Analytics/Artifact`。Collector 不得查询 Broker 或拼接
-Manager 最终状态来重建逐笔成交。详见 ADR 0033。
+Commit Fact First → Project State Second
 
-Generic T0 Cash 的 `LIMIT SELL CLOSE LONG NETTING` 每个 Fill 现与 BUY OPEN 共用该唯一 durable 链路；已删除的非 durable
-历史实现不再保留于生产源码。Close 的固定 Projection 顺序为 Order → Position → Allocation → Settlement → Order Fee Accrual →
-Fee → Account → Strategy Ledger → Position Reservation → Risk Reservation → Risk → Valuation。Position 与 Allocation 共用
-Exact Close Cost Reducer；Position Reservation 是正式 Projection Target 和 checkpoint participant。Partial Fill 后的
-Cancel/Reject/Expire 作为 `ORDER_TERMINAL`，按 Order → Position Reservation → Risk Reservation → Risk 投影，不走直接跨
-Manager 释放路径。唯一 Capability Matrix 同时约束 Processor、Context Builder 与 Planner。Transaction Identity、Trade Fill
-Identity/Index、Coordinator、Recovery Phase、Event Gate 与 Outbox 均未增加 Close 专用分支或第二套权威。详见 ADR 0053。
+Historical Fact Immutable → Forward Recovery Only
 
-PR4.3.2 在 ADR 0049 的 Fill identity 与 Order terminal authority 上完成正式增量记账。Position/Allocation 保存精确累计
-开仓价值；Account/Strategy/Risk Reservation 按 Fill 消费且仅终态释放；Risk Active Count 仅最终 Fill 减少一次；每个 Fill
-仍是独立不可变 Transaction。固定投影新增 `ORDER_FEE_ACCRUAL`，完整顺序见 ADR 0050。PR4.3.3 已在独立 Virtual Broker
-插件增加 deterministic Fill Plan：WHOLE/MAX_PER_BAR/SCHEDULE 与 ONE_PER_BAR/ALL_DUE 共享单一执行链，Plan cursor、
-Trade 和 pending publish 进入 checkpoint V2，并通过现有 Runtime Recovery 完成多 Fill restart；详见 ADR 0051。
+Market Identity Is Evidence → Not Execution Permission
 
-Runtime 还独占与 Broker 完全分离的 MarketData Source Registry、实时 Queue、Processor、Audit 与 Historical Replay。实时与历史
-复用 Domain Bar/Tick，来源元数据保存在 Update Envelope；历史数据只有 ReplayService 能推进 Backtest Clock。详见
-`docs/market_data_source.md`、`docs/historical_replay.md` 与 ADR 0017。
+Runtime Type != Execution Permission
 
-Strategy Ledger 是 Runtime-owned 单写入者状态域：Runtime 独占 Manager，Cluster 只通过 `ctx.ledger` 读取自己的虚拟资金、
-收益与净值。它与券商真实账户分离，并位于 Position Allocation 更新之后。详见 `docs/strategy_ledger.md` 与 ADR 0014。
+Unsupported or Ambiguous → Fail Closed
+```
 
-Risk 的 Runtime 所有权、固定 Pipeline、Profile 和 Reservation 决策见
-[ADR-0012](adr/0012-risk-pipeline-profile-and-reservation.md) 与 [Risk 组件](risk.md)。Risk 位于 Runtime 与
-OrderService 边界：Cluster 只能读取 Snapshot，所有订单在创建前强制审批。
+Research 为研究效率服务；Backtest、Sim、Live 为 Trading Semantic Equivalence 服务。架构复用不能产生第二套经济真值，也不能迫使 Research 经过 formal Trading Kernel。
 
-## 1. 架构目标
+## 2. Engine / Runtime Model
 
-OnlyAlpha 采用模块化单体作为初始形态，不在早期拆分微服务。
-
-核心目标：
-
-- 统一 Engine；
-- 多 Runtime；
-- 多 Cluster；
-- 回测、模拟盘、实盘和投研共享核心模型；
-- 市场、资产、Gateway 和策略解耦；
-- 支持进程内运行，并为后续远程调用预留边界。
-
-## 2. 顶层关系
+目标顶层模型：
 
 ```text
 OnlyEngine
-├── OnlyLiveRuntime
-│   ├── OnlyCluster A
-│   └── OnlyCluster B
-├── OnlyPaperRuntime
-│   └── OnlyCluster C
-├── OnlyBacktestRuntime
-│   └── OnlyCluster D
-└── OnlyResearchRuntime
-    └── OnlyFactorPipeline
+├── Research Runtime
+│   ├── Research Job A
+│   └── Research Job B
+├── Backtest Runtime
+│   ├── Cluster A
+│   └── Cluster B
+├── Sim Runtime
+│   └── Cluster C
+└── Live Runtime
+    └── Cluster D
 ```
 
-## 3. 核心模块
+`OnlyEngine` 是唯一产品级入口。当前调用链为：
 
 ```text
-domain          强类型领域模型
-core            通用基础能力
-event           事件定义和 Event Bus
-engine          顶层生命周期和组件协调
-runtime         不同运行环境
-cluster         独立策略容器和组件生命周期
-strategy        交易决策与受限交易能力
-factor          时序/截面因子、依赖图与评分
-indicator       无交易副作用的底层滚动计算
-gateway         行情与交易外部适配
-execution       订单、成交、持仓和账户
-risk            风控
-cache           高速访问
-storage         可靠持久化
-backtest        历史数据驱动和撮合
-live            实盘接入
-research        因子和投研
-analytics       统计
-visualization   图表和报告
-application     用例服务
-api             Web/CLI 边界
+CLI / Application
+→ OnlyEngine
+→ OnlyRuntimePlanner
+→ OnlyEngineRunAssembler
+→ Runtime Factory
+→ OnlyRuntime
+→ OnlyCluster
 ```
 
-## 4. 依赖方向
+Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environment grouping、Runtime/Cluster Session、共享资源引用、装配、生命周期、Result/Artifact 聚合、`user_data` 布局和失败清理。Engine 不拥有 Order、Position、Account 或其他交易经济状态。
+
+当前 `OnlyEngine.run()` 只接受有限 `BACKTEST`。Streaming 路径使用 `initialize/start/wait/stop/close`。目标 Research 仍由 Engine 管理产品生命周期，但使用 Research Job / Plan；当前以 Cluster config 为中心的入口不能被当作迫使 Research 交易化的长期接口合同。
+
+## 3. Runtime Product Taxonomy
+
+唯一目标 Runtime vocabulary：
+
+| Runtime | Data | Execution | Clock | Broker | Lifecycle |
+|---|---|---|---|---|---|
+| Research | Historical | Vectorized / Batch | Research Job range | None | Finite |
+| Backtest | Historical | Event-driven | Backtest Clock | Virtual Broker | Finite |
+| Sim | Realtime | Event-driven | Live Clock | Virtual Broker | Streaming |
+| Live | Realtime | Event-driven | Live Clock | Real Broker | Streaming |
+
+当前源码状态与目标不同：
+
+| Current source spelling | Current implementation status | Target treatment |
+|---|---|---|
+| `BACKTEST` | 已实现，是当前主要产品 Runtime | 保留并继续使用完整 Trading Kernel |
+| `PAPER` | 已实现受限 streaming/observation + Shadow execution | Legacy Streaming Implementation / Sim migration source |
+| `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
+| `SHADOW` | Standalone Factory 注册但返回 unsupported | 非目标 Runtime，迁移后删除 |
+| `RESEARCH` | Factory 注册但返回 unsupported | 后续实现目标 Research Runtime |
+| `SIM` | enum、配置和 Factory 尚不存在 | P6 完成迁移后正式引入 |
+
+当前 `PAPER/SHADOW` 源码是 migration debt，不是第五、第六种目标 Runtime，也不是长期 public compatibility contract。迁移时更新配置和测试后删除旧接口，不建立 alias 或 wrapper。
+
+## 4. Research Runtime
+
+Research Runtime 的目标边界是 Historical + Vectorized/Batch + Research-oriented。它拥有 dataset、calculation、job progress、Research Result 和 Artifact state，不拥有 formal trading Account、Position、Order、Broker、Risk Reservation 或 durable Trading Transaction authority。
+
+目标研究链：
 
 ```text
-domain
-  ↑
-core
-  ↑
-event / interfaces
-  ↑
-engine / runtime / cluster
-  ↑
-gateway / backtest / live / research
-  ↑
-application
-  ↑
-api / cli
+Historical Dataset
+→ Vectorized Indicator
+→ Factor / Feature
+→ Parameter Sweep
+→ Statistics
+→ Immutable Research Result / Artifact
+→ Query / API
+→ Web / Notebook / CLI
 ```
 
-内层不得反向依赖外层。
+Research 可复用 MarketData Domain、Instrument、Reference、Calendar、canonical data model 和无交易副作用的 Indicator/Factor 定义。Research Job / Plan 描述 Dataset、Universe、Time Range、计算定义、Parameter Grid、Statistics 与 Output，不伪装成 Trading Cluster。
 
-## 5. 状态真值
+当前 Research Factory 明确 unsupported，正式 Research Job、vectorized engine、Research Artifact 和 Web query workflow 尚未实现。当前 trading-shaped `OnlyRuntime` 基类不能反向定义未来 Research ownership。
 
-系统必须为以下状态定义唯一可信来源：
+## 5. Trading Runtime
 
-- 订单：`OnlyOrderManager`；
-- 成交：`OnlyTradeRepository` 或执行域；
-- 持仓：`OnlyPositionManager`；
-- 账户：`OnlyAccountManager`；
-- Instrument：`OnlyInstrumentRegistry`；
-- Cluster 生命周期：`OnlyClusterManager`；
-- Runtime 生命周期：`OnlyRuntimeManager`。
+Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。
 
-策略内部不得维护一份与系统真值脱离的完整账户副本。
+三者追求 Trading Semantic Equivalence，不追求 Driver Implementation Equivalence：
 
-## 6. 扩展方式
+| Driver boundary | Backtest | Sim | Live |
+|---|---|---|---|
+| MarketData | Historical Replay | Realtime | Realtime |
+| Clock | Backtest Clock | Live Clock | Live Clock |
+| Broker | Virtual Broker | Virtual Broker | Real Broker |
+| Lifecycle | Finite | Streaming | Streaming |
 
-新增策略：增加 Strategy/Factor 示例或插件配置；Cluster 容器核心不变。
+Runtime type 可以参与 Driver 选择、Runtime identity、planning/grouping 和 lifecycle composition，但不能决定经济能力、市场合法性或 Execution permission。Trading Kernel 只消费 normalized domain input、normalized broker facts、market instructions 与 economic context。Strategy 和交易经济逻辑不得按 Runtime type 分支。
 
-新增市场：增加 Gateway、Market Rule 和 Instrument Provider，不修改 Engine 核心。
+当前中立化尚未全仓完成：Position authority、Fee finality 和 compiled Market Rule identity 仍有读取 Runtime mode 的历史实现，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和 Context 暴露面属于待审计/迁移债务，不是目标合同，不得被 Strategy 消费，也不得新增同类分支。
 
-新增资产类别：增加 Instrument 类型、估值和风控规则，不修改策略框架。
+当前只有 Backtest 具备正式 durable trading product path。旧 `PAPER` streaming 路径使用 Shadow suppression，并不满足 Sim 的 Virtual Broker + full Trading Kernel 定义；Live 也尚未具备 durable outbound Broker command、同步、对账和长期恢复闭环。
 
-新增存储：实现 Storage/Repository 接口。
+## 6. Cluster / Strategy / Factor / Indicator
 
-新增 Web：调用 Application Service，不穿透到 Domain 内部。
+Cluster 是 Trading Runtime workload：
 
-## 7. 当前实现边界
+```text
+One Strategy
++ Zero or more Factors
++ Indicator Scope
++ Subscription Scope
++ Strategy Ledger Scope
+```
 
-`src/onlyalpha` 当前包含 Phase 1 骨架、Pure Financial Domain、Strategy/Factor/Indicator 运行模型和 Account/Virtual Broker
-纵切面：可组合多个 Runtime/Cluster，并提供基础金融值、ID、Instrument、订单/成交、持仓/账户、行情和日历模型。
-Backtest 已有配置驱动的 Synthetic 历史 Replay 与确定性 Next-Bar 撮合；Live/Paper 类型仍不连接真实 SDK，Research 尚未形成
-面向生产的研究工作流。真实交易必须实现相同 Broker Ports。
+Cluster 是隔离容器，不是 Strategy，也不是 Research Job。它不拥有 Account/Position Manager、Broker 或 Clock，不访问其他 Cluster 私有 Order/Allocation/Ledger，不直接修改 Runtime state。
 
-Domain 仅依赖标准库和自身模块。`core` 及其上的所有模块可以依赖 Domain，Domain 不得依赖 core 或其他外层模块。
+同一行情时间片的交易计算顺序显式固定为：
 
-## 8. 时间依赖边界
+```text
+MarketData Validate / Process
+→ Cache / Aggregation
+→ Indicator
+→ Time-Series Factor
+→ Cross-Section Factor
+→ Factor Snapshot / Score
+→ Strategy
+→ Market Rule / Risk / Order
+```
 
-Domain、Event、Storage 和 Runtime 的绝对时间统一为 UTC。市场解释由 Domain 的
-Venue、IANA TimeZone、TradingCalendar、TradingDay 与 Session 完成；完整规则见
-`docs/time_model.md` 和 ADR-0007。Application/API 可调用 Domain 外的
-`OnlyTimeConversionService` 做 UTC/MARKET/USER_LOCAL 展示，但 Domain 不依赖显示层。
-Backtest 与 Live 后续必须复用同一 Calendar 接口，不得各自维护时间规则。
+Indicator 和 Factor 没有交易权限。Strategy 只通过受限 Context 读取 immutable Snapshot，并通过正式订单接口表达 intent；它不能创建 Fill、模拟 Broker 回报或维护平行账户真值。
 
-## 9. Order 运行边界
+## 7. Runtime Environment Composition
 
-Order 状态域属于 Runtime，而非 Engine 或 Cluster。Runtime 独占 `OnlyOrderManager` 和执行更新入口；Cluster
-共享 Runtime 真值但只持有 Scope 受限的 `ctx.orders`。Domain 定义不可变请求、Fill 和 Snapshot，Order 层
-定义受控实体与服务，Gateway 实现位于更外层。状态修改通过函数调用，成功后才发布事实 Event。
+当前组合链：
 
-## 10. Position 运行边界
+```text
+OnlyClusterRunConfig
+→ OnlyRuntimeEnvironmentBuilder
+→ immutable environment identity / resource claims
+→ OnlyRuntimePlanner
+→ OnlyRuntimePlan
+→ OnlyEngineRunAssembler
+→ Runtime Factory
+```
 
-每个 Runtime 从构造起独占 `OnlyPositionManager`、`OnlyPositionAllocationManager` 和
-`OnlyPositionReservationManager`。账户 Position 与 Cluster Allocation 是两层账；无法归因部分进入 Unallocated。
-Cluster 只通过 `ctx.positions.account/cluster` 读取不可变 Snapshot。Broker Position Snapshot 只能进入字段级
-AuthorityPolicy 和 ReconciliationService，不得覆盖本地历史。详见 [Position 组件](position.md) 与
-[ADR-0013](adr/0013-position-allocation-settlement-and-reconciliation.md)。
+`OnlyRuntimeEnvironmentBuilder` 是 Runtime-shared semantics 的唯一投影，涵盖 clock/replay、DataSource、Broker、Account、Market/fee/reference 和 persistence。Planner 只按相同 environment 分组、生成稳定 Runtime identity 并验证 representative config；Assembler 只经 Factory Registry 选择具体 Runtime。
 
-## 11. M1 Vertical Slice
+`OnlyInfrastructureRegistry` 只校验 canonical claim、检测 key/fingerprint 冲突、引用计数和归零释放。相同逻辑资源 ID 配置冲突必须 fail closed，不得通过创建第二个 Runtime 产生两个 mutable global authority。详见 [ADR 0064](adr/0064-runtime-environment-composition-authority.md)。
 
-Backtest Runtime 已通过 Runtime-owned ExecutionProcessor 完成标准化成交的同步编排，复用 Order、Risk、Position、Allocation 和 Strategy Ledger 正式接口。
-Virtual Broker 已替换统一场景中的手工成交注入，并接入 Account/Risk 更新。Event 只在状态成功改变后发布，不参与状态迁移。
-统一验证环境位于 `tests/integration_demo/`。
+## 8. Market Product Composition
 
-## 12. 公共 API 与内部边界
+市场合法性与执行实现能力是两个 Authority：
 
-外部用户通过 `onlyalpha.engine` 的 `OnlyEngine`、`OnlyEngineConfig` 及其公开结果 DTO 启动产品链，通过
-`onlyalpha.config` 使用 `OnlyClusterRunConfig` 和公开配置值对象。Domain 公共模型从 `onlyalpha.domain.*` 导入；Strategy、
-Factor 与 Indicator 接口分别从同名顶层包导入。DataSource/Broker 插件必须以 `onlyalpha.plugin.api` 为稳定入口，并仅使用其中
-的 Factory、CreateRequest、Descriptor、Capability、Lifecycle 以及明确公开的 Domain/Port。
+```text
+OnlyMarketConfig
+→ Profile Registry / Version Resolver
+→ Instrument Reference
+→ Rule Compiler
+→ OnlyMarketRuleEngine
+→ Restricted Decision / Instruction
+```
 
-Runtime Planner、Assembly Plan、Assembler、Engine/Cluster/Runtime Session、Infrastructure Registry、各领域 Manager、
-Registry 内部容器及 ExecutionProcessor 编排细节属于内部实现。它们不从 `onlyalpha`、`onlyalpha.engine` 或
-`onlyalpha.runtime` 的公共 `__all__` 导出，插件不得依赖这些对象。内部模块路径仍可供核心仓自身使用，但不承诺外部兼容性。
+Reference 提供证券事实，Profile 提供版本化制度，Compiler 在 evaluate 前解析最终 Session/Price/Quantity/Settlement policy。Execution Support 根据规范化 economic shape 判断 Kernel 是否支持，不根据市场名、Profile ID 或 Runtime type 决定权限。
 
-Runtime 在 Cluster initialize 后进入 `RECOVERING`。`OnlyRuntimeRecoveryOrchestrator` 验证并恢复最新完整 checkpoint，按精确
-MarketData cursor 建立由 Backtest Boundary Session 组合的 Execution Recovery Session。每个 Broker Update 进入 ExecutionProcessor，重新构建并验证完整 Prepared contract；Ready transaction 由真实 Target 当场 rehydrate，未投影 transaction 由正式 Coordinator 当场恢复。Execution tail resolved 不等于 Boundary completed：后续 Strategy callback 立即读取更新后的 authority，并可在同 Bar 产生经正式 Planner/Coordinator commit 的 continuation transaction。MarketData Result、Audit、checkpointable Result Progress 与 Event drain 全部完成后，Runtime `after_market_processing()` 才以 source/data-version/update/sequence identity 确认 boundary；Session 活跃期间普通 checkpoint 仍被抑制。正式
-Result 只持有 Projection Ready Query。Orchestrator 结束后 Cluster 先进入 `RECOVERY_FINALIZING`；Finalizer 编排 completion callback、内部 quiescence、只读 Authority Validator、checkpoint capture/write/read-back 完整验证，随后才标记 `RECOVERED`。Runtime READY 后才交付 recovered Outbox 并 resume Cluster；任一阶段失败都使 Runtime/Cluster fail closed 并阻止 READY/RUNNING。
+Market Fee Pack 与 Broker Fee Contract 是独立 authority；Order binding、fee resolution proof、order cumulative accrual 和 Fee Application Ledger 保持可审计。Market Rule Authority、Execution Support Authority、Fee Authority 与 Settlement Authority 不互相替代。
 
-所有外部可观察事件统一经过 `business publisher → publication port → OnlyRuntimeEventRouter →
-OnlyRuntimeRecoveryEventGate → EventBus`。Gate 在 fresh bootstrap 暂存 Direct facts，在 checkpoint recovery 开始时丢弃临时
-bootstrap facts，并在 replay/finalization 抑制历史 Direct facts且不补发。Durable Outbox 与 Lifecycle 仅在 OPEN 可发布；start
-顺序固定为 Router OPEN、Outbox、Cluster start/resume、`RUNTIME_STARTED`。EventBus 保持纯队列/dispatch 职责，Runtime 公共 API
-仅返回订阅视图，Gate 不进入 checkpoint 或业务 projection。详见 ADR 0048。
+所有内置 Profile 仍为 Experimental，除非正式产品合同明确升级。`CN_A_SHARE_DURABLE_BACKTEST_V1` 只认证有限 Backtest surface，不代表完整 `CN_A_SHARE_CASH` Profile 稳定。
 
-Runtime Persistence Store 由 `OnlyBacktestRuntimeFactory` 根据 `runtime.persistence` 唯一创建并显式注入 Runtime。SQLite checkpoint
-模式使用 schema version 2，并把 checkpoint、transaction、Projection state 和 Outbox 放在稳定的
-`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`；它不依赖 Artifact Run ID。Store 是 Runtime-owned
-resource，schema/identity/registry/hash 不匹配即停止装配。Factory 的 validate 阶段不创建目录或数据库。详见 ADR 0044。
-# Multi-Cluster Close 成本权威
+## 9. MarketData Boundary
 
-Account Position 是所有 Cluster Allocation 的聚合，不是某次 Cluster Close 的成本批次权威。正式链路为 `Allocation Before → Attributed Close Cost Authority → Position/Allocation/Account/Ledger/Fact`。共享 Account 与 Ledger 的兼容性按所有 Ledger 聚合判断，禁止以当前单 Ledger 与 Account 直接比较后降级到 legacy mutation。
+正式行情路径：
+
+```text
+DataSource
+→ MarketData Inbound Queue
+→ Sequence / Dedup / Gap / Quality
+→ Audit
+→ Pipeline
+→ Cache / Aggregation
+→ Runtime consumers
+```
+
+Historical 与 Realtime 复用 Domain Bar/Tick。历史数据由 Replay Service 推进 Backtest Clock；DataSource 不直接推进 Runtime 时间。只有成功进入正式 Pipeline 的数据可以推进 processed watermark。
+
+当前 legacy `PAPER` 路径已经具备 subscribe-first bootstrap、isolated historical worker、Historical replay、warmup、Historical-to-Live handoff、realtime queue、aggregation、observation 和 ordered shutdown。Provider raw、worker accepted、replay attempted/processed/rejected、pipeline last successful bar 与 historical watermark 是不同事实，不能互相替代。这些边界后续迁移到 Sim；reconnect、gap recovery 与 streaming checkpoint/restart 尚未闭环。
+
+## 10. Broker Boundary
+
+Broker Gateway 是外部适配器和事实入口，不是本地账务权威：
+
+```text
+Order Service
+→ Broker Execution Service
+→ Broker Gateway
+→ External System
+→ Normalized Broker Update
+→ Broker Inbound Queue
+→ ExecutionProcessor
+```
+
+Gateway 和 SDK callback 不持有或修改 Runtime Manager。重复、乱序和迟到 update 通过正式 identity、sequence、dedup 与 reconciliation 处理。
+
+Virtual Broker 是独立 Broker plugin，负责 deterministic matching、Accepted/Trade/Terminal、whole/partial/multi-fill、slippage、fill plan 和 checkpointable external execution state；它不修改 Account、Position、Risk 或正式 Fee authority。Backtest 与目标 Sim 使用 Virtual Broker。Sim 永远不能解析或提交到 Real Broker。
+
+目标 Live 使用 Real Broker，并在启用真实资金前补齐 durable outbound command、idempotency、ACK/Reject/Unknown、Broker query/synchronization、reconciliation、reconnect 和 long-running recovery。
+
+## 11. Order / Risk / Reservation
+
+正式下单顺序：
+
+```text
+Strategy Intent
+→ Market Rule Validation
+→ Risk Evaluation
+→ Reservation
+→ Order Creation
+→ Broker Submission
+```
+
+所有订单在创建前经过 Market Rule 和 Risk。Cash、Position 与 Risk Reservation 是正式交易权威；partial/multi-fill 按 Fill 增量消费，未完成部分继续保留，最终 Fill 或 Cancel/Reject/Expire 只释放 remaining authority。
+
+Gateway、Strategy、Manager 间 cleanup 或 Event handler 均不能旁路正式 Reservation/Terminal transaction。重复 update 不得重复消费；Recovery 必须与连续运行等价。
+
+## 12. Durable Execution Kernel
+
+当前正式交易主链：
+
+```text
+Normalized Broker Fact
+→ Immutable Planning Context
+→ Pure Planner
+→ Prepared Runtime Transaction
+→ Transaction Store Commit
+→ Runtime Sequence Gate
+→ Ordered Projection Targets
+→ Projection Ready
+→ Durable Outbox
+```
+
+核心合同：
+
+```text
+One Fill
+= One Immutable Prepared Transaction
+= One Committed Transaction
+```
+
+Accepted、每个 Trade Fill、Terminal 和 Settlement Maturity 在其受支持 economic shape 内形成独立 immutable durable operation。Terminal 不伪造 Trade，不产生 Trade PnL/Settlement，并只释放剩余 authority。Commit 后不得修改事实，也不得 fallback 到 legacy multi-manager mutation。
+
+当前完整产品范围仍受正式 Capability 与产品合同限制；Domain enum、Profile 或 Planner 类型存在不等于 durable product 已支持。
+
+## 13. Transaction / Projection
+
+Planner 在 commit 前冻结 before/after state、economic fact、cost、fee、settlement、reservation/risk delta、ordered projections、payload hash 与 authority proof。Projection 只验证 expected version/hash 并安装 Planner 已决定的 after-state；不得重新计算 PnL、released cost、Fee、Settlement 或 attribution。
+
+Transaction Store 是 Runtime transaction history 的 durable authority。Applied Projection Ledger 只是可重建的 projection progress/idempotency index，不是交易事实来源。固定原则：
+
+```text
+One Projection Component
+→ One Mutable Authority
+```
+
+Outbox intent 与 transaction 一起持久化，只有 Projection Ready 且 Runtime event gate 允许时才发布。Event 通知已经发生的事实，不负责核心状态迁移。
+
+## 14. Authority Ownership
+
+OnlyAlpha 遵守 `One Domain → One Write Authority`：
+
+| Domain / fact | Write authority |
+|---|---|
+| Runtime Transaction History | Transaction Store |
+| Projection Progress | Applied Projection Ledger |
+| Order | Order Authority |
+| Position | Position Authority |
+| Cluster Position/Cost Attribution | Allocation Authority |
+| Account | Account Authority |
+| Strategy Capital/PnL | Strategy Ledger Authority |
+| Risk | Risk Authority |
+| Risk Reservation | Risk Reservation Authority |
+| Cash Reservation | Cash Reservation Authority |
+| Position Reservation | Position Reservation Authority |
+| Settlement | Settlement Authority |
+| Market Fee / Broker Fee Application | Fee Authorities / Ledgers |
+
+Trading Runtime 拥有这些 mutable authority；Cluster、Strategy、Factor、DataSource 和 Broker Gateway 只能通过受限 Port/Query 访问各自允许的边界。Account 是 Runtime 账户级聚合真值，Allocation/Strategy Ledger 是 Cluster scope 的归因权威，但 Manager 仍由 Runtime 独占。
+
+Position 与 Allocation 的数量、精确累计成本、released cost 和 realized PnL 必须由同一 prepared economic decision 驱动。Account、Ledger 与 committed fact 消费同一结果，不能分别重算。
+
+## 15. Persistence / Checkpoint / Recovery
+
+Runtime Persistence Store 当前支持 Memory 与 SQLite。Persistence 提供 durable storage，不重新决定经济语义。Checkpoint 在明确完成边界原子创建并读回验证，包含精确 MarketData cursor、participant schema/version、authority/config fingerprints 和稳定序列化，不包含 secret 或不稳定对象地址。
+
+恢复顺序：
+
+```text
+Restore Durable State
+→ Validate Authority
+→ Resolve Transaction Tail
+→ Resume Ordered Projection
+→ Rebuild Derived Index
+→ Validate Aggregate
+→ Open Runtime
+→ Deliver Continuation Events
+```
+
+OnlyAlpha 只支持 Forward Recovery。Committed fact 不删除、不回滚、不按当前规则重算；失败 projection 不跳过；schema/identity/fingerprint 不兼容时 fail closed。
+
+当前 durable checkpoint/restart/recovery 产品闭环属于 Backtest。目标 Sim/Live 应共享 recovery semantics，但 streaming checkpoint/restart 和 long-running recovery 仍是迁移任务，不能由 legacy `PAPER` 当前能力推断已完成。
+
+## 16. Result / Analytics / Artifact
+
+Trading Result 的逐笔事实只来自 Projection Ready committed query：
+
+```text
+Projection Ready Committed Fact
+→ Canonical Result
+→ Analytics
+→ Artifact / Report
+```
+
+Collector 是只读消费者，不从 Broker、EventBus 或最终 Manager snapshot 反推交易历史。Result/Artifact 必须稳定序列化、保持 Cluster/Runtime scope、使用 canonical Decimal/Enum/Timestamp，并通过 manifest、relative path 与 fingerprint 表达 provenance。
+
+Legacy `PAPER` Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。目标 Research Artifact 与 Trading Result 是不同 DTO/语义；Web 只能通过 Query/API 读取 immutable result/artifact。
+
+## 17. Plugin Boundaries
+
+Core 位于 `src/onlyalpha/`，只依赖公共 Port、Plugin API 和 Domain DTO，不导入具体插件。插件依赖方向固定为：
+
+```text
+Concrete DataSource / Broker Plugin
+→ onlyalpha.plugin.api + public Domain / Port
+→ Core orchestration
+```
+
+Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提供稳定 descriptor/capability/config/lifecycle，把 SDK 异常转换为可诊断错误，并将 callback 数据标准化后送入 Runtime queue；不得在 import 时访问外部环境、泄漏 SDK 对象或持有 Runtime Manager。
+
+缺失或不兼容插件必须明确失败，Core 不提供隐藏 Synthetic/Virtual/Placeholder fallback。
+
+## 18. Public vs Internal API
+
+稳定使用入口优先为：
+
+```text
+onlyalpha.engine
+onlyalpha.config
+onlyalpha.domain.*
+onlyalpha.strategy
+onlyalpha.factor
+onlyalpha.indicator
+onlyalpha.plugin.api
+```
+
+Runtime Planner、Environment Builder、Assembly Plan、Assembler、Session、Manager、Registry 内部容器、ExecutionProcessor 内部步骤、Projection applier、Recovery orchestration state 和 persistence schema 属于内部实现。
+
+当前根包和 `onlyalpha.runtime` 仍导出部分具体 Runtime 类（包括 legacy `OnlyPaperRuntime`，后者还在 `onlyalpha.runtime` 导出 standalone `OnlyShadowRuntime`）；`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster` 仍导出 `OnlyClusterManager`。这些是当前可导入事实和待收紧 API debt，不能被描述为已删除，也不自动构成长久稳定合同。P6 应迁移正式调用方、配置与测试后删除旧 Runtime spelling；不得添加 `PAPER -> SIM` 或 `SHADOW -> SIM` alias。
+
+## 19. Dependency Direction
+
+逻辑依赖方向：
+
+```text
+Domain / canonical value objects
+        ↑
+Ports / public contracts
+        ↑
+MarketData, Market Rule, Risk, Order, Execution authorities
+        ↑
+Trading Runtime orchestration      Research Runtime orchestration
+        ↑                                  ↑
+OnlyEngine planning / lifecycle / aggregation
+        ↑
+Application / CLI / API
+
+Concrete plugins → public Plugin API / Ports
+```
+
+Domain 不依赖 Core 外层。Core 不依赖具体 Provider/Broker SDK。Strategy/Factor 不依赖 Engine、Gateway 或 mutable Manager。Research 与 Trading Runtime 可以复用纯 Domain/definition，但不通过互相实例化对方的 mutable authority 复用。
+
+## 20. Current Product Capability Boundary
+
+截至 2026-08-10，当前正式完整产品纵切面是 Backtest 下的有限 Cash-Long durable surface：
+
+```text
+Runtime          : BACKTEST
+Market Profile   : GENERIC_T0_CASH
+Account Type     : CASH
+Order Type       : LIMIT
+Position Side    : LONG
+Position Mode    : NETTING
+Open / Close     : BUY OPEN / SELL CLOSE
+Fill             : Whole / Partial / Multi-Fill
+Terminal         : Cancel / Reject / Expire
+Cluster          : Single / Multi-Cluster
+Persistence      : Memory / SQLite
+Recovery         : Checkpoint / Restart / Forward Recovery
+```
+
+`CN_A_SHARE_DURABLE_BACKTEST_V1` 是已认证的有限 A 股 Backtest 产品合同；它不升级完整 `CN_A_SHARE_CASH` Profile，也不证明所有 A 股产品或实时 Runtime 可用。
+
+当前 legacy `PAPER` 路径完成了当前 Profile 下的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并有真实 MiniQMT 当前环境验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产运维闭环。
+
+当前未完成项：
+
+- `SIM`：目标 Runtime，源码 spelling/Factory 与 full Trading Kernel streaming composition 尚未实现；
+- `RESEARCH`：目标 Runtime，Factory unsupported，vectorized job/result/artifact workflow 尚未实现；
+- `LIVE`：目标 Runtime，Factory unsupported，durable outbound Broker command、同步/对账与长期恢复尚未实现；
+- standalone `SHADOW`：非目标 Runtime，Factory unsupported，待 P6 删除；
+- `PAPER`：迁移债务，待 P6 迁移 useful streaming infrastructure 后删除。
+
+从当前实现到目标架构的阶段与删除条件见 [Roadmap](roadmap.md)。

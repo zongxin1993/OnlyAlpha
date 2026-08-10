@@ -2,6 +2,9 @@
 
 MarketData Snapshot 只表达标准化、聚合后的不可变行情视图。具体指标不再附着在 Bar Subscription 或策略可见的 MarketData View；Factor 通过 Cluster-scoped Indicator Registry 创建和读取强类型 Indicator Snapshot。
 
+本文的 Cache、Aggregation、Dispatcher 与 Cluster 边界属于 Trading Runtime。Research 可以复用 canonical Bar、Indicator
+和 Factor 定义，但只拥有 Dataset/Calculation/Result state，不为结构对称创建 Trading Cluster 或交易 authority。
+
 ## 1. 基础 Bar 输入
 
 首版命令入口是 `OnlyMarketDataPipeline.process_bar(OnlyBar)`，支持外部、已关闭、revision=0 的 1m TIME
@@ -21,7 +24,7 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 
 ## 3. 聚合与 Session 边界
 
-一个 Runtime 的 `OnlyBarAggregationManager` 按目标 BarType 唯一持有 Aggregator；多个 Cluster 用引用计数
+一个 Trading Runtime 的 `OnlyBarAggregationManager` 按目标 BarType 唯一持有 Aggregator；多个 Cluster 用引用计数
 共享 3m/5m/15m 结果，不共享可变策略状态。派生处理顺序是 dependency level（首版均为一级）、duration、
 稳定 BarType ID。
 
@@ -32,7 +35,7 @@ Indicator、Required Dependency 和 Snapshot 五项全部 ready 后，Dispatcher
 
 ## 4. Cache
 
-`OnlyMarketDataCache` 是 Runtime 所有的可变内部真值，按 BarType 保存 latest closed、history 与单调 version。
+`OnlyMarketDataCache` 是 Trading Runtime 所有的可变内部真值，按 BarType 保存 latest closed、history 与单调 version。
 只有 Pipeline 可更新。Cluster 不获得 Cache 引用，只读取 Snapshot 中复制为 tuple/MappingProxy 的数据。
 
 ## 5. Indicator 与 Factor Ready Barrier
@@ -66,14 +69,16 @@ FILL_FORWARD 与 TRUNCATE 接口已预留但首版明确拒绝，避免把无成
 
 Event、Bar Subscription、Update Result、Snapshot 和 Dispatch Result 均提供稳定 DTO。Event/Snapshot 保存
 Unix 纳秒，Bar 保存 Decimal/UTC/强类型 Domain DTO。相同序列在新 Runtime Pipeline 中重放，Snapshot、
-主 Bar、updated types、调用次数与调用时刻一致。Live/Backtest 共用同一 prepare/dispatch 实现。
+主 Bar、updated types、调用次数与调用时刻一致。目标 Backtest、Sim 与 Live 共用同一 prepare/dispatch 语义。当前 Backtest
+已装配完整同步路径，legacy `PAPER` 只证明可迁移的部分 realtime/streaming 边界，不表示目标 Sim/Live 已实现。
 
 ## 10. 已知限制
 
 - 只支持外部 1m TIME Bar 到内部 3m/5m/15m。
 - 尚无 Tick/Volume/Value Aggregator、partial Bar、修订替换、自动填充或持久化恢复。
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
-- Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext；真实 Gateway 尚未实现。
+- Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext；legacy `PAPER` 已装配受限 MiniQMT realtime path，但目标
+  Sim/Live 的完整 Gateway 与 Trading Kernel 组合尚未实现。
 - Indicator 值首版限 Decimal/int/string/bool/None，复杂向量需后续稳定 DTO。
 
 ## 11. 标准数据入口

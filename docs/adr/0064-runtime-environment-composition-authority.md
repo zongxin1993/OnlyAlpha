@@ -4,6 +4,8 @@ Status: Accepted
 
 Date: 2026-08-09
 
+Historical scope note: the statement below that CN A-share durable execution remained unsupported records this ADR's decision-time scope. [ADR 0067](0067-cn-a-share-production-durable-backtest-product.md) later accepted the finite product contract, and the [P4.3 conformance report](../reports/p4_3_cn_a_share_production_durable_product_conformance.md) records its certification; this note does not rewrite the original decision.
+
 ## Context
 
 Runtime planning and infrastructure refcounting independently projected Cluster config into fingerprints. The projections

@@ -4,6 +4,7 @@
 - Date: 2026-07-18
 - Modules: cli, engine, config, runtime, output, examples, plugins
 - Numbering: 任务建议使用 0019，但 0019 已是 Accepted 决策；本 ADR 使用下一个连续编号并 Supersede 0019 的产品入口/输出部分。
+- Superseded in part by: [ADR 0068](0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 仅替代 Runtime product taxonomy；OnlyEngine 产品入口、Cluster config、Runtime planning/grouping、Session、资源与 `user_data` 决策继续有效。
 
 ## Context
 

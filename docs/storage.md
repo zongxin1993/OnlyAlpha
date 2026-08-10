@@ -21,19 +21,23 @@ OnlyRedisCache
 
 键必须包含必要隔离维度。
 
-## 3. Storage
+## 3. Trading Runtime Persistence
 
 ```text
-OnlyStorage
-OnlyRepository
-OnlyOrderRepository
-OnlyTradeRepository
-OnlyPositionRepository
-OnlyAccountRepository
-OnlyClusterStateRepository
-OnlyBacktestResultRepository
-OnlyInstrumentRepository
+OnlyRuntimePersistenceStorePort
+├── immutable Prepared / Committed Runtime Transactions
+├── stable transaction indexes
+├── Projection Ready progress
+├── durable at-least-once Outbox intents
+└── complete Runtime Checkpoint headers / components
 ```
+
+Transaction Store 是成交 durable authority。Applied Projection Ledger 只记录 Projection 幂等进度，可由 committed
+transaction 重建，不是第二份成交真值。Order、Position、Allocation、Account、Strategy Ledger 等 Manager Repository
+保存各自 projection state；它们不得替代逐笔 committed fact，也不得通过最终 Snapshot 反推交易历史。
+
+该边界只属于 Trading Runtime。Research Runtime 保存 Dataset、Calculation、Research Result 与 Artifact state，不为结构
+对称创建 Order、Position、Account、Broker 或 Trading Transaction Store。
 
 ## 4. 要求
 
@@ -48,26 +52,32 @@ OnlyInstrumentRepository
 - 事务边界；
 - 审计字段。
 
-## 5. 初始实现
+## 5. 当前实现
 
-建议：
+当前提供：
 
 - 内存 Cache；
-- SQLite Storage；
-- 明确迁移脚本；
+- Memory Runtime Persistence Store（不可 restart，checkpoint 必须关闭）；
+- SQLite Runtime Persistence Store schema v5；
+- Runtime Checkpoint schema v3；
+- 不兼容 schema 显式拒绝，不做静默迁移或 Memory fallback；
 - 不在 Domain 层写 SQL。
 
 ## 6. 恢复
 
-恢复顺序至少考虑：
+正式恢复顺序是：
 
-1. Instrument；
-2. Account；
-3. Position；
-4. Order；
-5. Trade；
-6. Cluster State；
-7. Runtime State。
+1. 打开 Store，验证 Runtime identity、Persistence schema 与配置/Participant fingerprint；
+2. 读取并验证 latest complete Runtime checkpoint；
+3. 按稳定 Participant Registry 顺序恢复各自 authority；
+4. 分析 checkpoint 后连续的 committed transaction tail；
+5. 在精确 MarketData/Broker 因果边界恢复 ordered Projection，并重建 Applied Projection Ledger；
+6. 验证 Transaction、Projection、Manager、Broker、Outbox 与聚合 authority；
+7. 原子写入并读回 post-recovery checkpoint；
+8. Runtime Open 后才投递 continuation Outbox 并恢复 workload。
+
+OnlyAlpha 只做 Forward Recovery：commit 后不跨 Manager rollback，不删除或改写历史 transaction，也不跳过失败 Projection。
+完整协议见 `execution_runtime_recovery.md`。
 
 ## 7. 时间持久化协议
 
@@ -77,8 +87,8 @@ OnlyInstrumentRepository
 Calendar version 和 SessionType 必须作为独立业务字段保留。
 
 旧 naive 数据迁移必须提供来源 IANA 时区与迁移来源；DST 重复时间提供 fold，未知来源
-或不存在时间失败。迁移批次应保留原值、转换值与回滚映射。当前 SQLite Storage 是
-opaque bytes 骨架，尚未引入交易时间表 Schema。
+或不存在时间失败。迁移批次应保留原值、转换值与回滚映射。Runtime Persistence Store 使用 canonical payload、显式
+schema version 与内容 hash；时间字段必须继续服从上述协议。
 
 ## 8. Historical Bar Cache
 

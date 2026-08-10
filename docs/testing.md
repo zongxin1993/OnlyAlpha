@@ -140,7 +140,7 @@ tests/property
 - 静态和动态加载；
 - 订单到成交到持仓；
 - Cache 落盘恢复；
-- Paper；
+- 当前 legacy `PAPER` streaming / Sim Migration Source（不作为目标 Runtime 产品验收）；
 - Backtest；
 - Web Service 调用。
 
@@ -207,7 +207,8 @@ thread/关闭，以及 Cluster 无推进权限。核心源码的直接系统时�
 `tests/event` 覆盖强类型/纳秒 Event、Scope、FIFO、Subscription、显式 handler priority、满载策略、异常和
 关闭。`tests/market_data` 覆盖默认/显式主周期、1m→3m/5m/15m Calendar 聚合、午休 Session 锚定、缺失和
 不完整窗口、Cache/version、Required/Optional Indicator barrier、Snapshot 不可变与 closed-only、每时间片
-单次回调、多 Cluster 共享/隔离、Live/Backtest 同语义和序列化 Event 重放。多周期业务测试不得以 EventBus
+单次回调、多 Cluster 共享/隔离、Backtest 与目标 Sim/Live 同语义和序列化 Event 重放。当前 legacy `PAPER` 用例只证明
+可迁移的 realtime/streaming 边界，不证明 Sim 已实现。多周期业务测试不得以 EventBus
 priority 或订阅注册顺序作为准备步骤。
 
 ## 10. RuntimeContext 测试

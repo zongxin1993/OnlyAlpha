@@ -4,6 +4,7 @@
 - Date: 2026-07-16
 - Modules: engine, runtime, cluster, strategy, factor, indicator, config, examples
 - Numbering: 任务建议使用 0018，但 0018 已是 Accepted 的 Product Demo ADR，因此使用下一个连续可用编号 0020。
+- Clarified by: [ADR 0068](0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md)。本文模型主要适用于 Trading Runtime workload；Research 可以复用纯 Indicator / Factor 定义，但不被强制进入 Strategy / Cluster 交易语义。
 
 ## Context
 

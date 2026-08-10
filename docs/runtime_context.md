@@ -1,5 +1,8 @@
 # Runtime 资源所有权与受限 Context
 
+本文描述 Trading Runtime 的 Cluster Context。Research Runtime 使用 Research Job / Plan，不伪装成 Cluster，也不通过该
+Context 获得 Order、Position、Account、Risk、Broker 或其他 formal trading authority。
+
 `ctx.ledger` 是绑定 Runtime/Account/Cluster 的只读 `OnlyStrategyLedgerContextView`，只返回不可变 Snapshot 及资金、PnL、
 Equity、Return、Drawdown 属性；不得暴露 Manager、Reservation 或修改方法。
 
@@ -106,8 +109,9 @@ runtime_id、cluster_id、callback、ts_event、bar_type、错误类型和消息
 ## 9. 多 Runtime 与并发
 
 第一版 Backtest Runtime 单线程同步执行；单 Cluster 回调天然串行。Runtime 间没有 Clock、Cache、
-Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。未来 Live/Paper 必须复用相同 Cluster
-回调和 Context 权限，但其线程与 Gateway 装配不在本阶段。
+Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。目标 Sim/Live 必须复用相同 Cluster 回调和 Context
+权限，但其线程与完整 Gateway 装配不在本阶段。当前 legacy `PAPER` 只提供部分 streaming/observation 基础设施，是 Sim
+Migration Source，不是目标 Runtime。
 
 ## 10. Demo 与限制
 
@@ -118,7 +122,7 @@ Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。未来 Live
 
 ## 11. Order capability
 
-每个 Runtime 创建一个 OrderManager、Query/Command Service、UpdateProcessor 和 Event Publisher Adapter。
+每个 Trading Runtime 创建一个 OrderManager、Query/Command Service、UpdateProcessor 和 Event Publisher Adapter。
 每个 Cluster Context 只获得绑定本 Cluster 的 `OnlyOrderServiceView`。View 可提交、撤单及读取本 Cluster
 Snapshot，不能取得 Manager、Gateway、Repository 或状态修改函数。Broker 回报只能由
 `OnlyBacktestRuntime.receive_broker_update()` 放入 Runtime Inbound Queue，并由

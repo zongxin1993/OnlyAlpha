@@ -6,9 +6,11 @@
 
 ## 1. 边界与所有权
 
-每个 Runtime 独占一个 `OnlyOrderManager`，它是该 Runtime 订单状态、版本和索引的唯一可信来源；同一
-Runtime 的多个 Cluster 共享它，但 Cluster 只能使用自动绑定 Runtime/Cluster Scope 的 `ctx.orders`。
+每个 Trading Runtime 独占一个 `OnlyOrderManager`，它是该 Runtime 订单状态、版本和索引的唯一可信来源；同一
+Trading Runtime 的多个 Cluster 共享它，但 Cluster 只能使用自动绑定 Runtime/Cluster Scope 的 `ctx.orders`。
 Order 组件不实现 Risk、Position、Account、Trade 管理、撮合或真实券商连接。
+
+Research Runtime 不拥有 Order authority，也不为复用该接口而创建 OrderManager。
 
 ## 2. Request、Entity 与 Snapshot
 
@@ -87,15 +89,16 @@ Cancelled/Rejected/Expired 使用独立 `ORDER_TERMINAL` Projection，保留已�
 过期或冲突；Venue Order ID 在 Runtime 内唯一。Snapshot、Fill、Update 和 MutationResult 使用版本化 DTO，
 Decimal 与 Unix 纳秒无损往返。
 
-首版 Backtest Manager 只允许 Runtime 所在线程同步调用，不在 Manager 内加锁。未来 Live Runtime 必须把
-SDK callback 标准化后排入 Runtime 单写线程，不能从 SDK 线程直接修改聚合。
+首版 Backtest Manager 只允许 Runtime 所在线程同步调用，不在 Manager 内加锁。目标 Sim/Live 的异步 Adapter 回调必须
+标准化后排入 Runtime 单写线程；尤其 Live 的 Broker SDK callback 不能直接修改聚合。
 
 ## 8. Demo 与已知限制
 
 `examples/order_demo` 覆盖创建提交、显式 Accepted/部分成交、撤单、重复成交、乱序和 Context Scope。
 当前已有 Pre-Trade Risk Pipeline、Risk Reservation、Position/Allocation、Account 与持久化 ExecutionProcessor；受支持
-的 Generic T0 Cash BUY OPEN 和 multi-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。真实 Broker、
-Live/Paper Gateway 装配、Short/Hedging 与 Futures/Margin 仍留待后续 ADR。
+的 Generic T0 Cash BUY OPEN 和 multi-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。目标 Sim/Live
+的完整 realtime Gateway/Trading Kernel 装配、Real Broker、Short/Hedging 与 Futures/Margin 仍留待后续阶段；当前 legacy
+`PAPER` 只提供部分 streaming/observation 基础设施和 Shadow execution，不代表 Sim 已实现。
 
 ## 9. Position 归属衔接
 

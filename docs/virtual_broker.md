@@ -42,10 +42,14 @@ Backtest 装配要求 Broker 声明 `simulated_execution` 且 `OnlyBrokerCompone
 稳定调度、标准 Broker Update，以及 Order/Trade/Account/Position 查询投影。插件 Store 是
 `external simulated broker projection`，不是 Runtime accounting truth。
 
-Runtime 独占 Order、Committed Execution、Position、Allocation、Account、Strategy Ledger、Fee、Settlement、Margin、Risk、
+Trading Runtime 独占 Order、Runtime Transaction Store、Applied Projection Ledger、Position、Allocation、Account、Strategy
+Ledger、Fee、Settlement、Margin、Risk、
 Audit、Reconciliation 和 Result。Broker Update 只能进入 Runtime-owned `OnlyBrokerInboundQueue`，再由
 `OnlyExecutionProcessor` 应用。成功成交在完整事务提交后进入 Runtime Persistence Store 的 Projection Ready Query；
 Collector、Analytics、Artifact 和 Backtest Result 只读取该权威，`query_trades()` 仅用于 Broker 查询和对账。
+
+Virtual Broker 服务于目标 Backtest/Sim Trading Runtime。Research Runtime 没有 Broker 或 trading authorities；目标 Sim
+必须复用本插件与完整 Trading Kernel，绝不能连接或提交到 Real Broker。
 
 Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、
 T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 不携带本地或外部费用权威；插件不持有第二套
@@ -57,8 +61,8 @@ Runtime Commission/Fee 公式。Runtime 通过显式 Market Fee Pack 与 Account
 PR4.3.3 将 WHOLE、旧 `maximum_fill_quantity` 的 MAX_PER_BAR 和显式 SCHEDULE 统一归一化为订单级 immutable Fill
 Plan。ONE_PER_BAR 每 Bar执行一个到期 Step；ALL_DUE 可按 Step Index 同 Bar执行多个 Step。Ratio schedule 以前 N-1
 项向下量化、最后一项接收 remainder，严格保持订单总量。Plan 使用 canonical JSON + SHA-256 identity，cursor 与
-Order/Trade/Scheduler 一起进入 Gateway checkpoint schema 2；`broker.virtual` participant 与插件 capability 同为 version 2。
-Version 1 checkpoint fail fast。Broker execute 先推进 Account/Order/Trade/Plan，`PUBLISH_FILL` 后续才进入 Runtime，因此
+Order/Trade/Scheduler 与 submission control 一起进入 Gateway checkpoint schema 3；`broker.virtual` participant 与插件
+capability 同为 version 3。Version 1/2 checkpoint fail fast。Broker execute 先推进 Account/Order/Trade/Plan，`PUBLISH_FILL` 后续才进入 Runtime，因此
 execute-before-publish checkpoint 只恢复发布，不重复 Broker 成交。详见 ADR 0051。
 
 PR4.4.2 不修改 Fill Plan 或 Gateway 的 BUY/SELL 中立设计。同一 SCHEDULE 已通过 OnlyEngine 正式产品链验证 Long Close

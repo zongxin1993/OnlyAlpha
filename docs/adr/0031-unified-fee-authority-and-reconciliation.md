@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Superseded in part by: ADR 0059–0061 and [ADR 0068](0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) clarify that fee confirmation, external evidence and reconciliation derive from explicit fee/reporting authorities, never from Runtime type. The remaining immutable fee-authority decision stays Accepted.
+
 ## Context
 
 Market, venue, regulator and clearing rules describe economic sources of fees.

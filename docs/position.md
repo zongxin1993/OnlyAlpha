@@ -2,11 +2,11 @@
 
 ## 1. 组件边界与双层模型
 
-Position 是 Runtime 所有的单写入者状态域，不连接真实券商 SDK，不承担现金账户、完整策略资金账、撮合或强平。策略资金、
+Position 是 Trading Runtime 所有的单写入者状态域，不连接真实券商 SDK，不承担现金账户、完整策略资金账、撮合或强平。策略资金、
 费用、收益和净值由 Strategy Ledger 维护；它只消费 Allocation 更新结果，不回写 Position。
 
 ```text
-OnlyRuntime
+Trading Runtime
 ├── OnlyPositionManager               账户真实仓位
 ├── OnlyPositionAllocationManager     Cluster 归因账 + Unallocated
 ├── OnlyPositionReservationManager    卖出仓位预占
@@ -15,6 +15,9 @@ OnlyRuntime
 
 核心不变量是：`Account Position = sum(Cluster Allocation) + Unallocated`。普通 Cluster 不能读取可变实体、修改
 Position、操作其他 Cluster 或 Unallocated。
+
+Research Runtime 不拥有 Position、Allocation 或 Position Reservation authority；研究持仓序列只能是计算结果，不能冒充
+正式交易状态。
 
 ## 2. Key、Mode、Side 与生命周期
 
@@ -79,7 +82,7 @@ Reservation consumed/released/remaining 都进入同一 Prepared Transaction。�
 `OnlyBrokerPositionSnapshot` 是强类型、不可变、可序列化的 Gateway 标准 DTO。它保存总量、可用、冻结、结算/未结算、
 今/昨仓、券商均价、市值、快照时间、来源序列和质量标记，但从不充当内部 Position。
 
-Live 字段权威：账户总量和 Side 以 Broker 为外部权威；账户可用/冻结/结算量以 RECONCILED 为权威；Cluster Allocation、
+目标 Live 字段权威：账户总量和 Side 以 Broker 为外部权威；账户可用/冻结/结算量以 RECONCILED 为权威；Cluster Allocation、
 策略 PnL 和本地成交成本永远 LOCAL；券商成本与本地成本同时保留。
 
 Reconciliation 比较 total、available、frozen、settled、unsettled、side 和 average price，输出 Difference、Conflict、
@@ -94,7 +97,7 @@ Unallocated 操作。
 
 Risk 使用账户 Position View 与 Cluster Allocation View，卖出量必须同时不超过两者有效可用量；底层 Manager 仍执行
 超卖保护。Position 成功修改并更新索引/版本后才发布过去式事实，重复 Trade 不发布。第一版每 Runtime 单写入者串行
-修改；未来 SDK callback 必须先标准化并进入 Runtime inbound queue，不能直接写 Manager。
+修改；目标 Live 的 SDK callback 必须先标准化并进入 Runtime inbound queue，不能直接写 Manager。
 
 ## 9. Repository、序列化与 Demo
 
@@ -110,8 +113,10 @@ Restriction/Broker/Difference/Reconciliation/Unallocated 均以 Decimal 字符�
 - 业务执行仅实现 NETTING Long-only、Average Cost、Linear PnL 和 T+1。
 - HEDGING、Short、FIFO/LIFO、Inverse/Quanto、公司行动和今昨仓平仓尚未实现。
 - 尚无真实 Gateway 或数据库 Position Repository；Backtest Runtime 对受支持的 Generic T0 Cash BUY OPEN 与 multi-fill
-  Long CLOSE 已使用 Runtime Persistence Store、ordered Projection 和 Recovery。Paper/Live 恢复仍未实现。
-- Live/Paper 的完整资源装配仍按 Runtime 路线图推进，但每种 Runtime 从构造起已独占 Position/Allocation 状态域。
+  Long CLOSE 已使用 Runtime Persistence Store、ordered Projection 和 Recovery。
+- 目标 Sim/Live 的完整资源装配与 streaming recovery 尚未实现。当前 legacy `PAPER` 虽由 trading-shaped 基类构造部分
+  状态，但它仍是 read-only observation + Shadow execution 的迁移实现；这不建立长期 Position authority 合同，也不表示
+  Research 应拥有 Position/Allocation 状态域。
 ## Virtual Broker Position Snapshot
 
 Virtual Broker Position Update 经 Runtime inbound queue 转换为 Position 标准 Broker Snapshot，再进入现有字段级 Authority 与

@@ -61,9 +61,10 @@ sequence、failures 与 Clock state；callback 在锁外运行。绝对时间来
 
 ## 8. Runtime 与 Cluster
 
-每个 Runtime 独占 Clock，Runtime stop 负责 close。Live/Paper 可使用 Live Clock，Backtest 使用
-Backtest Clock，Research 可使用 Virtual Clock。不同 Runtime 不能共享可变 Clock。Cluster 只获得
-`OnlyClockView`，无法推进或关闭 Runtime Clock。
+每个具有 Clock 的 Runtime 独占该 Clock，Runtime stop 负责 close。目标 Backtest 使用 Backtest Clock，目标 Sim/Live
+使用 Live Clock；当前 legacy `PAPER` 也使用 Live Clock，属于 Sim streaming driver 的迁移来源。Research 的时间边界由
+Research Job / Plan 定义，可以复用纯时间原语，但不得为满足 Trading Runtime 抽象而强制拥有 Trading Clock。不同 Runtime
+不能共享可变 Clock。Trading Cluster 只获得 `OnlyClockView`，无法推进或关闭 Runtime Clock。
 
 ## 9. 测试、Demo 与限制
 

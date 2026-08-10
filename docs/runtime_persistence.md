@@ -4,7 +4,10 @@
 
 同一 Transaction/Trade/Update 业务键且 `authority_hash` 相同时返回原 committed transaction；同一业务键指向不同 authority，或多个幂等索引指向不同事务时抛出 `OnlyRuntimeTransactionConflict`。I/O、SQLite lock/malformed/schema、非业务唯一约束、Outbox、序列化和损坏数据错误统一抛出 `OnlyRuntimePersistenceStoreError` 并保留 cause。
 
-SQLite schema v2 将 metadata、transactions、indexes、outbox、checkpoint headers 和 checkpoint components 保存在同一数据库。事务、索引与 Outbox 使用同一 `BEGIN IMMEDIATE`；一个检查点的 header、全部 components 和 retention 删除也使用单一原子事务。schema v1 与历史 `execution_store_metadata` 布局均明确拒绝，不提供隐式迁移。
+SQLite Runtime Persistence schema v5 将 metadata、transactions、indexes、outbox、checkpoint headers 和 checkpoint
+components 保存在同一数据库。事务、索引与 Outbox 使用同一 `BEGIN IMMEDIATE`；一个检查点的 header、全部 components
+和 retention 删除也使用单一原子事务。Persistence schema v1–v4 与历史 `execution_store_metadata` 布局均明确拒绝，
+不提供隐式迁移或 Memory fallback。Runtime Checkpoint envelope 使用独立 schema v3，不能与 Store schema 混为一谈。
 
 Store 保存 canonical payload 与 SHA-256 hash，读取时重新验证。Outbox 在 Projection Ready 前不可见；Ready 后保留确定性 Event ID，并独立记录发布尝试与发布状态。检查点读取验证 Runtime/config/participant-registry 身份、连续序号、header hash、component hash、组件全集和 schema version。
 

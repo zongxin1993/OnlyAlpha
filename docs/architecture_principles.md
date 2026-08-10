@@ -1,5 +1,19 @@
 # OnlyAlpha 架构原则
 
+## Runtime taxonomy 与 authority
+
+- Rule: 唯一目标 Runtime vocabulary 是 `RESEARCH`、`BACKTEST`、`SIM`、`LIVE`。
+- Rule: 当前源码 `PAPER` 是 Legacy Streaming Implementation / Sim Migration Source，不是第五种目标 Runtime，也不得新增依赖。
+- Rule: Standalone `SHADOW` 不是目标 Runtime；当前 Factory 和 `PAPER` 内部 Shadow capability 是待迁移实现债务。
+- Rule: Research Runtime 使用 Research Job / Plan，只拥有 research execution、Dataset、Calculation、Result 与 Artifact state。
+- Rule: Research 不得为父类对称或代码复用创建 Order、Position、Account、Broker、Reservation 或 Trading Transaction authority。
+- Rule: Backtest、Sim 与 Live 是 Trading Runtime，并共享一套 Trading Semantic Core。
+- Rule: 正式 Backtest 保持 Historical、Event-driven、Virtual Broker 与完整 Trading Kernel；Vectorized execution 只属于 Research。
+- Rule: Runtime Type 不等于 Execution Permission；Strategy 和交易经济逻辑不得按 Runtime type 分支。
+- Rule: Runtime 差异主要限于 Clock Driver、MarketData Driver、Broker Adapter 和 Lifecycle Driver。
+- Rule: Sim 使用 Realtime、Virtual Broker 和完整 Trading Kernel，绝不能向 Real Broker 提交订单。
+- Rule: `PAPER` / `SHADOW` 迁移后删除 spelling 与实现，不保留 alias、deprecated spelling 或 wrapper。
+
 ## Product-style Demo
 
 - Rule: OnlyAlpha 的正式 Demo 必须使用与实际产品相同的固定接口。
@@ -13,7 +27,7 @@
 
 - Rule: 所有业务当前时间必须来自 Runtime Clock。
 - Rule: Domain 和 Cluster 禁止直接读取系统时间。
-- Rule: 每个 Runtime 拥有独立 Clock。
+- Rule: 每个具有 Clock 的 Runtime 独占该 Clock；Research 不因抽象对称而获得 Trading Clock。
 - Rule: Backtest Clock 不读取真实系统时间。
 - Rule: Cluster 不能推进 Runtime Clock。
 - Rule: UTC 表示绝对时间，Trading Calendar 解释市场时间。
@@ -32,9 +46,9 @@
 - Rule: 策略默认只能读取已关闭 Bar。
 - Rule: 派生 Bar 在 Runtime 级共享，不在 Cluster 内重复生成。
 - Rule: 指标强依赖必须在策略执行前完成。
-- Rule: 回测与实盘必须使用相同的数据准备顺序。
-- Rule: Runtime 是 Clock、EventBus、Cache、Pipeline 和 Cluster 的资源所有者。
-- Rule: 每个 Runtime 必须隔离所有可变运行状态。
+- Rule: Backtest、Sim 与 Live 必须使用相同的数据准备顺序。
+- Rule: Trading Runtime 是 Clock、EventBus、Cache、Pipeline 和 Cluster 的资源所有者。
+- Rule: 每个 Runtime 必须隔离自己实际拥有的可变状态；Research 不拥有 formal trading authorities。
 - Rule: Cluster 只能通过 RuntimeContext 使用 Runtime 能力。
 - Rule: RuntimeContext 不能暴露底层可变实现。
 - Rule: Cluster 不能直接访问 Gateway、EventBus、可变 MarketData Cache 或 Aggregator。
@@ -42,8 +56,8 @@
 - Rule: Cluster 停止后不得继续接收事件和 Timer。
 - Rule: 一个 Cluster 失败不得默认导致其他 Cluster 失败。
 - Rule: Snapshot 属于单次回调上下文，不能复用为可变全局状态。
-- Rule: 回测和实盘必须使用相同 Cluster 回调接口。
-- Rule: 每个 Runtime 拥有一个订单状态域和一个 OnlyOrderManager，Cluster 不拥有 OrderManager。
+- Rule: Backtest、Sim 与 Live 必须使用相同 Cluster 回调接口。
+- Rule: 每个 Trading Runtime 拥有一个订单状态域和一个 OnlyOrderManager，Cluster 不拥有 OrderManager。
 - Rule: Cluster 只能通过 ctx.orders 使用订单能力，且不能访问其他 Cluster 的订单。
 - Rule: Order Command、Query 和 State Mutation 使用函数调用。
 - Rule: Order Event 只表达状态已经成功变化的事实，EventBus 不负责订单状态迁移。
@@ -52,13 +66,13 @@
 - Rule: OnlyOrderManager 不依赖具体券商 SDK，外部执行通过 ExecutionService/TradeGateway Port。
 - Rule: SDK submit 成功不等于 Venue Accepted，cancel 成功不等于订单已经 Cancelled。
 - Rule: 重复回报必须幂等，迟到回报不得导致状态回退。
-- Rule: 每个 Runtime 独占 RiskService、Risk State、Profile 绑定和 Reservation 空间。
+- Rule: 每个 Trading Runtime 独占 RiskService、Risk State、Profile 绑定和 Reservation 空间。
 - Rule: Mandatory System Risk Rules 不能由 Cluster 删除、替换或降级。
 - Rule: on_bar 前 Risk Snapshot 只用于只读状态；每次 submit 必须重新执行最终 Pre-Trade Risk。
 - Rule: Risk REJECT 和 ERROR 都不得创建 Order 或调用 Execution，ERROR 默认 Fail Closed。
 - Rule: ACCEPT 后必须立即建立 Reservation，使同一回调中的后续订单看到最新预占。
 - Rule: Risk 业务顺序不得依赖注册顺序或 EventBus priority。
-- Rule: 每个 Runtime 拥有独立账户 Position 状态域。
+- Rule: 每个 Trading Runtime 拥有独立账户 Position 状态域。
 - Rule: 账户真实 Position 与 Cluster Allocation 必须分离。
 - Rule: 策略收益必须基于自身 Trade 和 Allocation 计算。
 - Rule: 无法归因的持仓必须进入 Unallocated。
@@ -69,7 +83,7 @@
 - Rule: Available Quantity 是派生值，不是无条件可信的持久化字段。
 - Rule: 本地 Position Reservation 与券商冻结必须区分。
 - Rule: Broker Snapshot 不得静默覆盖本地 Position 历史。
-- Rule: 每个 Runtime 拥有独立 OnlyStrategyLedgerManager，每个 Cluster 拥有独立 Strategy Ledger。
+- Rule: 每个 Trading Runtime 拥有独立 OnlyStrategyLedgerManager，每个 Cluster 拥有独立 Strategy Ledger。
 - Rule: 券商真实账户账与策略虚拟账必须分离。
 - Rule: 策略收益只能基于自身 Trade、Fee 和 Position Allocation。
 - Rule: Strategy Cash Available 必须由 Cash Balance 与 Reservation 派生。
@@ -80,11 +94,11 @@
 - Rule: 乱序 Trade 必须进入严格处理或 Reconciliation。
 - Rule: Cluster 只能通过 ctx.positions 读取不可变 Snapshot。
 - Rule: 每次完整开平仓周期使用新的 PositionId。
-- Rule: 每个 Runtime 独占 OnlyAccountManager，Account 是账户级本地真值，Strategy Ledger 是 Cluster 虚拟账。
+- Rule: 每个 Trading Runtime 独占 OnlyAccountManager，Account 是账户级本地真值，Strategy Ledger 是 Cluster 虚拟账。
 - Rule: AccountManager、Virtual Broker 和 StrategyLedger 不得共享内部可变对象。
 - Rule: Broker Gateway 只能依赖标准 Port 和 DTO，不得持有任何 Runtime Manager。
 - Rule: Broker 同步返回只表示请求接收，Accepted、Fill 和 Cancelled 必须来自标准化异步回报。
-- Rule: 所有 Broker 回报必须先进入 Runtime 拥有的有界 Inbound Queue。
+- Rule: 所有 Broker 回报必须先进入 Trading Runtime 拥有的有界 Inbound Queue。
 - Rule: Broker Snapshot 不得静默覆盖本地 Account、Order 或 Position 历史。
 - Rule: Virtual Broker 必须维护独立 Account、Order 和 Trade Store。
 - Rule: Matching Engine 与 Gateway 分离，Next-Bar 撮合不得读取未来数据。
@@ -98,7 +112,7 @@
 - Rule: 重复 Broker Update 和重复 Trade 必须幂等。
 - Rule: 迟到 Update 不得导致状态回退；无法安全应用的乱序 Trade 必须进入 Reconciliation。
 - Rule: 中途失败不得发布完整成功 Event。
-- Rule: Backtest、Paper、Live 和 Virtual Broker 必须共用同一 ExecutionProcessor API。
+- Rule: Backtest、Sim 与 Live 必须共用同一 ExecutionProcessor API；Virtual Broker 只通过标准 Broker Update 进入该入口。
 - Rule: 所有新增组件必须接入完整 Vertical Slice 并运行全部历史回归。
 - Rule: 市场数据平面与交易执行平面必须分离，MarketDataGateway 不属于 BrokerGateway。
 - Rule: 实时与历史数据使用统一 Domain 类型，来源元数据保存在不可变 Update Envelope。
@@ -109,7 +123,7 @@
 - Rule: Source、Sequence、Version、UTC 双时间与 Quality 必须可追踪。
 - Rule: Gap Detection 必须理解 TradingCalendar 与 Session。
 - Rule: Cluster 不得访问 DataSource、MarketDataGateway、ReplayService、Processor 或 Inbound Queue。
-- Rule: OnlyEngine/Runtime 管理多个相互隔离的 OnlyCluster。
+- Rule: OnlyEngine 管理 Runtime；Trading Runtime 管理多个相互隔离的 OnlyCluster，Research Runtime 管理 Research Job / Plan。
 - Rule: 一个 OnlyCluster 只能持有一个 OnlyStrategy，并可持有多个 OnlyFactor。
 - Rule: 一个计算型 OnlyFactor 可以使用一个或多个 OnlyIndicator。
 - Rule: OnlyStrategy 读取 Factor Snapshot/Score，不主持通用 Indicator。
@@ -117,7 +131,7 @@
 - Rule: OnlyIndicator 是无交易副作用的最底层计算单元，专有结果通过强类型 Snapshot 输出。
 - Rule: Indicator Canonical Score 必须保留 Dimension；原始 Snapshot 是权威结果。
 - Rule: Factor 必须输出 Factor Snapshot 和 Factor Score。
-- Rule: Indicator 实例必须按 Runtime、Cluster、Factor、Indicator Scope 隔离。
+- Rule: Trading Indicator 实例必须按 Runtime、Cluster、Factor、Indicator Scope 隔离；Research 计算状态按 Research Job 隔离。
 - Rule: Factor 在 on_initialize 中通过 Indicator Factory Registry 创建 Indicator。
 - Rule: Runtime 和 Assembly 不得识别 MACD、RSI 等具体指标。
 - Rule: 通用 Indicator 可位于核心库；示例 Factor 与 Strategy 必须位于独立插件包。

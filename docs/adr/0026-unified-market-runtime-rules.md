@@ -4,6 +4,7 @@
 - Date: 2026-07-19
 - Modules: config, market, runtime, risk, broker, execution, settlement, margin, result
 - Supersedes in part: ADR 0024, ADR 0025
+- Superseded in part by: [ADR 0068](0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 仅替代 `Backtest/Paper/Live/Shadow` Runtime vocabulary；统一 Market Rule authority 继续有效，目标 Trading Runtime 为 `BACKTEST/SIM/LIVE`，Research 不承担 formal trading Market Rule lifecycle。
 
 ## Decision
 

@@ -31,17 +31,50 @@ Monorepo
 - 可审计的交易事实；
 - 可恢复的执行和账务链；
 - 可扩展但不互相污染的市场与插件边界；
-- 回测、Paper、Live 和 Research 可复用的核心模型。
+- Research 可复用纯数据/计算定义，Backtest、Sim、Live 共享正式交易语义核心。
 
 禁止把 OnlyAlpha 描述为其他工程的重构版本，也禁止为了兼容历史实验代码而长期保留两套正式路径。
 
 ---
 
-## 2. 当前产品边界
+## 2. Runtime 架构合同与当前产品边界
 
-修改任何功能前，必须先确认它属于哪一个产品范围。
+修改任何功能前，必须先区分目标架构合同与当前实现事实。
 
-### 2.1 当前正式完成范围
+### 2.1 目标 Runtime 架构合同
+
+OnlyAlpha 唯一允许的目标 Runtime vocabulary 是：
+
+```text
+RESEARCH
+BACKTEST
+SIM
+LIVE
+```
+
+| Runtime | 数据 | 执行 | Broker | 正式交易语义 |
+|---|---|---|---|---|
+| RESEARCH | Historical | Vectorized / Batch | None | 不承担 |
+| BACKTEST | Historical | Event-driven | Virtual Broker | 完整承担 |
+| SIM | Realtime | Event-driven | Virtual Broker | 完整承担 |
+| LIVE | Realtime | Event-driven | Real Broker | 完整承担 |
+
+正式原则：
+
+```text
+Research optimizes research efficiency.
+
+Backtest / Sim / Live
+share one trading semantic core.
+
+Runtime Type
+!=
+Execution Permission.
+```
+
+`PAPER` 和 standalone `SHADOW` 不是目标产品 Runtime。当前源码中的相关 enum、配置、Factory、Runtime 和测试是迁移债务，不是长期兼容合同；不得新增依赖，也不得通过 alias、deprecated spelling 或 wrapper 长期保留。
+
+### 2.2 当前正式完成范围
 
 ```text
 Runtime          : BACKTEST
@@ -81,9 +114,9 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 → Checkpoint / Recovery
 ```
 
-### 2.2 Paper 当前范围
+### 2.3 Legacy Streaming / SIM 迁移基线
 
-Paper Runtime 已实现并完成当前 Profile 下的真实 MiniQMT 验收：
+当前源码 spelling `PAPER` 已实现并完成当前 Profile 下的真实 MiniQMT 验收。它只表示未来 Sim 所需的一部分 streaming 基础设施已经存在：
 
 ```text
 Historical Bootstrap
@@ -100,7 +133,7 @@ Reservation Create / Release
 Ordered Shutdown
 ```
 
-Paper 当前仍是：
+当前 `PAPER` 路径仍是：
 
 ```text
 Read-only Market Observation
@@ -108,7 +141,7 @@ Read-only Market Observation
 Shadow Execution
 ```
 
-当前不得声称 Production Paper 已完成。以下能力仍未闭环：
+它不是目标产品 Runtime，也不得声称 Production Sim 已完成。以下能力仍未闭环：
 
 ```text
 Reconnect
@@ -121,7 +154,9 @@ Long-running Production Operations
 Broad MiniQMT Compatibility Matrix
 ```
 
-### 2.3 当前不可用产品
+后续 P6 必须迁移并清理该基础设施，以 Virtual Broker + 完整 Trading Kernel 替换 Shadow execution，形成正式 `SIM`，然后删除 `PAPER` spelling/implementation；不保留 compatibility wrapper。
+
+### 2.4 当前不可用或不存在的目标能力
 
 以下 Runtime Factory 当前明确不可用：
 
@@ -131,6 +166,8 @@ Standalone SHADOW
 RESEARCH
 ```
 
+目标 `SIM` 当前尚无 enum、配置 spelling 或 Factory，不能写成已实现。
+
 注意：
 
 ```text
@@ -139,7 +176,9 @@ Paper 内有 Shadow Execution
 Standalone Shadow Runtime 已实现
 ```
 
-### 2.4 领域模型不等于产品能力
+当前 unsupported `SHADOW` Factory 也是待删除的实现债务；standalone Shadow 不得成为产品方向。`RESEARCH` 和 `LIVE` 虽是目标 Runtime，但当前生产工作流仍未完成。
+
+### 2.5 领域模型不等于产品能力
 
 以下对象即使存在，也不能据此声明产品已经支持：
 
@@ -176,8 +215,8 @@ CN_A_SHARE_CASH Profile 存在
 1. 当前可执行源码和正式公共接口
 2. 当前自动化测试、架构门禁和产品验收
 3. 未被替代的 ADR
-4. 当前组件文档
-5. AGENTS.md
+4. AGENTS.md
+5. docs/architecture.md 和当前组件文档
 6. README.md
 7. docs/roadmap.md
 8. 带明确日期和提交基线的 docs/reports/
@@ -236,6 +275,8 @@ CLI / Application
 → OnlyRuntime
 → OnlyCluster
 ```
+
+该调用链描述当前 Trading Runtime 产品入口。目标 Research Runtime 仍由 `OnlyEngine` 管理产品生命周期，但使用 Research Job / Plan，而不是伪造 Trading Cluster；在 Research 产品入口正式实现前不得据此新增生产框架。
 
 允许的主要入口：
 
@@ -309,11 +350,17 @@ Engine 不负责：
 
 ---
 
-## 7. Runtime 所有权
+## 7. Trading Runtime 所有权与 Research 边界
 
-Runtime 是全部可变交易状态的唯一所有者。
+目标 Trading Runtime 是：
 
-每个 Runtime 必须独占：
+```text
+BACKTEST
+SIM
+LIVE
+```
+
+每个 Trading Runtime 是其全部 mutable trading authorities 的唯一所有者，并必须独占：
 
 ```text
 Clock
@@ -346,6 +393,31 @@ Recovery State
 Runtime Audit
 ```
 
+Research Runtime 只拥有：
+
+```text
+Research execution state
+Dataset state
+Calculation state
+Research Result state
+Research Artifact state
+```
+
+Research 不得仅为满足共享父类、Manager 数量对称或代码复用而创建 Order、Position、Account、Broker、Reservation、Execution Transaction 等 Trading Authorities。当前 `OnlyRuntime` 基类和 `PAPER`/`SHADOW` 源码呈现的 trading-shaped 结构属于待迁移实现事实，不得反向定义 Research 目标模型。
+
+当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
+
+Backtest / Sim / Live 追求 Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。差异主要限于：
+
+```text
+Clock Driver
+MarketData Driver
+Broker Adapter
+Lifecycle Driver
+```
+
+进入 Trading Kernel 后只能消费 normalized domain input、normalized broker facts、market instructions 和 economic context，不得消费 Runtime name 作为经济权限或业务规则。
+
 禁止：
 
 - Manager 被多个 Runtime 共享；
@@ -355,8 +427,12 @@ Runtime Audit
 - DataSource 或 Broker Gateway 持有 Manager；
 - 插件直接修改 Runtime 状态；
 - 通过全局单例保存 Runtime 交易状态。
+- Strategy 根据 Runtime type 分支交易逻辑；
+- Trading economics 或 Execution Support 根据 Runtime type 决定权限；
+- 新建 `SimOrderManager`、`LivePositionManager`、`BacktestAccountManager` 等 Runtime 专用经济真值；
+- SIM 连接或向 Real Broker 提交订单。
 
-跨组件状态修改必须由 Runtime 内正式 Service 或 Processor 编排。
+跨组件状态修改必须由 Trading Runtime 内正式 Service 或 Processor 编排。
 
 ---
 
@@ -378,7 +454,7 @@ Subscription Scope
 Strategy Ledger Scope
 ```
 
-Cluster 是隔离容器，不是 Strategy 本身。
+Cluster 是 Trading Runtime 的隔离 workload，不是 Strategy 本身，也不是 Research Job。
 
 Cluster 不得：
 
@@ -390,7 +466,23 @@ Cluster 不得：
 - 推进 Runtime Clock；
 - 修改账户级 Manager。
 
-### 8.2 固定计算顺序
+### 8.2 Research Job / Research Plan
+
+Research Job 是研究任务，不得伪装成 Trading Cluster。它可以描述：
+
+```text
+Dataset
+Universe
+Time Range
+Indicator / Factor / Feature definitions
+Parameter Grid
+Statistics specification
+Output specification
+```
+
+Research 可以复用纯 Indicator / Factor 定义和 canonical data model，但不经过 Strategy、Order、Broker、Risk Reservation、Trading Account、Trading Position 或 Durable Trading Transaction。Web 只能查询 immutable Research Result / Artifact，不得操作 Runtime internal mutable state。
+
+### 8.3 固定计算顺序
 
 同一行情时间片的业务顺序必须显式确定：
 
@@ -418,7 +510,7 @@ MarketData Validate / Process
 
 需要排序时，必须使用稳定、业务可解释的 Key。
 
-### 8.3 Indicator
+### 8.4 Indicator
 
 Indicator：
 
@@ -429,7 +521,7 @@ Indicator：
 - Checkpoint 能力必须显式声明；
 - 恢复后输出必须与连续运行一致。
 
-### 8.4 Factor
+### 8.5 Factor
 
 Factor：
 
@@ -439,7 +531,7 @@ Factor：
 - 不直接访问 Account、Position 或 Broker；
 - Cross-Section 调度必须由正式 Runtime/Cluster 流程完成。
 
-### 8.5 Strategy
+### 8.6 Strategy
 
 Strategy：
 
@@ -450,6 +542,7 @@ Strategy：
 - 不得直接创建 Fill；
 - 不得自行模拟 Broker 回报；
 - Checkpoint 能力必须显式声明。
+- 不得读取 Runtime type 后改变交易意图或经济逻辑。
 
 ---
 
@@ -603,7 +696,9 @@ onlyalpha.plugin.api
 - Recovery Orchestrator 内部状态；
 - Persistence Store 具体 Schema；
 - Projection Applier；
--内部 Audit Store。
+- 内部 Audit Store。
+
+当前根包/`onlyalpha.runtime` 仍导出部分具体 Runtime 类，`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster` 仍导出 `OnlyClusterManager`。这是当前可导入事实和 API 收紧债务；不得谎称已经不可导入，也不得据此把 legacy `PAPER/SHADOW` 或内部编排对象升级为长期兼容合同。
 
 规则：
 
@@ -695,13 +790,13 @@ Historical DataSource
 - Catch-up、Dedup 和 Gap 必须有唯一 Authority；
 - 不能通过修改 Bar 时间制造验收通过。
 
-### 12.1 Paper Bootstrap
+### 12.1 Legacy PAPER Bootstrap / SIM 迁移基线
 
-Paper 启动必须遵循：
+当前 `PAPER` streaming 实现的调用顺序是：
 
 ```text
-Freeze Bootstrap Boundary
-→ Subscribe
+Subscribe and buffer live input
+→ Capture / Freeze Bootstrap Boundary
 → Historical Request
 → Worker Validation
 → Parent Validation
@@ -711,6 +806,8 @@ Freeze Bootstrap Boundary
 → Watermark
 → Live Handoff
 ```
+
+目标不变量是 logical bootstrap boundary 明确、订阅与历史回放之间不丢数据、catch-up 顺序确定；P6 迁移到 Sim 时必须保留这些性质并由正式测试冻结，不能把当前调用顺序臆写成另一种已实现行为。
 
 必须区分：
 
@@ -725,6 +822,8 @@ Historical Watermark
 ```
 
 这些计数和尾部不得互相替代。
+
+这些边界应在 P6 迁移到 `SIM`；不得为 `PAPER` 新增长期产品依赖，也不得复制第二套 streaming authority。
 
 ---
 
@@ -849,12 +948,21 @@ Durable Outbox Intent
 
 ### 15.1 Operation Kind
 
-正式 Operation Kind：
+当前正式 Runtime Operation Kind：
 
 ```text
+ORDER_ACCEPTED
 TRADE_FILL
 ORDER_TERMINAL
+SETTLEMENT_MATURITY
+FEE_RECONCILIATION
 ```
+
+`ORDER_ACCEPTED`：
+
+- 冻结 Broker Accepted identity 和 payload；
+- 投影 Order 与相应 Reservation stage；
+- 不伪造成 Trade。
 
 `TRADE_FILL`：
 
@@ -877,6 +985,10 @@ EXPIRED
 - 不产生 Trade PnL；
 - 不产生 Trade Settlement；
 - 只投影终态需要的 Order/Reservation/Risk 变化。
+
+`SETTLEMENT_MATURITY` 只按 committed Settlement Instruction 将到期资产/资金投影为可用状态，不重新猜测市场制度。
+
+`FEE_RECONCILIATION` 用新的 durable fact 表达外部 Broker evidence 与历史 Fee Application 的差额；不得覆盖已提交费用历史。
 
 ---
 
@@ -1243,7 +1355,7 @@ Artifact 写入要求：
 - Enum 使用 value；
 - 不泄漏 Secret、Token、账户凭据和用户绝对路径。
 
-Paper Observation：
+Legacy `PAPER` Observation（未来迁移到 `SIM`）：
 
 - 只读；
 - 不成为交易状态权威；
@@ -1528,6 +1640,24 @@ temporary_trade_store
 
 不得为了“先跑起来”使用隐式默认值放行资金和交易状态。
 
+### 28.4 Runtime taxonomy 架构门禁
+
+以下规则是未来源码迁移和静态门禁的正式输入：
+
+1. 目标 Runtime 只允许 `RESEARCH`、`BACKTEST`、`SIM`、`LIVE`。
+2. 不得新增 `PAPER` Runtime 产品或依赖。
+3. 不得新增 standalone `SHADOW` Runtime 产品或依赖。
+4. 正式 Backtest 必须保持 event-driven + Virtual Broker + full Trading Kernel。
+5. Vectorized execution 只属于 Research，不得命名或实现为 canonical Backtest。
+6. Strategy 不得按 Runtime type 分支。
+7. Trading economics 和 Execution Support 不得按 Runtime type 决定权限。
+8. Backtest、Sim、Live 必须共享一个 trading semantic core。
+9. SIM 永远不得向 Real Broker 提交订单。
+10. RESEARCH 不得为了共享 Runtime 抽象而实例化 Trading Authorities。
+11. Runtime 差异主要限于 Clock、MarketData Driver、Broker Adapter 和 Lifecycle Driver。
+12. Runtime Type 不是 Execution Permission；不得创建 Runtime-specific duplicate economic authorities。
+13. 不得通过 compatibility alias、deprecated spelling 或 wrapper 长期保留 `PAPER` / `SHADOW` public Runtime vocabulary。
+
 ---
 
 ## 29. 文档规则
@@ -1539,6 +1669,9 @@ temporary_trade_store
 只描述：
 
 - 产品定位；
+- 长期产品模型；
+- 当前实现与目标迁移状态；
+- 核心工程机制；
 - 当前可用能力；
 - 快速开始；
 - 产品边界；
@@ -1555,6 +1688,10 @@ temporary_trade_store
 - 架构不变量；
 - 事实来源；
 - 验证和交付门禁。
+
+### Architecture
+
+`docs/architecture.md` 描述当前系统如何组织，并明确当前实现与已接受目标架构的差距；不得维护历史阶段、PR 或任务流水账。
 
 ### Roadmap
 
@@ -1666,7 +1803,10 @@ NOT EXECUTED
 ### 架构正确性
 
 - 依赖方向正确；
-- Runtime 仍是可变状态唯一所有者；
+- Trading Runtime 仍是 mutable trading authority 唯一所有者；
+- Research Runtime 未因结构对称创建 Trading Authorities；
+- 目标 Runtime vocabulary 仍只有 `RESEARCH/BACKTEST/SIM/LIVE`；
+- Backtest/Sim/Live 未产生 Runtime-specific economic path；
 - 插件未穿透 Core 内部；
 - Strategy/Factor 未获得越权能力；
 - Market Rule 未复制；
@@ -1728,6 +1868,13 @@ Fake SDK PASS 冒充真实产品 PASS
 在 Artifact 中保存 Secret
 未运行测试却声称测试通过
 根据 prompts/ 创建第二套实现
+新增 PAPER 或 standalone SHADOW Runtime 产品依赖
+将 PAPER/SHADOW 作为 SIM 长期兼容 alias
+把向量化交易近似称为正式 Backtest
+Strategy 或 Execution 根据 Runtime type 决定交易语义
+为 Backtest/Sim/Live 复制经济 Manager
+SIM 向 Real Broker 提交订单
+Research 为结构对称实例化 Trading Authorities
 ```
 
 ---
