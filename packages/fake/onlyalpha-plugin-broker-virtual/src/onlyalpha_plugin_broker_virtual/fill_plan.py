@@ -28,6 +28,7 @@ class OnlyVirtualFillPlanStatus(StrEnum):
     ACTIVE = "ACTIVE"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,11 @@ class OnlyVirtualOrderFillPlan(OnlyDomainModel):
             raise ValueError("VIRTUAL_FILL_PLAN_ACTIVE_CURSOR_INVALID")
         if self.status is OnlyVirtualFillPlanStatus.COMPLETED and self.next_step_index != len(self.steps):
             raise ValueError("VIRTUAL_FILL_PLAN_COMPLETED_CURSOR_INVALID")
+        if self.status in {
+            OnlyVirtualFillPlanStatus.CANCELLED,
+            OnlyVirtualFillPlanStatus.EXPIRED,
+        } and self.next_step_index >= len(self.steps):
+            raise ValueError("VIRTUAL_FILL_PLAN_TERMINAL_CURSOR_INVALID")
 
     @property
     def executed_quantity(self) -> OnlyQuantity:

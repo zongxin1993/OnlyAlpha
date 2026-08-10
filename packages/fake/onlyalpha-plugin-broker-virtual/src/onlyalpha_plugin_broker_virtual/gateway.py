@@ -29,6 +29,7 @@ from onlyalpha.broker.updates import (
     OnlyBrokerInboundUpdate,
     OnlyBrokerOrderAcceptedUpdate,
     OnlyBrokerOrderCancelledUpdate,
+    OnlyBrokerOrderExpiredUpdate,
     OnlyBrokerOrderRejectedUpdate,
     OnlyBrokerTradeUpdate,
 )
@@ -72,6 +73,12 @@ from onlyalpha_plugin_broker_virtual.stores import (
     OnlyVirtualBrokerAccountStore,
     OnlyVirtualBrokerOrderStore,
     OnlyVirtualBrokerTradeStore,
+)
+from onlyalpha_plugin_broker_virtual.submission_control import (
+    OnlyVirtualSubmissionAction,
+    OnlyVirtualSubmissionControl,
+    only_virtual_submission_control_from_checkpoint,
+    only_virtual_submission_control_to_checkpoint,
 )
 
 
@@ -239,6 +246,8 @@ class OnlyVirtualBrokerGateway:
                 "unknown Broker account",
             )
         self._venue_order_sequence += 1
+        submission_index = self._venue_order_sequence
+        submission_control = self.config.submission_simulation.control_for(submission_index)
         venue_order_id = OnlyVenueOrderId(f"virtual-order-{self._venue_order_sequence:08d}")
         order = OnlyBrokerOrderSnapshot(
             self.config.gateway_id,
@@ -262,12 +271,18 @@ class OnlyVirtualBrokerGateway:
         due = request.submitted_at.unix_nanos + self._latency.submit_latency_ns + self._latency.acceptance_latency_ns
         action_payload = {
             "causation_id": request.gateway_request_id.value,
+            "control": only_virtual_submission_control_to_checkpoint(submission_control),
             "order_id": str(order.order_id),
-            "type": "ACCEPT",
+            "submission_index": submission_index,
+            "type": "SUBMISSION",
         }
         self.scheduler.schedule(
             due,
-            lambda: self._accept(order, request.gateway_request_id.value),
+            lambda: self._apply_submission_control(
+                order,
+                request.gateway_request_id.value,
+                submission_control,
+            ),
             checkpoint_payload=action_payload,
         )
         return OnlyBrokerOrderSubmitResult(
@@ -288,7 +303,12 @@ class OnlyVirtualBrokerGateway:
             return OnlyBrokerCancelResult(
                 False, OnlyBrokerOperationStatus.REJECTED, request.gateway_request_id, "unknown Broker order"
             )
-        if order.status in {OnlyOrderStatus.CANCELLED, OnlyOrderStatus.FILLED, OnlyOrderStatus.REJECTED}:
+        if order.status in {
+            OnlyOrderStatus.CANCELLED,
+            OnlyOrderStatus.EXPIRED,
+            OnlyOrderStatus.FILLED,
+            OnlyOrderStatus.REJECTED,
+        }:
             return OnlyBrokerCancelResult(
                 False, OnlyBrokerOperationStatus.REJECTED, request.gateway_request_id, "Broker order is terminal"
             )
@@ -387,6 +407,36 @@ class OnlyVirtualBrokerGateway:
             else tuple(item for item in values if item.source_sequence >= query.since_sequence)
         )
 
+    def _apply_submission_control(
+        self,
+        submitted: OnlyBrokerOrderSnapshot,
+        causation_id: str,
+        control: OnlyVirtualSubmissionControl | None,
+    ) -> None:
+        if control is None:
+            self._accept(submitted, causation_id)
+            return
+        if control.action is OnlyVirtualSubmissionAction.REJECT_BEFORE_ACCEPTED:
+            rejection_code = control.effective_rejection_code
+            if rejection_code is None:
+                raise RuntimeError("VIRTUAL_SUBMISSION_REJECTION_CODE_MISSING")
+            current = self.order_store.require(submitted.order_id)
+            if current.status is OnlyOrderStatus.SUBMITTED:
+                self._reject(
+                    current,
+                    causation_id,
+                    control.effective_reason,
+                    code=rejection_code,
+                )
+            return
+        if control.action is OnlyVirtualSubmissionAction.ACCEPT_THEN_EXPIRE:
+            self._accept(submitted, causation_id)
+            current = self.order_store.require(submitted.order_id)
+            if current.status is OnlyOrderStatus.ACCEPTED:
+                self._expire(current, causation_id, control.effective_reason)
+            return
+        raise RuntimeError("VIRTUAL_SUBMISSION_ACTION_UNSUPPORTED")
+
     def _accept(self, submitted: OnlyBrokerOrderSnapshot, causation_id: str) -> None:
         current = self.order_store.require(submitted.order_id)
         if current.status is not OnlyOrderStatus.SUBMITTED:
@@ -446,7 +496,14 @@ class OnlyVirtualBrokerGateway:
             venue_order_id=accepted.venue_order_id,
         )
 
-    def _reject(self, order: OnlyBrokerOrderSnapshot, causation_id: str, message: str) -> None:
+    def _reject(
+        self,
+        order: OnlyBrokerOrderSnapshot,
+        causation_id: str,
+        message: str,
+        *,
+        code: str = "BROKER_REJECTED",
+    ) -> None:
         now = self._now()
         rejected_sequence = self._next_sequence()
         rejected = replace(order, status=OnlyOrderStatus.REJECTED, updated_at=now, source_sequence=rejected_sequence)
@@ -458,7 +515,35 @@ class OnlyVirtualBrokerGateway:
             causation_id,
             emitted_sequence=rejected_sequence,
             order_id=order.order_id,
-            rejection=OnlyOrderRejection("BROKER_REJECTED", message),
+            rejection=OnlyOrderRejection(code, message),
+        )
+
+    def _expire(self, order: OnlyBrokerOrderSnapshot, causation_id: str, reason: str) -> None:
+        current = self.order_store.require(order.order_id)
+        if current.status not in {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED}:
+            return
+        plan = self.fill_plan_store.require(current.order_id)
+        if plan.status is not OnlyVirtualFillPlanStatus.ACTIVE:
+            raise RuntimeError("VIRTUAL_FILL_PLAN_ORDER_STATUS_CONFLICT")
+        self.account_store.release_order(current)
+        now = self._now()
+        expired_sequence = self._next_sequence()
+        expired = replace(
+            current,
+            status=OnlyOrderStatus.EXPIRED,
+            updated_at=now,
+            source_sequence=expired_sequence,
+        )
+        self.order_store.save(expired)
+        self.fill_plan_store.expire(current.order_id)
+        self._emit(
+            OnlyBrokerOrderExpiredUpdate,
+            now,
+            str(current.order_id),
+            causation_id,
+            emitted_sequence=expired_sequence,
+            metadata={"reason": reason},
+            order_id=current.order_id,
         )
 
     def _cancel(self, order_id: object, causation_id: str) -> None:
@@ -620,7 +705,7 @@ class OnlyVirtualBrokerGateway:
 
     def capture_checkpoint(self) -> object:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "accepted_bar": [
                 [str(order_id), sequence]
                 for order_id, sequence in sorted(self._accepted_bar.items(), key=lambda item: str(item[0]))
@@ -637,6 +722,7 @@ class OnlyVirtualBrokerGateway:
             "orders": self.order_store.capture_checkpoint(),
             "plugin_state": self._plugin_state.value,
             "scheduler": self.scheduler.capture_checkpoint(),
+            "simulation_fingerprint": self.config.submission_simulation.fingerprint,
             "source_sequence": self._source_sequence,
             "state_time_ns": self._state_time.unix_nanos,
             "trade_sequence": self._trade_sequence,
@@ -645,11 +731,13 @@ class OnlyVirtualBrokerGateway:
         }
 
     def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, dict):
-            raise ValueError("Virtual Broker checkpoint must be an object")
-        if payload.get("schema_version") != 2:
-            raise ValueError("VIRTUAL_BROKER_CHECKPOINT_SCHEMA_UNSUPPORTED")
         try:
+            if not isinstance(payload, dict):
+                raise ValueError("Virtual Broker checkpoint must be an object")
+            if payload.get("schema_version") != 3:
+                raise ValueError("VIRTUAL_BROKER_CHECKPOINT_SCHEMA_UNSUPPORTED")
+            if payload.get("simulation_fingerprint") != self.config.submission_simulation.fingerprint:
+                raise ValueError("VIRTUAL_BROKER_SIMULATION_FINGERPRINT_CONFLICT")
             self.account_store.restore_checkpoint(payload["account"])
             self.order_store.restore_checkpoint(payload["orders"])
             self.trade_store.restore_checkpoint(payload["trades"])
@@ -693,6 +781,7 @@ class OnlyVirtualBrokerGateway:
                 OnlyVirtualFillPlanStatus.ACTIVE: {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED},
                 OnlyVirtualFillPlanStatus.COMPLETED: {OnlyOrderStatus.FILLED},
                 OnlyVirtualFillPlanStatus.CANCELLED: {OnlyOrderStatus.CANCELLED},
+                OnlyVirtualFillPlanStatus.EXPIRED: {OnlyOrderStatus.EXPIRED},
             }
             if order.status not in expected_statuses[plan.status]:
                 raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
@@ -709,6 +798,7 @@ class OnlyVirtualBrokerGateway:
             OnlyOrderStatus.PARTIALLY_FILLED,
             OnlyOrderStatus.FILLED,
             OnlyOrderStatus.CANCELLED,
+            OnlyOrderStatus.EXPIRED,
         }
         if any(
             order.status in planned_statuses and self.fill_plan_store.get(order.order_id) is None
@@ -717,8 +807,46 @@ class OnlyVirtualBrokerGateway:
             raise ValueError("VIRTUAL_BROKER_CHECKPOINT_AUTHORITY_CONFLICT")
         trades_by_id = {trade.trade_id: trade for trade in trades}
         for raw in self.scheduler.pending_payloads:
-            if not isinstance(raw, dict) or raw.get("type") != "PUBLISH_FILL":
+            if not isinstance(raw, dict):
+                raise ValueError("VIRTUAL_BROKER_SCHEDULED_ACTION_INVALID")
+            action_type = raw.get("type")
+            if action_type == "SUBMISSION":
+                if set(raw) != {
+                    "causation_id",
+                    "control",
+                    "order_id",
+                    "submission_index",
+                    "type",
+                }:
+                    raise ValueError("VIRTUAL_BROKER_SCHEDULED_SUBMISSION_AUTHORITY_CONFLICT")
+                raw_index = raw.get("submission_index")
+                if not isinstance(raw_index, int) or isinstance(raw_index, bool):
+                    raise ValueError("VIRTUAL_SUBMISSION_INDEX_INVALID")
+                order_id = OnlyOrderId(str(raw.get("order_id")))
+                order = orders.get(order_id)
+                control = only_virtual_submission_control_from_checkpoint(raw.get("control"))
+                expected_control = self.config.submission_simulation.control_for(raw_index)
+                if (
+                    order is None
+                    or order.status is not OnlyOrderStatus.SUBMITTED
+                    or not isinstance(raw.get("causation_id"), str)
+                    or not raw.get("causation_id")
+                    or raw_index > self._venue_order_sequence
+                    or str(order.venue_order_id) != f"virtual-order-{raw_index:08d}"
+                    or self.fill_plan_store.get(order_id) is not None
+                    or trades_by_order.get(order_id)
+                    or only_virtual_submission_control_to_checkpoint(expected_control) != raw.get("control")
+                    or only_virtual_submission_control_to_checkpoint(control) != raw.get("control")
+                ):
+                    raise ValueError("VIRTUAL_BROKER_SCHEDULED_SUBMISSION_AUTHORITY_CONFLICT")
                 continue
+            if action_type == "CANCEL":
+                order = orders.get(OnlyOrderId(str(raw.get("order_id"))))
+                if order is None:
+                    raise ValueError("VIRTUAL_BROKER_SCHEDULED_CANCEL_AUTHORITY_CONFLICT")
+                continue
+            if action_type != "PUBLISH_FILL":
+                raise ValueError("VIRTUAL_BROKER_SCHEDULED_ACTION_INVALID")
             fill = OnlyOrderFill.from_json(str(raw["fill"]))
             plan = self.fill_plan_store.require(OnlyOrderId(str(raw["order_id"])))
             step_index = int(raw["plan_step_index"])
@@ -743,8 +871,32 @@ class OnlyVirtualBrokerGateway:
             raise ValueError("Virtual Broker scheduled action payload must be an object")
         action_type = str(payload["type"])
         order_id = OnlyOrderId(str(payload["order_id"]))
-        if action_type == "ACCEPT":
-            return lambda: self._accept(self.order_store.require(order_id), str(payload["causation_id"]))
+        if action_type == "SUBMISSION":
+            if set(payload) != {
+                "causation_id",
+                "control",
+                "order_id",
+                "submission_index",
+                "type",
+            }:
+                raise ValueError("VIRTUAL_BROKER_SCHEDULED_SUBMISSION_CONTROL_CONFLICT")
+            raw_index = payload.get("submission_index")
+            if not isinstance(raw_index, int) or isinstance(raw_index, bool):
+                raise ValueError("VIRTUAL_SUBMISSION_INDEX_INVALID")
+            causation_id = payload.get("causation_id")
+            if not isinstance(causation_id, str) or not causation_id:
+                raise ValueError("VIRTUAL_BROKER_SCHEDULED_SUBMISSION_CONTROL_CONFLICT")
+            control = only_virtual_submission_control_from_checkpoint(payload.get("control"))
+            expected_control = self.config.submission_simulation.control_for(raw_index)
+            if only_virtual_submission_control_to_checkpoint(control) != only_virtual_submission_control_to_checkpoint(
+                expected_control
+            ):
+                raise ValueError("VIRTUAL_BROKER_SCHEDULED_SUBMISSION_CONTROL_CONFLICT")
+            return lambda: self._apply_submission_control(
+                self.order_store.require(order_id),
+                causation_id,
+                control,
+            )
         if action_type == "CANCEL":
             return lambda: self._cancel(order_id, str(payload["causation_id"]))
         if action_type == "PUBLISH_FILL":

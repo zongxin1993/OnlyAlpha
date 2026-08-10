@@ -39,13 +39,15 @@ def test_plan_identity_and_stable_ordering_are_explicit() -> None:
     assert "item.source_sequence, str(item.trade_id)" in stores
 
 
-def test_checkpoint_contract_is_version_two_without_production_fault_switches() -> None:
+def test_checkpoint_contract_is_version_three_and_descriptor_driven_without_fault_switches() -> None:
     gateway = (PLUGIN / "gateway.py").read_text(encoding="utf-8")
+    factory = (ROOT / "src/onlyalpha/runtime/backtest/factory.py").read_text(encoding="utf-8")
     runtime = (ROOT / "src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
     production = "\n".join(path.read_text(encoding="utf-8") for path in PLUGIN.glob("*.py"))
-    assert '"schema_version": 2' in gateway
-    assert '"broker.virtual",\n                    2,' in runtime
-    assert ONLY_VIRTUAL_PLUGIN_DESCRIPTOR.capabilities.checkpoint_schema_version == 2
+    assert '"schema_version": 3' in gateway
+    assert "deterministic_broker_checkpoint_schema_version=plan.broker_checkpoint_schema_version" in factory
+    assert '"broker.virtual",\n                    deterministic_broker_checkpoint_schema_version,' in runtime
+    assert ONLY_VIRTUAL_PLUGIN_DESCRIPTOR.capabilities.checkpoint_schema_version == 3
     assert "crash_after_fill" not in production
     assert "fail_after_fill" not in production
     assert "fault_switch" not in production

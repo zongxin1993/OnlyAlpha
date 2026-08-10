@@ -23,7 +23,7 @@ ONLY_VIRTUAL_PLUGIN_DESCRIPTOR = OnlyPluginDescriptor(
         query_fee_evidence=True,
         simulated_execution=True,
         supports_runtime_checkpoint=OnlyCheckpointCapability.CHECKPOINTABLE,
-        checkpoint_schema_version=2,
+        checkpoint_schema_version=3,
     ),
 )
 

@@ -175,7 +175,16 @@ class OnlySettlementInstructionSnapshot(OnlyDomainModel):
             OnlySettlementInstructionStatus.COMPLETED
             if complete
             else OnlySettlementInstructionStatus.PARTIALLY_EFFECTIVE
-            if any((self.asset_booked, self.asset_trade_available, self.cash_booked, self.cash_trade_available))
+            if any(
+                (
+                    self.asset_booked,
+                    self.asset_trade_available,
+                    self.cash_booked,
+                    self.cash_trade_available,
+                    self.cash_withdrawable,
+                    self.legal_settled,
+                )
+            )
             else OnlySettlementInstructionStatus.PENDING
         )
         if self.status is not expected:

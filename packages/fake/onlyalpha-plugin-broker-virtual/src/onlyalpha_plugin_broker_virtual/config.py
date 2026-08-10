@@ -13,6 +13,7 @@ from onlyalpha_plugin_broker_virtual.fill_plan import (
 )
 from onlyalpha_plugin_broker_virtual.latency import OnlyLatencyModel
 from onlyalpha_plugin_broker_virtual.slippage import OnlySlippageModel
+from onlyalpha_plugin_broker_virtual.submission_control import OnlyVirtualSubmissionSimulation
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,8 +30,11 @@ class OnlyVirtualBrokerConfig(OnlyDomainModel):
     long_only: bool = True
     slippage_model: OnlySlippageModel | None = None
     latency_model: OnlyLatencyModel | None = None
+    submission_simulation: OnlyVirtualSubmissionSimulation = OnlyVirtualSubmissionSimulation()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.submission_simulation, OnlyVirtualSubmissionSimulation):
+            raise ValueError("VIRTUAL_SUBMISSION_SIMULATION_INVALID")
         if self.initial_cash.currency != self.base_currency or self.initial_cash.amount < 0:
             raise ValueError("Virtual Broker initial cash requires its non-negative base currency")
         if self.queue_capacity < 1:

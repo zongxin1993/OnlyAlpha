@@ -21,7 +21,11 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.event.model import OnlyEvent
-from onlyalpha.market.models import OnlyMarketPositionMode, OnlyPositionEffect
+from onlyalpha.market.models import (
+    OnlyMarketPositionMode,
+    OnlyMarketRuleEvaluationStatus,
+    OnlyPositionEffect,
+)
 from onlyalpha.market.runtime_rules import OnlyPreTradeMarketContext, OnlyPreTradeMarketRulePort
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.query import OnlyOrderQueryService
@@ -323,6 +327,16 @@ class OnlyRiskService:
                 )
             )
             if not market_decision.accepted:
+                failed_evaluation = next(
+                    (
+                        item
+                        for item in market_decision.evaluations
+                        if item.status is OnlyMarketRuleEvaluationStatus.FAILED
+                    ),
+                    None,
+                )
+                if failed_evaluation is None:
+                    raise RuntimeError("rejected Market decision requires one failed Evaluation")
                 code = {
                     "PRICE_NOT_ALIGNED_TO_TICK": OnlyRiskRejectionCode.INVALID_PRICE_INCREMENT,
                     "PRICE_ABOVE_DAILY_LIMIT": OnlyRiskRejectionCode.PRICE_LIMIT_EXCEEDED,
@@ -347,7 +361,16 @@ class OnlyRiskService:
                         code,
                         market_decision.reason_code or "Market rule rejected order",
                         OnlyRiskRuleScope.INSTRUMENT,
-                        details={"market_reason_code": market_decision.reason_code or "UNKNOWN"},
+                        details={
+                            "market_reason_code": market_decision.reason_code or "UNKNOWN",
+                            "market_rule_code": failed_evaluation.rule_code,
+                            "market_profile_id": market_decision.compiled_identity.profile_id,
+                            "market_profile_version": market_decision.compiled_identity.profile_version,
+                            "market_reference_fingerprint": market_decision.compiled_identity.reference_fingerprint,
+                            "market_compiled_rule_fingerprint": (
+                                market_decision.compiled_identity.compiled_rules_fingerprint
+                            ),
+                        },
                     )
                 )
             resolved_context = replace(resolved_context, position_effect=market_decision.position_effect)

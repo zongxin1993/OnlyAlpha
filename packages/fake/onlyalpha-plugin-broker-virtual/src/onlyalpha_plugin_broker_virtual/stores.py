@@ -281,7 +281,13 @@ class OnlyVirtualBrokerOrderStore:
         )
 
     def open(self, account_id: OnlyAccountId) -> tuple[OnlyBrokerOrderSnapshot, ...]:
-        terminal = {OnlyOrderStatus.CANCELLED, OnlyOrderStatus.FILLED, OnlyOrderStatus.REJECTED, OnlyOrderStatus.FAILED}
+        terminal = {
+            OnlyOrderStatus.CANCELLED,
+            OnlyOrderStatus.EXPIRED,
+            OnlyOrderStatus.FILLED,
+            OnlyOrderStatus.REJECTED,
+            OnlyOrderStatus.FAILED,
+        }
         return tuple(value for value in self.list(account_id) if value.status not in terminal)
 
     def capture_checkpoint(self) -> object:

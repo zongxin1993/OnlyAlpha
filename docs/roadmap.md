@@ -1,6 +1,6 @@
 # OnlyAlpha 路线图
 
-## 当前产品事实（2026-08-09）
+## 当前产品事实（2026-08-10）
 
 OnlyAlpha 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与
 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、
@@ -12,7 +12,9 @@ Bar 与 3m 内部聚合、Warmup/Observation、Shadow Execution Suppression、Re
 
 `LIVE`、Standalone `SHADOW` 和 `RESEARCH` Runtime Factory 仍不可用。所有内置 Market Profile 仍为 Experimental。
 `CN_A_SHARE_CASH` 已有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority。其 Cash-Long 经济 shape 可由统一
-Durable Kernel 识别，但完整产品纵切面与 Conformance 仍未完成，因此不得声明 A 股 Durable Product 已开放。
+Durable Kernel 识别。P4.3 已接受 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 的有限合同，
+但完整产品纵切面、Product Conformance、恢复/确定性门禁和最终远端质量证据仍未闭合，因此该产品为
+**NOT CERTIFIED**，不得声明 A 股 Durable Product 已开放。
 
 ## 已完成阶段
 
@@ -35,9 +37,14 @@ Durable Kernel 识别，但完整产品纵切面与 Conformance 仍未完成，�
 Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果
 Forward Recovery。阶段细节保存在 `docs/adr/` 与 `docs/reports/`，不在本文件重复维护历史“当前状态”。
 
-## 下一阶段
+## 当前阶段
 
-P4.3 — Residual Planner Semantic Cleanup 与 CN A-share 产品 Conformance 接入。
+P4.3 — Residual Planner Semantic Cleanup 与 CN A-share 产品 Conformance 接入，当前进行中且 **NOT CERTIFIED**。
+
+已冻结但尚未完成认证的 V1 边界是：`CN_A_SHARE_CASH@2025.1`，普通 XSHG/XSHE CNY `COMMON_STOCK`，
+CASH/LIMIT/LONG/NETTING、BUY OPEN/SELL CLOSE、Whole/Partial/Multi-Fill、Accepted/Trade/Cancel/Reject/Expire、T+1、
+MEMORY/SQLITE、Checkpoint/Restart/Forward Recovery，以及确定性 Result/Artifact。该边界不升级整个
+`CN_A_SHARE_CASH` Profile，也不覆盖 `@2026.07`。
 
 P4 只应处理 Market Instruction、Production Fee、Settlement、Account/Position Shape 与 Canonical Durable Trading Kernel 的
 capability-driven 接入，包括 A 股 BUY OPEN、SELL CLOSE 与 T+1 产品 Conformance；不再重做 Runtime grouping、Account identity、

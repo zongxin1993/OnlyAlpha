@@ -51,6 +51,14 @@ class OnlyVirtualFillPlanStore:
         self._plans[order_id] = updated
         return updated
 
+    def expire(self, order_id: OnlyOrderId) -> OnlyVirtualOrderFillPlan:
+        current = self.require(order_id)
+        if current.status is not OnlyVirtualFillPlanStatus.ACTIVE:
+            raise ValueError("VIRTUAL_FILL_PLAN_TERMINAL_EXPIRE")
+        updated = replace(current, status=OnlyVirtualFillPlanStatus.EXPIRED, version=current.version + 1)
+        self._plans[order_id] = updated
+        return updated
+
     def list(self) -> tuple[OnlyVirtualOrderFillPlan, ...]:
         return tuple(self._plans[key] for key in sorted(self._plans, key=str))
 

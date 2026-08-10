@@ -28,6 +28,7 @@ from onlyalpha.risk.reservations import OnlyRiskReservation
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.risk.snapshots import OnlyRiskSnapshot
 from onlyalpha.settlement.authority import OnlySettlementAuthority
+from onlyalpha.settlement.facts import OnlyCommittedSettlementMaturityFact
 from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot, OnlySettlementInstructionStatus
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.models import (
@@ -478,7 +479,9 @@ class OnlySettlementExecutionProjectionTarget(_OnlyProjectionTargetBase):
                 else OnlySettlementInstructionStatus.PARTIALLY_EFFECTIVE,
                 after.version,
                 after.record_sequence_head,
-                None,
+                context.fact.maturity_identity
+                if isinstance(context.fact, OnlyCommittedSettlementMaturityFact)
+                else None,
             ),
         )
         installed_authority = self._manager.require(after.instruction.instruction_id)

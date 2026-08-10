@@ -424,6 +424,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         broker_gateway: OnlyBrokerGateway | None = None,
         execution_service: OnlyExecutionService | None = None,
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
+        deterministic_broker_checkpoint_schema_version: int | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
         market_data_inbound_queue: OnlyMarketDataInboundQueue | None = None,
         runtime_persistence_store: OnlyRuntimePersistenceStorePort,
@@ -1208,10 +1209,16 @@ class OnlyBacktestRuntime(OnlyRuntime):
         if persistence_config.checkpoint.enabled:
             if deterministic_broker_driver is None:
                 raise ValueError("checkpoint-enabled Backtest requires a checkpoint-capable Broker driver")
+            if (
+                not isinstance(deterministic_broker_checkpoint_schema_version, int)
+                or isinstance(deterministic_broker_checkpoint_schema_version, bool)
+                or deterministic_broker_checkpoint_schema_version < 1
+            ):
+                raise ValueError("checkpoint-enabled Backtest requires a positive Broker checkpoint schema version")
             self._checkpoint_registry.register(
                 OnlyJsonRuntimeCheckpointParticipant(
                     "broker.virtual",
-                    2,
+                    deterministic_broker_checkpoint_schema_version,
                     deterministic_broker_driver.capture_checkpoint,
                     deterministic_broker_driver.restore_checkpoint,
                 )

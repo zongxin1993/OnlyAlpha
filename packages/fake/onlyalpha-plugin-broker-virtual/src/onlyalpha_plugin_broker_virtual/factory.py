@@ -20,6 +20,11 @@ from onlyalpha_plugin_broker_virtual.fill_plan import (
 from onlyalpha_plugin_broker_virtual.gateway import OnlyVirtualBrokerGateway
 from onlyalpha_plugin_broker_virtual.latency import OnlyFixedLatencyModel
 from onlyalpha_plugin_broker_virtual.slippage import OnlyFixedSlippageModel
+from onlyalpha_plugin_broker_virtual.submission_control import (
+    OnlyVirtualSubmissionAction,
+    OnlyVirtualSubmissionControl,
+    OnlyVirtualSubmissionSimulation,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +41,7 @@ class OnlyVirtualBrokerPluginConfig:
     cancel_latency_ns: int
     query_latency_ns: int
     slippage_offset: Decimal | None
+    submission_simulation: OnlyVirtualSubmissionSimulation
 
 
 class OnlyVirtualBrokerFactory:
@@ -44,19 +50,67 @@ class OnlyVirtualBrokerFactory:
         return ONLY_VIRTUAL_PLUGIN_DESCRIPTOR
 
     def parse_config(self, extensions: Mapping[str, object]) -> OnlyVirtualBrokerPluginConfig:
-        unknown = set(extensions) - {"matching", "latency", "slippage", "maximum_fill_quantity"}
+        unknown = set(extensions) - {
+            "matching",
+            "latency",
+            "slippage",
+            "maximum_fill_quantity",
+            "simulation",
+        }
         if unknown:
             raise ValueError(f"unknown Virtual Broker extensions: {', '.join(sorted(unknown))}")
         matching = extensions.get("matching", {})
         slippage = extensions.get("slippage", {})
         latency = extensions.get("latency", {})
-        if not isinstance(matching, Mapping) or not isinstance(slippage, Mapping) or not isinstance(latency, Mapping):
-            raise ValueError("broker matching/slippage/latency extensions must be mappings")
+        simulation = extensions.get("simulation", {})
+        if (
+            not isinstance(matching, Mapping)
+            or not isinstance(slippage, Mapping)
+            or not isinstance(latency, Mapping)
+            or not isinstance(simulation, Mapping)
+        ):
+            raise ValueError("broker matching/slippage/latency/simulation extensions must be mappings")
         unknown_matching = set(matching) - {"type", "maximum_fill_quantity", "partial_fill"}
         unknown_slippage = set(slippage) - {"type", "price_offset"}
         unknown_latency = set(latency) - {"submit_ns", "acceptance_ns", "fill_ns", "cancel_ns", "query_ns"}
         if unknown_matching or unknown_slippage or unknown_latency:
             raise ValueError("unknown Virtual Broker nested extension field")
+        unknown_simulation = set(simulation) - {"submissions"}
+        if unknown_simulation:
+            raise ValueError("unknown Virtual Broker simulation field")
+        raw_submissions = simulation.get("submissions", ())
+        if not isinstance(raw_submissions, Sequence) or isinstance(raw_submissions, (str, bytes)):
+            raise ValueError("Virtual Broker simulation submissions must be a sequence")
+        submission_controls: list[OnlyVirtualSubmissionControl] = []
+        for raw_submission in raw_submissions:
+            if not isinstance(raw_submission, Mapping):
+                raise ValueError("Virtual Broker simulation submission must be a mapping")
+            unknown_submission = set(raw_submission) - {
+                "submission_index",
+                "action",
+                "reason",
+                "rejection_code",
+            }
+            if unknown_submission:
+                raise ValueError("unknown Virtual Broker simulation submission field")
+            raw_index = raw_submission.get("submission_index")
+            if not isinstance(raw_index, int) or isinstance(raw_index, bool):
+                raise ValueError("VIRTUAL_SUBMISSION_INDEX_INVALID")
+            raw_action = raw_submission.get("action")
+            if not isinstance(raw_action, str):
+                raise ValueError("VIRTUAL_SUBMISSION_ACTION_INVALID")
+            raw_reason = raw_submission.get("reason")
+            raw_rejection_code = raw_submission.get("rejection_code")
+            if raw_reason is not None and not isinstance(raw_reason, str):
+                raise ValueError("VIRTUAL_SUBMISSION_REASON_INVALID")
+            if raw_rejection_code is not None and not isinstance(raw_rejection_code, str):
+                raise ValueError("VIRTUAL_SUBMISSION_REJECTION_CODE_INVALID")
+            try:
+                action = OnlyVirtualSubmissionAction(raw_action.upper())
+            except ValueError as exc:
+                raise ValueError("VIRTUAL_SUBMISSION_ACTION_INVALID") from exc
+            submission_controls.append(OnlyVirtualSubmissionControl(raw_index, action, raw_reason, raw_rejection_code))
+        submission_simulation = OnlyVirtualSubmissionSimulation(tuple(submission_controls))
         partial_fill = matching.get("partial_fill")
         if partial_fill is not None and not isinstance(partial_fill, Mapping):
             raise ValueError("Virtual Broker partial_fill extension must be a mapping")
@@ -117,6 +171,7 @@ class OnlyVirtualBrokerFactory:
             int(latency.get("cancel_ns", 0)),
             int(latency.get("query_ns", 0)),
             None if slippage.get("price_offset") is None else Decimal(str(slippage["price_offset"])),
+            submission_simulation,
         )
 
     def validate_request(self, request: OnlyBrokerCreateRequest) -> Sequence[OnlyPluginValidationIssue]:
@@ -145,6 +200,8 @@ class OnlyVirtualBrokerFactory:
                 issues.append(OnlyPluginValidationIssue("PLUGIN_CONFIG_INVALID", "maximum fill must be positive"))
             if config.fill_schedule_mode is OnlyVirtualFillScheduleMode.SCHEDULE and not config.fill_schedule_steps:
                 issues.append(OnlyPluginValidationIssue("PLUGIN_CONFIG_INVALID", "fill schedule requires steps"))
+            if not isinstance(config.submission_simulation, OnlyVirtualSubmissionSimulation):
+                issues.append(OnlyPluginValidationIssue("PLUGIN_CONFIG_INVALID", "invalid submission simulation"))
             if (
                 min(
                     config.submit_latency_ns,
@@ -185,6 +242,7 @@ class OnlyVirtualBrokerFactory:
                 if config.slippage_type == "NONE"
                 else OnlyFixedSlippageModel(OnlyPrice(config.slippage_offset or Decimal(0), 8))
             ),
+            submission_simulation=config.submission_simulation,
         )
         gateway = OnlyVirtualBrokerGateway(
             broker_config,

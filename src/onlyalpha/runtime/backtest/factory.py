@@ -63,6 +63,7 @@ class _OnlyBacktestPluginPlan:
     data_request: OnlyDataSourceCreateRequest
     broker_factory: OnlyBrokerGatewayFactory
     broker_request: OnlyBrokerCreateRequest
+    broker_checkpoint_schema_version: int | None
 
 
 class OnlyBacktestRuntimeFactory:
@@ -173,6 +174,7 @@ class OnlyBacktestRuntimeFactory:
                 owned_event_bus=plan.event_bus,
                 broker_gateway=gateway,
                 deterministic_broker_driver=broker_component.deterministic_driver,
+                deterministic_broker_checkpoint_schema_version=plan.broker_checkpoint_schema_version,
                 broker_inbound_queue=plan.broker_queue,
                 runtime_persistence_store=persistence_store,
                 persistence_config=config.runtime.persistence,
@@ -356,6 +358,7 @@ class OnlyBacktestRuntimeFactory:
             data_factory.descriptor.plugin_id, str(source_common.source_id), data_factory.validate_request(data_request)
         )
         broker_factory = components.brokers.resolve(broker_common.plugin_id)
+        broker_checkpoint_version: int | None = None
         if config.runtime.persistence.checkpoint.enabled:
             broker_checkpoint = self._require_checkpoint_capability(broker_factory.descriptor.capabilities, "Broker")
             if broker_checkpoint is not OnlyCheckpointCapability.CHECKPOINTABLE:
@@ -395,6 +398,7 @@ class OnlyBacktestRuntimeFactory:
             data_request,
             broker_factory,
             broker_request,
+            broker_checkpoint_version,
         )
 
     @staticmethod

@@ -207,30 +207,33 @@ class OnlySettlementMaturityPlanner:
                 )
             )
         settlement_before = only_settlement_execution_state(context.instruction_before)
-        provisional_snapshot = replace(
-            context.instruction_before,
-            asset_trade_available=context.instruction_before.asset_trade_available
-            or OnlySettlementTransitionKind.ASSET_TRADE_AVAILABLE in transitions,
-            cash_trade_available=context.instruction_before.cash_trade_available
-            or OnlySettlementTransitionKind.CASH_TRADE_AVAILABLE in transitions,
-            cash_withdrawable=context.instruction_before.cash_withdrawable
-            or OnlySettlementTransitionKind.CASH_WITHDRAWABLE in transitions,
-            legal_settled=context.instruction_before.legal_settled
-            or OnlySettlementTransitionKind.LEGAL_SETTLED in transitions,
-            version=context.instruction_before.version + 1,
-            last_maturity_identity=maturity_identity,
+        asset_trade_available = (
+            context.instruction_before.asset_trade_available
+            or OnlySettlementTransitionKind.ASSET_TRADE_AVAILABLE in transitions
         )
-        complete = (
-            provisional_snapshot.asset_trade_available
-            and provisional_snapshot.cash_trade_available
-            and provisional_snapshot.cash_withdrawable
-            and provisional_snapshot.legal_settled
+        cash_trade_available = (
+            context.instruction_before.cash_trade_available
+            or OnlySettlementTransitionKind.CASH_TRADE_AVAILABLE in transitions
         )
+        cash_withdrawable = (
+            context.instruction_before.cash_withdrawable
+            or OnlySettlementTransitionKind.CASH_WITHDRAWABLE in transitions
+        )
+        legal_settled = (
+            context.instruction_before.legal_settled or OnlySettlementTransitionKind.LEGAL_SETTLED in transitions
+        )
+        complete = asset_trade_available and cash_trade_available and cash_withdrawable and legal_settled
         settlement_snapshot = replace(
-            provisional_snapshot,
+            context.instruction_before,
+            asset_trade_available=asset_trade_available,
+            cash_trade_available=cash_trade_available,
+            cash_withdrawable=cash_withdrawable,
+            legal_settled=legal_settled,
             status=OnlySettlementInstructionStatus.COMPLETED
             if complete
             else OnlySettlementInstructionStatus.PARTIALLY_EFFECTIVE,
+            version=context.instruction_before.version + 1,
+            last_maturity_identity=maturity_identity,
         )
         settlement_after = replace(
             only_settlement_execution_state(settlement_snapshot),

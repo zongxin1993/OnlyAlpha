@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "dataset_id": "CN_A_SHARE_PRODUCTION_V1_SYNTHETIC_BARS",
+  "product_id": "CN_A_SHARE_DURABLE_BACKTEST_V1",
+  "product_contract_version": "1",
+  "source": "OnlyAlpha deterministic synthetic market-data fixture",
+  "source_kind": "SYNTHETIC_MARKET_DATA_FIXTURE",
+  "source_version": "1",
+  "data_version": "cn-a-share-production-v1-synthetic-bars-v1",
+  "synthetic_market_data_fixture": true,
+  "runtime_policy": {
+    "data_access": "FROZEN_LOCAL_ONLY",
+    "network_access": "FORBIDDEN",
+    "implicit_fallback": "FORBIDDEN"
+  },
+  "coverage": {
+    "currency": "CNY",
+    "market_profile": "CN_A_SHARE_CASH",
+    "market_profile_version": "2025.1",
+    "market_profile_fingerprint": "eb5746708759c1ad521b6d1667599b98f6073db6898b26e32020171bb8a7d732",
+    "security_type": "COMMON_STOCK",
+    "venues": ["XSHG", "XSHE"]
+  },
+  "instrument_ids": ["600000.XSHG", "000001.XSHE"],
+  "instrument_identities": [
+    {
+      "instrument_id": "600000.XSHG",
+      "venue": "XSHG",
+      "exchange": "SSE",
+      "security_type": "COMMON_STOCK",
+      "board": "SSE_MAIN",
+      "trading_calendar_id": "CN_XSHG"
+    },
+    {
+      "instrument_id": "000001.XSHE",
+      "venue": "XSHE",
+      "exchange": "SZSE",
+      "security_type": "COMMON_STOCK",
+      "board": "SZSE_MAIN",
+      "trading_calendar_id": "CN_XSHE"
+    }
+  ],
+  "trading_calendar_ids": ["CN_XSHG", "CN_XSHE"],
+  "trading_calendars": [
+    {"calendar_id": "CN_XSHG", "venue": "XSHG", "timezone": "Asia/Shanghai"},
+    {"calendar_id": "CN_XSHE", "venue": "XSHE", "timezone": "Asia/Shanghai"}
+  ],
+  "trading_dates": ["2026-01-05", "2026-01-06"],
+  "bar_contract": {
+    "format": "JSON",
+    "interval": "PT1M",
+    "timestamp_semantics": "UTC_ISO_8601_BAR_END",
+    "price_encoding": "QUOTED_DECIMAL",
+    "quantity_encoding": "QUOTED_DECIMAL"
+  },
+  "reference_authority": {
+    "model": "OnlyAshareInstrumentReference",
+    "source": "SCENARIO",
+    "source_version": "cn-a-share-production-v1-reference-v1",
+    "data_version": "cn-a-share-production-v1-reference-v1",
+    "bar_derivation": "FORBIDDEN",
+    "registry_fingerprint": "0d0bc84dd712778e6fc4719a22c16918c72729d9d3375ccd51df23de313ffec2"
+  },
+  "production_fee_authority": {
+    "pack_id": "CN_A_SHARE_PRODUCTION_MARKET_FEES",
+    "pack_version": "2025.06.30",
+    "pack_fingerprint": "728260d19fd350ba1c25444f85ccf096ad43e490996999883167d16c7a7e5989",
+    "coverage_from": "2025-06-30"
+  },
+  "broker_fee_authority": {
+    "contract_id": "VIRTUAL:BACKTEST-ACCOUNT:COMMISSION",
+    "contract_version": "2025.01",
+    "contract_fingerprint": "bb5c3f193cca6e3f9d347a2a601abd588a53c3559bf4fdae95b3041c0f91e7c6",
+    "broker_id": "virtual",
+    "account_id": "backtest-account",
+    "currency": "CNY",
+    "effective_from": "2025-01-01",
+    "calculation_scope": "ORDER_CUMULATIVE",
+    "commission_rate": "0.0003",
+    "minimum_commission": "5.00"
+  },
+  "execution_support_authority": {
+    "policy_version": "2",
+    "capabilities": ["DURABLE_ORDER_ACCEPTED", "DURABLE_TRADE", "DURABLE_TERMINAL"],
+    "market_identity_is_permission": false
+  },
+  "supported_surface": {
+    "runtime": "BACKTEST",
+    "currency": "CNY",
+    "venues": ["XSHG", "XSHE"],
+    "security_type": "COMMON_STOCK",
+    "account_type": "CASH",
+    "position_side": "LONG",
+    "position_mode": "NETTING",
+    "order_type": "LIMIT",
+    "order_semantics": ["BUY_OPEN", "SELL_CLOSE"],
+    "broker_lifecycle": ["ACCEPTED", "TRADE", "CANCELLED", "REJECTED", "EXPIRED"],
+    "fills": ["WHOLE", "PARTIAL", "MULTI_FILL"],
+    "settlement": "ORDINARY_T_PLUS_ONE_SELLABILITY",
+    "persistence": ["MEMORY", "SQLITE"],
+    "recovery": ["CHECKPOINT", "RESTART", "FORWARD_RECOVERY"],
+    "output": ["DETERMINISTIC_RESULT", "DETERMINISTIC_ARTIFACT"]
+  },
+  "production_fee_coverage_from": "2025-06-30",
+  "record_counts": {
+    "bars.json": 32,
+    "references.json": 4
+  },
+  "files": {
+    "bars.json": "ed0206db3dc53889cfa7aea06c1b11c3107963ceba63b7c8474439f5aadba068",
+    "references.json": "23a0c9db864210434470e8cf0a792799759fb19740ce6fda087ff326fbbc0a26"
+  },
+  "content_fingerprint": "6647ba0cc6c6dc9867985978edd13a882c13e8c738c3d22ec46f4bc19d58f7c2"
+}

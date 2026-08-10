@@ -13,3 +13,23 @@ positions, allocations, accounts, ledgers, settlement, margin, risk, results, an
 
 The plugin never calculates or reports authoritative Runtime fees. Broker fills carry no fee authority; Core resolves
 local fees after accepting the update.
+
+Deterministic lifecycle scenarios can select a non-default outcome by positive, one-based submission index:
+
+```yaml
+extensions:
+  simulation:
+    submissions:
+      - submission_index: 1
+        action: REJECT_BEFORE_ACCEPTED
+        rejection_code: SCENARIO_REJECTED
+        reason: deterministic rejection
+      - submission_index: 2
+        action: ACCEPT_THEN_EXPIRE
+        reason: deterministic expiry
+```
+
+Unlisted submissions follow the ordinary Accept path. The controls never inspect a market, venue, instrument, or
+Runtime Manager: they only publish normalized Broker lifecycle updates. Checkpoint schema v3 binds a canonical
+SHA-256 fingerprint of the complete simulation plan and validates every frozen pending submission action. v1/v2,
+configuration drift, and scheduled-action conflicts fail closed.

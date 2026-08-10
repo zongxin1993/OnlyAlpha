@@ -10,5 +10,6 @@ from onlyalpha_plugin_broker_virtual.matching import *  # noqa: F403
 from onlyalpha_plugin_broker_virtual.scheduler import *  # noqa: F403
 from onlyalpha_plugin_broker_virtual.slippage import *  # noqa: F403
 from onlyalpha_plugin_broker_virtual.stores import *  # noqa: F403
+from onlyalpha_plugin_broker_virtual.submission_control import *  # noqa: F403
 
 __all__ = [name for name in globals() if name.startswith("Only")]
