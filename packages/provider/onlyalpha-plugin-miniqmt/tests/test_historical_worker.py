@@ -42,9 +42,11 @@ from onlyalpha.domain.time import OnlyTimestamp
 pytestmark = [pytest.mark.contract, pytest.mark.miniqmt]
 
 _HELPER = Path(__file__).parent / "helpers" / "historical_worker.py"
+_FUNCTIONAL_WORKER_DEADLINE_SECONDS = 15
+_TIMEOUT_SCENARIO_DEADLINE_SECONDS = 1
 
 
-def _request(*, timeout: int = 5) -> OnlyHistoricalWarmupRequest:
+def _request(*, timeout: int) -> OnlyHistoricalWarmupRequest:
     instrument_id = OnlyInstrumentId.parse("600000.XSHG")
     bar_type = OnlyBarType(
         instrument_id,
@@ -70,7 +72,7 @@ def _request(*, timeout: int = 5) -> OnlyHistoricalWarmupRequest:
 def _client(tmp_path: Path, behavior: str) -> OnlyMiniQmtHistoricalIsolatedClient:
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir(parents=True)
-    instrument_id = _request().instrument_id
+    instrument_id = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS).instrument_id
     create_request = SimpleNamespace(
         instruments={instrument_id: SimpleNamespace(price_precision=2, quantity_precision=0)}
     )
@@ -105,7 +107,7 @@ def _worker_with_fake_xtquant(tmp_path: Path, *, query_error: bool) -> OnlyMiniQ
     package = fake_root / "xtquant"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text('__version__ = "fake-sdk-1"\n', encoding="utf-8")
-    end_millis = _request().end_time.to_unix_millis()
+    end_millis = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS).end_time.to_unix_millis()
     query_body = (
         "raise RuntimeError('fake query failure')"
         if query_error
@@ -122,7 +124,7 @@ def _worker_with_fake_xtquant(tmp_path: Path, *, query_error: bool) -> OnlyMiniQ
     )
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir()
-    instrument_id = _request().instrument_id
+    instrument_id = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS).instrument_id
     create_request = SimpleNamespace(
         instruments={instrument_id: SimpleNamespace(price_precision=2, quantity_precision=0)}
     )
@@ -140,12 +142,12 @@ def _worker_with_fake_xtquant(tmp_path: Path, *, query_error: bool) -> OnlyMiniQ
 
 
 def test_isolated_success_verifies_atomic_protocol_and_converts_bars(tmp_path: Path) -> None:
-    result = _client(tmp_path, "success").load_warmup(_request())
+    result = _client(tmp_path, "success").load_warmup(_request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS))
 
     assert result.status is OnlyHistoricalWarmupStatus.SUCCESS
     assert len(result.bars) == 2
     assert result.content_fingerprint
-    assert result.last_bar_end == _request().end_time
+    assert result.last_bar_end == _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS).end_time
     workdirs = tuple((tmp_path / "state" / "warmup").iterdir())
     assert len(workdirs) == 1
     assert (workdirs[0] / "request.json").is_file()
@@ -156,7 +158,7 @@ def test_isolated_success_verifies_atomic_protocol_and_converts_bars(tmp_path: P
 def test_native_abort_is_contained_and_reported_as_worker_aborted(tmp_path: Path) -> None:
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir()
-    instrument_id = _request().instrument_id
+    instrument_id = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS).instrument_id
     create_request = SimpleNamespace(
         instruments={instrument_id: SimpleNamespace(price_precision=2, quantity_precision=0)}
     )
@@ -172,7 +174,7 @@ def test_native_abort_is_contained_and_reported_as_worker_aborted(tmp_path: Path
         ),
     )
 
-    result = client.load_warmup(_request(timeout=15))
+    result = client.load_warmup(_request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS))
 
     assert result.status is OnlyHistoricalWarmupStatus.WORKER_ABORTED
     assert result.diagnostic is not None
@@ -185,7 +187,7 @@ def test_native_abort_is_contained_and_reported_as_worker_aborted(tmp_path: Path
 def test_native_bson_abort_is_classified_with_query_identity(tmp_path: Path) -> None:
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir()
-    instrument_id = _request().instrument_id
+    instrument_id = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS).instrument_id
     create_request = SimpleNamespace(
         instruments={instrument_id: SimpleNamespace(price_precision=2, quantity_precision=0)}
     )
@@ -202,7 +204,7 @@ def test_native_bson_abort_is_classified_with_query_identity(tmp_path: Path) -> 
         ),
     )
 
-    result = client.load_warmup(_request(timeout=15))
+    result = client.load_warmup(_request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS))
 
     assert result.status is OnlyHistoricalWarmupStatus.WORKER_ABORTED
     assert result.diagnostic is not None
@@ -211,7 +213,9 @@ def test_native_bson_abort_is_classified_with_query_identity(tmp_path: Path) -> 
 
 
 def test_actual_worker_contract_normalizes_a_fake_xtquant_shape(tmp_path: Path) -> None:
-    result = _worker_with_fake_xtquant(tmp_path, query_error=False).load_warmup(_request())
+    result = _worker_with_fake_xtquant(tmp_path, query_error=False).load_warmup(
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
 
     assert result.status is OnlyHistoricalWarmupStatus.SUCCESS
     assert result.provider_version == "fake-sdk-1"
@@ -219,7 +223,9 @@ def test_actual_worker_contract_normalizes_a_fake_xtquant_shape(tmp_path: Path) 
 
 
 def test_actual_worker_contract_maps_python_query_exception(tmp_path: Path) -> None:
-    result = _worker_with_fake_xtquant(tmp_path, query_error=True).load_warmup(_request())
+    result = _worker_with_fake_xtquant(tmp_path, query_error=True).load_warmup(
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
 
     assert result.status is OnlyHistoricalWarmupStatus.QUERY_FAILED
     assert result.diagnostic is not None
@@ -228,7 +234,7 @@ def test_actual_worker_contract_maps_python_query_exception(tmp_path: Path) -> N
 
 
 def test_timeout_terminates_worker_and_returns_structured_result(tmp_path: Path) -> None:
-    result = _client(tmp_path, "sleep").load_warmup(_request(timeout=1))
+    result = _client(tmp_path, "sleep").load_warmup(_request(timeout=_TIMEOUT_SCENARIO_DEADLINE_SECONDS))
 
     assert result.status is OnlyHistoricalWarmupStatus.TIMEOUT
     assert result.diagnostic is not None
@@ -240,7 +246,7 @@ def test_timeout_terminates_worker_and_returns_structured_result(tmp_path: Path)
 
 
 def test_half_written_output_is_never_accepted(tmp_path: Path) -> None:
-    result = _client(tmp_path, "half").load_warmup(_request())
+    result = _client(tmp_path, "half").load_warmup(_request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS))
 
     assert result.status is OnlyHistoricalWarmupStatus.PROTOCOL_ERROR
     assert result.diagnostic is not None
@@ -248,8 +254,12 @@ def test_half_written_output_is_never_accepted(tmp_path: Path) -> None:
 
 def test_request_fingerprint_and_profile_are_stable(tmp_path: Path) -> None:
     client = _client(tmp_path, "success")
-    first = client._transport_request(_request())  # noqa: SLF001 - transport contract assertion
-    second = client._transport_request(_request())  # noqa: SLF001 - transport contract assertion
+    first = client._transport_request(  # noqa: SLF001 - transport contract assertion
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
+    second = client._transport_request(  # noqa: SLF001 - transport contract assertion
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
 
     assert first.request_fingerprint == second.request_fingerprint
     assert resolve_profile("miniqmt-history-v2").profile_id == "miniqmt-history-v2"
@@ -260,7 +270,9 @@ def test_request_fingerprint_and_profile_are_stable(tmp_path: Path) -> None:
 
 
 def test_query_converts_utc_cutoff_to_xtquant_shanghai_wall_clock(tmp_path: Path) -> None:
-    transport = _client(tmp_path, "success")._transport_request(_request())  # noqa: SLF001
+    transport = _client(tmp_path, "success")._transport_request(  # noqa: SLF001
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
 
     class CapturingXtData:
         def __init__(self) -> None:
@@ -284,7 +296,9 @@ def test_query_converts_utc_cutoff_to_xtquant_shanghai_wall_clock(tmp_path: Path
 
 
 def test_parent_rejects_duplicate_or_out_of_order_transport_records(tmp_path: Path) -> None:
-    request = _client(tmp_path, "success")._transport_request(_request())  # noqa: SLF001
+    request = _client(tmp_path, "success")._transport_request(  # noqa: SLF001
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
     record = {
         "instrument_id": request.instrument_id,
         "bar_type": request.period,
@@ -303,7 +317,9 @@ def test_parent_rejects_duplicate_or_out_of_order_transport_records(tmp_path: Pa
 
 
 def test_worker_filters_provider_rows_after_frozen_requested_end(tmp_path: Path) -> None:
-    request = _client(tmp_path, "success")._transport_request(_request())  # noqa: SLF001
+    request = _client(tmp_path, "success")._transport_request(  # noqa: SLF001
+        _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
+    )
     end_millis = request.end_time_ns // 1_000_000
     raw_rows = [
         {
@@ -326,7 +342,7 @@ def test_worker_filters_provider_rows_after_frozen_requested_end(tmp_path: Path)
 
 
 def test_parent_fails_closed_when_worker_returns_bar_after_requested_end(tmp_path: Path) -> None:
-    request = _request()
+    request = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
     result = _client(tmp_path, "success").load_warmup(request)
     last = result.bars[-1]
     invalid_end = request.end_time.to_datetime() + timedelta(minutes=1)
@@ -390,7 +406,7 @@ def test_log_tail_decodes_native_windows_utf16_and_remains_bounded(tmp_path: Pat
 
 
 def test_validated_cache_reuses_matching_profile_but_never_stale_coverage(tmp_path: Path) -> None:
-    warmup = _request()
+    warmup = _request(timeout=_FUNCTIONAL_WORKER_DEADLINE_SECONDS)
     end = warmup.end_time.to_datetime()
     cache_request = OnlyHistoricalDataRequest(
         warmup.instrument_id,
