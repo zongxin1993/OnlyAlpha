@@ -12,9 +12,9 @@ Bar 与 3m 内部聚合、Warmup/Observation、Shadow Execution Suppression、Re
 
 `LIVE`、Standalone `SHADOW` 和 `RESEARCH` Runtime Factory 仍不可用。所有内置 Market Profile 仍为 Experimental。
 `CN_A_SHARE_CASH` 已有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority。其 Cash-Long 经济 shape 可由统一
-Durable Kernel 识别。P4.3 已接受 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 的有限合同，
-但完整产品纵切面、Product Conformance、恢复/确定性门禁和最终远端质量证据仍未闭合，因此该产品为
-**NOT CERTIFIED**，不得声明 A 股 Durable Product 已开放。
+Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成
+Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级仍为
+Experimental 的完整 `CN_A_SHARE_CASH` Profile，也不表示全部 A 股、Paper 或 Live 产品可用。
 
 ## 已完成阶段
 
@@ -32,6 +32,9 @@ Durable Kernel 识别。P4.3 已接受 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `produ
   Prepared Transaction / Durable Commit / Ordered Projection / Forward Recovery；BUY OPEN 与 SELL CLOSE 的
   Accepted、Cancel、Reject、Expire 均显式声明 Order、Cash/Position、Allocation、Reservation、Ledger 与 Risk Authority，旧的
   direct lifecycle mutation 和 Reservation 协调旁路已删除。
+- P4.3 — CN A-Share Production Durable Product Conformance：**DONE / CERTIFIED**。有限的
+  `CN_A_SHARE_DURABLE_BACKTEST_V1` 已完成 Production Authority、BUY OPEN、T+1、SELL CLOSE、Whole/Partial/Multi-Fill、
+  Terminal、Memory/SQLite、A to B to C Forward Recovery、Result/Artifact Determinism 与同提交远端质量证明。
 
 此前完成且仍有效的内核包括：统一 Market Runtime、版本化 A 股 Reference/Rule Decision、Prepared Transaction、Durable
 Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果
@@ -39,16 +42,8 @@ Forward Recovery。阶段细节保存在 `docs/adr/` 与 `docs/reports/`，不�
 
 ## 当前阶段
 
-P4.3 — Residual Planner Semantic Cleanup 与 CN A-share 产品 Conformance 接入，当前进行中且 **NOT CERTIFIED**。
-
-已冻结但尚未完成认证的 V1 边界是：`CN_A_SHARE_CASH@2025.1`，普通 XSHG/XSHE CNY `COMMON_STOCK`，
-CASH/LIMIT/LONG/NETTING、BUY OPEN/SELL CLOSE、Whole/Partial/Multi-Fill、Accepted/Trade/Cancel/Reject/Expire、T+1、
-MEMORY/SQLITE、Checkpoint/Restart/Forward Recovery，以及确定性 Result/Artifact。该边界不升级整个
-`CN_A_SHARE_CASH` Profile，也不覆盖 `@2026.07`。
-
-P4 只应处理 Market Instruction、Production Fee、Settlement、Account/Position Shape 与 Canonical Durable Trading Kernel 的
-capability-driven 接入，包括 A 股 BUY OPEN、SELL CLOSE 与 T+1 产品 Conformance；不再重做 Runtime grouping、Account identity、
-Registry ownership、Composition atomicity 或 legacy execution cleanup。
+P5 — Market Product Composition Authority Neutralization。P5 将处理后续市场产品组合权威的中立化；P4.3 认证收口没有
+提前实现 P5，也没有新增平行 Product Registry、Provider/Compiler SPI 或市场专用 Engine。
 
 ## 后续阶段
 

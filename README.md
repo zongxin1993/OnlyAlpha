@@ -23,7 +23,7 @@ OnlyAlpha 当前处于 **Alpha** 阶段。确定性回测已经形成完整产�
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
 | Primary runtime | Backtest |
-| CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **NOT CERTIFIED** |
+| CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | License | MIT |
 
 ---
@@ -188,10 +188,12 @@ OnlyAlpha 内置以下 Market Profile：
 A 股版本化 Reference Authority 已完成：板块、历史 ST、停牌、交易单位、价格精度和正式前收盘价可按
 Instrument + Trading Day 唯一解析，并参与配置校验、Runtime 兼容性、Artifact 和恢复指纹。
 
-P4.3 已接受有限产品合同 `CN_A_SHARE_DURABLE_BACKTEST_V1`、合同版本 `"1"`，并固定
-`CN_A_SHARE_CASH@2025.1`、普通 XSHG/XSHE CNY Cash-Long、Production Fee、T+1、Memory/SQLite 和 Forward Recovery
-验收边界。接受合同不等于产品认证；完整 Product Conformance、恢复/确定性门禁以及最终远端
-`Layered Quality / quality-gate` 尚未形成同一最终提交上的完整绿色证据，因此该产品当前为 **NOT CERTIFIED**。
+P4.3 有限产品合同 `CN_A_SHARE_DURABLE_BACKTEST_V1`、合同版本 `"1"` 已完成认证。认证边界固定为
+`CN_A_SHARE_CASH@2025.1`、普通 XSHG/XSHE CNY Cash-Long、Production Fee、T+1、Memory/SQLite 和 Forward Recovery；
+产品 Conformance、恢复/确定性、静态/构建和远端 `Layered Quality / quality-gate` 已在同一认证提交上通过。
+该结论仅适用于 [ADR 0067](docs/adr/0067-cn-a-share-production-durable-backtest-product.md) 定义的有限合同，详见
+[P4.3 最终认证报告](docs/reports/p4_3_cn_a_share_production_durable_product_conformance.md)。它不表示完整中国 A 股产品、
+Paper/Live 就绪，也不把仍为 **Experimental** 的 `CN_A_SHARE_CASH` Profile 家族升级为 Stable。
 
 `CN_A_SHARE_PRODUCTION_MARKET_FEES@2025.06.30` 已提供普通 CNY A 股现金股票在 XSHG/XSHE 的生产印花税和过户费
 Authority；窗口外 Fail Closed。真实账户佣金通过严格静态 Contract Snapshot 在 Composition 阶段安装，Account 只选择
@@ -246,7 +248,7 @@ Paper Runtime 当前已经完成以下真实 MiniQMT 验收范围：
 | Generic T0 Cash Long Execution | 当前范围完成 | Limit、Long、Netting、Buy Open、Sell Close |
 | Partial / Multi-Fill | 当前范围完成 | 支持同 Bar、跨 Bar 和恢复 |
 | Result / Analytics / Report | 基础可用 | 已有基础收益、回撤、交易和 Exposure 统计 |
-| A-share Cash Profile | 部分完成 | 规则与生产 Authority 已存在；V1 合同已冻结，但 P4.3 尚未认证 |
+| A-share Cash Profile | 部分完成 | Profile 仍为 Experimental；有限 Durable Backtest V1 产品合同已认证 |
 | Tushare Historical Data | 部分完成 | 日线、校验和缓存可用 |
 | MiniQMT Historical Data | 部分完成 | 历史 Worker、缓存和兼容性边界已建立 |
 | MiniQMT Paper Observation | 预览可用 | 当前验收范围通过，仍非生产级 Paper |
@@ -557,6 +559,7 @@ OnlyAlpha 的关键工程约束包括：
 - [Market Conformance](docs/market_conformance_suite.md)
 - [CN A-share Durable Backtest V1 产品合同](docs/adr/0067-cn-a-share-production-durable-backtest-product.md)
 - [P4.3 实施前审计](docs/reports/p4_3_cn_a_share_production_durable_product_pre_implementation_audit.md)
+- [P4.3 最终认证报告](docs/reports/p4_3_cn_a_share_production_durable_product_conformance.md)
 
 ---
 
