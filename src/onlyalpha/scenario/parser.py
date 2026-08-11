@@ -105,7 +105,7 @@ class OnlyMarketScenarioParser:
     def _product_config(
         self, root: Mapping[str, object], runtime: Mapping[str, object], reference: Mapping[str, object]
     ) -> dict[str, object]:
-        self._unknown(reference, {"calendars", "instruments", "ashare_instruments"}, "$.reference")
+        self._unknown(reference, {"calendars", "instruments"}, "$.reference")
         instruments = self._list(reference.get("instruments"), "$.reference.instruments")
         instrument_id = self._string(
             self._mapping(instruments[0], "$.reference.instruments[0]").get("instrument_id"), "instrument_id"

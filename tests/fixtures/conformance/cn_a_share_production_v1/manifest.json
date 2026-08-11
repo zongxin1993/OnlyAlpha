@@ -15,9 +15,9 @@
   },
   "coverage": {
     "currency": "CNY",
-    "market_profile": "CN_A_SHARE_CASH",
-    "market_profile_version": "2025.1",
-    "market_profile_fingerprint": "eb5746708759c1ad521b6d1667599b98f6073db6898b26e32020171bb8a7d732",
+    "market_product": "CN_A_SHARE_CASH",
+    "market_product_version": "2025.1",
+    "composition_fingerprint": "70305d2804d506b0ba8a49e197b7047a25e0fbdb484eb7fa132bd1b645aba7c3",
     "security_type": "COMMON_STOCK",
     "venues": ["XSHG", "XSHE"]
   },
@@ -54,12 +54,12 @@
     "quantity_encoding": "QUOTED_DECIMAL"
   },
   "reference_authority": {
-    "model": "OnlyAshareInstrumentReference",
+    "model": "OnlyCnAshareInstrumentReference",
     "source": "SCENARIO",
     "source_version": "cn-a-share-production-v1-reference-v1",
     "data_version": "cn-a-share-production-v1-reference-v1",
     "bar_derivation": "FORBIDDEN",
-    "registry_fingerprint": "0d0bc84dd712778e6fc4719a22c16918c72729d9d3375ccd51df23de313ffec2"
+    "authority_fingerprint": "0d0bc84dd712778e6fc4719a22c16918c72729d9d3375ccd51df23de313ffec2"
   },
   "production_fee_authority": {
     "pack_id": "CN_A_SHARE_PRODUCTION_MARKET_FEES",
@@ -110,5 +110,5 @@
     "bars.json": "ed0206db3dc53889cfa7aea06c1b11c3107963ceba63b7c8474439f5aadba068",
     "references.json": "23a0c9db864210434470e8cf0a792799759fb19740ce6fda087ff326fbbc0a26"
   },
-  "content_fingerprint": "6647ba0cc6c6dc9867985978edd13a882c13e8c738c3d22ec46f4bc19d58f7c2"
+  "content_fingerprint": "0ae0bba40123e0d864f143fb4562d46f13852ac501cfcff71888e32d4702185d"
 }

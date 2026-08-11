@@ -17,7 +17,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、单/多 Cluster、Result/Analytics/Artifact/Report。
 
-当前 legacy `PAPER` 路径已完成当前 Profile 下真实 MiniQMT 的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown。它仍是 read-only market observation + Shadow execution，只作为 Sim streaming migration baseline；reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 与长期生产运行尚未闭环。
+当前 legacy `PAPER` 路径已完成当前 Market Product binding 下真实 MiniQMT 的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown。它仍是 read-only market observation + Shadow execution，只作为 Sim streaming migration baseline；reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 与长期生产运行尚未闭环。
 
 当前实现状态：
 
@@ -27,7 +27,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 - standalone `SHADOW` Factory 返回 unsupported，且不是目标 Runtime；
 - `PAPER` 是待迁移并删除的旧源码路径。
 
-所有内置 Market Profile 仍为 Experimental。`CN_A_SHARE_CASH` 已有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，其 Cash-Long economic shape 可由统一 Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成 Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级完整 `CN_A_SHARE_CASH` Profile，也不表示所有 A 股、Sim 或 Live 产品可用。
+Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CASH` plugin 已拥有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，其 Cash-Long economic shape 可由统一 Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成 Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级完整 A 股市场范围，也不表示所有 A 股、Sim 或 Live 产品可用。
 
 ## 已完成阶段
 
@@ -49,14 +49,15 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 P5.1 Core Market Product Contract & Composition Authority 已完成：Core 已提供市场中立的 provider/product identity、canonical config envelope、Reference/Policy ports、Factory、显式 fail-closed Registry、immutable resolved binding 与 effective composition identity，并以 ADR 0069 和静态门禁冻结依赖方向。
 
-P5.2 Generic T0 Cash Plugin + Canonical Market IR 已完成：Canonical IR 已删除 matching、slippage 与 simulation liquidity，增加 minimal instrument economic terms；`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` discovery 提供 plugin-owned Reference Authority、pure Policy Compiler 与 Market Fee Pack，并通过 legacy economics conformance 和 tests-only T+2 third market extension proof。该完成状态不表示 Trading Runtime 已 cut over；legacy Generic/Profile/A-share production authority 仍保留到 P5.3 one-shot cutover。
+P5.2 Generic T0 Cash Plugin + Canonical Market IR 已完成：Canonical IR 已删除 matching、slippage 与 simulation liquidity，增加 minimal instrument economic terms；`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` discovery 提供 plugin-owned Reference Authority、pure Policy Compiler 与 Market Fee Pack，并通过 legacy economics conformance 和 tests-only T+2 third market extension proof。
+
+P5.3 CN A-share Full Authority Migration + Trading Runtime cutover 已完成：`onlyalpha-market-cn-ashare` 独立拥有 typed config、版本化 Reference Authority、Policy Compiler 与 Market Fee Pack；Generic 与 CN A-share 同时切换到 resolve-once Binding。Core Profile/A-share concrete production authority、Runtime concrete-market branch 与 legacy market config 已删除，Environment、Persistence 与 Recovery 使用 effective composition identity/fingerprint。
 
 P5 后续边界：
 
-- P5.3：CN A-share Full Authority Migration + Trading Runtime cutover；
-- P5.4：Identity hardening、失去职责的旧 API 删除与 certification。
+- P5.4：Identity hardening 与 certification。
 
-P5 不提前实现 Sim、Research 或 Live，不增加市场专用 Engine、第二套经济 authority、compatibility adapter 或 implicit Generic fallback。P5.1 的 Registry 是唯一目标 Market Product factory lookup authority；当前 Profile Registry 只作为尚未 cutover 的历史生产实现保留。P5.3 必须同时准备 Generic 与 A-share binding 后一次切换，禁止按市场半切换。
+P5 不提前实现 Sim、Research 或 Live，不增加市场专用 Engine、第二套经济 authority、compatibility adapter 或 implicit Generic fallback。P5.1 的 Registry 是唯一 Market Product factory lookup authority；P5.3 已完成 Generic 与 A-share binding 的原子切换，后续不得恢复 Profile production composition。
 
 ## P6 — Sim Streaming Runtime Closure
 

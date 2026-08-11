@@ -113,31 +113,13 @@ class OnlyEngineResultExporter:
                         },
                     )
                 )
-                reference_data = runtime_plan.assembly_plan.reference_data
-                reference_records = [item.to_dict() for item in reference_data.ashare_registry.records]
                 reference_payload = {
-                    "schema_version": 1,
-                    "reference_registry_fingerprint": reference_data.reference_registry_fingerprint,
-                    "resolved_reference_count": len(reference_records),
-                    "reference_source_versions": sorted({str(item["source_version"]) for item in reference_records}),
-                    "record_schema": [
-                        "instrument_id",
-                        "exchange",
-                        "security_type",
-                        "board",
-                        "lot_size",
-                        "price_tick",
-                        "st_status",
-                        "suspended",
-                        "previous_close",
-                        "effective_from",
-                        "effective_to",
-                        "source",
-                        "source_version",
-                        "data_version",
-                        "record_fingerprint",
-                    ],
-                    "records": reference_records,
+                    "schema_version": 2,
+                    "market_product": only_canonical_payload(runtime_plan.market_product.product_identity),
+                    "composition_identity": only_canonical_payload(runtime_plan.market_product.composition_identity),
+                    "reference_authority": only_canonical_payload(
+                        runtime_plan.market_product.reference_authority.identity
+                    ),
                 }
                 reference_payload["artifact_fingerprint"] = sha256(
                     json.dumps(reference_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")

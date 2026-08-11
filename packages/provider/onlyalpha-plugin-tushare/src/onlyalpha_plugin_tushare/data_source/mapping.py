@@ -1,9 +1,10 @@
 import re
 from collections.abc import Mapping
 
+from onlyalpha_market_cn_ashare import OnlyCnAshareInstrumentReference
+
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyInstrument
-from onlyalpha.plugin.api import OnlyAshareInstrumentReference
 
 from ..errors import OnlyTushareError
 
@@ -29,7 +30,7 @@ def only_to_tushare_asset(instrument: OnlyInstrument) -> str:
     raise OnlyTushareError("TUSHARE_ASSET_UNSUPPORTED", "instrument asset type is not supported")
 
 
-def only_ashare_reference(raw: Mapping[str, object]) -> OnlyAshareInstrumentReference:
+def only_ashare_reference(raw: Mapping[str, object]) -> OnlyCnAshareInstrumentReference:
     """Normalize one explicitly joined historical Tushare reference row.
 
     The adapter intentionally requires joined historical ST/suspension fields and
@@ -60,7 +61,7 @@ def only_ashare_reference(raw: Mapping[str, object]) -> OnlyAshareInstrumentRefe
     if board_value is None:
         raise OnlyTushareError("TUSHARE_REFERENCE_BOARD_UNSUPPORTED", f"unsupported market: {board}")
     try:
-        return OnlyAshareInstrumentReference.from_mapping(
+        return OnlyCnAshareInstrumentReference.from_mapping(
             {
                 "instrument_id": f"{symbol}.{'XSHG' if suffix == 'SH' else 'XSHE'}",
                 "exchange": exchange,

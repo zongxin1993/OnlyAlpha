@@ -12,8 +12,6 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.execution import OnlyExecutionCapability
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.planning_context import OnlyTradeExecutionPlanningContext
-from onlyalpha.fee import only_cn_a_share_production_fee_pack
-from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.position.enums import OnlyPositionSide
 from tests.execution.support.generic_t0_trade_harness import (
     OnlyTestGenericT0Scenario,
@@ -25,15 +23,10 @@ from tests.integration_demo.environment import OnlyIntegrationEnvironment
 
 
 def _planning_context(
-    profile: OnlyMarketProfileId,
+    *, cn_ashare_market: bool
 ) -> tuple[OnlyIntegrationEnvironment, OnlyBrokerTradeUpdate, OnlyTradeExecutionPlanningContext]:
-    scenario = OnlyTestGenericT0Scenario(f"semantic-{profile.value.lower()}")
-    environment = OnlyIntegrationEnvironment(
-        market_profile_id=profile,
-        market_fee_pack=(
-            only_cn_a_share_production_fee_pack() if profile is OnlyMarketProfileId.CN_A_SHARE_CASH else None
-        ),
-    )
+    scenario = OnlyTestGenericT0Scenario(f"semantic-{'ashare' if cn_ashare_market else 'generic'}")
+    environment = OnlyIntegrationEnvironment(cn_ashare_market=cn_ashare_market)
     _prepare_environment(environment, scenario)
     update = _trade_update(environment, scenario)
     context = only_test_real_trade_planning_context(environment, update)
@@ -41,18 +34,16 @@ def _planning_context(
 
 
 def test_different_markets_with_same_semantic_shape_have_same_support_decision() -> None:
-    _, _, generic = _planning_context(OnlyMarketProfileId.GENERIC_T0_CASH)
-    _, _, ashare = _planning_context(OnlyMarketProfileId.CN_A_SHARE_CASH)
+    _, _, generic = _planning_context(cn_ashare_market=False)
+    _, _, ashare = _planning_context(cn_ashare_market=True)
 
-    assert (
-        generic.trade_instruction.compiled_identity.profile_id != ashare.trade_instruction.compiled_identity.profile_id
-    )
+    assert generic.trade_instruction.market_product_identity != ashare.trade_instruction.market_product_identity
     assert generic.support_decision == ashare.support_decision
     assert generic.support_decision.capability is OnlyExecutionCapability.DURABLE_TRADE
 
 
 def test_same_market_with_different_semantic_shape_has_different_decision() -> None:
-    environment, update, supported = _planning_context(OnlyMarketProfileId.CN_A_SHARE_CASH)
+    environment, update, supported = _planning_context(cn_ashare_market=True)
     allocation_key = supported.position_scope.allocation_key
     short_scope = replace(
         supported.position_scope,

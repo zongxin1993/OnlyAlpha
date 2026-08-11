@@ -80,14 +80,6 @@ def only_parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     scenario_run.add_argument("file")
     scenario_run.add_argument("--user-data", metavar="DIRECTORY")
     scenario_run.add_argument("--format", choices=("text", "json"), default="text")
-    market_parser = subparsers.add_parser("market")
-    market_commands = market_parser.add_subparsers(dest="market_command", required=True)
-    market_profiles = market_commands.add_parser("profiles")
-    market_profiles.add_argument("--format", choices=("text", "json"), default="text")
-    market_profile = market_commands.add_parser("profile")
-    market_profile.add_argument("profile_id")
-    market_profile.add_argument("--version")
-    market_profile.add_argument("--format", choices=("text", "json"), default="text")
     return parser.parse_args(argv)
 
 
@@ -131,21 +123,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{scenario_result.result_fingerprint}"
             )
             return {"PASSED": 0, "FAILED": 1, "ERROR": 3}.get(scenario_result.status, 3)
-        if args.command == "market":
-            from dataclasses import asdict
-
-            from onlyalpha.application import OnlyMarketProfileQueryService
-            from onlyalpha.market.profiles import only_builtin_market_profile_registry
-
-            query = OnlyMarketProfileQueryService(only_builtin_market_profile_registry())
-            value = (
-                query.list_profiles()
-                if args.market_command == "profiles"
-                else query.profile(args.profile_id, args.version)
-            )
-            normalized = [asdict(item) for item in value] if isinstance(value, tuple) else asdict(value)
-            print(json.dumps(normalized, sort_keys=True) if args.format == "json" else json.dumps(normalized, indent=2))
-            return 0
         from onlyalpha.application.engine_runner import (
             OnlyEngineApplicationRunner,
             OnlyRuntimeLifecycleKind,

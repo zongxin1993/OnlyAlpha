@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.market.product.config import OnlyMarketProductConfig
 from onlyalpha.market.product.identity import OnlyMarketProductPluginId
@@ -25,6 +26,7 @@ class OnlyMarketProductResourceResolver(Protocol):
 @dataclass(frozen=True, slots=True)
 class OnlyMarketProductResolutionContext:
     resources: OnlyMarketProductResourceResolver
+    instruments: tuple[OnlyInstrument, ...] = ()
 
 
 class OnlyMarketProductFactory(Protocol):

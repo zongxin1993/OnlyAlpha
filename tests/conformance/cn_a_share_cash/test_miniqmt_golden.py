@@ -9,7 +9,6 @@ import pytest
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
-from onlyalpha.fee.testing import only_cn_a_share_conformance_fee_pack
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from tests.support.golden_data import (
@@ -29,8 +28,29 @@ def _config() -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load(BASE_CONFIG)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["market"] = {
-        "profile": "CN_A_SHARE_CASH",
-        "fee_pack": {"pack_id": "CN_A_SHARE_TEST_MARKET_FEE_PACK", "pack_version": "1"},
+        "plugin_id": "onlyalpha-market-cn-ashare",
+        "product_id": "CN_A_SHARE_CASH",
+        "product_version": "2025.1",
+        "config": {
+            "references": [
+                {
+                    "instrument_id": "600000.XSHG",
+                    "exchange": "SSE",
+                    "security_type": "COMMON_STOCK",
+                    "board": "SSE_MAIN",
+                    "lot_size": "100",
+                    "price_tick": "0.01",
+                    "st_status": False,
+                    "suspended": False,
+                    "previous_close": "10.00",
+                    "effective_from": "2025-01-02",
+                    "effective_to": "2025-01-14",
+                    "source": "GOLDEN_DATASET",
+                    "source_version": "cn-a-share-reference-v1",
+                    "data_version": "cn-a-share-reference-v1",
+                }
+            ]
+        },
     }
     payload["runtime"]["start_time"] = "2025-01-02T01:30:00Z"
     payload["runtime"]["end_time"] = "2025-01-13T01:30:00Z"
@@ -46,24 +66,6 @@ def _config() -> OnlyClusterRunConfig:
             "minimum_quantity": "100",
         }
     )
-    payload["reference_data"]["ashare_instruments"] = [
-        {
-            "instrument_id": "600000.XSHG",
-            "exchange": "SSE",
-            "security_type": "COMMON_STOCK",
-            "board": "SSE_MAIN",
-            "lot_size": "100",
-            "price_tick": "0.01",
-            "st_status": False,
-            "suspended": False,
-            "previous_close": "10.00",
-            "effective_from": "2025-01-02",
-            "effective_to": "2025-01-14",
-            "source": "GOLDEN_DATASET",
-            "source_version": "cn-a-share-reference-v1",
-            "data_version": "cn-a-share-reference-v1",
-        }
-    ]
     payload["universes"][0]["instruments"] = ["600000.XSHG"]
     payload["data_sources"] = [
         {
@@ -85,7 +87,6 @@ def _config() -> OnlyClusterRunConfig:
 
 def _services() -> OnlyEngineServices:
     services = only_default_engine_services()
-    services.assembler.components.market_fee_packs.register(only_cn_a_share_conformance_fee_pack())
     services.assembler.components.data_sources.register(
         OnlyMiniQmtGoldenDataSourceFactory(),
         origin=OnlyPluginOrigin(OnlyPluginOriginType.TEST, "tests.support.golden_data"),
@@ -155,10 +156,18 @@ def test_miniqmt_golden_runs_through_engine_and_virtual_broker(tmp_path: Path) -
             encoding="utf-8"
         )
     )
-    assert reference_artifact["resolved_reference_count"] == 1
-    assert reference_artifact["reference_registry_fingerprint"]
-    assert reference_artifact["records"][0]["previous_close"] == "10.00"
-    assert reference_artifact["records"][0]["record_fingerprint"]
+    assert reference_artifact["schema_version"] == 2
+    assert reference_artifact["market_product"] == {
+        "product_id": {"value": "CN_A_SHARE_CASH"},
+        "product_version": {"value": "2025.1"},
+    }
+    assert reference_artifact["reference_authority"]["authority_id"] == "CN_A_SHARE"
+    assert reference_artifact["reference_authority"]["authority_fingerprint"]
+    assert reference_artifact["composition_identity"]["fingerprint"]
+    assert reference_artifact["composition_identity"]["policy_compiler"]["authority_id"] == "CN_A_SHARE_CASH"
+    assert (
+        reference_artifact["composition_identity"]["market_fee_pack"]["pack_id"] == "CN_A_SHARE_PRODUCTION_MARKET_FEES"
+    )
 
 
 def test_miniqmt_golden_engine_result_is_deterministic(tmp_path: Path) -> None:

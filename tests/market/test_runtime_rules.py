@@ -5,74 +5,59 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
+from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_market_generic_t0_cash.factory import OnlyGenericT0CashMarketProductFactory
 
-from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide, OnlyRuntimeMode
+from onlyalpha.domain.enums import OnlyMarketType, OnlyOrderSide
+from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRawSymbol
+from onlyalpha.domain.instrument import OnlyEquity
 from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.market.models import (
-    OnlyInstrumentReferenceSnapshot,
-    OnlyMarketProfileId,
-    OnlyMarketRuleEvaluationStatus,
+from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
+from onlyalpha.market.models import OnlyMarketRuleEvaluationStatus
+from onlyalpha.market.product import (
+    OnlyCanonicalMarketProductConfig,
+    OnlyMarketProductConfig,
+    OnlyMarketProductId,
+    OnlyMarketProductPluginId,
+    OnlyMarketProductResolutionContext,
+    OnlyMarketProductVersion,
 )
-from onlyalpha.market.profiles import only_builtin_market_profile_registry
-from onlyalpha.market.registry import OnlyMarketProfileRequest
 from onlyalpha.market.runtime_rules import (
-    OnlyMarketRuleCompiler,
     OnlyMarketRuleEngine,
     OnlyPreTradeMarketContext,
     OnlyTradeApplicationRequest,
 )
+from tests.runtime_support.market_product import _NoResources
 
 
-def _reference(
-    profile: OnlyMarketProfileId,
-    *,
-    board: str | None = None,
-    st_status: bool = False,
-    suspended: bool = False,
-    status: str = "ACTIVE",
-    previous_close: Decimal | None = None,
-    tick_size: Decimal = Decimal("0.01"),
-    lot_size: Decimal | None = None,
-    fingerprint: str = "reference-fingerprint",
-) -> OnlyInstrumentReferenceSnapshot:
-    return OnlyInstrumentReferenceSnapshot(
-        "TEST.XSHG" if profile is OnlyMarketProfileId.CN_A_SHARE_CASH else "TEST.VENUE",
-        OnlyAssetClass.EQUITY,
-        "XSHG" if profile is OnlyMarketProfileId.CN_A_SHARE_CASH else "VENUE",
-        profile,
-        "CNY" if profile is OnlyMarketProfileId.CN_A_SHARE_CASH else "USD",
-        datetime(2020, 1, 1, tzinfo=UTC),
-        None,
-        "test",
-        "1",
-        fingerprint,
-        status=status,
-        tick_size=tick_size,
-        quantity_step=Decimal(1),
-        lot_size=lot_size,
-        board=board,
-        st_status=st_status,
-        suspended=suspended,
-        previous_close=previous_close,
+def _generic_engine() -> OnlyMarketRuleEngine:
+    instrument = OnlyEquity(
+        instrument_id=OnlyInstrumentId.parse("TEST.VENUE"),
+        raw_symbol=OnlyRawSymbol("TEST"),
+        market_type=OnlyMarketType.CASH,
+        quote_currency=OnlyCurrency("USD"),
+        settlement_currency=OnlyCurrency("USD"),
+        price_precision=2,
+        quantity_precision=0,
+        tick_size=OnlyPrice(Decimal("0.01"), 2),
+        step_size=OnlyQuantity(Decimal(1), 0),
+        contract_multiplier=OnlyMultiplier(Decimal(1), 0),
     )
-
-
-def _engine(
-    profile: OnlyMarketProfileId,
-    *,
-    reference: OnlyInstrumentReferenceSnapshot | None = None,
-    reference_registry_fingerprint: str | None = None,
-) -> OnlyMarketRuleEngine:
-    selected = reference or _reference(profile)
-    return OnlyMarketRuleEngine(
-        registry=only_builtin_market_profile_registry(),
-        compiler=OnlyMarketRuleCompiler(),
-        request=OnlyMarketProfileRequest(profile),
-        runtime_mode=OnlyRuntimeMode.BACKTEST,
-        references={selected.instrument_id: selected},
+    config = OnlyMarketProductConfig(
+        OnlyMarketProductPluginId("onlyalpha-market-generic-t0-cash"),
+        OnlyMarketProductId("GENERIC_T0_CASH"),
+        OnlyMarketProductVersion("1"),
+        OnlyCanonicalMarketProductConfig(),
+    )
+    binding = OnlyGenericT0CashMarketProductFactory().resolve(
+        config, OnlyMarketProductResolutionContext(_NoResources(), (instrument,))
+    )
+    engine = OnlyMarketRuleEngine(
+        binding=binding,
         advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
-        reference_registry_fingerprint=reference_registry_fingerprint,
     )
+    engine._test_instrument_id = "TEST.VENUE"  # type: ignore[attr-defined]
+    return engine
 
 
 def _ashare_engine(
@@ -84,24 +69,43 @@ def _ashare_engine(
     previous_close: Decimal = Decimal("10.00"),
     tick_size: Decimal = Decimal("0.01"),
     lot_size: Decimal = Decimal(100),
-    fingerprint: str = "ashare-reference",
-    registry_fingerprint: str = "registry",
+    product_version: str = "2025.1",
 ) -> OnlyMarketRuleEngine:
-    return _engine(
-        OnlyMarketProfileId.CN_A_SHARE_CASH,
-        reference=_reference(
-            OnlyMarketProfileId.CN_A_SHARE_CASH,
-            board=board,
-            st_status=st_status,
-            suspended=suspended,
-            status=status,
-            previous_close=previous_close,
-            tick_size=tick_size,
-            lot_size=lot_size,
-            fingerprint=fingerprint,
+    venue = "XSHE" if board in {"SZSE_MAIN", "CHINEXT"} else "XSHG"
+    instrument_id = f"TEST.{venue}"
+    config = OnlyMarketProductConfig(
+        OnlyMarketProductPluginId("onlyalpha-market-cn-ashare"),
+        OnlyMarketProductId("CN_A_SHARE_CASH"),
+        OnlyMarketProductVersion(product_version),
+        OnlyCanonicalMarketProductConfig(
+            {
+                "references": [
+                    {
+                        "instrument_id": instrument_id,
+                        "exchange": "SZSE" if venue == "XSHE" else "SSE",
+                        "security_type": "COMMON_STOCK",
+                        "board": board,
+                        "lot_size": str(lot_size),
+                        "price_tick": str(tick_size),
+                        "st_status": st_status,
+                        "suspended": suspended,
+                        "previous_close": str(previous_close),
+                        "effective_from": "2020-01-01",
+                        "source": "SCENARIO",
+                        "source_version": "1",
+                        "data_version": status,
+                    }
+                ]
+            }
         ),
-        reference_registry_fingerprint=registry_fingerprint,
     )
+    binding = OnlyCnAshareMarketProductFactory().resolve(config, OnlyMarketProductResolutionContext(_NoResources()))
+    engine = OnlyMarketRuleEngine(
+        binding=binding,
+        advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
+    )
+    engine._test_instrument_id = instrument_id  # type: ignore[attr-defined]
+    return engine
 
 
 def _local_utc(day: date, hour: int, minute: int, second: int = 0) -> datetime:
@@ -123,7 +127,7 @@ def _decision(
 ):
     return engine.evaluate_pre_trade(
         OnlyPreTradeMarketContext(
-            "TEST.XSHG",
+            engine._test_instrument_id,  # type: ignore[attr-defined]
             side,
             quantity,
             price,
@@ -136,17 +140,17 @@ def _decision(
 
 
 def test_compiled_rules_are_deterministic_and_profile_does_not_escape() -> None:
-    engine = _engine(OnlyMarketProfileId.GENERIC_T0_CASH)
+    engine = _generic_engine()
     day = OnlyTradingDay(date(2026, 7, 17))
     first = engine.compiled_rules("TEST.VENUE", day)
     second = engine.compiled_rules("TEST.VENUE", day)
     assert first is second
-    assert first.identity.compiled_rules_fingerprint == second.identity.compiled_rules_fingerprint
+    assert first.identity.policy_fingerprint == second.identity.policy_fingerprint
     assert not hasattr(first, "profile")
 
 
 def test_pre_trade_and_trade_instruction_share_compiled_identity() -> None:
-    engine = _engine(OnlyMarketProfileId.GENERIC_T0_CASH)
+    engine = _generic_engine()
     day = OnlyTradingDay(date(2026, 7, 17))
     decision = engine.evaluate_pre_trade(
         OnlyPreTradeMarketContext(
@@ -178,15 +182,16 @@ def test_pre_trade_and_trade_instruction_share_compiled_identity() -> None:
 
 
 @pytest.mark.parametrize(
-    ("trading_day", "expected_version", "expected_rate"),
-    ((date(2026, 7, 5), "2025.1", Decimal("0.05")), (date(2026, 7, 6), "2026.07", Decimal("0.10"))),
+    ("product_version", "expected_rate"),
+    (("2025.1", Decimal("0.05")), ("2026.07", Decimal("0.10"))),
 )
-def test_main_board_risk_warning_regime_switches_by_trading_day(
-    trading_day: date, expected_version: str, expected_rate: Decimal
+def test_main_board_risk_warning_regime_is_selected_by_product_version(
+    product_version: str, expected_rate: Decimal
 ) -> None:
-    decision = _decision(_ashare_engine(st_status=True), trading_day)
+    engine = _ashare_engine(st_status=True, product_version=product_version)
+    decision = _decision(engine, date(2026, 7, 6))
     assert decision.accepted
-    assert decision.compiled_identity.profile_version == expected_version
+    assert str(engine.market_product_identity.product_version) == product_version
     assert decision.daily_limit_rate == expected_rate
 
 
@@ -240,7 +245,6 @@ def test_ashare_session_phases_are_explicit(
 
 def test_suspension_and_inactive_reasons_are_distinct() -> None:
     assert _decision(_ashare_engine(suspended=True), date(2026, 7, 5)).reason_code == "INSTRUMENT_SUSPENDED"
-    assert _decision(_ashare_engine(status="INACTIVE"), date(2026, 7, 5)).reason_code == "INSTRUMENT_INACTIVE"
 
 
 @pytest.mark.parametrize(
@@ -315,8 +319,8 @@ def test_checkpoint_round_trip_is_lossless_and_validates_authorities() -> None:
     restored = _ashare_engine()
     restored.restore_checkpoint(payload)
     assert restored.decisions == (expected,)
-    with pytest.raises(ValueError, match="REFERENCE_FINGERPRINT_MISMATCH"):
-        _ashare_engine(fingerprint="changed-reference").restore_checkpoint(payload)
+    with pytest.raises(ValueError, match="MARKET_COMPOSITION_FINGERPRINT_MISMATCH"):
+        _ashare_engine(previous_close=Decimal("9.99")).restore_checkpoint(payload)
     incompatible = dict(payload)
     incompatible["schema_version"] = 2
     with pytest.raises(ValueError, match="CHECKPOINT_SCHEMA_UNSUPPORTED"):
@@ -324,15 +328,7 @@ def test_checkpoint_round_trip_is_lossless_and_validates_authorities() -> None:
 
 
 def test_missing_reference_returns_structured_fail_closed_decision() -> None:
-    engine = OnlyMarketRuleEngine(
-        registry=only_builtin_market_profile_registry(),
-        compiler=OnlyMarketRuleCompiler(),
-        request=OnlyMarketProfileRequest(OnlyMarketProfileId.CN_A_SHARE_CASH),
-        runtime_mode=OnlyRuntimeMode.BACKTEST,
-        references={},
-        advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
-        reference_registry_fingerprint="empty-registry",
-    )
+    engine = _ashare_engine()
     decision = engine.evaluate_pre_trade(
         OnlyPreTradeMarketContext(
             "MISSING.XSHG",

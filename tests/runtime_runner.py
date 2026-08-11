@@ -4,9 +4,11 @@ from typing import cast
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.market.product import OnlyMarketProductResolutionContext
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.result import OnlyRuntimeResult
+from tests.runtime_support.market_product import _NoResources
 
 
 def only_run_cluster_runtime(
@@ -17,11 +19,16 @@ def only_run_cluster_runtime(
     """Build and execute one Runtime without introducing another product entry."""
 
     selected_services = services or only_default_engine_services()
+    market_product = selected_services.assembler.components.market_products.resolve(
+        config.market,
+        OnlyMarketProductResolutionContext(_NoResources(), config.reference_data.instruments),
+    )
     runtime_plan = (
         OnlyRuntimePlanner()
         .plan(
             OnlyEngineId("runtime-component-test"),
             (config,),
+            {config.cluster_id: market_product},
         )
         .runtime_plans[0]
     )

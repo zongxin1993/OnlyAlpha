@@ -13,10 +13,8 @@ from onlyalpha.config import (
     OnlyBrokerRuntimeConfig,
     OnlyClusterRunConfig,
     OnlyDataSourceRuntimeConfig,
-    OnlyUniverseConfig,
 )
-from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.instrument import OnlyInstrument
+from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,23 +61,11 @@ class OnlyAccountEnvironmentIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyReferenceEnvironmentIdentity:
-    authority_kind: str
-    authority_fingerprint: str
-
-    @property
-    def fingerprint(self) -> str:
-        return only_canonical_fingerprint(self)
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyMarketEnvironmentIdentity:
-    profile_id: str
-    profile_version: str | None
-    overrides_fingerprint: str
-    market_fee_pack_id: str
-    market_fee_pack_version: str
-    reference: OnlyReferenceEnvironmentIdentity
+    provider_plugin_id: str
+    product_id: str
+    product_version: str
+    composition_fingerprint: str
 
     @property
     def fingerprint(self) -> str:
@@ -131,7 +117,9 @@ class OnlyResourceClaim:
 class OnlyRuntimeEnvironmentBuilder:
     """Pure authority for Runtime grouping and shared-resource claims."""
 
-    def build(self, config: OnlyClusterRunConfig) -> OnlyRuntimeEnvironmentIdentity:
+    def build(
+        self, config: OnlyClusterRunConfig, market_product: OnlyResolvedMarketProductBinding
+    ) -> OnlyRuntimeEnvironmentIdentity:
         data_sources = tuple(
             sorted(
                 (self._data_source(item) for item in config.data_sources),
@@ -145,39 +133,11 @@ class OnlyRuntimeEnvironmentBuilder:
             )
         )
         accounts = tuple(sorted((self._account(item) for item in config.accounts), key=lambda item: item.account_id))
-        reference = OnlyReferenceEnvironmentIdentity(
-            "CN_A_SHARE_REFERENCE" if config.market.profile.value == "CN_A_SHARE_CASH" else "GENERIC_REFERENCE",
-            only_canonical_fingerprint(
-                {
-                    "calendars": tuple(
-                        sorted(
-                            config.reference_data.calendars,
-                            key=lambda item: str(cast(OnlyTradingCalendar, item).calendar_id),
-                        )
-                    ),
-                    "instruments": tuple(
-                        sorted(
-                            config.reference_data.instruments,
-                            key=lambda item: str(cast(OnlyInstrument, item).instrument_id),
-                        )
-                    ),
-                    "ashare_instruments": config.reference_data.ashare_registry.records,
-                    "universes": tuple(
-                        sorted(
-                            config.universes,
-                            key=lambda item: cast(OnlyUniverseConfig, item).universe_id,
-                        )
-                    ),
-                }
-            ),
-        )
         market = OnlyMarketEnvironmentIdentity(
-            config.market.profile.value,
-            config.market.version,
-            only_canonical_fingerprint(config.market.overrides),
-            config.market.fee_pack.pack_id,
-            config.market.fee_pack.pack_version,
-            reference,
+            str(market_product.provider_plugin_id),
+            str(market_product.product_identity.product_id),
+            str(market_product.product_identity.product_version),
+            market_product.composition_identity.fingerprint,
         )
         persistence = OnlyPersistenceEnvironmentIdentity(
             config.runtime.persistence.backend.value,
@@ -200,8 +160,10 @@ class OnlyRuntimeEnvironmentBuilder:
             persistence,
         )
 
-    def resource_claims(self, config: OnlyClusterRunConfig) -> tuple[OnlyResourceClaim, ...]:
-        environment = self.build(config)
+    def resource_claims(
+        self, config: OnlyClusterRunConfig, market_product: OnlyResolvedMarketProductBinding
+    ) -> tuple[OnlyResourceClaim, ...]:
+        environment = self.build(config, market_product)
         claims = [
             *(
                 OnlyResourceClaim("calendar", str(item.calendar_id), only_canonical_fingerprint(item))

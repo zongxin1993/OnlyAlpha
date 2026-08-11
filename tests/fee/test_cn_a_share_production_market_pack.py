@@ -4,6 +4,13 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from onlyalpha_market_cn_ashare.fee_pack import (
+    CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM,
+    only_cn_a_share_market_fee_pack,
+)
+from onlyalpha_market_cn_ashare.fee_sources import (
+    CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID,
+)
 
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.identifiers import (
@@ -39,11 +46,6 @@ from onlyalpha.fee.evidence import (
     OnlyFeeReconciliationComponentIdentity,
 )
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
-from onlyalpha.fee.packs.cn_a_share import (
-    CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID,
-    CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM,
-    only_cn_a_share_production_fee_pack,
-)
 from onlyalpha.fee.reconciliation import (
     OnlyFeeReconciliationInput,
     OnlyFeeReconciliationPlanner,
@@ -58,7 +60,7 @@ VECTORS = Path("tests/reference_data/cn_a_share_fee_vectors.json")
 
 
 def _assessment(vector: dict[str, object]):
-    pack = only_cn_a_share_production_fee_pack()
+    pack = only_cn_a_share_market_fee_pack()
     day = OnlyTradingDay(date.fromisoformat(str(vector["trading_day"])))
     venue = str(vector["venue"])
     instrument = OnlyInstrumentId.parse(str(vector["instrument_identity"]))
@@ -151,8 +153,8 @@ def _assessment(vector: dict[str, object]):
 
 
 def test_pack_identity_sources_scope_and_fingerprint_are_stable() -> None:
-    first = only_cn_a_share_production_fee_pack()
-    second = only_cn_a_share_production_fee_pack()
+    first = only_cn_a_share_market_fee_pack()
+    second = only_cn_a_share_market_fee_pack()
     assert first == second
     assert first.pack_id == "CN_A_SHARE_PRODUCTION_MARKET_FEES"
     assert first.pack_version == "2025.06.30"
@@ -168,7 +170,7 @@ def test_pack_identity_sources_scope_and_fingerprint_are_stable() -> None:
 
 
 def test_venue_and_coverage_resolution_fail_closed() -> None:
-    pack = only_cn_a_share_production_fee_pack()
+    pack = only_cn_a_share_market_fee_pack()
     registry = OnlyMarketFeeScheduleRegistry()
     for schedule in reversed(pack.schedules):
         registry.register(schedule)
@@ -214,7 +216,7 @@ def test_venue_and_coverage_resolution_fail_closed() -> None:
 
 
 def test_official_stamp_duty_boundary_and_exact_historical_identity() -> None:
-    pack = only_cn_a_share_production_fee_pack()
+    pack = only_cn_a_share_market_fee_pack()
     versions = tuple(item for item in pack.schedules if item.schedule_id == "CN_A_SHARE_SSE_STAMP_DUTY")
     assert tuple(item.version for item in versions) == ("1", "2")
     registry = OnlyMarketFeeScheduleRegistry()
@@ -252,7 +254,7 @@ def test_official_stamp_duty_boundary_and_exact_historical_identity() -> None:
 
 
 def test_pack_selection_and_input_order_never_mean_latest() -> None:
-    first = only_cn_a_share_production_fee_pack()
+    first = only_cn_a_share_market_fee_pack()
     reordered = OnlyMarketFeePack.create(
         pack_id=first.pack_id,
         pack_version=first.pack_version,

@@ -101,7 +101,7 @@ def regenerate(name: str) -> None:
                 "scenario_fingerprint": result.determinism_fingerprint,
                 "configuration_fingerprint": result.determinism_fingerprint,
                 "persistence_schema_version": "5",
-                "onlyalpha_version": "0.3.5",
+                "onlyalpha_version": "0.3.6",
                 "database_template": template_name,
                 "database_archive": archive_name,
                 "database_fingerprint": fingerprint,

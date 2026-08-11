@@ -662,7 +662,7 @@ US Equity
 市场差异应该通过：
 
 ```text
-Market Profile
+Market Product Binding
 Reference Authority
 Compiled Market Rules
 Fee Authority
@@ -674,13 +674,11 @@ Settlement Instruction
 目标链：
 
 ```text
-Market Product
+Market Product Factory
       ↓
-Reference Authority
+Resolved Binding
       ↓
-Market Profile
-      ↓
-Rule Compilation
+Reference Authority + Policy Compiler + Market Fee Pack
       ↓
 Compiled Market Rules
       ↓
@@ -695,7 +693,7 @@ Execution Core
 
 只消费已经规范化的经济 Instruction。
 
-P5.2 已在 `onlyalpha.market.product` Core Contract 上完成 Canonical Market IR authority closure：IR 只包含 Core 所需的 instrument/session/price/quantity/position/short/settlement/margin economics，不包含 matching、slippage 或 simulation liquidity。`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` discovery 提供 plugin-owned Reference Authority、pure Policy Compiler 和 Market Fee Pack；Core 不 import 或硬注册该 concrete package。它当前是 conformance-validated replacement candidate；Generic 与 CN A-share 的 Trading Runtime one-shot cutover 属于 P5.3，现有 Profile/A-share 路径仍是当前生产事实。
+P5.3 已完成 Generic 与 CN A-share Trading Runtime one-shot cutover：`onlyalpha-market-generic-t0-cash` 与 `onlyalpha-market-cn-ashare` 通过 `onlyalpha.market_products` discovery 各自提供 plugin-owned Reference Authority、pure Policy Compiler 和 Market Fee Pack；Core 不 import 或硬注册 concrete package。IR 只包含 instrument/session/price/quantity/position/short/settlement/margin economics，不包含 matching、slippage 或 simulation liquidity。Runtime composition resolve exactly once，Environment/Persistence/Recovery 使用 effective composition identity，旧 Profile/A-share production authority 已删除。
 
 ---
 
@@ -1791,7 +1789,7 @@ engine.close()
 | `RESEARCH` | Factory unsupported | P7 实现 vectorized Research Job/Result/Artifact workflow |
 | `LIVE` | Factory unsupported | P8/P9 补齐 Broker durability、同步、恢复和运维 |
 
-当前 `PAPER` 已具备 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、realtime queue、aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并完成当前 Profile 下的真实 MiniQMT 验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产闭环。
+当前 `PAPER` 已具备 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、realtime queue、aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并完成当前 Market Product binding 下的真实 MiniQMT 验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产闭环。
 
 Runtime mode 中立化也尚未全仓完成：当前 Position authority、Fee finality 和 compiled Market Rule identity 仍有历史 mode 分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和暴露面是后续迁移债务，不能作为新增 Runtime-specific economics 的先例。
 
@@ -1849,7 +1847,7 @@ CN_A_SHARE_DURABLE_BACKTEST_V1
 认证不意味着：
 
 ```text
-完整 CN_A_SHARE_CASH Profile 已稳定
+完整 A 股市场范围已稳定
 
 所有中国股票规则已支持
 

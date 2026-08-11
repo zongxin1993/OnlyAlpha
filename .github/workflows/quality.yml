@@ -34,6 +34,7 @@ jobs:
       - run: uv run ruff format --check src tests examples packages scripts
       - run: uv run mypy src/onlyalpha
       - run: uv run mypy --config-file packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash
+      - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
       - run: uv run python scripts/version_sync.py check

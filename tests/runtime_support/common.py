@@ -27,14 +27,11 @@ from onlyalpha.domain.time import OnlyTimeZone, OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
-from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
-from onlyalpha.market.models import OnlyMarketProfileId
-from onlyalpha.market.profiles import only_builtin_market_profile_registry
-from onlyalpha.market.registry import OnlyMarketProfileRequest
-from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine, only_instrument_reference
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
+from tests.runtime_support.market_product import only_generic_market_product
 
 
 def only_demo_bar_types() -> tuple[OnlyBarType, OnlyBarType]:
@@ -77,16 +74,9 @@ def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster"
         step_size=OnlyQuantity(Decimal("1"), 0),
         contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
     )
-    reference = only_instrument_reference(
-        instrument,
-        profile_id=OnlyMarketProfileId.GENERIC_T0_CASH.value,
-    )
+    binding = only_generic_market_product(instrument)
     market_rules = OnlyMarketRuleEngine(
-        registry=only_builtin_market_profile_registry(),
-        compiler=OnlyMarketRuleCompiler(),
-        request=OnlyMarketProfileRequest(OnlyMarketProfileId.GENERIC_T0_CASH),
-        runtime_mode=OnlyRuntimeMode.BACKTEST,
-        references={str(instrument_id): reference},
+        binding=binding,
         advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
     )
     capital_amount = Decimal("1000000.00") / Decimal(len(cluster_ids))
@@ -100,7 +90,7 @@ def only_demo_runtime(runtime_id: str, cluster_ids: tuple[str, ...] = ("cluster"
             strategy_capitals=capitals,
             account_initial_cash=OnlyMoney(Decimal("1000000.00"), cny),
             market_rule_engine=market_rules,
-            market_fee_pack=only_generic_t0_cash_fee_pack(),
+            market_fee_pack=binding.market_fee_pack,
             broker_fee_contract=only_simulation_zero_broker_fee_contract("virtual"),
             broker_fee_authority_id="virtual",
             fee_basis_providers=only_default_fee_basis_provider_registry(),

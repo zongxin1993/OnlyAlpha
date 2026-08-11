@@ -28,9 +28,6 @@ from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
-from onlyalpha.market.models import OnlyMarketProfileId
-from onlyalpha.market.registry import OnlyMarketProfileRequest
-from onlyalpha.reference import OnlyAshareInstrumentReference, OnlyAshareReferenceRegistry
 
 type OnlyJsonValue = str | int | float | bool | None | list[OnlyJsonValue] | dict[str, OnlyJsonValue]
 type OnlyJsonMapping = Mapping[str, OnlyJsonValue]
@@ -72,7 +69,6 @@ class OnlyClusterCapitalConfig:
 class OnlyReferenceDataConfig:
     calendars: tuple[OnlyTradingCalendar, ...]
     instruments: tuple[OnlyInstrument, ...]
-    ashare_instruments: tuple[OnlyAshareInstrumentReference, ...] = ()
 
     @property
     def calendar_by_id(self) -> Mapping[OnlyCalendarId, OnlyTradingCalendar]:
@@ -81,14 +77,6 @@ class OnlyReferenceDataConfig:
     @property
     def instrument_by_id(self) -> Mapping[OnlyInstrumentId, OnlyInstrument]:
         return MappingProxyType({x.instrument_id: x for x in self.instruments})
-
-    @property
-    def ashare_registry(self) -> OnlyAshareReferenceRegistry:
-        return OnlyAshareReferenceRegistry(self.ashare_instruments)
-
-    @property
-    def reference_registry_fingerprint(self) -> str:
-        return self.ashare_registry.fingerprint
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,18 +123,6 @@ class OnlyAccountRuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyMarketFeePackConfig:
-    """Exact Market fee-pack identity; omission never installs a default."""
-
-    pack_id: str
-    pack_version: str
-
-    def __post_init__(self) -> None:
-        if not self.pack_id.strip() or not self.pack_version.strip():
-            raise OnlyConfigError("Market fee-pack identity cannot be empty")
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyBrokerFeeContractConfig:
     contract_id: str
     contract_version: str
@@ -172,32 +148,6 @@ class OnlyBrokerRuntimeConfig:
     plugin_id: str
     enabled: bool
     extensions: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketConfig:
-    """Required market definition shared by every Runtime mode."""
-
-    profile: OnlyMarketProfileId
-    fee_pack: OnlyMarketFeePackConfig
-    version: str | None = None
-    overrides: OnlyJsonMapping = field(default_factory=lambda: MappingProxyType({}))
-
-    def __post_init__(self) -> None:
-        _require_decimal_strings(self.overrides, "$.market.overrides")
-
-    def to_request(self) -> OnlyMarketProfileRequest:
-        return OnlyMarketProfileRequest(self.profile, self.version, self.overrides)
-
-
-def _require_decimal_strings(value: Mapping[str, object], path: str) -> None:
-    decimal_names = {"rate", "ticks", "value", "maximum_participation_rate"}
-    for key, item in value.items():
-        item_path = f"{path}.{key}"
-        if isinstance(item, Mapping):
-            _require_decimal_strings(item, item_path)
-        elif key in decimal_names and not isinstance(item, str):
-            raise OnlyConfigError(f"{item_path} must be a quoted Decimal string")
 
 
 @dataclass(frozen=True, slots=True)

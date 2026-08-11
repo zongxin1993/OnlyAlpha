@@ -2,47 +2,33 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime, time
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderType, OnlyRuntimeMode
-from onlyalpha.domain.instrument import OnlyInstrument
+from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderType
+from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay, only_require_utc
-from onlyalpha.market.ashare_rules import (
-    only_compile_ashare_price_policy,
-    only_compile_ashare_quantity_policy,
-)
 from onlyalpha.market.models import (
-    OnlyCompiledPriceBandPolicy,
-    OnlyCompiledQuantityPolicy,
-    OnlyInstrumentReferenceSnapshot,
-    OnlyLiquidityModel,
-    OnlyMarginModel,
     OnlyMarketPositionMode,
     OnlyMarketRuleEvaluation,
     OnlyMarketRuleEvaluationStatus,
-    OnlyMatchingModel,
-    OnlyPositionAccountingModel,
     OnlyPositionEffect,
-    OnlyPriceBandRoundingMode,
-    OnlyPriceRule,
-    OnlyQuantityRule,
-    OnlySettlementModel,
-    OnlyShortSellingRule,
-    OnlySlippageModel,
     OnlyTradingDayAdvancer,
     OnlyTradingPhase,
-    OnlyTradingSessionModel,
 )
-from onlyalpha.market.registry import OnlyMarketProfileRegistry, OnlyMarketProfileRequest, OnlyResolvedMarketProfile
-from onlyalpha.reference import OnlyAshareInstrumentReference, OnlyAshareReferenceError
+from onlyalpha.market.product import (
+    OnlyCompiledMarketPolicy,
+    OnlyCompiledMarketPolicyIdentity,
+    OnlyInstrumentTradingStatus,
+    OnlyMarketPolicyCompilationRequest,
+    OnlyMarketProductIdentity,
+    OnlyResolvedMarketProductBinding,
+)
 from onlyalpha.settlement.models import OnlySettlementSchedule, OnlySettlementScheduleRequest
 
 _PRE_TRADE_RULE_ORDER = (
@@ -76,126 +62,6 @@ class OnlyMarketRuleStage(StrEnum):
     SETTLEMENT = "SETTLEMENT"
     MARGIN = "MARGIN"
     FEE = "FEE"
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyCompiledMarketRuleIdentity:
-    profile_id: str
-    profile_version: str
-    market: str
-    trading_day: date
-    runtime_mode: OnlyRuntimeMode
-    instrument_id: str
-    venue: str
-    reference_fingerprint: str
-    resolved_profile_fingerprint: str
-    compiled_rules_fingerprint: str
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyCompiledMarketRules:
-    """Immutable executable projection; it intentionally contains no Profile."""
-
-    identity: OnlyCompiledMarketRuleIdentity
-    session_policy: OnlyTradingSessionModel
-    price_policy: OnlyCompiledPriceBandPolicy
-    quantity_policy: OnlyCompiledQuantityPolicy
-    position_policy: OnlyPositionAccountingModel
-    short_policy: OnlyShortSellingRule
-    settlement_policy: OnlySettlementModel
-    margin_policy: OnlyMarginModel | None
-    liquidity_policy: OnlyLiquidityModel
-    slippage_policy: OnlySlippageModel
-    matching_policy: OnlyMatchingModel
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketRuleCompilationContext:
-    resolved_profile: OnlyResolvedMarketProfile
-    reference: OnlyInstrumentReferenceSnapshot
-    trading_day: OnlyTradingDay
-    runtime_mode: OnlyRuntimeMode
-
-
-class OnlyMarketRuleCompiler:
-    """Compile configuration Profiles into deterministic Runtime policies."""
-
-    def compile(self, context: OnlyMarketRuleCompilationContext) -> OnlyCompiledMarketRules:
-        resolved = context.resolved_profile
-        profile = resolved.profile
-        reference = context.reference
-        if reference.market_profile_id is not profile.profile_id:
-            raise ValueError("instrument reference market profile differs from resolved profile")
-        if reference.asset_class not in profile.asset_classes:
-            raise ValueError("instrument asset class is unsupported by resolved market profile")
-        if reference.venue != str(reference.venue):  # pragma: no cover - defensive normalization guard
-            raise ValueError("instrument reference venue must be stable text")
-        if profile.profile_id.value == "CN_A_SHARE_CASH":
-            price_policy = only_compile_ashare_price_policy(
-                profile_version=resolved.resolved_version,
-                board=reference.board,
-                st_status=reference.st_status,
-                previous_close=reference.previous_close,
-                tick_size=reference.tick_size,
-            )
-            quantity_policy = only_compile_ashare_quantity_policy(
-                profile_version=resolved.resolved_version,
-                board=reference.board,
-                lot_size=reference.lot_size,
-            )
-        else:
-            price_policy = _compile_generic_price_policy(profile.version, profile.price_rule, reference)
-            quantity_policy = _compile_generic_quantity_policy(profile.quantity_rule, reference)
-        payload = {
-            "resolved": resolved.resolved_rules_fingerprint,
-            "reference": reference.content_fingerprint,
-            "instrument": reference.instrument_id,
-            "venue": reference.venue,
-            "trading_day": context.trading_day.value.isoformat(),
-            "runtime_mode": context.runtime_mode.value,
-            "rules": _normalize(
-                {
-                    "session": asdict(profile.session_model),
-                    "price": asdict(price_policy),
-                    "quantity": asdict(quantity_policy),
-                    "position": asdict(profile.position_model),
-                    "short": asdict(profile.short_selling_rule),
-                    "settlement": asdict(profile.settlement_model),
-                    "margin": None if profile.margin_model is None else asdict(profile.margin_model),
-                    "liquidity": asdict(profile.liquidity_model),
-                    "slippage": asdict(profile.slippage_model),
-                    "matching": asdict(profile.matching_model),
-                }
-            ),
-        }
-        fingerprint = hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        identity = OnlyCompiledMarketRuleIdentity(
-            profile_id=profile.profile_id.value,
-            profile_version=resolved.resolved_version,
-            market=profile.market,
-            trading_day=context.trading_day.value,
-            runtime_mode=context.runtime_mode,
-            instrument_id=reference.instrument_id,
-            venue=reference.venue,
-            reference_fingerprint=reference.content_fingerprint,
-            resolved_profile_fingerprint=resolved.resolved_rules_fingerprint,
-            compiled_rules_fingerprint=fingerprint,
-        )
-        return OnlyCompiledMarketRules(
-            identity,
-            profile.session_model,
-            price_policy,
-            quantity_policy,
-            profile.position_model,
-            profile.short_selling_rule,
-            profile.settlement_model,
-            profile.margin_model,
-            profile.liquidity_model,
-            profile.slippage_model,
-            profile.matching_model,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,31 +106,7 @@ class OnlyMarketOrderDecision:
     buy_quantity_increment: Decimal
     sell_quantity_increment: Decimal
     dynamic_price_cage_status: OnlyMarketRuleEvaluationStatus
-    compiled_identity: OnlyCompiledMarketRuleIdentity
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMatchTimeMarketContext:
-    instrument_id: str
-    side: OnlyOrderSide
-    order_quantity: Decimal
-    remaining_quantity: Decimal
-    timestamp: datetime
-    trading_day: OnlyTradingDay
-    reference_price: Decimal
-    bar_volume: Decimal | None = None
-    consumed_liquidity: Decimal = Decimal(0)
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketMatchDecision:
-    matched: bool
-    unfilled_reason: str | None
-    reference_price: Decimal
-    fill_price: Decimal | None
-    fill_quantity: Decimal
-    remaining_liquidity: Decimal | None
-    compiled_identity: OnlyCompiledMarketRuleIdentity
+    compiled_identity: OnlyCompiledMarketPolicyIdentity
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,93 +162,79 @@ class OnlyTradeApplicationInstruction:
     settlement_schedule: OnlySettlementSchedule
     margin_instruction: OnlyMarginInstruction | None
     cash_instruction: OnlyCashInstruction
-    compiled_identity: OnlyCompiledMarketRuleIdentity
+    compiled_identity: OnlyCompiledMarketPolicyIdentity
+    market_product_identity: OnlyMarketProductIdentity
 
 
 class OnlyPreTradeMarketRulePort(Protocol):
+    @property
+    def market_product_identity(self) -> OnlyMarketProductIdentity: ...
+
     def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyMarketPositionMode: ...
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision: ...
 
 
-class OnlyMatchTimeMarketRulePort(Protocol):
-    def evaluate_match_time(self, context: OnlyMatchTimeMarketContext) -> OnlyMarketMatchDecision: ...
-
-
 class OnlyTradeInstructionPort(Protocol):
+    @property
+    def market_product_identity(self) -> OnlyMarketProductIdentity: ...
+
     def build_trade_instruction(self, request: OnlyTradeApplicationRequest) -> OnlyTradeApplicationInstruction: ...
 
-    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketRules: ...
+    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketPolicy: ...
 
 
-OnlyReferenceProvider = Callable[[str, OnlyTradingDay], OnlyInstrumentReferenceSnapshot]
-
-
-class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePort, OnlyTradeInstructionPort):
-    """Controlled Runtime service. Business components never receive Profiles."""
+class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort):
+    """Runtime operational service over one already-resolved Market Product binding."""
 
     def __init__(
         self,
         *,
-        registry: OnlyMarketProfileRegistry,
-        compiler: OnlyMarketRuleCompiler,
-        request: OnlyMarketProfileRequest,
-        runtime_mode: OnlyRuntimeMode,
-        references: Mapping[str, OnlyInstrumentReferenceSnapshot] | OnlyReferenceProvider,
+        binding: OnlyResolvedMarketProductBinding,
         advance_trading_day: OnlyTradingDayAdvancer,
-        reference_registry_fingerprint: str | None = None,
     ) -> None:
-        self._registry = registry
-        self._compiler = compiler
-        self._request = request
-        self._runtime_mode = runtime_mode
-        self._references = references
+        self._binding = binding
         self._advance_trading_day = advance_trading_day
-        self._reference_registry_fingerprint = reference_registry_fingerprint
-        self._cache: dict[tuple[str, date, str], OnlyCompiledMarketRules] = {}
-        self._decisions: list[OnlyMarketOrderDecision | OnlyMarketMatchDecision] = []
+        self._cache: dict[tuple[str, object], OnlyCompiledMarketPolicy] = {}
+        self._decisions: list[OnlyMarketOrderDecision] = []
 
     @property
-    def decisions(self) -> tuple[OnlyMarketOrderDecision | OnlyMarketMatchDecision, ...]:
+    def decisions(self) -> tuple[OnlyMarketOrderDecision, ...]:
         return tuple(self._decisions)
 
     @property
-    def compiled_identities(self) -> tuple[OnlyCompiledMarketRuleIdentity, ...]:
+    def market_product_identity(self) -> OnlyMarketProductIdentity:
+        return self._binding.product_identity
+
+    @property
+    def market_composition_fingerprint(self) -> str:
+        return self._binding.composition_identity.fingerprint
+
+    @property
+    def compiled_identities(self) -> tuple[OnlyCompiledMarketPolicyIdentity, ...]:
         """Stable public query projection for collectors and artifacts."""
         return tuple(item.identity for _, item in sorted(self._cache.items(), key=lambda pair: pair[0]))
 
-    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketRules:
-        reference = self._reference(instrument_id, trading_day)
-        key = (instrument_id, trading_day.value, reference.content_fingerprint)
+    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketPolicy:
+        key = (instrument_id, trading_day.value)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        resolved = self._registry.resolve(
-            self._request,
-            effective_on=trading_day.value,
-            reference_source=reference.source,
-            reference_version=reference.source_version,
-            reference_fingerprint=reference.content_fingerprint,
-        )
-        compiled = self._compiler.compile(
-            OnlyMarketRuleCompilationContext(resolved, reference, trading_day, self._runtime_mode)
+        compiled = self._binding.policy_compiler.compile(
+            OnlyMarketPolicyCompilationRequest(
+                OnlyInstrumentId.parse(instrument_id), trading_day, self._binding.reference_authority
+            )
         )
         self._cache[key] = compiled
         return compiled
 
     def capture_checkpoint(self) -> object:
-        def identity_payload(identity: OnlyCompiledMarketRuleIdentity) -> dict[str, str]:
+        def identity_payload(identity: OnlyCompiledMarketPolicyIdentity) -> dict[str, str]:
             return {
-                "compiled_rules_fingerprint": identity.compiled_rules_fingerprint,
-                "instrument_id": identity.instrument_id,
-                "market": identity.market,
-                "profile_id": identity.profile_id,
-                "profile_version": identity.profile_version,
+                "instrument_id": str(identity.instrument_id),
                 "reference_fingerprint": identity.reference_fingerprint,
-                "resolved_profile_fingerprint": identity.resolved_profile_fingerprint,
-                "runtime_mode": identity.runtime_mode.value,
-                "trading_day": identity.trading_day.isoformat(),
-                "venue": identity.venue,
+                "policy_fingerprint": identity.policy_fingerprint,
+                "trading_day": identity.trading_day.value.isoformat(),
             }
 
         decisions: list[dict[str, object]] = []
@@ -448,64 +276,34 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                         "upper_limit": None if item.upper_limit is None else str(item.upper_limit),
                     }
                 )
-            else:
-                decisions.append(
-                    {
-                        "compiled_identity": identity_payload(item.compiled_identity),
-                        "fill_price": None if item.fill_price is None else str(item.fill_price),
-                        "fill_quantity": str(item.fill_quantity),
-                        "kind": "MATCH",
-                        "matched": item.matched,
-                        "reference_price": str(item.reference_price),
-                        "remaining_liquidity": (
-                            None if item.remaining_liquidity is None else str(item.remaining_liquidity)
-                        ),
-                        "unfilled_reason": item.unfilled_reason,
-                    }
-                )
-        payload: dict[str, object] = {"schema_version": 4, "decisions": decisions}
-        if self._reference_registry_fingerprint is not None:
-            payload["reference_registry_fingerprint"] = self._reference_registry_fingerprint
-        return payload
+        return {
+            "schema_version": 5,
+            "market_composition_fingerprint": self._binding.composition_identity.fingerprint,
+            "decisions": decisions,
+        }
 
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
             raise ValueError("Market Rule checkpoint must contain decisions")
-        if payload.get("schema_version") != 4:
-            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 4")
-        if self._reference_registry_fingerprint is not None and (
-            payload.get("reference_registry_fingerprint") != self._reference_registry_fingerprint
-        ):
-            raise ValueError("REFERENCE_FINGERPRINT_MISMATCH: checkpoint reference registry differs")
+        if payload.get("schema_version") != 5:
+            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 5")
+        if payload.get("market_composition_fingerprint") != self._binding.composition_identity.fingerprint:
+            raise ValueError("MARKET_COMPOSITION_FINGERPRINT_MISMATCH")
 
-        def identity(raw: object) -> OnlyCompiledMarketRuleIdentity:
+        def identity(raw: object) -> OnlyCompiledMarketPolicyIdentity:
             if not isinstance(raw, dict):
                 raise ValueError("Market Rule decision identity must be an object")
-            restored_identity = OnlyCompiledMarketRuleIdentity(
-                str(raw["profile_id"]),
-                str(raw["profile_version"]),
-                str(raw["market"]),
-                date.fromisoformat(str(raw["trading_day"])),
-                OnlyRuntimeMode(str(raw["runtime_mode"])),
-                str(raw["instrument_id"]),
-                str(raw["venue"]),
-                str(raw["reference_fingerprint"]),
-                str(raw["resolved_profile_fingerprint"]),
-                str(raw["compiled_rules_fingerprint"]),
-            )
             expected = self.compiled_rules(
-                restored_identity.instrument_id,
-                OnlyTradingDay(restored_identity.trading_day),
+                str(raw["instrument_id"]),
+                OnlyTradingDay(date.fromisoformat(str(raw["trading_day"]))),
             ).identity
-            if expected.reference_fingerprint != restored_identity.reference_fingerprint:
+            if expected.reference_fingerprint != str(raw["reference_fingerprint"]):
                 raise ValueError("REFERENCE_FINGERPRINT_MISMATCH: compiled Reference differs")
-            if expected.resolved_profile_fingerprint != restored_identity.resolved_profile_fingerprint:
-                raise ValueError("PROFILE_FINGERPRINT_MISMATCH: resolved Profile differs")
-            if expected.compiled_rules_fingerprint != restored_identity.compiled_rules_fingerprint:
-                raise ValueError("COMPILED_RULES_FINGERPRINT_MISMATCH: compiled policies differ")
-            return restored_identity
+            if expected.policy_fingerprint != str(raw["policy_fingerprint"]):
+                raise ValueError("COMPILED_POLICY_FINGERPRINT_MISMATCH")
+            return expected
 
-        restored: list[OnlyMarketOrderDecision | OnlyMarketMatchDecision] = []
+        restored: list[OnlyMarketOrderDecision] = []
         for raw in payload["decisions"]:
             if not isinstance(raw, dict):
                 raise ValueError("Market Rule decision must be an object")
@@ -558,32 +356,19 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                         compiled_identity,
                     )
                 )
-            elif raw["kind"] == "MATCH":
-                restored.append(
-                    OnlyMarketMatchDecision(
-                        bool(raw["matched"]),
-                        None if raw["unfilled_reason"] is None else str(raw["unfilled_reason"]),
-                        Decimal(str(raw["reference_price"])),
-                        None if raw["fill_price"] is None else Decimal(str(raw["fill_price"])),
-                        Decimal(str(raw["fill_quantity"])),
-                        None if raw["remaining_liquidity"] is None else Decimal(str(raw["remaining_liquidity"])),
-                        compiled_identity,
-                    )
-                )
             else:
                 raise ValueError("unsupported Market Rule decision kind")
         self._decisions = restored
 
     @property
     def checkpoint_schema_version(self) -> int:
-        return 4
+        return 5
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         try:
-            reference = self._reference(context.instrument_id, context.trading_day)
-        except (KeyError, OnlyAshareReferenceError) as exc:
+            rules = self.compiled_rules(context.instrument_id, context.trading_day)
+        except (KeyError, ValueError) as exc:
             return self._reference_failure_decision(context, exc)
-        rules = self.compiled_rules(context.instrument_id, context.trading_day)
         session = rules.session_policy.state_at(context.timestamp.astimezone(ZoneInfo(rules.session_policy.timezone)))
         effect = self._position_effect(rules, context)
         required_position = (
@@ -591,14 +376,14 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             if context.side is OnlyOrderSide.SELL and effect is not OnlyPositionEffect.OPEN
             else Decimal(0)
         )
-        notional = context.price * context.quantity * reference.contract_multiplier
+        notional = context.price * context.quantity * rules.instrument_terms.contract_multiplier
         required_cash = (
             notional if context.side is OnlyOrderSide.BUY and effect is not OnlyPositionEffect.CLOSE else Decimal(0)
         )
         required_margin = Decimal(0)
         if rules.margin_policy is not None and effect is OnlyPositionEffect.OPEN:
             required_margin = rules.margin_policy.requirement(
-                context.price, context.quantity, reference.contract_multiplier
+                context.price, context.quantity, rules.instrument_terms.contract_multiplier
             ).initial_margin
         evaluations: list[OnlyMarketRuleEvaluation] = []
         failed = False
@@ -625,16 +410,11 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         passed = OnlyMarketRuleEvaluationStatus.PASSED
         failed_status = OnlyMarketRuleEvaluationStatus.FAILED
         not_applicable = OnlyMarketRuleEvaluationStatus.NOT_APPLICABLE
-        record("REFERENCE_COVERAGE", passed, inputs=(("reference_fingerprint", reference.content_fingerprint),))
-        effective = reference.effective_from.date() <= context.trading_day.value and (
-            reference.effective_to is None or context.trading_day.value < reference.effective_to.date()
-        )
+        record("REFERENCE_COVERAGE", passed, inputs=(("reference_fingerprint", rules.identity.reference_fingerprint),))
+        record("REFERENCE_EFFECTIVE_RANGE", passed)
         record(
-            "REFERENCE_EFFECTIVE_RANGE",
-            passed if effective else failed_status,
-            None if effective else "REFERENCE_NOT_EFFECTIVE",
+            "EFFECTIVE_PROFILE_RESOLUTION", passed, inputs=(("policy_fingerprint", rules.identity.policy_fingerprint),)
         )
-        record("EFFECTIVE_PROFILE_RESOLUTION", passed, inputs=(("profile_version", rules.identity.profile_version),))
         phase_reason = {
             OnlyTradingPhase.OPENING_AUCTION: "TRADING_PHASE_NOT_SUPPORTED",
             OnlyTradingPhase.CLOSING_AUCTION: "TRADING_PHASE_NOT_SUPPORTED",
@@ -651,10 +431,12 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         )
         record(
             "SUSPENSION",
-            failed_status if reference.suspended else passed,
-            "INSTRUMENT_SUSPENDED" if reference.suspended else None,
+            failed_status if rules.instrument_terms.trading_status is OnlyInstrumentTradingStatus.SUSPENDED else passed,
+            "INSTRUMENT_SUSPENDED"
+            if rules.instrument_terms.trading_status is OnlyInstrumentTradingStatus.SUSPENDED
+            else None,
         )
-        active = reference.status == "ACTIVE"
+        active = rules.instrument_terms.trading_status is not OnlyInstrumentTradingStatus.INACTIVE
         record("INSTRUMENT_LIFECYCLE", passed if active else failed_status, None if active else "INSTRUMENT_INACTIVE")
         order_type_supported = context.order_type is OnlyOrderType.LIMIT
         record(
@@ -812,32 +594,16 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
     def _reference_failure_decision(
         self,
         context: OnlyPreTradeMarketContext,
-        error: KeyError | OnlyAshareReferenceError,
+        error: KeyError | ValueError,
     ) -> OnlyMarketOrderDecision:
-        raw_code = error.code if isinstance(error, OnlyAshareReferenceError) else "REFERENCE_NOT_FOUND"
+        raw_code = getattr(error, "code", "REFERENCE_NOT_FOUND")
         reason = "REFERENCE_CONFLICT" if raw_code in {"REFERENCE_AMBIGUOUS", "REFERENCE_RUNTIME_CONFLICT"} else raw_code
-        resolved = self._registry.resolve(self._request, effective_on=context.trading_day.value)
-        failure_payload = {
-            "instrument_id": context.instrument_id,
-            "profile_fingerprint": resolved.resolved_rules_fingerprint,
-            "reason": reason,
-            "runtime_mode": self._runtime_mode.value,
-            "trading_day": context.trading_day.value.isoformat(),
-        }
-        failure_fingerprint = hashlib.sha256(
-            json.dumps(failure_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        identity = OnlyCompiledMarketRuleIdentity(
-            resolved.resolved_profile_id.value,
-            resolved.resolved_version,
-            resolved.profile.market,
-            context.trading_day.value,
-            self._runtime_mode,
-            context.instrument_id,
-            "",
-            "",
-            resolved.resolved_rules_fingerprint,
-            failure_fingerprint,
+        identity = OnlyCompiledMarketPolicyIdentity(
+            OnlyInstrumentId.parse(context.instrument_id),
+            context.trading_day,
+            "0" * 64,
+            self._binding.policy_compiler.identity,
+            only_canonical_fingerprint((context.instrument_id, context.trading_day, reason)),
         )
         evaluations = (
             OnlyMarketRuleEvaluation("REFERENCE_COVERAGE", OnlyMarketRuleEvaluationStatus.FAILED, reason),
@@ -846,9 +612,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
                 for code in _PRE_TRADE_RULE_ORDER[1:]
             ),
         )
-        phase = resolved.profile.session_model.state_at(
-            context.timestamp.astimezone(ZoneInfo(resolved.profile.session_model.timezone))
-        ).phase
+        phase = OnlyTradingPhase.CLOSED
         effect = OnlyPositionEffect.OPEN if context.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
         decision = OnlyMarketOrderDecision(
             False,
@@ -883,36 +647,12 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
 
         return self.compiled_rules(instrument_id, trading_day).position_policy.mode
 
-    def evaluate_match_time(self, context: OnlyMatchTimeMarketContext) -> OnlyMarketMatchDecision:
-        rules = self.compiled_rules(context.instrument_id, context.trading_day)
-        reference = self._reference(context.instrument_id, context.trading_day)
-        capacity = rules.liquidity_policy.capacity(context.bar_volume, context.consumed_liquidity)
-        quantity = context.remaining_quantity if capacity is None else min(context.remaining_quantity, capacity)
-        price = rules.slippage_policy.apply(context.reference_price, context.side, reference.tick_size)
-        reason = None
-        if quantity <= 0:
-            reason = "LIQUIDITY_EXHAUSTED"
-        elif price <= 0 or price % reference.tick_size != 0:
-            reason = "FINAL_PRICE_TICK_INVALID"
-        decision = OnlyMarketMatchDecision(
-            matched=reason is None,
-            unfilled_reason=reason,
-            reference_price=context.reference_price,
-            fill_price=None if reason is not None else price,
-            fill_quantity=Decimal(0) if reason is not None else quantity,
-            remaining_liquidity=None if capacity is None else max(capacity - quantity, Decimal(0)),
-            compiled_identity=rules.identity,
-        )
-        self._decisions.append(decision)
-        return decision
-
     def build_trade_instruction(self, request: OnlyTradeApplicationRequest) -> OnlyTradeApplicationInstruction:
         rules = self.compiled_rules(request.instrument_id, request.trading_day)
-        reference = self._reference(request.instrument_id, request.trading_day)
         effect = request.position_effect
         if effect is OnlyPositionEffect.AUTO:
             effect = OnlyPositionEffect.OPEN if request.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
-        notional = request.price * request.quantity * reference.contract_multiplier
+        notional = request.price * request.quantity * rules.instrument_terms.contract_multiplier
         settlement = rules.settlement_policy.schedule(
             OnlySettlementScheduleRequest(request.side, request.trading_day),
             self._advance_trading_day,
@@ -920,13 +660,13 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         margin = None
         if rules.margin_policy is not None:
             requirement = rules.margin_policy.requirement(
-                request.price, request.quantity, reference.contract_multiplier
+                request.price, request.quantity, rules.instrument_terms.contract_multiplier
             )
             margin = OnlyMarginInstruction(
                 "OCCUPY" if effect is OnlyPositionEffect.OPEN else "RELEASE",
                 request.account_id,
                 request.instrument_id,
-                reference.currency,
+                rules.instrument_terms.settlement_currency,
                 requirement.initial_margin,
                 requirement.maintenance_margin,
                 request.order_id,
@@ -956,24 +696,17 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
             settlement,
             margin,
             OnlyCashInstruction(
-                reference.currency,
+                rules.instrument_terms.settlement_currency,
                 cash_sign * notional if settles_notional else Decimal(0),
                 settlement.cash_trade_available_on,
                 settles_notional,
             ),
             rules.identity,
+            self._binding.product_identity,
         )
 
-    def _reference(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyInstrumentReferenceSnapshot:
-        if callable(self._references):
-            return self._references(instrument_id, trading_day)
-        try:
-            return self._references[instrument_id]
-        except KeyError as exc:
-            raise KeyError(f"market reference not registered: {instrument_id}") from exc
-
     @staticmethod
-    def _position_effect(rules: OnlyCompiledMarketRules, context: OnlyPreTradeMarketContext) -> OnlyPositionEffect:
+    def _position_effect(rules: OnlyCompiledMarketPolicy, context: OnlyPreTradeMarketContext) -> OnlyPositionEffect:
         if context.position_effect is not OnlyPositionEffect.AUTO:
             return context.position_effect
         if rules.position_policy.mode is OnlyMarketPositionMode.LONG_ONLY:
@@ -989,173 +722,19 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyMatchTimeMarketRulePo
         rules = self.compiled_rules(request.instrument_id, request.trading_day)
         if rules.margin_policy is None or request.position_effect is not OnlyPositionEffect.OPEN:
             return None
-        reference = self._reference(request.instrument_id, request.trading_day)
         requirement = rules.margin_policy.requirement(
             request.price,
             request.quantity,
-            reference.contract_multiplier,
+            rules.instrument_terms.contract_multiplier,
         )
         return OnlyMarginInstruction(
             "RESERVE",
             request.account_id,
             request.instrument_id,
-            reference.currency,
+            rules.instrument_terms.settlement_currency,
             requirement.initial_margin,
             requirement.maintenance_margin,
             request.order_id,
             request.trade_id,
             OnlyTimestamp.from_datetime(request.timestamp),
         )
-
-
-def only_instrument_reference(
-    instrument: OnlyInstrument,
-    *,
-    profile_id: object,
-    source: str = "CONFIG",
-    board: str | None = None,
-    st_status: bool = False,
-) -> OnlyInstrumentReferenceSnapshot:
-    """Build the runtime reference projection from the canonical Instrument model."""
-
-    from onlyalpha.market.models import OnlyMarketProfileId
-
-    effective_from = instrument.effective_from or datetime(1970, 1, 1, tzinfo=UTC)
-    fingerprint_payload = {
-        "instrument": repr(instrument),
-        "profile": str(profile_id),
-        "board": board,
-        "st": st_status,
-    }
-    fingerprint = hashlib.sha256(
-        json.dumps(_normalize(fingerprint_payload), sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    return OnlyInstrumentReferenceSnapshot(
-        instrument_id=str(instrument.instrument_id),
-        asset_class=instrument.asset_class,
-        venue=str(instrument.venue),
-        market_profile_id=OnlyMarketProfileId(str(profile_id)),
-        currency=instrument.settlement_currency.code,
-        effective_from=effective_from,
-        effective_to=instrument.effective_to,
-        source=source,
-        source_version=str(instrument.version),
-        content_fingerprint=fingerprint,
-        base_currency=None if instrument.base_currency is None else instrument.base_currency.code,
-        quote_currency=instrument.quote_currency.code,
-        settlement_currency=instrument.settlement_currency.code,
-        status=instrument.status.value,
-        price_precision=instrument.price_precision,
-        quantity_precision=instrument.quantity_precision,
-        tick_size=instrument.tick_size.value,
-        quantity_step=instrument.step_size.value,
-        minimum_quantity=None if instrument.minimum_quantity is None else instrument.minimum_quantity.value,
-        maximum_quantity=None if instrument.maximum_quantity is None else instrument.maximum_quantity.value,
-        minimum_notional=None if instrument.minimum_notional is None else instrument.minimum_notional.amount,
-        maximum_notional=None if instrument.maximum_notional is None else instrument.maximum_notional.amount,
-        lot_size=None if instrument.lot_size is None else instrument.lot_size.value,
-        contract_multiplier=instrument.contract_multiplier.value,
-        board=board,
-        st_status=st_status,
-        trading_calendar_id=None if instrument.trading_calendar_id is None else str(instrument.trading_calendar_id),
-    )
-
-
-def only_ashare_instrument_reference(
-    instrument: OnlyInstrument,
-    record: OnlyAshareInstrumentReference,
-    *,
-    profile_id: object,
-) -> OnlyInstrumentReferenceSnapshot:
-    """Project one resolved authority record into the existing compiled-rule contract."""
-
-    if record.instrument_id != instrument.instrument_id:
-        raise ValueError("REFERENCE_RUNTIME_CONFLICT: Instrument and Reference identities differ")
-    expected_venue = {"SSE": "XSHG", "SZSE": "XSHE"}[record.exchange.value]
-    if str(instrument.venue) != expected_venue:
-        raise ValueError("REFERENCE_RUNTIME_CONFLICT: exchange and Instrument venue differ")
-    projection = only_instrument_reference(
-        instrument,
-        profile_id=profile_id,
-        source=record.source.value,
-        board=record.board.value,
-        st_status=record.st_status,
-    )
-    return OnlyInstrumentReferenceSnapshot(
-        **{
-            **asdict(projection),
-            "effective_from": datetime.combine(record.effective_from.value, time(), tzinfo=UTC),
-            "effective_to": (
-                None if record.effective_to is None else datetime.combine(record.effective_to.value, time(), tzinfo=UTC)
-            ),
-            "source_version": record.source_version,
-            "content_fingerprint": record.record_fingerprint,
-            "tick_size": record.price_tick.value,
-            "lot_size": record.lot_size.value,
-            "st_status": record.st_status,
-            "suspended": record.suspended,
-            "previous_close": record.previous_close.value,
-        }
-    )
-
-
-def _compile_generic_price_policy(
-    profile_version: str,
-    raw: OnlyPriceRule,
-    reference: OnlyInstrumentReferenceSnapshot,
-) -> OnlyCompiledPriceBandPolicy:
-    tick_size = reference.tick_size
-    previous_close = reference.previous_close
-    lower: Decimal | None = None
-    upper: Decimal | None = None
-    if raw.daily_limit_rate is not None:
-        if previous_close is None or previous_close <= 0:
-            raise ValueError("REFERENCE_PREVIOUS_CLOSE_INVALID")
-        with localcontext() as context:
-            context.prec = 34
-            lower = (previous_close * (Decimal(1) - raw.daily_limit_rate) / tick_size).quantize(
-                Decimal(1), rounding=ROUND_HALF_UP
-            ) * tick_size
-            upper = (previous_close * (Decimal(1) + raw.daily_limit_rate) / tick_size).quantize(
-                Decimal(1), rounding=ROUND_HALF_UP
-            ) * tick_size
-    return OnlyCompiledPriceBandPolicy(
-        f"GENERIC@{profile_version}",
-        tick_size,
-        previous_close,
-        raw.daily_limit_rate,
-        lower,
-        upper,
-        OnlyPriceBandRoundingMode.HALF_UP_TO_TICK,
-    )
-
-
-def _compile_generic_quantity_policy(
-    raw: OnlyQuantityRule,
-    reference: OnlyInstrumentReferenceSnapshot,
-) -> OnlyCompiledQuantityPolicy:
-    increment = reference.quantity_step
-    minimum = reference.minimum_quantity or increment
-    return OnlyCompiledQuantityPolicy(
-        minimum,
-        increment,
-        minimum,
-        increment,
-        raw.allow_odd_lot_liquidation,
-        reference.maximum_quantity,
-        raw.allow_fractional,
-    )
-
-
-def _normalize(value: object) -> object:
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, (date, datetime, time)):
-        return value.isoformat()
-    if isinstance(value, StrEnum):
-        return value.value
-    if isinstance(value, Mapping):
-        return {str(key): _normalize(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
-    if isinstance(value, (tuple, list)):
-        return [_normalize(item) for item in value]
-    return value

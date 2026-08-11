@@ -1,11 +1,5 @@
 """Stable command/query application boundaries for product adapters."""
 
-from onlyalpha.application.market_query import (
-    OnlyMarketProfileDetail,
-    OnlyMarketProfileQueryService,
-    OnlyMarketProfileSummary,
-)
-
 from .engine_inspection import OnlyEngineInspectionService
 from .engine_runner import (
     OnlyEngineApplicationRunner,
@@ -24,9 +18,6 @@ __all__ = [
     "OnlyEngineInspectionService",
     "OnlyEconomicBaseline",
     "OnlyHistoricalWarmupInspection",
-    "OnlyMarketProfileDetail",
-    "OnlyMarketProfileQueryService",
-    "OnlyMarketProfileSummary",
     "OnlyRuntimeLifecycleKind",
     "OnlyStreamingRuntimeInspectionSnapshot",
     "OnlySubscriptionInspection",

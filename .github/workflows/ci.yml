@@ -56,6 +56,7 @@ jobs:
               "onlyalpha",
               "onlyalpha-plugin-broker-virtual",
               "onlyalpha-market-generic-t0-cash",
+              "onlyalpha-market-cn-ashare",
               "onlyalpha-plugin-tushare",
               "onlyalpha-plugin-miniqmt",
           }
@@ -239,6 +240,23 @@ jobs:
       - run: uv run mypy --config-file packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash
       - run: uv run pytest packages/market/onlyalpha-market-generic-t0-cash/tests -q
 
+  cn-ashare-market-product:
+    name: CN A-share Market Product
+    needs: [metadata]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run ruff check packages/market/onlyalpha-market-cn-ashare
+      - run: uv run ruff format --check packages/market/onlyalpha-market-cn-ashare
+      - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
+      - run: uv run pytest packages/market/onlyalpha-market-cn-ashare/tests -q
+
   # ---------------------------------------------------------------------------
   # MiniQMT 是 Windows-only 运行插件。
   # 默认 CI 只验证离线 Unit/Contract，不连接本地 QMT。
@@ -411,6 +429,11 @@ jobs:
             os: ubuntu-latest
             import-name: onlyalpha_market_generic_t0_cash
             entry-points: "onlyalpha.market_products=generic-t0-cash"
+
+          - distribution: onlyalpha-market-cn-ashare
+            os: ubuntu-latest
+            import-name: onlyalpha_market_cn_ashare
+            entry-points: "onlyalpha.market_products=cn-ashare"
 
           - distribution: onlyalpha-plugin-miniqmt
             os: windows-latest

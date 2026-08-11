@@ -6,6 +6,7 @@ import pytest
 from onlyalpha.config import OnlyClusterConfigError, OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from tests.runtime_support.market_product import only_generic_market_product
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
 
@@ -68,11 +69,11 @@ def test_market_is_required_and_legacy_market_simulation_is_rejected() -> None:
         OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
 
 
-def test_market_override_decimal_values_must_be_quoted() -> None:
+def test_legacy_market_overrides_are_rejected() -> None:
     original = OnlyClusterRunConfig.load(CONFIG)
     payload = json.loads(json.dumps(dict(original.normalized_payload)))
     payload["market"]["overrides"] = {"liquidity": {"maximum_participation_rate": 0.1}}
-    with pytest.raises(ValueError, match="quoted Decimal string"):
+    with pytest.raises(ValueError, match=r"UNKNOWN_FIELD: \$\.market\.overrides"):
         OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
 
 
@@ -87,7 +88,10 @@ def _capital_config(cluster_id: str, capital: dict[str, object] | None) -> OnlyC
 
 
 def _plan(*configs: OnlyClusterRunConfig) -> None:
-    OnlyRuntimePlanner().plan(OnlyEngineId("capital-test"), configs)
+    bindings = {
+        config.cluster_id: only_generic_market_product(config.reference_data.instruments[0]) for config in configs
+    }
+    OnlyRuntimePlanner().plan(OnlyEngineId("capital-test"), configs, bindings)
 
 
 def test_single_cluster_capital_defaults_to_account_and_explicit_must_match() -> None:

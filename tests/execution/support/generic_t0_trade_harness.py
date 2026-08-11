@@ -33,7 +33,7 @@ from onlyalpha.execution import (
     only_strategy_ledger_execution_state,
 )
 from onlyalpha.execution.authority_state import only_settlement_execution_state
-from onlyalpha.market.models import OnlyMarketPositionMode, OnlyMarketProfileId
+from onlyalpha.market.models import OnlyMarketPositionMode
 from onlyalpha.market.runtime_rules import OnlyTradeApplicationRequest
 from onlyalpha.position.enums import OnlyPositionMode
 from onlyalpha.position.identifiers import OnlyPositionAllocationId
@@ -510,7 +510,6 @@ def only_test_projection_after(projection: OnlyRuntimeProjection) -> object:
 
 def _environment(scenario: OnlyTestGenericT0Scenario) -> OnlyIntegrationEnvironment:
     return OnlyIntegrationEnvironment(
-        market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
         virtual_broker=scenario.virtual_broker,
     )
 

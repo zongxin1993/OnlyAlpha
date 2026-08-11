@@ -31,8 +31,10 @@ def scenario_payload() -> dict[str, object]:
             "base_currency": "CNY",
         },
         "market": {
-            "profile": "GENERIC_T0_CASH",
-            "fee_pack": {"pack_id": "GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE", "pack_version": "1"},
+            "plugin_id": "onlyalpha-market-generic-t0-cash",
+            "product_id": "GENERIC_T0_CASH",
+            "product_version": "1",
+            "config": {},
         },
         "reference": {
             "calendars": [
@@ -161,7 +163,7 @@ def test_scenario_runner_traverses_engine_and_is_deterministic(tmp_path: Path) -
     ("open_side", "close_side", "position_side"),
     (("BUY", "SELL", "LONG"), ("SELL", "BUY", "SHORT")),
 )
-def test_generic_futures_remains_outside_formal_execution_transaction_scope(
+def test_uninstalled_futures_market_product_fails_closed_before_execution(
     tmp_path: Path,
     open_side: str,
     close_side: str,
@@ -174,8 +176,10 @@ def test_generic_futures_remains_outside_formal_execution_transaction_scope(
         "description": f"Generic futures {position_side}",
     }
     payload["market"] = {
-        "profile": "GENERIC_MARGIN_FUTURES",
-        "fee_pack": {"pack_id": "GENERIC_MARGIN_FUTURES_MARKET_FEE_PACK_CONFORMANCE", "pack_version": "1"},
+        "plugin_id": "onlyalpha-test-market-generic-futures",
+        "product_id": "GENERIC_MARGIN_FUTURES",
+        "product_version": "1",
+        "config": {},
     }
     instrument = payload["reference"]["instruments"][0]  # type: ignore[index]
     instrument.update(  # type: ignore[union-attr]
@@ -235,11 +239,8 @@ def test_generic_futures_remains_outside_formal_execution_transaction_scope(
     payload["expectations"] = []
     scenario = OnlyMarketScenarioParser().parse(payload)
 
-    result = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / position_side))
-
-    assert result.status == "ERROR"
-    assert any("UNSUPPORTED_EXECUTION_CAPABILITY" in item for item in result.diagnostics)
-    assert result.facts[OnlyScenarioFactType.EXECUTION] == ()
+    with pytest.raises(ValueError, match="MARKET_PRODUCT_PLUGIN_NOT_REGISTERED"):
+        OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / position_side))
 
 
 @pytest.mark.parametrize("mode", ["PAPER", "LIVE", "SHADOW"])

@@ -364,12 +364,10 @@ class OnlyRiskService:
                         details={
                             "market_reason_code": market_decision.reason_code or "UNKNOWN",
                             "market_rule_code": failed_evaluation.rule_code,
-                            "market_profile_id": market_decision.compiled_identity.profile_id,
-                            "market_profile_version": market_decision.compiled_identity.profile_version,
+                            "market_product_id": str(self._market_rules.market_product_identity.product_id),
+                            "market_product_version": str(self._market_rules.market_product_identity.product_version),
                             "market_reference_fingerprint": market_decision.compiled_identity.reference_fingerprint,
-                            "market_compiled_rule_fingerprint": (
-                                market_decision.compiled_identity.compiled_rules_fingerprint
-                            ),
+                            "market_compiled_rule_fingerprint": (market_decision.compiled_identity.policy_fingerprint),
                         },
                     )
                 )

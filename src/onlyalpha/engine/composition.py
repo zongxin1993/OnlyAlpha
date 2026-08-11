@@ -8,6 +8,13 @@ from typing import TYPE_CHECKING
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.engine.infrastructure import OnlyInfrastructureRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
+from onlyalpha.fee.market_pack import OnlyMarketFeePack
+from onlyalpha.market.product import (
+    OnlyMarketProductResolutionContext,
+    OnlyMarketProductResourceResolver,
+    OnlyMarketReferenceAuthority,
+    OnlyResolvedMarketProductBinding,
+)
 from onlyalpha.runtime.environment import (
     OnlyResourceClaim,
     OnlyRuntimeEnvironmentBuilder,
@@ -25,7 +32,18 @@ class OnlyClusterCompositionPlan:
     environment: OnlyRuntimeEnvironmentIdentity
     resource_claims: tuple[OnlyResourceClaim, ...]
     authority_installations: tuple[OnlyBrokerFeeContract, ...]
+    market_product: OnlyResolvedMarketProductBinding
     fingerprint: str
+
+
+class _NoExternalMarketProductResources(OnlyMarketProductResourceResolver):
+    """P5.3 products build their plugin-owned authorities from typed config."""
+
+    def require_reference_authority(self, resource_id: str) -> OnlyMarketReferenceAuthority:
+        raise ValueError(f"EXTERNAL_MARKET_REFERENCE_RESOURCE_NOT_CONFIGURED: {resource_id}")
+
+    def require_market_fee_pack(self, pack_id: str, pack_version: str) -> OnlyMarketFeePack:
+        raise ValueError(f"EXTERNAL_MARKET_FEE_RESOURCE_NOT_CONFIGURED: {pack_id}@{pack_version}")
 
 
 class OnlyClusterComposition:
@@ -42,8 +60,12 @@ class OnlyClusterComposition:
         self._environment_builder = environment_builder or OnlyRuntimeEnvironmentBuilder()
 
     def plan(self, config: OnlyClusterRunConfig) -> OnlyClusterCompositionPlan:
-        environment = self._environment_builder.build(config)
-        claims = self._environment_builder.resource_claims(config)
+        market_product = self._components.market_products.resolve(
+            config.market,
+            OnlyMarketProductResolutionContext(_NoExternalMarketProductResources(), config.reference_data.instruments),
+        )
+        environment = self._environment_builder.build(config, market_product)
+        claims = self._environment_builder.resource_claims(config, market_product)
         self._infrastructure.validate(config.cluster_id, claims)
         installations = self._new_contracts(config.broker_fee_contract_authorities)
         self._validate_selections(config, installations)
@@ -53,9 +75,10 @@ class OnlyClusterComposition:
                 "environment": environment,
                 "claims": claims,
                 "authorities": tuple(item.fingerprint for item in installations),
+                "market_product": market_product.composition_identity,
             }
         )
-        return OnlyClusterCompositionPlan(config, environment, claims, installations, fingerprint)
+        return OnlyClusterCompositionPlan(config, environment, claims, installations, market_product, fingerprint)
 
     def commit(self, plan: OnlyClusterCompositionPlan) -> tuple[str, ...]:
         self._infrastructure.validate(plan.config.cluster_id, plan.resource_claims)
@@ -87,10 +110,6 @@ class OnlyClusterComposition:
         installations: tuple[OnlyBrokerFeeContract, ...],
     ) -> None:
         staged = {(item.contract_id, item.contract_version): item for item in installations}
-        market_pack = self._components.market_fee_packs.require(
-            config.market.fee_pack.pack_id, config.market.fee_pack.pack_version
-        )
-        market_pack.validate_compatibility(config.market.profile.value)
         for source in config.data_sources:
             if source.enabled:
                 self._components.data_sources.resolve(source.plugin_id)

@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.value import OnlyQuantity
-from onlyalpha.market.models import OnlyMarketProfileId
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
 from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioReport
@@ -12,7 +11,6 @@ from ..environment import DAY_ONE, OnlyIntegrationEnvironment, OnlyScenarioRepor
 def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     partial = OnlyIntegrationEnvironment(
         maximum_fill_quantity=OnlyQuantity(Decimal("40"), 0),
-        market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH,
     )
     partial.start()
     for minute in range(3):

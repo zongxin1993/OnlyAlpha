@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
+from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntime
 
@@ -20,6 +21,10 @@ class OnlyRuntimeBuildRequest:
     @property
     def config(self) -> OnlyRuntimeAssemblyPlan:
         return self.plan.assembly_plan
+
+    @property
+    def market_product(self) -> OnlyResolvedMarketProductBinding:
+        return self.plan.market_product
 
 
 @dataclass(frozen=True, slots=True)

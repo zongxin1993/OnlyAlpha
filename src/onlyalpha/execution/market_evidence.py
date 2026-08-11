@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from onlyalpha.market.runtime_rules import OnlyCompiledMarketRuleIdentity
+from onlyalpha.market.product import OnlyCompiledMarketPolicyIdentity, OnlyMarketProductIdentity
 
 
 class OnlyExecutionMarketEvidence(TypedDict):
@@ -15,14 +15,15 @@ class OnlyExecutionMarketEvidence(TypedDict):
 
 
 def only_execution_market_evidence(
-    identity: OnlyCompiledMarketRuleIdentity,
+    identity: OnlyCompiledMarketPolicyIdentity,
+    product_identity: OnlyMarketProductIdentity,
 ) -> OnlyExecutionMarketEvidence:
     """Keep market identity as trace evidence without granting permission."""
 
     return {
-        "market_profile_id": identity.profile_id,
-        "market_profile_version": identity.profile_version,
-        "compiled_rule_fingerprint": identity.compiled_rules_fingerprint,
+        "market_profile_id": str(product_identity.product_id),
+        "market_profile_version": str(product_identity.product_version),
+        "compiled_rule_fingerprint": identity.policy_fingerprint,
         "reference_fingerprint": identity.reference_fingerprint,
     }
 

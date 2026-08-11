@@ -17,18 +17,11 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.enums import OnlyAggregationSource, OnlyRuntimeMode
-from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTradingDay
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.event.model import OnlyEventScope
 from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicy
-from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot
-from onlyalpha.market.runtime_rules import (
-    OnlyMarketRuleEngine,
-    OnlyReferenceProvider,
-    only_ashare_instrument_reference,
-    only_instrument_reference,
-)
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.market.session_clock import OnlyMarketSessionResolver
 from onlyalpha.observation import (
     OnlyConsoleObservationSink,
@@ -135,12 +128,8 @@ class OnlyPaperRuntimeFactory:
             if issues:
                 raise ValueError(f"{issues[0].code}: {issues[0].message}")
             source = data_factory.create(data_request)
-            market_rules = self._market_rules(config, components, clock)
-            market_fee_pack = components.market_fee_packs.require(
-                config.market.fee_pack.pack_id,
-                config.market.fee_pack.pack_version,
-            )
-            market_fee_pack.validate_compatibility(config.market.profile.value)
+            market_rules = self._market_rules(config, request.market_product, clock)
+            market_fee_pack = request.market_product.market_fee_pack
             broker_fee_contract = components.broker_fee_contracts.require(
                 account.broker_fee_contract.contract_id,
                 account.broker_fee_contract.contract_version,
@@ -180,7 +169,7 @@ class OnlyPaperRuntimeFactory:
                     None,
                     config.runtime.base_currency.code,
                     account.account_id,
-                    config.market.profile.value,
+                    request.market_product.composition_identity.fingerprint,
                 )
             )
             subscription = OnlyMarketDataSubscriptionRequest(
@@ -286,7 +275,7 @@ class OnlyPaperRuntimeFactory:
     @staticmethod
     def _market_rules(
         config: OnlyRuntimeAssemblyPlan,
-        components: OnlyComponentFactoryRegistries,
+        market_product: object,
         clock: OnlyLiveClock,
     ) -> OnlyMarketRuleEngine:
         calendar = config.reference_data.calendars[0]
@@ -300,40 +289,13 @@ class OnlyPaperRuntimeFactory:
                     remaining -= 1
             return OnlyTradingDay(candidate)
 
-        ashare_registry = config.reference_data.ashare_registry
-        references: Mapping[str, OnlyInstrumentReferenceSnapshot] | OnlyReferenceProvider
-        if config.market.profile.value == "CN_A_SHARE_CASH":
-            instruments = config.reference_data.instrument_by_id
+        from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 
-            def resolve_reference(instrument_id: str, trading_day: OnlyTradingDay) -> OnlyInstrumentReferenceSnapshot:
-                identity = OnlyInstrumentId.parse(instrument_id)
-                record = ashare_registry.resolve(identity, trading_day).require_snapshot()
-                return only_ashare_instrument_reference(
-                    instruments[identity], record, profile_id=config.market.profile.value
-                )
-
-            references = resolve_reference
-
-        else:
-            references = {
-                str(instrument.instrument_id): only_instrument_reference(
-                    instrument,
-                    profile_id=config.market.profile.value,
-                )
-                for instrument in config.reference_data.instruments
-            }
+        if not isinstance(market_product, OnlyResolvedMarketProductBinding):
+            raise TypeError("Paper factory requires a resolved Market Product binding")
         engine = OnlyMarketRuleEngine(
-            registry=components.market_profiles,
-            compiler=components.market_rule_compiler,
-            request=config.market.to_request(),
-            runtime_mode=OnlyRuntimeMode.PAPER,
-            references=references,
+            binding=market_product,
             advance_trading_day=advance,
-            reference_registry_fingerprint=(
-                config.reference_data.reference_registry_fingerprint
-                if config.market.profile.value == "CN_A_SHARE_CASH"
-                else None
-            ),
         )
         startup = OnlyMarketSessionResolver(calendar).resolve(OnlyTimestamp.from_datetime(clock.now_utc()))
         validation_day = startup.current_trading_day or startup.next_trading_day

@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from onlyalpha_market_cn_ashare.fee_pack import only_cn_a_share_market_fee_pack
 
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -37,7 +38,6 @@ from onlyalpha.fee import (
 )
 from onlyalpha.fee.evidence import OnlyExternalFeeComponent, OnlyExternalFeeEvidence, OnlyExternalFeeEvidenceMode
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
-from onlyalpha.fee.packs.cn_a_share import only_cn_a_share_production_fee_pack
 from onlyalpha.fee.reconciliation import (
     OnlyFeeReconciliationInput,
     OnlyFeeReconciliationPlanner,
@@ -154,7 +154,7 @@ def _commission_assessment(
 ):
     contract = OnlyBrokerFeeContractDocumentLoader.load(document or _document())
     schedule = contract.schedules[0]
-    market_pack = only_cn_a_share_production_fee_pack()
+    market_pack = only_cn_a_share_market_fee_pack()
     day = OnlyTradingDay(date(2025, 7, 1))
     market_context = OnlyMarketFeeApplicabilityContext(
         day,

@@ -203,32 +203,33 @@ class OnlyBacktestResultCollector:
         decision_records: list[OnlyMarketRuleDecisionResultRecord] = []
         if rule_engine is not None:
             for identity in rule_engine.compiled_identities:
+                product = rule_engine.market_product_identity
                 compiled_records.append(
                     OnlyCompiledMarketRuleResultRecord(
                         sequence=next_sequence(),
-                        instrument_id=identity.instrument_id,
-                        venue_id=identity.venue,
-                        trading_day=identity.trading_day,
-                        profile_id=identity.profile_id,
-                        profile_version=identity.profile_version,
-                        compiled_rules_fingerprint=identity.compiled_rules_fingerprint,
+                        instrument_id=str(identity.instrument_id),
+                        venue_id=str(identity.instrument_id.venue),
+                        trading_day=identity.trading_day.value,
+                        profile_id=str(product.product_id),
+                        profile_version=str(product.product_version),
+                        compiled_rules_fingerprint=identity.policy_fingerprint,
                         reference_fingerprint=identity.reference_fingerprint,
-                        runtime_mode=identity.runtime_mode.value,
+                        runtime_mode=runtime.runtime_type,
                     )
                 )
                 timeline_records.append(
                     OnlyProfileTimelineResultRecord(
                         sequence=next_sequence(),
                         runtime_id=str(runtime.runtime_id),
-                        profile_id=identity.profile_id,
-                        profile_version=identity.profile_version,
-                        trading_day=identity.trading_day,
+                        profile_id=str(product.product_id),
+                        profile_version=str(product.product_version),
+                        trading_day=identity.trading_day.value,
                         effective_from=None,
                         effective_to=None,
-                        resolved_rules_fingerprint=identity.resolved_profile_fingerprint,
+                        resolved_rules_fingerprint=rule_engine.market_composition_fingerprint,
                         reference_fingerprint=identity.reference_fingerprint,
                         override_fingerprint=hashlib.sha256(b"{}").hexdigest(),
-                        runtime_mode=identity.runtime_mode.value,
+                        runtime_mode=runtime.runtime_type,
                     )
                 )
             default_account = "" if not account_records else account_records[0].account_id
@@ -284,15 +285,15 @@ class OnlyBacktestResultCollector:
                     OnlyMarketRuleDecisionResultRecord(
                         sequence=next_sequence(),
                         account_id=default_account,
-                        instrument_id=decision.compiled_identity.instrument_id,
-                        market_profile_id=decision.compiled_identity.profile_id,
-                        rule_set_id=decision.compiled_identity.compiled_rules_fingerprint,
+                        instrument_id=str(decision.compiled_identity.instrument_id),
+                        market_profile_id=str(rule_engine.market_product_identity.product_id),
+                        rule_set_id=decision.compiled_identity.policy_fingerprint,
                         rule_type=type(decision).__name__,
                         decision="ACCEPTED" if accepted else "REJECTED",
                         reason=reason,
                         ts_event=ts_event,
                         trading_day=decision_trading_day,
-                        profile_version=decision.compiled_identity.profile_version,
+                        profile_version=str(rule_engine.market_product_identity.product_version),
                         side=side,
                         quantity=quantity,
                         price=price,

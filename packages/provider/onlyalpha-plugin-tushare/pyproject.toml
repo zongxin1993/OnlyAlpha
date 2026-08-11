@@ -2,7 +2,7 @@
 name = "onlyalpha-plugin-tushare"
 version = "0.3.6"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.3.6", "tushare>=1.4.21,<2"]
+dependencies = ["onlyalpha==0.3.6", "onlyalpha-market-cn-ashare==0.3.6", "tushare>=1.4.21,<2"]
 description = "Tushare market data adapter for OnlyAlpha"
 readme = "README.md"
 classifiers = [
@@ -28,6 +28,7 @@ packages = ["src/onlyalpha_plugin_tushare"]
 
 [tool.uv.sources]
 onlyalpha = { workspace = true }
+onlyalpha-market-cn-ashare = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

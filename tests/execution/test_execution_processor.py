@@ -27,7 +27,6 @@ from onlyalpha.execution import (
     OnlyExecutionProcessingResult,
     OnlyExecutionProcessingStatus,
 )
-from onlyalpha.market.models import OnlyMarketProfileId
 
 from ..integration_demo.environment import (
     ACCOUNT_ID,
@@ -58,7 +57,7 @@ def test_runtime_owns_one_isolated_processor_and_execution_state() -> None:
 
 
 def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     result = _complete_buy(env)
 
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
@@ -127,7 +126,7 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
 
 
 def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     env.start()
     for minute in range(3):
         env.process_bar(DAY_ONE, minute, "10.00")
@@ -154,7 +153,7 @@ def test_filled_buy_releases_price_improvement_reservation_remainder() -> None:
 
 
 def test_duplicate_update_and_conflicting_fill_identity_change_no_versions() -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     applied = _complete_buy(env)
     assert applied.order_snapshot is not None
     order_before = applied.order_snapshot
@@ -216,7 +215,7 @@ def test_duplicate_update_and_conflicting_fill_identity_change_no_versions() -> 
 
 
 def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     env.start()
     for minute in range(3):
         env.process_bar(DAY_ONE, minute, "10.00")
@@ -240,7 +239,7 @@ def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch
 
 
 def test_late_accepted_does_not_regress_filled_order() -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     filled = _complete_buy(env)
     assert filled.order_snapshot is not None
     broker_order = env.runtime.broker_gateway.query_orders(OnlyAccountId(ACCOUNT_ID))[0]  # type: ignore[union-attr]
@@ -267,7 +266,7 @@ def test_late_accepted_does_not_regress_filled_order() -> None:
 
 
 def test_out_of_order_trade_requires_reconciliation_before_mutation() -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     filled = _complete_buy(env)
     assert filled.order_snapshot is not None
     order = filled.order_snapshot
@@ -316,7 +315,7 @@ def test_out_of_order_trade_requires_reconciliation_before_mutation() -> None:
 def test_supported_trade_does_not_call_old_manager_mutation_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     env.start()
     for minute in range(3):
         env.process_bar(DAY_ONE, minute, "10.00")
@@ -345,7 +344,7 @@ def test_supported_trade_does_not_call_old_manager_mutation_api(
 
 
 def test_scope_mismatch_is_rejected_without_state_change() -> None:
-    env = OnlyIntegrationEnvironment(market_profile_id=OnlyMarketProfileId.GENERIC_T0_CASH)
+    env = OnlyIntegrationEnvironment()
     filled = _complete_buy(env)
     assert filled.order_snapshot is not None
     now = OnlyTimestamp.from_datetime(datetime(2026, 1, 5, 2, 0, tzinfo=UTC))

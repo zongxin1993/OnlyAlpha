@@ -78,7 +78,7 @@ Execution Permission.
 
 ```text
 Runtime          : BACKTEST
-Market Profile   : GENERIC_T0_CASH
+Market Product   : GENERIC_T0_CASH@1
 Account Type     : CASH
 Order Type       : LIMIT
 Position Side    : LONG
@@ -116,7 +116,7 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 
 ### 2.3 Legacy Streaming / SIM 迁移基线
 
-当前源码 spelling `PAPER` 已实现并完成当前 Profile 下的真实 MiniQMT 验收。它只表示未来 Sim 所需的一部分 streaming 基础设施已经存在：
+当前源码 spelling `PAPER` 已实现并完成当前 Market Product 下的真实 MiniQMT 验收。它只表示未来 Sim 所需的一部分 streaming 基础设施已经存在：
 
 ```text
 Historical Bootstrap
@@ -185,7 +185,7 @@ Standalone Shadow Runtime 已实现
 - 枚举；
 - Domain Model；
 - Manager；
-- Market Profile；
+- Market Product identity / binding；
 - Legacy Execution Path；
 - 测试 Fixture；
 - Prompt；
@@ -195,13 +195,13 @@ Standalone Shadow Runtime 已实现
 特别注意：
 
 ```text
-GENERIC_MARGIN_FUTURES Profile 存在
+GENERIC_MARGIN_FUTURES identity 或测试 fixture 存在
 ≠ Futures Durable Execution 已完成
 
-GENERIC_24X7_CRYPTO_SPOT Profile 存在
+GENERIC_24X7_CRYPTO_SPOT identity 或测试 fixture 存在
 ≠ Crypto 产品已完成
 
-CN_A_SHARE_CASH Profile 存在
+CN_A_SHARE_CASH Market Product Plugin 存在
 ≠ 完整 A 股产品已完成
 ```
 
@@ -710,11 +710,11 @@ onlyalpha.plugin.api
 
 ---
 
-## 11. Market Profile 与规则
+## 11. Market Product 与规则
 
 ### 11.0 Market Product Composition Authority
 
-P5.2 已冻结唯一目标组合入口及第一个 concrete replacement candidate：
+P5.3 已将 Trading Runtime 的生产组合一次性切换到唯一入口：
 
 ```text
 OnlyMarketProductConfig
@@ -739,22 +739,23 @@ Market Product 属于 Trading Plane。Concrete Market Product Plugin 拥有具�
 - Market Product 与 Broker、DataSource、Risk、Execution Support 分离；Plugin 计算市场语义，Core 修改交易状态。
 - Canonical Market IR 只包含 instrument economic terms、session、price、quantity、position、short、settlement 与 margin；不得包含 matching、slippage、latency、fill plan/schedule 或 simulation liquidity；
 - `onlyalpha-market-generic-t0-cash` 定义 `GENERIC_T0_CASH@1` 的 Reference、Policy Compiler 与 Market Fee Pack，但不是 Core default 或 fallback；
+- `onlyalpha-market-cn-ashare` 定义 `CN_A_SHARE_CASH@2025.1/2026.07` 的版本化 Reference、Policy Compiler 与 Market Fee Pack；
 - `onlyalpha.market_products` entry-point discovery 是 concrete Market Product 的安装入口，Core composition root 只持有 neutral Registry，不硬注册 concrete product。
 
-当前 Generic replacement candidate 已完成 contract/conformance 验证，但 Generic/Profile/A-share production composition 尚未 cut over，并作为 P5.3 migration debt 保留。不得为此新增 bridge、compatibility adapter、deprecated alias 或反向 fallback，也不得声称 Trading Runtime Market Product cutover 已完成。
+Generic 与 CN A-share 已同时完成生产 cutover。旧 Profile Registry、Core A-share Reference/Rules、concrete fee-pack selection 和 Runtime concrete-market branch 已删除；不得恢复 bridge、compatibility adapter、deprecated alias、Core hard registration 或 implicit fallback。
 
 市场规则链固定为：
 
 ```text
-OnlyMarketConfig
-→ Market Profile Registry
-→ Version Resolver
-→ Rule Compiler
+OnlyMarketProductConfig
+→ Market Product Factory Registry
+→ Resolved Market Product Binding
+→ Plugin-owned Policy Compiler
 → Runtime Rule Engine
 → Restricted Instruction / Decision
 ```
 
-Profile 是版本化市场语义，不是业务 Manager。
+Market Product Plugin 拥有版本化市场语义；Binding 是一次 resolution 后的不可变组合事实，不是业务 Manager。
 
 规则应由相应组件消费已编译的 Decision 或 Instruction。
 
@@ -767,21 +768,21 @@ Profile 是版本化市场语义，不是业务 Manager。
 - Planner 直接猜测 Settlement Date；
 - 根据证券代码前缀猜 board，而忽略 Reference；
 - 在多个模块复制同一费用规则；
-- Profile 名称已配置但 Runtime 仍静默走 Generic 假设；
+- Product 已配置但 Runtime 仍静默走 Generic 假设；
 - 未知市场状态自动放行。
 
 无法确定规则时必须 Fail Closed，并产生可诊断原因。
 
-`OnlyMarketRuleEngine.evaluate_pre_trade()` 是 Runtime 唯一正式 Pre-Trade Market Rule Authority。Reference 只提供证券事实，
-Profile 只提供版本化制度，Compiler 必须在 evaluate 前解析最终 Session/Price/Quantity Policy。Order、Risk、Strategy 与
+`OnlyMarketRuleEngine.evaluate_pre_trade()` 是 Runtime 唯一正式 Pre-Trade Market Rule Authority。Plugin-owned Reference 提供证券事实，
+Plugin-owned Compiler 提供版本化制度并在 evaluate 前解析最终 Session/Price/Quantity Policy。Order、Risk、Strategy 与
 Broker 不得复制交易阶段、价格带、Tick、申报数量或零股规则；主错误码必须来自固定顺序中的首个失败 Evaluation。
 
 `CN_A_SHARE_CASH` 的板块、历史 ST、停牌、交易单位、价格精度和正式前收盘价只能来自版本化
-`OnlyAshareInstrumentReference`，并由唯一 Registry/Query 按 `Instrument + TradingDay` 解析。Runtime Factory
+CN A-share Market Product Plugin Reference，并由 plugin-owned authority 按 `Instrument + TradingDay` 解析。Runtime Factory
 不得读取自由 `instrument_attributes`，不得以当前状态或上一根 Bar 回填历史 Reference。Registry 指纹必须参与
 Runtime 兼容性、Artifact 和 Checkpoint 恢复校验。
 
-所有内置 Profile 当前仍应视为 Experimental，除非正式 Conformance 和产品纵切面明确升级其状态。
+Product identity 或插件存在不代表产品范围被升级；正式能力仍以有限产品合同、Conformance 和产品纵切面为准。
 
 ---
 
@@ -934,7 +935,7 @@ Order Service
 当前正式 Durable Trade Capability：
 
 ```text
-Market Profile : GENERIC_T0_CASH
+Market Product : GENERIC_T0_CASH@1
 Account        : CASH
 Order Type     : LIMIT
 Position Side  : LONG
@@ -1421,7 +1422,7 @@ Legacy `PAPER` Observation（未来迁移到 `SIM`）：
 - Secret 通过环境变量或安全注入获取；
 - 配置不能直接嵌入 Runtime Manager；
 - 配置引用的动态类型必须在 dry-run 校验；
-- Market Profile、DataSource 和 Broker Capability 必须在装配前验证；
+- Market Product、DataSource 和 Broker Capability 必须在装配前验证；
 - 不兼容 Cluster 必须拆分 Runtime 或 Fail Closed；
 - 配置指纹必须稳定。
 
@@ -1512,7 +1513,7 @@ windows
 | 纯值对象、纯函数 | 目标单测 + `fast` |
 | 公共 API / Plugin SPI | Contract + `fast` |
 | Engine / Runtime / Cluster | `integration` |
-| Market Profile / A-share 规则 | `ashare` |
+| Market Product / A-share 规则 | `ashare` |
 | Transaction / Projection / Checkpoint | `recovery` |
 | MiniQMT 转换 | `miniqmt-contract` |
 | 本地真实 MiniQMT | `miniqmt-local`，仅显式环境 |
@@ -1656,7 +1657,7 @@ temporary_trade_store
 
 以下场景必须明确失败：
 
-- 未知 Market Profile；
+- 未知 Market Product provider/product/version；
 - Capability 不支持；
 - Reference 缺失；
 - 状态无法归因；

@@ -9,6 +9,7 @@ from onlyalpha.market.product import OnlyCompiledMarketPolicy
 PRODUCT_ROOT = Path("src/onlyalpha/market/product")
 CORE_ROOT = Path("src/onlyalpha")
 GENERIC_ROOT = Path("packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash")
+CN_ASHARE_ROOT = Path("packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare")
 
 
 def _imports(path: Path) -> set[str]:
@@ -94,12 +95,15 @@ def test_canonical_market_ir_excludes_execution_simulation_authorities() -> None
     }
 
 
-def test_core_does_not_import_generic_market_product_plugin() -> None:
+def test_core_does_not_import_concrete_market_product_plugins() -> None:
     violations = [
         f"{path}: import {imported}"
         for path in sorted(CORE_ROOT.rglob("*.py"))
         for imported in _imports(path)
-        if imported == "onlyalpha_market_generic_t0_cash" or imported.startswith("onlyalpha_market_generic_t0_cash.")
+        if any(
+            imported == package or imported.startswith(f"{package}.")
+            for package in ("onlyalpha_market_generic_t0_cash", "onlyalpha_market_cn_ashare")
+        )
     ]
     assert not violations
 
@@ -147,3 +151,33 @@ def test_generic_market_product_has_no_runtime_broker_or_concrete_market_depende
         source = path.read_text(encoding="utf-8")
         violations.extend(f"{path}: token {token}" for token in forbidden_tokens if token in source)
     assert not violations
+
+
+def test_cn_ashare_product_has_no_runtime_or_mutable_trading_authority_dependency() -> None:
+    forbidden = (
+        "onlyalpha.runtime",
+        "onlyalpha.broker",
+        "onlyalpha.data",
+        "onlyalpha.risk",
+        "onlyalpha.order",
+        "onlyalpha.position",
+        "onlyalpha.account",
+        "onlyalpha.execution",
+        "onlyalpha.transaction",
+        "onlyalpha.reference",
+        "onlyalpha.market.runtime_rules",
+    )
+    violations = [
+        f"{path}: import {imported}"
+        for path in sorted(CN_ASHARE_ROOT.glob("*.py"))
+        for imported in _imports(path)
+        if any(imported == item or imported.startswith(f"{item}.") for item in forbidden)
+    ]
+    assert not violations
+
+
+def test_retired_core_market_authorities_have_zero_active_implementation() -> None:
+    text = "\n".join(path.read_text(encoding="utf-8") for path in CORE_ROOT.rglob("*.py"))
+    assert "OnlyAshare" not in text
+    assert "ashare_rules" not in text
+    assert "OnlyMarketProfile" not in text

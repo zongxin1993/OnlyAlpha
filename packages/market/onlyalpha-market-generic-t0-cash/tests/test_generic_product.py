@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import FrozenInstanceError
 from datetime import date
 from decimal import Decimal
 
@@ -12,6 +12,10 @@ from onlyalpha_market_generic_t0_cash.reference import (
     OnlyGenericT0CashReferenceAuthority,
 )
 
+from onlyalpha.domain.enums import OnlyMarketType
+from onlyalpha.domain.identifiers import OnlyRawSymbol
+from onlyalpha.domain.instrument import OnlyEquity
+from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.api import (
     OnlyAssetClass,
     OnlyCanonicalMarketProductConfig,
@@ -72,23 +76,33 @@ def _authority(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class _Resources:
-    authorities: dict[str, OnlyGenericT0CashReferenceAuthority]
-
-    def require_reference_authority(self, resource_id: str) -> OnlyGenericT0CashReferenceAuthority:
-        try:
-            return self.authorities[resource_id]
-        except KeyError as exc:
-            raise OnlyMarketProductResolutionError("MARKET_REFERENCE_AUTHORITY_NOT_FOUND", resource_id) from exc
+class _NoResources:
+    def require_reference_authority(self, resource_id: str) -> None:
+        raise AssertionError(resource_id)
 
     def require_market_fee_pack(self, pack_id: str, pack_version: str) -> None:
         raise AssertionError(f"Generic plugin must own its Market Fee Pack, not request {pack_id}@{pack_version}")
 
 
+def _instrument(*, tick_size: Decimal = Decimal("0.01")) -> OnlyEquity:
+    return OnlyEquity(
+        instrument_id=INSTRUMENT,
+        raw_symbol=OnlyRawSymbol("TEST"),
+        market_type=OnlyMarketType.CASH,
+        quote_currency=OnlyCurrency("CNY"),
+        settlement_currency=OnlyCurrency("CNY"),
+        price_precision=2,
+        quantity_precision=3,
+        tick_size=OnlyPrice(tick_size, 2),
+        step_size=OnlyQuantity(Decimal("0.001"), 3),
+        contract_multiplier=OnlyMultiplier(Decimal("1"), 0),
+        minimum_quantity=OnlyQuantity(Decimal("0.005"), 3),
+        maximum_quantity=OnlyQuantity(Decimal("1000000.000"), 3),
+    )
+
+
 def _config(
     *,
-    resource_id: str = "primary",
     product_id: str = "GENERIC_T0_CASH",
     version: str = "1",
     values: dict[str, object] | None = None,
@@ -97,31 +111,24 @@ def _config(
         OnlyMarketProductPluginId("onlyalpha-market-generic-t0-cash"),
         OnlyMarketProductId(product_id),
         OnlyMarketProductVersion(version),
-        OnlyCanonicalMarketProductConfig(values if values is not None else {"reference_resource_id": resource_id}),
+        OnlyCanonicalMarketProductConfig(values or {}),
     )
 
 
-def _binding(
-    authority: OnlyGenericT0CashReferenceAuthority | None = None,
-    *,
-    resource_id: str = "primary",
-) -> object:
-    selected = authority or _authority()
+def _binding() -> object:
     return OnlyGenericT0CashMarketProductFactory().resolve(
-        _config(resource_id=resource_id),
-        OnlyMarketProductResolutionContext(_Resources({resource_id: selected})),
+        _config(),
+        OnlyMarketProductResolutionContext(_NoResources(), (_instrument(),)),
     )
 
 
 def test_factory_resolves_immutable_binding_and_effective_identity() -> None:
-    authority = _authority()
-    resources = _Resources({"alias-a": authority, "alias-b": authority})
     factory = OnlyGenericT0CashMarketProductFactory()
-    first = factory.resolve(_config(resource_id="alias-a"), OnlyMarketProductResolutionContext(resources))
-    repeated = factory.resolve(_config(resource_id="alias-b"), OnlyMarketProductResolutionContext(resources))
+    first = factory.resolve(_config(), OnlyMarketProductResolutionContext(_NoResources(), (_instrument(),)))
+    repeated = factory.resolve(_config(), OnlyMarketProductResolutionContext(_NoResources(), (_instrument(),)))
     changed = factory.resolve(
-        _config(resource_id="changed"),
-        OnlyMarketProductResolutionContext(_Resources({"changed": _authority(authority_id="changed-reference")})),
+        _config(),
+        OnlyMarketProductResolutionContext(_NoResources(), (_instrument(tick_size=Decimal("0.02")),)),
     )
 
     assert first.product_identity.canonical_name == "GENERIC_T0_CASH@1"
@@ -137,12 +144,7 @@ def test_factory_resolves_immutable_binding_and_effective_identity() -> None:
         (_config(product_id="OTHER"), OnlyUnsupportedMarketProductError, "UNSUPPORTED_MARKET_PRODUCT"),
         (_config(version="2"), OnlyUnsupportedMarketProductVersionError, "UNSUPPORTED_MARKET_PRODUCT_VERSION"),
         (
-            _config(values={"reference_resource_id": "primary", "settlement": "T1"}),
-            OnlyInvalidMarketProductConfigurationError,
-            "INVALID_GENERIC_T0_CASH_CONFIGURATION",
-        ),
-        (
-            _config(values={}),
+            _config(values={"settlement": "T1"}),
             OnlyInvalidMarketProductConfigurationError,
             "INVALID_GENERIC_T0_CASH_CONFIGURATION",
         ),
@@ -156,15 +158,15 @@ def test_factory_fails_closed_for_wrong_identity_or_invalid_config(
     with pytest.raises(error, match=code):
         OnlyGenericT0CashMarketProductFactory().resolve(
             config,
-            OnlyMarketProductResolutionContext(_Resources({"primary": _authority()})),
+            OnlyMarketProductResolutionContext(_NoResources(), (_instrument(),)),
         )
 
 
 def test_missing_and_ambiguous_reference_fail_closed() -> None:
-    with pytest.raises(OnlyMarketProductResolutionError, match="MARKET_REFERENCE_AUTHORITY_NOT_FOUND"):
+    with pytest.raises(ValueError, match="GENERIC_T0_CASH_INSTRUMENT_RESOURCES_REQUIRED"):
         OnlyGenericT0CashMarketProductFactory().resolve(
-            _config(resource_id="missing"),
-            OnlyMarketProductResolutionContext(_Resources({})),
+            _config(),
+            OnlyMarketProductResolutionContext(_NoResources()),
         )
 
     ambiguous = _authority(

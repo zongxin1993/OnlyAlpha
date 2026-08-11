@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimeAssemblyPlan
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntimeId
+from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.runtime.environment import OnlyRuntimeEnvironmentBuilder, OnlyRuntimeEnvironmentIdentity
 
 
@@ -16,6 +17,7 @@ class OnlyRuntimePlan:
     cluster_ids: tuple[OnlyClusterId, ...]
     cluster_configs: tuple[OnlyClusterRunConfig, ...]
     assembly_plan: OnlyRuntimeAssemblyPlan
+    market_product: OnlyResolvedMarketProductBinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,13 +40,21 @@ class OnlyRuntimePlanner:
         self,
         engine_id: OnlyEngineId,
         configs: tuple[OnlyClusterRunConfig, ...],
+        market_products: dict[OnlyClusterId, OnlyResolvedMarketProductBinding],
     ) -> OnlyEngineExecutionPlan:
-        groups: dict[OnlyRuntimeEnvironmentIdentity, list[OnlyClusterRunConfig]] = {}
+        groups: dict[
+            OnlyRuntimeEnvironmentIdentity, list[tuple[OnlyClusterRunConfig, OnlyResolvedMarketProductBinding]]
+        ] = {}
         for config in configs:
-            environment = self._environment_builder.build(config)
-            groups.setdefault(environment, []).append(config)
+            binding = market_products[config.cluster_id]
+            environment = self._environment_builder.build(config, binding)
+            groups.setdefault(environment, []).append((config, binding))
         runtime_plans = tuple(
-            self._runtime_plan(engine_id, environment, tuple(sorted(group, key=lambda item: str(item.cluster_id))))
+            self._runtime_plan(
+                engine_id,
+                environment,
+                tuple(sorted(group, key=lambda item: str(item[0].cluster_id))),
+            )
             for environment, group in sorted(groups.items(), key=lambda item: item[0].fingerprint)
         )
         return OnlyEngineExecutionPlan(engine_id, runtime_plans)
@@ -53,10 +63,14 @@ class OnlyRuntimePlanner:
         self,
         engine_id: OnlyEngineId,
         environment: OnlyRuntimeEnvironmentIdentity,
-        configs: tuple[OnlyClusterRunConfig, ...],
+        resolved: tuple[tuple[OnlyClusterRunConfig, OnlyResolvedMarketProductBinding], ...],
     ) -> OnlyRuntimePlan:
-        if not configs or any(self._environment_builder.build(config) != environment for config in configs):
+        if not resolved:
             raise RuntimeError("RUNTIME_GROUPING_INVARIANT_FAILED")
+        configs = tuple(item[0] for item in resolved)
+        bindings = tuple(item[1] for item in resolved)
+        if any(binding.composition_identity != bindings[0].composition_identity for binding in bindings):
+            raise RuntimeError("MARKET_PRODUCT_COMPOSITION_GROUPING_INVARIANT_FAILED")
         representative = configs[0]
         runtime_id = OnlyRuntimeId(f"{environment.runtime_type.lower()}-{environment.fingerprint[:16]}")
         assembly = OnlyRuntimeAssemblyPlan(
@@ -81,4 +95,5 @@ class OnlyRuntimePlanner:
             tuple(config.cluster_id for config in configs),
             configs,
             assembly,
+            bindings[0],
         )

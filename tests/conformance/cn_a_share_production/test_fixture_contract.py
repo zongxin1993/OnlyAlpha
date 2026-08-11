@@ -12,25 +12,36 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import pytest
+from onlyalpha_market_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_market_cn_ashare.fee_pack import (
+    CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM,
+    only_cn_a_share_market_fee_pack,
+)
+from onlyalpha_market_cn_ashare.fee_pack import (
+    PACK_ID as CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_ID,
+)
+from onlyalpha_market_cn_ashare.fee_pack import (
+    PACK_VERSION as CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_VERSION,
+)
+from onlyalpha_market_cn_ashare.reference import (
+    OnlyCnAshareInstrumentReference,
+    OnlyCnAshareReferenceAuthority,
+    OnlyCnAshareReferenceSource,
+    OnlyCnAshareSecurityType,
+)
 
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.execution import ONLY_EXECUTION_SUPPORT_POLICY_VERSION
 from onlyalpha.fee import OnlyBrokerFeeContractDocumentLoader
-from onlyalpha.fee.packs.cn_a_share import (
-    CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM,
-    CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_ID,
-    CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_VERSION,
-    only_cn_a_share_production_fee_pack,
-)
 from onlyalpha.fee.schedules import OnlyMarketFeeApplicabilityContext
-from onlyalpha.market.models import OnlyMarketProfileId, OnlyMarketProfileResolver
-from onlyalpha.market.profiles import only_builtin_market_profiles
-from onlyalpha.reference.ashare import (
-    OnlyAshareInstrumentReference,
-    OnlyAshareReferenceRegistry,
-    OnlyAshareSecurityType,
-    OnlyReferenceDataSource,
+from onlyalpha.market.product import (
+    OnlyCanonicalMarketProductConfig,
+    OnlyMarketProductConfig,
+    OnlyMarketProductId,
+    OnlyMarketProductPluginId,
+    OnlyMarketProductResolutionContext,
+    OnlyMarketProductVersion,
 )
 from tests.conformance.cn_a_share_production.support import (
     ACCOUNT_ID,
@@ -38,6 +49,7 @@ from tests.conformance.cn_a_share_production.support import (
     BROKER_FEE_CONTRACT_VERSION,
     only_cn_a_share_product_broker_fee_contract,
 )
+from tests.runtime_support.market_product import _NoResources
 
 pytestmark = pytest.mark.conformance
 
@@ -194,7 +206,7 @@ def test_trading_dates_resolve_current_production_profile_and_fee_authority() ->
     trading_days = tuple(date.fromisoformat(value) for value in _text_list(manifest.get("trading_dates"), "dates"))
     identities = _objects(manifest.get("instrument_identities"), "manifest.instrument_identities")
 
-    pack = only_cn_a_share_production_fee_pack()
+    pack = only_cn_a_share_market_fee_pack()
     assert authority == {
         "pack_id": CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_ID,
         "pack_version": CN_A_SHARE_PRODUCTION_MARKET_FEE_PACK_VERSION,
@@ -205,18 +217,26 @@ def test_trading_dates_resolve_current_production_profile_and_fee_authority() ->
     assert min(trading_days) >= CN_A_SHARE_PRODUCTION_FEE_COVERAGE_FROM
     assert {_bar_trading_day(raw) for raw in bars} == set(trading_days)
 
-    profile_resolver = OnlyMarketProfileResolver(only_builtin_market_profiles())
+    _, _, reference_values = _load_sealed_fixture(DATASET)
+    binding = OnlyCnAshareMarketProductFactory().resolve(
+        OnlyMarketProductConfig(
+            OnlyMarketProductPluginId("onlyalpha-market-cn-ashare"),
+            OnlyMarketProductId("CN_A_SHARE_CASH"),
+            OnlyMarketProductVersion("2025.1"),
+            OnlyCanonicalMarketProductConfig({"references": reference_values}),  # type: ignore[arg-type]
+        ),
+        OnlyMarketProductResolutionContext(_NoResources()),
+    )
     for trading_day in trading_days:
-        profile = profile_resolver.resolve(OnlyMarketProfileId.CN_A_SHARE_CASH, trading_day)
-        assert coverage["market_profile"] == profile.profile_id.value
-        assert coverage["market_profile_version"] == profile.version
-        assert coverage["market_profile_fingerprint"] == profile.content_fingerprint
+        assert coverage["market_product"] == str(binding.product_identity.product_id)
+        assert coverage["market_product_version"] == str(binding.product_identity.product_version)
+        assert coverage["composition_fingerprint"] == binding.composition_identity.fingerprint
         for identity in identities:
             instrument_id = OnlyInstrumentId.parse(_text(identity.get("instrument_id"), "instrument_id"))
             venue = _text(identity.get("venue"), "venue")
             context = OnlyMarketFeeApplicabilityContext(
                 OnlyTradingDay(trading_day),
-                profile.profile_id.value,
+                str(binding.product_identity.product_id),
                 "CN_A_SHARE",
                 venue,
                 "CASH",
@@ -316,24 +336,24 @@ def test_xshg_xshe_bars_and_daily_references_are_complete_and_fingerprinted() ->
         "trading_calendar_id": "CN_XSHE",
     }
 
-    records = tuple(OnlyAshareInstrumentReference.from_mapping(raw) for raw in raw_references)
-    registry = OnlyAshareReferenceRegistry(records)
+    records = tuple(OnlyCnAshareInstrumentReference.from_mapping(raw) for raw in raw_references)
+    reference_authority = OnlyCnAshareReferenceAuthority.create(records)
     assert authority == {
-        "model": "OnlyAshareInstrumentReference",
+        "model": "OnlyCnAshareInstrumentReference",
         "source": "SCENARIO",
         "source_version": "cn-a-share-production-v1-reference-v1",
         "data_version": "cn-a-share-production-v1-reference-v1",
         "bar_derivation": "FORBIDDEN",
-        "registry_fingerprint": registry.fingerprint,
+        "authority_fingerprint": reference_authority.identity.authority_fingerprint,
     }
     expected_pairs = {(instrument_id, trading_day) for instrument_id in instrument_ids for trading_day in trading_days}
-    assert {(str(record.instrument_id), record.effective_from.value) for record in records} == expected_pairs
+    assert {(str(record.instrument_id), record.effective_from) for record in records} == expected_pairs
     for raw, record in zip(raw_references, records, strict=True):
-        assert raw["record_fingerprint"] == record.record_fingerprint
-        assert record.security_type is OnlyAshareSecurityType.COMMON_STOCK
-        assert record.source is OnlyReferenceDataSource.SCENARIO
+        assert raw["record_fingerprint"] == record.content_fingerprint
+        assert record.security_type is OnlyCnAshareSecurityType.COMMON_STOCK
+        assert record.source is OnlyCnAshareReferenceSource.SCENARIO
         assert record.effective_to is not None
-        assert record.effective_to.value == record.effective_from.value + timedelta(days=1)
+        assert record.effective_to == record.effective_from + timedelta(days=1)
         identity = identity_by_instrument[str(record.instrument_id)]
         assert record.exchange.value == identity["exchange"]
         assert record.board.value == identity["board"]
@@ -351,7 +371,7 @@ def test_xshg_xshe_bars_and_daily_references_are_complete_and_fingerprinted() ->
         assert Decimal(_text(raw.get("volume"), "bar.volume")) > 0
         trading_day = _bar_trading_day(raw)
         assert trading_day in trading_days
-        registry.resolve(OnlyInstrumentId.parse(instrument_id), OnlyTradingDay(trading_day)).require_snapshot()
+        reference_authority.resolve(OnlyInstrumentId.parse(instrument_id), OnlyTradingDay(trading_day))
         bars_by_instrument[instrument_id].append(raw)
 
     assert set(bars_by_instrument) == set(instrument_ids)

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from onlyalpha.application.engine_runner import OnlyEngineApplicationRunner
 from onlyalpha.cli import main, only_parse_args, only_resolve_config_paths, only_resolve_user_data_root
 
@@ -40,7 +42,7 @@ def test_snapshot_runtime_failure_is_reported_without_a_traceback(
     assert "onlyalpha: warmup failed closed" in capsys.readouterr().out  # type: ignore[attr-defined]
 
 
-def test_scenario_validate_run_and_market_query_cli(tmp_path: Path, capsys: object) -> None:
+def test_scenario_validate_run_and_retired_profile_query_cli(tmp_path: Path, capsys: object) -> None:
     scenario = "tests/fixtures/scenarios/generic_t0_cash.yaml"
     assert main(["scenario", "validate", scenario, "--format", "json"]) == 0
     assert '"valid": true' in capsys.readouterr().out  # type: ignore[attr-defined]
@@ -48,5 +50,5 @@ def test_scenario_validate_run_and_market_query_cli(tmp_path: Path, capsys: obje
     assert main(["scenario", "run", scenario, "--user-data", str(tmp_path), "--format", "json"]) == 0
     assert '"status": "PASSED"' in capsys.readouterr().out  # type: ignore[attr-defined]
 
-    assert main(["market", "profiles", "--format", "json"]) == 0
-    assert "GENERIC_T0_CASH" in capsys.readouterr().out  # type: ignore[attr-defined]
+    with pytest.raises(SystemExit):
+        only_parse_args(["market", "profiles", "--format", "json"])

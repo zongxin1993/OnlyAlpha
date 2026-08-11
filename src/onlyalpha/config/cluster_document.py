@@ -22,9 +22,6 @@ from onlyalpha.config.models import (
     OnlyDataSourceRuntimeConfig,
     OnlyFactorImportConfig,
     OnlyJsonMapping,
-    OnlyJsonValue,
-    OnlyMarketConfig,
-    OnlyMarketFeePackConfig,
     OnlyReferenceDataConfig,
     OnlyStrategyImportConfig,
     OnlyUniverseConfig,
@@ -34,7 +31,14 @@ from onlyalpha.config.models import (
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
 from onlyalpha.fee.provisioning import OnlyBrokerFeeContractDocumentLoader
-from onlyalpha.market.models import OnlyMarketProfileId
+from onlyalpha.market.product import (
+    OnlyCanonicalMarketProductConfig,
+    OnlyMarketProductConfig,
+    OnlyMarketProductId,
+    OnlyMarketProductPluginId,
+    OnlyMarketProductVersion,
+)
+from onlyalpha.market.product.config import OnlyMarketProductConfigValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +56,7 @@ class OnlyClusterRunConfig:
     strategy: OnlyStrategyImportConfig
     factors: tuple[OnlyFactorImportConfig, ...]
     output: OnlyOutputConfig
-    market: OnlyMarketConfig
+    market: OnlyMarketProductConfig
     source_path: Path
     normalized_payload: OnlyJsonMapping
     broker_fee_contract_authorities: tuple[OnlyBrokerFeeContract, ...] = ()
@@ -127,12 +131,6 @@ class OnlyClusterRunConfig:
         broker_fee_contract_authorities = _parse_broker_fee_contract_authorities(parser, root)
         schema_version = parser._str(root.get("schema_version", "1.0"), "$.schema_version")
         normalized_root: dict[str, object] = dict(root)
-        normalized_reference = dict(parser._map(root.get("reference_data"), "$.reference_data"))
-        normalized_reference["ashare_instruments"] = cast(
-            OnlyJsonValue,
-            [item.to_dict() for item in reference_data.ashare_registry.records],
-        )
-        normalized_root["reference_data"] = normalized_reference
         normalized_runtime = dict(runtime_raw)
         normalized_runtime["persistence"] = runtime.persistence.to_dict()
         normalized_root["runtime"] = normalized_runtime
@@ -174,28 +172,23 @@ class OnlyClusterRunConfig:
         )
 
 
-def _parse_market(parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping) -> OnlyMarketConfig:
+def _parse_market(parser: _OnlyClusterDocumentParser, root: OnlyJsonMapping) -> OnlyMarketProductConfig:
     if "market_simulation" in root:
         raise OnlyClusterConfigError("UNKNOWN_FIELD: market_simulation; use required 'market'")
     raw = parser._map(root.get("market"), "$.market")
-    profile_value = parser._str(raw.get("profile"), "$.market.profile")
-    try:
-        profile = OnlyMarketProfileId(profile_value)
-    except ValueError as exc:
-        raise OnlyClusterConfigError(f"unknown market profile: {profile_value}") from exc
-    version_value = raw.get("version")
-    version = None if version_value is None else parser._str(version_value, "$.market.version")
-    overrides = parser._map(raw.get("overrides", {}), "$.market.overrides")
-    if "fees" in raw:
-        raise OnlyClusterConfigError("UNKNOWN_FIELD: $.market.fees; use $.market.fee_pack")
-    fee_pack_raw = parser._map(raw.get("fee_pack"), "$.market.fee_pack")
-    pack_id = parser._str(fee_pack_raw.get("pack_id"), "$.market.fee_pack.pack_id")
-    pack_version = parser._str(fee_pack_raw.get("pack_version"), "$.market.fee_pack.pack_version")
-    return OnlyMarketConfig(
-        profile,
-        OnlyMarketFeePackConfig(pack_id, pack_version),
-        version,
-        overrides,
+    unknown = sorted(set(raw) - {"plugin_id", "product_id", "product_version", "config"})
+    if unknown:
+        raise OnlyClusterConfigError(f"UNKNOWN_FIELD: $.market.{unknown[0]}")
+    return OnlyMarketProductConfig(
+        OnlyMarketProductPluginId(parser._str(raw.get("plugin_id"), "$.market.plugin_id")),
+        OnlyMarketProductId(parser._str(raw.get("product_id"), "$.market.product_id")),
+        OnlyMarketProductVersion(parser._str(raw.get("product_version"), "$.market.product_version")),
+        OnlyCanonicalMarketProductConfig(
+            cast(
+                Mapping[str, OnlyMarketProductConfigValue],
+                parser._map(raw.get("config", {}), "$.market.config"),
+            )
+        ),
     )
 
 

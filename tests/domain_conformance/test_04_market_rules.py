@@ -1,37 +1,25 @@
-from datetime import UTC, date, datetime
+from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyAssetClass, OnlyRuntimeMode
 from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.market.models import OnlyInstrumentReferenceSnapshot, OnlyMarketProfileId
-from onlyalpha.market.profiles import only_builtin_market_profile_registry
-from onlyalpha.market.registry import OnlyMarketProfileRequest
-from onlyalpha.market.runtime_rules import OnlyMarketRuleCompiler, OnlyMarketRuleEngine
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
+from tests.runtime_support.market_product import only_generic_market_product
 
 
 def test_generic_profile_compiles_instrument_quantity_semantics(equity) -> None:
-    reference = OnlyInstrumentReferenceSnapshot(
-        str(equity.instrument_id),
-        OnlyAssetClass.EQUITY,
-        str(equity.venue),
-        OnlyMarketProfileId.GENERIC_T0_CASH,
-        str(equity.settlement_currency),
-        datetime(2020, 1, 1, tzinfo=UTC),
-        None,
-        "test",
-        "1",
-        "fingerprint",
-        quantity_step=Decimal("0.001"),
-        lot_size=Decimal("100"),
+    equity = replace(
+        equity,
+        quantity_precision=3,
+        step_size=equity.step_size.__class__(Decimal("0.001"), 3),
+        effective_from=None,
+        effective_to=None,
     )
+    binding = only_generic_market_product(equity)
     engine = OnlyMarketRuleEngine(
-        registry=only_builtin_market_profile_registry(),
-        compiler=OnlyMarketRuleCompiler(),
-        request=OnlyMarketProfileRequest(OnlyMarketProfileId.GENERIC_T0_CASH),
-        runtime_mode=OnlyRuntimeMode.BACKTEST,
-        references={reference.instrument_id: reference},
+        binding=binding,
         advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
     )
-    policy = engine.compiled_rules(reference.instrument_id, OnlyTradingDay(date(2026, 1, 5))).quantity_policy
+    policy = engine.compiled_rules(str(equity.instrument_id), OnlyTradingDay(date(2026, 1, 5))).quantity_policy
     assert policy.allow_fractional
     assert policy.buy_quantity_increment == Decimal("0.001")

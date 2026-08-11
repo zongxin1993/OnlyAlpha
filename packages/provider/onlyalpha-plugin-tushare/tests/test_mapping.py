@@ -41,7 +41,7 @@ def test_frozen_joined_reference_maps_to_canonical_authority() -> None:
         }
     )
     assert str(reference.instrument_id) == "600000.XSHG"
-    assert reference.previous_close.value == Decimal("10.00")
+    assert reference.previous_close == Decimal("10.00")
 
 
 def test_reference_never_defaults_missing_historical_status() -> None:

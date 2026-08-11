@@ -521,7 +521,7 @@ class OnlyTradeExecutionTransactionPlanner:
             cluster_id=trade.cluster_id,
             strategy_id=context.strategy_id,
             instrument_id=trade.instrument_id,
-            venue_id=identity.venue,
+            venue_id=str(trade.instrument_id.venue),
             execution_capability=context.support_decision.capability,
             execution_support_policy_version=context.support_decision.policy_version,
             execution_support_fingerprint=context.support_decision.fingerprint,
@@ -588,7 +588,7 @@ class OnlyTradeExecutionTransactionPlanner:
             broker_fee_schedule_versions=_schedule_values(broker_components, "schedule_version"),
             broker_fee_schedule_fingerprints=_schedule_values(broker_components, "schedule_fingerprint"),
             fee_application=fee,
-            **only_execution_market_evidence(identity),
+            **only_execution_market_evidence(identity, context.trade_instruction.market_product_identity),
             trade_instruction_id=_trade_instruction_id(context),
             settlement_instruction_id=settlement_after.instruction_id,
             settlement_status=settlement_status,
@@ -1121,7 +1121,7 @@ def _settlement_instruction(
             schedule.cash_withdrawable_on,
             schedule.legal_settlement_on,
         ),
-        **only_execution_market_evidence(identity),
+        **only_execution_market_evidence(identity, context.trade_instruction.market_product_identity),
         content_fingerprint="0" * 64,
     )
     fingerprinted = replace(
@@ -1175,7 +1175,7 @@ def _trade_instruction_id(context: OnlyTradeExecutionPlanningContext) -> str:
             schedule.cash_trade_available_on.value.isoformat(),
             schedule.cash_withdrawable_on.value.isoformat(),
             schedule.legal_settlement_on.value.isoformat(),
-            instruction.compiled_identity.compiled_rules_fingerprint,
+            instruction.compiled_identity.policy_fingerprint,
             instruction.position_instruction.position_side,
             instruction.position_instruction.position_effect.value,
         )

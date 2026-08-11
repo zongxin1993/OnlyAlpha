@@ -14,6 +14,7 @@ WORKSPACE_TESTS = (
     "tests",
     "packages/fake/onlyalpha-plugin-broker-virtual/tests",
     "packages/market/onlyalpha-market-generic-t0-cash/tests",
+    "packages/market/onlyalpha-market-cn-ashare/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
 )
@@ -95,6 +96,14 @@ def release(args: argparse.Namespace) -> int:
             "--config-file",
             "packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml",
             "packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash",
+        ],
+        [
+            "uv",
+            "run",
+            "mypy",
+            "--config-file",
+            "packages/market/onlyalpha-market-cn-ashare/pyproject.toml",
+            "packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare",
         ],
         [
             "uv",

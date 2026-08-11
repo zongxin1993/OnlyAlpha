@@ -329,9 +329,9 @@ class OnlyCnAshareProductStrategy(OnlyStrategy):
                 "risk_rejection_code": None if rejection is None else rejection.code.value,
                 "market_reason_code": None if rejection is None else rejection.details.get("market_reason_code"),
                 "market_rule_code": None if rejection is None else rejection.details.get("market_rule_code"),
-                "market_profile_id": None if rejection is None else rejection.details.get("market_profile_id"),
+                "market_profile_id": None if rejection is None else rejection.details.get("market_product_id"),
                 "market_profile_version": (
-                    None if rejection is None else rejection.details.get("market_profile_version")
+                    None if rejection is None else rejection.details.get("market_product_version")
                 ),
                 "market_reference_fingerprint": (
                     None if rejection is None else rejection.details.get("market_reference_fingerprint")
@@ -466,9 +466,10 @@ def only_cn_a_share_product_config(
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["authorities"] = {"broker_fee_contracts": [only_cn_a_share_product_broker_fee_contract()]}
     payload["market"] = {
-        "profile": MARKET_PROFILE_ID,
-        "version": MARKET_PROFILE_VERSION,
-        "fee_pack": {"pack_id": MARKET_FEE_PACK_ID, "pack_version": MARKET_FEE_PACK_VERSION},
+        "plugin_id": "onlyalpha-market-cn-ashare",
+        "product_id": MARKET_PROFILE_ID,
+        "product_version": MARKET_PROFILE_VERSION,
+        "config": {"references": [dict(item) for item in fixture.references]},
     }
     payload["cluster"] = {
         "cluster_id": CLUSTER_ID,
@@ -546,7 +547,6 @@ def only_cn_a_share_product_config(
             }
             for item in identities
         ],
-        "ashare_instruments": [dict(item) for item in fixture.references],
     }
     payload["universes"] = [
         {"universe_id": "cn-a-share-product-universe", "type": "STATIC", "instruments": [instrument_id]}

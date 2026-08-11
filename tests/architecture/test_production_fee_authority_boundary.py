@@ -1,10 +1,11 @@
 from pathlib import Path
 
-from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
-from onlyalpha.fee.packs.cn_a_share import (
+from onlyalpha_market_cn_ashare.fee_pack import only_cn_a_share_market_fee_pack
+from onlyalpha_market_cn_ashare.fee_sources import (
     CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID,
-    only_cn_a_share_production_fee_pack,
 )
+
+from onlyalpha.fee.models import OnlyFeeAuthority, OnlyFeeType
 
 
 def test_test_fee_pack_is_absent_from_production_defaults_examples_and_public_exports() -> None:
@@ -20,7 +21,7 @@ def test_test_fee_pack_is_absent_from_production_defaults_examples_and_public_ex
 
 
 def test_production_pack_contains_no_broker_authority_or_commission() -> None:
-    pack = only_cn_a_share_production_fee_pack()
+    pack = only_cn_a_share_market_fee_pack()
     rules = tuple(rule for schedule in pack.schedules for rule in schedule.rules)
     assert all(rule.authority not in {OnlyFeeAuthority.BROKER, OnlyFeeAuthority.PLATFORM} for rule in rules)
     assert all(rule.fee_type is not OnlyFeeType.BROKER_COMMISSION for rule in rules)
@@ -28,7 +29,7 @@ def test_production_pack_contains_no_broker_authority_or_commission() -> None:
 
 def test_production_sources_are_registered_and_not_test_placeholders() -> None:
     forbidden = ("test", "todo", "unknown", "generic conformance")
-    for schedule in only_cn_a_share_production_fee_pack().schedules:
+    for schedule in only_cn_a_share_market_fee_pack().schedules:
         assert schedule.source in CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID
         assert not any(value in schedule.source.lower() for value in forbidden)
         assert schedule.effective_from.year != 1970

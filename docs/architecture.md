@@ -179,7 +179,7 @@ OnlyClusterRunConfig
 
 ## 8. Market Product Composition
 
-P5.2 已在 P5.1 Core Contract 上完成 Canonical Market IR authority closure，并建立第一个 concrete replacement candidate。目标唯一组合链是：
+P5.3 已在 P5.1/P5.2 合同上完成 Generic 与 CN A-share Trading Runtime one-shot cutover。唯一生产组合链是：
 
 ```text
 OnlyMarketProductConfig
@@ -203,28 +203,28 @@ Instrument Market Terms
 
 `Matching / Slippage / Simulation Liquidity / Latency / Fill Plan / Fill Schedule` 不属于 Market Product IR；它们属于 Virtual Broker / Execution Simulation。该边界由 [ADR 0070](adr/0070-generic-t0-cash-market-product-and-canonical-market-ir.md) 和静态门禁冻结。
 
-`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` entry point 自动发现，拥有 plugin-local Reference、deterministic Reference Authority、pure Policy Compiler 和 Generic Market Fee Pack。Core composition root 只持有 neutral `OnlyMarketProductFactoryRegistry`，没有 concrete import、hard registration 或 Generic fallback。tests-only `TEST_T2_MARKET` 以 tick `0.25`、quantity step `7`、T+2 证明同一 IR 不依赖 Generic branch。
+`onlyalpha-market-generic-t0-cash` 与 `onlyalpha-market-cn-ashare` 通过 `onlyalpha.market_products` entry point 自动发现，各自拥有 plugin-local Reference、deterministic Reference Authority、pure Policy Compiler 和 Market Fee Pack。Core composition root 只持有 neutral `OnlyMarketProductFactoryRegistry`，没有 concrete import、hard registration 或 Generic fallback。tests-only `TEST_T2_MARKET` 以 tick `0.25`、quantity step `7`、T+2 证明同一 IR 不依赖 Generic branch。
 
-当前生产组合尚未 cut over，仍是：
+当前生产组合已经是：
 
 ```text
-OnlyMarketConfig
-→ Profile Registry / Version Resolver
-→ Instrument Reference
-→ Rule Compiler
+OnlyMarketProductConfig
+→ Factory Registry
+→ Plugin-owned Reference / Compiler / Fee Pack
+→ Resolved Binding
 → OnlyMarketRuleEngine
 → Restricted Decision / Instruction
 ```
 
-这是 P5.3 明确保留的迁移债务，不是第二套长期合同。P5.2 的 Generic plugin 只是 conformance-validated replacement candidate；P5.3 将 CN A-share 与 Trading Runtime 一次性切换到 resolved binding，并删除失去职责的 Core concrete composition。P5.2 没有增加 adapter、fallback、compatibility wrapper 或 Generic-only Runtime branch。
+Resolution 在 Runtime Factory 之上执行一次，Backtest/Paper Factory 只消费 Binding。旧 Profile Registry、Core A-share Reference/Rules、legacy concrete compiler 与 concrete fee registry selection 已删除；没有 adapter、fallback、compatibility wrapper 或按 product ID dispatch 的 Runtime branch。
 
 市场合法性与执行实现能力仍是两个 Authority：
 
-Reference 提供证券事实，Profile 提供版本化制度，Compiler 在 evaluate 前解析最终 Session/Price/Quantity/Settlement policy。Execution Support 根据规范化 economic shape 判断 Kernel 是否支持，不根据市场名、Profile ID 或 Runtime type 决定权限。
+Plugin-owned Reference 提供证券事实，Plugin-owned Compiler 提供版本化制度并在 evaluate 前解析最终 Session/Price/Quantity/Settlement policy。Execution Support 根据规范化 economic shape 判断 Kernel 是否支持，不根据市场名、Product ID 或 Runtime type 决定权限。
 
 Market Fee Pack 与 Broker Fee Contract 是独立 authority；Order binding、fee resolution proof、order cumulative accrual 和 Fee Application Ledger 保持可审计。Market Rule Authority、Execution Support Authority、Fee Authority 与 Settlement Authority 不互相替代。
 
-所有内置 Profile 仍为 Experimental，除非正式产品合同明确升级。`CN_A_SHARE_DURABLE_BACKTEST_V1` 只认证有限 Backtest surface，不代表完整 `CN_A_SHARE_CASH` Profile 稳定。
+Market Product plugin 的存在不升级产品范围。`CN_A_SHARE_DURABLE_BACKTEST_V1` 只认证有限 Backtest surface，不代表完整 A 股市场、Sim 或 Live 稳定。
 
 ## 9. MarketData Boundary
 
@@ -442,7 +442,7 @@ Domain 不依赖 Core 外层。Core 不依赖具体 Provider/Broker SDK。Strate
 
 ```text
 Runtime          : BACKTEST
-Market Profile   : GENERIC_T0_CASH
+Market Product   : GENERIC_T0_CASH@1
 Account Type     : CASH
 Order Type       : LIMIT
 Position Side    : LONG
@@ -455,9 +455,9 @@ Persistence      : Memory / SQLite
 Recovery         : Checkpoint / Restart / Forward Recovery
 ```
 
-`CN_A_SHARE_DURABLE_BACKTEST_V1` 是已认证的有限 A 股 Backtest 产品合同；它不升级完整 `CN_A_SHARE_CASH` Profile，也不证明所有 A 股产品或实时 Runtime 可用。
+`CN_A_SHARE_DURABLE_BACKTEST_V1` 是已认证的有限 A 股 Backtest 产品合同；它不升级完整 A 股市场范围，也不证明所有 A 股产品或实时 Runtime 可用。
 
-当前 legacy `PAPER` 路径完成了当前 Profile 下的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并有真实 MiniQMT 当前环境验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产运维闭环。
+当前 legacy `PAPER` 路径完成了当前 Market Product binding 下的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并有真实 MiniQMT 当前环境验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产运维闭环。
 
 当前未完成项：
 

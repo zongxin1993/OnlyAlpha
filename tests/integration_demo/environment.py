@@ -63,29 +63,12 @@ from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution import OnlyExecutionProcessingResult
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import only_simulation_zero_broker_fee_contract
-from onlyalpha.fee.market_pack import OnlyMarketFeePack
-from onlyalpha.fee.packs import only_generic_t0_cash_fee_pack
-from onlyalpha.market.models import OnlyMarketProfileId
-from onlyalpha.market.profiles import only_builtin_market_profile_registry
-from onlyalpha.market.registry import OnlyMarketProfileRequest
-from onlyalpha.market.runtime_rules import (
-    OnlyMarketRuleCompiler,
-    OnlyMarketRuleEngine,
-    only_ashare_instrument_reference,
-    only_instrument_reference,
-)
+from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
 from onlyalpha.market_data.pipeline import OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.order.results import OnlyOrderSubmitResult
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
-from onlyalpha.reference import (
-    OnlyAshareBoard,
-    OnlyAshareExchange,
-    OnlyAshareInstrumentReference,
-    OnlyAshareSecurityType,
-    OnlyReferenceDataSource,
-)
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
@@ -94,6 +77,7 @@ from onlyalpha.strategy.config import OnlyStrategyConfig
 from onlyalpha.strategy.context import OnlyStrategyBarContext
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
+from tests.runtime_support.market_product import only_cn_ashare_market_product, only_generic_market_product
 
 ENGINE_ID = "integration-engine"
 RUNTIME_ID = "integration-runtime"
@@ -265,8 +249,7 @@ class OnlyIntegrationEnvironment:
         maximum_fill_quantity: OnlyQuantity | None = None,
         virtual_broker: bool = True,
         cluster_capitals: Mapping[OnlyClusterId, OnlyMoney] | None = None,
-        market_profile_id: OnlyMarketProfileId = OnlyMarketProfileId.GENERIC_T0_CASH,
-        market_fee_pack: OnlyMarketFeePack | None = None,
+        cn_ashare_market: bool = False,
     ) -> None:
         self.calendar = OnlyTradingCalendar(
             OnlyCalendarId("XSHG"),
@@ -303,36 +286,12 @@ class OnlyIntegrationEnvironment:
             OnlyBarSpecification(3, OnlyBarAggregation.TIME, OnlyPriceType.LAST),
             OnlyAggregationSource.INTERNAL,
         )
-        if market_profile_id is OnlyMarketProfileId.CN_A_SHARE_CASH:
-            ashare_record = OnlyAshareInstrumentReference(
-                INSTRUMENT_ID,
-                OnlyAshareExchange.SSE,
-                OnlyAshareSecurityType.COMMON_STOCK,
-                OnlyAshareBoard.SSE_MAIN,
-                OnlyQuantity(Decimal(100), 0),
-                OnlyPrice(Decimal("0.01"), 2),
-                False,
-                False,
-                OnlyPrice(Decimal("11.00"), 2),
-                OnlyTradingDay(date(2025, 1, 1)),
-                None,
-                OnlyReferenceDataSource.SCENARIO,
-                "integration-v1",
-                "integration-v1",
-            )
-            reference = only_ashare_instrument_reference(
-                self.instrument,
-                ashare_record,
-                profile_id=market_profile_id.value,
-            )
+        if cn_ashare_market:
+            binding = only_cn_ashare_market_product(self.instrument, previous_close="11.00")
         else:
-            reference = only_instrument_reference(self.instrument, profile_id=market_profile_id.value)
+            binding = only_generic_market_product(self.instrument)
         market_rules = OnlyMarketRuleEngine(
-            registry=only_builtin_market_profile_registry(),
-            compiler=OnlyMarketRuleCompiler(),
-            request=OnlyMarketProfileRequest(market_profile_id),
-            runtime_mode=OnlyRuntimeMode.BACKTEST,
-            references={str(self.instrument.instrument_id): reference},
+            binding=binding,
             advance_trading_day=lambda day, lag: OnlyTradingDay(date.fromordinal(day.value.toordinal() + lag)),
         )
         initial_time = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
@@ -360,7 +319,7 @@ class OnlyIntegrationEnvironment:
                     {CLUSTER_ID: broker_config.initial_cash} if cluster_capitals is None else cluster_capitals
                 ),
                 market_rule_engine=market_rules,
-                market_fee_pack=market_fee_pack or only_generic_t0_cash_fee_pack(),
+                market_fee_pack=binding.market_fee_pack,
                 broker_fee_contract=only_simulation_zero_broker_fee_contract("virtual"),
                 broker_fee_authority_id="virtual",
                 fee_basis_providers=only_default_fee_basis_provider_registry(),

@@ -7,6 +7,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from tests.runtime_support.market_product import only_generic_market_product
 
 
 def _plan(runtime_type: str):
@@ -15,7 +16,12 @@ def _plan(runtime_type: str):
     payload["runtime"]["type"] = runtime_type
     payload["cluster"]["runtime_type"] = runtime_type
     config = OnlyClusterRunConfig.from_mapping(payload, source_path="tests/fixtures/legacy_macd/cluster.json")
-    return OnlyRuntimePlanner().plan(OnlyEngineId("factory-test"), (config,)).runtime_plans[0]
+    binding = only_generic_market_product(config.reference_data.instruments[0])
+    return (
+        OnlyRuntimePlanner()
+        .plan(OnlyEngineId("factory-test"), (config,), {config.cluster_id: binding})
+        .runtime_plans[0]
+    )
 
 
 def test_backtest_factory_is_selected_through_runtime_assembler() -> None:

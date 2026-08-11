@@ -1,27 +1,3 @@
-"""Public immutable reference-data authority API."""
+"""Market-neutral reference contracts live under :mod:`onlyalpha.market.product`."""
 
-from onlyalpha.reference.ashare import (
-    OnlyAshareBoard,
-    OnlyAshareExchange,
-    OnlyAshareInstrumentReference,
-    OnlyAshareReferenceError,
-    OnlyAshareReferenceQuery,
-    OnlyAshareReferenceRegistry,
-    OnlyAshareReferenceResolution,
-    OnlyAshareReferenceResolutionStatus,
-    OnlyAshareSecurityType,
-    OnlyReferenceDataSource,
-)
-
-__all__ = [
-    "OnlyAshareBoard",
-    "OnlyAshareExchange",
-    "OnlyAshareInstrumentReference",
-    "OnlyAshareReferenceError",
-    "OnlyAshareReferenceQuery",
-    "OnlyAshareReferenceRegistry",
-    "OnlyAshareReferenceResolution",
-    "OnlyAshareReferenceResolutionStatus",
-    "OnlyAshareSecurityType",
-    "OnlyReferenceDataSource",
-]
+__all__: list[str] = []

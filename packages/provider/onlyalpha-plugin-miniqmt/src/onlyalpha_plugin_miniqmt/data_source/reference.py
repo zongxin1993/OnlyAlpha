@@ -3,18 +3,19 @@ from datetime import date, time, timedelta
 from decimal import Decimal
 from typing import Any
 
+from onlyalpha_market_cn_ashare import OnlyCnAshareInstrumentReference
+
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlyMarketType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRawSymbol, OnlyVenueId
 from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyIndex, OnlyInstrument
 from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.domain.value import OnlyCurrency, OnlyMultiplier, OnlyPrice, OnlyQuantity
-from onlyalpha.plugin.api import OnlyAshareInstrumentReference
 
 from ..mapping.exchange import to_xt_symbol
 
 
-def ashare_reference(raw: Mapping[str, object]) -> OnlyAshareInstrumentReference:
+def ashare_reference(raw: Mapping[str, object]) -> OnlyCnAshareInstrumentReference:
     """Normalize a frozen, explicitly enriched MiniQMT reference payload.
 
     MiniQMT instrument detail alone does not prove historical board/ST,
@@ -22,7 +23,7 @@ def ashare_reference(raw: Mapping[str, object]) -> OnlyAshareInstrumentReference
     """
 
     try:
-        return OnlyAshareInstrumentReference.from_mapping(
+        return OnlyCnAshareInstrumentReference.from_mapping(
             {
                 "instrument_id": raw.get("instrument_id"),
                 "exchange": raw.get("exchange"),

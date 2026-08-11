@@ -4,6 +4,7 @@
 
 from onlyalpha.canonical import only_canonical_fingerprint as only_canonical_fingerprint
 from onlyalpha.domain.enums import OnlyAssetClass as OnlyAssetClass
+from onlyalpha.domain.enums import OnlyOrderSide as OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyInstrumentId as OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay as OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency as OnlyCurrency
@@ -164,7 +165,6 @@ from onlyalpha.plugin.lifecycle import (
     OnlyPluginResourceSnapshot,
 )
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION, OnlyPluginApiVersion
-from onlyalpha.reference import OnlyAshareInstrumentReference as OnlyAshareInstrumentReference
 
 __all__ = [
     name

@@ -9,7 +9,7 @@ from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
 
-from onlyalpha.config import OnlyClusterRunConfig, OnlyMarketConfig, OnlyReferenceDataConfig
+from onlyalpha.config import OnlyClusterRunConfig, OnlyMarketProductConfig, OnlyReferenceDataConfig
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType, OnlyRuntimeMode, OnlyTimeInForce
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import only_require_utc
@@ -193,7 +193,7 @@ class OnlyMarketScenario:
     version: OnlyMarketScenarioVersion
     description: str
     runtime: OnlyScenarioRuntimeSpec
-    market: OnlyMarketConfig
+    market: OnlyMarketProductConfig
     reference_data: OnlyReferenceDataConfig
     bars: tuple[OnlyScenarioBar, ...]
     actions: tuple[OnlyScenarioAction, ...]

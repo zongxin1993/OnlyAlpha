@@ -2,35 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
-from onlyalpha.domain.enums import OnlyAssetClass, OnlyOrderSide
-from onlyalpha.domain.time import OnlyTradingDay, only_require_utc
+from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.settlement.models import (
     OnlyCompiledSettlementPolicy,
     OnlySettlementSchedule,
     OnlySettlementScheduleRequest,
 )
-
-
-class OnlyMarketProfileId(StrEnum):
-    CN_A_SHARE_CASH = "CN_A_SHARE_CASH"
-    HK_EQUITY_CASH = "HK_EQUITY_CASH"
-    US_EQUITY_CASH = "US_EQUITY_CASH"
-    CN_FUTURES = "CN_FUTURES"
-    CRYPTO_SPOT = "CRYPTO_SPOT"
-    CRYPTO_PERPETUAL = "CRYPTO_PERPETUAL"
-    CRYPTO_DELIVERY_FUTURE = "CRYPTO_DELIVERY_FUTURE"
-    FX_SPOT = "FX_SPOT"
-    GENERIC_T0_CASH = "GENERIC_T0_CASH"
-    GENERIC_MARGIN_FUTURES = "GENERIC_MARGIN_FUTURES"
-    GENERIC_24X7_CRYPTO_SPOT = "GENERIC_24X7_CRYPTO_SPOT"
 
 
 class OnlySettlementTiming(StrEnum):
@@ -83,30 +66,6 @@ class OnlyMarketRuleEvaluationStatus(StrEnum):
     FAILED = "FAILED"
     NOT_APPLICABLE = "NOT_APPLICABLE"
     NOT_EVALUATED = "NOT_EVALUATED"
-
-
-class OnlyLiquidityModelType(StrEnum):
-    UNLIMITED = "UNLIMITED"
-    BAR_VOLUME_PARTICIPATION = "BAR_VOLUME_PARTICIPATION"
-    TICK = "TICK"
-    ORDER_BOOK = "ORDER_BOOK"
-    EXCHANGE_REPORTED = "EXCHANGE_REPORTED"
-
-
-class OnlySlippageModelType(StrEnum):
-    NONE = "NONE"
-    FIXED_TICKS = "FIXED_TICKS"
-    BASIS_POINTS = "BASIS_POINTS"
-    VOLUME_IMPACT = "VOLUME_IMPACT"
-
-
-class OnlyMatchingModelType(StrEnum):
-    NEXT_BAR_OPEN = "NEXT_BAR_OPEN"
-    NEXT_BAR_CLOSE = "NEXT_BAR_CLOSE"
-    BAR_TOUCH = "BAR_TOUCH"
-    TICK = "TICK"
-    ORDER_BOOK = "ORDER_BOOK"
-    EXCHANGE_NATIVE = "EXCHANGE_NATIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,61 +233,6 @@ class OnlyTradingSessionModel:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyInstrumentReferenceSnapshot:
-    instrument_id: str
-    asset_class: OnlyAssetClass
-    venue: str
-    market_profile_id: OnlyMarketProfileId
-    currency: str
-    effective_from: datetime
-    effective_to: datetime | None
-    source: str
-    source_version: str
-    content_fingerprint: str
-    base_currency: str | None = None
-    quote_currency: str | None = None
-    settlement_currency: str | None = None
-    status: str = "ACTIVE"
-    price_precision: int = 2
-    quantity_precision: int = 0
-    tick_size: Decimal = Decimal("0.01")
-    quantity_step: Decimal = Decimal(1)
-    minimum_quantity: Decimal | None = None
-    maximum_quantity: Decimal | None = None
-    minimum_notional: Decimal | None = None
-    maximum_notional: Decimal | None = None
-    lot_size: Decimal | None = None
-    contract_multiplier: Decimal = Decimal(1)
-    board: str | None = None
-    st_status: bool = False
-    suspended: bool = False
-    previous_close: Decimal | None = None
-    trading_calendar_id: str | None = None
-
-    def __post_init__(self) -> None:
-        only_require_utc(self.effective_from, "reference effective_from")
-        if self.effective_to is not None:
-            only_require_utc(self.effective_to, "reference effective_to")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyPriceRule:
-    """Declarative Profile input; executable price bands are compiler-owned."""
-
-    tick_size: Decimal
-    daily_limit_rate: Decimal | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyQuantityRule:
-    """Declarative Profile input; executable quantity policy is compiler-owned."""
-
-    allow_fractional: bool
-    buy_lot_required: bool = False
-    allow_odd_lot_liquidation: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class OnlyCompiledPriceBandPolicy:
     regime_id: str
     tick_size: Decimal
@@ -356,101 +260,6 @@ class OnlyMarketRuleEvaluation:
     status: OnlyMarketRuleEvaluationStatus
     reason_code: str | None
     inputs: tuple[tuple[str, str], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyLiquidityModel:
-    model_type: OnlyLiquidityModelType
-    maximum_participation_rate: Decimal = Decimal(1)
-
-    def capacity(self, normalized_bar_volume: Decimal | None, consumed: Decimal = Decimal(0)) -> Decimal | None:
-        if self.model_type is OnlyLiquidityModelType.UNLIMITED:
-            return None
-        if normalized_bar_volume is None:
-            raise ValueError("bar participation requires normalized volume")
-        return max(normalized_bar_volume * self.maximum_participation_rate - consumed, Decimal(0))
-
-
-@dataclass(frozen=True, slots=True)
-class OnlySlippageModel:
-    model_type: OnlySlippageModelType
-    value: Decimal = Decimal(0)
-
-    def apply(self, reference_price: Decimal, side: OnlyOrderSide, tick_size: Decimal) -> Decimal:
-        direction = Decimal(1) if side is OnlyOrderSide.BUY else Decimal(-1)
-        if self.model_type is OnlySlippageModelType.NONE:
-            return reference_price
-        if self.model_type is OnlySlippageModelType.FIXED_TICKS:
-            return reference_price + direction * self.value * tick_size
-        if self.model_type is OnlySlippageModelType.BASIS_POINTS:
-            return reference_price * (1 + direction * self.value / Decimal(10000))
-        raise NotImplementedError("volume impact is an extension boundary")
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMatchingModel:
-    model_type: OnlyMatchingModelType
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyMarketProfile:
-    profile_id: OnlyMarketProfileId
-    market: str
-    venue: str | None
-    asset_classes: tuple[OnlyAssetClass, ...]
-    session_model: OnlyTradingSessionModel
-    settlement_model: OnlySettlementModel
-    position_model: OnlyPositionAccountingModel
-    short_selling_rule: OnlyShortSellingRule
-    margin_model: OnlyMarginModel | None
-    price_rule: OnlyPriceRule
-    quantity_rule: OnlyQuantityRule
-    liquidity_model: OnlyLiquidityModel
-    slippage_model: OnlySlippageModel
-    matching_model: OnlyMatchingModel
-    effective_from: date
-    effective_to: date | None
-    version: str
-    source: str
-    strict: bool = True
-
-    @property
-    def content_fingerprint(self) -> str:
-        def normalize(value: object) -> object:
-            if isinstance(value, Decimal):
-                return str(value)
-            if isinstance(value, (date, datetime, time)):
-                return value.isoformat()
-            if isinstance(value, StrEnum):
-                return value.value
-            if isinstance(value, dict):
-                return {str(k): normalize(v) for k, v in sorted(value.items(), key=lambda i: str(i[0]))}
-            if isinstance(value, (list, tuple)):
-                return [normalize(item) for item in value]
-            return value
-
-        payload = json.dumps(normalize(asdict(self)), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(payload.encode()).hexdigest()
-
-
-OnlyEffectiveMarketRules = OnlyMarketProfile
-
-
-class OnlyMarketProfileResolver:
-    def __init__(self, profiles: tuple[OnlyMarketProfile, ...]) -> None:
-        self._profiles = profiles
-
-    def resolve(self, profile_id: OnlyMarketProfileId, effective_on: date) -> OnlyEffectiveMarketRules:
-        matches = tuple(
-            profile
-            for profile in self._profiles
-            if profile.profile_id is profile_id
-            and profile.effective_from <= effective_on
-            and (profile.effective_to is None or effective_on < profile.effective_to)
-        )
-        if len(matches) != 1:
-            raise ValueError(f"expected one effective {profile_id} profile on {effective_on}")
-        return matches[0]
 
 
 def only_next_calendar_day(day: OnlyTradingDay, lag: int) -> OnlyTradingDay:

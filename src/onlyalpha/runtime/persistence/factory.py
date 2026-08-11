@@ -28,7 +28,7 @@ class OnlyRuntimePersistenceStoreCreateRequest:
     participant_registry_fingerprint: str | None
     base_currency: str
     account_id: OnlyAccountId
-    market_profile_id: str
+    market_composition_fingerprint: str
 
     @property
     def identity(self) -> dict[str, str]:
@@ -39,7 +39,7 @@ class OnlyRuntimePersistenceStoreCreateRequest:
             "config_fingerprint": self.config_fingerprint,
             "base_currency": self.base_currency,
             "account_id": str(self.account_id),
-            "market_profile_id": self.market_profile_id,
+            "market_composition_fingerprint": self.market_composition_fingerprint,
         }
         if self.participant_registry_fingerprint is not None:
             identity["participant_registry_fingerprint"] = self.participant_registry_fingerprint

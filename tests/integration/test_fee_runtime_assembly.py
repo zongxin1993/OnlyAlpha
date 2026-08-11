@@ -67,15 +67,12 @@ def test_old_combined_fee_schema_is_rejected() -> None:
         OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
 
 
-def test_unknown_market_fee_pack_fails_composition_without_residue(tmp_path) -> None:
+def test_legacy_market_fee_pack_selection_is_rejected_by_schema(tmp_path) -> None:
+    del tmp_path
     payload = _payload()
     payload["market"]["fee_pack"] = {"pack_id": "UNKNOWN", "pack_version": "1"}  # type: ignore[index]
-    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
-    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("fee-unknown"), tmp_path))
-    before = engine.snapshot()
-    with pytest.raises(ValueError, match="MARKET_FEE_PACK_NOT_INSTALLED"):
-        engine.add_cluster(config)
-    assert engine.snapshot() == before
+    with pytest.raises(OnlyClusterConfigError, match=r"UNKNOWN_FIELD: \$\.market\.fee_pack"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
 
 
 def test_missing_broker_fee_contract_is_rejected_by_config_schema() -> None:

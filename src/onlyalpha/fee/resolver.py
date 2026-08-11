@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from decimal import Decimal
 
-from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyRuntimeMode
+from onlyalpha.domain.enums import OnlyLiquiditySide
 from onlyalpha.domain.execution import OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
 from onlyalpha.domain.instrument import OnlyCryptoSpot, OnlyFuture, OnlyInstrument
@@ -83,13 +83,15 @@ class OnlyFeeResolver:
 
     def bind_order(self, order: OnlyOrderSnapshot, timestamp: OnlyTimestamp) -> OnlyOrderFeePolicyBinding:
         day = self._trading_day(timestamp)
-        compiled = self._market_rules.compiled_rules(str(order.instrument_id), day)
-        self._market_pack.validate_compatibility(compiled.identity.profile_id)
+        self._market_rules.compiled_rules(str(order.instrument_id), day)
+        product = self._market_rules.market_product_identity
+        product_id = str(product.product_id)
+        product_version = str(product.product_version)
+        self._market_pack.validate_compatibility(product_id)
         self._broker_contract.validate_compatibility(broker_id=self._broker_id, account_id=order.account_id)
         instrument = self._instruments[order.instrument_id]
-        scope = self._scope(
-            order, instrument, compiled.identity.profile_id, compiled.identity.market, compiled.identity.venue
-        )
+        market = next((item.market for item in self._market_pack.schedules), product_id)
+        scope = self._scope(order, instrument, product_id, market, str(order.instrument_id.venue))
         market_context, broker_context = self._contexts(scope, day)
         fixed: list[OnlyFeeScheduleIdentity] = []
         families: list[OnlyFeeScheduleFamilyIdentity] = []
@@ -119,8 +121,8 @@ class OnlyFeeResolver:
             cluster_id=order.cluster_id,
             order_id=order.order_id,
             instrument_id=order.instrument_id,
-            market_profile_id=compiled.identity.profile_id,
-            market_profile_version=compiled.identity.profile_version,
+            market_profile_id=product_id,
+            market_profile_version=product_version,
             market_fee_pack=self._market_pack.identity,
             broker_fee_contract=self._broker_contract.identity,
             applicability_scope=scope,
@@ -238,12 +240,8 @@ class OnlyFeeResolver:
         cumulative_notional: OnlyMoney,
     ) -> OnlyFeeAssessment:
         day = self._trading_day(timestamp)
-        compiled = self._market_rules.compiled_rules(str(order.instrument_id), day)
-        finality = (
-            OnlyLocalFeeFinality.MODEL_PROVISIONAL
-            if compiled.identity.runtime_mode is OnlyRuntimeMode.LIVE
-            else OnlyLocalFeeFinality.MODEL_CONFIRMED
-        )
+        self._market_rules.compiled_rules(str(order.instrument_id), day)
+        finality = OnlyLocalFeeFinality.MODEL_CONFIRMED
         fill_basis = self._basis(order, price, quantity)
         cumulative_basis = replace(
             self._basis(order, price, cumulative_quantity),

@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "onlyalpha",
+    "onlyalpha-market-cn-ashare",
     "onlyalpha-market-generic-t0-cash",
     "onlyalpha-plugin-broker-virtual",
     "onlyalpha-plugin-miniqmt",
@@ -541,6 +542,33 @@ dev = [
 ]
 
 [[package]]
+name = "onlyalpha-market-cn-ashare"
+version = "0.3.6"
+source = { editable = "packages/market/onlyalpha-market-cn-ashare" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.15" },
+    { name = "pytest", specifier = ">=8.4" },
+    { name = "pytest-cov", specifier = ">=6" },
+    { name = "ruff", specifier = ">=0.11" },
+]
+
+[[package]]
 name = "onlyalpha-market-generic-t0-cash"
 version = "0.3.6"
 source = { editable = "packages/market/onlyalpha-market-generic-t0-cash" }
@@ -600,6 +628,7 @@ version = "0.3.6"
 source = { editable = "packages/provider/onlyalpha-plugin-miniqmt" }
 dependencies = [
     { name = "onlyalpha" },
+    { name = "onlyalpha-market-cn-ashare" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "xtquant", marker = "sys_platform == 'win32'" },
 ]
@@ -615,6 +644,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-market-cn-ashare", editable = "packages/market/onlyalpha-market-cn-ashare" },
     { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2025.2" },
     { name = "xtquant", marker = "sys_platform == 'win32'", specifier = ">=250516.1.1" },
 ]
@@ -633,6 +663,7 @@ version = "0.3.6"
 source = { editable = "packages/provider/onlyalpha-plugin-tushare" }
 dependencies = [
     { name = "onlyalpha" },
+    { name = "onlyalpha-market-cn-ashare" },
     { name = "tushare" },
 ]
 
@@ -647,6 +678,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-market-cn-ashare", editable = "packages/market/onlyalpha-market-cn-ashare" },
     { name = "tushare", specifier = ">=1.4.21,<2" },
 ]
 

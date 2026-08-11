@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -31,6 +32,77 @@ class OnlyGenericT0CashReference:
     active: bool
     suspended: bool
     content_fingerprint: str
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> OnlyGenericT0CashReference:
+        allowed = {
+            "instrument_id",
+            "asset_class",
+            "settlement_currency",
+            "contract_multiplier",
+            "tick_size",
+            "quantity_step",
+            "minimum_quantity",
+            "maximum_quantity",
+            "effective_from",
+            "effective_to",
+            "active",
+            "suspended",
+            "content_fingerprint",
+        }
+        unknown = sorted(set(raw) - allowed)
+        if unknown:
+            raise ValueError(f"unknown Generic reference field: {unknown[0]}")
+
+        def text(name: str) -> str:
+            value = raw.get(name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be non-empty text")
+            return value.strip()
+
+        def decimal(name: str, *, optional: bool = False) -> Decimal | None:
+            value = raw.get(name)
+            if value is None and optional:
+                return None
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a quoted Decimal string")
+            return Decimal(value)
+
+        active = raw.get("active", True)
+        suspended = raw.get("suspended", False)
+        if not isinstance(active, bool) or not isinstance(suspended, bool):
+            raise ValueError("active and suspended must be booleans")
+        return cls.create(
+            instrument_id=OnlyInstrumentId.parse(text("instrument_id")),
+            asset_class=OnlyAssetClass(text("asset_class")),
+            settlement_currency=text("settlement_currency"),
+            contract_multiplier=decimal("contract_multiplier") or Decimal(0),
+            tick_size=decimal("tick_size") or Decimal(0),
+            quantity_step=decimal("quantity_step") or Decimal(0),
+            minimum_quantity=decimal("minimum_quantity", optional=True),
+            maximum_quantity=decimal("maximum_quantity", optional=True),
+            effective_from=date.fromisoformat(text("effective_from")),
+            effective_to=None if raw.get("effective_to") is None else date.fromisoformat(text("effective_to")),
+            active=active,
+            suspended=suspended,
+        )
+
+    def to_dict(self) -> dict[str, str | bool | None]:
+        return {
+            "instrument_id": str(self.instrument_id),
+            "asset_class": self.asset_class.value,
+            "settlement_currency": self.settlement_currency,
+            "contract_multiplier": str(self.contract_multiplier),
+            "tick_size": str(self.tick_size),
+            "quantity_step": str(self.quantity_step),
+            "minimum_quantity": None if self.minimum_quantity is None else str(self.minimum_quantity),
+            "maximum_quantity": None if self.maximum_quantity is None else str(self.maximum_quantity),
+            "effective_from": self.effective_from.isoformat(),
+            "effective_to": None if self.effective_to is None else self.effective_to.isoformat(),
+            "active": self.active,
+            "suspended": self.suspended,
+            "content_fingerprint": self.content_fingerprint,
+        }
 
     @classmethod
     def create(

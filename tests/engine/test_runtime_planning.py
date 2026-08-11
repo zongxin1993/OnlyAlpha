@@ -15,15 +15,23 @@ from onlyalpha.config import (
     OnlyClusterRunConfig,
 )
 from onlyalpha.core.errors import OnlyLifecycleError
-from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
-from onlyalpha.runtime.defaults import OnlyEngineServices
+from onlyalpha.market.product import OnlyResolvedMarketProductBinding
+from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.factory import OnlyRuntimeBuildResult
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from tests.runtime_support.market_product import only_generic_market_product
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
 FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
+
+
+def _bindings(
+    configs: tuple[OnlyClusterRunConfig, ...],
+) -> dict[OnlyClusterId, OnlyResolvedMarketProductBinding]:
+    return {config.cluster_id: only_generic_market_product(config.reference_data.instruments[0]) for config in configs}
 
 
 def _multi_configs() -> tuple[OnlyClusterRunConfig, OnlyClusterRunConfig]:
@@ -45,7 +53,7 @@ def _multi_configs() -> tuple[OnlyClusterRunConfig, OnlyClusterRunConfig]:
 
 def test_runtime_planner_groups_compatible_clusters() -> None:
     configs = _multi_configs()
-    plan = OnlyRuntimePlanner().plan(OnlyEngineId("planner"), configs)
+    plan = OnlyRuntimePlanner().plan(OnlyEngineId("planner"), configs, _bindings(configs))
     assert plan.cluster_count == 2
     assert len(plan.runtime_plans) == 1
     assert plan.runtime_plans[0].cluster_ids == tuple(item.cluster_id for item in configs)
@@ -55,15 +63,19 @@ def test_runtime_planner_separates_incompatible_clusters() -> None:
     first = OnlyClusterRunConfig.load(CONFIG)
     second = OnlyClusterRunConfig.load(FAST_CONFIG)
     changed = replace(second, runtime=replace(second.runtime, end_time=first.runtime.end_time.replace(day=7)))  # type: ignore[union-attr]
-    plan = OnlyRuntimePlanner().plan(OnlyEngineId("planner"), (first, changed))
+    configs = (first, changed)
+    plan = OnlyRuntimePlanner().plan(OnlyEngineId("planner"), configs, _bindings(configs))
     assert len(plan.runtime_plans) == 2
 
 
 def test_engine_add_cluster_does_not_build_or_close_runtime(tmp_path: Path) -> None:
-    assembler = Mock()
+    services = only_default_engine_services()
+    assembler = services.assembler
+    assembler.build = Mock()  # type: ignore[method-assign]
+    assembler.validate = Mock()  # type: ignore[method-assign]
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId("no-build"), tmp_path),
-        services=OnlyEngineServices(assembler),
+        services=services,
     )
     engine.add_cluster_from_file(CONFIG)
     assembler.build.assert_not_called()
@@ -87,11 +99,12 @@ def test_engine_initialize_preserves_primary_failure_when_partial_runtime_cleanu
     runtime = Mock()
     runtime.initialize.side_effect = RuntimeError("runtime initialize failed")
     runtime.close.side_effect = RuntimeError("runtime cleanup failed")
-    assembler = Mock()
-    assembler.build.return_value = OnlyRuntimeBuildResult(runtime=runtime)
+    services = only_default_engine_services()
+    assembler = services.assembler
+    assembler.build = Mock(return_value=OnlyRuntimeBuildResult(runtime=runtime))  # type: ignore[method-assign]
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId("initialize-primary-failure"), tmp_path),
-        services=OnlyEngineServices(assembler),
+        services=services,
     )
     engine.add_cluster_from_file(CONFIG)
 
@@ -121,8 +134,9 @@ def test_engine_output_contains_runtime_plan_and_normalized_configs(tmp_path: Pa
     runtime_id = manifest["clusters"][0]["runtime_id"]
     assert (root / f"runtimes/{runtime_id}/summary.json").is_file()
     reference = json.loads((root / f"runtimes/{runtime_id}/reference_snapshot.json").read_text(encoding="utf-8"))
-    assert reference["reference_registry_fingerprint"]
-    assert reference["record_schema"]
+    assert reference["composition_identity"]["fingerprint"]
+    assert reference["reference_authority"]["authority_fingerprint"]
+    assert reference["artifact_fingerprint"]
     assert (root / "clusters/macd-demo/normalized_config.json").is_file()
     assert not (tmp_path / "output").exists()
 

@@ -32,6 +32,7 @@ from onlyalpha.engine.models import (
     OnlyEngineValidationResult,
     OnlyRuntimeSession,
 )
+from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.output import OnlyEngineResultExporter, OnlyUserDataLayout
 from onlyalpha.report import OnlyConsoleBacktestReport, OnlyJsonBacktestReport, OnlyMarkdownBacktestReport
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
@@ -72,6 +73,7 @@ class OnlyEngine:
         self._environment_builder = OnlyRuntimeEnvironmentBuilder()
         self._planner = OnlyRuntimePlanner(self._environment_builder)
         self._execution_plan: OnlyEngineExecutionPlan | None = None
+        self._market_products: dict[OnlyClusterId, OnlyResolvedMarketProductBinding] = {}
         self._stop_attempted = False
 
     @property
@@ -128,6 +130,7 @@ class OnlyEngine:
             )
             resources = composition.commit(plan)
             self._cluster_definitions[config.cluster_id] = config
+            self._market_products[config.cluster_id] = plan.market_product
             self._handles[config.cluster_id] = handle
             if resources != self._infrastructure.references_for(config.cluster_id):
                 raise RuntimeError("infrastructure references were not registered atomically")
@@ -156,6 +159,7 @@ class OnlyEngine:
             )
         released = self._infrastructure.release(cluster_id)
         del self._cluster_definitions[cluster_id]
+        del self._market_products[cluster_id]
         del self._handles[cluster_id]
         self.state = OnlyEngineState.READY if self._cluster_definitions else OnlyEngineState.CREATED
         return OnlyClusterRemovalResult(True, cluster_id, "REMOVED", released_resources=released)
@@ -171,7 +175,7 @@ class OnlyEngine:
 
     def validate(self) -> OnlyEngineValidationResult:
         errors: list[str] = []
-        plan = self._planner.plan(self.config.engine_id, self.cluster_definitions)
+        plan = self._planner.plan(self.config.engine_id, self.cluster_definitions, self._market_products)
         services = self._require_services()
         for runtime_plan in plan.runtime_plans:
             validation = services.assembler.validate(runtime_plan)
@@ -216,7 +220,7 @@ class OnlyEngine:
             raise OnlyLifecycleError(f"cannot initialize Engine while {self.state}")
         if not self._cluster_definitions:
             raise OnlyLifecycleError("Engine requires at least one Cluster definition")
-        plan = self._planner.plan(self.config.engine_id, self.cluster_definitions)
+        plan = self._planner.plan(self.config.engine_id, self.cluster_definitions, self._market_products)
         created: list[OnlyRuntime] = []
         try:
             for runtime_plan in plan.runtime_plans:
@@ -538,10 +542,7 @@ class OnlyEngine:
     ) -> str:
         payload = {
             "clusters": [str(item.cluster_id) for item in sorted(configs, key=lambda item: str(item.cluster_id))],
-            "runtime_groups": [
-                OnlyRuntimeEnvironmentBuilder().build(item)
-                for item in sorted(configs, key=lambda item: str(item.cluster_id))
-            ],
+            "market_products": [item.market for item in sorted(configs, key=lambda item: str(item.cluster_id))],
             "results": sorted(str(item.get("determinism_fingerprint", "")) for item in projections),
         }
         return hashlib.sha256(
