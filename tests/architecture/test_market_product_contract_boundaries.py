@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import fields
 from pathlib import Path
+
+from onlyalpha.market.product import OnlyCompiledMarketPolicy
 
 PRODUCT_ROOT = Path("src/onlyalpha/market/product")
 CORE_ROOT = Path("src/onlyalpha")
+GENERIC_ROOT = Path("packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash")
 
 
 def _imports(path: Path) -> set[str]:
@@ -77,3 +81,69 @@ def test_binding_is_an_authority_bundle_not_a_trading_service() -> None:
     tree = ast.parse((PRODUCT_ROOT / "binding.py").read_text(encoding="utf-8"))
     methods = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     assert not methods & {"submit_order", "apply_trade", "update_position", "on_bar", "calculate_pnl"}
+
+
+def test_canonical_market_ir_excludes_execution_simulation_authorities() -> None:
+    names = {field.name for field in fields(OnlyCompiledMarketPolicy)}
+    assert not names & {"matching_policy", "slippage_policy", "liquidity_policy"}
+    imports = set().union(*(_imports(path) for path in PRODUCT_ROOT.glob("*.py")))
+    assert not imports & {
+        "onlyalpha.market.models.OnlyMatchingModel",
+        "onlyalpha.market.models.OnlySlippageModel",
+        "onlyalpha.market.models.OnlyLiquidityModel",
+    }
+
+
+def test_core_does_not_import_generic_market_product_plugin() -> None:
+    violations = [
+        f"{path}: import {imported}"
+        for path in sorted(CORE_ROOT.rglob("*.py"))
+        for imported in _imports(path)
+        if imported == "onlyalpha_market_generic_t0_cash" or imported.startswith("onlyalpha_market_generic_t0_cash.")
+    ]
+    assert not violations
+
+
+def test_generic_market_product_has_no_runtime_broker_or_concrete_market_dependency() -> None:
+    forbidden_imports = (
+        "onlyalpha.runtime",
+        "onlyalpha.broker",
+        "onlyalpha.risk",
+        "onlyalpha.order",
+        "onlyalpha.position",
+        "onlyalpha.account",
+        "onlyalpha.execution",
+        "onlyalpha.transaction",
+        "onlyalpha.reference",
+        "onlyalpha.market.ashare_rules",
+        "onlyalpha.market.profiles",
+        "onlyalpha.market.runtime_rules",
+    )
+    forbidden_tokens = (
+        "OnlyRuntimeMode",
+        "BACKTEST",
+        "PAPER",
+        "SIM",
+        "LIVE",
+        "Ashare",
+        "CN_A_SHARE",
+        "XSHG",
+        "XSHE",
+        "NEXT_BAR_OPEN",
+        "BAR_TOUCH",
+        "slippage",
+        "fill_schedule",
+        "latency",
+        "volume_participation",
+    )
+    violations: list[str] = []
+    for path in sorted(GENERIC_ROOT.glob("*.py")):
+        imports = _imports(path)
+        violations.extend(
+            f"{path}: import {imported}"
+            for imported in imports
+            if any(imported == value or imported.startswith(f"{value}.") for value in forbidden_imports)
+        )
+        source = path.read_text(encoding="utf-8")
+        violations.extend(f"{path}: token {token}" for token in forbidden_tokens if token in source)
+    assert not violations

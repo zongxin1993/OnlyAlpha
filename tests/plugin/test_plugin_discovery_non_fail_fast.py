@@ -3,6 +3,7 @@ import pytest
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
+from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.plugin.discovery import only_discover_plugins
 
 from .test_plugin_discovery_fail_fast import _OnlyEntries
@@ -14,6 +15,7 @@ def test_plugin_discovery_non_fail_fast_records_failure(monkeypatch: pytest.Monk
         OnlyDataSourceFactoryRegistry(),
         OnlyBrokerFactoryRegistry(),
         OnlyBrokerFeeContractRegistry(),
+        OnlyMarketProductFactoryRegistry(),
         fail_fast=False,
     )
     assert report.discovered == ()

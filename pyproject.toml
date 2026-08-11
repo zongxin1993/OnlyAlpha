@@ -31,6 +31,7 @@ onlyalpha = "onlyalpha.cli:main"
 [tool.uv.workspace]
 members = [
     "packages/fake/onlyalpha-plugin-broker-virtual",
+    "packages/market/onlyalpha-market-generic-t0-cash",
     "packages/provider/onlyalpha-plugin-tushare",
     "packages/provider/onlyalpha-plugin-miniqmt",
 ]
@@ -64,6 +65,7 @@ onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
+    "packages/market/onlyalpha-market-generic-t0-cash/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
 ]

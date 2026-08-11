@@ -65,10 +65,16 @@ from onlyalpha.market.product.identity import (
     OnlyMarketProductVersion as OnlyMarketProductVersion,
 )
 from onlyalpha.market.product.ports import (
+    OnlyCompiledInstrumentMarketTerms as OnlyCompiledInstrumentMarketTerms,
+)
+from onlyalpha.market.product.ports import (
     OnlyCompiledMarketPolicy as OnlyCompiledMarketPolicy,
 )
 from onlyalpha.market.product.ports import (
     OnlyCompiledMarketPolicyIdentity as OnlyCompiledMarketPolicyIdentity,
+)
+from onlyalpha.market.product.ports import (
+    OnlyInstrumentTradingStatus as OnlyInstrumentTradingStatus,
 )
 from onlyalpha.market.product.ports import (
     OnlyMarketPolicyCompilationRequest as OnlyMarketPolicyCompilationRequest,

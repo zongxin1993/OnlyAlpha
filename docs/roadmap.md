@@ -47,15 +47,16 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 ### Market Product Composition Authority Neutralization
 
-P5.1 Core Market Product Contract & Composition Authority 已完成：Core 已提供市场中立的 provider/product identity、canonical config envelope、Reference/Policy ports、Factory、显式 fail-closed Registry、immutable resolved binding 与 effective composition identity，并以 ADR 0069 和静态门禁冻结依赖方向。该完成状态不表示现有 Generic T0 或 CN A-share production composition 已迁移。
+P5.1 Core Market Product Contract & Composition Authority 已完成：Core 已提供市场中立的 provider/product identity、canonical config envelope、Reference/Policy ports、Factory、显式 fail-closed Registry、immutable resolved binding 与 effective composition identity，并以 ADR 0069 和静态门禁冻结依赖方向。
+
+P5.2 Generic T0 Cash Plugin + Canonical Market IR 已完成：Canonical IR 已删除 matching、slippage 与 simulation liquidity，增加 minimal instrument economic terms；`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` discovery 提供 plugin-owned Reference Authority、pure Policy Compiler 与 Market Fee Pack，并通过 legacy economics conformance 和 tests-only T+2 third market extension proof。该完成状态不表示 Trading Runtime 已 cut over；legacy Generic/Profile/A-share production authority 仍保留到 P5.3 one-shot cutover。
 
 P5 后续边界：
 
-- P5.2：Generic T0 Cash Plugin + Canonical Market IR；
 - P5.3：CN A-share Full Authority Migration + Trading Runtime cutover；
 - P5.4：Identity hardening、失去职责的旧 API 删除与 certification。
 
-P5 不提前实现 Sim、Research 或 Live，不增加市场专用 Engine、第二套经济 authority、compatibility adapter 或 implicit Generic fallback。P5.1 的 Registry 是唯一目标 Market Product factory lookup authority；当前 Profile Registry 只作为尚未 cutover 的历史生产实现保留。
+P5 不提前实现 Sim、Research 或 Live，不增加市场专用 Engine、第二套经济 authority、compatibility adapter 或 implicit Generic fallback。P5.1 的 Registry 是唯一目标 Market Product factory lookup authority；当前 Profile Registry 只作为尚未 cutover 的历史生产实现保留。P5.3 必须同时准备 Generic 与 A-share binding 后一次切换，禁止按市场半切换。
 
 ## P6 — Sim Streaming Runtime Closure
 

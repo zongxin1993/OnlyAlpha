@@ -714,7 +714,7 @@ onlyalpha.plugin.api
 
 ### 11.0 Market Product Composition Authority
 
-P5.1 已建立唯一目标组合入口：
+P5.2 已冻结唯一目标组合入口及第一个 concrete replacement candidate：
 
 ```text
 OnlyMarketProductConfig
@@ -737,8 +737,11 @@ Market Product 属于 Trading Plane。Concrete Market Product Plugin 拥有具�
 - 不得 implicit Generic fallback，不得 import-time global registration；
 - Runtime type 不进入 Market Product economic contract；
 - Market Product 与 Broker、DataSource、Risk、Execution Support 分离；Plugin 计算市场语义，Core 修改交易状态。
+- Canonical Market IR 只包含 instrument economic terms、session、price、quantity、position、short、settlement 与 margin；不得包含 matching、slippage、latency、fill plan/schedule 或 simulation liquidity；
+- `onlyalpha-market-generic-t0-cash` 定义 `GENERIC_T0_CASH@1` 的 Reference、Policy Compiler 与 Market Fee Pack，但不是 Core default 或 fallback；
+- `onlyalpha.market_products` entry-point discovery 是 concrete Market Product 的安装入口，Core composition root 只持有 neutral Registry，不硬注册 concrete product。
 
-当前 Generic/Profile/A-share production composition 尚未迁移，并作为 P5.2/P5.3 migration debt 保留。不得为此新增 bridge、compatibility adapter、deprecated alias 或反向 fallback，也不得声称 concrete Market Product migration 已完成。
+当前 Generic replacement candidate 已完成 contract/conformance 验证，但 Generic/Profile/A-share production composition 尚未 cut over，并作为 P5.3 migration debt 保留。不得为此新增 bridge、compatibility adapter、deprecated alias 或反向 fallback，也不得声称 Trading Runtime Market Product cutover 已完成。
 
 市场规则链固定为：
 

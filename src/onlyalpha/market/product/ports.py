@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal
+from enum import StrEnum
 from typing import Protocol, Self
 
 from onlyalpha.canonical import only_canonical_fingerprint
@@ -12,18 +14,38 @@ from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.market.models import (
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
-    OnlyLiquidityModel,
     OnlyMarginModel,
-    OnlyMatchingModel,
     OnlyPositionAccountingModel,
     OnlySettlementModel,
     OnlyShortSellingRule,
-    OnlySlippageModel,
     OnlyTradingSessionModel,
 )
 from onlyalpha.market.product.identity import OnlyMarketProductAuthorityIdentity
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+class OnlyInstrumentTradingStatus(StrEnum):
+    """Market-neutral result of interpreting a concrete reference lifecycle."""
+
+    TRADABLE = "TRADABLE"
+    SUSPENDED = "SUSPENDED"
+    INACTIVE = "INACTIVE"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyCompiledInstrumentMarketTerms:
+    """Minimal instrument economics required by Core after reference compilation."""
+
+    settlement_currency: str
+    contract_multiplier: Decimal
+    trading_status: OnlyInstrumentTradingStatus
+
+    def __post_init__(self) -> None:
+        if not self.settlement_currency.strip():
+            raise ValueError("settlement currency cannot be empty")
+        if self.contract_multiplier <= 0:
+            raise ValueError("contract multiplier must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +70,7 @@ class OnlyCompiledMarketPolicy:
     """Mode-neutral canonical market policy produced by a product compiler."""
 
     identity: OnlyCompiledMarketPolicyIdentity
+    instrument_terms: OnlyCompiledInstrumentMarketTerms
     session_policy: OnlyTradingSessionModel
     price_policy: OnlyCompiledPriceBandPolicy
     quantity_policy: OnlyCompiledQuantityPolicy
@@ -55,9 +78,6 @@ class OnlyCompiledMarketPolicy:
     short_policy: OnlyShortSellingRule
     settlement_policy: OnlySettlementModel
     margin_policy: OnlyMarginModel | None
-    liquidity_policy: OnlyLiquidityModel
-    slippage_policy: OnlySlippageModel
-    matching_policy: OnlyMatchingModel
 
     @classmethod
     def create(
@@ -67,6 +87,7 @@ class OnlyCompiledMarketPolicy:
         trading_day: OnlyTradingDay,
         reference_fingerprint: str,
         compiler: OnlyMarketProductAuthorityIdentity,
+        instrument_terms: OnlyCompiledInstrumentMarketTerms,
         session_policy: OnlyTradingSessionModel,
         price_policy: OnlyCompiledPriceBandPolicy,
         quantity_policy: OnlyCompiledQuantityPolicy,
@@ -74,11 +95,9 @@ class OnlyCompiledMarketPolicy:
         short_policy: OnlyShortSellingRule,
         settlement_policy: OnlySettlementModel,
         margin_policy: OnlyMarginModel | None,
-        liquidity_policy: OnlyLiquidityModel,
-        slippage_policy: OnlySlippageModel,
-        matching_policy: OnlyMatchingModel,
     ) -> Self:
         policies = (
+            instrument_terms,
             session_policy,
             price_policy,
             quantity_policy,
@@ -86,9 +105,6 @@ class OnlyCompiledMarketPolicy:
             short_policy,
             settlement_policy,
             margin_policy,
-            liquidity_policy,
-            slippage_policy,
-            matching_policy,
         )
         identity = OnlyCompiledMarketPolicyIdentity(
             instrument_id,
@@ -99,6 +115,7 @@ class OnlyCompiledMarketPolicy:
         )
         return cls(
             identity,
+            instrument_terms,
             session_policy,
             price_policy,
             quantity_policy,
@@ -106,9 +123,6 @@ class OnlyCompiledMarketPolicy:
             short_policy,
             settlement_policy,
             margin_policy,
-            liquidity_policy,
-            slippage_policy,
-            matching_policy,
         )
 
     def __post_init__(self) -> None:
@@ -118,6 +132,7 @@ class OnlyCompiledMarketPolicy:
 
     def policy_payload(self) -> tuple[object, ...]:
         return (
+            self.instrument_terms,
             self.session_policy,
             self.price_policy,
             self.quantity_policy,
@@ -125,9 +140,6 @@ class OnlyCompiledMarketPolicy:
             self.short_policy,
             self.settlement_policy,
             self.margin_policy,
-            self.liquidity_policy,
-            self.slippage_policy,
-            self.matching_policy,
         )
 
 

@@ -17,6 +17,7 @@ README_VERSION_PATTERN = re.compile(r"(?m)^\| Version \| `([^`]+)` \|$")
 
 FORMAL_PACKAGES = (
     ROOT / "packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml",
+    ROOT / "packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml",
     ROOT / "packages/provider/onlyalpha-plugin-tushare/pyproject.toml",
     ROOT / "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
 )

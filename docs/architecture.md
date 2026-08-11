@@ -179,7 +179,7 @@ OnlyClusterRunConfig
 
 ## 8. Market Product Composition
 
-P5.1 已建立 Trading Plane 的 Core Market Product Contract。目标唯一组合链是：
+P5.2 已在 P5.1 Core Contract 上完成 Canonical Market IR authority closure，并建立第一个 concrete replacement candidate。目标唯一组合链是：
 
 ```text
 OnlyMarketProductConfig
@@ -189,9 +189,21 @@ OnlyMarketProductConfig
 → Trading Runtime composition
 ```
 
-Core 只定义市场中立的 Plugin/Product identity、不可变配置 envelope、Reference/Policy ports、Factory、fail-closed Registry 和 immutable Binding。Concrete Market Product Plugin 拥有具体市场知识并向下依赖 Core Contract；Core 不依赖具体市场 package。Binding 携带 provider/product evidence、resolved reference authority、pure policy compiler、现有 immutable Market Fee Pack 和 effective composition identity，不暴露 Runtime mutable manager。
+Core 只定义市场中立的 Plugin/Product identity、不可变配置 envelope、Reference/Policy ports、Factory、fail-closed Registry、minimal canonical instrument terms 和 immutable Binding。Concrete Market Product Plugin 拥有具体市场知识并向下依赖 Core Contract；Core 不依赖具体市场 package。Binding 携带 provider/product evidence、resolved reference authority、pure policy compiler、immutable Market Fee Pack 和 effective composition identity，不暴露 Runtime mutable manager。
 
 Product identity 是 evidence，不是行为选择器。Composition fingerprint 在 resolution 后基于 effective product/reference/compiler/fee/config authorities 生成，不直接 fingerprint raw YAML；Runtime type 不进入 Market Product economic contract。Market Product 与 Broker、DataSource、Risk、Execution Support 正交，Research 不要求 Market Product Binding。详见 [ADR 0069](adr/0069-market-product-contract-and-composition-authority.md)。
+
+Canonical `OnlyCompiledMarketPolicy` 只包含：
+
+```text
+Instrument Market Terms
++ Session / Price / Quantity
++ Position / Short / Settlement / Margin
+```
+
+`Matching / Slippage / Simulation Liquidity / Latency / Fill Plan / Fill Schedule` 不属于 Market Product IR；它们属于 Virtual Broker / Execution Simulation。该边界由 [ADR 0070](adr/0070-generic-t0-cash-market-product-and-canonical-market-ir.md) 和静态门禁冻结。
+
+`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` entry point 自动发现，拥有 plugin-local Reference、deterministic Reference Authority、pure Policy Compiler 和 Generic Market Fee Pack。Core composition root 只持有 neutral `OnlyMarketProductFactoryRegistry`，没有 concrete import、hard registration 或 Generic fallback。tests-only `TEST_T2_MARKET` 以 tick `0.25`、quantity step `7`、T+2 证明同一 IR 不依赖 Generic branch。
 
 当前生产组合尚未 cut over，仍是：
 
@@ -204,7 +216,7 @@ OnlyMarketConfig
 → Restricted Decision / Instruction
 ```
 
-这是 P5.2/P5.3 明确保留的迁移债务，不是第二套长期合同。P5.2 将 Generic T0 实现为插件；P5.3 将 CN A-share 与 Trading Runtime 切换到 resolved binding，并删除失去职责的 Core concrete composition。P5.1 没有增加 adapter、fallback 或 compatibility wrapper。
+这是 P5.3 明确保留的迁移债务，不是第二套长期合同。P5.2 的 Generic plugin 只是 conformance-validated replacement candidate；P5.3 将 CN A-share 与 Trading Runtime 一次性切换到 resolved binding，并删除失去职责的 Core concrete composition。P5.2 没有增加 adapter、fallback、compatibility wrapper 或 Generic-only Runtime branch。
 
 市场合法性与执行实现能力仍是两个 Authority：
 

@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-11
 - Scope: Trading Market Product composition contract
+- Clarified by: ADR 0070 (Canonical Market IR removes execution-simulation policies)
 
 ## Context
 
@@ -34,7 +35,7 @@ The resolved binding is frozen and contains only:
 - the existing immutable `OnlyMarketFeePack` authority;
 - a deterministic effective composition identity.
 
-The policy compiler returns the Core canonical, mode-neutral `OnlyCompiledMarketPolicy`. Its policies cover the current session, price, quantity, position, short-sale, settlement, margin, liquidity, slippage and matching semantic dimensions. Its identity contains instrument/day, reference and compiler evidence, but never Runtime type. The legacy production `OnlyCompiledMarketRules` remains unchanged until P5.2/P5.3 cutover.
+At P5.1 the policy compiler returned a mode-neutral `OnlyCompiledMarketPolicy` covering session, price, quantity, position, short-sale, settlement, margin, liquidity, slippage and matching dimensions. ADR 0070 subsequently corrected that new IR by removing the three execution-simulation dimensions and adding minimal canonical instrument terms. Its identity contains instrument/day, reference and compiler evidence, but never Runtime type. The legacy production `OnlyCompiledMarketRules` remains unchanged until the P5.3 cutover.
 
 Composition identity is calculated after resolution from the product identity, reference authority identity, policy compiler identity, market fee-pack identity and effective plugin configuration identity. Raw YAML and unused transport fields are not economic identity inputs merely because they were present.
 

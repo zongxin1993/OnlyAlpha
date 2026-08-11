@@ -1,5 +1,6 @@
 from importlib import metadata
 
+from onlyalpha.plugin.api import OnlyMarketProductPluginId
 from onlyalpha.runtime.defaults import only_default_engine_services
 
 
@@ -12,6 +13,9 @@ def test_installed_distribution_is_discovered_through_real_entry_points() -> Non
         "test-external-broker-simulation-zero",
         "virtual-simulation-zero",
     }
+    assert {item.name for item in metadata.entry_points().select(group="onlyalpha.market_products")} >= {
+        "generic-t0-cash"
+    }
     services = only_default_engine_services()
     assert (
         services.assembler.components.data_sources.resolve("test-external-data").descriptor.plugin_id
@@ -20,6 +24,14 @@ def test_installed_distribution_is_discovered_through_real_entry_points() -> Non
     assert (
         services.assembler.components.brokers.resolve("test-external-broker").descriptor.plugin_id
         == "test-external-broker"
+    )
+    assert (
+        str(
+            services.assembler.components.market_products.require(
+                OnlyMarketProductPluginId("onlyalpha-market-generic-t0-cash")
+            ).plugin_id
+        )
+        == "onlyalpha-market-generic-t0-cash"
     )
     assert (
         services.assembler.components.broker_fee_contracts.require(

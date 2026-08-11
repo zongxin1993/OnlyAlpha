@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_TESTS = (
     "tests",
     "packages/fake/onlyalpha-plugin-broker-virtual/tests",
+    "packages/market/onlyalpha-market-generic-t0-cash/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
 )
@@ -87,6 +88,14 @@ def release(args: argparse.Namespace) -> int:
         ["uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts"],
         ["uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts"],
         ["uv", "run", "mypy", "src/onlyalpha"],
+        [
+            "uv",
+            "run",
+            "mypy",
+            "--config-file",
+            "packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml",
+            "packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash",
+        ],
         [
             "uv",
             "run",

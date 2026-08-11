@@ -695,7 +695,7 @@ Execution Core
 
 只消费已经规范化的经济 Instruction。
 
-P5.1 已建立 `onlyalpha.market.product` Core Contract：具体市场以后通过显式 Factory Registry 解析为 immutable `OnlyResolvedMarketProductBinding`。Binding 组合 Reference Authority、pure Policy Compiler 与现有 Market Fee Pack，且其 fingerprint 只基于 effective authorities。当前 Generic T0 与 CN A-share 的生产 cutover 分别属于 P5.2/P5.3；现有 Profile/A-share 路径仍是当前实现事实，不代表迁移已完成。
+P5.2 已在 `onlyalpha.market.product` Core Contract 上完成 Canonical Market IR authority closure：IR 只包含 Core 所需的 instrument/session/price/quantity/position/short/settlement/margin economics，不包含 matching、slippage 或 simulation liquidity。`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` discovery 提供 plugin-owned Reference Authority、pure Policy Compiler 和 Market Fee Pack；Core 不 import 或硬注册该 concrete package。它当前是 conformance-validated replacement candidate；Generic 与 CN A-share 的 Trading Runtime one-shot cutover 属于 P5.3，现有 Profile/A-share 路径仍是当前生产事实。
 
 ---
 
