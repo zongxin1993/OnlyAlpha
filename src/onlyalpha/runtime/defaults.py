@@ -29,6 +29,7 @@ from onlyalpha.runtime.persistence.factory import (
 )
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 from onlyalpha.runtime.shadow.factory import OnlyShadowRuntimeFactory
+from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 from onlyalpha.strategy.factory import OnlyStrategyFactory
 
@@ -65,6 +66,7 @@ def only_default_engine_services(
     )
     runtimes = OnlyRuntimeFactoryRegistry()
     runtimes.register(OnlyBacktestRuntimeFactory())
+    runtimes.register(OnlySimRuntimeFactory())
     runtimes.register(OnlyPaperRuntimeFactory())
     runtimes.register(OnlyLiveRuntimeFactory())
     runtimes.register(OnlyShadowRuntimeFactory())

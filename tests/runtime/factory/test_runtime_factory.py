@@ -1,12 +1,22 @@
 import json
+from collections.abc import Callable
+from copy import deepcopy
+from typing import Any, cast
 
 import pytest
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyCurrency
+from onlyalpha.plugin.broker import OnlyBrokerGatewayFactory
+from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyDataSourceCapabilities
+from onlyalpha.plugin.data_source import OnlyDataSourceFactory
+from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, OnlyPluginOriginType, OnlyPluginType
+from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
 from onlyalpha.runtime.defaults import only_default_engine_services
+from onlyalpha.runtime.factory import OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from tests.runtime_support.market_product import only_generic_market_product
 
 
@@ -22,6 +32,65 @@ def _plan(runtime_type: str):
         .plan(OnlyEngineId("factory-test"), (config,), {config.cluster_id: binding})
         .runtime_plans[0]
     )
+
+
+def _sim_plan(change: Callable[[dict[str, Any]], None] | None = None):
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    payload: dict[str, Any] = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["runtime"]["type"] = "SIM"
+    payload["runtime"]["start_time"] = None
+    payload["runtime"]["end_time"] = None
+    payload["runtime"]["extensions"] = {"execution_capability": "SIMULATED"}
+    payload["cluster"]["runtime_type"] = "SIM"
+    payload["data_sources"][0]["plugin"] = "miniqmt"
+    if change is not None:
+        change(payload)
+    config = OnlyClusterRunConfig.from_mapping(payload, source_path="tests/fixtures/legacy_macd/cluster.json")
+    binding = only_generic_market_product(config.reference_data.instruments[0])
+    return (
+        OnlyRuntimePlanner()
+        .plan(OnlyEngineId("sim-factory-test"), (config,), {config.cluster_id: binding})
+        .runtime_plans[0]
+    )
+
+
+class _DescriptorOnlyFactory:
+    def __init__(self, descriptor: OnlyPluginDescriptor) -> None:
+        self.descriptor = descriptor
+
+    @staticmethod
+    def parse_config(extensions: object) -> object:
+        return extensions
+
+    @staticmethod
+    def validate_request(request: object) -> tuple[object, ...]:
+        del request
+        return ()
+
+    @staticmethod
+    def create(request: object) -> object:
+        del request
+        raise AssertionError("SIM P6.2 validation must not create plugin resources")
+
+
+def _descriptor(
+    plugin_id: str,
+    plugin_type: OnlyPluginType,
+    capabilities: object,
+) -> OnlyPluginDescriptor:
+    return OnlyPluginDescriptor(
+        plugin_id,
+        plugin_type,
+        "1.0.0",
+        ONLYALPHA_PLUGIN_API_VERSION,
+        plugin_id,
+        "OnlyAlpha Tests",
+        capabilities,
+    )
+
+
+def _test_origin() -> OnlyPluginOrigin:
+    return OnlyPluginOrigin(OnlyPluginOriginType.TEST, "sim-runtime-contract")
 
 
 def test_backtest_factory_is_selected_through_runtime_assembler() -> None:
@@ -72,3 +141,138 @@ def test_paper_factory_is_selected_and_fails_closed_on_an_enabled_broker() -> No
     assert build.runtime is None
     assert build.failure_code == "RUNTIME_ASSEMBLY_FAILED"
     assert "forbids enabled Broker adapters" in str(build.failure_message)
+
+
+def test_default_runtime_registry_installs_the_sim_factory() -> None:
+    registry = OnlyRuntimeFactoryRegistry()
+    registry.register(OnlySimRuntimeFactory())
+
+    assert registry.require("SIM").runtime_type == "SIM"
+
+
+def test_valid_sim_contract_is_recognized_but_execution_remains_fail_closed() -> None:
+    services = only_default_engine_services()
+
+    validation = services.assembler.validate(_sim_plan())
+    build = services.assembler.build(_sim_plan())
+
+    assert validation.runtime is None
+    assert validation.failure_code == "SIM_EXECUTION_WIRING_PENDING"
+    assert build.runtime is None
+    assert build.failure_code == "SIM_EXECUTION_WIRING_PENDING"
+
+
+@pytest.mark.parametrize("capability", ("SHADOW", "LIVE"))
+def test_sim_rejects_non_simulated_execution_capabilities(capability: str) -> None:
+    def change(payload: dict[str, Any]) -> None:
+        payload["runtime"]["extensions"]["execution_capability"] = capability
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_EXECUTION_CAPABILITY_REQUIRED"
+
+
+@pytest.mark.parametrize("boundary", ("start_time", "end_time"))
+def test_sim_rejects_finite_runtime_ranges(boundary: str) -> None:
+    def change(payload: dict[str, Any]) -> None:
+        payload["runtime"][boundary] = "2026-01-05T01:30:00Z"
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_FINITE_RANGE_NOT_SUPPORTED"
+
+
+def test_sim_rejects_checkpoint_configuration() -> None:
+    def change(payload: dict[str, Any]) -> None:
+        payload["runtime"]["persistence"] = {
+            "backend": "SQLITE",
+            "path": "runtime.sqlite3",
+            "checkpoint": {"enabled": True},
+        }
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_CHECKPOINT_NOT_SUPPORTED"
+
+
+@pytest.mark.parametrize("count", (0, 2))
+def test_sim_requires_exactly_one_enabled_data_source(count: int) -> None:
+    def change(payload: dict[str, Any]) -> None:
+        source = deepcopy(payload["data_sources"][0])
+        source["source_id"] = "miniqmt-secondary"
+        payload["data_sources"] = [] if count == 0 else [payload["data_sources"][0], source]
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_DATA_SOURCE_COUNT_INVALID"
+
+
+def test_sim_rejects_historical_only_data_source() -> None:
+    def change(payload: dict[str, Any]) -> None:
+        payload["data_sources"][0]["plugin"] = "synthetic"
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_DATA_SOURCE_CAPABILITY_REQUIRED"
+    assert "live_bars" in str(build.failure_message)
+
+
+def test_sim_rejects_live_only_data_source() -> None:
+    services = only_default_engine_services()
+    factory = _DescriptorOnlyFactory(
+        _descriptor("live-only", OnlyPluginType.DATA_SOURCE, OnlyDataSourceCapabilities(live_bars=True))
+    )
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+
+    def change(payload: dict[str, Any]) -> None:
+        payload["data_sources"][0]["plugin"] = "live-only"
+
+    build = services.assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_DATA_SOURCE_CAPABILITY_REQUIRED"
+    assert "historical_bars" in str(build.failure_message)
+
+
+@pytest.mark.parametrize("count", (0, 2))
+def test_sim_requires_exactly_one_enabled_broker(count: int) -> None:
+    def change(payload: dict[str, Any]) -> None:
+        if count == 0:
+            payload["brokers"][0]["enabled"] = False
+            return
+        broker = deepcopy(payload["brokers"][0])
+        broker["gateway_id"] = "virtual-secondary"
+        payload["brokers"] = [payload["brokers"][0], broker]
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_BROKER_COUNT_INVALID"
+
+
+def test_sim_rejects_real_broker_even_when_it_supports_order_operations() -> None:
+    def change(payload: dict[str, Any]) -> None:
+        payload["brokers"][0]["plugin"] = "miniqmt"
+
+    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_SIMULATED_BROKER_REQUIRED"
+
+
+def test_sim_requires_minimum_simulated_broker_capabilities() -> None:
+    services = only_default_engine_services()
+    capabilities = OnlyBrokerPluginCapabilities(simulated_execution=True, submit_order=True)
+    factory = _DescriptorOnlyFactory(_descriptor("limited-sim", OnlyPluginType.BROKER, capabilities))
+    services.assembler.components.brokers.register(
+        cast(OnlyBrokerGatewayFactory, factory),
+        origin=_test_origin(),
+    )
+
+    def change(payload: dict[str, Any]) -> None:
+        payload["brokers"][0]["plugin"] = "limited-sim"
+
+    build = services.assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_BROKER_CAPABILITY_REQUIRED"
+    assert "cancel_order" in str(build.failure_message)

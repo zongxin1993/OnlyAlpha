@@ -9,6 +9,12 @@ Strategy-facing Context 与 shared Trading facade/Kernel 不再读取 `OnlyRunti
 operational `OnlyRuntime`/concrete Runtime。Streaming `STOP` 被定义为 future processing permission cutoff，不能
 drain queue、flush pending Live Bar 或创造新的 Domain Fact。对应 AST architecture gate 与 shutdown tests 已建立。
 
+Implementation update: 2026-08-11 — P6.2 已增加 canonical `SIM` enum/config spelling、`LIVE_CLOCK` environment
+identity 和专用 `OnlySimRuntimeFactory`。Factory 以显式 `SIMULATED` capability、historical+live DataSource、simulated
+Broker minimum capabilities、无 finite range/streaming checkpoint 为组合合同，并拒绝 Real Broker。当前合法组合仍返回
+`SIM_EXECUTION_WIRING_PENDING`，不创建 Runtime；Trading Kernel、TradingFacade、Strategy Context、经济 authority、
+Virtual Broker 与 MiniQMT 实现均未改变。可执行 SIM 留给 P6.3。
+
 ## Context
 
 OnlyAlpha 需要同时支持两类目标不同的计算：一类以历史数据上的研究吞吐量为优先，另一类以可审计、可恢复且跨运行环境一致的交易语义为优先。把两类计算强制放入同一个由交易 Manager 定义的 Runtime 抽象，会让 Research 创建没有业务意义的 Account、Position、Broker 和 Transaction authority；把 Backtest、实时虚拟交易和实盘分别实现，又会产生多套经济真值。
@@ -22,7 +28,7 @@ OnlyAlpha 需要同时支持两类目标不同的计算：一类以历史数据�
 | `LIVE` | Factory 已注册，但返回 `UNSUPPORTED_RUNTIME_TYPE` |
 | `SHADOW` | Standalone Factory 已注册，但返回 `UNSUPPORTED_RUNTIME_TYPE` |
 | `RESEARCH` | Factory 已注册，但返回 `UNSUPPORTED_RUNTIME_TYPE`，尚无正式研究工作流 |
-| `SIM` | 当前 enum、配置和 Factory 尚未实现 |
+| `SIM` | Enum、配置、environment identity 与 composition-validation Factory 已实现；execution wiring 尚未实现 |
 
 `PAPER` 和 standalone `SHADOW` 的源码存在是 migration debt，不是长期兼容合同，也不能据此增加第五、第六种目标 Runtime。本 ADR 只决定目标架构、工程合同与迁移方向，不实施 Runtime 源码迁移。
 
@@ -194,7 +200,8 @@ Vectorized execution 只属于 Research。正式 Backtest 必须保持 Historica
 
 ## Migration Notes
 
-本 ADR 不修改 `OnlyRuntimeMode`、Runtime factories、配置 schema、Factory registration 或生产行为。后续源码迁移按 Roadmap 执行：
+本 ADR 的原始决策不直接修改 `OnlyRuntimeMode`、Runtime factories、配置 schema、Factory registration 或生产行为；
+后续 implementation updates 与 Roadmap 记录实际迁移。源码迁移按 Roadmap 执行：
 
 1. P5 继续完成 Market Product Composition Authority Neutralization。
 2. P6 将当前 PAPER streaming 基础设施迁移到 Sim，接入 Virtual Broker 与完整 Trading Kernel，补齐 gap/reconnect/checkpoint/restart，随后删除 PAPER 和 standalone SHADOW，不保留 wrapper。

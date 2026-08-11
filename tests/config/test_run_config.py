@@ -1,6 +1,9 @@
 import json
 
+import pytest
+
 from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config.document import OnlyClusterConfigError
 
 
 def test_cluster_document_round_trip_preserves_typed_configuration() -> None:
@@ -16,7 +19,7 @@ def test_cluster_document_round_trip_preserves_typed_configuration() -> None:
 
 def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -> None:
     baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
-    for runtime_type in ("BACKTEST", "PAPER", "LIVE", "SHADOW", "RESEARCH"):
+    for runtime_type in ("BACKTEST", "PAPER", "SIM", "LIVE", "SHADOW", "RESEARCH"):
         payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
         payload["runtime"]["type"] = runtime_type
         payload["cluster"]["runtime_type"] = runtime_type
@@ -26,3 +29,20 @@ def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -
         parsed = OnlyClusterRunConfig.from_mapping(payload)
         assert parsed.runtime.runtime_type == runtime_type
         assert parsed.runtime.extensions["unknown_future_extension"] == {"kept": True}
+
+
+def test_sim_runtime_spelling_is_canonicalized_without_aliases() -> None:
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["runtime"]["type"] = "sim"
+    payload["cluster"]["runtime_type"] = "sim"
+
+    parsed = OnlyClusterRunConfig.from_mapping(payload)
+
+    assert parsed.runtime.runtime_type == "SIM"
+
+    for alias in ("SIMULATION", "PAPER_SIM", "PAPER_TRADING", "VIRTUAL", "VIRTUAL_TRADING"):
+        payload["runtime"]["type"] = alias
+        payload["cluster"]["runtime_type"] = alias
+        with pytest.raises(OnlyClusterConfigError, match="unsupported runtime.type"):
+            OnlyClusterRunConfig.from_mapping(payload)

@@ -86,9 +86,16 @@ Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environme
 | `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
 | `SHADOW` | Standalone Factory 注册但返回 unsupported | 非目标 Runtime，迁移后删除 |
 | `RESEARCH` | Factory 注册但返回 unsupported | 后续实现目标 Research Runtime |
-| `SIM` | enum、配置和 Factory 尚不存在 | P6 完成迁移后正式引入 |
+| `SIM` | enum/config/environment identity/专用 Factory 已实现；合法组合返回 `SIM_EXECUTION_WIRING_PENDING` | P6.3 接入可执行 streaming Virtual Broker path |
 
 当前 `PAPER/SHADOW` 源码是 migration debt，不是第五、第六种目标 Runtime，也不是长期 public compatibility contract。迁移时更新配置和测试后删除旧接口，不建立 alias 或 wrapper。
+
+P6.2 已建立 SIM operational composition contract：SIM 使用 `LIVE_CLOCK`、streaming lifecycle、显式
+`SIMULATED` execution capability、恰好一个同时支持 historical/live bars 的 DataSource、恰好一个声明
+`simulated_execution` 与最小订单/query 能力的 Broker，并拒绝有限 start/end range、checkpoint 与 Real Broker。
+Runtime environment identity 保留 `SIM` product identity，因此不会与 PAPER 或 BACKTEST grouping/fingerprint 混同。
+该 Factory 不创建 `OnlySimRuntime`；即使组合完全合法也 fail closed 为 `SIM_EXECUTION_WIRING_PENDING`，所以当前
+SIM 是 recognized/configurable/plannable/composition-validatable，而不是 operational Runtime。
 
 ## 4. Research Runtime
 
@@ -166,7 +173,9 @@ Streaming `STOP` 表示撤销未来处理权限，不是推进 market event time
 `STOPPING` 后 Worker 不 drain inbound queue、不 close pending Live Bar，也不开始新的 MarketData processing/result
 callback；未处理输入的 checkpoint/restart/gap recovery 仍属于后续阶段。
 
-当前只有 Backtest 具备正式 durable trading product path。旧 `PAPER` streaming 路径使用 Shadow suppression，并不满足 Sim 的 Virtual Broker + full Trading Kernel 定义；Live 也尚未具备 durable outbound Broker command、同步、对账和长期恢复闭环。
+当前只有 Backtest 具备正式 durable trading product path。SIM 已具备产品 identity 与 fail-closed composition
+validation，但 execution wiring 尚未实现。旧 `PAPER` streaming 路径使用 Shadow suppression，并不满足 Sim 的
+Virtual Broker + full Trading Kernel 定义；Live 也尚未具备 durable outbound Broker command、同步、对账和长期恢复闭环。
 
 ## 6. Cluster / Strategy / Factor / Indicator
 

@@ -127,6 +127,23 @@ def test_market_product_composition_change_changes_environment_fingerprint() -> 
     assert builder.build(config, generic).fingerprint != builder.build(config, cn_ashare).fingerprint
 
 
+def test_sim_environment_uses_live_clock_and_has_distinct_product_identity() -> None:
+    baseline = _config()
+    common_runtime = replace(baseline.runtime, start_time=None, end_time=None)
+    sim = replace(baseline, runtime=replace(common_runtime, runtime_type="SIM"))
+    paper = replace(baseline, runtime=replace(common_runtime, runtime_type="PAPER"))
+    backtest = replace(baseline, runtime=replace(common_runtime, runtime_type="BACKTEST"))
+    builder = OnlyRuntimeEnvironmentBuilder()
+    binding = _binding(baseline)
+
+    sim_environment = builder.build(sim, binding)
+
+    assert sim_environment.runtime_type == "SIM"
+    assert sim_environment.clock_policy == "LIVE_CLOCK"
+    assert sim_environment.fingerprint != builder.build(paper, binding).fingerprint
+    assert sim_environment.fingerprint != builder.build(backtest, binding).fingerprint
+
+
 def test_runtime_id_is_derived_from_environment_and_registration_order_is_stable() -> None:
     first = _config()
     capital = OnlyClusterCapitalConfig(
