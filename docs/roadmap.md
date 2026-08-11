@@ -40,26 +40,11 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 - P4.1 — Durable Execution Capability Semantic Authority：Market identity 退出 permission authority；唯一 pure Resolver 按 immutable economic shape、精确 Reservation shape 与 Account/Ledger parity 决定支持，并把版本化 proof 写入 committed fact。
 - P4.2 — Durable Broker-Driven Order Lifecycle Closure：`ORDER_ACCEPTED`、`TRADE_FILL`、`ORDER_TERMINAL` 统一进入 Prepared Transaction / Durable Commit / Ordered Projection / Forward Recovery；BUY OPEN 与 SELL CLOSE 的 Accepted、Cancel、Reject、Expire 显式声明全部受影响 authority，旧 direct lifecycle mutation 和 Reservation 协调旁路已删除。
 - P4.3 — CN A-Share Production Durable Product Conformance：**DONE / CERTIFIED**。有限 `CN_A_SHARE_DURABLE_BACKTEST_V1` 已完成 Production Authority、BUY OPEN、T+1、SELL CLOSE、Whole/Partial/Multi-Fill、Terminal、Memory/SQLite、多实例 Forward Recovery、Result/Artifact Determinism 与同提交远端质量证明。
+- P5 — Market Product Composition Authority Neutralization：**DONE / CERTIFIED**。Core Market Product Contract、Generic T0 Canonical IR、CN A-share plugin authority/runtime cutover、strict formal identity、recovery composition identity 与 workspace release dependency graph 已由正式门禁冻结；认证只在包含最终报告的提交通过同 SHA `Layered Quality / quality-gate` 后成立。
 
 此前建立且仍有效的内核包括统一 Market Runtime、版本化 A 股 Reference/Rule Decision、Prepared Transaction、Durable Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果 Forward Recovery。历史细节保存在 `docs/adr/` 与 `docs/reports/`。
 
-## 当前阶段：P5
-
-### Market Product Composition Authority Neutralization
-
-P5.1 Core Market Product Contract & Composition Authority 已完成：Core 已提供市场中立的 provider/product identity、canonical config envelope、Reference/Policy ports、Factory、显式 fail-closed Registry、immutable resolved binding 与 effective composition identity，并以 ADR 0069 和静态门禁冻结依赖方向。
-
-P5.2 Generic T0 Cash Plugin + Canonical Market IR 已完成：Canonical IR 已删除 matching、slippage 与 simulation liquidity，增加 minimal instrument economic terms；`onlyalpha-market-generic-t0-cash` 通过 `onlyalpha.market_products` discovery 提供 plugin-owned Reference Authority、pure Policy Compiler 与 Market Fee Pack，并通过 legacy economics conformance 和 tests-only T+2 third market extension proof。
-
-P5.3 CN A-share Full Authority Migration + Trading Runtime cutover 已完成：`onlyalpha-market-cn-ashare` 独立拥有 typed config、版本化 Reference Authority、Policy Compiler 与 Market Fee Pack；Generic 与 CN A-share 同时切换到 resolve-once Binding。Core Profile/A-share concrete production authority、Runtime concrete-market branch 与 legacy market config 已删除，Environment、Persistence 与 Recovery 使用 effective composition identity/fingerprint。
-
-P5 后续边界：
-
-- P5.4：Identity hardening 与 certification。
-
-P5 不提前实现 Sim、Research 或 Live，不增加市场专用 Engine、第二套经济 authority、compatibility adapter 或 implicit Generic fallback。P5.1 的 Registry 是唯一 Market Product factory lookup authority；P5.3 已完成 Generic 与 A-share binding 的原子切换，后续不得恢复 Profile production composition。
-
-## P6 — Sim Streaming Runtime Closure
+## 当前阶段：P6 — Sim Streaming Runtime Closure
 
 P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
 
