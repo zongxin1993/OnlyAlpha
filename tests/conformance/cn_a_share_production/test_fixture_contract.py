@@ -199,7 +199,7 @@ def test_manifest_tampering_is_rejected(tmp_path: Path) -> None:
         _load_sealed_fixture(copied)
 
 
-def test_trading_dates_resolve_current_production_profile_and_fee_authority() -> None:
+def test_trading_dates_resolve_current_production_product_and_fee_authority() -> None:
     manifest, bars, _ = _load_sealed_fixture(DATASET)
     coverage = _object(manifest.get("coverage"), "manifest.coverage")
     authority = _object(manifest.get("production_fee_authority"), "manifest.production_fee_authority")

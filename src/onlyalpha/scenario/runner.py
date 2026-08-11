@@ -145,7 +145,7 @@ class OnlyMarketScenarioRunner:
                 OnlyScenarioFactType.SETTLEMENT: backtest.facts.settlements,
                 OnlyScenarioFactType.MARGIN: backtest.facts.margin,
                 OnlyScenarioFactType.FEE: backtest.facts.fees,
-                OnlyScenarioFactType.PROFILE_TIMELINE: backtest.facts.profile_timeline,
+                OnlyScenarioFactType.MARKET_PRODUCT_TIMELINE: backtest.facts.market_product_timeline,
                 OnlyScenarioFactType.COMPILED_RULE: backtest.facts.compiled_market_rules,
             }
             for fact_type, records in standard.items():
@@ -193,7 +193,7 @@ class OnlyMarketScenarioRunner:
             "margin.parquet": facts[OnlyScenarioFactType.MARGIN],
             "fees.parquet": facts[OnlyScenarioFactType.FEE],
             "market_rule_decisions.parquet": facts[OnlyScenarioFactType.MARKET_RULE_DECISION],
-            "profile_timeline.parquet": facts[OnlyScenarioFactType.PROFILE_TIMELINE],
+            "market_product_timeline.parquet": facts[OnlyScenarioFactType.MARKET_PRODUCT_TIMELINE],
             "compiled_market_rules.parquet": facts[OnlyScenarioFactType.COMPILED_RULE],
         }
         manifest: dict[str, object] = {"schema_version": "1", "result_fingerprint": result_fingerprint, "datasets": {}}

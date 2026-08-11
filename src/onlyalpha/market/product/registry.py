@@ -10,15 +10,18 @@ from onlyalpha.market.product.contracts import (
 )
 from onlyalpha.market.product.errors import (
     OnlyDuplicateMarketProductPluginError,
+    OnlyMarketProductAuthorityConflictError,
     OnlyMarketProductResolutionError,
     OnlyUnknownMarketProductPluginError,
 )
-from onlyalpha.market.product.identity import OnlyMarketProductPluginId
+from onlyalpha.market.product.identity import OnlyMarketProductAuthorityIdentity, OnlyMarketProductPluginId
 
 
 class OnlyMarketProductFactoryRegistry:
     def __init__(self) -> None:
         self._factories: dict[OnlyMarketProductPluginId, OnlyMarketProductFactory] = {}
+        self._authority_fingerprints: dict[tuple[str, str, str], str] = {}
+        self._product_definitions: dict[tuple[str, str, str], tuple[object, object]] = {}
 
     def register(self, factory: OnlyMarketProductFactory) -> None:
         plugin_id = factory.plugin_id
@@ -81,7 +84,44 @@ class OnlyMarketProductFactoryRegistry:
                 "MARKET_PRODUCT_IDENTITY_MISMATCH",
                 "resolved binding product does not match requested product",
             )
+        self._register_product_definition(binding)
+        self._register_authority(binding.reference_authority.identity)
+        self._register_authority(binding.policy_compiler.identity)
+        self._register_authority(
+            OnlyMarketProductAuthorityIdentity(
+                "MARKET_FEE_PACK",
+                binding.market_fee_pack.identity.pack_id,
+                binding.market_fee_pack.identity.pack_version,
+                binding.market_fee_pack.identity.fingerprint,
+            )
+        )
         return binding
+
+    def _register_authority(self, identity: OnlyMarketProductAuthorityIdentity) -> None:
+        key = identity.version_key
+        current = self._authority_fingerprints.get(key)
+        if current is not None and current != identity.authority_fingerprint:
+            raise OnlyMarketProductAuthorityConflictError(
+                "MARKET_PRODUCT_AUTHORITY_VERSION_CONFLICT",
+                f"authority {identity.authority_kind}:{identity.authority_id}@{identity.authority_version} "
+                "has conflicting semantic fingerprints",
+            )
+        self._authority_fingerprints[key] = identity.authority_fingerprint
+
+    def _register_product_definition(self, binding: OnlyResolvedMarketProductBinding) -> None:
+        key = (
+            str(binding.provider_plugin_id),
+            str(binding.product_identity.product_id),
+            str(binding.product_identity.product_version),
+        )
+        definition = (binding.policy_compiler.identity, binding.market_fee_pack.identity)
+        current = self._product_definitions.get(key)
+        if current is not None and current != definition:
+            raise OnlyMarketProductAuthorityConflictError(
+                "MARKET_PRODUCT_VERSION_SEMANTICS_CONFLICT",
+                f"product {key[1]}@{key[2]} from provider {key[0]} has conflicting versioned semantics",
+            )
+        self._product_definitions[key] = definition
 
 
 __all__ = ["OnlyMarketProductFactoryRegistry"]

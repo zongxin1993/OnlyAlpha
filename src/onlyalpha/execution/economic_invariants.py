@@ -55,7 +55,7 @@ class OnlyPreparedExecutionEconomicInvariantValidator:
         account = _one(prepared.projections, OnlyAccountExecutionProjection)
         ledger = _one(prepared.projections, OnlyStrategyLedgerExecutionProjection)
         presence = only_expected_execution_reservations(
-            market_profile_id=fact.market_profile_id,
+            market_product_id=fact.market_product_id,
             side=fact.order_side,
             offset=fact.offset,
             position_effect=fact.position_effect,

@@ -30,6 +30,7 @@ class OnlyRuntimeCheckpointService:
         *,
         runtime_id: OnlyRuntimeId,
         config_fingerprint: str,
+        market_composition_fingerprint: str,
         registry: OnlyRuntimeCheckpointParticipantRegistry,
         write_port: OnlyRuntimeCheckpointWritePort,
         query_port: OnlyRuntimeCheckpointQueryPort,
@@ -39,6 +40,7 @@ class OnlyRuntimeCheckpointService:
     ) -> None:
         self._runtime_id = runtime_id
         self._config_fingerprint = config_fingerprint
+        self._market_composition_fingerprint = market_composition_fingerprint
         self._registry = registry
         self._write_port = write_port
         self._query_port = query_port
@@ -65,6 +67,7 @@ class OnlyRuntimeCheckpointService:
             created_at,
             cursor,
             self._config_fingerprint,
+            self._market_composition_fingerprint,
             self._registry.fingerprint,
             "pending",
             self._outbox_port.pending_count(self._runtime_id),
@@ -97,6 +100,7 @@ class OnlyRuntimeCheckpointService:
             and actual_header.created_at == expected_header.created_at
             and actual_header.replay_cursor == expected_header.replay_cursor
             and actual_header.config_fingerprint == expected_header.config_fingerprint
+            and actual_header.market_composition_fingerprint == expected_header.market_composition_fingerprint
             and actual_header.participant_registry_fingerprint == expected_header.participant_registry_fingerprint
             and actual_header.pending_outbox_count == expected_header.pending_outbox_count
         )

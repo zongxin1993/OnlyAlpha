@@ -117,6 +117,8 @@ class OnlyCashSettlementLeg(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlySettlementInstruction(OnlyDomainModel):
+    schema_version = 2
+
     instruction_id: OnlySettlementInstructionId
     runtime_id: OnlyRuntimeId
     account_id: OnlyAccountId
@@ -136,8 +138,8 @@ class OnlySettlementInstruction(OnlyDomainModel):
     schedule: OnlySettlementSchedule
     asset_leg: OnlyAssetSettlementLeg
     cash_leg: OnlyCashSettlementLeg
-    market_profile_id: str
-    market_profile_version: str
+    market_product_id: str
+    market_product_version: str
     compiled_rule_fingerprint: str
     reference_fingerprint: str
     content_fingerprint: str

@@ -17,8 +17,8 @@ from tests.conformance.cn_a_share_production.support import (
     BROKER_FEE_CONTRACT_VERSION,
     MARKET_FEE_PACK_ID,
     MARKET_FEE_PACK_VERSION,
-    MARKET_PROFILE_ID,
-    MARKET_PROFILE_VERSION,
+    MARKET_PRODUCT_ID,
+    MARKET_PRODUCT_VERSION,
     PRODUCT_CONTRACT_VERSION,
     PRODUCT_ID,
     OnlyCnAshareProductRun,
@@ -107,8 +107,8 @@ def test_production_round_trip_uses_canonical_authorities_and_t_plus_one(
     assert rejected["submitted"] is False
     assert rejected["market_reason_code"] == "SELL_QUANTITY_EXCEEDS_AVAILABLE"
     assert rejected["market_rule_code"] == "SELLABLE_POSITION"
-    assert rejected["market_profile_id"] == MARKET_PROFILE_ID
-    assert rejected["market_profile_version"] == MARKET_PROFILE_VERSION
+    assert rejected["market_product_id"] == MARKET_PRODUCT_ID
+    assert rejected["market_product_version"] == MARKET_PRODUCT_VERSION
     assert rejected["market_reference_fingerprint"]
     assert rejected["market_compiled_rule_fingerprint"]
 
@@ -120,8 +120,8 @@ def test_production_round_trip_uses_canonical_authorities_and_t_plus_one(
         assert fact.broker_fee_contract_id == BROKER_FEE_CONTRACT_ID
         assert fact.broker_fee_contract_version == BROKER_FEE_CONTRACT_VERSION
         assert fact.broker_fee_contract_fingerprint
-        assert fact.market_profile_id == MARKET_PROFILE_ID
-        assert fact.market_profile_version == MARKET_PROFILE_VERSION
+        assert fact.market_product_id == MARKET_PRODUCT_ID
+        assert fact.market_product_version == MARKET_PRODUCT_VERSION
         assert fact.reference_fingerprint
         assert fact.compiled_rule_fingerprint
 

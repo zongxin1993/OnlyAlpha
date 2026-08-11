@@ -24,7 +24,7 @@ from onlyalpha.plugin.api import (
     OnlyTradingPhase,
     OnlyTradingSessionDefinition,
     OnlyTradingSessionModel,
-    only_canonical_fingerprint,
+    only_identity_fingerprint,
 )
 from onlyalpha_market_generic_t0_cash.reference import OnlyGenericT0CashReference
 
@@ -45,14 +45,35 @@ class OnlyGenericT0CashPolicyCompiler:
         "POLICY_COMPILER",
         "GENERIC_T0_CASH",
         "1",
-        only_canonical_fingerprint(
+        only_identity_fingerprint(
             (
                 "GENERIC_T0_CASH",
                 "1",
-                _SESSION,
-                _SETTLEMENT,
-                _POSITION,
-                _SHORT,
+                (
+                    _SESSION.model_id,
+                    _SESSION.timezone,
+                    tuple(
+                        (
+                            item.name,
+                            item.opens_at.isoformat(),
+                            item.closes_at.isoformat(),
+                            item.phase,
+                            item.trading_day_offset,
+                            item.allows_orders,
+                        )
+                        for item in _SESSION.sessions
+                    ),
+                    _SESSION.continuous_24x7,
+                ),
+                (
+                    _SETTLEMENT.model_id,
+                    (_SETTLEMENT.asset_settlement.timing, _SETTLEMENT.asset_settlement.lag),
+                    (_SETTLEMENT.cash_settlement.timing, _SETTLEMENT.cash_settlement.lag),
+                    (_SETTLEMENT.asset_availability.timing, _SETTLEMENT.asset_availability.lag),
+                    (_SETTLEMENT.cash_availability.timing, _SETTLEMENT.cash_availability.lag),
+                ),
+                (_POSITION.mode, _POSITION.allow_flip),
+                (_SHORT.mode,),
                 "REFERENCE_TICK_QUANTITY_AND_TERMS",
             )
         ),

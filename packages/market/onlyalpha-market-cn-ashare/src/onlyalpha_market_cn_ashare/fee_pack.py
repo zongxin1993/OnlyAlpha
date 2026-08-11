@@ -112,7 +112,7 @@ def only_cn_a_share_market_fee_pack() -> OnlyMarketFeePack:
     return OnlyMarketFeePack.create(
         pack_id=PACK_ID,
         pack_version=PACK_VERSION,
-        compatible_market_profiles=("CN_A_SHARE_CASH",),
+        compatible_market_products=("CN_A_SHARE_CASH",),
         schedules=tuple(schedules),
     )
 

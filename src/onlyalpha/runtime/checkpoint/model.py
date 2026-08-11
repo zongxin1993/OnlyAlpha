@@ -9,7 +9,7 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.plugin.capabilities import OnlyCheckpointCapability as OnlyCheckpointCapability
 
-ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION = 3
+ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,7 @@ class OnlyRuntimeCheckpointHeader:
     created_at: OnlyTimestamp
     replay_cursor: OnlyBacktestReplayCursor
     config_fingerprint: str
+    market_composition_fingerprint: str
     participant_registry_fingerprint: str
     aggregate_payload_hash: str
     pending_outbox_count: int = 0
@@ -62,11 +63,16 @@ class OnlyRuntimeCheckpointHeader:
             raise ValueError("checkpoint pending outbox count cannot be negative")
         for value in (
             self.config_fingerprint,
+            self.market_composition_fingerprint,
             self.participant_registry_fingerprint,
             self.aggregate_payload_hash,
         ):
             if not value:
                 raise ValueError("checkpoint fingerprints and hash are required")
+        if len(self.market_composition_fingerprint) != 64 or any(
+            item not in "0123456789abcdef" for item in self.market_composition_fingerprint
+        ):
+            raise ValueError("checkpoint Market Product composition fingerprint must be a lowercase SHA-256 digest")
 
 
 @dataclass(frozen=True, slots=True)

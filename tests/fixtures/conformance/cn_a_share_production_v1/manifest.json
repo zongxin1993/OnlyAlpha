@@ -17,7 +17,7 @@
     "currency": "CNY",
     "market_product": "CN_A_SHARE_CASH",
     "market_product_version": "2025.1",
-    "composition_fingerprint": "70305d2804d506b0ba8a49e197b7047a25e0fbdb484eb7fa132bd1b645aba7c3",
+    "composition_fingerprint": "f38183fbdba6c7423ce23e018130d824b65282b19ca9d8aa7340eda3b151d476",
     "security_type": "COMMON_STOCK",
     "venues": ["XSHG", "XSHE"]
   },
@@ -110,5 +110,5 @@
     "bars.json": "ed0206db3dc53889cfa7aea06c1b11c3107963ceba63b7c8474439f5aadba068",
     "references.json": "23a0c9db864210434470e8cf0a792799759fb19740ce6fda087ff326fbbc0a26"
   },
-  "content_fingerprint": "0ae0bba40123e0d864f143fb4562d46f13852ac501cfcff71888e32d4702185d"
+  "content_fingerprint": "87bd8f46861ceae451df9663bcb7cfadb524cd820375aa35b480889dd626fc8c"
 }

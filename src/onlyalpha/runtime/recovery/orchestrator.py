@@ -53,6 +53,7 @@ class OnlyRuntimeRecoveryOrchestrator:
         *,
         runtime_id: OnlyRuntimeId,
         config_fingerprint: str,
+        market_composition_fingerprint: str,
         participant_registry: OnlyRuntimeCheckpointParticipantRegistry,
         checkpoint_query: OnlyRuntimeCheckpointQueryPort,
         transaction_query: OnlyRuntimeTransactionRecoveryQueryPort,
@@ -63,6 +64,7 @@ class OnlyRuntimeRecoveryOrchestrator:
     ) -> None:
         self._runtime_id = runtime_id
         self._config_fingerprint = config_fingerprint
+        self._market_composition_fingerprint = market_composition_fingerprint
         self._registry = participant_registry
         self._checkpoint_query = checkpoint_query
         self._plan_builder = OnlyExecutionRecoveryPlanBuilder(transaction_query)
@@ -73,6 +75,8 @@ class OnlyRuntimeRecoveryOrchestrator:
         if checkpoint is None:
             return None
         only_validate_runtime_checkpoint(checkpoint)
+        if checkpoint.header.market_composition_fingerprint != self._market_composition_fingerprint:
+            raise RuntimeError("CHECKPOINT_MARKET_COMPOSITION_FINGERPRINT_MISMATCH")
         if checkpoint.header.config_fingerprint != self._config_fingerprint:
             raise RuntimeError("CHECKPOINT_CONFIG_FINGERPRINT_MISMATCH")
         if checkpoint.header.participant_registry_fingerprint != self._registry.fingerprint:

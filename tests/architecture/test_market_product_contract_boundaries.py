@@ -10,6 +10,7 @@ PRODUCT_ROOT = Path("src/onlyalpha/market/product")
 CORE_ROOT = Path("src/onlyalpha")
 GENERIC_ROOT = Path("packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash")
 CN_ASHARE_ROOT = Path("packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare")
+FORMAL_IDENTITY = Path("src/onlyalpha/identity.py")
 
 
 def _imports(path: Path) -> set[str]:
@@ -181,3 +182,69 @@ def test_retired_core_market_authorities_have_zero_active_implementation() -> No
     assert "OnlyAshare" not in text
     assert "ashare_rules" not in text
     assert "OnlyMarketProfile" not in text
+
+
+def test_formal_authority_identity_has_no_magic_serialization_fallback() -> None:
+    tree = ast.parse(FORMAL_IDENTITY.read_text(encoding="utf-8"), filename=str(FORMAL_IDENTITY))
+    violations = tuple(
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"getattr", "is_dataclass", "str", "Path", "frozenset"}
+            or isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"to_dict", "__str__"}
+        )
+    )
+    assert not violations
+
+
+def test_market_product_formal_identities_use_only_the_strict_identity_entrypoint() -> None:
+    source = (PRODUCT_ROOT / "identity.py").read_text(encoding="utf-8")
+    assert "only_identity_fingerprint" in source
+    assert "only_canonical_fingerprint" not in source
+
+
+def test_market_product_durable_surfaces_have_no_profile_era_spelling() -> None:
+    roots = (
+        CORE_ROOT / "artifact",
+        CORE_ROOT / "collector",
+        CORE_ROOT / "execution",
+        CORE_ROOT / "fee",
+        CORE_ROOT / "result",
+        CORE_ROOT / "settlement",
+    )
+    paths = [path for root in roots for path in root.rglob("*.py")]
+    paths.append(CORE_ROOT / "market" / "runtime_rules.py")
+    violations = [
+        str(path)
+        for path in sorted(paths)
+        if any(
+            token in path.read_text(encoding="utf-8").lower()
+            for token in ("market_profile", "profile_timeline", "effective_profile_resolution")
+        )
+    ]
+    assert not violations
+
+
+def test_market_economic_identity_sources_have_no_runtime_mode_vocabulary() -> None:
+    paths = list(PRODUCT_ROOT.glob("*.py"))
+    paths.extend(GENERIC_ROOT.glob("*.py"))
+    paths.extend(CN_ASHARE_ROOT.glob("*.py"))
+    violations = [
+        f"{path}: {token}"
+        for path in sorted(paths)
+        for token in ("OnlyRuntimeMode", "runtime_type", "BACKTEST", "PAPER", "SIM", "LIVE")
+        if token in path.read_text(encoding="utf-8")
+    ]
+    assert not violations
+
+
+def test_composition_identity_is_created_only_by_resolved_binding() -> None:
+    call_sites = [
+        str(path)
+        for path in sorted(CORE_ROOT.rglob("*.py"))
+        if "OnlyMarketProductCompositionIdentity.create(" in path.read_text(encoding="utf-8")
+    ]
+    assert call_sites == [str(PRODUCT_ROOT / "binding.py")]

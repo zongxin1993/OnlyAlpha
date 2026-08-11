@@ -38,7 +38,7 @@ expectations:
     field: status
     operator: EQUALS
     expected: FILLED
-  - assertion_id: PROFILE_RECORDED
-    fact: PROFILE_TIMELINE
-    selector: {profile_id: GENERIC_T0_CASH}
+  - assertion_id: MARKET_PRODUCT_RECORDED
+    fact: MARKET_PRODUCT_TIMELINE
+    selector: {product_id: GENERIC_T0_CASH}
     operator: EXISTS

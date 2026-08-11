@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.fee.models import OnlyMarketFeePackIdentity
+from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.product.errors import OnlyMarketProductAuthorityConflictError
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -33,6 +33,9 @@ class OnlyMarketProductPluginId:
     def __str__(self) -> str:
         return self.value
 
+    def canonical_identity(self) -> str:
+        return self.value
+
 
 @dataclass(frozen=True, slots=True, order=True)
 class OnlyMarketProductId:
@@ -42,6 +45,9 @@ class OnlyMarketProductId:
         _require_identifier(self.value, "Market Product ID")
 
     def __str__(self) -> str:
+        return self.value
+
+    def canonical_identity(self) -> str:
         return self.value
 
 
@@ -55,6 +61,9 @@ class OnlyMarketProductVersion:
     def __str__(self) -> str:
         return self.value
 
+    def canonical_identity(self) -> str:
+        return self.value
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarketProductIdentity:
@@ -64,6 +73,12 @@ class OnlyMarketProductIdentity:
     @property
     def canonical_name(self) -> str:
         return f"{self.product_id}@{self.product_version}"
+
+    def canonical_identity(self) -> dict[str, object]:
+        return {
+            "product_id": self.product_id,
+            "product_version": self.product_version,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +94,18 @@ class OnlyMarketProductAuthorityIdentity:
         _require_identifier(self.authority_version, "authority version")
         _require_digest(self.authority_fingerprint, "authority fingerprint")
 
+    def canonical_identity(self) -> dict[str, str]:
+        return {
+            "authority_fingerprint": self.authority_fingerprint,
+            "authority_id": self.authority_id,
+            "authority_kind": self.authority_kind,
+            "authority_version": self.authority_version,
+        }
+
+    @property
+    def version_key(self) -> tuple[str, str, str]:
+        return (self.authority_kind, self.authority_id, self.authority_version)
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyMarketProductCompositionIdentity:
@@ -92,7 +119,7 @@ class OnlyMarketProductCompositionIdentity:
     def __post_init__(self) -> None:
         _require_digest(self.effective_config_fingerprint, "effective config fingerprint")
         _require_digest(self.fingerprint, "composition fingerprint")
-        expected = only_canonical_fingerprint(self.effective_authority_payload())
+        expected = only_identity_fingerprint(self.effective_authority_payload())
         if self.fingerprint != expected:
             raise OnlyMarketProductAuthorityConflictError(
                 "MARKET_PRODUCT_COMPOSITION_IDENTITY_CONFLICT",
@@ -122,7 +149,7 @@ class OnlyMarketProductCompositionIdentity:
             policy_compiler,
             market_fee_pack,
             effective_config_fingerprint,
-            only_canonical_fingerprint(payload),
+            only_identity_fingerprint(payload),
         )
 
     def effective_authority_payload(self) -> tuple[object, ...]:
@@ -133,6 +160,15 @@ class OnlyMarketProductCompositionIdentity:
             self.market_fee_pack,
             self.effective_config_fingerprint,
         )
+
+    def canonical_identity(self) -> dict[str, object]:
+        return {
+            "effective_config_fingerprint": self.effective_config_fingerprint,
+            "market_fee_pack": self.market_fee_pack,
+            "policy_compiler": self.policy_compiler,
+            "product_identity": self.product_identity,
+            "reference_authority": self.reference_authority,
+        }
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

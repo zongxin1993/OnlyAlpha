@@ -47,7 +47,7 @@ def _print_execution(execution: Mapping[str, object]) -> None:
         ("Realized PnL Delta", "realized_pnl_delta"),
         ("Settlement", "settlement_status"),
         ("Margin", "margin_action"),
-        ("Market Profile", "market_profile_id"),
+        ("Market Product", "market_product_id"),
     )
     print("Committed Execution")
     for label, key in fields:

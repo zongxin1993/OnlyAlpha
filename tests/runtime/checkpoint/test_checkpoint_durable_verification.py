@@ -26,6 +26,7 @@ def _service(store: OnlyInMemoryRuntimePersistenceStore) -> OnlyRuntimeCheckpoin
     return OnlyRuntimeCheckpointService(
         runtime_id=OnlyRuntimeId("runtime"),
         config_fingerprint="config",
+        market_composition_fingerprint="0" * 64,
         registry=OnlyRuntimeCheckpointParticipantRegistry(),
         write_port=store,
         query_port=store,

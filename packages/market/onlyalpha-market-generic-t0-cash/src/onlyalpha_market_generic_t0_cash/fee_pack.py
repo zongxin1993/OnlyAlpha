@@ -55,7 +55,7 @@ def only_generic_t0_cash_market_fee_pack() -> OnlyMarketFeePack:
     return OnlyMarketFeePack.create(
         pack_id="GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE",
         pack_version="1",
-        compatible_market_profiles=("GENERIC_T0_CASH",),
+        compatible_market_products=("GENERIC_T0_CASH",),
         schedules=(schedule,),
     )
 

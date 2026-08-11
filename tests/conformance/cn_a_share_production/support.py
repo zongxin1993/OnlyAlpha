@@ -40,8 +40,8 @@ ROOT = Path(__file__).resolve().parents[3]
 DATASET = ROOT / "tests" / "fixtures" / "conformance" / "cn_a_share_production_v1"
 PRODUCT_ID = "CN_A_SHARE_DURABLE_BACKTEST_V1"
 PRODUCT_CONTRACT_VERSION = "1"
-MARKET_PROFILE_ID = "CN_A_SHARE_CASH"
-MARKET_PROFILE_VERSION = "2025.1"
+MARKET_PRODUCT_ID = "CN_A_SHARE_CASH"
+MARKET_PRODUCT_VERSION = "2025.1"
 MARKET_FEE_PACK_ID = "CN_A_SHARE_PRODUCTION_MARKET_FEES"
 MARKET_FEE_PACK_VERSION = "2025.06.30"
 BROKER_FEE_CONTRACT_ID = "VIRTUAL:BACKTEST-ACCOUNT:COMMISSION"
@@ -329,8 +329,8 @@ class OnlyCnAshareProductStrategy(OnlyStrategy):
                 "risk_rejection_code": None if rejection is None else rejection.code.value,
                 "market_reason_code": None if rejection is None else rejection.details.get("market_reason_code"),
                 "market_rule_code": None if rejection is None else rejection.details.get("market_rule_code"),
-                "market_profile_id": None if rejection is None else rejection.details.get("market_product_id"),
-                "market_profile_version": (
+                "market_product_id": None if rejection is None else rejection.details.get("market_product_id"),
+                "market_product_version": (
                     None if rejection is None else rejection.details.get("market_product_version")
                 ),
                 "market_reference_fingerprint": (
@@ -467,8 +467,8 @@ def only_cn_a_share_product_config(
     payload["authorities"] = {"broker_fee_contracts": [only_cn_a_share_product_broker_fee_contract()]}
     payload["market"] = {
         "plugin_id": "onlyalpha-market-cn-ashare",
-        "product_id": MARKET_PROFILE_ID,
-        "product_version": MARKET_PROFILE_VERSION,
+        "product_id": MARKET_PRODUCT_ID,
+        "product_version": MARKET_PRODUCT_VERSION,
         "config": {"references": [dict(item) for item in fixture.references]},
     }
     payload["cluster"] = {

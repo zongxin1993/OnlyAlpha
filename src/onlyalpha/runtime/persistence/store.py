@@ -56,7 +56,7 @@ from onlyalpha.transaction.transaction import (
     OnlyStoredRuntimeTransaction,
 )
 
-ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "5"
+ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "6"
 
 
 class OnlyRuntimePersistenceIdentityMismatch(OnlyRuntimePersistenceStoreError):
@@ -670,6 +670,7 @@ class OnlySqliteRuntimePersistenceStore:
                     checkpoint_schema_version INTEGER NOT NULL,
                     replay_cursor_payload TEXT NOT NULL,
                     config_fingerprint TEXT NOT NULL,
+                    market_composition_fingerprint TEXT NOT NULL,
                     participant_registry_fingerprint TEXT NOT NULL,
                     aggregate_payload_hash TEXT NOT NULL,
                     created_at INTEGER NOT NULL,
@@ -968,7 +969,7 @@ class OnlySqliteRuntimePersistenceStore:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
                 self._connection.execute(
-                    "INSERT INTO runtime_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO runtime_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(header.runtime_id),
                         header.checkpoint_sequence,
@@ -976,6 +977,7 @@ class OnlySqliteRuntimePersistenceStore:
                         header.checkpoint_schema_version,
                         only_encode_replay_cursor(header.replay_cursor),
                         header.config_fingerprint,
+                        header.market_composition_fingerprint,
                         header.participant_registry_fingerprint,
                         header.aggregate_payload_hash,
                         header.created_at.unix_nanos,
@@ -1052,6 +1054,7 @@ class OnlySqliteRuntimePersistenceStore:
                     OnlyTimestamp.from_unix_nanos(int(row["created_at"])),
                     only_decode_replay_cursor(str(row["replay_cursor_payload"])),
                     str(row["config_fingerprint"]),
+                    str(row["market_composition_fingerprint"]),
                     str(row["participant_registry_fingerprint"]),
                     str(row["aggregate_payload_hash"]),
                     int(row["pending_outbox_count"]),

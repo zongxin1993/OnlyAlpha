@@ -140,8 +140,8 @@ class OnlyExecutionResultRecord(OnlySequencedResultRecord):
     realized_pnl_delta: Decimal = Decimal(0)
     reference_price: Decimal | None = None
     contract_multiplier: Decimal = Decimal(1)
-    market_profile_id: str | None = None
-    market_profile_version: str | None = None
+    market_product_id: str | None = None
+    market_product_version: str | None = None
     compiled_rule_fingerprint: str | None = None
     reference_fingerprint: str | None = None
     trade_instruction_id: str | None = None
@@ -383,14 +383,14 @@ class OnlyFeeResultRecord(OnlySequencedResultRecord):
 class OnlyMarketRuleDecisionResultRecord(OnlySequencedResultRecord):
     account_id: str
     instrument_id: str
-    market_profile_id: str
+    market_product_id: str
     rule_set_id: str
     rule_type: str
     decision: str
     reason: str | None
     ts_event: datetime
     trading_day: date | None = None
-    profile_version: str | None = None
+    product_version: str | None = None
     side: str | None = None
     quantity: Decimal | None = None
     price: Decimal | None = None
@@ -410,10 +410,10 @@ class OnlyMarketRuleDecisionResultRecord(OnlySequencedResultRecord):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class OnlyProfileTimelineResultRecord(OnlySequencedResultRecord):
+class OnlyMarketProductTimelineResultRecord(OnlySequencedResultRecord):
     runtime_id: str
-    profile_id: str
-    profile_version: str
+    product_id: str
+    product_version: str
     trading_day: date
     effective_from: datetime | None
     effective_to: datetime | None
@@ -428,8 +428,8 @@ class OnlyCompiledMarketRuleResultRecord(OnlySequencedResultRecord):
     instrument_id: str
     venue_id: str
     trading_day: date
-    profile_id: str
-    profile_version: str
+    product_id: str
+    product_version: str
     compiled_rules_fingerprint: str
     reference_fingerprint: str
     runtime_mode: str
@@ -520,9 +520,27 @@ class OnlyEquityResultRecord(OnlySequencedResultRecord):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyBacktestFacts:
-    schema_version: ClassVar[int] = 5
+class OnlyMarketProductResultEvidence:
+    provider_plugin_id: str
+    product_id: str
+    product_version: str
+    composition_fingerprint: str
 
+    def __post_init__(self) -> None:
+        identity_parts = (self.provider_plugin_id.strip(), self.product_id.strip(), self.product_version.strip())
+        if not all(identity_parts):
+            raise ValueError("Market Product result evidence identity cannot be empty")
+        if len(self.composition_fingerprint) != 64 or any(
+            item not in "0123456789abcdef" for item in self.composition_fingerprint
+        ):
+            raise ValueError("Market Product composition fingerprint must be a lowercase SHA-256 digest")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestFacts:
+    schema_version: ClassVar[int] = 6
+
+    market_product: OnlyMarketProductResultEvidence | None = None
     signals: tuple[OnlySignalResultRecord, ...] = ()
     order_requests: tuple[OnlyOrderRequestResultRecord, ...] = ()
     orders: tuple[OnlyOrderResultRecord, ...] = ()
@@ -541,7 +559,7 @@ class OnlyBacktestFacts:
     fee_adjustments: tuple[OnlyFeeAdjustmentResultRecord, ...] = ()
     unallocated_external_fees: tuple[OnlyUnallocatedExternalFeeResultRecord, ...] = ()
     market_rule_decisions: tuple[OnlyMarketRuleDecisionResultRecord, ...] = ()
-    profile_timeline: tuple[OnlyProfileTimelineResultRecord, ...] = ()
+    market_product_timeline: tuple[OnlyMarketProductTimelineResultRecord, ...] = ()
     compiled_market_rules: tuple[OnlyCompiledMarketRuleResultRecord, ...] = ()
 
     def __post_init__(self) -> None:
@@ -564,7 +582,7 @@ class OnlyBacktestFacts:
             "fee_adjustments",
             "unallocated_external_fees",
             "market_rule_decisions",
-            "profile_timeline",
+            "market_product_timeline",
             "compiled_market_rules",
         ):
             records = tuple(getattr(self, name))

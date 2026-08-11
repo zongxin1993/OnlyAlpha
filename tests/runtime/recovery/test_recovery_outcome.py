@@ -25,6 +25,7 @@ def _outcome() -> OnlyRuntimeRecoveryOutcome:
         OnlyTimestamp.from_unix_nanos(1),
         cursor,
         "config",
+        "0" * 64,
         "registry",
         "pending",
     )

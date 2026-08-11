@@ -19,7 +19,7 @@ class OnlyExecutionReservationPresence:
 
 def only_expected_execution_reservations(
     *,
-    market_profile_id: str,
+    market_product_id: str,
     side: OnlyOrderSide,
     offset: OnlyOffset,
     position_effect: OnlyPositionEffect,
@@ -27,8 +27,8 @@ def only_expected_execution_reservations(
 ) -> OnlyExecutionReservationPresence:
     """Return the exact reservation set required by an execution fact."""
 
-    if not market_profile_id.strip():
-        raise ValueError("reservation presence requires a Market Profile identity")
+    if not market_product_id.strip():
+        raise ValueError("reservation presence requires a Market Product identity")
     opening = position_effect is OnlyPositionEffect.OPEN
     closing = position_effect in {
         OnlyPositionEffect.CLOSE,

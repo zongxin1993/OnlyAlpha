@@ -36,7 +36,7 @@ from .capability import (
 class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     """Complete committed-fact authority before Store-owned sequence and time are assigned."""
 
-    schema_version = 4
+    schema_version = 5
 
     execution_id: str
     trade_id: OnlyTradeId
@@ -118,8 +118,8 @@ class OnlyCommittedExecutionFactDraft(OnlyDomainModel):
     broker_fee_schedule_versions: tuple[str, ...]
     broker_fee_schedule_fingerprints: tuple[str, ...]
     fee_application: OnlyFeeApplicationInstruction
-    market_profile_id: str
-    market_profile_version: str
+    market_product_id: str
+    market_product_version: str
     compiled_rule_fingerprint: str
     reference_fingerprint: str
     trade_instruction_id: str

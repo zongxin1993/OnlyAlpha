@@ -29,11 +29,12 @@ from onlyalpha.result.records import (
     OnlyFeeReconciliationResultRecord,
     OnlyFeeResultRecord,
     OnlyMarginResultRecord,
+    OnlyMarketProductResultEvidence,
+    OnlyMarketProductTimelineResultRecord,
     OnlyMarketRuleDecisionResultRecord,
     OnlyOrderRequestResultRecord,
     OnlyOrderResultRecord,
     OnlyPositionResultRecord,
-    OnlyProfileTimelineResultRecord,
     OnlyRuntimeTransactionResultRecord,
     OnlySequencedResultRecord,
     OnlySettlementInstructionResultRecord,
@@ -199,7 +200,7 @@ class OnlyBacktestResultCollector:
             )
         rule_engine = runtime.config.market_rule_engine
         compiled_records: list[OnlyCompiledMarketRuleResultRecord] = []
-        timeline_records: list[OnlyProfileTimelineResultRecord] = []
+        timeline_records: list[OnlyMarketProductTimelineResultRecord] = []
         decision_records: list[OnlyMarketRuleDecisionResultRecord] = []
         if rule_engine is not None:
             for identity in rule_engine.compiled_identities:
@@ -210,19 +211,19 @@ class OnlyBacktestResultCollector:
                         instrument_id=str(identity.instrument_id),
                         venue_id=str(identity.instrument_id.venue),
                         trading_day=identity.trading_day.value,
-                        profile_id=str(product.product_id),
-                        profile_version=str(product.product_version),
+                        product_id=str(product.product_id),
+                        product_version=str(product.product_version),
                         compiled_rules_fingerprint=identity.policy_fingerprint,
                         reference_fingerprint=identity.reference_fingerprint,
                         runtime_mode=runtime.runtime_type,
                     )
                 )
                 timeline_records.append(
-                    OnlyProfileTimelineResultRecord(
+                    OnlyMarketProductTimelineResultRecord(
                         sequence=next_sequence(),
                         runtime_id=str(runtime.runtime_id),
-                        profile_id=str(product.product_id),
-                        profile_version=str(product.product_version),
+                        product_id=str(product.product_id),
+                        product_version=str(product.product_version),
                         trading_day=identity.trading_day.value,
                         effective_from=None,
                         effective_to=None,
@@ -286,14 +287,14 @@ class OnlyBacktestResultCollector:
                         sequence=next_sequence(),
                         account_id=default_account,
                         instrument_id=str(decision.compiled_identity.instrument_id),
-                        market_profile_id=str(rule_engine.market_product_identity.product_id),
+                        market_product_id=str(rule_engine.market_product_identity.product_id),
                         rule_set_id=decision.compiled_identity.policy_fingerprint,
                         rule_type=type(decision).__name__,
                         decision="ACCEPTED" if accepted else "REJECTED",
                         reason=reason,
                         ts_event=ts_event,
                         trading_day=decision_trading_day,
-                        profile_version=str(rule_engine.market_product_identity.product_version),
+                        product_version=str(rule_engine.market_product_identity.product_version),
                         side=side,
                         quantity=quantity,
                         price=price,
@@ -315,7 +316,7 @@ class OnlyBacktestResultCollector:
                             sequence=next_sequence(),
                             account_id=str(fact.account_id),
                             instrument_id=str(fact.instrument_id),
-                            market_profile_id=fact.market_profile_id,
+                            market_product_id=fact.market_product_id,
                             rule_set_id=fact.compiled_rule_fingerprint,
                             rule_type="OnlyMarketOrderDecision",
                             decision="ACCEPTED",
@@ -566,6 +567,16 @@ class OnlyBacktestResultCollector:
             runtime.execution_recovery_diagnostics,
         )
         facts = OnlyBacktestFacts(
+            market_product=(
+                None
+                if rule_engine is None
+                else OnlyMarketProductResultEvidence(
+                    rule_engine.market_product_provider,
+                    str(rule_engine.market_product_identity.product_id),
+                    str(rule_engine.market_product_identity.product_version),
+                    rule_engine.market_composition_fingerprint,
+                )
+            ),
             signals=tuple(sorted(signals, key=lambda item: item.sequence)),
             order_requests=request_records,
             orders=order_records,
@@ -574,7 +585,7 @@ class OnlyBacktestResultCollector:
             accounts=tuple(account_records),
             equity=tuple(equity_records),
             market_rule_decisions=tuple(decision_records),
-            profile_timeline=tuple(timeline_records),
+            market_product_timeline=tuple(timeline_records),
             compiled_market_rules=tuple(compiled_records),
             settlements=settlement_records,
             settlement_instructions=settlement_instruction_records,
@@ -598,6 +609,7 @@ class OnlyBacktestResultCollector:
             return tuple(normalized)
 
         facts = OnlyBacktestFacts(
+            market_product=facts.market_product,
             signals=normalize(facts.signals),
             order_requests=normalize(facts.order_requests),
             orders=normalize(facts.orders),
@@ -616,7 +628,7 @@ class OnlyBacktestResultCollector:
             fee_adjustments=normalize(facts.fee_adjustments),
             unallocated_external_fees=normalize(facts.unallocated_external_fees),
             market_rule_decisions=normalize(facts.market_rule_decisions),
-            profile_timeline=normalize(facts.profile_timeline),
+            market_product_timeline=normalize(facts.market_product_timeline),
             compiled_market_rules=normalize(facts.compiled_market_rules),
         )
         self._collected = OnlyCollectedBacktestFacts(
@@ -736,8 +748,8 @@ class OnlyBacktestResultCollector:
             realized_pnl_delta=trade.realized_pnl_delta.amount,
             reference_price=None if trade.reference_price is None else trade.reference_price.value,
             contract_multiplier=trade.contract_multiplier.value,
-            market_profile_id=trade.market_profile_id,
-            market_profile_version=trade.market_profile_version,
+            market_product_id=trade.market_product_id,
+            market_product_version=trade.market_product_version,
             compiled_rule_fingerprint=trade.compiled_rule_fingerprint,
             reference_fingerprint=trade.reference_fingerprint,
             trade_instruction_id=trade.trade_instruction_id,

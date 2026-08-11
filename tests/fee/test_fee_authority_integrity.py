@@ -148,7 +148,7 @@ def _authorities() -> tuple[OnlyMarketFeePack, OnlyBrokerFeeContract]:
     pack = OnlyMarketFeePack.create(
         pack_id="TEST_MARKET_PACK",
         pack_version="1",
-        compatible_market_profiles=("GENERIC_T0_CASH",),
+        compatible_market_products=("GENERIC_T0_CASH",),
         schedules=(market,),
     )
     contract = OnlyBrokerFeeContract.create(
@@ -165,7 +165,7 @@ def _binding(order_id: str = "order-a") -> tuple[OnlyOrderFeePolicyBinding, Only
     pack, contract = _authorities()
     market, broker = pack.schedules[0], contract.schedules[0]
     scope = OnlyOrderFeeApplicabilityScopeIdentity.create(
-        market_profile_id="GENERIC_T0_CASH",
+        market_product_id="GENERIC_T0_CASH",
         market="GENERIC",
         venue="XSHG",
         instrument_class="CASH",
@@ -180,8 +180,8 @@ def _binding(order_id: str = "order-a") -> tuple[OnlyOrderFeePolicyBinding, Only
         cluster_id=OnlyClusterId("cluster"),
         order_id=OnlyOrderId(order_id),
         instrument_id=INSTRUMENT,
-        market_profile_id="GENERIC_T0_CASH",
-        market_profile_version="1",
+        market_product_id="GENERIC_T0_CASH",
+        market_product_version="1",
         market_fee_pack=pack.identity,
         broker_fee_contract=contract.identity,
         applicability_scope=scope,
@@ -282,10 +282,10 @@ def test_pack_contract_registration_and_compatibility_fail_closed() -> None:
     incompatible_pack = OnlyMarketFeePack.create(
         pack_id="INCOMPATIBLE_MARKET_PACK",
         pack_version="1",
-        compatible_market_profiles=("ANOTHER_PROFILE",),
+        compatible_market_products=("ANOTHER_PRODUCT",),
         schedules=pack.schedules,
     )
-    with pytest.raises(ValueError, match="MARKET_FEE_PACK_PROFILE_INCOMPATIBLE"):
+    with pytest.raises(ValueError, match="MARKET_FEE_PACK_PRODUCT_INCOMPATIBLE"):
         incompatible_pack.validate_compatibility("GENERIC_T0_CASH")
 
     exact_scope = OnlyBrokerFeeAccountScope(OnlyBrokerFeeAccountScopeType.EXACT_ACCOUNT, ACCOUNT)
@@ -305,7 +305,7 @@ def test_same_authority_identity_with_different_payload_is_a_conflict() -> None:
     changed = OnlyMarketFeePack.create(
         pack_id=first.pack_id,
         pack_version=first.pack_version,
-        compatible_market_profiles=first.compatible_market_profiles,
+        compatible_market_products=first.compatible_market_products,
         schedules=(_market_schedule(schedule_id="CHANGED"),),
     )
     packs = OnlyMarketFeePackRegistry()
@@ -502,7 +502,7 @@ def test_restored_binding_keeps_order_fixed_exact_and_fill_effective_family_afte
     pack = OnlyMarketFeePack.create(
         pack_id="RESTART_PACK",
         pack_version="1",
-        compatible_market_profiles=("GENERIC_T0_CASH",),
+        compatible_market_products=("GENERIC_T0_CASH",),
         schedules=(fixed_v1, fixed_v2),
     )
     contract = OnlyBrokerFeeContract.create(
@@ -513,7 +513,7 @@ def test_restored_binding_keeps_order_fixed_exact_and_fill_effective_family_afte
         schedules=(effective_v1, effective_v2),
     )
     scope = OnlyOrderFeeApplicabilityScopeIdentity.create(
-        market_profile_id="GENERIC_T0_CASH",
+        market_product_id="GENERIC_T0_CASH",
         market="GENERIC",
         venue="XSHG",
         instrument_class="CASH",
@@ -528,8 +528,8 @@ def test_restored_binding_keeps_order_fixed_exact_and_fill_effective_family_afte
         cluster_id=OnlyClusterId("cluster"),
         order_id=OnlyOrderId("order"),
         instrument_id=INSTRUMENT,
-        market_profile_id="GENERIC_T0_CASH",
-        market_profile_version="1",
+        market_product_id="GENERIC_T0_CASH",
+        market_product_version="1",
         market_fee_pack=pack.identity,
         broker_fee_contract=contract.identity,
         applicability_scope=scope,

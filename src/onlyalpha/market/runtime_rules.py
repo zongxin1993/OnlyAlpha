@@ -34,7 +34,7 @@ from onlyalpha.settlement.models import OnlySettlementSchedule, OnlySettlementSc
 _PRE_TRADE_RULE_ORDER = (
     "REFERENCE_COVERAGE",
     "REFERENCE_EFFECTIVE_RANGE",
-    "EFFECTIVE_PROFILE_RESOLUTION",
+    "EFFECTIVE_MARKET_POLICY_RESOLUTION",
     "TRADING_PHASE",
     "SUSPENSION",
     "INSTRUMENT_LIFECYCLE",
@@ -170,6 +170,9 @@ class OnlyPreTradeMarketRulePort(Protocol):
     @property
     def market_product_identity(self) -> OnlyMarketProductIdentity: ...
 
+    @property
+    def market_product_provider(self) -> str: ...
+
     def position_mode(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyMarketPositionMode: ...
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision: ...
@@ -205,6 +208,10 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
     @property
     def market_product_identity(self) -> OnlyMarketProductIdentity:
         return self._binding.product_identity
+
+    @property
+    def market_product_provider(self) -> str:
+        return str(self._binding.provider_plugin_id)
 
     @property
     def market_composition_fingerprint(self) -> str:
@@ -277,7 +284,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
                     }
                 )
         return {
-            "schema_version": 5,
+            "schema_version": 6,
             "market_composition_fingerprint": self._binding.composition_identity.fingerprint,
             "decisions": decisions,
         }
@@ -285,8 +292,8 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
             raise ValueError("Market Rule checkpoint must contain decisions")
-        if payload.get("schema_version") != 5:
-            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 5")
+        if payload.get("schema_version") != 6:
+            raise ValueError("CHECKPOINT_SCHEMA_UNSUPPORTED: Market Rule checkpoint requires version 6")
         if payload.get("market_composition_fingerprint") != self._binding.composition_identity.fingerprint:
             raise ValueError("MARKET_COMPOSITION_FINGERPRINT_MISMATCH")
 
@@ -362,7 +369,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
 
     @property
     def checkpoint_schema_version(self) -> int:
-        return 5
+        return 6
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         try:
@@ -413,7 +420,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         record("REFERENCE_COVERAGE", passed, inputs=(("reference_fingerprint", rules.identity.reference_fingerprint),))
         record("REFERENCE_EFFECTIVE_RANGE", passed)
         record(
-            "EFFECTIVE_PROFILE_RESOLUTION", passed, inputs=(("policy_fingerprint", rules.identity.policy_fingerprint),)
+            "EFFECTIVE_MARKET_POLICY_RESOLUTION",
+            passed,
+            inputs=(("policy_fingerprint", rules.identity.policy_fingerprint),),
         )
         phase_reason = {
             OnlyTradingPhase.OPENING_AUCTION: "TRADING_PHASE_NOT_SUPPORTED",

@@ -37,5 +37,5 @@ actions:
     command: {type: SUBMIT_ORDER, instrument_id: "600000.XSHG", side: BUY, order_type: LIMIT, quantity: "100", price: "10.00", position_effect: AUTO}
 expectations:
   - {assertion_id: A_SHARE_FILLED, fact: ORDER, selector: {action_id: BUY_BOARD_LOT}, field: status, operator: EQUALS, expected: FILLED}
-  - {assertion_id: A_SHARE_PROFILE, fact: PROFILE_TIMELINE, selector: {profile_id: CN_A_SHARE_CASH}, operator: EXISTS}
+  - {assertion_id: A_SHARE_PRODUCT, fact: MARKET_PRODUCT_TIMELINE, selector: {product_id: CN_A_SHARE_CASH}, operator: EXISTS}
   - {assertion_id: T1_ASSET_UNAVAILABLE, fact: POSITION, selector: {instrument_id: "600000.XSHG"}, field: available_quantity, operator: DECIMAL_EQUALS, expected: "0"}

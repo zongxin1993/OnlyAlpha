@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from datetime import date, time
 from decimal import Decimal
 
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.fee.market_pack import OnlyMarketFeePack
+from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.models import (
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
@@ -30,7 +30,6 @@ from onlyalpha.market.product import (
     OnlyInstrumentTradingStatus,
     OnlyMarketPolicyCompilationRequest,
     OnlyMarketProductAuthorityIdentity,
-    OnlyMarketProductCompositionIdentity,
     OnlyMarketProductConfig,
     OnlyMarketProductFactoryRegistry,
     OnlyMarketProductId,
@@ -49,12 +48,12 @@ DAY = OnlyTradingDay(date(2026, 8, 11))
 
 
 def _identity(kind: str, name: str) -> OnlyMarketProductAuthorityIdentity:
-    return OnlyMarketProductAuthorityIdentity(kind, name, "1", only_canonical_fingerprint((kind, name, "1")))
+    return OnlyMarketProductAuthorityIdentity(kind, name, "1", only_identity_fingerprint((kind, name, "1")))
 
 
 @dataclass(frozen=True, slots=True)
 class _Reference:
-    content_fingerprint: str = only_canonical_fingerprint(("TEST.T2", "reference"))
+    content_fingerprint: str = only_identity_fingerprint(("TEST.T2", "reference"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,21 +132,21 @@ class _Factory:
         reference = context.resources.require_reference_authority("test-t2-reference")
         fees = context.resources.require_market_fee_pack("TEST_T2_FEES", "1")
         product = OnlyMarketProductIdentity(config.product_id, config.product_version)
-        identity = OnlyMarketProductCompositionIdentity.create(
+        return OnlyResolvedMarketProductBinding.create(
             product_identity=product,
-            reference_authority=reference.identity,
-            policy_compiler=self.compiler.identity,
-            market_fee_pack=fees.identity,
-            effective_config_fingerprint=only_canonical_fingerprint(()),
+            provider_plugin_id=self.plugin_id,
+            reference_authority=reference,
+            policy_compiler=self.compiler,
+            market_fee_pack=fees,
+            effective_config_fingerprint=only_identity_fingerprint(()),
         )
-        return OnlyResolvedMarketProductBinding(product, self.plugin_id, reference, self.compiler, fees, identity)
 
 
 def test_third_market_registers_and_compiles_without_core_behavior_branch() -> None:
     fees = OnlyMarketFeePack.create(
         pack_id="TEST_T2_FEES",
         pack_version="1",
-        compatible_market_profiles=("TEST_T2_MARKET",),
+        compatible_market_products=("TEST_T2_MARKET",),
         schedules=(),
     )
     context = OnlyMarketProductResolutionContext(_Resources(_ReferenceAuthority(), fees))

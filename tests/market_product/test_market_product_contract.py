@@ -5,17 +5,17 @@ from typing import Never
 
 import pytest
 
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.fee.market_pack import OnlyMarketFeePack
+from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.plugin.api import (
     OnlyCanonicalMarketProductConfig,
     OnlyDuplicateMarketProductPluginError,
     OnlyInvalidMarketProductConfigurationError,
     OnlyMarketPolicyCompilationRequest,
+    OnlyMarketProductAuthorityConflictError,
     OnlyMarketProductAuthorityIdentity,
-    OnlyMarketProductCompositionIdentity,
     OnlyMarketProductConfig,
     OnlyMarketProductFactoryRegistry,
     OnlyMarketProductId,
@@ -42,7 +42,7 @@ def _authority(kind: str, authority_id: str, version: str) -> OnlyMarketProductA
         kind,
         authority_id,
         version,
-        only_canonical_fingerprint((kind, authority_id, version)),
+        only_identity_fingerprint((kind, authority_id, version)),
     )
 
 
@@ -56,7 +56,7 @@ class OnlyTestReferenceAuthority:
     identity: OnlyMarketProductAuthorityIdentity
 
     def resolve(self, instrument_id: OnlyInstrumentId, trading_day: OnlyTradingDay) -> OnlyTestReference:
-        return OnlyTestReference(only_canonical_fingerprint((str(instrument_id), str(trading_day))))
+        return OnlyTestReference(only_identity_fingerprint((str(instrument_id), str(trading_day))))
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +106,12 @@ class OnlyTestMarketProductFactory:
                 "UNSUPPORTED_MARKET_PRODUCT_VERSION", str(config.product_version)
             )
         values = config.config.values
+        unknown = sorted(set(values) - {"alternative", "invalid", "price_increment", "reference_resource"})
+        if unknown:
+            raise OnlyInvalidMarketProductConfigurationError(
+                "INVALID_MARKET_PRODUCT_CONFIGURATION",
+                f"unknown configuration field: {unknown[0]}",
+            )
         if values.get("invalid") is True:
             raise OnlyInvalidMarketProductConfigurationError(
                 "INVALID_MARKET_PRODUCT_CONFIGURATION", "invalid test payload"
@@ -119,20 +125,13 @@ class OnlyTestMarketProductFactory:
         fee_pack = context.resources.require_market_fee_pack("test-fees", "1")
         product_identity = OnlyMarketProductIdentity(config.product_id, config.product_version)
         effective_config = {"price_increment": values.get("price_increment", "0.01")}
-        composition_identity = OnlyMarketProductCompositionIdentity.create(
+        return OnlyResolvedMarketProductBinding.create(
             product_identity=product_identity,
-            reference_authority=reference.identity,
-            policy_compiler=self.compiler.identity,
-            market_fee_pack=fee_pack.identity,
-            effective_config_fingerprint=only_canonical_fingerprint(effective_config),
-        )
-        return OnlyResolvedMarketProductBinding(
-            product_identity,
-            self.plugin_id,
-            reference,
-            self.compiler,
-            fee_pack,
-            composition_identity,
+            provider_plugin_id=self.plugin_id,
+            reference_authority=reference,
+            policy_compiler=self.compiler,
+            market_fee_pack=fee_pack,
+            effective_config_fingerprint=only_identity_fingerprint(effective_config),
         )
 
 
@@ -156,13 +155,22 @@ def authorities() -> tuple[OnlyTestMarketProductFactory, OnlyMarketProductResolu
     fee_pack = OnlyMarketFeePack.create(
         pack_id="test-fees",
         pack_version="1",
-        compatible_market_profiles=("TEST_CASH",),
+        compatible_market_products=("TEST_CASH",),
         schedules=(),
     )
     references = {
         "reference-v1": OnlyTestReferenceAuthority(_authority("REFERENCE", "test-reference", "1")),
+        "reference-v1-conflict": OnlyTestReferenceAuthority(
+            OnlyMarketProductAuthorityIdentity(
+                "REFERENCE",
+                "test-reference",
+                "1",
+                only_identity_fingerprint(("different", "semantics")),
+            )
+        ),
         "reference-v2": OnlyTestReferenceAuthority(_authority("REFERENCE", "test-reference", "2")),
     }
+    references["different-locator-same-reference"] = references["reference-v1"]
     compiler = OnlyTestPolicyCompiler(_authority("POLICY_COMPILER", "test-policy", "1"))
     return OnlyTestMarketProductFactory(PLUGIN_A, compiler), OnlyMarketProductResolutionContext(
         OnlyTestResources(references, fee_pack)
@@ -244,6 +252,52 @@ def test_registration_order_does_not_change_selected_factory_semantics(
     assert first.plugin_ids() == second.plugin_ids() == (PLUGIN_A, PLUGIN_B)
 
 
+def test_registry_rejects_same_authority_version_with_changed_semantics(
+    authorities: tuple[OnlyTestMarketProductFactory, OnlyMarketProductResolutionContext],
+) -> None:
+    factory, context = authorities
+    registry = OnlyMarketProductFactoryRegistry()
+    registry.register(factory)
+    first = registry.resolve(_config(values={"reference_resource": "reference-v1"}), context)
+    repeated = registry.resolve(_config(values={"reference_resource": "reference-v1"}), context)
+    assert first.composition_identity == repeated.composition_identity
+    with pytest.raises(
+        OnlyMarketProductAuthorityConflictError,
+        match="MARKET_PRODUCT_AUTHORITY_VERSION_CONFLICT",
+    ):
+        registry.resolve(_config(values={"reference_resource": "reference-v1-conflict"}), context)
+
+
+def test_registry_rejects_same_product_version_with_different_compiler_or_fee_definition(
+    authorities: tuple[OnlyTestMarketProductFactory, OnlyMarketProductResolutionContext],
+) -> None:
+    factory, context = authorities
+    alternative = OnlyTestMarketProductFactory(
+        PLUGIN_A,
+        OnlyTestPolicyCompiler(_authority("POLICY_COMPILER", "alternative-policy", "1")),
+    )
+
+    class SwitchingFactory:
+        plugin_id = PLUGIN_A
+
+        def resolve(
+            self,
+            config: OnlyMarketProductConfig,
+            resolution_context: OnlyMarketProductResolutionContext,
+        ) -> OnlyResolvedMarketProductBinding:
+            selected = alternative if config.config.values.get("alternative") is True else factory
+            return selected.resolve(config, resolution_context)
+
+    registry = OnlyMarketProductFactoryRegistry()
+    registry.register(SwitchingFactory())
+    registry.resolve(_config(), context)
+    with pytest.raises(
+        OnlyMarketProductAuthorityConflictError,
+        match="MARKET_PRODUCT_VERSION_SEMANTICS_CONFLICT",
+    ):
+        registry.resolve(_config(values={"alternative": True}), context)
+
+
 def test_binding_and_identities_are_immutable_and_authority_consistent(
     authorities: tuple[OnlyTestMarketProductFactory, OnlyMarketProductResolutionContext],
 ) -> None:
@@ -274,19 +328,51 @@ def test_composition_identity_uses_effective_authorities_not_raw_payload(
 ) -> None:
     factory, context = authorities
     plain = factory.resolve(_config(values={"price_increment": "0.01"}), context)
-    unused_raw_field = factory.resolve(
-        _config(values={"price_increment": "0.01", "unused_transport_note": "ignored"}), context
+    reordered_raw_fields = factory.resolve(
+        _config(values={"reference_resource": "reference-v1", "price_increment": "0.01"}), context
     )
     changed_effective_config = factory.resolve(_config(values={"price_increment": "0.02"}), context)
     changed_reference = factory.resolve(_config(values={"reference_resource": "reference-v2"}), context)
+    changed_locator = factory.resolve(
+        _config(values={"reference_resource": "different-locator-same-reference"}), context
+    )
     changed_version = factory.resolve(_config(version=VERSION_2), context)
+    changed_compiler = OnlyTestMarketProductFactory(
+        PLUGIN_A,
+        OnlyTestPolicyCompiler(_authority("POLICY_COMPILER", "test-policy", "2")),
+    ).resolve(_config(), context)
+    changed_fee = OnlyMarketFeePack.create(
+        pack_id="test-fees",
+        pack_version="1",
+        compatible_market_products=("DIFFERENT_PRODUCT",),
+        schedules=(),
+    )
+    changed_fee_context = OnlyMarketProductResolutionContext(
+        OnlyTestResources(context.resources.references, changed_fee)  # type: ignore[attr-defined]
+    )
+    changed_fee_binding = factory.resolve(_config(), changed_fee_context)
     repeated = factory.resolve(_config(values={"price_increment": "0.01"}), context)
 
     assert plain.composition_identity == repeated.composition_identity
-    assert plain.composition_identity == unused_raw_field.composition_identity
+    assert plain.composition_identity == reordered_raw_fields.composition_identity
+    assert plain.composition_identity == changed_locator.composition_identity
     assert plain.composition_identity != changed_effective_config.composition_identity
     assert plain.composition_identity != changed_reference.composition_identity
     assert plain.composition_identity != changed_version.composition_identity
+    assert plain.composition_identity != changed_compiler.composition_identity
+    assert plain.composition_identity != changed_fee_binding.composition_identity
+
+
+def test_runtime_label_is_not_an_input_to_market_composition_identity(
+    authorities: tuple[OnlyTestMarketProductFactory, OnlyMarketProductResolutionContext],
+) -> None:
+    factory, context = authorities
+    binding = factory.resolve(_config(), context)
+    fingerprints = {
+        runtime_label: binding.composition_identity.fingerprint
+        for runtime_label in ("BACKTEST", "PAPER", "SIM", "LIVE")
+    }
+    assert len(set(fingerprints.values())) == 1
 
 
 @pytest.mark.parametrize(
@@ -304,6 +390,11 @@ def test_composition_identity_uses_effective_authorities_not_raw_payload(
         ),
         (
             _config(values={"invalid": True}),
+            OnlyInvalidMarketProductConfigurationError,
+            "INVALID_MARKET_PRODUCT_CONFIGURATION",
+        ),
+        (
+            _config(values={"unknown_option": 1}),
             OnlyInvalidMarketProductConfigurationError,
             "INVALID_MARKET_PRODUCT_CONFIGURATION",
         ),

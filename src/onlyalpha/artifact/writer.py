@@ -72,6 +72,8 @@ class OnlyBacktestArtifactWriter:
         target: OnlyRunArtifactTarget,
     ) -> OnlyBacktestArtifactManifest:
         facts = result.facts
+        if facts.market_product is None:
+            raise OnlyArtifactWriteError("Market Product evidence is required for a Trading artifact")
         result_fingerprint = result.result_fingerprint
         diagnostics = result.diagnostics
         data = result.data
@@ -80,8 +82,9 @@ class OnlyBacktestArtifactWriter:
         descriptors: list[OnlyArtifactDescriptor] = []
         try:
             summary = {
-                "schema_version": 6,
+                "schema_version": 7,
                 "result_fingerprint": result_fingerprint,
+                "market_product": _json_value(facts.market_product),
                 "analysis_fingerprint": analysis.analysis_fingerprint,
                 "fact_counts": {
                     name: len(getattr(facts, name))
@@ -100,7 +103,7 @@ class OnlyBacktestArtifactWriter:
                         "margin",
                         "fees",
                         "market_rule_decisions",
-                        "profile_timeline",
+                        "market_product_timeline",
                         "compiled_market_rules",
                     )
                 },
@@ -120,7 +123,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "market_rule_decisions.json",
                 "MARKET_RULE_DECISIONS_JSON",
-                {"schema_version": 6, "decisions": _json_value(facts.market_rule_decisions)},
+                {"schema_version": 7, "decisions": _json_value(facts.market_rule_decisions)},
                 descriptors,
             )
             self._write_json(
@@ -128,7 +131,7 @@ class OnlyBacktestArtifactWriter:
                 "diagnostics.json",
                 "DIAGNOSTICS",
                 {
-                    "schema_version": 6,
+                    "schema_version": 7,
                     "failure_count": 0 if diagnostics is None else diagnostics.total_failure_count,
                     "warning_count": len(analysis.warnings),
                     "truncated": False if diagnostics is None else diagnostics.truncated,
@@ -142,7 +145,7 @@ class OnlyBacktestArtifactWriter:
                 staging,
                 "data_manifest.json",
                 "DATA_MANIFEST",
-                {"schema_version": 6, "data": _json_value(data)},
+                {"schema_version": 7, "data": _json_value(data)},
                 descriptors,
             )
             tables = {
@@ -242,9 +245,12 @@ class OnlyBacktestArtifactWriter:
                     "MARKET_RULE_DECISIONS",
                     _table(_MARKET_RULE_DECISION_SCHEMA, [_record(item) for item in facts.market_rule_decisions]),
                 ),
-                "profile_timeline.parquet": (
-                    "PROFILE_TIMELINE",
-                    _table(_PROFILE_TIMELINE_SCHEMA, [_record(item) for item in facts.profile_timeline]),
+                "market_product_timeline.parquet": (
+                    "MARKET_PRODUCT_TIMELINE",
+                    _table(
+                        _MARKET_PRODUCT_TIMELINE_SCHEMA,
+                        [_record(item) for item in facts.market_product_timeline],
+                    ),
                 ),
                 "compiled_market_rules.parquet": (
                     "COMPILED_MARKET_RULES",
@@ -266,7 +272,7 @@ class OnlyBacktestArtifactWriter:
                 )
             )
             manifest = OnlyBacktestArtifactManifest(
-                5,
+                6,
                 result_fingerprint,
                 analysis.analysis_fingerprint,
                 artifact_content_fingerprint,
@@ -481,8 +487,8 @@ _EXECUTION_SCHEMA = pa.schema(
         ("realized_pnl_delta", _DECIMAL),
         ("reference_price", _DECIMAL),
         ("contract_multiplier", _DECIMAL),
-        ("market_profile_id", pa.string()),
-        ("market_profile_version", pa.string()),
+        ("market_product_id", pa.string()),
+        ("market_product_version", pa.string()),
         ("compiled_rule_fingerprint", pa.string()),
         ("reference_fingerprint", pa.string()),
         ("trade_instruction_id", pa.string()),
@@ -736,7 +742,7 @@ _MARKET_FEE_PACK_SCHEMA = pa.schema(
     [
         ("pack_id", pa.string()),
         ("pack_version", pa.string()),
-        ("market_profile_id", pa.string()),
+        ("market_product_id", pa.string()),
         ("fingerprint", pa.string()),
     ]
 )
@@ -865,14 +871,14 @@ _MARKET_RULE_DECISION_SCHEMA = pa.schema(
         ("sequence", pa.int64()),
         ("account_id", pa.string()),
         ("instrument_id", pa.string()),
-        ("market_profile_id", pa.string()),
+        ("market_product_id", pa.string()),
         ("rule_set_id", pa.string()),
         ("rule_type", pa.string()),
         ("decision", pa.string()),
         ("reason", pa.string()),
         ("ts_event", _TIMESTAMP),
         ("trading_day", pa.date32()),
-        ("profile_version", pa.string()),
+        ("product_version", pa.string()),
         ("side", pa.string()),
         ("quantity", _DECIMAL),
         ("price", _DECIMAL),
@@ -887,12 +893,12 @@ _MARKET_RULE_DECISION_SCHEMA = pa.schema(
         ("evaluations", pa.string()),
     ]
 )
-_PROFILE_TIMELINE_SCHEMA = pa.schema(
+_MARKET_PRODUCT_TIMELINE_SCHEMA = pa.schema(
     [
         ("sequence", pa.int64()),
         ("runtime_id", pa.string()),
-        ("profile_id", pa.string()),
-        ("profile_version", pa.string()),
+        ("product_id", pa.string()),
+        ("product_version", pa.string()),
         ("trading_day", pa.date32()),
         ("effective_from", _TIMESTAMP),
         ("effective_to", _TIMESTAMP),
@@ -908,8 +914,8 @@ _COMPILED_MARKET_RULE_SCHEMA = pa.schema(
         ("instrument_id", pa.string()),
         ("venue_id", pa.string()),
         ("trading_day", pa.date32()),
-        ("profile_id", pa.string()),
-        ("profile_version", pa.string()),
+        ("product_id", pa.string()),
+        ("product_version", pa.string()),
         ("compiled_rules_fingerprint", pa.string()),
         ("reference_fingerprint", pa.string()),
         ("runtime_mode", pa.string()),
@@ -935,7 +941,7 @@ def _market_fee_pack_rows(facts: OnlyBacktestFacts) -> list[dict[str, object]]:
         values[key] = {
             "pack_id": key[0],
             "pack_version": key[1],
-            "market_profile_id": execution.market_profile_id,
+            "market_product_id": execution.market_product_id,
             "fingerprint": key[2],
         }
     return [values[key] for key in sorted(values)]

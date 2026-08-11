@@ -28,6 +28,11 @@ from onlyalpha.fee.models import OnlyFeeType as OnlyFeeType
 from onlyalpha.fee.policy import OnlyFeeRule as OnlyFeeRule
 from onlyalpha.fee.rounding import OnlyFeeRoundingPolicy as OnlyFeeRoundingPolicy
 from onlyalpha.fee.schedules import OnlyMarketFeeSchedule as OnlyMarketFeeSchedule
+from onlyalpha.identity import OnlyCanonicalIdentityError as OnlyCanonicalIdentityError
+from onlyalpha.identity import OnlyCanonicalIdentityProvider as OnlyCanonicalIdentityProvider
+from onlyalpha.identity import only_identity_fingerprint as only_identity_fingerprint
+from onlyalpha.identity import only_identity_json as only_identity_json
+from onlyalpha.identity import only_identity_payload as only_identity_payload
 from onlyalpha.market.models import OnlyCompiledPriceBandPolicy as OnlyCompiledPriceBandPolicy
 from onlyalpha.market.models import OnlyCompiledQuantityPolicy as OnlyCompiledQuantityPolicy
 from onlyalpha.market.models import OnlyMarketPositionMode as OnlyMarketPositionMode
@@ -174,6 +179,9 @@ __all__ = [
     in {
         "ONLYALPHA_PLUGIN_API_VERSION",
         "only_canonical_fingerprint",
+        "only_identity_fingerprint",
+        "only_identity_json",
+        "only_identity_payload",
         "only_simulation_zero_broker_fee_contract",
     }
 ]

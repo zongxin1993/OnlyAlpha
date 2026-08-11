@@ -91,7 +91,7 @@ def test_prepared_transaction_rejects_margin_presence_contradiction() -> None:
 
 def test_reservation_presence_matrix_is_directional_and_risk_is_mandatory() -> None:
     buy = only_expected_execution_reservations(
-        market_profile_id="GENERIC_T0_CASH",
+        market_product_id="GENERIC_T0_CASH",
         side=OnlyOrderSide.BUY,
         offset=OnlyOffset.OPEN,
         position_effect=OnlyPositionEffect.OPEN,
@@ -100,7 +100,7 @@ def test_reservation_presence_matrix_is_directional_and_risk_is_mandatory() -> N
     assert buy.require_account_cash and buy.require_strategy_cash and buy.require_risk
     assert not buy.require_position and not buy.require_margin
     sell = only_expected_execution_reservations(
-        market_profile_id="GENERIC_T0_CASH",
+        market_product_id="GENERIC_T0_CASH",
         side=OnlyOrderSide.SELL,
         offset=OnlyOffset.CLOSE,
         position_effect=OnlyPositionEffect.CLOSE,

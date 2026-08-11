@@ -35,7 +35,7 @@ def only_test_zero_fee_contract(
         digest,
     )
     applicability = OnlyOrderFeeApplicabilityScopeIdentity.create(
-        market_profile_id="TEST_ZERO_FEE",
+        market_product_id="TEST_ZERO_FEE",
         market="TEST",
         venue="TEST",
         instrument_class="CASH",
@@ -50,8 +50,8 @@ def only_test_zero_fee_contract(
         cluster_id=order.cluster_id,
         order_id=order.order_id,
         instrument_id=order.instrument_id,
-        market_profile_id="TEST_ZERO_FEE",
-        market_profile_version="1",
+        market_product_id="TEST_ZERO_FEE",
+        market_product_version="1",
         market_fee_pack=market_pack,
         broker_fee_contract=broker_contract,
         applicability_scope=applicability,

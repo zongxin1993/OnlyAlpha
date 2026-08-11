@@ -66,7 +66,7 @@ def _assessment(vector: dict[str, object]):
     instrument = OnlyInstrumentId.parse(str(vector["instrument_identity"]))
     context = OnlyMarketFeeApplicabilityContext(
         day,
-        str(vector["market_profile"]),
+        str(vector["market_product"]),
         str(vector["market"]),
         venue,
         str(vector["instrument_class"]),
@@ -86,7 +86,7 @@ def _assessment(vector: dict[str, object]):
     )
     account = OnlyAccountId("reference-account")
     scope = OnlyOrderFeeApplicabilityScopeIdentity.create(
-        market_profile_id="CN_A_SHARE_CASH",
+        market_product_id="CN_A_SHARE_CASH",
         market="CN_A_SHARE",
         venue=venue,
         instrument_class="CASH",
@@ -108,8 +108,8 @@ def _assessment(vector: dict[str, object]):
         cluster_id=OnlyClusterId("reference-cluster"),
         order_id=OnlyOrderId(str(vector["vector_id"])),
         instrument_id=instrument,
-        market_profile_id="CN_A_SHARE_CASH",
-        market_profile_version="2025.1",
+        market_product_id="CN_A_SHARE_CASH",
+        market_product_version="2025.1",
         market_fee_pack=pack.identity,
         broker_fee_contract=broker.identity,
         applicability_scope=scope,
@@ -158,14 +158,14 @@ def test_pack_identity_sources_scope_and_fingerprint_are_stable() -> None:
     assert first == second
     assert first.pack_id == "CN_A_SHARE_PRODUCTION_MARKET_FEES"
     assert first.pack_version == "2025.06.30"
-    assert first.compatible_market_profiles == ("CN_A_SHARE_CASH",)
+    assert first.compatible_market_products == ("CN_A_SHARE_CASH",)
     assert len(first.schedules) == 6
     assert all(item.currency == CNY for item in first.schedules)
     assert all(item.source in CN_A_SHARE_FEE_AUTHORITY_SOURCE_BY_ID for item in first.schedules)
     assert all("1970" not in item.effective_from.isoformat() for item in first.schedules)
     assert all("CURRENT" not in item.schedule_id and "LATEST" not in item.schedule_id for item in first.schedules)
     first.validate_compatibility("CN_A_SHARE_CASH")
-    with pytest.raises(ValueError, match="MARKET_FEE_PACK_PROFILE_INCOMPATIBLE"):
+    with pytest.raises(ValueError, match="MARKET_FEE_PACK_PRODUCT_INCOMPATIBLE"):
         first.validate_compatibility("GENERIC_T0_CASH")
 
 
@@ -258,14 +258,14 @@ def test_pack_selection_and_input_order_never_mean_latest() -> None:
     reordered = OnlyMarketFeePack.create(
         pack_id=first.pack_id,
         pack_version=first.pack_version,
-        compatible_market_profiles=first.compatible_market_profiles,
+        compatible_market_products=first.compatible_market_products,
         schedules=tuple(reversed(first.schedules)),
     )
     assert reordered.fingerprint == first.fingerprint
     second = OnlyMarketFeePack.create(
         pack_id=first.pack_id,
         pack_version="2026.01.01",
-        compatible_market_profiles=first.compatible_market_profiles,
+        compatible_market_products=first.compatible_market_products,
         schedules=first.schedules,
     )
     registry = OnlyMarketFeePackRegistry()

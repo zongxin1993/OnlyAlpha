@@ -23,6 +23,7 @@ from onlyalpha.result.records import (
     OnlyAccountResultRecord,
     OnlyBacktestFacts,
     OnlyEquityResultRecord,
+    OnlyMarketProductResultEvidence,
     OnlySignalResultRecord,
 )
 from onlyalpha.runtime.reconciliation import (
@@ -84,7 +85,16 @@ def _result(value: str = "1000000.01") -> OnlyArtifactResultFixture:
         position_count=0,
         complete=True,
     )
-    facts = OnlyBacktestFacts(accounts=(account,), equity=(equity,))
+    facts = OnlyBacktestFacts(
+        market_product=OnlyMarketProductResultEvidence(
+            "onlyalpha-market-test",
+            "TEST_CASH",
+            "1",
+            "0" * 64,
+        ),
+        accounts=(account,),
+        equity=(equity,),
+    )
     currency = OnlyCurrency("CNY", 2)
     money = OnlyMoney(amount, currency)
     zero = OnlyMoney(Decimal(0), currency)
@@ -186,7 +196,7 @@ def test_writer_publishes_verified_decimal_parquet_and_manifest_last(tmp_path: P
         "unallocated_external_fees.parquet",
         "market_rule_decisions.parquet",
         "market_rule_decisions.json",
-        "profile_timeline.parquet",
+        "market_product_timeline.parquet",
         "compiled_market_rules.parquet",
     }
     assert expected == {item.name for item in tmp_path.iterdir()}
@@ -236,7 +246,12 @@ def test_writer_preserves_high_precision_factor_scores(tmp_path: Path) -> None:
         score=Decimal("0.001234567890123456789012345678"),
         confidence=Decimal("0.9876543210987654321098765432"),
     )
-    facts = OnlyBacktestFacts(signals=(signal,), accounts=result.facts.accounts, equity=result.facts.equity)
+    facts = OnlyBacktestFacts(
+        market_product=result.facts.market_product,
+        signals=(signal,),
+        accounts=result.facts.accounts,
+        equity=result.facts.equity,
+    )
     precise = OnlyArtifactResultFixture(
         facts,
         result.runtime_performance,

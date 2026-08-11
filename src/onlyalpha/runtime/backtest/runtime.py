@@ -1226,6 +1226,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._checkpoint_service = OnlyRuntimeCheckpointService(
             runtime_id=runtime_config.runtime_id,  # type: ignore[arg-type]
             config_fingerprint=config_fingerprint,
+            market_composition_fingerprint=market_rule_engine.market_composition_fingerprint,
             registry=self._checkpoint_registry,
             write_port=runtime_persistence_store,
             query_port=runtime_persistence_store,
@@ -1245,6 +1246,7 @@ class OnlyBacktestRuntime(OnlyRuntime):
         self._runtime_recovery_orchestrator = OnlyRuntimeRecoveryOrchestrator(
             runtime_id=runtime_config.runtime_id,  # type: ignore[arg-type]
             config_fingerprint=config_fingerprint,
+            market_composition_fingerprint=market_rule_engine.market_composition_fingerprint,
             participant_registry=self._checkpoint_registry,
             checkpoint_query=runtime_persistence_store,
             transaction_query=runtime_persistence_store,

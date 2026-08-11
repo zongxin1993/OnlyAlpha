@@ -56,7 +56,7 @@ def test_cli_equivalent_single_cluster_full_backtest(tmp_path: Path) -> None:
         {
             "pack_id": "GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE",
             "pack_version": "1",
-            "market_profile_id": "GENERIC_T0_CASH",
+            "market_product_id": "GENERIC_T0_CASH",
             "fingerprint": market_pack[0]["fingerprint"],
         }
     ]

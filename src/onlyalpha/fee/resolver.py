@@ -121,8 +121,8 @@ class OnlyFeeResolver:
             cluster_id=order.cluster_id,
             order_id=order.order_id,
             instrument_id=order.instrument_id,
-            market_profile_id=product_id,
-            market_profile_version=product_version,
+            market_product_id=product_id,
+            market_product_version=product_version,
             market_fee_pack=self._market_pack.identity,
             broker_fee_contract=self._broker_contract.identity,
             applicability_scope=scope,
@@ -277,13 +277,13 @@ class OnlyFeeResolver:
         self,
         order: OnlyOrderSnapshot,
         instrument: OnlyInstrument,
-        profile_id: str,
+        product_id: str,
         market: str,
         venue: str,
     ) -> OnlyOrderFeeApplicabilityScopeIdentity:
         instrument_class = _instrument_class(instrument)
         return OnlyOrderFeeApplicabilityScopeIdentity.create(
-            market_profile_id=profile_id,
+            market_product_id=product_id,
             market=market,
             venue=venue,
             instrument_class=instrument_class,
@@ -300,7 +300,7 @@ class OnlyFeeResolver:
         return (
             OnlyMarketFeeApplicabilityContext(
                 day,
-                scope.market_profile_id,
+                scope.market_product_id,
                 scope.market,
                 scope.venue,
                 scope.instrument_class,

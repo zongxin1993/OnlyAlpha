@@ -25,7 +25,7 @@ from onlyalpha.plugin.api import (
     OnlyTradingPhase,
     OnlyTradingSessionDefinition,
     OnlyTradingSessionModel,
-    only_canonical_fingerprint,
+    only_identity_fingerprint,
 )
 from onlyalpha_market_cn_ashare.reference import OnlyCnAshareBoard, OnlyCnAshareInstrumentReference
 
@@ -86,8 +86,35 @@ class OnlyCnAsharePolicyCompiler:
         if product_version not in _PRICE_LIMITS:
             raise ValueError("UNSUPPORTED_CN_A_SHARE_PRODUCT_VERSION")
         session = _session(product_version)
-        fingerprint = only_canonical_fingerprint(
-            (product_version, session, _POSITION, _SHORT, "CN_A_SHARE_T1", _PRICE_LIMITS[product_version])
+        fingerprint = only_identity_fingerprint(
+            (
+                product_version,
+                (
+                    session.model_id,
+                    session.timezone,
+                    tuple(
+                        (
+                            item.name,
+                            item.opens_at.isoformat(),
+                            item.closes_at.isoformat(),
+                            item.phase,
+                            item.trading_day_offset,
+                            item.allows_orders,
+                        )
+                        for item in session.sessions
+                    ),
+                    session.continuous_24x7,
+                ),
+                (_POSITION.mode, _POSITION.allow_flip),
+                (_SHORT.mode,),
+                "CN_A_SHARE_T1",
+                tuple(
+                    (board.value, st_status, rate)
+                    for (board, st_status), rate in sorted(
+                        _PRICE_LIMITS[product_version].items(), key=lambda item: (item[0][0].value, item[0][1])
+                    )
+                ),
+            )
         )
         return cls(
             product_version,

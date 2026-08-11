@@ -173,7 +173,7 @@ def _commission_assessment(
     account = OnlyAccountId("ACCOUNT-001")
     instrument = OnlyInstrumentId.parse("600000.XSHG")
     scope = OnlyOrderFeeApplicabilityScopeIdentity.create(
-        market_profile_id="CN_A_SHARE_CASH",
+        market_product_id="CN_A_SHARE_CASH",
         market="CN_A_SHARE",
         venue="XSHG",
         instrument_class="CASH",
@@ -189,8 +189,8 @@ def _commission_assessment(
         cluster_id=OnlyClusterId("cluster-a"),
         order_id=OnlyOrderId("order-a"),
         instrument_id=instrument,
-        market_profile_id="CN_A_SHARE_CASH",
-        market_profile_version="2025.1",
+        market_product_id="CN_A_SHARE_CASH",
+        market_product_version="2025.1",
         market_fee_pack=market_pack.identity,
         broker_fee_contract=contract.identity,
         applicability_scope=scope,

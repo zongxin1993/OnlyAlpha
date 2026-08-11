@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.plugin.api import (
-    OnlyMarketProductCompositionIdentity,
     OnlyMarketProductConfig,
     OnlyMarketProductId,
     OnlyMarketProductIdentity,
@@ -15,7 +14,7 @@ from onlyalpha.plugin.api import (
     OnlyResolvedMarketProductBinding,
     OnlyUnsupportedMarketProductError,
     OnlyUnsupportedMarketProductVersionError,
-    only_canonical_fingerprint,
+    only_identity_fingerprint,
 )
 from onlyalpha_market_cn_ashare.compiler import OnlyCnAsharePolicyCompiler
 from onlyalpha_market_cn_ashare.config import OnlyCnAshareConfig
@@ -48,14 +47,14 @@ class OnlyCnAshareMarketProductFactory:
         compiler = OnlyCnAsharePolicyCompiler.create(config.product_version.value)
         fee_pack = only_cn_a_share_market_fee_pack()
         identity = OnlyMarketProductIdentity(PRODUCT_ID, OnlyMarketProductVersion(config.product_version.value))
-        composition = OnlyMarketProductCompositionIdentity.create(
+        return OnlyResolvedMarketProductBinding.create(
             product_identity=identity,
-            reference_authority=reference.identity,
-            policy_compiler=compiler.identity,
-            market_fee_pack=fee_pack.identity,
-            effective_config_fingerprint=only_canonical_fingerprint(()),
+            provider_plugin_id=self.plugin_id,
+            reference_authority=reference,
+            policy_compiler=compiler,
+            market_fee_pack=fee_pack,
+            effective_config_fingerprint=only_identity_fingerprint(()),
         )
-        return OnlyResolvedMarketProductBinding(identity, self.plugin_id, reference, compiler, fee_pack, composition)
 
 
 __all__ = ["OnlyCnAshareMarketProductFactory"]

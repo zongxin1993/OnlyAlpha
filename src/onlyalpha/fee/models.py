@@ -177,6 +177,13 @@ class OnlyMarketFeePackIdentity(OnlyDomainModel):
             raise ValueError("market fee pack identity cannot be empty")
         _require_digest(self.fingerprint, "market fee pack fingerprint")
 
+    def canonical_identity(self) -> dict[str, str]:
+        return {
+            "fingerprint": self.fingerprint,
+            "pack_id": self.pack_id,
+            "pack_version": self.pack_version,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerFeeContractIdentity(OnlyDomainModel):
@@ -194,7 +201,9 @@ class OnlyBrokerFeeContractIdentity(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
-    market_profile_id: str
+    schema_version = 2
+
+    market_product_id: str
     market: str
     venue: str
     instrument_class: str
@@ -207,7 +216,7 @@ class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
     def __post_init__(self) -> None:
         if not all(
             (
-                self.market_profile_id.strip(),
+                self.market_product_id.strip(),
                 self.market.strip(),
                 self.venue.strip(),
                 self.instrument_class.strip(),
@@ -223,7 +232,7 @@ class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
     def create(
         cls,
         *,
-        market_profile_id: str,
+        market_product_id: str,
         market: str,
         venue: str,
         instrument_class: str,
@@ -233,7 +242,7 @@ class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
         charge_currency: OnlyCurrency,
     ) -> OnlyOrderFeeApplicabilityScopeIdentity:
         payload = (
-            market_profile_id,
+            market_product_id,
             market,
             venue,
             instrument_class,
@@ -243,7 +252,7 @@ class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
             charge_currency.to_dict(),
         )
         return cls(
-            market_profile_id,
+            market_product_id,
             market,
             venue,
             instrument_class,
@@ -256,7 +265,7 @@ class OnlyOrderFeeApplicabilityScopeIdentity(OnlyDomainModel):
 
     def authority_payload(self) -> tuple[object, ...]:
         return (
-            self.market_profile_id,
+            self.market_product_id,
             self.market,
             self.venue,
             self.instrument_class,
@@ -374,15 +383,15 @@ class OnlyFeeAssessment(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyOrderFeePolicyBinding(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     runtime_id: OnlyRuntimeId
     account_id: OnlyAccountId
     cluster_id: OnlyClusterId
     order_id: OnlyOrderId
     instrument_id: OnlyInstrumentId
-    market_profile_id: str
-    market_profile_version: str
+    market_product_id: str
+    market_product_version: str
     market_fee_pack: OnlyMarketFeePackIdentity
     broker_fee_contract: OnlyBrokerFeeContractIdentity
     applicability_scope: OnlyOrderFeeApplicabilityScopeIdentity
@@ -393,8 +402,8 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
     fingerprint: str
 
     def __post_init__(self) -> None:
-        if not self.market_profile_id.strip() or not self.market_profile_version.strip():
-            raise ValueError("order fee binding requires a market profile identity")
+        if not self.market_product_id.strip() or not self.market_product_version.strip():
+            raise ValueError("order fee binding requires a Market Product identity")
         if len({(item.authority, item.schedule_id) for item in self.fill_effective_families}) != len(
             self.fill_effective_families
         ):
@@ -407,8 +416,8 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
             raise ValueError("order fee applicability account conflicts with binding")
         if self.applicability_scope.instrument_id != self.instrument_id:
             raise ValueError("order fee applicability instrument conflicts with binding")
-        if self.applicability_scope.market_profile_id != self.market_profile_id:
-            raise ValueError("order fee applicability profile conflicts with binding")
+        if self.applicability_scope.market_product_id != self.market_product_id:
+            raise ValueError("order fee applicability product conflicts with binding")
         if self.applicability_scope.charge_currency != self.charge_currency:
             raise ValueError("order fee applicability currency conflicts with binding")
         _require_digest(self.fingerprint, "binding fingerprint")
@@ -424,8 +433,8 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
         cluster_id: OnlyClusterId,
         order_id: OnlyOrderId,
         instrument_id: OnlyInstrumentId,
-        market_profile_id: str,
-        market_profile_version: str,
+        market_product_id: str,
+        market_product_version: str,
         market_fee_pack: OnlyMarketFeePackIdentity,
         broker_fee_contract: OnlyBrokerFeeContractIdentity,
         applicability_scope: OnlyOrderFeeApplicabilityScopeIdentity,
@@ -440,8 +449,8 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
             str(cluster_id),
             str(order_id),
             str(instrument_id),
-            market_profile_id,
-            market_profile_version,
+            market_product_id,
+            market_product_version,
             market_fee_pack.to_dict(),
             broker_fee_contract.to_dict(),
             applicability_scope.to_dict(),
@@ -456,8 +465,8 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
             cluster_id,
             order_id,
             instrument_id,
-            market_profile_id,
-            market_profile_version,
+            market_product_id,
+            market_product_version,
             market_fee_pack,
             broker_fee_contract,
             applicability_scope,
@@ -475,8 +484,8 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
             str(self.cluster_id),
             str(self.order_id),
             str(self.instrument_id),
-            self.market_profile_id,
-            self.market_profile_version,
+            self.market_product_id,
+            self.market_product_version,
             self.market_fee_pack.to_dict(),
             self.broker_fee_contract.to_dict(),
             self.applicability_scope.to_dict(),

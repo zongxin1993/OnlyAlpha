@@ -10,12 +10,12 @@ from onlyalpha.fee.schedules import OnlyMarketFeeSchedule, OnlyMarketFeeSchedule
 class OnlyMarketFeePack:
     pack_id: str
     pack_version: str
-    compatible_market_profiles: tuple[str, ...]
+    compatible_market_products: tuple[str, ...]
     schedules: tuple[OnlyMarketFeeSchedule, ...]
     fingerprint: str
 
     def __post_init__(self) -> None:
-        if not self.pack_id.strip() or not self.pack_version.strip() or not self.compatible_market_profiles:
+        if not self.pack_id.strip() or not self.pack_version.strip() or not self.compatible_market_products:
             raise ValueError("market fee pack identity/compatibility cannot be empty")
         registry = OnlyMarketFeeScheduleRegistry()
         for schedule in self.schedules:
@@ -29,13 +29,13 @@ class OnlyMarketFeePack:
         *,
         pack_id: str,
         pack_version: str,
-        compatible_market_profiles: tuple[str, ...],
+        compatible_market_products: tuple[str, ...],
         schedules: tuple[OnlyMarketFeeSchedule, ...],
     ) -> "OnlyMarketFeePack":
         ordered = tuple(sorted(schedules, key=lambda value: (value.schedule_id, value.version)))
-        profiles = tuple(sorted(set(compatible_market_profiles)))
-        payload = (pack_id, pack_version, profiles, tuple(item.fingerprint for item in ordered))
-        return cls(pack_id, pack_version, profiles, ordered, only_fee_fingerprint(payload))
+        products = tuple(sorted(set(compatible_market_products)))
+        payload = (pack_id, pack_version, products, tuple(item.fingerprint for item in ordered))
+        return cls(pack_id, pack_version, products, ordered, only_fee_fingerprint(payload))
 
     @property
     def identity(self) -> OnlyMarketFeePackIdentity:
@@ -45,13 +45,13 @@ class OnlyMarketFeePack:
         return (
             self.pack_id,
             self.pack_version,
-            self.compatible_market_profiles,
+            self.compatible_market_products,
             tuple(item.fingerprint for item in self.schedules),
         )
 
-    def validate_compatibility(self, market_profile_id: str) -> None:
-        if market_profile_id not in self.compatible_market_profiles:
-            raise ValueError("MARKET_FEE_PACK_PROFILE_INCOMPATIBLE")
+    def validate_compatibility(self, market_product_id: str) -> None:
+        if market_product_id not in self.compatible_market_products:
+            raise ValueError("MARKET_FEE_PACK_PRODUCT_INCOMPATIBLE")
 
 
 class OnlyMarketFeePackRegistry:

@@ -17,7 +17,7 @@ from onlyalpha.runtime.persistence.store import (
         ("config_fingerprint", "other-fingerprint"),
         ("base_currency", "USD"),
         ("account_id", "other-account"),
-        ("market_profile_id", "OTHER_PROFILE"),
+        ("market_product_id", "OTHER_PRODUCT"),
     ],
 )
 def test_persistence_reopen_rejects_every_stable_identity_mismatch(tmp_path: Path, field: str, changed: str) -> None:
@@ -29,7 +29,7 @@ def test_persistence_reopen_rejects_every_stable_identity_mismatch(tmp_path: Pat
         "config_fingerprint": "fingerprint",
         "base_currency": "CNY",
         "account_id": "account",
-        "market_profile_id": "GENERIC_T0_CASH",
+        "market_product_id": "GENERIC_T0_CASH",
     }
     store = OnlySqliteRuntimePersistenceStore(path, identity=identity)
     store.close()

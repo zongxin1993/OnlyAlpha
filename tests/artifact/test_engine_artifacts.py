@@ -26,7 +26,12 @@ def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
     assert manifest["analysis_fingerprint"]
     assert manifest["artifact_content_fingerprint"]
     assert manifest["artifacts"]
-    assert manifest["schema_version"] == 5
+    assert manifest["schema_version"] == 6
+    summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["market_product"]["product_id"] == "GENERIC_T0_CASH"
+    assert summary["market_product"]["product_version"] == "1"
+    assert summary["market_product"]["provider_plugin_id"] == "onlyalpha-market-generic-t0-cash"
+    assert len(summary["market_product"]["composition_fingerprint"]) == 64
     expected_rows = {
         "orders.parquet": 2,
         "executions.parquet": 2,
@@ -49,4 +54,4 @@ def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
     assert all(item["slippage"] is not None for item in executions)
     assert all(item["position_side"] == "LONG" for item in executions)
     assert [item["position_effect"] for item in executions] == ["OPEN", "CLOSE"]
-    assert all(item["market_profile_id"] and item["market_profile_version"] for item in executions)
+    assert all(item["market_product_id"] and item["market_product_version"] for item in executions)

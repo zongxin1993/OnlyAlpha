@@ -1,17 +1,27 @@
 {
-  "configuration_fingerprint": "03fb41fc1d98889013473ade72b22745657e75e6f7fc2fe4377bf2c2c21107e3",
+  "configuration_fingerprint": "f3a775b37bcbdbbc167f50a497d400e10ecc5e40dca81215af6129e3985832c9",
   "data_fingerprint": "1b40360b09dcced38646be00229cb96c4bb42c06f14862413350addda94e0ad4",
   "expected_fill_count": 6,
   "expected_terminal_count": 0,
   "expected_trade_count": 6,
-  "fixture_schema_version": 1,
+  "fixture_schema_version": 2,
   "generated_at": "2026-08-08T00:00:00Z",
   "generation_command": "uv run python scripts/regenerate_result_fixtures.py --scenario multi_fill_round_trip",
-  "market_profile": [
-    "GENERIC_T0_CASH"
+  "market_product_evidence": {
+    "composition_fingerprint": "51b31da29870467fb1fb2db77f53f14941552279d3ae21f106f195c73f678078",
+    "product_id": "GENERIC_T0_CASH",
+    "product_version": "1",
+    "provider_plugin_id": "onlyalpha-market-generic-t0-cash"
+  },
+  "market_products": [
+    {
+      "product_id": "GENERIC_T0_CASH",
+      "product_version": "1",
+      "provider_plugin_id": "onlyalpha-market-generic-t0-cash"
+    }
   ],
-  "onlyalpha_version": "0.3.4",
-  "result_fingerprint": "e4f0c0051b42c630946566d6a1b1dd529a7c7193f827243fd4a4400799114b65",
+  "onlyalpha_version": "0.3.6",
+  "result_fingerprint": "7d7427f5d75f416e2396ac9d7dcd6aa2e6b0e2c2bb36844bc81d93a6d6ee07d8",
   "runtime_type": "BACKTEST",
   "scenario": "multi_fill_round_trip"
 }

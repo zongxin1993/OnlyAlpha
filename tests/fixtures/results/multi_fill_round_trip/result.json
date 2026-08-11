@@ -1,8 +1,8 @@
 {
   "backtest_reports": [
     {
-      "analysis_fingerprint": "cac2fdc1b42f15edab6f2b29050cfb88666bb64798912bd1c3b47dca6c58e688",
-      "artifact_content_fingerprint": "32e571ecf0bc7076f2a176464e5c9f0198859cc462ea3cf022511b3572918e59",
+      "analysis_fingerprint": "a094edbcbcd299ac7cf989ce5a4e0e9cab4a36d17f3fced5928577fca509971b",
+      "artifact_content_fingerprint": "6922987cbeba65f1590ec2b263f3e0a97bc31f208b1932a8e1c5c899f7458465",
       "artifact_manifest_path": "artifact_manifest.json",
       "bar_count": 29,
       "cluster_count": 1,
@@ -48,7 +48,7 @@
             }
           },
           "ledger_id": {
-            "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+            "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
           },
           "losing_trade_count": 0,
           "maximum_drawdown": {
@@ -78,7 +78,7 @@
             "value": "-0.00002000"
           },
           "runtime_id": {
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
           "trade_count": 6,
           "unrealized_pnl": {
@@ -105,15 +105,15 @@
         },
         "differences": [],
         "runtime_id": {
-          "value": "backtest-b9ac8baa7a7a4eb5"
+          "value": "backtest-610c351e7f6165c0"
         },
         "status": "MATCHED",
         "ts_event": {
           "unix_nanos": 1767578340000000000
         }
       },
-      "result_fingerprint": "e4f0c0051b42c630946566d6a1b1dd529a7c7193f827243fd4a4400799114b65",
-      "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+      "result_fingerprint": "7d7427f5d75f416e2396ac9d7dcd6aa2e6b0e2c2bb36844bc81d93a6d6ee07d8",
+      "runtime_id": "backtest-610c351e7f6165c0",
       "runtime_performance": {
         "account_id": {
           "value": "backtest-account"
@@ -194,7 +194,7 @@
           "value": "-0.00002000"
         },
         "runtime_id": {
-          "value": "backtest-b9ac8baa7a7a4eb5"
+          "value": "backtest-610c351e7f6165c0"
         },
         "unrealized_pnl": {
           "amount": "0.00",
@@ -285,7 +285,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 1,
           "source": "ACCOUNT_CREATED",
           "trading_day": null,
@@ -371,7 +371,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 2,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -457,7 +457,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 3,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -543,7 +543,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 4,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -629,7 +629,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 5,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -715,7 +715,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 6,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -801,7 +801,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 7,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -887,7 +887,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 8,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -973,7 +973,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 9,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -1059,7 +1059,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 10,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -1145,7 +1145,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 11,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -1231,7 +1231,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 12,
           "source": "COMMITTED_EXECUTION",
           "trading_day": null,
@@ -1317,7 +1317,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 13,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -1403,7 +1403,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 14,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -1489,7 +1489,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 15,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -1575,7 +1575,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 16,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -1661,7 +1661,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 17,
           "source": "COMMITTED_EXECUTION",
           "trading_day": null,
@@ -1747,7 +1747,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 18,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -1833,7 +1833,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 19,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -1919,7 +1919,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 20,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -2005,7 +2005,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 21,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -2091,7 +2091,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 22,
           "source": "COMMITTED_EXECUTION",
           "trading_day": null,
@@ -2177,7 +2177,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 23,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -2263,7 +2263,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 24,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -2349,7 +2349,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 25,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -2435,7 +2435,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 26,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -2521,7 +2521,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 27,
           "source": "COMMITTED_EXECUTION",
           "trading_day": null,
@@ -2607,7 +2607,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 28,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -2693,7 +2693,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 29,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -2779,7 +2779,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 30,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -2865,7 +2865,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 31,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -2951,7 +2951,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 32,
           "source": "COMMITTED_EXECUTION",
           "trading_day": null,
@@ -3037,7 +3037,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 33,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -3123,7 +3123,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 34,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -3209,7 +3209,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 35,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -3295,7 +3295,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 36,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -3381,7 +3381,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 37,
           "source": "COMMITTED_EXECUTION",
           "trading_day": null,
@@ -3467,7 +3467,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 38,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -3553,7 +3553,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 39,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -3639,7 +3639,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 40,
           "source": "STATE_CHANGE",
           "trading_day": null,
@@ -3725,7 +3725,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 41,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -3811,7 +3811,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 42,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -3897,7 +3897,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 43,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -3983,7 +3983,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 44,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4069,7 +4069,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 45,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4155,7 +4155,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 46,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4241,7 +4241,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 47,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4327,7 +4327,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 48,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4413,7 +4413,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 49,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4499,7 +4499,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 50,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4585,7 +4585,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 51,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4671,7 +4671,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 52,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4757,7 +4757,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 53,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4843,7 +4843,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 54,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -4929,7 +4929,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 55,
           "source": "MARKET_VALUATION",
           "trading_day": null,
@@ -5015,7 +5015,7 @@
             },
             "schema_version": 1
           },
-          "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+          "runtime_id": "backtest-610c351e7f6165c0",
           "sequence": 56,
           "source": "FINAL_SEAL",
           "trading_day": null,
@@ -5093,7 +5093,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5109,7 +5109,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 1,
             "maximum_drawdown": {
@@ -5219,7 +5219,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5235,7 +5235,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 2,
             "maximum_drawdown": {
@@ -5345,7 +5345,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5361,7 +5361,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 3,
             "maximum_drawdown": {
@@ -5471,7 +5471,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5487,7 +5487,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 4,
             "maximum_drawdown": {
@@ -5597,7 +5597,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5613,7 +5613,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 5,
             "maximum_drawdown": {
@@ -5723,7 +5723,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5739,7 +5739,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 6,
             "maximum_drawdown": {
@@ -5849,7 +5849,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5865,7 +5865,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 7,
             "maximum_drawdown": {
@@ -5975,7 +5975,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -5991,7 +5991,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 8,
             "maximum_drawdown": {
@@ -6101,7 +6101,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6117,7 +6117,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 9,
             "maximum_drawdown": {
@@ -6227,7 +6227,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6243,7 +6243,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 10,
             "maximum_drawdown": {
@@ -6353,7 +6353,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6369,7 +6369,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 11,
             "maximum_drawdown": {
@@ -6479,7 +6479,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6495,7 +6495,7 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
             "ledger_version": 12,
             "maximum_drawdown": {
@@ -6605,7 +6605,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6621,9 +6621,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 13,
+            "ledger_version": 14,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -6731,7 +6731,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6747,9 +6747,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 14,
+            "ledger_version": 15,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -6857,7 +6857,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6873,9 +6873,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 15,
+            "ledger_version": 16,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -6983,7 +6983,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -6999,9 +6999,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 16,
+            "ledger_version": 17,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7109,7 +7109,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7125,9 +7125,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 17,
+            "ledger_version": 18,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7235,7 +7235,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7251,9 +7251,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 18,
+            "ledger_version": 19,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7361,7 +7361,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7377,9 +7377,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 19,
+            "ledger_version": 20,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7487,7 +7487,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7503,9 +7503,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 20,
+            "ledger_version": 21,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7613,7 +7613,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7629,9 +7629,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 21,
+            "ledger_version": 22,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7739,7 +7739,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7755,9 +7755,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 22,
+            "ledger_version": 23,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7865,7 +7865,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -7881,9 +7881,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 23,
+            "ledger_version": 24,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -7991,7 +7991,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8007,9 +8007,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 24,
+            "ledger_version": 25,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8117,7 +8117,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8133,9 +8133,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 25,
+            "ledger_version": 26,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8243,7 +8243,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8259,9 +8259,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 26,
+            "ledger_version": 27,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8369,7 +8369,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8385,9 +8385,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 27,
+            "ledger_version": 28,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8495,7 +8495,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8511,9 +8511,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 28,
+            "ledger_version": 29,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8621,7 +8621,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8637,9 +8637,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 29,
+            "ledger_version": 30,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8747,7 +8747,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8763,9 +8763,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 30,
+            "ledger_version": 31,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8873,7 +8873,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -8889,9 +8889,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 31,
+            "ledger_version": 32,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -8999,7 +8999,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9015,9 +9015,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 32,
+            "ledger_version": 33,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9125,7 +9125,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9141,9 +9141,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 33,
+            "ledger_version": 34,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9251,7 +9251,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9267,9 +9267,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 34,
+            "ledger_version": 35,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9377,7 +9377,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9393,9 +9393,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 35,
+            "ledger_version": 36,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9503,7 +9503,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9519,9 +9519,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 36,
+            "ledger_version": 37,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9629,7 +9629,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9645,9 +9645,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 37,
+            "ledger_version": 38,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9755,7 +9755,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9771,9 +9771,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 38,
+            "ledger_version": 39,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -9881,7 +9881,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -9897,9 +9897,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 39,
+            "ledger_version": 40,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10007,7 +10007,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10023,9 +10023,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 40,
+            "ledger_version": 41,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10133,7 +10133,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10149,9 +10149,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 41,
+            "ledger_version": 42,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10259,7 +10259,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10275,9 +10275,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 42,
+            "ledger_version": 43,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10385,7 +10385,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10401,9 +10401,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 43,
+            "ledger_version": 44,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10511,7 +10511,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10527,9 +10527,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 44,
+            "ledger_version": 45,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10637,7 +10637,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10653,9 +10653,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 45,
+            "ledger_version": 46,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10763,7 +10763,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10779,9 +10779,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 46,
+            "ledger_version": 47,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -10889,7 +10889,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -10905,9 +10905,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 47,
+            "ledger_version": 48,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11015,7 +11015,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11031,9 +11031,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 48,
+            "ledger_version": 49,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11141,7 +11141,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11157,9 +11157,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 49,
+            "ledger_version": 50,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11267,7 +11267,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11283,9 +11283,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 50,
+            "ledger_version": 51,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11393,7 +11393,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11409,9 +11409,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 51,
+            "ledger_version": 52,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11519,7 +11519,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11535,9 +11535,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 52,
+            "ledger_version": 53,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11645,7 +11645,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11661,9 +11661,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 53,
+            "ledger_version": 54,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11771,7 +11771,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11787,9 +11787,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 54,
+            "ledger_version": 55,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -11897,7 +11897,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -11913,9 +11913,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 55,
+            "ledger_version": 56,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -12023,7 +12023,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -12039,9 +12039,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 56,
+            "ledger_version": 57,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -12149,7 +12149,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -12165,9 +12165,9 @@
             },
             "ledger_id": {
               "schema_version": 1,
-              "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+              "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
             },
-            "ledger_version": 57,
+            "ledger_version": 58,
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
@@ -12265,7 +12265,7 @@
               },
               "schema_version": 1
             },
-            "ledger_id": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY",
+            "ledger_id": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY",
             "losing_trade_count": 0,
             "maximum_drawdown": {
               "precision": 8,
@@ -12299,7 +12299,7 @@
               "schema_version": 1,
               "value": "-0.00002000"
             },
-            "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+            "runtime_id": "backtest-610c351e7f6165c0",
             "trade_count": 6,
             "unrealized_pnl": {
               "amount": "0",
@@ -12382,7 +12382,7 @@
           "UNADJUSTED"
         ]
       },
-      "determinism_fingerprint": "e4f0c0051b42c630946566d6a1b1dd529a7c7193f827243fd4a4400799114b65",
+      "determinism_fingerprint": "7d7427f5d75f416e2396ac9d7dcd6aa2e6b0e2c2bb36844bc81d93a6d6ee07d8",
       "diagnostics": {
         "execution_recoveries": [],
         "failure_count": 0,
@@ -12568,7 +12568,7 @@
             },
             "order_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+              "value": "backtest-610c351e7f6165c0-ORDER-000001"
             },
             "remaining_amount": {
               "amount": "0",
@@ -12582,7 +12582,7 @@
             },
             "reservation_id": {
               "schema_version": 1,
-              "value": "ARESV-backtest-b9ac8baa7a7a4eb5-backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+              "value": "ARESV-backtest-610c351e7f6165c0-backtest-610c351e7f6165c0-ORDER-000001"
             },
             "reserved_amount": {
               "amount": "10010.00",
@@ -12596,7 +12596,7 @@
             },
             "runtime_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5"
+              "value": "backtest-610c351e7f6165c0"
             },
             "schema_version": 1,
             "state": "CONSUMED",
@@ -12619,7 +12619,7 @@
         },
         "runtime_id": {
           "schema_version": 1,
-          "value": "backtest-b9ac8baa7a7a4eb5"
+          "value": "backtest-610c351e7f6165c0"
         },
         "schema_version": 1,
         "status": "ACTIVE",
@@ -12688,13 +12688,13 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
             "mode": "FIXED_CAPITAL",
             "schema_version": 1,
-            "version": 57
+            "version": 58
           },
           "cash": {
             "cash_available": {
@@ -12760,7 +12760,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000001"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000001"
               },
               "entry_type": "INITIAL_ALLOCATION",
               "metadata": {},
@@ -12768,7 +12768,7 @@
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 1,
@@ -12812,21 +12812,21 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000002"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000002"
               },
               "entry_type": "ORDER_RESERVATION",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": {
                 "schema_version": 1,
-                "value": "SCRES-backtest-b9ac8baa7a7a4eb5-macd-demo-backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "SCRES-backtest-610c351e7f6165c0-macd-demo-backtest-610c351e7f6165c0-ORDER-000001"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 2,
@@ -12870,18 +12870,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000003"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000003"
               },
               "entry_type": "BUY_SETTLEMENT",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 3,
@@ -12928,18 +12928,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000004"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000004"
               },
               "entry_type": "FEE",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 4,
@@ -12986,18 +12986,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000005"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000005"
               },
               "entry_type": "BUY_SETTLEMENT",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 5,
@@ -13044,18 +13044,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000006"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000006"
               },
               "entry_type": "FEE",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 6,
@@ -13102,18 +13102,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000007"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000007"
               },
               "entry_type": "BUY_SETTLEMENT",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 7,
@@ -13160,18 +13160,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000008"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000008"
               },
               "entry_type": "FEE",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 8,
@@ -13218,18 +13218,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000009"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000009"
               },
               "entry_type": "SELL_SETTLEMENT",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 9,
@@ -13276,18 +13276,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000010"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000010"
               },
               "entry_type": "FEE",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 10,
@@ -13334,18 +13334,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000011"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000011"
               },
               "entry_type": "SELL_SETTLEMENT",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 11,
@@ -13392,18 +13392,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000012"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000012"
               },
               "entry_type": "FEE",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 12,
@@ -13450,18 +13450,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000013"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000013"
               },
               "entry_type": "SELL_SETTLEMENT",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 13,
@@ -13508,18 +13508,18 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY-0000000014"
+                "value": "SCASH-SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY-0000000014"
               },
               "entry_type": "FEE",
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "reservation_id": null,
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1,
               "sequence": 14,
@@ -13669,7 +13669,7 @@
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -13758,7 +13758,7 @@
               },
               "schema_version": 1
             },
-            "version": 57
+            "version": 58
           },
           "fee_entries": [
             {
@@ -13774,7 +13774,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SFEE-backtest-b9ac8baa7a7a4eb5-virtual-trade-00000001"
+                "value": "SFEE-backtest-610c351e7f6165c0-virtual-trade-00000001"
               },
               "fee_type": "COMMISSION",
               "key": {
@@ -13794,14 +13794,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "schema_version": 1,
               "sequence": 5,
@@ -13831,7 +13831,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SFEE-backtest-b9ac8baa7a7a4eb5-virtual-trade-00000002"
+                "value": "SFEE-backtest-610c351e7f6165c0-virtual-trade-00000002"
               },
               "fee_type": "COMMISSION",
               "key": {
@@ -13851,14 +13851,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "schema_version": 1,
               "sequence": 6,
@@ -13888,7 +13888,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SFEE-backtest-b9ac8baa7a7a4eb5-virtual-trade-00000003"
+                "value": "SFEE-backtest-610c351e7f6165c0-virtual-trade-00000003"
               },
               "fee_type": "COMMISSION",
               "key": {
@@ -13908,14 +13908,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "schema_version": 1,
               "sequence": 7,
@@ -13945,7 +13945,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SFEE-backtest-b9ac8baa7a7a4eb5-virtual-trade-00000004"
+                "value": "SFEE-backtest-610c351e7f6165c0-virtual-trade-00000004"
               },
               "fee_type": "COMMISSION",
               "key": {
@@ -13965,14 +13965,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "schema_version": 1,
               "sequence": 10,
@@ -14002,7 +14002,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SFEE-backtest-b9ac8baa7a7a4eb5-virtual-trade-00000005"
+                "value": "SFEE-backtest-610c351e7f6165c0-virtual-trade-00000005"
               },
               "fee_type": "COMMISSION",
               "key": {
@@ -14022,14 +14022,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "schema_version": 1,
               "sequence": 11,
@@ -14059,7 +14059,7 @@
               },
               "entry_id": {
                 "schema_version": 1,
-                "value": "SFEE-backtest-b9ac8baa7a7a4eb5-virtual-trade-00000006"
+                "value": "SFEE-backtest-610c351e7f6165c0-virtual-trade-00000006"
               },
               "fee_type": "COMMISSION",
               "key": {
@@ -14079,14 +14079,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "schema_version": 1,
               "sequence": 12,
@@ -14121,7 +14121,7 @@
             },
             "runtime_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5"
+              "value": "backtest-610c351e7f6165c0"
             },
             "schema_version": 1
           },
@@ -14133,7 +14133,7 @@
           "last_trade_sequence": 12,
           "ledger_id": {
             "schema_version": 1,
-            "value": "SLEDGER-backtest-b9ac8baa7a7a4eb5-backtest-account-macd-demo-CNY"
+            "value": "SLEDGER-backtest-610c351e7f6165c0-backtest-account-macd-demo-CNY"
           },
           "performance": {
             "cluster_id": {
@@ -14329,14 +14329,14 @@
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
               "metadata": {},
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "remaining_amount": {
                 "amount": "0",
@@ -14350,7 +14350,7 @@
               },
               "reservation_id": {
                 "schema_version": 1,
-                "value": "SCRES-backtest-b9ac8baa7a7a4eb5-macd-demo-backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "SCRES-backtest-610c351e7f6165c0-macd-demo-backtest-610c351e7f6165c0-ORDER-000001"
               },
               "reserved_amount": {
                 "amount": "10010.00",
@@ -14363,13 +14363,13 @@
                 "schema_version": 1
               },
               "schema_version": 1,
-              "stage": "SENT_TO_BROKER",
+              "stage": "BROKER_ACKNOWLEDGED",
               "state": "CONSUMED",
               "updated_at": {
                 "schema_version": 1,
                 "unix_nanos": 1767577260000000000
               },
-              "version": 5
+              "version": 6
             }
           ],
           "schema_version": 1,
@@ -14382,7 +14382,7 @@
             "schema_version": 1,
             "unix_nanos": 1767578340000000000
           },
-          "version": 57
+          "version": 58
         }
       ],
       "final_positions": [],
@@ -14412,7 +14412,7 @@
           "cancelled_at": null,
           "client_order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-CLIENT-000001"
+            "value": "backtest-610c351e7f6165c0-CLIENT-000001"
           },
           "cluster_id": {
             "schema_version": 1,
@@ -14428,7 +14428,7 @@
           "failed_at": null,
           "failure": null,
           "fee_estimate": {
-            "assumptions_fingerprint": "1533de54fe4a7c25dd611ee12979dac200eb023cb5881e256e313c477fef297a",
+            "assumptions_fingerprint": "ab600d22b4098d10b8010369ff059896a32240d7c0f787d3ad3aa1d6c7b95e2a",
             "estimated_rebate": {
               "amount": "0",
               "currency": {
@@ -14440,7 +14440,7 @@
               "schema_version": 1
             },
             "expected": {
-              "assessment_id": "e2ed03a0d8b27236cad8753e543cb8075a46feaf18f296b0ede21f1978d779e2",
+              "assessment_id": "48ff1cd4fc37f9dbafacf66e53dc9eb335f428dc7e8c46c0be5eb5bd838ab07b",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -14472,8 +14472,8 @@
                     }
                   },
                   "market": "GENERIC",
-                  "market_profile_id": "GENERIC_T0_CASH",
-                  "schema_version": 1,
+                  "market_product_id": "GENERIC_T0_CASH",
+                  "schema_version": 2,
                   "venue": "XSHG"
                 },
                 "bound_at": {
@@ -14510,7 +14510,7 @@
                     "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
                   }
                 ],
-                "fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
+                "fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
                 "instrument_id": {
                   "schema_version": 1,
                   "symbol": {
@@ -14528,18 +14528,18 @@
                   "pack_version": "1",
                   "schema_version": 1
                 },
-                "market_profile_id": "GENERIC_T0_CASH",
-                "market_profile_version": "1",
+                "market_product_id": "GENERIC_T0_CASH",
+                "market_product_version": "1",
                 "order_fixed_schedules": [],
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000001"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
-                "schema_version": 2
+                "schema_version": 3
               },
               "components": [
                 {
@@ -14593,7 +14593,7 @@
               ],
               "local_finality": "ESTIMATED",
               "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-              "resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+              "resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
               "schema_version": 2,
               "subject": {
                 "account_id": {
@@ -14617,11 +14617,11 @@
                 },
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000001"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
@@ -14648,7 +14648,7 @@
               "trade_id": null
             },
             "maximum": {
-              "assessment_id": "f330466d37d8e55f33fab097c7e8858dc9ec30aa376e87cefcd4301bddb97018",
+              "assessment_id": "68825eb09018fef625a67f0e911fd072576c0a447fb1f36c60497c8133d64b11",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -14680,8 +14680,8 @@
                     }
                   },
                   "market": "GENERIC",
-                  "market_profile_id": "GENERIC_T0_CASH",
-                  "schema_version": 1,
+                  "market_product_id": "GENERIC_T0_CASH",
+                  "schema_version": 2,
                   "venue": "XSHG"
                 },
                 "bound_at": {
@@ -14718,7 +14718,7 @@
                     "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
                   }
                 ],
-                "fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
+                "fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
                 "instrument_id": {
                   "schema_version": 1,
                   "symbol": {
@@ -14736,18 +14736,18 @@
                   "pack_version": "1",
                   "schema_version": 1
                 },
-                "market_profile_id": "GENERIC_T0_CASH",
-                "market_profile_version": "1",
+                "market_product_id": "GENERIC_T0_CASH",
+                "market_product_version": "1",
                 "order_fixed_schedules": [],
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000001"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
-                "schema_version": 2
+                "schema_version": 3
               },
               "components": [
                 {
@@ -14801,7 +14801,7 @@
               ],
               "local_finality": "ESTIMATED",
               "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-              "resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+              "resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
               "schema_version": 2,
               "subject": {
                 "account_id": {
@@ -14825,11 +14825,11 @@
                 },
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000001"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
@@ -14898,8 +14898,8 @@
                 }
               },
               "market": "GENERIC",
-              "market_profile_id": "GENERIC_T0_CASH",
-              "schema_version": 1,
+              "market_product_id": "GENERIC_T0_CASH",
+              "schema_version": 2,
               "venue": "XSHG"
             },
             "bound_at": {
@@ -14936,7 +14936,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
+            "fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
             "instrument_id": {
               "schema_version": 1,
               "symbol": {
@@ -14954,18 +14954,18 @@
               "pack_version": "1",
               "schema_version": 1
             },
-            "market_profile_id": "GENERIC_T0_CASH",
-            "market_profile_version": "1",
+            "market_product_id": "GENERIC_T0_CASH",
+            "market_product_version": "1",
             "order_fixed_schedules": [],
             "order_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+              "value": "backtest-610c351e7f6165c0-ORDER-000001"
             },
             "runtime_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5"
+              "value": "backtest-610c351e7f6165c0"
             },
-            "schema_version": 2
+            "schema_version": 3
           },
           "fill_count": 3,
           "filled_at": {
@@ -14978,8 +14978,8 @@
             "value": "1000"
           },
           "funding_plan": {
-            "binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
-            "estimate_fingerprint": "1533de54fe4a7c25dd611ee12979dac200eb023cb5881e256e313c477fef297a",
+            "binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
+            "estimate_fingerprint": "ab600d22b4098d10b8010369ff059896a32240d7c0f787d3ad3aa1d6c7b95e2a",
             "fee_reservation": {
               "amount": "10.00",
               "currency": {
@@ -14992,7 +14992,7 @@
             },
             "order_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+              "value": "backtest-610c351e7f6165c0-ORDER-000001"
             },
             "principal_reservation": {
               "amount": "10000.00",
@@ -15037,7 +15037,7 @@
           "offset": "OPEN",
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+            "value": "backtest-610c351e7f6165c0-ORDER-000001"
           },
           "order_type": "LIMIT",
           "price": {
@@ -15063,7 +15063,7 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
           "schema_version": 3,
           "side": "BUY",
@@ -15106,7 +15106,7 @@
           "cancelled_at": null,
           "client_order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-CLIENT-000002"
+            "value": "backtest-610c351e7f6165c0-CLIENT-000002"
           },
           "cluster_id": {
             "schema_version": 1,
@@ -15122,7 +15122,7 @@
           "failed_at": null,
           "failure": null,
           "fee_estimate": {
-            "assumptions_fingerprint": "8fdcb4775a51c261e5b0477b6211b79177e6670fbacc22dc544b6f8a4af82410",
+            "assumptions_fingerprint": "4024d979ef2b1d67e291013669005e8a57c083ab6d549b41915f37419651bef0",
             "estimated_rebate": {
               "amount": "0",
               "currency": {
@@ -15134,7 +15134,7 @@
               "schema_version": 1
             },
             "expected": {
-              "assessment_id": "2dc4ec2f7344f33688cfee4b06ce267e96a817993d6daa5ada0036a650a960a7",
+              "assessment_id": "a21856e98dba9ba3fafa91c4f13ae1bee7defcef5a300936da0f2ce480d1e32e",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -15166,8 +15166,8 @@
                     }
                   },
                   "market": "GENERIC",
-                  "market_profile_id": "GENERIC_T0_CASH",
-                  "schema_version": 1,
+                  "market_product_id": "GENERIC_T0_CASH",
+                  "schema_version": 2,
                   "venue": "XSHG"
                 },
                 "bound_at": {
@@ -15204,7 +15204,7 @@
                     "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
                   }
                 ],
-                "fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
+                "fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
                 "instrument_id": {
                   "schema_version": 1,
                   "symbol": {
@@ -15222,18 +15222,18 @@
                   "pack_version": "1",
                   "schema_version": 1
                 },
-                "market_profile_id": "GENERIC_T0_CASH",
-                "market_profile_version": "1",
+                "market_product_id": "GENERIC_T0_CASH",
+                "market_product_version": "1",
                 "order_fixed_schedules": [],
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000002"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
-                "schema_version": 2
+                "schema_version": 3
               },
               "components": [
                 {
@@ -15287,7 +15287,7 @@
               ],
               "local_finality": "ESTIMATED",
               "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-              "resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+              "resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
               "schema_version": 2,
               "subject": {
                 "account_id": {
@@ -15311,11 +15311,11 @@
                 },
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000002"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
@@ -15342,7 +15342,7 @@
               "trade_id": null
             },
             "maximum": {
-              "assessment_id": "2b00b78d04bf9c6ed8f01afd686fd48cebb8c1e87ca3f53272c6c10cef2641c4",
+              "assessment_id": "3198d7dc033b997a09f6dbdf1636c11df074c953743e4aac24cca54ecf50fbb4",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -15374,8 +15374,8 @@
                     }
                   },
                   "market": "GENERIC",
-                  "market_profile_id": "GENERIC_T0_CASH",
-                  "schema_version": 1,
+                  "market_product_id": "GENERIC_T0_CASH",
+                  "schema_version": 2,
                   "venue": "XSHG"
                 },
                 "bound_at": {
@@ -15412,7 +15412,7 @@
                     "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
                   }
                 ],
-                "fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
+                "fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
                 "instrument_id": {
                   "schema_version": 1,
                   "symbol": {
@@ -15430,18 +15430,18 @@
                   "pack_version": "1",
                   "schema_version": 1
                 },
-                "market_profile_id": "GENERIC_T0_CASH",
-                "market_profile_version": "1",
+                "market_product_id": "GENERIC_T0_CASH",
+                "market_product_version": "1",
                 "order_fixed_schedules": [],
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000002"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
-                "schema_version": 2
+                "schema_version": 3
               },
               "components": [
                 {
@@ -15495,7 +15495,7 @@
               ],
               "local_finality": "ESTIMATED",
               "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-              "resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+              "resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
               "schema_version": 2,
               "subject": {
                 "account_id": {
@@ -15519,11 +15519,11 @@
                 },
                 "order_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                  "value": "backtest-610c351e7f6165c0-ORDER-000002"
                 },
                 "runtime_id": {
                   "schema_version": 1,
-                  "value": "backtest-b9ac8baa7a7a4eb5"
+                  "value": "backtest-610c351e7f6165c0"
                 },
                 "schema_version": 1
               },
@@ -15592,8 +15592,8 @@
                 }
               },
               "market": "GENERIC",
-              "market_profile_id": "GENERIC_T0_CASH",
-              "schema_version": 1,
+              "market_product_id": "GENERIC_T0_CASH",
+              "schema_version": 2,
               "venue": "XSHG"
             },
             "bound_at": {
@@ -15630,7 +15630,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
+            "fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
             "instrument_id": {
               "schema_version": 1,
               "symbol": {
@@ -15648,18 +15648,18 @@
               "pack_version": "1",
               "schema_version": 1
             },
-            "market_profile_id": "GENERIC_T0_CASH",
-            "market_profile_version": "1",
+            "market_product_id": "GENERIC_T0_CASH",
+            "market_product_version": "1",
             "order_fixed_schedules": [],
             "order_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+              "value": "backtest-610c351e7f6165c0-ORDER-000002"
             },
             "runtime_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5"
+              "value": "backtest-610c351e7f6165c0"
             },
-            "schema_version": 2
+            "schema_version": 3
           },
           "fill_count": 3,
           "filled_at": {
@@ -15672,8 +15672,8 @@
             "value": "1000"
           },
           "funding_plan": {
-            "binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
-            "estimate_fingerprint": "8fdcb4775a51c261e5b0477b6211b79177e6670fbacc22dc544b6f8a4af82410",
+            "binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
+            "estimate_fingerprint": "4024d979ef2b1d67e291013669005e8a57c083ab6d549b41915f37419651bef0",
             "fee_reservation": {
               "amount": "10.00",
               "currency": {
@@ -15686,7 +15686,7 @@
             },
             "order_id": {
               "schema_version": 1,
-              "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+              "value": "backtest-610c351e7f6165c0-ORDER-000002"
             },
             "principal_reservation": {
               "amount": "10000.00",
@@ -15731,7 +15731,7 @@
           "offset": "CLOSE",
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+            "value": "backtest-610c351e7f6165c0-ORDER-000002"
           },
           "order_type": "LIMIT",
           "price": {
@@ -15757,7 +15757,7 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
           "schema_version": 3,
           "side": "SELL",
@@ -15786,18 +15786,18 @@
       "reconciliation": {
         "account_id": "backtest-account",
         "differences": [],
-        "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+        "runtime_id": "backtest-610c351e7f6165c0",
         "status": "MATCHED",
         "ts_event_ns": 1767578340000000000
       },
-      "result_fingerprint": "e4f0c0051b42c630946566d6a1b1dd529a7c7193f827243fd4a4400799114b65",
+      "result_fingerprint": "7d7427f5d75f416e2396ac9d7dcd6aa2e6b0e2c2bb36844bc81d93a6d6ee07d8",
       "run": {
         "cluster_ids": [
           "macd-demo"
         ],
         "end_time_ns": 1767578340000000000,
         "failure": null,
-        "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+        "runtime_id": "backtest-610c351e7f6165c0",
         "start_time_ns": 1767576600000000000,
         "status": "COMPLETED"
       },
@@ -15896,7 +15896,7 @@
           "schema_version": 1,
           "value": "-0.00002000"
         },
-        "runtime_id": "backtest-b9ac8baa7a7a4eb5",
+        "runtime_id": "backtest-610c351e7f6165c0",
         "unrealized_pnl": {
           "amount": "0.00",
           "currency": {
@@ -16022,8 +16022,8 @@
             },
             "schema_version": 1
           },
-          "causation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000001",
-          "client_order_id": "backtest-b9ac8baa7a7a4eb5-CLIENT-000001",
+          "causation_id": "backtest-610c351e7f6165c0-ORDER-000001",
+          "client_order_id": "backtest-610c351e7f6165c0-CLIENT-000001",
           "cluster_id": {
             "schema_version": 1,
             "value": "macd-demo"
@@ -16038,13 +16038,13 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
+          "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
             "value": "1"
           },
-          "correlation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000001",
+          "correlation_id": "backtest-610c351e7f6165c0-ORDER-000001",
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
@@ -16057,14 +16057,17 @@
             "precision": 2,
             "schema_version": 1
           },
-          "execution_id": "EXEC-1600d5241b806b9f56b82809022dbc53ed5c39ba7504bef278e460e1914bc5b5",
-          "execution_sequence": 1,
+          "execution_capability": "DURABLE_TRADE",
+          "execution_id": "EXEC-7b38cd987d065fd417650aa4680afac3d03e94ce5c5cc342e93bf20a381f4da4",
+          "execution_sequence": 2,
+          "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+          "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000001",
           "fee_application": {
-            "accrual_after_fingerprint": "6e8cc259eb6e47176ef399f858583ca8595d1798751aaf133a3f667aa57789f4",
+            "accrual_after_fingerprint": "aae63606180cc568b42d8da397d4fe0f97a289915551b07fcae85cc691fef97c",
             "accrual_before_fingerprint": null,
-            "application_id": "a9a0cd9c4f80697b63c6f2ac19153a5df8f4db816723508cf864a63d193958d9",
-            "binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
+            "application_id": "b8436931259054bba4cec1560d506e348bd66e9984f024c094e8b1e9260dbff5",
+            "binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
             "components": [
               {
                 "amount": {
@@ -16145,9 +16148,9 @@
                 "schema_version": 1
               }
             ],
-            "idempotency_key": "fee-application:backtest-b9ac8baa7a7a4eb5:virtual-trade-00000001",
+            "idempotency_key": "fee-application:backtest-610c351e7f6165c0:virtual-trade-00000001",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+            "resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
             "schema_version": 2,
             "signed_cash_effect": "-3.00",
             "subject": {
@@ -16172,11 +16175,11 @@
               },
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -16205,10 +16208,10 @@
               "value": "virtual-trade-00000001"
             }
           },
-          "fee_application_id": "a9a0cd9c4f80697b63c6f2ac19153a5df8f4db816723508cf864a63d193958d9",
+          "fee_application_id": "b8436931259054bba4cec1560d506e348bd66e9984f024c094e8b1e9260dbff5",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
-          "fee_resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+          "fee_binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
+          "fee_resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
           "fee_signed_cash_effect": "-3.00",
           "fee_status": "MODEL_CONFIRMED",
@@ -16233,9 +16236,9 @@
             "schema_version": 1
           },
           "fill_count_after": 1,
-          "fill_identity": "EFILL-41987ad5af537986f557240d3a7229588ec755e767a6687d3309e3d5e63375a3",
+          "fill_identity": "EFILL-8af210ca5c6a5ad9442d98dc875bc5107aba7873d3c144e11431169ffd13871e",
           "fill_index": 1,
-          "fill_payload_fingerprint": "c36c1dc563a8700cf96865aea7f14534f08f3b02ecc0444140e3afe5cd2655e8",
+          "fill_payload_fingerprint": "cc9fce79a465bcf40f166810a28671cc8be90f7f12932b35d917ae8af2327298",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
@@ -16363,8 +16366,8 @@
           "market_fee_schedule_versions": [
             "1"
           ],
-          "market_profile_id": "GENERIC_T0_CASH",
-          "market_profile_version": "1",
+          "market_product_id": "GENERIC_T0_CASH",
+          "market_product_version": "1",
           "net_cash_inflow": {
             "amount": "0.00",
             "currency": {
@@ -16399,7 +16402,7 @@
           },
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+            "value": "backtest-610c351e7f6165c0-ORDER-000001"
           },
           "order_side": "BUY",
           "order_status_after": "PARTIALLY_FILLED",
@@ -16449,7 +16452,7 @@
             },
             "schema_version": 1
           },
-          "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+          "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
@@ -16481,9 +16484,9 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
-          "schema_version": 4,
+          "schema_version": 6,
           "settled_notional": {
             "amount": "3000.00",
             "currency": {
@@ -16494,7 +16497,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-2f258b291d91c78248288120955bbacc8aecb89f8b37b5be0a858a5c36edc731",
+          "settlement_instruction_id": "SINS-59d08a139abafad813588c9e71bb39b59a5f80853b0549ae56c0e23677d344d8",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "0.00",
@@ -16546,7 +16549,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000001"
           },
-          "trade_instruction_id": "TINSTR-cc2e6324fad57dbb20555281b328a803cfd5401d9c243ad7bab937174a553d74",
+          "trade_instruction_id": "TINSTR-ccbeb1a5a3de3f1b2dc3548377c0deedb166b2d2ab9ef2b92452fd186e81c0b6",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -16677,8 +16680,8 @@
             },
             "schema_version": 1
           },
-          "causation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000001",
-          "client_order_id": "backtest-b9ac8baa7a7a4eb5-CLIENT-000001",
+          "causation_id": "backtest-610c351e7f6165c0-ORDER-000001",
+          "client_order_id": "backtest-610c351e7f6165c0-CLIENT-000001",
           "cluster_id": {
             "schema_version": 1,
             "value": "macd-demo"
@@ -16693,13 +16696,13 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
+          "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
             "value": "1"
           },
-          "correlation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000001",
+          "correlation_id": "backtest-610c351e7f6165c0-ORDER-000001",
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
@@ -16712,14 +16715,17 @@
             "precision": 2,
             "schema_version": 1
           },
-          "execution_id": "EXEC-b45d0374dd8158ceb1583c013e064bc403fe935de9dadc3997c194beef76a1cb",
-          "execution_sequence": 2,
+          "execution_capability": "DURABLE_TRADE",
+          "execution_id": "EXEC-1a238f5822965fc04b5568108b1a882e7d5c484a8442afe96b13a46c06fbd0b8",
+          "execution_sequence": 3,
+          "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+          "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000002",
           "fee_application": {
-            "accrual_after_fingerprint": "8384f2774e2a19c6dabcdad698987c3aabc0aa5c43ccc871a7818dcbeaf989ce",
-            "accrual_before_fingerprint": "6e8cc259eb6e47176ef399f858583ca8595d1798751aaf133a3f667aa57789f4",
-            "application_id": "9f8823cf7f5196f1ef8644c06e9c82858333b8ce75985f6f310ab661b94034e9",
-            "binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
+            "accrual_after_fingerprint": "1748056088bb532fb0a57aa18fe04fbfdd26a4798e39feaf227cee2675af633a",
+            "accrual_before_fingerprint": "aae63606180cc568b42d8da397d4fe0f97a289915551b07fcae85cc691fef97c",
+            "application_id": "bea9512c185128a4bce86f40c9e57881c7dde349bd3d43b90a63ed9b6b3c73cd",
+            "binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
             "components": [
               {
                 "amount": {
@@ -16800,9 +16806,9 @@
                 "schema_version": 1
               }
             ],
-            "idempotency_key": "fee-application:backtest-b9ac8baa7a7a4eb5:virtual-trade-00000002",
+            "idempotency_key": "fee-application:backtest-610c351e7f6165c0:virtual-trade-00000002",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+            "resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
             "schema_version": 2,
             "signed_cash_effect": "-4.00",
             "subject": {
@@ -16827,11 +16833,11 @@
               },
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -16860,10 +16866,10 @@
               "value": "virtual-trade-00000002"
             }
           },
-          "fee_application_id": "9f8823cf7f5196f1ef8644c06e9c82858333b8ce75985f6f310ab661b94034e9",
+          "fee_application_id": "bea9512c185128a4bce86f40c9e57881c7dde349bd3d43b90a63ed9b6b3c73cd",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
-          "fee_resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+          "fee_binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
+          "fee_resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
           "fee_signed_cash_effect": "-4.00",
           "fee_status": "MODEL_CONFIRMED",
@@ -16888,9 +16894,9 @@
             "schema_version": 1
           },
           "fill_count_after": 2,
-          "fill_identity": "EFILL-191e55c41d16c24ee98360e646f85a3af282df4292991cb9d852d71a2e1080f6",
+          "fill_identity": "EFILL-cc37537a23289760b88d2b30b702bda69279afa64bc0436531cfa2e2b7355353",
           "fill_index": 2,
-          "fill_payload_fingerprint": "e59635a659bbd4d9e723a3c40714ebb86e878774556393b965c4bf02e04643d4",
+          "fill_payload_fingerprint": "b9709626c6bc0907e2990d1795178771152df3dcd507b55dfcc00c4bab152303",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
@@ -17018,8 +17024,8 @@
           "market_fee_schedule_versions": [
             "1"
           ],
-          "market_profile_id": "GENERIC_T0_CASH",
-          "market_profile_version": "1",
+          "market_product_id": "GENERIC_T0_CASH",
+          "market_product_version": "1",
           "net_cash_inflow": {
             "amount": "0.00",
             "currency": {
@@ -17054,7 +17060,7 @@
           },
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+            "value": "backtest-610c351e7f6165c0-ORDER-000001"
           },
           "order_side": "BUY",
           "order_status_after": "PARTIALLY_FILLED",
@@ -17104,7 +17110,7 @@
             },
             "schema_version": 1
           },
-          "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+          "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
@@ -17136,9 +17142,9 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
-          "schema_version": 4,
+          "schema_version": 6,
           "settled_notional": {
             "amount": "4000.00",
             "currency": {
@@ -17149,7 +17155,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-eb3910e7bb019c9e806af16bdef3dafdd833b8b691749a34e5821857b67db7d6",
+          "settlement_instruction_id": "SINS-20bafe3642b2287792403b9348e2233ddb69d6da8e85a65e35f071502aba0ef3",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "0.00",
@@ -17201,7 +17207,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000002"
           },
-          "trade_instruction_id": "TINSTR-cc2e6324fad57dbb20555281b328a803cfd5401d9c243ad7bab937174a553d74",
+          "trade_instruction_id": "TINSTR-ccbeb1a5a3de3f1b2dc3548377c0deedb166b2d2ab9ef2b92452fd186e81c0b6",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -17332,8 +17338,8 @@
             },
             "schema_version": 1
           },
-          "causation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000001",
-          "client_order_id": "backtest-b9ac8baa7a7a4eb5-CLIENT-000001",
+          "causation_id": "backtest-610c351e7f6165c0-ORDER-000001",
+          "client_order_id": "backtest-610c351e7f6165c0-CLIENT-000001",
           "cluster_id": {
             "schema_version": 1,
             "value": "macd-demo"
@@ -17348,13 +17354,13 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
+          "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
             "value": "1"
           },
-          "correlation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000001",
+          "correlation_id": "backtest-610c351e7f6165c0-ORDER-000001",
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
@@ -17367,14 +17373,17 @@
             "precision": 2,
             "schema_version": 1
           },
-          "execution_id": "EXEC-3d68507430db8a244d56bbe29148905ae397a58cb77e9f1f2bb3d2ddfed5bffc",
-          "execution_sequence": 3,
+          "execution_capability": "DURABLE_TRADE",
+          "execution_id": "EXEC-fedbc25f10d4b7935571d4638e03fffaf9b3be1283eb621b7855c7927ebe1bdd",
+          "execution_sequence": 4,
+          "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
+          "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000003",
           "fee_application": {
-            "accrual_after_fingerprint": "9e2ce4392d7aae0af74da745d4e41d673781a3c909a40a8207c77f7dfb0e80a0",
-            "accrual_before_fingerprint": "8384f2774e2a19c6dabcdad698987c3aabc0aa5c43ccc871a7818dcbeaf989ce",
-            "application_id": "c180b9fe7c993b1ddee564e892886c37e1600140c2786d79cbbde16b20355643",
-            "binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
+            "accrual_after_fingerprint": "cbcb7b56168a0774e78ed4219909a0df4f8730063135ae34bd9acd2c4f1874d1",
+            "accrual_before_fingerprint": "1748056088bb532fb0a57aa18fe04fbfdd26a4798e39feaf227cee2675af633a",
+            "application_id": "93051c410d1943e1167ec417b7864fb18fe6123262defb600b15d3154db2d779",
+            "binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
             "components": [
               {
                 "amount": {
@@ -17455,9 +17464,9 @@
                 "schema_version": 1
               }
             ],
-            "idempotency_key": "fee-application:backtest-b9ac8baa7a7a4eb5:virtual-trade-00000003",
+            "idempotency_key": "fee-application:backtest-610c351e7f6165c0:virtual-trade-00000003",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+            "resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
             "schema_version": 2,
             "signed_cash_effect": "-3.00",
             "subject": {
@@ -17482,11 +17491,11 @@
               },
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+                "value": "backtest-610c351e7f6165c0-ORDER-000001"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -17515,10 +17524,10 @@
               "value": "virtual-trade-00000003"
             }
           },
-          "fee_application_id": "c180b9fe7c993b1ddee564e892886c37e1600140c2786d79cbbde16b20355643",
+          "fee_application_id": "93051c410d1943e1167ec417b7864fb18fe6123262defb600b15d3154db2d779",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "7a3b5518230e0cd0c30429d893951807e9c3b36a6c044820ff41adbe0bcda5dc",
-          "fee_resolution_fingerprint": "1f5d6b76b8948fbc2f8d7bfb89d13e33c30735d82f374ec3ed28b9c82b4a426b",
+          "fee_binding_fingerprint": "407b5b2301b297ba4c8661b1e30d55c371882363d58e433216f29ad128e18012",
+          "fee_resolution_fingerprint": "f5f7adccfe6d7e0ca29dcdd62631366b087cac37a7788ab975315cfa23d3246c",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
           "fee_signed_cash_effect": "-3.00",
           "fee_status": "MODEL_CONFIRMED",
@@ -17543,9 +17552,9 @@
             "schema_version": 1
           },
           "fill_count_after": 3,
-          "fill_identity": "EFILL-af49454566a7801df56d0e5938ea661298b3887a1f6551560d6ed7fc8b628862",
+          "fill_identity": "EFILL-65fcfe6cff53df0f188e10c003960afea7ce614ee03d9d451b7e4560724ced3c",
           "fill_index": 3,
-          "fill_payload_fingerprint": "eb5e2a62760ce81455977ead9adb4d293282caa68a3197991f315ebbf949758f",
+          "fill_payload_fingerprint": "a85d7b85863cdcc8c085e173ea6404255c4f4b24b88e66bf2d0021d7cb3853d2",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
@@ -17673,8 +17682,8 @@
           "market_fee_schedule_versions": [
             "1"
           ],
-          "market_profile_id": "GENERIC_T0_CASH",
-          "market_profile_version": "1",
+          "market_product_id": "GENERIC_T0_CASH",
+          "market_product_version": "1",
           "net_cash_inflow": {
             "amount": "0.00",
             "currency": {
@@ -17709,7 +17718,7 @@
           },
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000001"
+            "value": "backtest-610c351e7f6165c0-ORDER-000001"
           },
           "order_side": "BUY",
           "order_status_after": "FILLED",
@@ -17759,7 +17768,7 @@
             },
             "schema_version": 1
           },
-          "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+          "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
@@ -17791,9 +17800,9 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
-          "schema_version": 4,
+          "schema_version": 6,
           "settled_notional": {
             "amount": "3000.00",
             "currency": {
@@ -17804,7 +17813,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-b64294f16bd22aa01eda416deae154a284209b3361aeab9e7cb3452194047666",
+          "settlement_instruction_id": "SINS-6087ab688a3ee35ab5abba1b75df9dcc95ce22df2940b5f125e9b06b6aae3174",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "0.00",
@@ -17856,7 +17865,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000003"
           },
-          "trade_instruction_id": "TINSTR-cc2e6324fad57dbb20555281b328a803cfd5401d9c243ad7bab937174a553d74",
+          "trade_instruction_id": "TINSTR-ccbeb1a5a3de3f1b2dc3548377c0deedb166b2d2ab9ef2b92452fd186e81c0b6",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -17987,8 +17996,8 @@
             },
             "schema_version": 1
           },
-          "causation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000002",
-          "client_order_id": "backtest-b9ac8baa7a7a4eb5-CLIENT-000002",
+          "causation_id": "backtest-610c351e7f6165c0-ORDER-000002",
+          "client_order_id": "backtest-610c351e7f6165c0-CLIENT-000002",
           "cluster_id": {
             "schema_version": 1,
             "value": "macd-demo"
@@ -18003,13 +18012,13 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
+          "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
             "value": "1"
           },
-          "correlation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000002",
+          "correlation_id": "backtest-610c351e7f6165c0-ORDER-000002",
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
@@ -18022,14 +18031,17 @@
             "precision": 2,
             "schema_version": 1
           },
-          "execution_id": "EXEC-5f9ae3b022fc5fee746dc5bff3f4ac928e576e80d61497bb9778ba4cf3c0596a",
-          "execution_sequence": 4,
+          "execution_capability": "DURABLE_TRADE",
+          "execution_id": "EXEC-7ee5804b2f0a8941c63fd8cf784413094d723c211ef793568ebfa91832eb6e41",
+          "execution_sequence": 6,
+          "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+          "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000004",
           "fee_application": {
-            "accrual_after_fingerprint": "c0d75070cefbc91517327acc0878d0784afd2e7249d2c6188fc90a34a987cc76",
+            "accrual_after_fingerprint": "9f30b08730c127337d2deb4f6a2df614bd1ad16487032062043393fe9c05f2d8",
             "accrual_before_fingerprint": null,
-            "application_id": "7b240f70a7aaadea4a44a900f6f2329582d17ad6a73e9296a3db47a5c394f300",
-            "binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
+            "application_id": "62a02489ee2f2e40734138f2b6ddc8133783f746e55693c197998b4958e59a3b",
+            "binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
             "components": [
               {
                 "amount": {
@@ -18110,9 +18122,9 @@
                 "schema_version": 1
               }
             ],
-            "idempotency_key": "fee-application:backtest-b9ac8baa7a7a4eb5:virtual-trade-00000004",
+            "idempotency_key": "fee-application:backtest-610c351e7f6165c0:virtual-trade-00000004",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+            "resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
             "schema_version": 2,
             "signed_cash_effect": "-3.00",
             "subject": {
@@ -18137,11 +18149,11 @@
               },
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -18170,10 +18182,10 @@
               "value": "virtual-trade-00000004"
             }
           },
-          "fee_application_id": "7b240f70a7aaadea4a44a900f6f2329582d17ad6a73e9296a3db47a5c394f300",
+          "fee_application_id": "62a02489ee2f2e40734138f2b6ddc8133783f746e55693c197998b4958e59a3b",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
-          "fee_resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+          "fee_binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
+          "fee_resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
           "fee_signed_cash_effect": "-3.00",
           "fee_status": "MODEL_CONFIRMED",
@@ -18198,9 +18210,9 @@
             "schema_version": 1
           },
           "fill_count_after": 1,
-          "fill_identity": "EFILL-0967f14113a85ebc5478b702d1f1f7699682b974f128e7a923c064602d04fa07",
+          "fill_identity": "EFILL-08ac60c4ad0cced5fe2706fec03a38cdf039c99d83e8f9afef92d4d85a8d8052",
           "fill_index": 1,
-          "fill_payload_fingerprint": "1e7bbd91665e917ac892e7e70241e2af8cf2a8f9de553490cef1e6a8e4e451c1",
+          "fill_payload_fingerprint": "28987a6035d38f31fc6999ceae3be3bc718e49f2d6340dcfc763ce922d2db7f1",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
@@ -18328,8 +18340,8 @@
           "market_fee_schedule_versions": [
             "1"
           ],
-          "market_profile_id": "GENERIC_T0_CASH",
-          "market_profile_version": "1",
+          "market_product_id": "GENERIC_T0_CASH",
+          "market_product_version": "1",
           "net_cash_inflow": {
             "amount": "2997.00",
             "currency": {
@@ -18364,7 +18376,7 @@
           },
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+            "value": "backtest-610c351e7f6165c0-ORDER-000002"
           },
           "order_side": "SELL",
           "order_status_after": "PARTIALLY_FILLED",
@@ -18414,7 +18426,7 @@
             },
             "schema_version": 1
           },
-          "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+          "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
@@ -18446,9 +18458,9 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
-          "schema_version": 4,
+          "schema_version": 6,
           "settled_notional": {
             "amount": "3000.00",
             "currency": {
@@ -18459,7 +18471,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-439b3174ae37054bf884c4c276b090ccf53a248e32e2eac1ab29134c63c7df3b",
+          "settlement_instruction_id": "SINS-0a9ce44584d1ad395bfb325e9384b1a566aee2efd15fdfedcbf942ff4acc786b",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "-0.00",
@@ -18511,7 +18523,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000004"
           },
-          "trade_instruction_id": "TINSTR-84dd8b75170c93f78c65e5a999027e7c0399cc78e91b1d4aad35c1e6f7fc6b81",
+          "trade_instruction_id": "TINSTR-dd033537f7b76d49fac3f4e7ed1c85c6669bbddeeeffabe6e87cc14926ec7c93",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -18642,8 +18654,8 @@
             },
             "schema_version": 1
           },
-          "causation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000002",
-          "client_order_id": "backtest-b9ac8baa7a7a4eb5-CLIENT-000002",
+          "causation_id": "backtest-610c351e7f6165c0-ORDER-000002",
+          "client_order_id": "backtest-610c351e7f6165c0-CLIENT-000002",
           "cluster_id": {
             "schema_version": 1,
             "value": "macd-demo"
@@ -18658,13 +18670,13 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
+          "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
             "value": "1"
           },
-          "correlation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000002",
+          "correlation_id": "backtest-610c351e7f6165c0-ORDER-000002",
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
@@ -18677,14 +18689,17 @@
             "precision": 2,
             "schema_version": 1
           },
-          "execution_id": "EXEC-0e37751526505ab825fcc0aab1c75b24c5cf6c8ef21c98d5c9974383d7556705",
-          "execution_sequence": 5,
+          "execution_capability": "DURABLE_TRADE",
+          "execution_id": "EXEC-3ceaf08912e1bb4cb7212ec7e7edb7a4a1dcd556673e0198ba4fa32fd8dabe9f",
+          "execution_sequence": 7,
+          "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+          "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000005",
           "fee_application": {
-            "accrual_after_fingerprint": "d505a9acd4b693dbb36740edfeb5fe00637f7c32627a8149e408c4da8a1f0064",
-            "accrual_before_fingerprint": "c0d75070cefbc91517327acc0878d0784afd2e7249d2c6188fc90a34a987cc76",
-            "application_id": "31477a1646f35d33c7efdddcb1ff09db5ca0173f2916a80c82f85b2a884e3096",
-            "binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
+            "accrual_after_fingerprint": "7ab8e439866475c79c5ee3719714997631e019e7fc5d19b8887641a77a8b6cec",
+            "accrual_before_fingerprint": "9f30b08730c127337d2deb4f6a2df614bd1ad16487032062043393fe9c05f2d8",
+            "application_id": "c6e999f171a508a28647c6b19b7db87225d5c590f5a9aeaac2cde23ea7c27fa2",
+            "binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
             "components": [
               {
                 "amount": {
@@ -18765,9 +18780,9 @@
                 "schema_version": 1
               }
             ],
-            "idempotency_key": "fee-application:backtest-b9ac8baa7a7a4eb5:virtual-trade-00000005",
+            "idempotency_key": "fee-application:backtest-610c351e7f6165c0:virtual-trade-00000005",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+            "resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
             "schema_version": 2,
             "signed_cash_effect": "-4.00",
             "subject": {
@@ -18792,11 +18807,11 @@
               },
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -18825,10 +18840,10 @@
               "value": "virtual-trade-00000005"
             }
           },
-          "fee_application_id": "31477a1646f35d33c7efdddcb1ff09db5ca0173f2916a80c82f85b2a884e3096",
+          "fee_application_id": "c6e999f171a508a28647c6b19b7db87225d5c590f5a9aeaac2cde23ea7c27fa2",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
-          "fee_resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+          "fee_binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
+          "fee_resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
           "fee_signed_cash_effect": "-4.00",
           "fee_status": "MODEL_CONFIRMED",
@@ -18853,9 +18868,9 @@
             "schema_version": 1
           },
           "fill_count_after": 2,
-          "fill_identity": "EFILL-8210cd1e12426c1081501ed6c9f5003286e8db63ecfc70be561a47d5f25e00c5",
+          "fill_identity": "EFILL-1111b4720db12df0f75e96686cee72fcebef371f75f49c8c11e06ad7da020c05",
           "fill_index": 2,
-          "fill_payload_fingerprint": "8b0134672b36bbbfe1f37f2b6a4999bbf9d61f068426cd2f75dd2171261d933e",
+          "fill_payload_fingerprint": "6285751dadce178b70e3db69c79fa959432ecffb48341a825fa718723c37e119",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
@@ -18983,8 +18998,8 @@
           "market_fee_schedule_versions": [
             "1"
           ],
-          "market_profile_id": "GENERIC_T0_CASH",
-          "market_profile_version": "1",
+          "market_product_id": "GENERIC_T0_CASH",
+          "market_product_version": "1",
           "net_cash_inflow": {
             "amount": "3996.00",
             "currency": {
@@ -19019,7 +19034,7 @@
           },
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+            "value": "backtest-610c351e7f6165c0-ORDER-000002"
           },
           "order_side": "SELL",
           "order_status_after": "PARTIALLY_FILLED",
@@ -19069,7 +19084,7 @@
             },
             "schema_version": 1
           },
-          "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+          "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
@@ -19101,9 +19116,9 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
-          "schema_version": 4,
+          "schema_version": 6,
           "settled_notional": {
             "amount": "4000.00",
             "currency": {
@@ -19114,7 +19129,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-48054b489ecd6b8b4eef178ba0f1512ecb2da4d5aef16769c51c1a0b7c8f1f41",
+          "settlement_instruction_id": "SINS-aa6b0eca20dc4533dc6a9846d729ebd31814fb9a1e799697e80b26c9c7316576",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "-0.00",
@@ -19166,7 +19181,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000005"
           },
-          "trade_instruction_id": "TINSTR-84dd8b75170c93f78c65e5a999027e7c0399cc78e91b1d4aad35c1e6f7fc6b81",
+          "trade_instruction_id": "TINSTR-dd033537f7b76d49fac3f4e7ed1c85c6669bbddeeeffabe6e87cc14926ec7c93",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -19297,8 +19312,8 @@
             },
             "schema_version": 1
           },
-          "causation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000002",
-          "client_order_id": "backtest-b9ac8baa7a7a4eb5-CLIENT-000002",
+          "causation_id": "backtest-610c351e7f6165c0-ORDER-000002",
+          "client_order_id": "backtest-610c351e7f6165c0-CLIENT-000002",
           "cluster_id": {
             "schema_version": 1,
             "value": "macd-demo"
@@ -19313,13 +19328,13 @@
             },
             "schema_version": 1
           },
-          "compiled_rule_fingerprint": "8fd2098bdea94157092ba8353b44813e09a2ea31b6127e3f5b285ffe9c628282",
+          "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
           "contract_multiplier": {
             "precision": 0,
             "schema_version": 1,
             "value": "1"
           },
-          "correlation_id": "backtest-b9ac8baa7a7a4eb5-ORDER-000002",
+          "correlation_id": "backtest-610c351e7f6165c0-ORDER-000002",
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
@@ -19332,14 +19347,17 @@
             "precision": 2,
             "schema_version": 1
           },
-          "execution_id": "EXEC-55f54e1775306f86f8cb8ca7b261ef51123013a7493cca5829980a89606bd6e6",
-          "execution_sequence": 6,
+          "execution_capability": "DURABLE_TRADE",
+          "execution_id": "EXEC-a6d063de597f255a141505c26e4b2c57880d4ead9eb21ce7b795ead686bee63b",
+          "execution_sequence": 8,
+          "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
+          "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000006",
           "fee_application": {
-            "accrual_after_fingerprint": "9a3e0b687583f5f94cfb8f5fa8404e9aaafe0f96473a84ec55ec9632ba35511c",
-            "accrual_before_fingerprint": "d505a9acd4b693dbb36740edfeb5fe00637f7c32627a8149e408c4da8a1f0064",
-            "application_id": "155323b0369ccce3ec6e2aca1db412c55568caa2b5a8d7b6dffdc3c99f849c03",
-            "binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
+            "accrual_after_fingerprint": "faa11c0ea8bb07fa71f6a0d6a527bf5a849b496897a5416f230539ccd4d49848",
+            "accrual_before_fingerprint": "7ab8e439866475c79c5ee3719714997631e019e7fc5d19b8887641a77a8b6cec",
+            "application_id": "e191f0e49b23c31ae8fa1496264475851eb8aa2802b8c5b36c037a822f37cd20",
+            "binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
             "components": [
               {
                 "amount": {
@@ -19420,9 +19438,9 @@
                 "schema_version": 1
               }
             ],
-            "idempotency_key": "fee-application:backtest-b9ac8baa7a7a4eb5:virtual-trade-00000006",
+            "idempotency_key": "fee-application:backtest-610c351e7f6165c0:virtual-trade-00000006",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+            "resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
             "schema_version": 2,
             "signed_cash_effect": "-3.00",
             "subject": {
@@ -19447,11 +19465,11 @@
               },
               "order_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+                "value": "backtest-610c351e7f6165c0-ORDER-000002"
               },
               "runtime_id": {
                 "schema_version": 1,
-                "value": "backtest-b9ac8baa7a7a4eb5"
+                "value": "backtest-610c351e7f6165c0"
               },
               "schema_version": 1
             },
@@ -19480,10 +19498,10 @@
               "value": "virtual-trade-00000006"
             }
           },
-          "fee_application_id": "155323b0369ccce3ec6e2aca1db412c55568caa2b5a8d7b6dffdc3c99f849c03",
+          "fee_application_id": "e191f0e49b23c31ae8fa1496264475851eb8aa2802b8c5b36c037a822f37cd20",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "f43a9b3fd50792f93eda760b3e3f845bce43c71cdc57147da6a90608b838405c",
-          "fee_resolution_fingerprint": "5138a87ff2e1bd00c4c5964399ae37eb866dbc661b99c71527d8a3b93d66c186",
+          "fee_binding_fingerprint": "9c7f03e28b2d7ae9b534971f58bfc75dd3c5163995ee361654c07c75fcd77b13",
+          "fee_resolution_fingerprint": "88484f46446e6c587c8aad654e5eeea24af415ec8f8c364ebafec776d2b5292a",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
           "fee_signed_cash_effect": "-3.00",
           "fee_status": "MODEL_CONFIRMED",
@@ -19508,9 +19526,9 @@
             "schema_version": 1
           },
           "fill_count_after": 3,
-          "fill_identity": "EFILL-93c4b14766d07bfb885eb7dbd45988a815522746695edef91df342c4831eca83",
+          "fill_identity": "EFILL-e5c140537d2fab2b08489bd6c200500220800b6c4fc48c6dfb824d019fa6b47f",
           "fill_index": 3,
-          "fill_payload_fingerprint": "79194c38ef2fe67203f9c68d9bd04b378956bc6629daf48addb96e42ffea5160",
+          "fill_payload_fingerprint": "af145ab7968db3b3ee0e6f156f02e98c4a379b8dd86c26bb8e1d66e9985a9674",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
@@ -19638,8 +19656,8 @@
           "market_fee_schedule_versions": [
             "1"
           ],
-          "market_profile_id": "GENERIC_T0_CASH",
-          "market_profile_version": "1",
+          "market_product_id": "GENERIC_T0_CASH",
+          "market_product_version": "1",
           "net_cash_inflow": {
             "amount": "2997.00",
             "currency": {
@@ -19674,7 +19692,7 @@
           },
           "order_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5-ORDER-000002"
+            "value": "backtest-610c351e7f6165c0-ORDER-000002"
           },
           "order_side": "SELL",
           "order_status_after": "FILLED",
@@ -19724,7 +19742,7 @@
             },
             "schema_version": 1
           },
-          "reference_fingerprint": "ed620dc86e65d1a489f7a6e91943b36a9c5adebab793f80de28779d6957e041e",
+          "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
@@ -19756,9 +19774,9 @@
           },
           "runtime_id": {
             "schema_version": 1,
-            "value": "backtest-b9ac8baa7a7a4eb5"
+            "value": "backtest-610c351e7f6165c0"
           },
-          "schema_version": 4,
+          "schema_version": 6,
           "settled_notional": {
             "amount": "3000.00",
             "currency": {
@@ -19769,7 +19787,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-59c2dd915abe698ab2e0792c11761a00456628a7a271a1fced7c5917871ada12",
+          "settlement_instruction_id": "SINS-3be92c3f651daaf86dac1df1ff235cb14203608b7dc57445bffbc5af14334e3b",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "-0.00",
@@ -19821,7 +19839,7 @@
             "schema_version": 1,
             "value": "virtual-trade-00000006"
           },
-          "trade_instruction_id": "TINSTR-84dd8b75170c93f78c65e5a999027e7c0399cc78e91b1d4aad35c1e6f7fc6b81",
+          "trade_instruction_id": "TINSTR-dd033537f7b76d49fac3f4e7ed1c85c6669bbddeeeffabe6e87cc14926ec7c93",
           "trading_day": {
             "schema_version": 1,
             "value": "2026-01-05"
@@ -19844,13 +19862,13 @@
       ]
     }
   ],
-  "determinism_fingerprint": "03fb41fc1d98889013473ade72b22745657e75e6f7fc2fe4377bf2c2c21107e3",
+  "determinism_fingerprint": "f3a775b37bcbdbbc167f50a497d400e10ecc5e40dca81215af6129e3985832c9",
   "engine_id": "fixture-multi_fill_round_trip",
   "failures": [],
-  "manifest_path": "/private/var/folders/_8/zr6_lhjd519cly7jfj6z5c0w0000gn/T/onlyalpha-multi_fill_round_trip-f8g0twn_/runs/fixture-multi_fill_round_trip/run-3f85f635b7b74aee9a2a86fe1cb17c8e/manifest.json",
+  "manifest_path": "/tmp/onlyalpha-multi_fill_round_trip-yxwuolhd/runs/fixture-multi_fill_round_trip/run-d9df5906653b4fca80d8e104811e8450/manifest.json",
   "report_paths": [
-    "/private/var/folders/_8/zr6_lhjd519cly7jfj6z5c0w0000gn/T/onlyalpha-multi_fill_round_trip-f8g0twn_/runs/fixture-multi_fill_round_trip/run-3f85f635b7b74aee9a2a86fe1cb17c8e/report.md"
+    "/tmp/onlyalpha-multi_fill_round_trip-yxwuolhd/runs/fixture-multi_fill_round_trip/run-d9df5906653b4fca80d8e104811e8450/report.md"
   ],
-  "run_id": "run-3f85f635b7b74aee9a2a86fe1cb17c8e",
+  "run_id": "run-d9df5906653b4fca80d8e104811e8450",
   "status": "COMPLETED"
 }

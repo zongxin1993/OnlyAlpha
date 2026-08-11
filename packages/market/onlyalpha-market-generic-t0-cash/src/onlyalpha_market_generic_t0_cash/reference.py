@@ -13,7 +13,7 @@ from onlyalpha.plugin.api import (
     OnlyMarketProductAuthorityIdentity,
     OnlyMarketProductResolutionError,
     OnlyTradingDay,
-    only_canonical_fingerprint,
+    only_identity_fingerprint,
 )
 
 
@@ -135,7 +135,8 @@ class OnlyGenericT0CashReference:
             active,
             suspended,
         )
-        return cls(*payload, only_canonical_fingerprint(payload))
+        values = (str(instrument_id), *payload[1:])
+        return cls(*payload, only_identity_fingerprint(values))
 
     def __post_init__(self) -> None:
         if self.asset_class not in {OnlyAssetClass.EQUITY, OnlyAssetClass.FUND}:
@@ -157,7 +158,7 @@ class OnlyGenericT0CashReference:
         if self.effective_to is not None and self.effective_to <= self.effective_from:
             raise ValueError("reference effective range must increase")
         payload = (
-            self.instrument_id,
+            str(self.instrument_id),
             self.asset_class,
             self.settlement_currency,
             self.contract_multiplier,
@@ -170,7 +171,7 @@ class OnlyGenericT0CashReference:
             self.active,
             self.suspended,
         )
-        if self.content_fingerprint != only_canonical_fingerprint(payload):
+        if self.content_fingerprint != only_identity_fingerprint(payload):
             raise ValueError("GENERIC_T0_CASH_REFERENCE_FINGERPRINT_CONFLICT")
 
 
@@ -190,7 +191,7 @@ class OnlyGenericT0CashReferenceAuthority:
         references: tuple[OnlyGenericT0CashReference, ...],
     ) -> OnlyGenericT0CashReferenceAuthority:
         ordered = tuple(sorted(references, key=lambda item: (str(item.instrument_id), item.effective_from)))
-        fingerprint = only_canonical_fingerprint(tuple(item.content_fingerprint for item in ordered))
+        fingerprint = only_identity_fingerprint(tuple(item.content_fingerprint for item in ordered))
         identity = OnlyMarketProductAuthorityIdentity(
             "REFERENCE",
             authority_id,
@@ -200,7 +201,7 @@ class OnlyGenericT0CashReferenceAuthority:
         return cls(authority_id, authority_version, ordered, identity)
 
     def __post_init__(self) -> None:
-        expected = only_canonical_fingerprint(tuple(item.content_fingerprint for item in self.references))
+        expected = only_identity_fingerprint(tuple(item.content_fingerprint for item in self.references))
         if self.identity.authority_kind != "REFERENCE":
             raise ValueError("GENERIC_T0_CASH_REFERENCE_AUTHORITY_KIND_INVALID")
         if (self.identity.authority_id, self.identity.authority_version) != (

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from onlyalpha.plugin.api import (
-    OnlyMarketProductCompositionIdentity,
     OnlyMarketProductConfig,
     OnlyMarketProductId,
     OnlyMarketProductIdentity,
@@ -16,7 +15,7 @@ from onlyalpha.plugin.api import (
     OnlyResolvedMarketProductBinding,
     OnlyUnsupportedMarketProductError,
     OnlyUnsupportedMarketProductVersionError,
-    only_canonical_fingerprint,
+    only_identity_fingerprint,
 )
 from onlyalpha_market_generic_t0_cash.compiler import OnlyGenericT0CashPolicyCompiler
 from onlyalpha_market_generic_t0_cash.config import OnlyGenericT0CashConfig
@@ -78,20 +77,13 @@ class OnlyGenericT0CashMarketProductFactory:
         )
         fee_pack = only_generic_t0_cash_market_fee_pack()
         identity = OnlyMarketProductIdentity(PRODUCT_ID, PRODUCT_VERSION)
-        composition = OnlyMarketProductCompositionIdentity.create(
+        return OnlyResolvedMarketProductBinding.create(
             product_identity=identity,
-            reference_authority=reference_authority.identity,
-            policy_compiler=self._compiler.identity,
-            market_fee_pack=fee_pack.identity,
-            effective_config_fingerprint=only_canonical_fingerprint(()),
-        )
-        return OnlyResolvedMarketProductBinding(
-            identity,
-            self.plugin_id,
-            reference_authority,
-            self._compiler,
-            fee_pack,
-            composition,
+            provider_plugin_id=self.plugin_id,
+            reference_authority=reference_authority,
+            policy_compiler=self._compiler,
+            market_fee_pack=fee_pack,
+            effective_config_fingerprint=only_identity_fingerprint(()),
         )
 
 

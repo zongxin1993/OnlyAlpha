@@ -82,6 +82,7 @@ class OnlyPostRecoveryAuthorityFixture:
                 timestamp,
                 cursor,
                 "config",
+                "0" * 64,
                 "registry",
                 "pending",
             ),

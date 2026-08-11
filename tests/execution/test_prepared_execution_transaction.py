@@ -109,7 +109,7 @@ def test_memory_and_sqlite_conflict_and_contiguous_sequence_contract(transaction
     first = _prepared()
     timestamp = OnlyTimestamp.from_datetime(datetime(2026, 1, 1, 0, 1, tzinfo=UTC))
     transaction_store.commit(first, committed_at=timestamp)
-    changed_fact = replace(first.fact_draft, market_profile_version="conflicting-version")
+    changed_fact = replace(first.fact_draft, market_product_version="conflicting-version")
     conflict = replace(first, fact_draft=changed_fact, authority_hash="", payload_hash="")
     with pytest.raises(OnlyRuntimeTransactionConflict):
         transaction_store.commit(conflict, committed_at=timestamp)

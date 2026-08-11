@@ -23,7 +23,7 @@ from onlyalpha.fee.policy import OnlyFeeRule, OnlyResolvedFeePolicy
 @dataclass(frozen=True, slots=True)
 class OnlyMarketFeeApplicabilityContext:
     trading_day: OnlyTradingDay
-    market_profile_id: str
+    market_product_id: str
     market: str
     venue: str
     instrument_class: str

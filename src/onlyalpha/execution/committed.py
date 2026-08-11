@@ -36,7 +36,7 @@ from .capability import (
 class OnlyCommittedExecutionFact(OnlyDomainModel):
     """Self-contained result of one fully committed local execution transaction."""
 
-    schema_version = 5
+    schema_version = 6
 
     execution_id: str
     execution_sequence: int
@@ -120,8 +120,8 @@ class OnlyCommittedExecutionFact(OnlyDomainModel):
     broker_fee_schedule_versions: tuple[str, ...]
     broker_fee_schedule_fingerprints: tuple[str, ...]
     fee_application: OnlyFeeApplicationInstruction
-    market_profile_id: str
-    market_profile_version: str
+    market_product_id: str
+    market_product_version: str
     compiled_rule_fingerprint: str
     reference_fingerprint: str
     trade_instruction_id: str

@@ -96,6 +96,8 @@ def regenerate(name: str, generated_at: str) -> None:
         runtime_result = result.runtime_results[0]
         projection = canonical_value(only_backtest_business_projection(runtime_result))
         facts = runtime_result.facts
+        if facts.market_product is None:
+            raise RuntimeError(f"fixture generation lacks Market Product evidence for {name}")
         target = TARGET / name
         staging = TARGET / f".{name}.staging"
         if staging.exists():
@@ -104,11 +106,19 @@ def regenerate(name: str, generated_at: str) -> None:
         write_canonical_json(staging / "result.json", result.to_dict())
         write_canonical_json(staging / "canonical_projection.json", projection)
         manifest = {
-            "fixture_schema_version": 1,
-            "onlyalpha_version": "0.3.4",
+            "fixture_schema_version": 2,
+            "onlyalpha_version": "0.3.6",
             "scenario": name,
             "generation_command": f"uv run python scripts/regenerate_result_fixtures.py --scenario {name}",
-            "market_profile": [str(config.market.profile) for config in configs],
+            "market_products": [
+                {
+                    "provider_plugin_id": str(config.market.plugin_id),
+                    "product_id": str(config.market.product_id),
+                    "product_version": str(config.market.product_version),
+                }
+                for config in configs
+            ],
+            "market_product_evidence": canonical_value(facts.market_product),
             "runtime_type": "BACKTEST",
             "data_fingerprint": only_result_fingerprint(runtime_result.data),
             "configuration_fingerprint": result.determinism_fingerprint,

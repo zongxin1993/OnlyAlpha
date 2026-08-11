@@ -154,7 +154,7 @@ def test_scenario_runner_traverses_engine_and_is_deterministic(tmp_path: Path) -
     assert first.status == second_run.status == "PASSED"
     assert first.result_fingerprint == second_run.result_fingerprint
     assert first.facts[OnlyScenarioFactType.ORDER][0]["status"] == "FILLED"
-    assert first.facts[OnlyScenarioFactType.PROFILE_TIMELINE]
+    assert first.facts[OnlyScenarioFactType.MARKET_PRODUCT_TIMELINE]
     assert first.facts[OnlyScenarioFactType.COMPILED_RULE]
     assert (first.artifact_path / "manifest.json").is_file()  # type: ignore[operator]
 
