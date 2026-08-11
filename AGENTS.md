@@ -712,6 +712,34 @@ onlyalpha.plugin.api
 
 ## 11. Market Profile 与规则
 
+### 11.0 Market Product Composition Authority
+
+P5.1 已建立唯一目标组合入口：
+
+```text
+OnlyMarketProductConfig
+→ OnlyMarketProductFactoryRegistry
+→ OnlyMarketProductFactory.resolve(...)
+→ OnlyResolvedMarketProductBinding
+→ Trading Runtime Composition
+```
+
+Market Product 属于 Trading Plane。Concrete Market Product Plugin 拥有具体市场知识并只依赖 Core Contract；Core 不得依赖 concrete market package。Research 不要求 Market Product Binding。
+
+必须保持：
+
+- Plugin provider identity 与 Product economic identity 分离；
+- Product identity 只能用于 evidence、audit、artifact、fingerprint 和 compatibility proof，不得作为 Core behavior selector；
+- Composition identity 只基于 resolution 后的 effective product/reference/policy/fee/config authorities，不得直接使用 raw YAML identity；
+- Binding immutable，且不得持有 Order、Position、Account、Risk、Execution 或其他 mutable Runtime authority；
+- Factory resolution context 只暴露 composition-time ports，不暴露 Engine/Runtime internals；
+- Registry 只负责显式 factory lookup，unknown、duplicate、ambiguous 和 mismatch 必须 fail closed；
+- 不得 implicit Generic fallback，不得 import-time global registration；
+- Runtime type 不进入 Market Product economic contract；
+- Market Product 与 Broker、DataSource、Risk、Execution Support 分离；Plugin 计算市场语义，Core 修改交易状态。
+
+当前 Generic/Profile/A-share production composition 尚未迁移，并作为 P5.2/P5.3 migration debt 保留。不得为此新增 bridge、compatibility adapter、deprecated alias 或反向 fallback，也不得声称 concrete Market Product migration 已完成。
+
 市场规则链固定为：
 
 ```text

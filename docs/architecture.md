@@ -179,7 +179,21 @@ OnlyClusterRunConfig
 
 ## 8. Market Product Composition
 
-市场合法性与执行实现能力是两个 Authority：
+P5.1 已建立 Trading Plane 的 Core Market Product Contract。目标唯一组合链是：
+
+```text
+OnlyMarketProductConfig
+→ OnlyMarketProductFactoryRegistry
+→ selected OnlyMarketProductFactory
+→ OnlyResolvedMarketProductBinding
+→ Trading Runtime composition
+```
+
+Core 只定义市场中立的 Plugin/Product identity、不可变配置 envelope、Reference/Policy ports、Factory、fail-closed Registry 和 immutable Binding。Concrete Market Product Plugin 拥有具体市场知识并向下依赖 Core Contract；Core 不依赖具体市场 package。Binding 携带 provider/product evidence、resolved reference authority、pure policy compiler、现有 immutable Market Fee Pack 和 effective composition identity，不暴露 Runtime mutable manager。
+
+Product identity 是 evidence，不是行为选择器。Composition fingerprint 在 resolution 后基于 effective product/reference/compiler/fee/config authorities 生成，不直接 fingerprint raw YAML；Runtime type 不进入 Market Product economic contract。Market Product 与 Broker、DataSource、Risk、Execution Support 正交，Research 不要求 Market Product Binding。详见 [ADR 0069](adr/0069-market-product-contract-and-composition-authority.md)。
+
+当前生产组合尚未 cut over，仍是：
 
 ```text
 OnlyMarketConfig
@@ -189,6 +203,10 @@ OnlyMarketConfig
 → OnlyMarketRuleEngine
 → Restricted Decision / Instruction
 ```
+
+这是 P5.2/P5.3 明确保留的迁移债务，不是第二套长期合同。P5.2 将 Generic T0 实现为插件；P5.3 将 CN A-share 与 Trading Runtime 切换到 resolved binding，并删除失去职责的 Core concrete composition。P5.1 没有增加 adapter、fallback 或 compatibility wrapper。
+
+市场合法性与执行实现能力仍是两个 Authority：
 
 Reference 提供证券事实，Profile 提供版本化制度，Compiler 在 evaluate 前解析最终 Session/Price/Quantity/Settlement policy。Execution Support 根据规范化 economic shape 判断 Kernel 是否支持，不根据市场名、Profile ID 或 Runtime type 决定权限。
 

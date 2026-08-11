@@ -33,6 +33,7 @@ from onlyalpha.config.persistence import (
     OnlyRuntimePersistenceBackend,
     OnlyRuntimePersistenceConfig,
 )
+from onlyalpha.market.product import OnlyCanonicalMarketProductConfig, OnlyMarketProductConfig
 
 __all__ = [
     "OnlyAccountRuntimeConfig",
@@ -49,6 +50,8 @@ __all__ = [
     "OnlyJsonMapping",
     "OnlyJsonValue",
     "OnlyMarketConfig",
+    "OnlyCanonicalMarketProductConfig",
+    "OnlyMarketProductConfig",
     "OnlyMarketFeePackConfig",
     "OnlyOutputConfig",
     "OnlyReferenceDataConfig",
