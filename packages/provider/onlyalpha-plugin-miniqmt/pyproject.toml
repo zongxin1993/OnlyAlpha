@@ -7,7 +7,7 @@ requires-python = ">=3.12,<3.13"
 
 dependencies = [
     "onlyalpha==0.3.7",
-    "onlyalpha-market-cn-ashare==0.3.6",
+    "onlyalpha-market-cn-ashare==0.3.7",
     "xtquant>=250516.1.1; sys_platform == 'win32'",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]
