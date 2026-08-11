@@ -9,7 +9,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from onlyalpha.core.clock import OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
-from onlyalpha.domain.enums import OnlyRuntimeMode
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 
@@ -37,10 +36,9 @@ class OnlyRuntimeLogger:
         logger: logging.Logger,
         runtime_id: OnlyRuntimeId,
         cluster_id: OnlyClusterId,
-        mode: OnlyRuntimeMode,
     ) -> None:
         self.__logger = logger
-        self.__prefix = f"runtime={runtime_id} cluster={cluster_id} mode={mode.value}"
+        self.__prefix = f"runtime={runtime_id} cluster={cluster_id}"
 
     def debug(self, message: str, *args: object) -> None:
         self.__logger.debug("%s " + message, self.__prefix, *args)
@@ -164,7 +162,6 @@ class OnlyRuntimeContext:
     engine_id: OnlyEngineId
     runtime_id: OnlyRuntimeId
     cluster_id: OnlyClusterId
-    mode: OnlyRuntimeMode
     clock: OnlyClockView
     market_data: OnlyMarketDataView
     instruments: OnlyInstrumentView

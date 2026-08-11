@@ -52,6 +52,16 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 
 P6.0 只完成 ownership/dependency inversion，未改变 Order、Position、Allocation、Fee、Settlement、Transaction、Projection 或 Recovery 经济语义，也未实现 SIM/LIVE、删除 PAPER/SHADOW、补齐 streaming reconnect/gap recovery/checkpoint。
 
+### P6.1 — Runtime Control Boundary & Trading Semantic Neutralization（完成）
+
+Runtime product compatibility guard 已移动到 operational `OnlyRuntime` boundary；Strategy-facing Context、Runtime
+logger、`OnlyTradingRuntimeFacade` 和 Trading Kernel 不再依赖 `OnlyRuntimeMode`。Fee、Market Rule、Position、Risk、
+Order、Execution、Settlement、Account 与 Strategy Ledger 的 mode-neutral 现状由 AST architecture gate 固化。
+
+Streaming stop 已定义为 processing permission cutoff：`STOPPING` 在 shutdown action 前建立，Worker 不再 drain
+pending queue、不 flush pending Live Bar，future-event wait 可中断，且 stop 后不会开始新的 MarketData processor/result
+callback。P6.1 不实现 SIM、Virtual Broker streaming wiring、gap/reconnect recovery 或 streaming checkpoint/restart。
+
 P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
 
 ```text

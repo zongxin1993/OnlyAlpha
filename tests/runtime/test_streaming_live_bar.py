@@ -1,4 +1,5 @@
 from dataclasses import replace
+from threading import Event, Thread
 from time import monotonic, sleep
 from unittest.mock import Mock
 
@@ -75,9 +76,97 @@ def test_out_of_order_live_period_fails_closed(make_runtime_bar) -> None:
 
 
 def test_stop_does_not_fabricate_the_last_pending_bar(make_runtime_bar) -> None:
+    queue = OnlyMarketDataInboundQueue(4)
+    queue.put(_update(make_runtime_bar(0), 1))
+    processor = Mock()
     finalizer = OnlyLiveBarFinalizer()
-    assert finalizer.accept(_update(make_runtime_bar(0), 1)) == ()
+    worker = OnlyStreamingMarketDataWorker(
+        queue,
+        processor,
+        finalizer,
+        OnlyBacktestClock(make_runtime_bar(0).bar_end),
+    )
+
+    worker.start()
+    deadline = monotonic() + 1
+    while finalizer.pending_count == 0 and monotonic() < deadline:
+        sleep(0.01)
+    worker.stop()
+
     assert finalizer.pending_count == 1
+    processor.process.assert_not_called()
+
+
+def test_worker_stop_does_not_drain_queued_updates(make_runtime_bar) -> None:
+    queue = OnlyMarketDataInboundQueue(4)
+    queue.put(_update(make_runtime_bar(0), 1))
+    queue.put(_update(make_runtime_bar(1), 2))
+    processor = Mock()
+    accepting = Event()
+    release = Event()
+
+    def accept_update(update: OnlyMarketDataInboundUpdate) -> bool:
+        del update
+        accepting.set()
+        release.wait(1)
+        return True
+
+    worker = OnlyStreamingMarketDataWorker(
+        queue,
+        processor,
+        OnlyLiveBarFinalizer(),
+        OnlyBacktestClock(make_runtime_bar(1).bar_end),
+        accept_update=accept_update,
+    )
+
+    worker.start()
+    assert accepting.wait(1)
+    releaser = Thread(target=lambda: (sleep(0.02), release.set()))
+    releaser.start()
+    worker.stop()
+    releaser.join()
+
+    assert len(queue) == 1
+    processor.process.assert_not_called()
+
+
+def test_worker_stop_prevents_processing_after_acceptance_boundary(make_runtime_bar) -> None:
+    bar = make_runtime_bar(0)
+    stamp = OnlyTimestamp.from_datetime(bar.ts_event)
+    update = replace(
+        _update(bar, 1),
+        payload=OnlyBarUpdate(bar),
+        ts_event=stamp,
+        ts_init=stamp,
+    )
+    queue = OnlyMarketDataInboundQueue(4)
+    queue.put(update)
+    processor = Mock()
+    accepting = Event()
+    release = Event()
+
+    def accept_update(item: OnlyMarketDataInboundUpdate) -> bool:
+        del item
+        accepting.set()
+        release.wait(1)
+        return True
+
+    worker = OnlyStreamingMarketDataWorker(
+        queue,
+        processor,
+        OnlyLiveBarFinalizer(),
+        OnlyBacktestClock(bar.ts_event),
+        accept_update=accept_update,
+    )
+
+    worker.start()
+    assert accepting.wait(1)
+    releaser = Thread(target=lambda: (sleep(0.02), release.set()))
+    releaser.start()
+    worker.stop()
+    releaser.join()
+
+    processor.process.assert_not_called()
 
 
 def test_worker_stop_interrupts_wait_for_future_bar(make_runtime_bar) -> None:
@@ -96,6 +185,8 @@ def test_worker_stop_interrupts_wait_for_future_bar(make_runtime_bar) -> None:
     deadline = monotonic() + 1
     while len(queue) and monotonic() < deadline:
         sleep(0.01)
+    worker.request_stop()
+    worker.stop()
     worker.stop()
 
     assert not worker.alive

@@ -4,6 +4,11 @@ Status: Accepted
 
 Date: 2026-08-10
 
+Implementation update: 2026-08-11 — P6.1 已实现本 ADR 的 Runtime control/semantic boundary：
+Strategy-facing Context 与 shared Trading facade/Kernel 不再读取 `OnlyRuntimeMode`；Runtime product guard 保留在
+operational `OnlyRuntime`/concrete Runtime。Streaming `STOP` 被定义为 future processing permission cutoff，不能
+drain queue、flush pending Live Bar 或创造新的 Domain Fact。对应 AST architecture gate 与 shutdown tests 已建立。
+
 ## Context
 
 OnlyAlpha 需要同时支持两类目标不同的计算：一类以历史数据上的研究吞吐量为优先，另一类以可审计、可恢复且跨运行环境一致的交易语义为优先。把两类计算强制放入同一个由交易 Manager 定义的 Runtime 抽象，会让 Research 创建没有业务意义的 Account、Position、Broker 和 Transaction authority；把 Backtest、实时虚拟交易和实盘分别实现，又会产生多套经济真值。
@@ -109,6 +114,9 @@ Backtest、Sim 和 Live 追求 **Trading Semantic Equivalence**，而不是 Driv
 三者应共享 Strategy、Market Rule、Risk、Order、Reservation、Execution Support、Execution Processor、Transaction Kernel、Position、Allocation、Account、Strategy Ledger、Fee、Settlement、Result semantics 和 Recovery semantics。
 
 `Runtime Type != Execution Permission`。Runtime type 可以参与 Driver 选择、Runtime identity、planning/grouping 和生命周期组合，但不能成为经济能力、市场合法性或交易规则 authority。进入 Trading Kernel 的输入必须是 normalized domain input、normalized broker facts、market instructions 和 economic context，而不是 Runtime name。Strategy 和交易经济逻辑不得按 Runtime type 分支，也不得创建 Runtime-specific duplicate economic authorities。
+
+`Lifecycle Command != Domain Fact`。Start/stop/subscription/reconnect 等属于 Runtime Control Plane；它们只能控制
+系统是否继续接收和处理事实，不能被解释为 market-time evidence，也不能自行 close Bar、创建 Broker Fact 或推进交易状态。
 
 Sim 必须走完整 Trading Kernel，但绝不能向 Real Broker 提交订单或依赖真实资金产生交易结果。Live 在共享交易语义之上增加 durable Broker outbound command、idempotency、ACK/Reject/Unknown、query/synchronization、reconciliation、reconnect、long-running recovery 和生产运维能力。
 

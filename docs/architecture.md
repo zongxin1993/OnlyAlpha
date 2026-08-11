@@ -143,7 +143,28 @@ OnlyStreamingRuntime ─→ OnlyTradingRuntimeFacade ──→ OnlyTradingKernel
 
 Runtime type 可以参与 Driver 选择、Runtime identity、planning/grouping 和 lifecycle composition，但不能决定经济能力、市场合法性或 Execution permission。Trading Kernel 只消费 normalized domain input、normalized broker facts、market instructions 与 economic context。Strategy 和交易经济逻辑不得按 Runtime type 分支。
 
-当前中立化尚未全仓完成：Position authority policy 已改为显式 economic authority policy，但 Fee finality、compiled Market Rule identity 仍有读取 Runtime mode 的历史实现，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和 Context 暴露面属于待审计/迁移债务，不是目标合同，不得被 Strategy 消费，也不得新增同类分支。
+P6.1 将 Runtime Control Plane 与 Trading Semantic Plane 固化为正式边界：
+
+```text
+Runtime Control Plane
+Runtime type / Factory / Driver / Clock / Lifecycle / Operational status / Persistence identity
+        │
+        └── normalized Market Facts / Broker Facts
+                         │
+                         ▼
+Trading Semantic Plane
+Strategy / Market Policy / Risk / Reservation / Order / Execution / Transaction /
+Position / Allocation / Fee / Settlement / Account / Strategy Ledger
+```
+
+`Runtime Type != Execution Permission`，`Lifecycle Command != Domain Fact`。`OnlyRuntime` 与 concrete Runtime
+保留 product compatibility guard；`OnlyTradingRuntimeFacade`、Trading Kernel、Strategy-facing `OnlyRuntimeContext`
+及交易经济包不读取 `OnlyRuntimeMode`。Position authority、Fee finality、compiled Market Rule identity 与 Durable
+Execution Capability 均由显式经济 authority 决定，当前生产路径已经 mode-neutral，并由 AST architecture gate 固化。
+
+Streaming `STOP` 表示撤销未来处理权限，不是推进 market event time 或 flush pending market state。进入
+`STOPPING` 后 Worker 不 drain inbound queue、不 close pending Live Bar，也不开始新的 MarketData processing/result
+callback；未处理输入的 checkpoint/restart/gap recovery 仍属于后续阶段。
 
 当前只有 Backtest 具备正式 durable trading product path。旧 `PAPER` streaming 路径使用 Shadow suppression，并不满足 Sim 的 Virtual Broker + full Trading Kernel 定义；Live 也尚未具备 durable outbound Broker command、同步、对账和长期恢复闭环。
 

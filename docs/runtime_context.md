@@ -29,11 +29,13 @@ Factory Registry 创建 Indicator；Cluster Pipeline 在 Strategy 回调前更�
 - `instruments`：只读查询；
 - `subscriptions`：只在 `on_initialize` 接受声明；
 - `timers`：自动加 `runtime_id:cluster_id` 命名空间；
-- `logger`：自动绑定 Runtime/Cluster/Mode 字段。
+- `logger`：自动绑定 Runtime/Cluster 字段，不向 Strategy 暴露 Runtime product identity。
 
 Context 不含 EventBus、可变 Cache、Aggregator、Indicator 内部对象、Gateway、Storage、Engine、
 其他 Cluster 或内部 Service Container。它也不暴露 MarketDataGateway、Historical/Reference DataSource、MarketDataProcessor、
 HistoricalReplayService 或 MarketData Inbound Queue。Cluster 不能伪造 Scope，也不能推进 Runtime Clock。
+Context 同样不含 `mode`、`runtime_type` 或 `is_backtest/is_live/is_sim/is_paper` 等 Runtime product
+入口；Strategy 的交易意图只能由规范化行情、时钟、交易状态、Strategy state/config 与显式经济 authority 决定。
 
 ## 3. Context 层次
 

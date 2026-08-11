@@ -56,6 +56,7 @@ class OnlyStreamingMarketDataDriver:
 
     def request_stop(self) -> None:
         self.stop_requested.set()
+        self.worker.request_stop()
 
     @property
     def alive(self) -> bool:

@@ -1,7 +1,7 @@
 """Single-consumer streaming market-data worker."""
 
 from collections.abc import Callable
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from time import monotonic
 
 from onlyalpha.core.clock import OnlyClock
@@ -39,6 +39,7 @@ class OnlyStreamingMarketDataWorker:
         self._thread: Thread | None = None
         self._failure: BaseException | None = None
         self._stop_attempted = False
+        self._processing_permission = Lock()
 
     @property
     def alive(self) -> bool:
@@ -61,7 +62,7 @@ class OnlyStreamingMarketDataWorker:
         if self._stop_attempted:
             return
         self._stop_attempted = True
-        self._stop.set()
+        self.request_stop()
         thread = self._thread
         if thread is not None:
             thread.join(timeout=self._JOIN_TIMEOUT_SECONDS)
@@ -71,32 +72,35 @@ class OnlyStreamingMarketDataWorker:
                     f"operation=join timeout_seconds={self._JOIN_TIMEOUT_SECONDS}"
                 )
 
+    def request_stop(self) -> None:
+        with self._processing_permission:
+            self._stop.set()
+
     def _run(self) -> None:
         try:
             while not self._stop.wait(0.01):
                 update = self._queue.get()
                 if update is None:
                     continue
-                if not self._accept_update(update):
-                    continue
-                for finalized in self._finalizer.accept(update):
-                    if not self._accept_finalized(finalized):
-                        continue
-                    if not self._await_event_time(finalized):
-                        continue
-                    self._on_result(self._processor.process(finalized))
-            while (update := self._queue.get()) is not None:
-                if not self._accept_update(update):
-                    continue
-                for finalized in self._finalizer.accept(update):
-                    if not self._accept_finalized(finalized):
-                        continue
-                    if not self._await_event_time(finalized):
-                        continue
-                    self._on_result(self._processor.process(finalized))
+                self._process_update(update)
         except BaseException as exc:
             self._failure = exc
             self._stop.set()
+
+    def _process_update(self, update: OnlyMarketDataInboundUpdate) -> None:
+        if self._stop.is_set() or not self._accept_update(update) or self._stop.is_set():
+            return
+        for finalized in self._finalizer.accept(update):
+            if self._stop.is_set():
+                return
+            if not self._accept_finalized(finalized):
+                continue
+            if self._stop.is_set() or not self._await_event_time(finalized):
+                return
+            with self._processing_permission:
+                if self._stop.is_set():
+                    return
+                self._on_result(self._processor.process(finalized))
 
     def _await_event_time(self, update: OnlyMarketDataInboundUpdate) -> bool:
         if not isinstance(update.payload, OnlyBarUpdate):

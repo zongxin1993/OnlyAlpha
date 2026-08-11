@@ -59,7 +59,7 @@ from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource, OnlyInMemoryReferenceDataSource
 from onlyalpha.domain.calendar import OnlyTradingCalendar
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyRuntimeMode
+from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide
 from onlyalpha.domain.execution import OnlyOrderRequest, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -289,8 +289,6 @@ _LOGGER = logging.getLogger(__name__)
 class OnlyTradingRuntimeFacade(OnlyRuntime):
     """Shared Trading Runtime facade composed around one Trading Kernel."""
 
-    _supported_modes: frozenset[OnlyRuntimeMode] = frozenset()
-
     @property
     def order_fee_accrual_manager(self) -> OnlyOrderFeeAccrualManager:
         return self._order_fee_accrual_manager
@@ -436,8 +434,6 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         recovery_request: OnlyHistoricalBarRequest | None = None,
         plugin_resources: tuple[OnlyPluginResource, ...] = (),
     ) -> None:
-        if config.mode not in self._supported_modes:
-            raise ValueError(f"{type(self).__name__} does not support {config.mode.value} mode")
         if isinstance(initial_time_or_event_bus, bool):
             raise TypeError("Backtest Runtime requires an initial UTC time")
         runtime_config = config
@@ -2460,15 +2456,14 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             return self._current_snapshots.get(cluster_id)
 
         return OnlyClusterContext(
-            self.config.engine_id,  # type: ignore[arg-type]
-            OnlyRuntimeId(str(self.config.runtime_id)),
-            cluster_id,
-            self.config.mode,
-            OnlyClockView(self._services.clock),
-            OnlyMarketDataView(allowed_bar_types, latest, history, current_snapshot),
-            OnlyInstrumentView(self._instruments),
-            OnlySubscriptionService(lambda subscription: self._subscribe(cluster_id, subscription)),
-            OnlyTimerService(
+            engine_id=self.config.engine_id,  # type: ignore[arg-type]
+            runtime_id=OnlyRuntimeId(str(self.config.runtime_id)),
+            cluster_id=cluster_id,
+            clock=OnlyClockView(self._services.clock),
+            market_data=OnlyMarketDataView(allowed_bar_types, latest, history, current_snapshot),
+            instruments=OnlyInstrumentView(self._instruments),
+            subscriptions=OnlySubscriptionService(lambda subscription: self._subscribe(cluster_id, subscription)),
+            timers=OnlyTimerService(
                 lambda timer_id, when_ns: self._schedule_at(cluster_id, timer_id, when_ns),
                 lambda timer_id, delay_ns: self._schedule_after(cluster_id, timer_id, delay_ns),
                 lambda timer_id, interval_ns, start_ns: self._schedule_every(
@@ -2476,7 +2471,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 ),
                 lambda timer_id: self._cancel_timer(cluster_id, timer_id),
             ),
-            OnlyOrderServiceView(
+            orders=OnlyOrderServiceView(
                 cluster_id,
                 self.config.default_account_id,  # type: ignore[arg-type]
                 self._services.order_service,
@@ -2486,16 +2481,16 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 self._complete_direct_execution_events,
                 self._intercept_order_submit,
             ),
-            OnlyPositionContextView(
+            positions=OnlyPositionContextView(
                 self.config.default_account_id,  # type: ignore[arg-type]
                 cluster_id,
                 self._services.position_query,
             ),
-            OnlyAccountQueryView(
+            accounts=OnlyAccountQueryView(
                 self.config.default_account_id,  # type: ignore[arg-type]
                 self._services.account_query,
             ),
-            OnlyStrategyLedgerContextView(
+            ledger=OnlyStrategyLedgerContextView(
                 self._strategy_ledger_locator.require_key(
                     runtime_id=self.config.runtime_id,  # type: ignore[arg-type]
                     account_id=self.config.default_account_id,  # type: ignore[arg-type]
@@ -2504,8 +2499,8 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 ),
                 self._services.strategy_ledger_query,
             ),
-            OnlyRiskSnapshotView(lambda: self._services.risk_service.get_snapshot(cluster_id)),
-            OnlyRuntimeLogger(_LOGGER, self.config.runtime_id, cluster_id, self.config.mode),  # type: ignore[arg-type]
+            risk=OnlyRiskSnapshotView(lambda: self._services.risk_service.get_snapshot(cluster_id)),
+            logger=OnlyRuntimeLogger(_LOGGER, self.config.runtime_id, cluster_id),  # type: ignore[arg-type]
         )
 
     def _order_commands_enabled(self, cluster_id: OnlyClusterId) -> bool:

@@ -376,8 +376,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if self._streaming_stop_attempted:
             return
         self._streaming_stop_attempted = True
-        self._driver.request_stop()
         self._streaming_phase = OnlyStreamingPhase.STOPPING
+        self._driver.request_stop()
         failure: BaseException | None = None
         for operation in (
             self._unsubscribe,

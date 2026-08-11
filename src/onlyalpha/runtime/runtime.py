@@ -458,7 +458,11 @@ class OnlyRuntimeCompositeCashReservationAdapter:
 class OnlyRuntime:
     """Base Runtime facade; concrete modes own their mutable resources."""
 
+    _supported_modes: frozenset[OnlyRuntimeMode] = frozenset()
+
     def __init__(self, config: OnlyRuntimeAssemblyConfig) -> None:
+        if config.mode not in self._supported_modes:
+            raise ValueError(f"{type(self).__name__} does not support {config.mode.value} mode")
         self.config = config
         self._state = OnlyRuntimeState.CREATED
         self._trading_kernel = OnlyTradingKernelBuilder().build(
