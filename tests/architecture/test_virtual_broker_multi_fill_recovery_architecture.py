@@ -42,7 +42,7 @@ def test_plan_identity_and_stable_ordering_are_explicit() -> None:
 def test_checkpoint_contract_is_version_three_and_descriptor_driven_without_fault_switches() -> None:
     gateway = (PLUGIN / "gateway.py").read_text(encoding="utf-8")
     factory = (ROOT / "src/onlyalpha/runtime/backtest/factory.py").read_text(encoding="utf-8")
-    runtime = (ROOT / "src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = (ROOT / "src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     production = "\n".join(path.read_text(encoding="utf-8") for path in PLUGIN.glob("*.py"))
     assert '"schema_version": 3' in gateway
     assert "deterministic_broker_checkpoint_schema_version=plan.broker_checkpoint_schema_version" in factory

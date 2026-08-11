@@ -4,13 +4,13 @@ from pathlib import Path
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
-from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.factory import OnlyDefaultRuntimePersistenceStoreFactory
+from onlyalpha.runtime.trading_facade import OnlyTradingRuntimeFacade
 
 
 def test_backtest_factory_is_the_product_persistence_composition_root() -> None:
     factory_source = inspect.getsource(OnlyBacktestRuntimeFactory)
-    runtime_source = inspect.getsource(OnlyBacktestRuntime)
+    runtime_source = inspect.getsource(OnlyTradingRuntimeFacade)
     assert "runtime_persistence_stores.create" in factory_source
     assert "runtime_persistence_store=persistence_store" in factory_source
     assert "OnlyRuntimeRecoveryOrchestrator" in runtime_source
@@ -83,7 +83,7 @@ def test_runtime_factory_does_not_restore_managers_or_analyze_tail() -> None:
 
 def test_sqlite_assembly_requires_explicit_plugin_and_cluster_component_capabilities() -> None:
     factory_source = inspect.getsource(OnlyBacktestRuntimeFactory)
-    runtime_source = inspect.getsource(OnlyBacktestRuntime)
+    runtime_source = inspect.getsource(OnlyTradingRuntimeFacade)
     assert "_require_checkpoint_capability" in factory_source
     assert "supports_runtime_checkpoint" in factory_source
     assert "checkpoint_capability is None" in runtime_source

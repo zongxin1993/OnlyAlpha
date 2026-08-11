@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_runtime_uses_one_causal_session_and_never_skips_existing_transactions() -> None:
-    source = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    source = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     for removed in (
         "_in_recovery_replay",
         "_recovery_expected_update_ids",
@@ -18,7 +18,7 @@ def test_runtime_uses_one_causal_session_and_never_skips_existing_transactions()
 
 
 def test_stable_bar_completion_precedes_checkpoint() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     processor = Path("src/onlyalpha/data/processor.py").read_text(encoding="utf-8")
     after_processing = runtime[
         runtime.index("        def after_market_processing(") : runtime.index("        market_data_processor =")
@@ -54,7 +54,7 @@ def test_result_fingerprints_share_the_canonical_business_projection() -> None:
 
 
 def test_recovery_lifecycle_does_not_repeat_normal_start() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     manager = Path("src/onlyalpha/cluster/manager.py").read_text(encoding="utf-8")
     recovery = runtime[runtime.index("    def _recover_runtime(") : runtime.index("    def _register_cluster")]
     assert "start_all()" not in recovery

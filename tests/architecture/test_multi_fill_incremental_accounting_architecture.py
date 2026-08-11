@@ -46,7 +46,7 @@ def test_transaction_contracts_stay_immutable_and_scope_exclusions_remain() -> N
     assert OnlyPreparedRuntimeTransaction.__dataclass_params__.frozen
     assert OnlyCommittedRuntimeTransaction.__dataclass_params__.frozen
     planner = Path("src/onlyalpha/execution/trade_planner.py").read_text(encoding="utf-8")
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     combined = planner + runtime
     for excluded in ("partial_fill_schedule", "fault_switch", "fault_injection"):
         assert excluded not in combined.lower()

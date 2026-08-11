@@ -12,7 +12,7 @@ def test_execution_recovery_does_not_depend_on_runtime_boundary_types() -> None:
 
 
 def test_runtime_owns_one_composed_backtest_recovery_session() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     assert "self._backtest_recovery_session: OnlyBacktestRecoverySession | None" in runtime
     assert "_execution_recovery_session" not in runtime
     assert "execution_processor.replay(update, session.execution_session)" in runtime
@@ -43,7 +43,7 @@ def test_replay_service_enters_exact_boundary_and_never_completes_it() -> None:
 
 
 def test_boundary_completion_is_after_progress_and_event_drain_before_checkpoint() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     callback = runtime[
         runtime.index("        def after_market_processing(") : runtime.index("        market_data_processor =")
     ]
@@ -55,7 +55,7 @@ def test_boundary_completion_is_after_progress_and_event_drain_before_checkpoint
 
 
 def test_recovery_order_commands_are_enabled_without_production_fault_switches() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     permission = runtime[
         runtime.index("    def _order_commands_enabled(") : runtime.index("    def _begin_direct_execution_events(")
     ]

@@ -63,10 +63,9 @@ from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice
-from onlyalpha.event.bus import OnlyEventBus, OnlyEventQueuePolicy
+from onlyalpha.event.bus import OnlyEventQueuePolicy
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
-from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
 from onlyalpha.execution.processor import OnlyExecutionProcessor
 from onlyalpha.execution.state import (
     OnlyExecutionSequenceTracker,
@@ -81,24 +80,17 @@ from onlyalpha.fee.market_pack import OnlyMarketFeePack
 from onlyalpha.fee.reconciliation_authority import OnlyFeeReconciliationAuthority
 from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicy
 from onlyalpha.fee.risk_gate import OnlyFeeReconciliationRiskGate
-from onlyalpha.indicator.pipeline import OnlyIndicatorPipeline
 from onlyalpha.margin.manager import OnlyMarginManager
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
-from onlyalpha.market_data.aggregation.manager import OnlyBarAggregationManager
-from onlyalpha.market_data.cache import OnlyMarketDataCache
 from onlyalpha.market_data.dispatcher import (
     OnlyBarDispatchExecutor,
     OnlyBarDispatchResult,
-    OnlyStrategyBarDispatcher,
 )
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataUpdateResult
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot
 from onlyalpha.order.cash_port import OnlyOrderCashReservationPort
-from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.manager import OnlyOrderManager
-from onlyalpha.order.query import OnlyOrderQueryService
-from onlyalpha.order.service import OnlyOrderService
 from onlyalpha.plugin.broker import OnlyBrokerInboundQueue
 from onlyalpha.plugin.errors import OnlyPluginLifecycleError
 from onlyalpha.plugin.lifecycle import OnlyPluginResource, OnlyPluginResourceSnapshot
@@ -111,35 +103,30 @@ from onlyalpha.position.reservations import OnlyPositionReservationManager
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.runtime.events.gate import OnlyRuntimeEventGatePhase, OnlyRuntimeEventGateSnapshot
-from onlyalpha.runtime.events.router import OnlyRuntimeEventRouter
 from onlyalpha.runtime.persistence.store import (
     OnlyRuntimePersistenceStorePort,
 )
+from onlyalpha.runtime.trading.builder import OnlyTradingKernelBuilder
+from onlyalpha.runtime.trading.config import OnlyTradingKernelConfig
+from onlyalpha.runtime.trading.services import OnlyTradingKernelServices
 from onlyalpha.settlement.authority import OnlySettlementAuthority
 from onlyalpha.strategy_ledger.keys import OnlyStrategyLedgerKey
 from onlyalpha.strategy_ledger.locator import OnlyStrategyLedgerLocator
 from onlyalpha.strategy_ledger.manager import OnlyStrategyLedgerManager
 from onlyalpha.strategy_ledger.query import OnlyStrategyLedgerQueryService
-from onlyalpha.strategy_ledger.valuation import OnlyStrategyValuationService
-from onlyalpha.transaction.coordinator import OnlyRuntimeTransactionCoordinator
 from onlyalpha.transaction.delivery import (
     OnlyExecutionDeliveryDiagnostic,
-    OnlyExecutionEventDeliveryCoordinator,
     OnlyExecutionEventDeliveryIntent,
     OnlyExecutionEventDeliveryMode,
     OnlyExecutionEventDeliveryResult,
-    OnlyExecutionOutboxPublisher,
     OnlyOutboxPublishResult,
 )
 from onlyalpha.transaction.persistence_ports import (
     OnlyProjectionReadyRuntimeQueryPort,
-    OnlyRuntimeProjectionStatePort,
-    OnlyRuntimeTransactionOutboxPort,
     OnlyRuntimeTransactionQueryPort,
 )
 from onlyalpha.transaction.recovery import (
     OnlyExecutionRecoveryResult,
-    OnlyExecutionRecoveryService,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -260,66 +247,8 @@ class OnlyRuntimeBarResult:
     events_dispatched: int
 
 
-@dataclass(slots=True)
-class OnlyRuntimeServices:
-    """Runtime-private mutable service container; never exposed through Context."""
-
-    clock: OnlyClock
-    event_bus: OnlyEventBus
-    event_bus_view: OnlyEventBusSubscriptionView
-    event_router: OnlyRuntimeEventRouter
-    market_data_cache: OnlyMarketDataCache
-    aggregation_manager: OnlyBarAggregationManager
-    indicator_pipeline: OnlyIndicatorPipeline
-    pipeline: OnlyMarketDataPipeline
-    dispatcher: OnlyStrategyBarDispatcher
-    cluster_manager: OnlyClusterManager
-    order_manager: OnlyOrderManager
-    order_query: OnlyOrderQueryService
-    order_service: OnlyOrderService
-    order_update_processor: OnlyOrderUpdateProcessor
-    execution_service: OnlyExecutionService
-    risk_service: OnlyRiskService
-    position_manager: OnlyPositionManager
-    allocation_manager: OnlyPositionAllocationManager
-    position_reservation_manager: OnlyPositionReservationManager
-    position_query: OnlyPositionQueryService
-    strategy_ledger_manager: OnlyStrategyLedgerManager
-    strategy_ledger_query: OnlyStrategyLedgerQueryService
-    settlement_authority: OnlySettlementAuthority
-    margin_manager: OnlyMarginManager
-    fee_application_ledger: OnlyFeeApplicationLedger
-    strategy_valuation_service: OnlyStrategyValuationService
-    account_manager: OnlyAccountManager
-    account_performance_projector: OnlyAccountPerformanceProjector
-    account_query: OnlyAccountQueryService
-    broker_inbound: OnlyBrokerInboundQueue
-    broker_gateway: OnlyBrokerGateway | None
-    execution_processor: OnlyExecutionProcessor
-    execution_commit_coordinator: OnlyRuntimeTransactionCoordinator
-    execution_recovery_service: OnlyExecutionRecoveryService
-    execution_transaction_query: OnlyRuntimeTransactionQueryPort
-    ready_execution_query: OnlyProjectionReadyRuntimeQueryPort
-    execution_projection_state: OnlyRuntimeProjectionStatePort
-    runtime_transaction_outbox: OnlyRuntimeTransactionOutboxPort
-    execution_event_buffer: OnlyExecutionEventBuffer
-    execution_delivery_coordinator: OnlyExecutionEventDeliveryCoordinator
-    execution_outbox_publisher: OnlyExecutionOutboxPublisher
-    execution_audit_store: OnlyInMemoryExecutionAuditStore
-    execution_reconciliation_queue: OnlyInMemoryExecutionReconciliationQueue
-    execution_update_deduplicator: OnlyExecutionUpdateDeduplicator
-    execution_sequence_tracker: OnlyExecutionSequenceTracker
-    market_data_source_registry: OnlyMarketDataSourceRegistry
-    historical_data_source: OnlyInMemoryHistoricalDataSource
-    reference_data_source: OnlyInMemoryReferenceDataSource
-    market_data_gateway: OnlyInMemoryMarketDataGateway
-    market_data_inbound: OnlyMarketDataInboundQueue
-    market_data_processor: OnlyMarketDataProcessor
-    historical_replay_service: OnlyHistoricalReplayService
-    market_data_audit_store: OnlyMarketDataAuditStore
-    market_data_deduplicator: OnlyMarketDataDeduplicator
-    market_data_sequence_tracker: OnlyMarketDataSequenceTracker
-    market_data_gap_detector: OnlyMarketDataGapDetector
+OnlyRuntimeServices = OnlyTradingKernelServices
+"""Deprecated internal name retained while callers migrate to the Kernel boundary."""
 
 
 class OnlyManagedBarDispatchExecutor(OnlyBarDispatchExecutor):
@@ -532,7 +461,18 @@ class OnlyRuntime:
     def __init__(self, config: OnlyRuntimeAssemblyConfig) -> None:
         self.config = config
         self._state = OnlyRuntimeState.CREATED
-        self._services: OnlyRuntimeServices
+        self._trading_kernel = OnlyTradingKernelBuilder().build(
+            OnlyTradingKernelConfig(
+                config.engine_id,  # type: ignore[arg-type]
+                config.runtime_id,  # type: ignore[arg-type]
+                config.default_account_id,  # type: ignore[arg-type]
+                config.strategy_base_currency,
+                config.strategy_capitals,
+                config.event_capacity,
+                config.history_limit,
+                config.event_queue_policy,
+            )
+        )
         self._last_error: str | None = None
         self._execution_delivery_diagnostics: list[OnlyExecutionDeliveryDiagnostic] = []
         self._execution_recovery_diagnostics: list[OnlyExecutionRecoveryResult] = []
@@ -543,37 +483,74 @@ class OnlyRuntime:
         self._stop_attempted = False
         self._close_attempted = False
         self._stop_failure: BaseException | None = None
-        # Position is a Runtime state domain even where the mode-specific market/execution
-        # assembly is intentionally deferred (Live/Paper/Research in the current phase).
-        self._position_manager = OnlyPositionManager(config.runtime_id)  # type: ignore[arg-type]
-        self._allocation_manager = OnlyPositionAllocationManager(config.runtime_id)  # type: ignore[arg-type]
-        self._position_query = OnlyPositionQueryService(
-            self._position_manager,
-            self._allocation_manager,
-        )
-        self._position_reservation_manager = OnlyPositionReservationManager(
-            config.runtime_id,  # type: ignore[arg-type]
-            self._position_manager,
-            self._allocation_manager,
-        )
-        self._strategy_ledger_manager = OnlyStrategyLedgerManager(
-            config.runtime_id  # type: ignore[arg-type]
-        )
-        self._strategy_ledger_query = OnlyStrategyLedgerQueryService(self._strategy_ledger_manager)
-        self._strategy_ledger_locator = OnlyStrategyLedgerLocator(self._strategy_ledger_manager)
-        self._account_reservation_manager = OnlyAccountReservationManager(config.runtime_id)  # type: ignore[arg-type]
-        self._account_manager = OnlyAccountManager(
-            config.runtime_id,  # type: ignore[arg-type]
-            reservation_manager=self._account_reservation_manager,
-        )
-        self._account_performance_projector = OnlyAccountPerformanceProjector(config.runtime_id)  # type: ignore[arg-type]
-        self._account_manager.bind_performance_observer(self._project_account_performance)
-        self._account_query = OnlyAccountQueryService(self._account_manager)
-        self._settlement_authority = OnlySettlementAuthority()
-        self._margin_manager = OnlyMarginManager(OnlyRuntimeId(str(config.runtime_id)))
-        self._fee_application_ledger = OnlyFeeApplicationLedger()
-        self._fee_reconciliation_authority = OnlyFeeReconciliationAuthority()
-        self._fee_reconciliation_risk_gate = OnlyFeeReconciliationRiskGate()
+
+    @property
+    def _services(self) -> OnlyTradingKernelServices:
+        return self._trading_kernel.services
+
+    @property
+    def _position_manager(self) -> OnlyPositionManager:
+        return self._trading_kernel.authorities.position_manager
+
+    @property
+    def _allocation_manager(self) -> OnlyPositionAllocationManager:
+        return self._trading_kernel.authorities.allocation_manager
+
+    @property
+    def _position_query(self) -> OnlyPositionQueryService:
+        return self._trading_kernel.authorities.position_query
+
+    @property
+    def _position_reservation_manager(self) -> OnlyPositionReservationManager:
+        return self._trading_kernel.authorities.position_reservation_manager
+
+    @property
+    def _strategy_ledger_manager(self) -> OnlyStrategyLedgerManager:
+        return self._trading_kernel.authorities.strategy_ledger_manager
+
+    @property
+    def _strategy_ledger_query(self) -> OnlyStrategyLedgerQueryService:
+        return self._trading_kernel.authorities.strategy_ledger_query
+
+    @property
+    def _strategy_ledger_locator(self) -> OnlyStrategyLedgerLocator:
+        return self._trading_kernel.authorities.strategy_ledger_locator
+
+    @property
+    def _account_reservation_manager(self) -> OnlyAccountReservationManager:
+        return self._trading_kernel.authorities.account_reservation_manager
+
+    @property
+    def _account_manager(self) -> OnlyAccountManager:
+        return self._trading_kernel.authorities.account_manager
+
+    @property
+    def _account_performance_projector(self) -> OnlyAccountPerformanceProjector:
+        return self._trading_kernel.authorities.account_performance_projector
+
+    @property
+    def _account_query(self) -> OnlyAccountQueryService:
+        return self._trading_kernel.authorities.account_query
+
+    @property
+    def _settlement_authority(self) -> OnlySettlementAuthority:
+        return self._trading_kernel.authorities.settlement_authority
+
+    @property
+    def _margin_manager(self) -> OnlyMarginManager:
+        return self._trading_kernel.authorities.margin_manager
+
+    @property
+    def _fee_application_ledger(self) -> OnlyFeeApplicationLedger:
+        return self._trading_kernel.authorities.fee_application_ledger
+
+    @property
+    def _fee_reconciliation_authority(self) -> OnlyFeeReconciliationAuthority:
+        return self._trading_kernel.authorities.fee_reconciliation_authority
+
+    @property
+    def _fee_reconciliation_risk_gate(self) -> OnlyFeeReconciliationRiskGate:
+        return self._trading_kernel.authorities.fee_reconciliation_risk_gate
 
     @property
     def runtime_id(self) -> str:

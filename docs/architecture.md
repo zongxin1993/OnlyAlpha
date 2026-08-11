@@ -115,6 +115,23 @@ Research 可复用 MarketData Domain、Instrument、Reference、Calendar、canon
 
 Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。
 
+P6.0 已将这个共享语义边界固化为 Runtime-neutral `OnlyTradingKernel`：Kernel config 不含 Runtime mode，Kernel 通过 builder 创建并唯一持有 Position、Allocation、Reservation、Account、Strategy Ledger、Settlement、Margin 与 Fee authorities，随后一次性安装 Order/Risk/Execution/Transaction/Projection 和共享 MarketData/Strategy processing graph。`OnlyRuntime` 只保留 identity、lifecycle、plugin resource 与 operational state，并通过临时兼容 delegate 暴露既有管理查询；这些 delegate 不是新的 Service Locator 合同。
+
+当前组合和依赖方向为：
+
+```text
+OnlyBacktestRuntime ──→ OnlyTradingRuntimeFacade ──→ OnlyTradingKernel
+        │
+        └── OnlyBacktestDriver (historical plan / finite termination)
+
+OnlyStreamingRuntime ─→ OnlyTradingRuntimeFacade ──→ OnlyTradingKernel
+        │
+        └── OnlyStreamingMarketDataDriver
+            (subscription / worker / stop coordination)
+```
+
+`runtime/streaming` 不再导入或继承 concrete Backtest Runtime；`runtime/trading` 也不依赖 Backtest、Paper、Streaming、Live/Sim 或 `OnlyRuntimeMode`。Historical replay/checkpoint policy 仍由 Backtest facade/driver 组合，subscribe-first bootstrap、warmup/handoff、watermark/catch-up、live finalization 与 worker shutdown 仍在 Streaming facade/driver，均未进入 Kernel。
+
 三者追求 Trading Semantic Equivalence，不追求 Driver Implementation Equivalence：
 
 | Driver boundary | Backtest | Sim | Live |
@@ -126,7 +143,7 @@ Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable tradin
 
 Runtime type 可以参与 Driver 选择、Runtime identity、planning/grouping 和 lifecycle composition，但不能决定经济能力、市场合法性或 Execution permission。Trading Kernel 只消费 normalized domain input、normalized broker facts、market instructions 与 economic context。Strategy 和交易经济逻辑不得按 Runtime type 分支。
 
-当前中立化尚未全仓完成：Position authority、Fee finality 和 compiled Market Rule identity 仍有读取 Runtime mode 的历史实现，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和 Context 暴露面属于待审计/迁移债务，不是目标合同，不得被 Strategy 消费，也不得新增同类分支。
+当前中立化尚未全仓完成：Position authority policy 已改为显式 economic authority policy，但 Fee finality、compiled Market Rule identity 仍有读取 Runtime mode 的历史实现，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和 Context 暴露面属于待审计/迁移债务，不是目标合同，不得被 Strategy 消费，也不得新增同类分支。
 
 当前只有 Backtest 具备正式 durable trading product path。旧 `PAPER` streaming 路径使用 Shadow suppression，并不满足 Sim 的 Virtual Broker + full Trading Kernel 定义；Live 也尚未具备 durable outbound Broker command、同步、对账和长期恢复闭环。
 

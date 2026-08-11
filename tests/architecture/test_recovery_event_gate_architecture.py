@@ -55,7 +55,7 @@ def test_runtime_router_is_the_only_business_event_bus_writer() -> None:
         if "._event_bus.publish(" in source or "owned_bus.publish(" in source or "owned_bus.publish_many(" in source:
             writers.add(path)
     assert writers <= allowed
-    backtest_source = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    backtest_source = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     runtime_source = Path("src/onlyalpha/runtime/runtime.py").read_text(encoding="utf-8")
     assert "owned_bus.publish(" not in backtest_source
     assert "owned_bus.publish_many(" not in backtest_source
@@ -73,7 +73,7 @@ def test_runtime_public_event_bus_is_a_subscription_view() -> None:
 def test_gate_is_operational_only_and_finalizer_does_not_deliver_outbox() -> None:
     gate_source = Path("src/onlyalpha/runtime/events/gate.py").read_text(encoding="utf-8")
     finalizer_source = Path("src/onlyalpha/runtime/recovery/finalizer.py").read_text(encoding="utf-8")
-    runtime_source = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime_source = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     assert "CheckpointParticipant" not in gate_source
     assert "capture_checkpoint" not in gate_source
     assert "business_projection" not in gate_source

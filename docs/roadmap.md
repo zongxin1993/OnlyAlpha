@@ -46,6 +46,12 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 
 ## 当前阶段：P6 — Sim Streaming Runtime Closure
 
+### P6.0 — Trading Runtime Kernel Extraction（完成）
+
+共享 mutable trading authorities 已从 `OnlyRuntime` 提升到 Runtime-neutral `OnlyTradingKernel`；Backtest 与 legacy Streaming 现在是同一 Trading facade/Kernel 的 sibling composition，不再存在 `Streaming -> Backtest Runtime` implementation dependency。Backtest finite execution 由 `OnlyBacktestDriver` 驱动，Streaming 的 subscription/worker/termination 由 `OnlyStreamingMarketDataDriver` 驱动，并已有 AST architecture gates 固化 dependency direction 与 mode-neutral Kernel config。
+
+P6.0 只完成 ownership/dependency inversion，未改变 Order、Position、Allocation、Fee、Settlement、Transaction、Projection 或 Recovery 经济语义，也未实现 SIM/LIVE、删除 PAPER/SHADOW、补齐 streaming reconnect/gap recovery/checkpoint。
+
 P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
 
 ```text

@@ -44,7 +44,7 @@ def test_projection_targets_use_restore_authority_not_business_mutations() -> No
 
 def test_product_supported_trade_path_has_one_transaction_authority_and_no_switch() -> None:
     processor = Path("src/onlyalpha/execution/processor.py").read_text(encoding="utf-8")
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     execution = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha/execution").glob("*.py"))
     assert "def _trade(" not in processor
     assert "def _accepted(" not in processor

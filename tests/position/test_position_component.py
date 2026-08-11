@@ -253,7 +253,7 @@ def test_reconciliation_blocks_without_overwrite_and_creates_unallocated() -> No
         RUNTIME,
         positions,
         allocations,
-        OnlyPositionAuthorityPolicy(OnlyRuntimeMode.LIVE),
+        OnlyPositionAuthorityPolicy.broker_reconciled(),
     )
     equal = service.reconcile(broker_snapshot("1000", "1000", "1000", "0"))
     assert equal.reconciled
@@ -276,7 +276,7 @@ def test_available_conflict_is_conservative_but_not_silent() -> None:
         RUNTIME,
         positions,
         allocations,
-        OnlyPositionAuthorityPolicy(OnlyRuntimeMode.LIVE),
+        OnlyPositionAuthorityPolicy.broker_reconciled(),
     )
     result = service.reconcile(broker_snapshot("1000", "800", "1000", "0"))
     assert result.severity is OnlyReconciliationSeverity.WARNING

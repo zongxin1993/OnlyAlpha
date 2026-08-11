@@ -82,7 +82,7 @@ def test_audit_checkpoint_windows_replay_each_business_bar_once(tmp_path: Path, 
 
 
 def test_checkpoint_barrier_is_after_audit_progress_and_event_drain() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     processor = Path("src/onlyalpha/data/processor.py").read_text(encoding="utf-8")
     completion = runtime[
         runtime.index("        def after_market_processing(") : runtime.index("        market_data_processor =")

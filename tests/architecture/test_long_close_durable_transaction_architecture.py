@@ -6,7 +6,7 @@ from onlyalpha.execution import OnlyRuntimeProjectionComponent, OnlyRuntimeProje
 def test_long_close_is_routed_to_prepared_transaction_without_parallel_entrypoint() -> None:
     processor = Path("src/onlyalpha/execution/processor.py").read_text(encoding="utf-8")
     planner = Path("src/onlyalpha/execution/trade_planner.py").read_text(encoding="utf-8")
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     capability = Path("src/onlyalpha/execution/capability.py").read_text(encoding="utf-8")
 
     assert "class OnlyExecutionCapabilityResolver" in capability
@@ -118,7 +118,7 @@ def test_long_close_projection_order_is_one_fixed_global_order() -> None:
 
 def test_position_reservation_is_a_formal_projection_target_and_checkpoint_participant() -> None:
     targets = Path("src/onlyalpha/execution/projection_targets.py").read_text(encoding="utf-8")
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
 
     assert "class OnlyPositionReservationExecutionProjectionTarget" in targets
     assert "OnlyRuntimeProjectionComponent.POSITION_RESERVATION" in targets

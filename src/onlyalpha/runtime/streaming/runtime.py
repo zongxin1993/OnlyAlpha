@@ -6,7 +6,6 @@ import hashlib
 import json
 from datetime import timedelta
 from math import lcm
-from threading import Event
 
 from onlyalpha.core.clock import OnlyLiveClock
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
@@ -53,18 +52,18 @@ from onlyalpha.observation import (
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.results import OnlyOrderSubmitResult
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
-from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeError, OnlyRuntimeState
+from onlyalpha.runtime.trading_facade import OnlyTradingRuntimeFacade
 
+from .driver import OnlyStreamingMarketDataDriver
 from .health import OnlyStreamingRuntimeHealth, only_streaming_data_state
 from .live_bar import OnlyLiveBarFinalizer
 from .phase import OnlyStreamingDataState, OnlyStreamingPhase
-from .worker import OnlyStreamingMarketDataWorker
 
 
-class OnlyStreamingRuntime(OnlyBacktestRuntime):
-    """One single-consumer market-data loop; execution is injected by capability."""
+class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
+    """Trading Kernel composed with one long-lived market-data driver."""
 
     _supported_modes = frozenset({OnlyRuntimeMode.PAPER, OnlyRuntimeMode.LIVE})
 
@@ -104,10 +103,6 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             runtime_persistence_store=persistence_store,
             plugin_resources=(data_source,),  # type: ignore[arg-type]
         )
-        self._streaming_source = data_source
-        self._streaming_execution = execution_service
-        self._streaming_subscription = subscription
-        self._streaming_subscription_id: str | None = None
         self._bootstrap_bars = bootstrap_bars
         self._streaming_data_version = data_version
         self._historical_compatibility_profile = historical_compatibility_profile
@@ -151,16 +146,17 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         self._observation_publisher = OnlyObservationPublisher(
             OnlyCompositeObservationSink(observation_sinks), observation_queue_capacity
         )
-        self._stop_requested = Event()
         self._streaming_stop_attempted = False
         self._processing_results: list[OnlyMarketDataProcessingResult] = []
         self._live_finalizer = OnlyLiveBarFinalizer()
-        self._streaming_worker = OnlyStreamingMarketDataWorker(
-            inbound_queue,
-            self._services.market_data_processor,
-            self._live_finalizer,
-            clock,
-            maximum_future_wait_seconds=10.0,
+        self._driver = OnlyStreamingMarketDataDriver(
+            source=data_source,
+            execution=execution_service,
+            subscription=subscription,
+            inbound_queue=inbound_queue,
+            processor=self._services.market_data_processor,
+            finalizer=self._live_finalizer,
+            clock=clock,
             on_result=self._record_processing_result,
             accept_update=self._accept_streaming_update,
             accept_finalized=self._accept_finalized_bar,
@@ -185,11 +181,11 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
 
     @property
     def worker_alive(self) -> bool:
-        return self._streaming_worker.alive
+        return self._driver.alive
 
     @property
     def worker_failure(self) -> BaseException | None:
-        return self._streaming_worker.failure
+        return self._driver.failure
 
     @property
     def observation_publisher_alive(self) -> bool:
@@ -217,11 +213,17 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
 
     @property
     def streaming_subscription(self) -> OnlyMarketDataSubscriptionRequest:
-        return self._streaming_subscription
+        return self._driver.subscription
+
+    @property
+    def _streaming_subscription(self) -> OnlyMarketDataSubscriptionRequest:
+        """Legacy internal spelling delegated to the Streaming Driver."""
+
+        return self._driver.subscription
 
     @property
     def subscription_active(self) -> bool:
-        return self._streaming_subscription_id is not None
+        return self._driver.subscription_id is not None
 
     @property
     def received_update_count(self) -> int:
@@ -320,10 +322,10 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         self._services.event_router.complete_fresh_bootstrap()
 
     def _after_clusters_started(self) -> None:
-        authenticate = getattr(self._streaming_source, "authenticate", None)
+        authenticate = getattr(self._driver.source, "authenticate", None)
         if callable(authenticate):
             authenticate()
-        subscribe = getattr(self._streaming_source, "subscribe", None)
+        subscribe = getattr(self._driver.source, "subscribe", None)
         if not callable(subscribe):
             raise OnlyRuntimeError("streaming DataSource does not provide subscribe()")
         self._observation_publisher.start()
@@ -332,13 +334,13 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             result = subscribe(self._streaming_subscription)
             if result.subscription_id is None:
                 raise OnlyRuntimeError(f"live subscription failed: {result.reason}")
-            self._streaming_subscription_id = result.subscription_id
+            self._driver.subscription_id = result.subscription_id
             self._streaming_phase = OnlyStreamingPhase.BOOTSTRAP
             self._bootstrap()
             self._streaming_phase = OnlyStreamingPhase.CATCH_UP
             self._drain_catch_up()
             self._streaming_phase = OnlyStreamingPhase.LIVE
-            self._streaming_worker.start()
+            self._driver.start_worker()
         except Exception:
             self._streaming_phase = OnlyStreamingPhase.FAILED
             self._unsubscribe()
@@ -359,11 +361,11 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
     def wait(self, timeout: float | None = None) -> None:
         if self.state is not OnlyRuntimeState.RUNNING:
             raise OnlyRuntimeError("Streaming Runtime can only wait while RUNNING")
-        self._stop_requested.wait(timeout)
-        if self._streaming_worker.failure is not None:
+        self._driver.wait(timeout)
+        if self._driver.failure is not None:
             raise OnlyRuntimeError(
-                f"streaming market-data worker failed: {self._streaming_worker.failure}"
-            ) from self._streaming_worker.failure
+                f"streaming market-data worker failed: {self._driver.failure}"
+            ) from self._driver.failure
 
     def run(self) -> object:
         raise OnlyRuntimeError("Streaming Runtime is long-lived; use start(), wait(), and stop()")
@@ -374,12 +376,12 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         if self._streaming_stop_attempted:
             return
         self._streaming_stop_attempted = True
-        self._stop_requested.set()
+        self._driver.request_stop()
         self._streaming_phase = OnlyStreamingPhase.STOPPING
         failure: BaseException | None = None
         for operation in (
             self._unsubscribe,
-            self._streaming_worker.stop,
+            self._driver.worker.stop,
             self._observation_publisher.stop,
             super().stop,
         ):
@@ -394,25 +396,25 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             raise failure
 
     def _unsubscribe(self) -> None:
-        subscription_id = self._streaming_subscription_id
+        subscription_id = self._driver.subscription_id
         if subscription_id is None:
             return
-        unsubscribe = getattr(self._streaming_source, "unsubscribe", None)
+        unsubscribe = getattr(self._driver.source, "unsubscribe", None)
         try:
             if callable(unsubscribe):
                 unsubscribe(OnlyMarketDataUnsubscriptionRequest(f"stop-{self.runtime_id}", subscription_id))
         finally:
-            self._streaming_subscription_id = None
+            self._driver.subscription_id = None
 
     def _bootstrap(self) -> None:
-        load_warmup = getattr(self._streaming_source, "load_warmup", None)
+        load_warmup = getattr(self._driver.source, "load_warmup", None)
         if not callable(load_warmup):
             raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
         observed_at = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
         self._bootstrap_observed_at = observed_at
         bars: list[OnlyBar] = []
         alignment = lcm(*self._warmup_alignment_steps) if self._warmup_alignment_steps else 1
-        for bar_type in sorted(self._streaming_subscription.bar_types, key=str):
+        for bar_type in sorted(self._driver.subscription.bar_types, key=str):
             closed_cutoff = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
                 calendar=self._selected_calendar,
                 bar_type=bar_type,
@@ -465,7 +467,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             if not aligned:
                 raise OnlyRuntimeError("historical warmup returned no aligned Bars")
         ordered = sorted(bars, key=lambda bar: (bar.bar_end, str(bar.bar_type)))
-        source_id = self._streaming_source.source_id  # type: ignore[union-attr]
+        source_id = self._driver.source.source_id  # type: ignore[union-attr]
         records = tuple(
             OnlyMarketDataInboundUpdate(
                 OnlyMarketDataUpdateId(f"warmup-{self.runtime_id}-{sequence}"),
@@ -540,7 +542,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
                 raise AssertionError("historical Watermark must equal the last processed Bar")
             self._historical_watermarks[(str(bar_type.instrument_id), bar_type)] = watermark
         self._live_finalizer.seed_closed_sequences(tuple(processed_records))
-        set_floor = getattr(self._streaming_source, "set_live_sequence_floor", None)
+        set_floor = getattr(self._driver.source, "set_live_sequence_floor", None)
         if callable(set_floor):
             set_floor(max(int(item.source_sequence) for item in processed_records))
 
@@ -664,7 +666,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         data_state = only_streaming_data_state(
             session=session,
             phase=self._streaming_phase,
-            source_connected=self._streaming_subscription_id is not None,
+            source_connected=self._driver.subscription_id is not None,
             observed_at=observed,
             next_expected_bar_end=self._next_expected_bar_end(session),
             grace_seconds=self._stale_after_seconds,
@@ -719,7 +721,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         state = only_streaming_data_state(
             session=session,
             phase=self._streaming_phase,
-            source_connected=self._streaming_subscription_id is not None,
+            source_connected=self._driver.subscription_id is not None,
             observed_at=observed,
             next_expected_bar_end=next_expected,
             grace_seconds=self._stale_after_seconds,
@@ -729,7 +731,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
             self._streaming_phase,
             session.state,
             state,
-            self._streaming_subscription_id is not None,
+            self._driver.subscription_id is not None,
             self.worker_alive,
             self._last_received_at,
             self._last_closed_bar_end,
@@ -761,7 +763,7 @@ class OnlyStreamingRuntime(OnlyBacktestRuntime):
         )
         if active is None:
             return None
-        steps = tuple(item.specification.step for item in self._streaming_subscription.bar_types)
+        steps = tuple(item.specification.step for item in self._driver.subscription.bar_types)
         duration = timedelta(minutes=min(steps))
         last = self._last_closed_bar_end
         candidate = (

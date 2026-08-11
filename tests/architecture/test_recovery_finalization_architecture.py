@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_runtime_delegates_post_recovery_authority_to_finalizer() -> None:
-    runtime = Path("src/onlyalpha/runtime/backtest/runtime.py").read_text(encoding="utf-8")
+    runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     assert "def _validate_post_recovery_authority" not in runtime
     assert "_runtime_recovery_finalizer.finalize(outcome)" in runtime
     for code in (

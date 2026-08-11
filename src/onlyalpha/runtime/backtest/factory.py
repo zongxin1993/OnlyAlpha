@@ -35,6 +35,7 @@ from onlyalpha.plugin.errors import OnlyPluginError
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.backtest.config import OnlyBacktestRuntimeExtensionConfig
+from onlyalpha.runtime.backtest.driver import OnlyBacktestDriver
 from onlyalpha.runtime.backtest.run_plan import OnlyBacktestRunPlan
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
@@ -163,7 +164,7 @@ class OnlyBacktestRuntimeFactory:
                 plan.runtime_config,
                 config.reference_data.calendars[0],
                 config.start_time,
-                run_plan=run_plan,
+                run_plan=OnlyBacktestDriver(run_plan),
                 owned_clock=plan.clock,
                 owned_event_bus=plan.event_bus,
                 broker_gateway=gateway,
