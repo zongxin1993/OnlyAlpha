@@ -15,6 +15,13 @@ Broker minimum capabilities、无 finite range/streaming checkpoint 为组合合
 `SIM_EXECUTION_WIRING_PENDING`，不创建 Runtime；Trading Kernel、TradingFacade、Strategy Context、经济 authority、
 Virtual Broker 与 MiniQMT 实现均未改变。可执行 SIM 留给 P6.3。
 
+Implementation update: 2026-08-12 — P6.3 已实现 `OnlySimRuntime -> OnlyStreamingRuntime ->
+OnlyTradingRuntimeFacade -> OnlyTradingKernel` 的 realtime Virtual Broker normal path。SIM Factory 通过正式 SPI 创建
+historical+live DataSource 与 simulated Broker，要求显式 deterministic driver，并创建 Live Clock、MarketData/Broker Inbound
+Queue 和 SIM identity 的 Runtime Persistence。Bar N Strategy order 在 dispatch 后形成 durable Accepted 且同 Bar 不成交；
+Bar N+1 matching 先于 Strategy 并形成 durable Trade/Ordered Projection。该阶段未修改 shared Trading Kernel/Facade、
+Virtual Broker 或 MiniQMT 生产语义，也不包含 gap/reconnect/streaming checkpoint/restart。
+
 ## Context
 
 OnlyAlpha 需要同时支持两类目标不同的计算：一类以历史数据上的研究吞吐量为优先，另一类以可审计、可恢复且跨运行环境一致的交易语义为优先。把两类计算强制放入同一个由交易 Manager 定义的 Runtime 抽象，会让 Research 创建没有业务意义的 Account、Position、Broker 和 Transaction authority；把 Backtest、实时虚拟交易和实盘分别实现，又会产生多套经济真值。
@@ -28,7 +35,7 @@ OnlyAlpha 需要同时支持两类目标不同的计算：一类以历史数据�
 | `LIVE` | Factory 已注册，但返回 `UNSUPPORTED_RUNTIME_TYPE` |
 | `SHADOW` | Standalone Factory 已注册，但返回 `UNSUPPORTED_RUNTIME_TYPE` |
 | `RESEARCH` | Factory 已注册，但返回 `UNSUPPORTED_RUNTIME_TYPE`，尚无正式研究工作流 |
-| `SIM` | Enum、配置、environment identity 与 composition-validation Factory 已实现；execution wiring 尚未实现 |
+| `SIM` | Realtime Virtual Broker normal path 已实现；gap/reconnect/streaming checkpoint/restart 尚未实现 |
 
 `PAPER` 和 standalone `SHADOW` 的源码存在是 migration debt，不是长期兼容合同，也不能据此增加第五、第六种目标 Runtime。本 ADR 只决定目标架构、工程合同与迁移方向，不实施 Runtime 源码迁移。
 

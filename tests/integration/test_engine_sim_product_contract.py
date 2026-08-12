@@ -32,15 +32,14 @@ def _engine(root: Path) -> OnlyEngine:
     return engine
 
 
-def test_engine_validation_reports_sim_execution_wiring_pending(tmp_path: Path) -> None:
+def test_engine_validation_accepts_operational_sim(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
     try:
         validation = engine.validate()
 
-        assert not validation.valid
+        assert validation.valid
         assert validation.runtime_group_count == 1
-        assert any("SIM_EXECUTION_WIRING_PENDING" in error for error in validation.errors)
-        assert all("RUNTIME_FACTORY_NOT_AVAILABLE" not in error for error in validation.errors)
+        assert validation.errors == ()
     finally:
         engine.close()
 

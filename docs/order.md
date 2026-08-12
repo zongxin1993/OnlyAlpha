@@ -96,9 +96,10 @@ Decimal 与 Unix 纳秒无损往返。
 
 `examples/order_demo` 覆盖创建提交、显式 Accepted/部分成交、撤单、重复成交、乱序和 Context Scope。
 当前已有 Pre-Trade Risk Pipeline、Risk Reservation、Position/Allocation、Account 与持久化 ExecutionProcessor；受支持
-的 Generic T0 Cash BUY OPEN 和 multi-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。目标 Sim/Live
-的完整 realtime Gateway/Trading Kernel 装配、Real Broker、Short/Hedging 与 Futures/Margin 仍留待后续阶段；当前 legacy
-`PAPER` 只提供部分 streaming/observation 基础设施和 Shadow execution，不代表 Sim 已实现。
+的 Generic T0 Cash BUY OPEN 和 multi-fill Long CLOSE 使用 durable commit、ordered Projection 与 Recovery。SIM 已完成
+realtime Virtual Broker normal path 的 Gateway/Trading Kernel 装配，但 gap/reconnect/checkpoint/restart 尚未完成；Real
+Broker、Short/Hedging 与 Futures/Margin 仍留待后续阶段。当前 legacy `PAPER` 只提供部分 streaming/observation 基础设施和
+Shadow execution，不定义 Sim 的产品能力。
 
 ## 9. Position 归属衔接
 

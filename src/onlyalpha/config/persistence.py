@@ -53,8 +53,6 @@ class OnlyRuntimePersistenceConfig:
             if self.checkpoint.enabled:
                 raise ValueError("MEMORY runtime persistence requires checkpoint.enabled=false")
             return
-        if not self.checkpoint.enabled:
-            raise ValueError("SQLITE runtime persistence requires checkpoint.enabled=true")
         if self.path is None:
             return
         value = self.path.strip()

@@ -7,8 +7,9 @@ Planner 与 `OnlyRuntimeTransactionCoordinator` 提交 Prepared Transaction，�
 Broker 插件与 Cluster 均不持有或改写该 authority。
 
 当前 Scenario schema 的 Action/Command DTO 在源码 spelling `BACKTEST/PAPER/LIVE/SHADOW` 间一致；这只是迁移前的
-实现事实。目标 Trading Runtime vocabulary 是 `BACKTEST/SIM/LIVE`。当前只有 `BACKTEST` 支持确定性自动推进；legacy
-`PAPER` 是 Sim Migration Source，`LIVE` 与 standalone `SHADOW` 规划仍显式不支持，均不得静默降级。
+实现事实。目标 Trading Runtime vocabulary 是 `BACKTEST/SIM/LIVE`。`BACKTEST` 支持确定性有限生命周期推进；`SIM`
+已支持 Engine streaming lifecycle 下的 realtime Virtual Broker normal path，但当前 Scenario Runner 尚不驱动该长生命周期
+路径。legacy `PAPER` 是 Sim Migration Source，`LIVE` 与 standalone `SHADOW` 规划仍显式不支持，均不得静默降级。
 
 Runtime Factory 必须先从必填 `market` 配置解析 Profile，再构建 `OnlyMarketRuleEngine`。Runtime 组件只接收
 Pre-Trade、Match-Time 或 Instruction Port，不得接收 Profile/Resolved Profile/Registry。引擎按 Trading Day
@@ -48,12 +49,13 @@ OnlyLiveRuntime
 OnlyPaperRuntime
 OnlyBacktestRuntime
 OnlyResearchRuntime
+OnlySimRuntime
 OnlyShadowRuntime
 ```
 
-这些类名不是产品完成度声明。当前 `BACKTEST` 已实现；`OnlyPaperRuntime` 是 Legacy Streaming Implementation / Sim
-Migration Source；`LIVE`、standalone `SHADOW` 与 `RESEARCH` Factory 仍返回 unsupported；`SIM` 尚无 enum、配置 spelling
-或 Factory。`PAPER` / `SHADOW` 不属于目标 taxonomy，也不形成长期兼容合同。
+这些类名不是完整产品完成度声明。当前 `BACKTEST` 已实现；`OnlySimRuntime` 已实现 realtime Virtual Broker normal path；
+`OnlyPaperRuntime` 是 Legacy Streaming Implementation / Sim Migration Source；`LIVE`、standalone `SHADOW` 与
+`RESEARCH` Factory 仍返回 unsupported。`PAPER` / `SHADOW` 不属于目标 taxonomy，也不形成长期兼容合同。
 
 ## 2. 统一上下文
 
@@ -104,13 +106,34 @@ Research Runtime 只隔离自身的 research execution、Dataset、Calculation�
 
 启动按 `SUBSCRIBING → BOOTSTRAP → CATCH_UP → LIVE` 推进。Calendar 负责 Session，Completed Boundary 负责历史截止，
 Historical Watermark 负责 Catch-up 重叠去重，Latest Observation Store 负责 CLI/Console/JSONL/未来 Web 的统一只读节点。
-Required Historical Warmup 失败仍然 Fail Closed。当前只支持内部 Shadow execution capability；当前 Profile 下的 Closed/Open
-Historical、Real Live Handoff 与 PR5.1 current-scope 真实 MiniQMT 验收已经通过。该 PASS 不覆盖 broad MiniQMT
-compatibility、reconnect、gap recovery、streaming checkpoint/recovery 或完整 Trading Kernel，也不能据此声称目标 Sim 已实现。
+Required Historical Warmup 失败仍然 Fail Closed。PAPER 当前只支持内部 Shadow execution capability；当前 Profile 下的
+Closed/Open Historical、Real Live Handoff 与 PR5.1 current-scope 真实 MiniQMT 验收已经通过。该 PASS 不覆盖 broad
+MiniQMT compatibility、reconnect、gap recovery、streaming checkpoint/recovery 或完整 Trading Kernel；SIM 的完成度必须
+由独立的 SIM 产品链与验收证明。
 
-这些 streaming、bootstrap、handoff、watermark、aggregation 和 observation 边界是未来 Sim 的迁移来源，不是第五种目标
-Runtime。P6 必须以 Virtual Broker 和完整 Trading Kernel 替换 Shadow execution，迁移配置与测试后删除 `PAPER` spelling，
-不保留 alias 或 wrapper。
+这些 streaming、bootstrap、handoff、watermark、aggregation 和 observation 边界是 Sim 的迁移来源，不是第五种目标
+Runtime。P6.3 已在独立 `OnlySimRuntime` 中以 Virtual Broker 和完整 Trading Kernel 关闭 normal path；后续阶段补齐
+gap/reconnect/checkpoint/restart 后迁移剩余配置与测试并删除 `PAPER` spelling，不保留 alias 或 wrapper。
+
+## 5.1 SIM Realtime Virtual Broker Normal Path
+
+SIM 使用 `initialize → start → wait → stop → close`，不调用仅适用于有限 Backtest 的 `OnlyEngine.run()`。正式组合是：
+
+```text
+OnlySimRuntime
+→ OnlyStreamingRuntime
+→ OnlyTradingRuntimeFacade
+→ OnlyTradingKernel
+```
+
+Factory 创建 Live Clock、独占 MarketData/Broker Inbound Queue，通过 SPI 创建 historical+live DataSource 和 simulated Broker，
+并要求 Broker 显式提供 deterministic driver。Broker Accepted/Trade/Terminal update 只能经 Broker Inbound Queue 进入
+Execution Processor；Transaction Store 仍是 durable authority，Projection 只安装 Planner 已冻结的经济结果。
+
+Next-Bar 因果顺序固定为 Bar N Strategy intent 后 Accepted、同 Bar 不成交，Bar N+1 matching 先于 Strategy 并产生 Trade。
+停止只切断 future processing permission，不自动取消 Accepted order。SIM Runtime Persistence 可使用 Memory/SQLite，并在
+checkpoint disabled 时保存 durable transaction；这不构成 Streaming Checkpoint/Recovery。Realtime gap recovery、reconnect、
+streaming checkpoint/restart 与 long-running production operations 尚未实现。
 
 ## 6. Backtest
 

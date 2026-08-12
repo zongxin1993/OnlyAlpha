@@ -114,9 +114,24 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 → Checkpoint / Recovery
 ```
 
+P6.3 另已完成 SIM 的 realtime Virtual Broker normal path：
+
+```text
+Runtime          : SIM
+Market Product   : GENERIC_T0_CASH@1
+Account / Order  : CASH / LIMIT / LONG NETTING
+Open             : BUY OPEN
+Data             : Historical Bootstrap → Realtime Handoff
+Execution        : Virtual Broker Accepted → Next-Bar Trade
+Durability       : Memory / SQLite Transaction + Ordered Projection
+Checkpoint       : Disabled
+```
+
+该范围只证明正常因果链和 durable projection，不升级为 gap/reconnect/checkpoint/restart 或长期生产运行能力。
+
 ### 2.3 Legacy Streaming / SIM 迁移基线
 
-当前源码 spelling `PAPER` 已实现并完成当前 Market Product 下的真实 MiniQMT 验收。它只表示未来 Sim 所需的一部分 streaming 基础设施已经存在：
+当前源码 spelling `PAPER` 已实现并完成当前 Market Product 下的真实 MiniQMT 验收。它只表示 Sim 所需的一部分 streaming 基础设施已经存在：
 
 ```text
 Historical Bootstrap
@@ -141,7 +156,8 @@ Read-only Market Observation
 Shadow Execution
 ```
 
-它不是目标产品 Runtime，也不得声称 Production Sim 已完成。以下能力仍未闭环：
+P6.3 已在独立 `OnlySimRuntime` 中以 Virtual Broker + 完整 Trading Kernel 替换 Shadow execution，关闭 realtime normal path。
+`PAPER` 仍不是目标产品 Runtime，且不得据此声称 Production Sim 已完成。以下能力仍未闭环：
 
 ```text
 Reconnect
@@ -154,7 +170,7 @@ Long-running Production Operations
 Broad MiniQMT Compatibility Matrix
 ```
 
-后续 P6 必须迁移并清理该基础设施，以 Virtual Broker + 完整 Trading Kernel 替换 Shadow execution，形成正式 `SIM`，然后删除 `PAPER` spelling/implementation；不保留 compatibility wrapper。
+后续 P6 必须补齐 gap/reconnect/checkpoint/restart，迁移剩余基础设施和测试，然后删除 `PAPER` spelling/implementation；不保留 compatibility wrapper。
 
 ### 2.4 当前不可用或不存在的目标能力
 
@@ -166,7 +182,7 @@ Standalone SHADOW
 RESEARCH
 ```
 
-目标 `SIM` 当前尚无 enum、配置 spelling 或 Factory，不能写成已实现。
+目标 `SIM` 已有 enum、配置、Factory 与 realtime Virtual Broker normal path；不得把它扩写为已具备 gap/reconnect、streaming checkpoint/restart 或 production operations。
 
 注意：
 

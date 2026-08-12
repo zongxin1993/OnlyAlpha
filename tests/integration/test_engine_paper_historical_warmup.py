@@ -224,6 +224,7 @@ def test_engine_replays_isolated_warmup_and_establishes_watermark(
 
     runtime = engine.runtimes[0]
     assert runtime.state is OnlyRuntimeState.RUNNING
+    assert runtime.inspection_run_id == f"paper-{runtime.runtime_id}"  # type: ignore[attr-defined]
     assert runtime.last_historical_bar_end is not None  # type: ignore[attr-defined]
     assert len(runtime.historical_warmup_results[0].bars) >= 10  # type: ignore[attr-defined]
     assert len(runtime.processing_results) >= 10  # type: ignore[attr-defined]

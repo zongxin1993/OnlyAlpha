@@ -13,16 +13,18 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 `PAPER` 与 standalone `SHADOW` 不是目标 Runtime。当前源码中的相关类型是 migration debt，不是长期兼容合同。
 
-## 当前产品事实（2026-08-11）
+## 当前产品事实（2026-08-12）
 
 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、单/多 Cluster、Result/Analytics/Artifact/Report。
+
+SIM 的当前正式范围是 `GENERIC_T0_CASH@1` 下的 realtime normal path：`OnlySimRuntime` 使用 Live Clock、historical bootstrap/live handoff、Virtual Broker 和共享 Trading Kernel，标准 Accepted/Trade fact 均进入 Broker Inbound Queue、Durable Transaction 与 Ordered Projection。SIM 的 Runtime Persistence 可使用 Memory 或 SQLite，且与 disabled streaming checkpoint 正交。该范围不包含 realtime gap recovery、reconnect、streaming checkpoint/restart 或长期生产运行。
 
 当前 legacy `PAPER` 路径已完成当前 Market Product binding 下真实 MiniQMT 的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown。它仍是 read-only market observation + Shadow execution，只作为 Sim streaming migration baseline；reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 与长期生产运行尚未闭环。
 
 当前实现状态：
 
 - `BACKTEST` 已实现，是 primary Runtime；
-- `SIM` 已有 canonical enum/config spelling、`LIVE_CLOCK` environment identity 与专用 composition Factory；合法组合仍返回 `SIM_EXECUTION_WIRING_PENDING`，不可执行；
+- `SIM` 已有 canonical enum/config spelling、`LIVE_CLOCK` environment identity、专用 composition Factory 和可执行 realtime Virtual Broker normal path；
 - `RESEARCH` 与 `LIVE` 是目标 Runtime，但当前 Factory 返回 unsupported；
 - standalone `SHADOW` Factory 返回 unsupported，且不是目标 Runtime；
 - `PAPER` 是待迁移并删除的旧源码路径。
@@ -62,7 +64,7 @@ Streaming stop 已定义为 processing permission cutoff：`STOPPING` 在 shutdo
 pending queue、不 flush pending Live Bar，future-event wait 可中断，且 stop 后不会开始新的 MarketData processor/result
 callback。P6.1 不实现 SIM、Virtual Broker streaming wiring、gap/reconnect recovery 或 streaming checkpoint/restart。
 
-### P6.2 — SIM Runtime Product Identity & Composition Contract（实现完成，待最终同 SHA CI 认证）
+### P6.2 — SIM Runtime Product Identity & Composition Contract（DONE / CERTIFIED）
 
 SIM 已成为 canonical Runtime product identity，配置 parser、Runtime environment、Planner grouping 与默认 Runtime
 Factory Registry 均能识别它。`OnlySimRuntimeFactory` 只负责 deterministic fail-closed composition validation：要求显式
@@ -70,24 +72,39 @@ Factory Registry 均能识别它。`OnlySimRuntimeFactory` 只负责 determinist
 以及恰好一个声明 `simulated_execution` 和 submit/cancel/query minimum capabilities 的 Broker。Real Broker、SHADOW/LIVE
 execution capability、缺失/多余组件和不完整 capability 均以稳定 SIM-specific code 拒绝。
 
-P6.2 不创建空壳 `OnlySimRuntime`，不包装 PAPER/Backtest/Shadow，也不修改 Trading Kernel、TradingFacade、Strategy
-Context、Virtual Broker、MiniQMT 或任何交易经济/恢复权威。合法组合的 `Engine.validate()` 仍明确 invalid，并返回
-`SIM_EXECUTION_WIRING_PENDING`；`OnlyEngine.run()` 仍只接受有限 BACKTEST。因此当前状态是：
+P6.2 当时不创建空壳 `OnlySimRuntime`，不包装 PAPER/Backtest/Shadow，也不修改 Trading Kernel、TradingFacade、Strategy
+Context、Virtual Broker、MiniQMT 或任何交易经济/恢复权威。该阶段合法组合仍以
+`SIM_EXECUTION_WIRING_PENDING` fail closed；后续 P6.3 已替换这个临时边界。P6.2 基线提交
+`b2f5df9a2c6138b720f8a3a3a54e803d0d7584f0` 已通过同 SHA 的 static、build、core-full、recovery、ashare、
+miniqmt-contract、quality-gate 与 Nightly Exhaustive 认证。
+
+### P6.3 — SIM Realtime Virtual Broker Execution Wiring（DONE）
+
+P6.3 已组合正式 `OnlySimRuntime -> OnlyStreamingRuntime -> OnlyTradingRuntimeFacade -> OnlyTradingKernel` 路径。
+SIM Factory 创建 Live Clock、MarketData/Broker Inbound Queue，通过 SPI 解析 historical+live DataSource 与 simulated
+Broker，并要求 Broker 提供显式 deterministic driver；缺失该能力会以稳定 SIM-specific code fail closed。SIM 不导入或包装
+PAPER、Backtest、Shadow，也没有新增 SIM 专用经济 authority。
+
+当前因果顺序由正式集成测试冻结：
 
 ```text
-SIM
-Enum: Yes
-Config: Yes
-Factory: Yes — composition validation only
-Operational: No — execution wiring pending
+Bar N enters normalized realtime pipeline
+→ Strategy creates order
+→ Virtual Broker publishes Accepted after dispatch
+→ ORDER_ACCEPTED durable commit / ordered projection
+→ no same-bar fill
+→ Bar N+1 broker matching runs before Strategy
+→ TRADE_FILL durable commit / ordered projection
 ```
 
-### P6.3 — SIM Realtime Virtual Broker Execution Wiring（下一阶段）
+停止 Runtime 只是 future processing permission cutoff，不会把 Accepted order 自动取消或创造额外交易事实。P6.3 只关闭
+realtime normal path，不包含 gap/reconnect/checkpoint/restart；`OnlyEngine.run()` 仍只接受有限 BACKTEST，SIM 使用
+`initialize/start/wait/stop/close`。
 
-P6.3 才组合真正的 `OnlySimRuntime -> OnlyStreamingRuntime` execution path，使 Realtime MarketData 进入共享 Trading
-Kernel，并由 Virtual Broker 产生标准 Accepted/Trade/Terminal facts，经 Broker Inbound Queue、Execution Processor、Durable
-Transaction 与 Ordered Projection 完成交易闭环。完成前不得把 `SIM_EXECUTION_WIRING_PENDING` 改为成功，也不得复用
-Shadow suppression 冒充模拟执行。
+### P6.4 — Realtime Gap + Reconnect Recovery（下一阶段）
+
+P6.4 将定义唯一 realtime gap authority、重连后的 provider/broker catch-up 边界、确定性去重与 fail-closed 恢复语义。
+在这些正式合同与测试完成前，不得把 P6.3 normal path 描述为 long-running production-ready SIM。
 
 P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
 

@@ -43,7 +43,7 @@ def test_sqlite_factory_creates_stable_default_and_explicit_paths(tmp_path: Path
     default = factory.create(
         _request(
             tmp_path / "default",
-            OnlyRuntimePersistenceConfig(OnlyRuntimePersistenceBackend.SQLITE, checkpoint=checkpoint),
+            OnlyRuntimePersistenceConfig(OnlyRuntimePersistenceBackend.SQLITE),
         )
     )
     assert isinstance(default, OnlySqliteRuntimePersistenceStore)
@@ -63,6 +63,12 @@ def test_sqlite_factory_creates_stable_default_and_explicit_paths(tmp_path: Path
     assert isinstance(explicit, OnlySqliteRuntimePersistenceStore)
     assert (tmp_path / "explicit" / "nested" / "store.sqlite3").is_file()
     explicit.close()
+
+
+def test_sqlite_durable_transactions_do_not_require_checkpoint_enablement() -> None:
+    config = OnlyRuntimePersistenceConfig(OnlyRuntimePersistenceBackend.SQLITE)
+
+    assert config.checkpoint.enabled is False
 
 
 def test_validate_does_not_create_state_directory(tmp_path: Path) -> None:

@@ -9,7 +9,6 @@ from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
 from onlyalpha.data.processor import OnlyMarketDataProcessor
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
-from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.streaming.live_bar import OnlyLiveBarFinalizer
 from onlyalpha.runtime.streaming.worker import OnlyStreamingMarketDataWorker
@@ -22,7 +21,6 @@ class OnlyStreamingMarketDataDriver:
         self,
         *,
         source: OnlyHistoricalDataSource | OnlyMarketDataGateway | OnlyPluginResource,
-        execution: OnlyExecutionService,
         subscription: OnlyMarketDataSubscriptionRequest,
         inbound_queue: OnlyMarketDataInboundQueue,
         processor: OnlyMarketDataProcessor,
@@ -33,7 +31,6 @@ class OnlyStreamingMarketDataDriver:
         accept_finalized: object,
     ) -> None:
         self.source = source
-        self.execution = execution
         self.subscription = subscription
         self.subscription_id: str | None = None
         self.stop_requested = Event()

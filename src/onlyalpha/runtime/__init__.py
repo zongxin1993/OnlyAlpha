@@ -10,6 +10,7 @@ _EXPORTS = {
     "OnlyPaperRuntime": "onlyalpha.runtime.paper.runtime",
     "OnlyResearchRuntime": "onlyalpha.runtime.research.runtime",
     "OnlyShadowRuntime": "onlyalpha.runtime.shadow.runtime",
+    "OnlySimRuntime": "onlyalpha.runtime.sim.runtime",
     "OnlyRuntime": "onlyalpha.runtime.runtime",
     "OnlyRuntimeOutboxDeliveryError": "onlyalpha.runtime.runtime",
     "OnlyRuntimeRecoveryError": "onlyalpha.runtime.runtime",

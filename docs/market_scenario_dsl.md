@@ -6,5 +6,6 @@
 并复用正式 `OnlyMarketConfig` 与 Reference Config 解析。当前 schema 仍识别源码 spelling
 `BACKTEST/PAPER/LIVE/SHADOW`；除 `BACKTEST` 外均在规划时明确返回 `SCENARIO_RUNTIME_MODE_UNSUPPORTED`。其中
 `PAPER` 是 Sim Migration Source，standalone `SHADOW` 是待删除实现债务；两者不是目标 Runtime。目标 taxonomy 是
-`RESEARCH/BACKTEST/SIM/LIVE`，但 `SIM` 尚无 enum、配置 spelling 或 Factory，不能据此写入场景。当前 Runner 只对可执行
+`RESEARCH/BACKTEST/SIM/LIVE`。`SIM` 已有独立 enum/config/Factory 和 realtime Virtual Broker normal path，但当前 Scenario
+schema/Runner 尚未接入其长生命周期 driver；因此不能把 SIM 写成已可执行 Scenario。当前 Runner 只对可执行
 `BACKTEST` plan 通过 `OnlyEngine` 运行完整产品纵切面；Parser 能识别某个 legacy spelling 不表示该场景可执行。

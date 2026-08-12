@@ -150,16 +150,14 @@ def test_default_runtime_registry_installs_the_sim_factory() -> None:
     assert registry.require("SIM").runtime_type == "SIM"
 
 
-def test_valid_sim_contract_is_recognized_but_execution_remains_fail_closed() -> None:
+def test_valid_sim_contract_is_operationally_accepted() -> None:
     services = only_default_engine_services()
 
     validation = services.assembler.validate(_sim_plan())
-    build = services.assembler.build(_sim_plan())
 
     assert validation.runtime is None
-    assert validation.failure_code == "SIM_EXECUTION_WIRING_PENDING"
-    assert build.runtime is None
-    assert build.failure_code == "SIM_EXECUTION_WIRING_PENDING"
+    assert validation.failure_code is None
+    assert validation.failure_message is None
 
 
 @pytest.mark.parametrize("capability", ("SHADOW", "LIVE"))

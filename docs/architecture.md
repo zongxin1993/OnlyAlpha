@@ -86,7 +86,7 @@ Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environme
 | `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
 | `SHADOW` | Standalone Factory 注册但返回 unsupported | 非目标 Runtime，迁移后删除 |
 | `RESEARCH` | Factory 注册但返回 unsupported | 后续实现目标 Research Runtime |
-| `SIM` | enum/config/environment identity/专用 Factory 已实现；合法组合返回 `SIM_EXECUTION_WIRING_PENDING` | P6.3 接入可执行 streaming Virtual Broker path |
+| `SIM` | realtime Virtual Broker normal path 已实现；gap/reconnect/checkpoint/restart 尚未实现 | P6 后续阶段补齐 streaming recovery 后作为完整 Sim 产品退出 |
 
 当前 `PAPER/SHADOW` 源码是 migration debt，不是第五、第六种目标 Runtime，也不是长期 public compatibility contract。迁移时更新配置和测试后删除旧接口，不建立 alias 或 wrapper。
 
@@ -94,8 +94,16 @@ P6.2 已建立 SIM operational composition contract：SIM 使用 `LIVE_CLOCK`、
 `SIMULATED` execution capability、恰好一个同时支持 historical/live bars 的 DataSource、恰好一个声明
 `simulated_execution` 与最小订单/query 能力的 Broker，并拒绝有限 start/end range、checkpoint 与 Real Broker。
 Runtime environment identity 保留 `SIM` product identity，因此不会与 PAPER 或 BACKTEST grouping/fingerprint 混同。
-该 Factory 不创建 `OnlySimRuntime`；即使组合完全合法也 fail closed 为 `SIM_EXECUTION_WIRING_PENDING`，所以当前
-SIM 是 recognized/configurable/plannable/composition-validatable，而不是 operational Runtime。
+
+P6.3 在该合同上增加 `OnlySimRuntime -> OnlyStreamingRuntime -> OnlyTradingRuntimeFacade -> OnlyTradingKernel` 的
+可执行组合。Factory 通过正式 SPI 创建 DataSource/Broker，通过显式 `OnlyDeterministicBrokerDriver` 推进 Virtual Broker，
+并为 SIM 创建独立 MarketData/Broker Inbound Queue 与 Runtime Persistence。标准 causal path 是 Bar N 的 Strategy intent
+在 dispatch 后得到 Accepted 且不在同一 Bar 成交；Bar N+1 先运行 Broker matching，再运行 Strategy，Trade 经
+Execution Processor、Durable Transaction 与 Ordered Projection 更新共享交易 authority。Runtime stop 不取消 Accepted
+order，也不创造 terminal/trade fact。
+
+当前 SIM 只完成 realtime normal path。Realtime gap recovery、reconnect、streaming checkpoint/restart 和长期生产运行仍未
+闭环；Runtime Persistence 的 Durable Transaction 不等于 Streaming Checkpoint。
 
 ## 4. Research Runtime
 
@@ -173,9 +181,10 @@ Streaming `STOP` 表示撤销未来处理权限，不是推进 market event time
 `STOPPING` 后 Worker 不 drain inbound queue、不 close pending Live Bar，也不开始新的 MarketData processing/result
 callback；未处理输入的 checkpoint/restart/gap recovery 仍属于后续阶段。
 
-当前只有 Backtest 具备正式 durable trading product path。SIM 已具备产品 identity 与 fail-closed composition
-validation，但 execution wiring 尚未实现。旧 `PAPER` streaming 路径使用 Shadow suppression，并不满足 Sim 的
-Virtual Broker + full Trading Kernel 定义；Live 也尚未具备 durable outbound Broker command、同步、对账和长期恢复闭环。
+Backtest 具备完整正式 durable trading product path。SIM 已具备 realtime Virtual Broker normal path，Accepted/Trade 经
+相同 Durable Transaction 与 Ordered Projection，但 gap/reconnect/streaming checkpoint/restart 尚未实现。旧 `PAPER`
+streaming 路径仍使用 Shadow suppression，并不定义 Sim；Live 也尚未具备 durable outbound Broker command、同步、对账和
+长期恢复闭环。
 
 ## 6. Cluster / Strategy / Factor / Indicator
 

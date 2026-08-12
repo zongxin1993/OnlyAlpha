@@ -1,4 +1,4 @@
-"""Shared long-lived Runtime kernel for Paper and future Live composition roots."""
+"""Shared long-lived Runtime kernel for streaming Trading composition roots."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ import hashlib
 import json
 from datetime import timedelta
 from math import lcm
+from typing import cast
 
+from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
+from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.core.clock import OnlyLiveClock
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataUpdateId
@@ -51,6 +54,7 @@ from onlyalpha.observation import (
 )
 from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.results import OnlyOrderSubmitResult
+from onlyalpha.plugin.broker import OnlyDeterministicBrokerDriver
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeError, OnlyRuntimeState
@@ -76,10 +80,14 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         event_bus: OnlyEventBus,
         data_source: OnlyHistoricalDataSource | OnlyMarketDataGateway | OnlyPluginResource,
         inbound_queue: OnlyMarketDataInboundQueue,
-        execution_service: OnlyExecutionService,
         persistence_store: OnlyRuntimePersistenceStorePort,
         subscription: OnlyMarketDataSubscriptionRequest,
         data_version: OnlyDataVersion,
+        execution_service: OnlyExecutionService | None = None,
+        broker_gateway: OnlyBrokerGateway | None = None,
+        broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
+        deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
+        broker_resource: OnlyPluginResource | None = None,
         bootstrap_bars: int = 0,
         historical_compatibility_profile: str = "miniqmt-history-v2",
         historical_protocol_version: int = 2,
@@ -98,10 +106,15 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             owned_clock=clock,
             owned_event_bus=event_bus,
             account_created_at=OnlyTimestamp.from_datetime(clock.now_utc() - timedelta(days=1)),
+            broker_gateway=broker_gateway,
             execution_service=execution_service,
+            deterministic_broker_driver=deterministic_broker_driver,
+            broker_inbound_queue=broker_inbound_queue,
             market_data_inbound_queue=inbound_queue,
             runtime_persistence_store=persistence_store,
-            plugin_resources=(data_source,),  # type: ignore[arg-type]
+            plugin_resources=(
+                ((broker_resource,) if broker_resource is not None else ()) + (cast(OnlyPluginResource, data_source),)
+            ),
         )
         self._bootstrap_bars = bootstrap_bars
         self._streaming_data_version = data_version
@@ -151,7 +164,6 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._live_finalizer = OnlyLiveBarFinalizer()
         self._driver = OnlyStreamingMarketDataDriver(
             source=data_source,
-            execution=execution_service,
             subscription=subscription,
             inbound_queue=inbound_queue,
             processor=self._services.market_data_processor,
@@ -209,7 +221,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
 
     @property
     def inspection_run_id(self) -> str:
-        return f"paper-{self.runtime_id}"
+        return f"{self.runtime_type.lower()}-{self.runtime_id}"
 
     @property
     def streaming_subscription(self) -> OnlyMarketDataSubscriptionRequest:
@@ -318,7 +330,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         return self._live_finalizer.pending_count
 
     def _recover_runtime(self) -> None:
-        # Streaming checkpoint/restart is deliberately outside PR5.1.
+        # Streaming checkpoint/restart is deliberately unsupported.
         self._services.event_router.complete_fresh_bootstrap()
 
     def _after_clusters_started(self) -> None:

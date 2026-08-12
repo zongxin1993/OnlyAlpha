@@ -1,0 +1,144 @@
+schema_version: "1.0"
+
+market:
+  plugin_id: onlyalpha-market-generic-t0-cash
+  product_id: GENERIC_T0_CASH
+  product_version: "1"
+  config: {}
+
+cluster:
+  cluster_id: miniqmt-sim-acceptance
+  account_id: sim-virtual-account
+  enabled: true
+  runtime_type: SIM
+  risk_profile_id: cn-equity-default
+
+runtime:
+  runtime_id: miniqmt-sim-acceptance-runtime
+  base_currency: CNY
+  persistence:
+    backend: MEMORY
+    checkpoint:
+      enabled: false
+  extensions:
+    execution_capability: SIMULATED
+    streaming:
+      bootstrap_bars: 50
+      historical_compatibility_profile: miniqmt-history-v2
+      historical_timeout_seconds: 30
+      inbound_queue_capacity: 4096
+      stale_after_seconds: 10
+    observation:
+      console: false
+      jsonl: false
+      queue_capacity: 1024
+
+reference_data:
+  calendars:
+    - calendar_id: CN_XSHE
+      venue: XSHE
+      timezone: Asia/Shanghai
+      sessions:
+        - name: morning
+          opens_at: "09:30:00"
+          closes_at: "11:30:00"
+          session_type: CONTINUOUS
+        - name: afternoon
+          opens_at: "13:00:00"
+          closes_at: "15:00:00"
+          session_type: CONTINUOUS
+      holidays: []
+  instruments:
+    - instrument_id: 000001.XSHE
+      asset_class: EQUITY
+      timezone: Asia/Shanghai
+      trading_calendar_id: CN_XSHE
+      price_precision: 2
+      quantity_precision: 0
+      price_increment: "0.01"
+      quantity_increment: "100"
+      lot_size: "100"
+      minimum_quantity: "100"
+      maximum_quantity: "100000000"
+
+universes:
+  - universe_id: sim-acceptance-universe
+    type: STATIC
+    instruments: [000001.XSHE]
+
+data_sources:
+  - source_id: miniqmt-live
+    plugin: miniqmt
+    enabled: true
+    data_version: miniqmt-live
+    batch_size: 128
+    coverage:
+      universe_ids: [sim-acceptance-universe]
+    extensions:
+      userdata_mini_path: 'C:\国金证券QMT交易端\userdata_mini'
+      cache_policy: force_refresh
+
+accounts:
+  - account_id: sim-virtual-account
+    gateway_id: sim-virtual-broker
+    broker_fee_contract:
+      contract_id: VIRTUAL_SIMULATION_ZERO_BROKER_FEES
+      contract_version: "1"
+    fee_reconciliation_policy:
+      policy_id: STANDARD_FEE_RECONCILIATION
+      policy_version: "1"
+    initial_cash:
+      value: "1000000.00"
+      currency: CNY
+
+brokers:
+  - gateway_id: sim-virtual-broker
+    plugin: virtual
+    enabled: true
+    extensions:
+      matching:
+        type: NEXT_BAR
+      slippage:
+        type: NONE
+
+strategy:
+  class_path: examples.strategy.acceptance.strategy:OnlyPaperAcceptanceIntentStrategy
+  config_path: examples.strategy.observation.config:OnlyFirstBarIntentStrategyConfig
+  extensions:
+    strategy_id: sim-acceptance-intent
+    instrument_id: 000001.XSHE
+    quantity: "1000"
+
+factors:
+  - factor_id: sim-macd-signal
+    factor_type: TIME_SERIES
+    class_path: examples.factor.time_series.macd_signal.factor:OnlyMacdSignalFactor
+    config_path: examples.factor.time_series.macd_signal.config:OnlyMacdSignalFactorConfig
+    required: true
+    subscriptions:
+      instrument_bars:
+        - instrument_id: 000001.XSHE
+          bar_specification:
+            step: 1
+            aggregation: TIME
+            price_type: LAST
+            source: EXTERNAL
+          role: PRIMARY
+        - instrument_id: 000001.XSHE
+          bar_specification:
+            step: 3
+            aggregation: TIME
+            price_type: LAST
+            source: INTERNAL
+          role: AUXILIARY
+    indicators:
+      - indicator_id: sim-macd-primary
+        type: MACD
+        parameters:
+          fast_period: 3
+          slow_period: 6
+          signal_period: 3
+          warmup_bars: 8
+
+output:
+  formats: [JSON]
