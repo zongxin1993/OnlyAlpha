@@ -16,8 +16,6 @@ from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataT
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataUpdateId
 from onlyalpha.data.models import (
     OnlyBarUpdate,
-    OnlyHistoricalBarRequest,
-    OnlyHistoricalDataRange,
     OnlyMarketDataInboundUpdate,
     OnlyMarketDataProcessingResult,
     OnlyMarketDataSubscriptionRequest,
@@ -67,11 +65,13 @@ from .driver import OnlyStreamingMarketDataDriver
 from .health import OnlyStreamingRuntimeHealth, only_streaming_data_state
 from .live_bar import OnlyLiveBarFinalizer
 from .phase import OnlyStreamingDataState, OnlyStreamingPhase
+from .phase_controller import OnlyStreamingPhaseController, OnlyStreamingPhaseSnapshot
+from .processing_lane import OnlyStreamingProcessingLane
 from .recovery import (
     OnlyStreamingRecoveryPlan,
     OnlyStreamingRecoveryReason,
-    only_expected_closed_bar_boundaries,
 )
+from .recovery_loader import OnlyStreamingRecoveryLoader
 
 
 class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
@@ -106,7 +106,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         observation_sinks: tuple[OnlyObservationSink, ...] = (),
         observation_queue_capacity: int = 1024,
     ) -> None:
-        self._streaming_phase = OnlyStreamingPhase.CREATED
+        self._phase_controller = OnlyStreamingPhaseController()
         super().__init__(
             config,
             calendar,
@@ -177,14 +177,25 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._streaming_stop_attempted = False
         self._processing_results: list[OnlyMarketDataProcessingResult] = []
         self._live_finalizer = OnlyLiveBarFinalizer()
+        self._processing_lane = OnlyStreamingProcessingLane(self._services.market_data_processor)
+        source_id = data_source.source_id  # type: ignore[union-attr]
+        self._recovery_loader = OnlyStreamingRecoveryLoader(
+            source=cast(OnlyHistoricalDataSource, data_source),
+            calendar=self._selected_calendar,
+            data_version=data_version,
+            runtime_id=OnlyRuntimeId(self.runtime_id),
+            source_id=source_id,
+        )
         self._driver = OnlyStreamingMarketDataDriver(
             source=data_source,
             subscription=subscription,
             inbound_queue=inbound_queue,
-            processor=self._services.market_data_processor,
+            processing_lane=self._processing_lane,
             finalizer=self._live_finalizer,
             clock=clock,
-            on_result=self._handle_worker_result,
+            shutdown_timeout_seconds=float(historical_timeout_seconds) + 5.0,
+            commit_result=self._record_processing_result,
+            on_processed=self._handle_worker_result,
             on_idle=self._handle_worker_idle,
             accept_update=self._accept_streaming_update,
             accept_finalized=self._accept_finalized_bar,
@@ -197,7 +208,23 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
 
     @property
     def streaming_phase(self) -> OnlyStreamingPhase:
-        return self._streaming_phase
+        return self._phase_controller.snapshot().phase
+
+    @property
+    def streaming_phase_snapshot(self) -> OnlyStreamingPhaseSnapshot:
+        return self._phase_controller.snapshot()
+
+    def wait_for_streaming_phase(
+        self,
+        target: OnlyStreamingPhase,
+        *,
+        after_revision: int | None = None,
+        timeout: float | None = None,
+    ) -> OnlyStreamingPhaseSnapshot | None:
+        return self._phase_controller.wait_for(target, after_revision=after_revision, timeout=timeout)
+
+    def _transition_streaming_phase(self, target: OnlyStreamingPhase) -> bool:
+        return self._phase_controller.transition(set(OnlyStreamingPhase), target)
 
     @property
     def historical_watermarks(self) -> tuple[OnlyHistoricalWatermark, ...]:
@@ -374,19 +401,19 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             raise OnlyRuntimeError("streaming DataSource does not provide subscribe()")
         self._observation_publisher.start()
         try:
-            self._streaming_phase = OnlyStreamingPhase.SUBSCRIBING
+            self._transition_streaming_phase(OnlyStreamingPhase.SUBSCRIBING)
             result = subscribe(self._streaming_subscription)
             if result.subscription_id is None:
                 raise OnlyRuntimeError(f"live subscription failed: {result.reason}")
             self._driver.subscription_id = result.subscription_id
-            self._streaming_phase = OnlyStreamingPhase.BOOTSTRAP
+            self._transition_streaming_phase(OnlyStreamingPhase.BOOTSTRAP)
             self._bootstrap()
-            self._streaming_phase = OnlyStreamingPhase.CATCH_UP
+            self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP)
             self._drain_catch_up()
-            self._streaming_phase = OnlyStreamingPhase.LIVE
+            self._transition_streaming_phase(OnlyStreamingPhase.LIVE)
             self._driver.start_worker()
         except Exception:
-            self._streaming_phase = OnlyStreamingPhase.FAILED
+            self._transition_streaming_phase(OnlyStreamingPhase.FAILED)
             self._unsubscribe()
             self._observation_publisher.stop()
             raise
@@ -395,7 +422,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         try:
             super().start()
         except Exception:
-            self._streaming_phase = OnlyStreamingPhase.FAILED
+            self._transition_streaming_phase(OnlyStreamingPhase.FAILED)
             raise
         self._acceptance_execution_stage = "HISTORICAL_OBSERVATION"
         for key, bar in sorted(self._latest_bars.items(), key=lambda item: str(item[0])):
@@ -420,7 +447,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if self._streaming_stop_attempted:
             return
         self._streaming_stop_attempted = True
-        self._streaming_phase = OnlyStreamingPhase.STOPPING
+        self._processing_lane.revoke(self._phase_controller.begin_stop)
         self._driver.request_stop()
         failure: BaseException | None = None
         for operation in (
@@ -433,7 +460,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 operation()
             except BaseException as exc:
                 failure = failure or exc
-        self._streaming_phase = OnlyStreamingPhase.FAILED if failure is not None else OnlyStreamingPhase.STOPPED
+        self._transition_streaming_phase(
+            OnlyStreamingPhase.FAILED if failure is not None else OnlyStreamingPhase.STOPPED
+        )
         if failure is not None:
             self._stop_failure = failure
             self._state = OnlyRuntimeState.FAILED
@@ -547,8 +576,10 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 source_sequence=OnlyDataSequence(replay_sequence),
                 metadata=update.metadata + (("provider_sequence", str(int(update.source_sequence))),),
             )
-            result = self._services.market_data_processor.process(update)
-            self._record_processing_result(update, result)
+            outcome = self._processing_lane.process(update, self._record_processing_result)
+            if not outcome.started or outcome.result is None:
+                raise OnlyRuntimeError("historical warmup lost processing permission")
+            result = outcome.result
             if result.status is OnlyMarketDataProcessingStatus.DUPLICATE:
                 self._historical_duplicate_count += 1
                 if self._historical_first_rejection_reason is None:
@@ -639,7 +670,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         pipeline = result.pipeline_result
         if isinstance(pipeline, OnlyMarketDataUpdateResult):
             self._closed_external_bar_count += 1
-            if self._streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
+            if self.streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
                 self._historical_processed_bar_count += 1
             self._derived_internal_bar_count += len(pipeline.derived_bars)
             bar = pipeline.base_bar
@@ -652,13 +683,13 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._last_closed_bar_end = OnlyTimestamp.from_datetime(bar.bar_end)
             source = (
                 OnlyObservationSource.HISTORICAL_BOOTSTRAP
-                if self._streaming_phase is OnlyStreamingPhase.BOOTSTRAP
+                if self.streaming_phase is OnlyStreamingPhase.BOOTSTRAP
                 else OnlyObservationSource.CATCH_UP
-                if self._streaming_phase is OnlyStreamingPhase.CATCH_UP
+                if self.streaming_phase is OnlyStreamingPhase.CATCH_UP
                 else OnlyObservationSource.LIVE
             )
             self._latest_sources[key] = source
-            if self._streaming_phase is not OnlyStreamingPhase.BOOTSTRAP:
+            if self.streaming_phase is not OnlyStreamingPhase.BOOTSTRAP:
                 self._publish_observations(bar, source)
 
     def _drain_catch_up(self) -> None:
@@ -677,7 +708,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 continue
             for finalized in self._live_finalizer.accept(update):
                 if self._accept_finalized_bar(finalized):
-                    self._record_processing_result(finalized, self._services.market_data_processor.process(finalized))
+                    outcome = self._processing_lane.process(finalized, self._record_processing_result)
+                    if not outcome.started:
+                        return
 
     def _accept_streaming_update(self, update: OnlyMarketDataInboundUpdate) -> bool:
         self._received_update_count += 1
@@ -724,7 +757,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if confirmed is None:
             self._fail_streaming_recovery("continuity gap has no confirmed Bar frontier")
             return
-        self._streaming_phase = OnlyStreamingPhase.DEGRADED
+        if not self._transition_streaming_phase(OnlyStreamingPhase.DEGRADED):
+            return
         self._recovery_generation += 1
         plan = OnlyStreamingRecoveryPlan(
             self._recovery_generation,
@@ -741,20 +775,28 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._recovery_plan = plan
         self._live_finalizer.reset_pending()
         try:
-            if self._driver.worker.stop_requested or self._streaming_phase is OnlyStreamingPhase.STOPPING:
+            if self._processing_lane.revoked:
                 return
-            self._streaming_phase = OnlyStreamingPhase.RECOVERING
-            updates = self._load_recovery_updates(plan)
-            if self._driver.worker.stop_requested or self._streaming_phase is OnlyStreamingPhase.STOPPING:
+            if not self._transition_streaming_phase(OnlyStreamingPhase.RECOVERING):
                 return
-            for update in updates:
-                if self._driver.worker.stop_requested:
+            accepted_sequence = self._accepted_market_sequences.get(
+                (str(self._driver.source.source_id), OnlyMarketDataType.BAR),  # type: ignore[union-attr]
+                0,
+            )
+            batch = self._recovery_loader.load(plan, accepted_sequence)
+            if self._processing_lane.revoked or self.streaming_phase is OnlyStreamingPhase.STOPPING:
+                return
+            for update in batch.updates:
+                outcome = self._processing_lane.process(update, self._record_processing_result)
+                if not outcome.started:
                     return
-                result = self._services.market_data_processor.process(update)
-                self._record_processing_result(update, result)
+                if outcome.result is None:
+                    raise AssertionError("started processing must return a result")
+                result = outcome.result
                 if result.status is not OnlyMarketDataProcessingStatus.APPLIED:
                     raise OnlyRuntimeError(f"recovery Bar was not applied: {result.status.value}")
-            self._streaming_phase = OnlyStreamingPhase.CATCH_UP
+            if not self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP):
+                return
             buffered = (() if plan.trigger_update is None else (plan.trigger_update,)) + self._drain_buffered_updates()
             self._process_buffered_updates(buffered)
             while True:
@@ -764,77 +806,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 self._process_buffered_updates(suffix)
             self._verify_recovery_complete(plan)
             self._recovery_plan = None
-            self._streaming_phase = OnlyStreamingPhase.LIVE
+            self._transition_streaming_phase(OnlyStreamingPhase.LIVE)
         except Exception as exc:
             self._fail_streaming_recovery(str(exc))
-
-    def _load_recovery_updates(
-        self,
-        plan: OnlyStreamingRecoveryPlan,
-    ) -> tuple[OnlyMarketDataInboundUpdate, ...]:
-        source = cast(OnlyHistoricalDataSource, self._driver.source)
-        expected = only_expected_closed_bar_boundaries(
-            calendar=self._selected_calendar,
-            bar_type=plan.bar_type,
-            confirmed_bar_end=plan.confirmed_bar_end,
-            recovery_target=plan.recovery_target,
-        )
-        if not expected:
-            return ()
-        request = OnlyHistoricalBarRequest(
-            f"recovery-{self.runtime_id}-{plan.generation}",
-            frozenset({plan.instrument_id}),
-            frozenset({plan.bar_type}),
-            OnlyHistoricalDataRange(
-                plan.confirmed_bar_end.to_datetime(),
-                plan.recovery_target.to_datetime() + timedelta(microseconds=1),
-            ),
-            self._streaming_data_version,
-        )
-        candidates = tuple(source.load_bars(request))
-        by_end: dict[int, OnlyMarketDataInboundUpdate] = {}
-        for candidate in candidates:
-            if not isinstance(candidate.payload, OnlyBarUpdate):
-                raise OnlyRuntimeError("historical recovery returned a non-Bar update")
-            bar = candidate.payload.bar
-            if candidate.instrument_id != plan.instrument_id or bar.bar_type != plan.bar_type:
-                raise OnlyRuntimeError("historical recovery identity mismatch")
-            if candidate.data_version != self._streaming_data_version:
-                raise OnlyRuntimeError("historical recovery DataVersion mismatch")
-            if not bar.is_closed or bar.ts_event != bar.bar_end or not self._historical_bar_is_in_calendar_session(bar):
-                raise OnlyRuntimeError("historical recovery returned an invalid closed Bar")
-            end_ns = OnlyTimestamp.from_datetime(bar.bar_end).unix_nanos
-            if plan.confirmed_bar_end.unix_nanos < end_ns <= plan.recovery_target.unix_nanos:
-                existing = by_end.get(end_ns)
-                if existing is not None and existing.payload != candidate.payload:
-                    raise OnlyRuntimeError("historical recovery returned conflicting duplicate Bars")
-                by_end[end_ns] = candidate
-        expected_ns = tuple(item.unix_nanos for item in expected)
-        if tuple(sorted(by_end)) != expected_ns:
-            raise OnlyRuntimeError("historical recovery coverage is incomplete")
-        sequence = self._accepted_market_sequences.get(
-            (str(self._driver.source.source_id), OnlyMarketDataType.BAR),  # type: ignore[union-attr]
-            0,
-        )
-        normalized: list[OnlyMarketDataInboundUpdate] = []
-        for offset, boundary in enumerate(expected, start=1):
-            candidate = by_end[boundary.unix_nanos]
-            normalized.append(
-                replace(
-                    candidate,
-                    update_id=OnlyMarketDataUpdateId(f"recovery-{self.runtime_id}-{plan.generation}-{offset}"),
-                    runtime_id=OnlyRuntimeId(self.runtime_id),
-                    source_id=self._driver.source.source_id,  # type: ignore[union-attr]
-                    source_sequence=OnlyDataSequence(sequence + offset),
-                    metadata=candidate.metadata
-                    + (
-                        ("provider_sequence", str(int(candidate.source_sequence))),
-                        ("recovery_generation", str(plan.generation)),
-                        ("recovery_source", "historical"),
-                    ),
-                )
-            )
-        return tuple(normalized)
 
     def _drain_buffered_updates(self) -> tuple[OnlyMarketDataInboundUpdate, ...]:
         updates: list[OnlyMarketDataInboundUpdate] = []
@@ -853,7 +827,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         )
         seen: set[tuple[str, OnlyBarType, int]] = set()
         for update in ordered:
-            if self._driver.worker.stop_requested or self._streaming_phase is OnlyStreamingPhase.STOPPING:
+            if self._processing_lane.revoked:
                 return
             if not self._accept_streaming_update(update):
                 continue
@@ -877,8 +851,12 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     source_sequence=OnlyDataSequence(next_sequence),
                     metadata=finalized.metadata + (("provider_sequence", str(int(finalized.source_sequence))),),
                 )
-                result = self._services.market_data_processor.process(normalized)
-                self._record_processing_result(normalized, result)
+                outcome = self._processing_lane.process(normalized, self._record_processing_result)
+                if not outcome.started:
+                    return
+                if outcome.result is None:
+                    raise AssertionError("started processing must return a result")
+                result = outcome.result
                 if result.status is OnlyMarketDataProcessingStatus.GAP_DETECTED:
                     raise OnlyRuntimeError("buffered realtime suffix contains a secondary gap")
                 if result.status not in {
@@ -888,7 +866,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     raise OnlyRuntimeError(f"buffered realtime update was not applied: {result.status.value}")
 
     def _verify_recovery_complete(self, plan: OnlyStreamingRecoveryPlan) -> None:
-        if self._driver.worker.stop_requested or self._streaming_phase in {
+        if self._processing_lane.revoked or self.streaming_phase in {
             OnlyStreamingPhase.STOPPING,
             OnlyStreamingPhase.FAILED,
         }:
@@ -911,9 +889,11 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             raise OnlyRuntimeError("open-market stream remains stale after recovery")
 
     def _fail_streaming_recovery(self, reason: str) -> None:
+        if self.streaming_phase in {OnlyStreamingPhase.STOPPING, OnlyStreamingPhase.STOPPED}:
+            return
         self._recovery_failure = reason
-        self._streaming_phase = OnlyStreamingPhase.FAILED
-        self._state = OnlyRuntimeState.FAILED
+        if self._transition_streaming_phase(OnlyStreamingPhase.FAILED):
+            self._state = OnlyRuntimeState.FAILED
 
     def _source_connected(self) -> bool:
         snapshot = getattr(self._driver.source, "connection_snapshot", None)
@@ -931,7 +911,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if now - self._idle_check_ns < 1_000_000_000:
             return
         self._idle_check_ns = now
-        if self._streaming_phase is not OnlyStreamingPhase.LIVE:
+        if self.streaming_phase is not OnlyStreamingPhase.LIVE:
             return
         health = self.health()
         if health.data_state not in {OnlyStreamingDataState.STALE, OnlyStreamingDataState.DISCONNECTED}:
@@ -943,7 +923,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if not self._latest_bars:
             self._fail_streaming_recovery("stale recovery has no confirmed Bar frontier")
             return
-        self._streaming_phase = OnlyStreamingPhase.DEGRADED
+        if not self._transition_streaming_phase(OnlyStreamingPhase.DEGRADED):
+            return
         if state is OnlyStreamingDataState.DISCONNECTED and not self._reconnect_source():
             self._fail_streaming_recovery("streaming DataSource reconnect failed")
             return
@@ -965,7 +946,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 target,
             )
             self._recover_market_continuity(plan)
-            if self._streaming_phase is OnlyStreamingPhase.FAILED:
+            if self.streaming_phase is OnlyStreamingPhase.FAILED:
                 return
 
     def _reconnect_source(self) -> bool:
@@ -992,22 +973,22 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
 
     def _intercept_order_submit(self, request: OnlyOrderRequest) -> OnlyOrderSubmitResult | None:
         del request
-        if self._streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
+        if self.streaming_phase is OnlyStreamingPhase.BOOTSTRAP:
             self._bootstrap_suppressed_intent_count += 1
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_BOOTSTRAP"
             )
-        if self._streaming_phase is OnlyStreamingPhase.CATCH_UP:
+        if self.streaming_phase is OnlyStreamingPhase.CATCH_UP:
             self._catch_up_suppressed_intent_count += 1
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_CATCH_UP"
             )
-        if self._streaming_phase is OnlyStreamingPhase.DEGRADED:
+        if self.streaming_phase is OnlyStreamingPhase.DEGRADED:
             self._degraded_suppressed_intent_count += 1
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_DEGRADED"
             )
-        if self._streaming_phase is OnlyStreamingPhase.RECOVERING:
+        if self.streaming_phase is OnlyStreamingPhase.RECOVERING:
             self._recovery_suppressed_intent_count += 1
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_RECOVERY"
@@ -1019,7 +1000,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         session = OnlyMarketSessionResolver(self._selected_calendar).resolve(observed)
         data_state = only_streaming_data_state(
             session=session,
-            phase=self._streaming_phase,
+            phase=self.streaming_phase,
             source_connected=self._source_connected(),
             observed_at=observed,
             next_expected_bar_end=self._next_expected_bar_end(session),
@@ -1044,7 +1025,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 bar.bar_type,
                 observed,
                 self.state,
-                self._streaming_phase,
+                self.streaming_phase,
                 session.state,
                 data_state,
                 source,
@@ -1074,7 +1055,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         next_expected = self._next_expected_bar_end(session)
         state = only_streaming_data_state(
             session=session,
-            phase=self._streaming_phase,
+            phase=self.streaming_phase,
             source_connected=self._source_connected(),
             observed_at=observed,
             next_expected_bar_end=next_expected,
@@ -1082,7 +1063,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         )
         return OnlyStreamingRuntimeHealth(
             self.state,
-            self._streaming_phase,
+            self.streaming_phase,
             session.state,
             state,
             self._source_connected(),

@@ -7,10 +7,10 @@ from threading import Event
 from onlyalpha.core.clock import OnlyLiveClock
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
 from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
-from onlyalpha.data.processor import OnlyMarketDataProcessor
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.streaming.live_bar import OnlyLiveBarFinalizer
+from onlyalpha.runtime.streaming.processing_lane import OnlyStreamingProcessingLane
 from onlyalpha.runtime.streaming.worker import OnlyStreamingMarketDataWorker
 
 
@@ -23,10 +23,12 @@ class OnlyStreamingMarketDataDriver:
         source: OnlyHistoricalDataSource | OnlyMarketDataGateway | OnlyPluginResource,
         subscription: OnlyMarketDataSubscriptionRequest,
         inbound_queue: OnlyMarketDataInboundQueue,
-        processor: OnlyMarketDataProcessor,
+        processing_lane: OnlyStreamingProcessingLane,
         finalizer: OnlyLiveBarFinalizer,
         clock: OnlyLiveClock,
-        on_result: object,
+        shutdown_timeout_seconds: float,
+        commit_result: object,
+        on_processed: object,
         on_idle: object,
         accept_update: object,
         accept_finalized: object,
@@ -37,11 +39,13 @@ class OnlyStreamingMarketDataDriver:
         self.stop_requested = Event()
         self.worker = OnlyStreamingMarketDataWorker(
             inbound_queue,
-            processor,
+            processing_lane,
             finalizer,
             clock,
             maximum_future_wait_seconds=10.0,
-            on_result=on_result,  # type: ignore[arg-type]
+            shutdown_timeout_seconds=shutdown_timeout_seconds,
+            commit_result=commit_result,  # type: ignore[arg-type]
+            on_processed=on_processed,  # type: ignore[arg-type]
             on_idle=on_idle,  # type: ignore[arg-type]
             accept_update=accept_update,  # type: ignore[arg-type]
             accept_finalized=accept_finalized,  # type: ignore[arg-type]

@@ -466,11 +466,17 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
             "pre-gap Worker callback did not complete",
         )
         assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
+        before = runtime.streaming_phase_snapshot
         _publish_closed_gap_trigger(runtime, clock, 42)
-        _wait_until(
-            lambda: runtime.recovery_generation == 1 and runtime.streaming_phase is OnlyStreamingPhase.LIVE,
-            "SIM gap recovery did not restore LIVE",
+        assert (
+            runtime.wait_for_streaming_phase(
+                OnlyStreamingPhase.LIVE,
+                after_revision=before.revision,
+                timeout=10,
+            )
+            is not None
         )
+        assert runtime.recovery_generation == 1
 
         audit = runtime.market_data_audit_store.records()
         trigger_statuses = tuple(item.status for item in audit if str(item.update_id) == "fixture-live-gap-42")
@@ -585,6 +591,7 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
         lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
         "pre-gap Worker callback did not complete",
     )
+    before = runtime.streaming_phase_snapshot
     _publish_closed_gap_trigger(runtime, clock, 42)
     assert entered.wait(3)
     before_results = len(runtime.processing_results)
@@ -600,9 +607,13 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
 
     stopper = Thread(target=stop_engine)
     stopper.start()
-    _wait_until(
-        lambda: runtime.streaming_phase is OnlyStreamingPhase.STOPPING,
-        "stop did not revoke processing permission during recovery",
+    assert (
+        runtime.wait_for_streaming_phase(
+            OnlyStreamingPhase.STOPPING,
+            after_revision=before.revision,
+            timeout=10,
+        )
+        is not None
     )
     release.set()
     stopper.join(timeout=3)
@@ -612,6 +623,48 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
     assert runtime.streaming_phase is OnlyStreamingPhase.STOPPED
     assert len(runtime.processing_results) == before_results
     assert _sqlite_transaction_state(database) == before_transactions
+
+
+def test_engine_sim_stop_during_buffered_suffix_catch_up_prevents_late_processing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, _ = _engine(tmp_path, monkeypatch, engine_id="sim-stop-catch-up")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    entered = Event()
+    release = Event()
+    original = runtime._process_buffered_updates  # type: ignore[attr-defined]
+
+    def blocked(updates: tuple[OnlyMarketDataInboundUpdate, ...]) -> None:
+        entered.set()
+        assert release.wait(10)
+        original(updates)
+
+    monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
+    monkeypatch.setattr(runtime, "_process_buffered_updates", blocked)
+    _publish_and_wait_received(runtime, xtdata, clock, 37)
+    _publish_and_wait_received(runtime, xtdata, clock, 38)
+    _wait_until(
+        lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+        "pre-gap Worker callback did not complete",
+    )
+    _publish_closed_gap_trigger(runtime, clock, 42)
+    assert entered.wait(10)
+    before_results = len(runtime.processing_results)
+
+    stopper = Thread(target=lambda: engine.stop())
+    stopper.start()
+    assert runtime.wait_for_streaming_phase(OnlyStreamingPhase.STOPPING, timeout=10) is not None
+    release.set()
+    stopper.join(10)
+
+    assert not stopper.is_alive()
+    assert runtime.streaming_phase is OnlyStreamingPhase.STOPPED
+    assert len(runtime.processing_results) == before_results
 
 
 def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
@@ -631,13 +684,19 @@ def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
             lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
             "pre-disconnect Worker callback did not complete",
         )
+        before = runtime.streaming_phase_snapshot
         source.disconnect()
         clock.advance_to(datetime(2026, 8, 4, 1, 42, tzinfo=UTC))
 
-        _wait_until(
-            lambda: runtime.recovery_generation == 1 and runtime.streaming_phase is OnlyStreamingPhase.LIVE,
-            "disconnect recovery did not restore LIVE",
+        assert (
+            runtime.wait_for_streaming_phase(
+                OnlyStreamingPhase.LIVE,
+                after_revision=before.revision,
+                timeout=10,
+            )
+            is not None
         )
+        assert runtime.recovery_generation == 1
 
         assert runtime.recovery_failure is None
         assert runtime.subscription_active
@@ -695,13 +754,13 @@ def test_engine_sim_streaming_phase_permission_matrix_blocks_retroactive_orders(
             OnlyStreamingPhase.RECOVERING: "ORDER_INTENT_SUPPRESSED_DURING_RECOVERY",
         }
         for phase, error in expected.items():
-            runtime._streaming_phase = phase  # type: ignore[attr-defined]
+            runtime._transition_streaming_phase(phase)  # type: ignore[attr-defined]
             result = runtime._intercept_order_submit(request)  # type: ignore[attr-defined]
             assert result is not None
             assert not result.created
             assert not result.submitted
             assert result.error == error
-        runtime._streaming_phase = OnlyStreamingPhase.LIVE  # type: ignore[attr-defined]
+        runtime._transition_streaming_phase(OnlyStreamingPhase.LIVE)  # type: ignore[attr-defined]
         assert runtime._intercept_order_submit(request) is None  # type: ignore[attr-defined]
     finally:
         engine.stop()

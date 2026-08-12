@@ -1,39 +1,41 @@
 """Single-consumer streaming market-data worker."""
 
 from collections.abc import Callable
-from threading import Event, Lock, Thread
+from threading import Event, Thread
 from time import monotonic
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult
-from onlyalpha.data.processor import OnlyMarketDataProcessor
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 
 from .live_bar import OnlyLiveBarFinalizer
+from .processing_lane import OnlyStreamingProcessingCommit, OnlyStreamingProcessingLane
 
 
 class OnlyStreamingMarketDataWorker:
-    _JOIN_TIMEOUT_SECONDS = 5.0
-
     def __init__(
         self,
         queue: OnlyMarketDataInboundQueue,
-        processor: OnlyMarketDataProcessor,
+        processing_lane: OnlyStreamingProcessingLane,
         finalizer: OnlyLiveBarFinalizer,
         clock: OnlyClock,
         *,
         maximum_future_wait_seconds: float = 10.0,
-        on_result: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
+        shutdown_timeout_seconds: float = 35.0,
+        commit_result: OnlyStreamingProcessingCommit,
+        on_processed: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
         on_idle: Callable[[], None] | None = None,
         accept_update: Callable[[OnlyMarketDataInboundUpdate], bool] | None = None,
         accept_finalized: Callable[[OnlyMarketDataInboundUpdate], bool] | None = None,
     ) -> None:
         self._queue = queue
-        self._processor = processor
+        self._processing_lane = processing_lane
         self._finalizer = finalizer
         self._clock = clock
         self._maximum_future_wait_seconds = maximum_future_wait_seconds
-        self._on_result = on_result or (lambda update, result: None)
+        self._shutdown_timeout_seconds = shutdown_timeout_seconds
+        self._commit_result = commit_result
+        self._on_processed = on_processed or (lambda update, result: None)
         self._on_idle = on_idle or (lambda: None)
         self._accept_update = accept_update or (lambda update: True)
         self._accept_finalized = accept_finalized or (lambda update: True)
@@ -41,7 +43,6 @@ class OnlyStreamingMarketDataWorker:
         self._thread: Thread | None = None
         self._failure: BaseException | None = None
         self._stop_attempted = False
-        self._processing_permission = Lock()
 
     @property
     def alive(self) -> bool:
@@ -67,16 +68,15 @@ class OnlyStreamingMarketDataWorker:
         self.request_stop()
         thread = self._thread
         if thread is not None:
-            thread.join(timeout=self._JOIN_TIMEOUT_SECONDS)
+            thread.join(timeout=self._shutdown_timeout_seconds)
             if thread.is_alive():
                 raise RuntimeError(
                     "streaming market-data worker did not stop: "
-                    f"operation=join timeout_seconds={self._JOIN_TIMEOUT_SECONDS}"
+                    f"operation=join timeout_seconds={self._shutdown_timeout_seconds}"
                 )
 
     def request_stop(self) -> None:
-        with self._processing_permission:
-            self._stop.set()
+        self._stop.set()
 
     def _run(self) -> None:
         try:
@@ -100,11 +100,10 @@ class OnlyStreamingMarketDataWorker:
                 continue
             if self._stop.is_set() or not self._await_event_time(finalized):
                 return
-            with self._processing_permission:
-                if self._stop.is_set():
-                    return
-                result = self._processor.process(finalized)
-            self._on_result(finalized, result)
+            outcome = self._processing_lane.process(finalized, self._commit_result)
+            if not outcome.started or outcome.result is None:
+                return
+            self._on_processed(finalized, outcome.result)
 
     @property
     def stop_requested(self) -> bool:

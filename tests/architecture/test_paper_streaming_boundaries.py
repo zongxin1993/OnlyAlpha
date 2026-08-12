@@ -40,7 +40,8 @@ def test_streaming_runtime_buffers_live_input_before_required_historical_warmup(
     assert "load_warmup" in source
     bootstrap = source[source.index("def _bootstrap(") : source.index("def _historical_bar_is_in_calendar_session")]
     assert "load_bars" not in bootstrap
-    assert "source.load_bars(request)" in source
+    loader = Path("src/onlyalpha/runtime/streaming/recovery_loader.py").read_text(encoding="utf-8")
+    assert "self._source.load_bars(request)" in loader
 
 
 def test_miniqmt_historical_warmup_uses_a_short_lived_interpreter_process() -> None:
