@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import timedelta
 from math import lcm
 from typing import cast
@@ -15,6 +16,8 @@ from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataT
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataUpdateId
 from onlyalpha.data.models import (
     OnlyBarUpdate,
+    OnlyHistoricalBarRequest,
+    OnlyHistoricalDataRange,
     OnlyMarketDataInboundUpdate,
     OnlyMarketDataProcessingResult,
     OnlyMarketDataSubscriptionRequest,
@@ -64,6 +67,11 @@ from .driver import OnlyStreamingMarketDataDriver
 from .health import OnlyStreamingRuntimeHealth, only_streaming_data_state
 from .live_bar import OnlyLiveBarFinalizer
 from .phase import OnlyStreamingDataState, OnlyStreamingPhase
+from .recovery import (
+    OnlyStreamingRecoveryPlan,
+    OnlyStreamingRecoveryReason,
+    only_expected_closed_bar_boundaries,
+)
 
 
 class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
@@ -151,10 +159,17 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._out_of_order_count = 0
         self._bootstrap_suppressed_intent_count = 0
         self._catch_up_suppressed_intent_count = 0
+        self._degraded_suppressed_intent_count = 0
+        self._recovery_suppressed_intent_count = 0
         self._last_received_at: OnlyTimestamp | None = None
         self._last_closed_bar_end: OnlyTimestamp | None = None
         self._latest_bars: dict[tuple[str, OnlyBarType], OnlyBar] = {}
         self._latest_sources: dict[tuple[str, OnlyBarType], OnlyObservationSource] = {}
+        self._accepted_market_sequences: dict[tuple[str, OnlyMarketDataType], int] = {}
+        self._recovery_generation = 0
+        self._recovery_plan: OnlyStreamingRecoveryPlan | None = None
+        self._recovery_failure: str | None = None
+        self._idle_check_ns = 0
         self._observation_store = OnlyLatestObservationStore()
         self._observation_publisher = OnlyObservationPublisher(
             OnlyCompositeObservationSink(observation_sinks), observation_queue_capacity
@@ -169,7 +184,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             processor=self._services.market_data_processor,
             finalizer=self._live_finalizer,
             clock=clock,
-            on_result=self._record_processing_result,
+            on_result=self._handle_worker_result,
+            on_idle=self._handle_worker_idle,
             accept_update=self._accept_streaming_update,
             accept_finalized=self._accept_finalized_bar,
         )
@@ -324,6 +340,22 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
     @property
     def catch_up_suppressed_intent_count(self) -> int:
         return self._catch_up_suppressed_intent_count
+
+    @property
+    def recovery_suppressed_intent_count(self) -> int:
+        return self._recovery_suppressed_intent_count
+
+    @property
+    def recovery_generation(self) -> int:
+        return self._recovery_generation
+
+    @property
+    def recovery_plan(self) -> OnlyStreamingRecoveryPlan | None:
+        return self._recovery_plan
+
+    @property
+    def recovery_failure(self) -> str | None:
+        return self._recovery_failure
 
     @property
     def pending_live_bar_count(self) -> int:
@@ -499,6 +531,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._acceptance_execution_stage = "HISTORICAL_REPLAY"
         processed_records: list[OnlyMarketDataInboundUpdate] = []
         processed_by_type: dict[OnlyBarType, list[OnlyBar]] = {}
+        replay_sequence = 0
         for update in records:
             if not isinstance(update.payload, OnlyBarUpdate):
                 raise AssertionError("historical warmup records must contain Bars")
@@ -508,8 +541,14 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             if not self._historical_bar_is_in_calendar_session(bar):
                 self._record_historical_rejection("HISTORICAL_BAR_OUTSIDE_CALENDAR_SESSION")
                 continue
+            replay_sequence += 1
+            update = replace(
+                update,
+                source_sequence=OnlyDataSequence(replay_sequence),
+                metadata=update.metadata + (("provider_sequence", str(int(update.source_sequence))),),
+            )
             result = self._services.market_data_processor.process(update)
-            self._record_processing_result(result)
+            self._record_processing_result(update, result)
             if result.status is OnlyMarketDataProcessingStatus.DUPLICATE:
                 self._historical_duplicate_count += 1
                 if self._historical_first_rejection_reason is None:
@@ -587,7 +626,11 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 return bars[index:]
         raise OnlyRuntimeError("historical warmup cannot establish an aligned aggregation boundary")
 
-    def _record_processing_result(self, result: OnlyMarketDataProcessingResult) -> None:
+    def _record_processing_result(
+        self,
+        update: OnlyMarketDataInboundUpdate,
+        result: OnlyMarketDataProcessingResult,
+    ) -> None:
         self._processing_results.append(result)
         if result.status is OnlyMarketDataProcessingStatus.DUPLICATE:
             self._duplicate_count += 1
@@ -602,6 +645,10 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             bar = pipeline.base_bar
             key = (str(bar.instrument_id), bar.bar_type)
             self._latest_bars[key] = bar
+            self._processed_bar_identities.add(
+                (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
+            )
+            self._accepted_market_sequences[(str(update.source_id), update.data_type)] = int(update.source_sequence)
             self._last_closed_bar_end = OnlyTimestamp.from_datetime(bar.bar_end)
             source = (
                 OnlyObservationSource.HISTORICAL_BOOTSTRAP
@@ -630,7 +677,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 continue
             for finalized in self._live_finalizer.accept(update):
                 if self._accept_finalized_bar(finalized):
-                    self._record_processing_result(self._services.market_data_processor.process(finalized))
+                    self._record_processing_result(finalized, self._services.market_data_processor.process(finalized))
 
     def _accept_streaming_update(self, update: OnlyMarketDataInboundUpdate) -> bool:
         self._received_update_count += 1
@@ -655,8 +702,293 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if identity in self._processed_bar_identities:
             self._duplicate_count += 1
             return False
-        self._processed_bar_identities.add(identity)
         return True
+
+    def _handle_worker_result(
+        self,
+        update: OnlyMarketDataInboundUpdate,
+        result: OnlyMarketDataProcessingResult,
+    ) -> None:
+        self._record_processing_result(update, result)
+        if result.status is not OnlyMarketDataProcessingStatus.GAP_DETECTED:
+            return
+        self._recover_gap(update)
+
+    def _recover_gap(self, trigger: OnlyMarketDataInboundUpdate) -> None:
+        if not isinstance(trigger.payload, OnlyBarUpdate):
+            self._fail_streaming_recovery("unexpected non-Bar continuity gap")
+            return
+        bar = trigger.payload.bar
+        key = (str(bar.instrument_id), bar.bar_type)
+        confirmed = self._latest_bars.get(key)
+        if confirmed is None:
+            self._fail_streaming_recovery("continuity gap has no confirmed Bar frontier")
+            return
+        self._streaming_phase = OnlyStreamingPhase.DEGRADED
+        self._recovery_generation += 1
+        plan = OnlyStreamingRecoveryPlan(
+            self._recovery_generation,
+            OnlyStreamingRecoveryReason.GAP,
+            bar.instrument_id,
+            bar.bar_type,
+            OnlyTimestamp.from_datetime(confirmed.bar_end),
+            OnlyTimestamp.from_datetime(bar.bar_start),
+            trigger,
+        )
+        self._recover_market_continuity(plan)
+
+    def _recover_market_continuity(self, plan: OnlyStreamingRecoveryPlan) -> None:
+        self._recovery_plan = plan
+        self._live_finalizer.reset_pending()
+        try:
+            if self._driver.worker.stop_requested or self._streaming_phase is OnlyStreamingPhase.STOPPING:
+                return
+            self._streaming_phase = OnlyStreamingPhase.RECOVERING
+            updates = self._load_recovery_updates(plan)
+            if self._driver.worker.stop_requested or self._streaming_phase is OnlyStreamingPhase.STOPPING:
+                return
+            for update in updates:
+                if self._driver.worker.stop_requested:
+                    return
+                result = self._services.market_data_processor.process(update)
+                self._record_processing_result(update, result)
+                if result.status is not OnlyMarketDataProcessingStatus.APPLIED:
+                    raise OnlyRuntimeError(f"recovery Bar was not applied: {result.status.value}")
+            self._streaming_phase = OnlyStreamingPhase.CATCH_UP
+            buffered = (() if plan.trigger_update is None else (plan.trigger_update,)) + self._drain_buffered_updates()
+            self._process_buffered_updates(buffered)
+            while True:
+                suffix = self._drain_buffered_updates()
+                if not suffix:
+                    break
+                self._process_buffered_updates(suffix)
+            self._verify_recovery_complete(plan)
+            self._recovery_plan = None
+            self._streaming_phase = OnlyStreamingPhase.LIVE
+        except Exception as exc:
+            self._fail_streaming_recovery(str(exc))
+
+    def _load_recovery_updates(
+        self,
+        plan: OnlyStreamingRecoveryPlan,
+    ) -> tuple[OnlyMarketDataInboundUpdate, ...]:
+        source = cast(OnlyHistoricalDataSource, self._driver.source)
+        expected = only_expected_closed_bar_boundaries(
+            calendar=self._selected_calendar,
+            bar_type=plan.bar_type,
+            confirmed_bar_end=plan.confirmed_bar_end,
+            recovery_target=plan.recovery_target,
+        )
+        if not expected:
+            return ()
+        request = OnlyHistoricalBarRequest(
+            f"recovery-{self.runtime_id}-{plan.generation}",
+            frozenset({plan.instrument_id}),
+            frozenset({plan.bar_type}),
+            OnlyHistoricalDataRange(
+                plan.confirmed_bar_end.to_datetime(),
+                plan.recovery_target.to_datetime() + timedelta(microseconds=1),
+            ),
+            self._streaming_data_version,
+        )
+        candidates = tuple(source.load_bars(request))
+        by_end: dict[int, OnlyMarketDataInboundUpdate] = {}
+        for candidate in candidates:
+            if not isinstance(candidate.payload, OnlyBarUpdate):
+                raise OnlyRuntimeError("historical recovery returned a non-Bar update")
+            bar = candidate.payload.bar
+            if candidate.instrument_id != plan.instrument_id or bar.bar_type != plan.bar_type:
+                raise OnlyRuntimeError("historical recovery identity mismatch")
+            if candidate.data_version != self._streaming_data_version:
+                raise OnlyRuntimeError("historical recovery DataVersion mismatch")
+            if not bar.is_closed or bar.ts_event != bar.bar_end or not self._historical_bar_is_in_calendar_session(bar):
+                raise OnlyRuntimeError("historical recovery returned an invalid closed Bar")
+            end_ns = OnlyTimestamp.from_datetime(bar.bar_end).unix_nanos
+            if plan.confirmed_bar_end.unix_nanos < end_ns <= plan.recovery_target.unix_nanos:
+                existing = by_end.get(end_ns)
+                if existing is not None and existing.payload != candidate.payload:
+                    raise OnlyRuntimeError("historical recovery returned conflicting duplicate Bars")
+                by_end[end_ns] = candidate
+        expected_ns = tuple(item.unix_nanos for item in expected)
+        if tuple(sorted(by_end)) != expected_ns:
+            raise OnlyRuntimeError("historical recovery coverage is incomplete")
+        sequence = self._accepted_market_sequences.get(
+            (str(self._driver.source.source_id), OnlyMarketDataType.BAR),  # type: ignore[union-attr]
+            0,
+        )
+        normalized: list[OnlyMarketDataInboundUpdate] = []
+        for offset, boundary in enumerate(expected, start=1):
+            candidate = by_end[boundary.unix_nanos]
+            normalized.append(
+                replace(
+                    candidate,
+                    update_id=OnlyMarketDataUpdateId(f"recovery-{self.runtime_id}-{plan.generation}-{offset}"),
+                    runtime_id=OnlyRuntimeId(self.runtime_id),
+                    source_id=self._driver.source.source_id,  # type: ignore[union-attr]
+                    source_sequence=OnlyDataSequence(sequence + offset),
+                    metadata=candidate.metadata
+                    + (
+                        ("provider_sequence", str(int(candidate.source_sequence))),
+                        ("recovery_generation", str(plan.generation)),
+                        ("recovery_source", "historical"),
+                    ),
+                )
+            )
+        return tuple(normalized)
+
+    def _drain_buffered_updates(self) -> tuple[OnlyMarketDataInboundUpdate, ...]:
+        updates: list[OnlyMarketDataInboundUpdate] = []
+        while (update := self._services.market_data_inbound.get()) is not None:
+            updates.append(update)
+        return tuple(updates)
+
+    def _process_buffered_updates(self, updates: tuple[OnlyMarketDataInboundUpdate, ...]) -> None:
+        ordered = sorted(
+            updates,
+            key=lambda item: (
+                item.payload.bar.bar_start if isinstance(item.payload, OnlyBarUpdate) else item.ts_event.to_datetime(),
+                int(item.source_sequence),
+                str(item.update_id),
+            ),
+        )
+        seen: set[tuple[str, OnlyBarType, int]] = set()
+        for update in ordered:
+            if self._driver.worker.stop_requested or self._streaming_phase is OnlyStreamingPhase.STOPPING:
+                return
+            if not self._accept_streaming_update(update):
+                continue
+            for finalized in self._live_finalizer.accept(update):
+                if not isinstance(finalized.payload, OnlyBarUpdate):
+                    continue
+                bar = finalized.payload.bar
+                identity = (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
+                if identity in seen or not self._accept_finalized_bar(finalized):
+                    continue
+                seen.add(identity)
+                next_sequence = (
+                    self._accepted_market_sequences.get(
+                        (str(finalized.source_id), finalized.data_type),
+                        0,
+                    )
+                    + 1
+                )
+                normalized = replace(
+                    finalized,
+                    source_sequence=OnlyDataSequence(next_sequence),
+                    metadata=finalized.metadata + (("provider_sequence", str(int(finalized.source_sequence))),),
+                )
+                result = self._services.market_data_processor.process(normalized)
+                self._record_processing_result(normalized, result)
+                if result.status is OnlyMarketDataProcessingStatus.GAP_DETECTED:
+                    raise OnlyRuntimeError("buffered realtime suffix contains a secondary gap")
+                if result.status not in {
+                    OnlyMarketDataProcessingStatus.APPLIED,
+                    OnlyMarketDataProcessingStatus.DUPLICATE,
+                }:
+                    raise OnlyRuntimeError(f"buffered realtime update was not applied: {result.status.value}")
+
+    def _verify_recovery_complete(self, plan: OnlyStreamingRecoveryPlan) -> None:
+        if self._driver.worker.stop_requested or self._streaming_phase in {
+            OnlyStreamingPhase.STOPPING,
+            OnlyStreamingPhase.FAILED,
+        }:
+            raise OnlyRuntimeError("streaming recovery lost processing permission")
+        if self._recovery_plan != plan or len(self._services.market_data_inbound) != 0:
+            raise OnlyRuntimeError("streaming recovery did not reconcile its buffered suffix")
+        if not self._source_connected() or self._driver.subscription_id is None or not self.worker_alive:
+            raise OnlyRuntimeError("streaming transport is not healthy after recovery")
+        observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
+        session = OnlyMarketSessionResolver(self._selected_calendar).resolve(observed)
+        state = only_streaming_data_state(
+            session=session,
+            phase=OnlyStreamingPhase.LIVE,
+            source_connected=True,
+            observed_at=observed,
+            next_expected_bar_end=self._next_expected_bar_end(session),
+            grace_seconds=self._stale_after_seconds,
+        )
+        if session.state is OnlyMarketSessionState.OPEN and state is OnlyStreamingDataState.STALE:
+            raise OnlyRuntimeError("open-market stream remains stale after recovery")
+
+    def _fail_streaming_recovery(self, reason: str) -> None:
+        self._recovery_failure = reason
+        self._streaming_phase = OnlyStreamingPhase.FAILED
+        self._state = OnlyRuntimeState.FAILED
+
+    def _source_connected(self) -> bool:
+        snapshot = getattr(self._driver.source, "connection_snapshot", None)
+        if not callable(snapshot):
+            return self._driver.subscription_id is not None
+        from onlyalpha.data.enums import OnlyMarketDataConnectionState
+
+        return snapshot().state in {
+            OnlyMarketDataConnectionState.CONNECTED,
+            OnlyMarketDataConnectionState.READY,
+        }
+
+    def _handle_worker_idle(self) -> None:
+        now = self._services.clock.monotonic_ns()
+        if now - self._idle_check_ns < 1_000_000_000:
+            return
+        self._idle_check_ns = now
+        if self._streaming_phase is not OnlyStreamingPhase.LIVE:
+            return
+        health = self.health()
+        if health.data_state not in {OnlyStreamingDataState.STALE, OnlyStreamingDataState.DISCONNECTED}:
+            return
+        self._stale_count += int(health.data_state is OnlyStreamingDataState.STALE)
+        self._recover_stale_or_disconnect(health.data_state)
+
+    def _recover_stale_or_disconnect(self, state: OnlyStreamingDataState) -> None:
+        if not self._latest_bars:
+            self._fail_streaming_recovery("stale recovery has no confirmed Bar frontier")
+            return
+        self._streaming_phase = OnlyStreamingPhase.DEGRADED
+        if state is OnlyStreamingDataState.DISCONNECTED and not self._reconnect_source():
+            self._fail_streaming_recovery("streaming DataSource reconnect failed")
+            return
+        for _key, confirmed in sorted(self._latest_bars.items(), key=lambda item: str(item[0])):
+            target = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
+                calendar=self._selected_calendar,
+                bar_type=confirmed.bar_type,
+                observed_at=OnlyTimestamp.from_datetime(self._services.clock.now_utc()),
+            )
+            self._recovery_generation += 1
+            plan = OnlyStreamingRecoveryPlan(
+                self._recovery_generation,
+                OnlyStreamingRecoveryReason.DISCONNECTED
+                if state is OnlyStreamingDataState.DISCONNECTED
+                else OnlyStreamingRecoveryReason.STALE,
+                confirmed.instrument_id,
+                confirmed.bar_type,
+                OnlyTimestamp.from_datetime(confirmed.bar_end),
+                target,
+            )
+            self._recover_market_continuity(plan)
+            if self._streaming_phase is OnlyStreamingPhase.FAILED:
+                return
+
+    def _reconnect_source(self) -> bool:
+        try:
+            self._unsubscribe()
+            connect = getattr(self._driver.source, "connect", None)
+            authenticate = getattr(self._driver.source, "authenticate", None)
+            subscribe = getattr(self._driver.source, "subscribe", None)
+            if not callable(connect) or not callable(authenticate) or not callable(subscribe):
+                return False
+            connect_result = connect()
+            auth_result = authenticate()
+            result = subscribe(self._streaming_subscription)
+            if (
+                connect_result.status.value != "ACCEPTED"
+                or auth_result.status.value != "ACCEPTED"
+                or result.subscription_id is None
+            ):
+                return False
+            self._driver.subscription_id = result.subscription_id
+            return self._source_connected()
+        except Exception:
+            return False
 
     def _intercept_order_submit(self, request: OnlyOrderRequest) -> OnlyOrderSubmitResult | None:
         del request
@@ -670,6 +1002,16 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             return OnlyOrderSubmitResult(
                 False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_CATCH_UP"
             )
+        if self._streaming_phase is OnlyStreamingPhase.DEGRADED:
+            self._degraded_suppressed_intent_count += 1
+            return OnlyOrderSubmitResult(
+                False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_DEGRADED"
+            )
+        if self._streaming_phase is OnlyStreamingPhase.RECOVERING:
+            self._recovery_suppressed_intent_count += 1
+            return OnlyOrderSubmitResult(
+                False, False, None, None, None, None, (), "ORDER_INTENT_SUPPRESSED_DURING_RECOVERY"
+            )
         return None
 
     def _publish_observations(self, bar: OnlyBar, source: OnlyObservationSource) -> None:
@@ -678,7 +1020,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         data_state = only_streaming_data_state(
             session=session,
             phase=self._streaming_phase,
-            source_connected=self._driver.subscription_id is not None,
+            source_connected=self._source_connected(),
             observed_at=observed,
             next_expected_bar_end=self._next_expected_bar_end(session),
             grace_seconds=self._stale_after_seconds,
@@ -733,7 +1075,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         state = only_streaming_data_state(
             session=session,
             phase=self._streaming_phase,
-            source_connected=self._driver.subscription_id is not None,
+            source_connected=self._source_connected(),
             observed_at=observed,
             next_expected_bar_end=next_expected,
             grace_seconds=self._stale_after_seconds,
@@ -743,7 +1085,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._streaming_phase,
             session.state,
             state,
-            self._driver.subscription_id is not None,
+            self._source_connected(),
             self.worker_alive,
             self._last_received_at,
             self._last_closed_bar_end,
@@ -757,6 +1099,10 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._sequence_gap_count,
             self._stale_count + int(state is OnlyStreamingDataState.STALE),
             self._observation_publisher.drop_count,
+            self._recovery_generation,
+            None if self._recovery_plan is None else self._recovery_plan.reason.value,
+            None if self._recovery_plan is None else self._recovery_plan.confirmed_bar_end,
+            None if self._recovery_plan is None else self._recovery_plan.recovery_target,
         )
 
     def _next_expected_bar_end(self, session: OnlyMarketSessionSnapshot) -> OnlyTimestamp | None:

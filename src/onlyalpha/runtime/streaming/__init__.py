@@ -10,6 +10,8 @@ _EXPORTS = {
     "OnlyStreamingDataState": "onlyalpha.runtime.streaming.phase",
     "OnlyStreamingMarketDataWorker": "onlyalpha.runtime.streaming.worker",
     "OnlyStreamingPhase": "onlyalpha.runtime.streaming.phase",
+    "OnlyStreamingRecoveryPlan": "onlyalpha.runtime.streaming.recovery",
+    "OnlyStreamingRecoveryReason": "onlyalpha.runtime.streaming.recovery",
     "OnlyStreamingRuntime": "onlyalpha.runtime.streaming.runtime",
     "OnlyStreamingRuntimeConfig": "onlyalpha.runtime.streaming.config",
     "OnlyStreamingRuntimeHealth": "onlyalpha.runtime.streaming.health",

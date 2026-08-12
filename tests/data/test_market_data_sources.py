@@ -26,7 +26,11 @@ from onlyalpha.data.models import (
     OnlyMarketDataInboundUpdate,
     OnlyMarketDataQuality,
 )
-from onlyalpha.data.processor import OnlyMarketDataGapDetector
+from onlyalpha.data.processor import (
+    OnlyMarketDataDeduplicator,
+    OnlyMarketDataGapDetector,
+    OnlyMarketDataSequenceTracker,
+)
 from onlyalpha.data.sources import (
     OnlyCsvHistoricalDataSource,
     OnlyHistoricalDataSourceError,
@@ -122,15 +126,44 @@ def test_gap_detector_distinguishes_session_break_from_missing_bar() -> None:
     env = OnlyIntegrationEnvironment()
     detector = OnlyMarketDataGapDetector({INSTRUMENT_ID: env.calendar})
     source_id = OnlyMarketDataSourceId("history")
-    assert detector.assess(update_for(env, 0, 1, source_id), False) == ()
+    first = update_for(env, 0, 1, source_id)
+    assert detector.assess(first, False) == ()
+    detector.commit(first)
     unexpected = detector.assess(update_for(env, 2, 2, source_id), False)
     assert OnlyMarketDataQualityFlag.UNEXPECTED_GAP in unexpected
+    assert detector.assess(update_for(env, 1, 2, source_id), False) == ()
 
     lunch_detector = OnlyMarketDataGapDetector({INSTRUMENT_ID: env.calendar})
-    lunch_detector.assess(update_for(env, 119, 1, source_id), False)
+    before_lunch = update_for(env, 119, 1, source_id)
+    lunch_detector.commit(before_lunch)
     expected = lunch_detector.assess(update_for(env, 210, 2, source_id), False)
     assert OnlyMarketDataQualityFlag.EXPECTED_SESSION_GAP in expected
     assert OnlyMarketDataQualityFlag.UNEXPECTED_GAP not in expected
+
+
+def test_market_data_continuity_assessment_does_not_commit_rejected_candidate() -> None:
+    env = OnlyIntegrationEnvironment()
+    source_id = OnlyMarketDataSourceId("history")
+    first = update_for(env, 0, 100, source_id)
+    rejected = update_for(env, 4, 104, source_id)
+    next_expected = update_for(env, 1, 101, source_id)
+
+    deduplicator = OnlyMarketDataDeduplicator()
+    assert not deduplicator.contains(rejected)
+    deduplicator.remember(first)
+    assert deduplicator.contains(first)
+    assert not deduplicator.contains(rejected)
+
+    sequence = OnlyMarketDataSequenceTracker()
+    sequence.commit(first)
+    assert sequence.assess(rejected).gap
+    assert not sequence.assess(next_expected).stale
+    assert not sequence.assess(next_expected).gap
+
+    gap = OnlyMarketDataGapDetector({INSTRUMENT_ID: env.calendar})
+    gap.commit(first)
+    assert OnlyMarketDataQualityFlag.UNEXPECTED_GAP in gap.assess(rejected, False)
+    assert gap.assess(next_expected, False) == ()
 
 
 def test_processor_rejects_lookahead_without_advancing_clock() -> None:
@@ -142,6 +175,28 @@ def test_processor_rejects_lookahead_without_advancing_clock() -> None:
     assert result.status is OnlyMarketDataProcessingStatus.REJECTED
     assert result.validation.reasons == ("lookahead: update is later than Runtime Clock",)
     assert env.runtime.clock.timestamp_ns() == before
+
+
+def test_unexpected_gap_never_crosses_pipeline_or_dispatch_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = OnlyIntegrationEnvironment()
+    env.start()
+    first = update_for(env, 0, 1, env.historical_data_source.source_id)
+    gap = update_for(env, 4, 2, env.historical_data_source.source_id)
+    env.runtime.clock.advance_to(gap.ts_event.unix_nanos)
+    assert env.market_data_processor.process(first).status is OnlyMarketDataProcessingStatus.APPLIED
+    calls: list[str] = []
+    monkeypatch.setattr(
+        env.market_data_processor._pipeline, "process_bar", lambda *args, **kwargs: calls.append("pipeline")
+    )
+    monkeypatch.setattr(env.market_data_processor, "_before_dispatch", lambda result: calls.append("before"))
+    monkeypatch.setattr(env.market_data_processor._dispatcher, "dispatch", lambda result: calls.append("dispatch"))
+    monkeypatch.setattr(env.market_data_processor, "_after_dispatch", lambda update: calls.append("after"))
+
+    result = env.market_data_processor.process(gap)
+
+    assert result.status is OnlyMarketDataProcessingStatus.GAP_DETECTED
+    assert result.pipeline_result is None
+    assert calls == []
 
 
 def test_realtime_gateway_uses_independent_queue_then_processor() -> None:

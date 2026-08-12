@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from onlyalpha_plugin_miniqmt.data_source.live import OnlyMiniQmtLiveNormalizer
 from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
 
-from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
+from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionRequest,
@@ -203,3 +203,50 @@ def test_bar_subscription_explicitly_requests_xtquant_live_tail() -> None:
 
     assert result.status is OnlyMarketDataRequestStatus.ACCEPTED
     assert xtdata.subscriptions == [("600000.SH", "1m", -1)]
+
+
+def test_transient_disconnect_reconnects_and_resubscribes_without_terminal_stop() -> None:
+    instrument = OnlyInstrumentId.parse("600000.XSHG")
+    request = SimpleNamespace(
+        source_id=OnlyMarketDataSourceId("miniqmt"),
+        runtime_id=OnlyRuntimeId("runtime"),
+        data_version=OnlyDataVersion("live-v1"),
+        market_data_sink=lambda update: None,
+        bar_types={},
+    )
+    xtdata = OnlyFakeXtData()
+    source = OnlyMiniQmtDataSource(request, object(), xtdata)
+    source.initialize()
+    source.start()
+    source.authenticate()
+    first = source.subscribe(
+        OnlyMarketDataSubscriptionRequest(
+            "quote-first",
+            request.source_id,
+            frozenset({instrument}),
+            frozenset({OnlyMarketDataType.QUOTE}),
+        )
+    )
+
+    disconnected = source.disconnect()
+    assert first.subscription_id is not None
+    assert disconnected.snapshot.state is OnlyMarketDataConnectionState.DISCONNECTED
+    assert source.state.name == "RUNNING"
+    assert xtdata.unsubscribed == [7]
+
+    assert source.connect().snapshot.state is OnlyMarketDataConnectionState.CONNECTED
+    assert source.authenticate().snapshot.state is OnlyMarketDataConnectionState.READY
+    second = source.subscribe(
+        OnlyMarketDataSubscriptionRequest(
+            "quote-second",
+            request.source_id,
+            frozenset({instrument}),
+            frozenset({OnlyMarketDataType.QUOTE}),
+        )
+    )
+    assert second.status is OnlyMarketDataRequestStatus.ACCEPTED
+    assert len(xtdata.subscriptions) == 2
+
+    source.stop()
+    assert source.connection_snapshot().state is OnlyMarketDataConnectionState.DISCONNECTED
+    assert source.connect().status is OnlyMarketDataRequestStatus.REJECTED

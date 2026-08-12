@@ -27,6 +27,7 @@ class OnlyStreamingMarketDataDriver:
         finalizer: OnlyLiveBarFinalizer,
         clock: OnlyLiveClock,
         on_result: object,
+        on_idle: object,
         accept_update: object,
         accept_finalized: object,
     ) -> None:
@@ -41,6 +42,7 @@ class OnlyStreamingMarketDataDriver:
             clock,
             maximum_future_wait_seconds=10.0,
             on_result=on_result,  # type: ignore[arg-type]
+            on_idle=on_idle,  # type: ignore[arg-type]
             accept_update=accept_update,  # type: ignore[arg-type]
             accept_finalized=accept_finalized,  # type: ignore[arg-type]
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import cast
 
@@ -31,21 +32,23 @@ class OnlyMarketDataDeduplicator:
     def __init__(self) -> None:
         self._keys: set[tuple[object, ...]] = set()
 
-    def seen(self, update: OnlyMarketDataInboundUpdate) -> bool:
+    @staticmethod
+    def _key(update: OnlyMarketDataInboundUpdate) -> tuple[object, ...]:
         if isinstance(update.payload, OnlyBarUpdate):
-            key: tuple[object, ...] = (
+            return (
                 update.source_id,
                 update.instrument_id,
                 update.payload.bar.bar_type,
                 update.ts_event.unix_nanos,
                 update.data_version,
             )
-        else:
-            key = (update.source_id, update.instrument_id, update.data_type, update.source_sequence)
-        if key in self._keys:
-            return True
-        self._keys.add(key)
-        return False
+        return (update.source_id, update.instrument_id, update.data_type, update.source_sequence)
+
+    def contains(self, update: OnlyMarketDataInboundUpdate) -> bool:
+        return self._key(update) in self._keys
+
+    def remember(self, update: OnlyMarketDataInboundUpdate) -> None:
+        self._keys.add(self._key(update))
 
     def capture_checkpoint(self) -> object:
         records: list[dict[str, object]] = []
@@ -86,26 +89,34 @@ class OnlyMarketDataDeduplicator:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyMarketDataSequenceAssessment:
+    stale: bool
+    gap: bool
+
+
 class OnlyMarketDataSequenceTracker:
     def __init__(self) -> None:
         self._last: dict[tuple[object, ...], int] = {}
 
-    def assess(self, update: OnlyMarketDataInboundUpdate) -> tuple[bool, bool]:
-        key = (update.source_id, update.instrument_id, update.data_type, update.bar_type)
+    def assess(self, update: OnlyMarketDataInboundUpdate) -> OnlyMarketDataSequenceAssessment:
+        key = (update.source_id, update.data_type)
         current = int(update.source_sequence)
         previous = self._last.get(key)
         if previous is not None and current <= previous:
-            return True, False
+            return OnlyMarketDataSequenceAssessment(stale=True, gap=False)
         gap = previous is not None and current > previous + 1
+        return OnlyMarketDataSequenceAssessment(stale=False, gap=gap)
+
+    def commit(self, update: OnlyMarketDataInboundUpdate) -> None:
+        key = (update.source_id, update.data_type)
+        current = int(update.source_sequence)
         self._last[key] = current
-        return False, gap
 
     def capture_checkpoint(self) -> object:
         return [
             {
-                "bar_type": None if key[3] is None else cast(OnlyBarType, key[3]).to_json(),
-                "data_type": cast(OnlyMarketDataType, key[2]).value,
-                "instrument_id": cast(OnlyInstrumentId, key[1]).to_json(),
+                "data_type": cast(OnlyMarketDataType, key[1]).value,
                 "sequence": value,
                 "source_id": str(key[0]),
             }
@@ -118,9 +129,7 @@ class OnlyMarketDataSequenceTracker:
         self._last = {
             (
                 OnlyMarketDataSourceId(str(item["source_id"])),
-                OnlyInstrumentId.from_json(str(item["instrument_id"])),
                 OnlyMarketDataType(str(item["data_type"])),
-                None if item["bar_type"] is None else OnlyBarType.from_json(str(item["bar_type"])),
             ): int(item["sequence"])
             for item in payload
             if isinstance(item, dict)
@@ -140,7 +149,6 @@ class OnlyMarketDataGapDetector:
             return tuple(dict.fromkeys(flags))
         bar = update.payload.bar
         previous = self._last_bars.get(bar.bar_type)
-        self._last_bars[bar.bar_type] = bar
         if previous is None or bar.bar_start <= previous.bar_end:
             return tuple(dict.fromkeys(flags))
         interval = timedelta(minutes=bar.bar_type.specification.step)
@@ -150,7 +158,18 @@ class OnlyMarketDataGapDetector:
         same_session = False
         if calendar is not None:
             before = previous.bar_end - timedelta(microseconds=1)
-            same_session = calendar.session_at(before) == calendar.session_at(bar.bar_start)
+            previous_session = calendar.session_at(before)
+            current_session = calendar.session_at(bar.bar_start)
+            same_session = (
+                previous_session is not None
+                and previous_session == current_session
+                and calendar.trading_day_at(before) == calendar.trading_day_at(bar.bar_start)
+            )
+        flags = [
+            item
+            for item in flags
+            if item not in {OnlyMarketDataQualityFlag.UNEXPECTED_GAP, OnlyMarketDataQualityFlag.EXPECTED_SESSION_GAP}
+        ]
         flags.extend(
             (
                 OnlyMarketDataQualityFlag.GAP_DETECTED,
@@ -160,6 +179,10 @@ class OnlyMarketDataGapDetector:
             )
         )
         return tuple(dict.fromkeys(flags))
+
+    def commit(self, update: OnlyMarketDataInboundUpdate) -> None:
+        if isinstance(update.payload, OnlyBarUpdate):
+            self._last_bars[update.payload.bar.bar_type] = update.payload.bar
 
     def capture_checkpoint(self) -> object:
         return [
@@ -222,15 +245,20 @@ class OnlyMarketDataProcessor:
         validation = self._validate(update)
         if not validation.valid:
             return self._finish(update, OnlyMarketDataProcessingStatus.REJECTED, update.quality, validation)
-        if self._deduplicator.seen(update):
+        if self._deduplicator.contains(update):
             quality = update.quality.with_flags(OnlyMarketDataQualityFlag.DUPLICATE)
             return self._finish(update, OnlyMarketDataProcessingStatus.DUPLICATE, quality, validation)
-        stale, sequence_gap = self._sequence_tracker.assess(update)
-        if stale:
+        sequence = self._sequence_tracker.assess(update)
+        if sequence.stale:
             quality = update.quality.with_flags(OnlyMarketDataQualityFlag.STALE, OnlyMarketDataQualityFlag.OUT_OF_ORDER)
             return self._finish(update, OnlyMarketDataProcessingStatus.STALE, quality, validation)
-        gap_flags = self._gap_detector.assess(update, sequence_gap)
+        gap_flags = self._gap_detector.assess(update, sequence.gap)
         quality = update.quality.with_flags(*gap_flags) if gap_flags else update.quality
+        if OnlyMarketDataQualityFlag.UNEXPECTED_GAP in quality.flags:
+            return self._finish(update, OnlyMarketDataProcessingStatus.GAP_DETECTED, quality, validation)
+        self._deduplicator.remember(update)
+        self._sequence_tracker.commit(update)
+        self._gap_detector.commit(update)
         if not isinstance(update.payload, OnlyBarUpdate):
             return self._finish(update, OnlyMarketDataProcessingStatus.IGNORED, quality, validation)
         try:
@@ -241,12 +269,14 @@ class OnlyMarketDataProcessor:
             self._before_dispatch(pipeline_result)
             dispatches = self._dispatcher.dispatch(pipeline_result)
             self._after_dispatch(update)
-            status = (
-                OnlyMarketDataProcessingStatus.GAP_DETECTED
-                if OnlyMarketDataQualityFlag.GAP_DETECTED in quality.flags
-                else OnlyMarketDataProcessingStatus.APPLIED
+            return self._finish(
+                update,
+                OnlyMarketDataProcessingStatus.APPLIED,
+                quality,
+                validation,
+                pipeline_result,
+                dispatches,
             )
-            return self._finish(update, status, quality, validation, pipeline_result, dispatches)
         except Exception as exc:
             return self._finish(
                 update,

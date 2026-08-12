@@ -17,6 +17,7 @@ class OnlyDataSourceCapabilities:
     historical_ticks: bool = False
     live_bars: bool = False
     live_ticks: bool = False
+    live_reconnect: bool = False
     instruments: bool = False
     calendars: bool = False
     supports_runtime_checkpoint: OnlyCheckpointCapability | None = None

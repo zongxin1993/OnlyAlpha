@@ -127,7 +127,7 @@ class OnlySimRuntimeFactory:
                 source_common.source_id,
                 data_factory.parse_config(source_common.extensions),
                 config.runtime.runtime_type,
-                OnlyDataSourceCapabilities(historical_bars=True, live_bars=True),
+                OnlyDataSourceCapabilities(historical_bars=True, live_bars=True, live_reconnect=True),
                 clock,
                 event_bus,
                 config.reference_data.instrument_by_id,
@@ -374,16 +374,25 @@ class OnlySimRuntimeFactory:
             )
         source_factory = components.data_sources.resolve(sources[0].plugin_id)
         source_capabilities = source_factory.descriptor.capabilities
-        required_source_capabilities = OnlyDataSourceCapabilities(historical_bars=True, live_bars=True)
+        required_source_capabilities = OnlyDataSourceCapabilities(
+            historical_bars=True,
+            live_bars=True,
+            live_reconnect=True,
+        )
         if not isinstance(source_capabilities, OnlyDataSourceCapabilities):
             raise _OnlySimCompositionError(
                 "SIM_DATA_SOURCE_CAPABILITY_REQUIRED",
-                "SIM DataSource must declare historical_bars and live_bars capabilities",
+                "SIM DataSource must declare historical_bars, live_bars, and live_reconnect capabilities",
             )
         missing_source_capabilities = source_capabilities.missing(required_source_capabilities)
         if missing_source_capabilities:
+            code = (
+                "SIM_DATA_SOURCE_RECONNECT_CAPABILITY_REQUIRED"
+                if missing_source_capabilities == ("live_reconnect",)
+                else "SIM_DATA_SOURCE_CAPABILITY_REQUIRED"
+            )
             raise _OnlySimCompositionError(
-                "SIM_DATA_SOURCE_CAPABILITY_REQUIRED",
+                code,
                 f"SIM DataSource is missing required capabilities: {', '.join(missing_source_capabilities)}",
             )
 

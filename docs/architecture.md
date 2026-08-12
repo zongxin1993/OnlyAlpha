@@ -86,7 +86,7 @@ Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environme
 | `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
 | `SHADOW` | Standalone Factory 注册但返回 unsupported | 非目标 Runtime，迁移后删除 |
 | `RESEARCH` | Factory 注册但返回 unsupported | 后续实现目标 Research Runtime |
-| `SIM` | realtime Virtual Broker normal path 已实现；gap/reconnect/checkpoint/restart 尚未实现 | P6 后续阶段补齐 streaming recovery 后作为完整 Sim 产品退出 |
+| `SIM` | realtime Virtual Broker normal path 与 same-process gap/reconnect recovery 已实现；checkpoint/new-process restart 尚未实现 | P6.5 补齐 streaming checkpoint/restart 后继续产品退出 |
 
 当前 `PAPER/SHADOW` 源码是 migration debt，不是第五、第六种目标 Runtime，也不是长期 public compatibility contract。迁移时更新配置和测试后删除旧接口，不建立 alias 或 wrapper。
 
@@ -102,8 +102,12 @@ P6.3 在该合同上增加 `OnlySimRuntime -> OnlyStreamingRuntime -> OnlyTradin
 Execution Processor、Durable Transaction 与 Ordered Projection 更新共享交易 authority。Runtime stop 不取消 Accepted
 order，也不创造 terminal/trade fact。
 
-当前 SIM 只完成 realtime normal path。Realtime gap recovery、reconnect、streaming checkpoint/restart 和长期生产运行仍未
-闭环；Runtime Persistence 的 Durable Transaction 不等于 Streaming Checkpoint。
+当前 SIM 已完成 realtime normal path 与 P6.4 same-process continuity recovery。Unexpected gap 在 MarketData Pipeline 前
+fail closed；Streaming Runtime 独占 `DEGRADED/RECOVERING/CATCH_UP/LIVE` transition、Recovery Plan 与 confirmed frontier，
+Historical DataSource 只提供事实，Worker 仍是唯一语义 consumer。Recovered fact 进入同一 Processor/Pipeline/Broker hooks，
+既有订单可推进但新 Strategy submit 被抑制；reconnect 只恢复 transport，必须经 historical repair、buffered catch-up 与 LIVE
+proof 才恢复交易权限。Streaming checkpoint/new-process restart 和长期生产运行仍未闭环；Runtime Persistence 的 Durable
+Transaction 不等于 Streaming Checkpoint。
 
 ## 4. Research Runtime
 
@@ -181,8 +185,9 @@ Streaming `STOP` 表示撤销未来处理权限，不是推进 market event time
 `STOPPING` 后 Worker 不 drain inbound queue、不 close pending Live Bar，也不开始新的 MarketData processing/result
 callback；未处理输入的 checkpoint/restart/gap recovery 仍属于后续阶段。
 
-Backtest 具备完整正式 durable trading product path。SIM 已具备 realtime Virtual Broker normal path，Accepted/Trade 经
-相同 Durable Transaction 与 Ordered Projection，但 gap/reconnect/streaming checkpoint/restart 尚未实现。旧 `PAPER`
+Backtest 具备完整正式 durable trading product path。SIM 已具备 realtime Virtual Broker normal path 与 same-process
+gap/reconnect recovery，Accepted/Trade 经相同 Durable Transaction 与 Ordered Projection；streaming checkpoint/new-process
+restart 尚未实现。旧 `PAPER`
 streaming 路径仍使用 Shadow suppression，并不定义 Sim；Live 也尚未具备 durable outbound Broker command、同步、对账和
 长期恢复闭环。
 

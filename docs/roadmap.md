@@ -17,7 +17,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、单/多 Cluster、Result/Analytics/Artifact/Report。
 
-SIM 的当前正式范围是 `GENERIC_T0_CASH@1` 下的 realtime normal path：`OnlySimRuntime` 使用 Live Clock、historical bootstrap/live handoff、Virtual Broker 和共享 Trading Kernel，标准 Accepted/Trade fact 均进入 Broker Inbound Queue、Durable Transaction 与 Ordered Projection。SIM 的 Runtime Persistence 可使用 Memory 或 SQLite，且与 disabled streaming checkpoint 正交。该范围不包含 realtime gap recovery、reconnect、streaming checkpoint/restart 或长期生产运行。
+SIM 的当前正式范围是 `GENERIC_T0_CASH@1` 下的 realtime normal path 与 same-process continuity recovery：`OnlySimRuntime` 使用 Live Clock、historical bootstrap/live handoff、Virtual Broker 和共享 Trading Kernel，标准 Accepted/Trade fact 均进入 Broker Inbound Queue、Durable Transaction 与 Ordered Projection；unexpected gap、STALE 或 disconnect 会撤销新订单权限，复用 Historical DataSource 与同一 MarketData Processor/Pipeline 修复缺失事实，再确定性追平 buffered realtime suffix。SIM 的 Runtime Persistence 可使用 Memory 或 SQLite，且与 disabled streaming checkpoint 正交。该范围不包含 streaming checkpoint/new-process restart、Real Broker reconciliation 或长期生产运行。
 
 当前 legacy `PAPER` 路径已完成当前 Market Product binding 下真实 MiniQMT 的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown。它仍是 read-only market observation + Shadow execution，只作为 Sim streaming migration baseline；reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 与长期生产运行尚未闭环。
 
@@ -101,10 +101,11 @@ Bar N enters normalized realtime pipeline
 realtime normal path，不包含 gap/reconnect/checkpoint/restart；`OnlyEngine.run()` 仍只接受有限 BACKTEST，SIM 使用
 `initialize/start/wait/stop/close`。
 
-### P6.4 — Realtime Gap + Reconnect Recovery（下一阶段）
+### P6.4 — Realtime Market Continuity & Same-Process Recovery（实现完成，待同 SHA 远端认证）
 
-P6.4 将定义唯一 realtime gap authority、重连后的 provider/broker catch-up 边界、确定性去重与 fail-closed 恢复语义。
-在这些正式合同与测试完成前，不得把 P6.3 normal path 描述为 long-running production-ready SIM。
+P6.4 已完成 continuity assess/commit 分离、unexpected-gap admission cutoff、`DEGRADED/RECOVERING` phase、Calendar-aware historical repair、recovery sequence normalization、同一 MarketData Pipeline replay、恢复期 Strategy 新订单抑制、既有 Virtual Broker order 推进、buffered suffix catch-up、STALE/disconnect 触发、MiniQMT same-process reconnect 与显式 LIVE resume proof。恢复失败一律进入 `FAILED`，不会自动取消订单或创造 synthetic terminal trading fact；Stop 在 blocked historical I/O 返回后仍拥有 processing cutoff authority。
+
+该阶段仍不包含 streaming checkpoint、new-process restart、Real Broker reconciliation 或 long-running operations；这些分别属于 P6.5 及后续阶段。P6.4 只有 final SHA 的 static、build、core-full、recovery、ashare、miniqmt-contract 与 quality-gate 全部成功后才能标记 `DONE / CERTIFIED`。
 
 P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
 

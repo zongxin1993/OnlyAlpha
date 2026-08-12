@@ -783,7 +783,11 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         market_data_source_registry = OnlyMarketDataSourceRegistry()
         historical_data_source = OnlyInMemoryHistoricalDataSource(historical_source_id)
         market_data_source_registry.register(historical_data_source, priority=0)
-        market_data_inbound = market_data_inbound_queue or OnlyMarketDataInboundQueue(runtime_config.event_capacity)
+        market_data_inbound = (
+            market_data_inbound_queue
+            if market_data_inbound_queue is not None
+            else OnlyMarketDataInboundQueue(runtime_config.event_capacity)
+        )
         market_data_gateway = OnlyInMemoryMarketDataGateway(
             OnlyMarketDataGatewayId(f"{runtime_config.runtime_id}-market-data"),
             realtime_source_id,

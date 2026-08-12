@@ -13,6 +13,7 @@ DATA_CAPABILITIES = OnlyDataSourceCapabilities(
     historical_bars=True,
     live_bars=True,
     live_ticks=True,
+    live_reconnect=True,
     instruments=True,
     calendars=True,
     supports_runtime_checkpoint=OnlyCheckpointCapability.STATELESS,

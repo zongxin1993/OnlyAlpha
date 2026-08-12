@@ -234,6 +234,29 @@ def test_sim_rejects_live_only_data_source() -> None:
     assert "historical_bars" in str(build.failure_message)
 
 
+def test_sim_requires_explicit_live_reconnect_capability() -> None:
+    services = only_default_engine_services()
+    factory = _DescriptorOnlyFactory(
+        _descriptor(
+            "no-reconnect",
+            OnlyPluginType.DATA_SOURCE,
+            OnlyDataSourceCapabilities(historical_bars=True, live_bars=True),
+        )
+    )
+    services.assembler.components.data_sources.register(
+        cast(OnlyDataSourceFactory, factory),
+        origin=_test_origin(),
+    )
+
+    def change(payload: dict[str, Any]) -> None:
+        payload["data_sources"][0]["plugin"] = "no-reconnect"
+
+    build = services.assembler.validate(_sim_plan(change))
+
+    assert build.failure_code == "SIM_DATA_SOURCE_RECONNECT_CAPABILITY_REQUIRED"
+    assert "live_reconnect" in str(build.failure_message)
+
+
 @pytest.mark.parametrize("count", (0, 2))
 def test_sim_requires_exactly_one_enabled_broker(count: int) -> None:
     def change(payload: dict[str, Any]) -> None:

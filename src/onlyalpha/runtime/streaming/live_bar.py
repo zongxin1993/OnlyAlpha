@@ -29,6 +29,10 @@ class OnlyLiveBarFinalizer:
                 int(update.source_sequence),
             )
 
+    def reset_pending(self) -> None:
+        """Discard mutable, unconfirmed live periods at a recovery boundary."""
+        self._pending.clear()
+
     def accept(self, update: OnlyMarketDataInboundUpdate) -> tuple[OnlyMarketDataInboundUpdate, ...]:
         if not isinstance(update.payload, OnlyBarUpdate):
             return (update,)

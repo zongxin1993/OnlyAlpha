@@ -59,6 +59,7 @@ class OnlyMiniQmtDataSource:
         self._subscription_lock = Lock()
         self._accepting_callbacks = True
         self._shutdown_started = False
+        self._connection_state = OnlyMarketDataConnectionState.DISCONNECTED
 
     plugin_descriptor = DATA_DESCRIPTOR
 
@@ -92,34 +93,50 @@ class OnlyMiniQmtDataSource:
         self._life.initialize()
 
     def connect(self) -> OnlyMarketDataConnectionResult:
-        self._life.state = OnlyPluginLifecycleState.CONNECTED
+        if self._shutdown_started:
+            return self._connection_result(
+                OnlyMarketDataRequestStatus.REJECTED,
+                OnlyMarketDataConnectionState.DISCONNECTED,
+            )
+        self._connection_state = OnlyMarketDataConnectionState.CONNECTED
+        self._accepting_callbacks = True
         return self._connection_result(
             OnlyMarketDataRequestStatus.ACCEPTED,
             OnlyMarketDataConnectionState.CONNECTED,
         )
 
     def authenticate(self) -> OnlyMarketDataConnectionResult:
+        if self._shutdown_started or self._connection_state is OnlyMarketDataConnectionState.DISCONNECTED:
+            return self._connection_result(
+                OnlyMarketDataRequestStatus.REJECTED,
+                OnlyMarketDataConnectionState.DISCONNECTED,
+            )
+        self._connection_state = OnlyMarketDataConnectionState.READY
         return self._connection_result(OnlyMarketDataRequestStatus.ACCEPTED, OnlyMarketDataConnectionState.READY)
 
     def disconnect(self) -> OnlyMarketDataConnectionResult:
-        self.stop()
+        with self._subscription_lock:
+            self._accepting_callbacks = False
+            subscriptions = tuple(self._subscriptions.values())
+            self._subscriptions.clear()
+        for sequences in subscriptions:
+            for sequence in sequences:
+                self._xtdata.unsubscribe_quote(sequence)
+        self._connection_state = OnlyMarketDataConnectionState.DISCONNECTED
         return self._connection_result(
             OnlyMarketDataRequestStatus.ACCEPTED,
             OnlyMarketDataConnectionState.DISCONNECTED,
         )
 
     def connection_snapshot(self) -> OnlyMarketDataConnectionSnapshot:
-        state = (
-            OnlyMarketDataConnectionState.READY
-            if self.state is OnlyPluginLifecycleState.RUNNING
-            else OnlyMarketDataConnectionState.CONNECTED
-            if self.state is OnlyPluginLifecycleState.CONNECTED
-            else OnlyMarketDataConnectionState.DISCONNECTED
+        return OnlyMarketDataConnectionSnapshot(
+            OnlyMarketDataGatewayId(str(self.source_id)),
+            self._connection_state,
         )
-        return OnlyMarketDataConnectionSnapshot(OnlyMarketDataGatewayId(str(self.source_id)), state)
 
     def start(self) -> None:
         self._life.start()
+        self._connection_state = OnlyMarketDataConnectionState.CONNECTED
 
     def stop(self) -> None:
         with self._subscription_lock:
@@ -135,6 +152,7 @@ class OnlyMiniQmtDataSource:
                 except Exception as exc:
                     failure = failure or exc
         self._life.stop()
+        self._connection_state = OnlyMarketDataConnectionState.DISCONNECTED
         if failure is not None:
             raise failure
 

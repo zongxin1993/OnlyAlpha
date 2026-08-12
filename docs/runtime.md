@@ -8,7 +8,7 @@ Broker 插件与 Cluster 均不持有或改写该 authority。
 
 当前 Scenario schema 的 Action/Command DTO 在源码 spelling `BACKTEST/PAPER/LIVE/SHADOW` 间一致；这只是迁移前的
 实现事实。目标 Trading Runtime vocabulary 是 `BACKTEST/SIM/LIVE`。`BACKTEST` 支持确定性有限生命周期推进；`SIM`
-已支持 Engine streaming lifecycle 下的 realtime Virtual Broker normal path，但当前 Scenario Runner 尚不驱动该长生命周期
+已支持 Engine streaming lifecycle 下的 realtime Virtual Broker normal path 与 same-process continuity recovery，但当前 Scenario Runner 尚不驱动该长生命周期
 路径。legacy `PAPER` 是 Sim Migration Source，`LIVE` 与 standalone `SHADOW` 规划仍显式不支持，均不得静默降级。
 
 Runtime Factory 必须先从必填 `market` 配置解析 Profile，再构建 `OnlyMarketRuleEngine`。Runtime 组件只接收
@@ -132,8 +132,10 @@ Execution Processor；Transaction Store 仍是 durable authority，Projection �
 
 Next-Bar 因果顺序固定为 Bar N Strategy intent 后 Accepted、同 Bar 不成交，Bar N+1 matching 先于 Strategy 并产生 Trade。
 停止只切断 future processing permission，不自动取消 Accepted order。SIM Runtime Persistence 可使用 Memory/SQLite，并在
-checkpoint disabled 时保存 durable transaction；这不构成 Streaming Checkpoint/Recovery。Realtime gap recovery、reconnect、
-streaming checkpoint/restart 与 long-running production operations 尚未实现。
+checkpoint disabled 时保存 durable transaction；这不构成 Streaming Checkpoint/Restart。P6.4 已实现 unexpected-gap、STALE 与
+disconnect 的 same-process recovery：缺失历史事实经现有 Historical Port 加载、严格验证和归一化后进入同一 Processor/Pipeline，
+恢复期既有 Broker order 可继续推进而 Strategy 新订单被抑制，buffered realtime suffix 追平并显式证明 continuity 后才恢复 LIVE。
+Streaming checkpoint/new-process restart、Real Broker reconciliation 与 long-running production operations 尚未实现。
 
 ## 6. Backtest
 

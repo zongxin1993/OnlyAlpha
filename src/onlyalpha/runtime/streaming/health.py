@@ -29,6 +29,10 @@ class OnlyStreamingRuntimeHealth:
     sequence_gap_count: int
     stale_count: int
     observation_drop_count: int
+    recovery_generation: int = 0
+    recovery_reason: str | None = None
+    recovery_from: OnlyTimestamp | None = None
+    recovery_to: OnlyTimestamp | None = None
 
 
 def only_streaming_data_state(
@@ -47,6 +51,8 @@ def only_streaming_data_state(
     if phase is OnlyStreamingPhase.BOOTSTRAP:
         return OnlyStreamingDataState.BOOTSTRAPPING
     if phase is OnlyStreamingPhase.CATCH_UP:
+        return OnlyStreamingDataState.CATCHING_UP
+    if phase in {OnlyStreamingPhase.DEGRADED, OnlyStreamingPhase.RECOVERING}:
         return OnlyStreamingDataState.CATCHING_UP
     if session.state is not OnlyMarketSessionState.OPEN:
         return OnlyStreamingDataState.IDLE

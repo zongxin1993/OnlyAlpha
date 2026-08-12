@@ -5,9 +5,11 @@ import sqlite3
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from threading import Event, Thread
 from typing import cast
 
 import pytest
@@ -21,8 +23,18 @@ from onlyalpha.application import OnlyEngineInspectionService
 from onlyalpha.broker.execution import OnlyBrokerExecutionService
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
+from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
+from onlyalpha.data.models import (
+    OnlyBarUpdate,
+    OnlyHistoricalBarRequest,
+    OnlyHistoricalDataStream,
+    OnlyMarketDataInboundUpdate,
+)
 from onlyalpha.domain.enums import OnlyOrderStatus, OnlyRuntimeMode
+from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
+from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest
@@ -166,6 +178,83 @@ def _sqlite_transaction_state(database: Path) -> tuple[int, int, tuple[str, ...]
     return int(count), int(ready), kinds
 
 
+def _publish_closed_gap_trigger(runtime: OnlySimRuntime, clock: OnlyBacktestClock, minute: int) -> None:
+    bar_type = next(iter(runtime.historical_watermarks)).bar_type
+    template = runtime._latest_bars[(str(bar_type.instrument_id), bar_type)]  # type: ignore[attr-defined]
+    end = datetime(2026, 8, 4, 1, minute, tzinfo=UTC)
+    bar = replace(
+        template,
+        bar_start=end.replace(minute=minute - 1),
+        bar_end=end,
+        ts_event=end,
+        ts_init=end,
+        is_closed=True,
+    )
+    stamp = OnlyTimestamp.from_datetime(end)
+    runtime._services.market_data_inbound.put(  # type: ignore[attr-defined]
+        OnlyMarketDataInboundUpdate(
+            OnlyMarketDataUpdateId(f"fixture-live-gap-{minute}"),
+            OnlyRuntimeId(runtime.runtime_id),
+            runtime._driver.source.source_id,  # type: ignore[attr-defined,union-attr]
+            OnlyDataSequence(10_000 + minute),
+            runtime._streaming_data_version,  # type: ignore[attr-defined]
+            bar.instrument_id,
+            OnlyMarketDataType.BAR,
+            OnlyBarUpdate(bar),
+            stamp,
+            stamp,
+        )
+    )
+    clock.advance_to(end)
+
+
+def _recovery_stream(
+    runtime: OnlySimRuntime,
+    request: OnlyHistoricalBarRequest,
+    *,
+    omit_minute: int | None = None,
+) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+    bar_type = next(iter(runtime.historical_watermarks)).bar_type
+    template = runtime._latest_bars[(str(bar_type.instrument_id), bar_type)]  # type: ignore[attr-defined]
+    records: list[OnlyMarketDataInboundUpdate] = []
+    first_end = request.data_range.start_time.replace(second=0, microsecond=0)
+    if first_end <= request.data_range.start_time:
+        first_end = first_end.replace(minute=first_end.minute + 1)
+    end = first_end
+    sequence = 0
+    while end < request.data_range.end_time:
+        minute = end.minute
+        if minute == omit_minute:
+            end = end.replace(minute=end.minute + 1)
+            continue
+        sequence += 1
+        bar = replace(
+            template,
+            bar_start=end.replace(minute=minute - 1),
+            bar_end=end,
+            ts_event=end,
+            ts_init=end,
+            is_closed=True,
+        )
+        stamp = OnlyTimestamp.from_datetime(end)
+        records.append(
+            OnlyMarketDataInboundUpdate(
+                OnlyMarketDataUpdateId(f"fixture-recovery-{minute}"),
+                OnlyRuntimeId(runtime.runtime_id),
+                runtime._driver.source.source_id,  # type: ignore[attr-defined,union-attr]
+                OnlyDataSequence(sequence),
+                runtime._streaming_data_version,  # type: ignore[attr-defined]
+                bar.instrument_id,
+                OnlyMarketDataType.BAR,
+                OnlyBarUpdate(bar),
+                stamp,
+                stamp,
+            )
+        )
+        end = end.replace(minute=end.minute + 1)
+    return OnlyHistoricalDataStream(tuple(records), request.batch_size)
+
+
 def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -210,8 +299,12 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
         assert runtime.order_snapshots == ()
         _publish_and_wait_received(runtime, xtdata, clock, 38)
         _wait_until(
-            lambda: len(runtime.order_snapshots) == 1 and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED,
-            "Bar N order did not reach Broker Accepted projection",
+            lambda: (
+                len(runtime.order_snapshots) == 1
+                and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED
+                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 1
+            ),
+            "Bar N order did not reach Broker Accepted Projection Ready",
         )
 
         after_bar_n = OnlyEngineInspectionService().capture(engine)[0]
@@ -332,6 +425,286 @@ def test_engine_sim_stop_is_not_a_broker_trading_command(
     assert len(runtime.broker_results) == before_results
     assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
     assert not xtdata.subscriptions
+
+
+def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-gap-recovery"
+    engine, xtdata, clock, user_data = _engine(tmp_path, monkeypatch, engine_id=engine_id)
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
+    database = _database(user_data, engine_id, runtime)
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
+    try:
+        _publish_and_wait_received(runtime, xtdata, clock, 37)
+        _publish_and_wait_received(runtime, xtdata, clock, 38)
+        _wait_until(
+            lambda: (
+                len(runtime.order_snapshots) == 1
+                and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED
+                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 1
+            ),
+            "pre-gap Order did not reach Accepted Projection Ready",
+        )
+        _wait_until(
+            lambda: (
+                runtime.health().last_closed_bar_end
+                == OnlyTimestamp.from_datetime(datetime(2026, 8, 4, 1, 37, tzinfo=UTC))
+            ),
+            "pre-gap confirmed frontier did not reach 01:37",
+        )
+        _wait_until(
+            lambda: any(
+                result.status is OnlyMarketDataProcessingStatus.APPLIED and str(result.update_id) == "miniqmt-live-13"
+                for result in runtime.processing_results
+            ),
+            "pre-gap Worker callback did not complete",
+        )
+        assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
+        _publish_closed_gap_trigger(runtime, clock, 42)
+        _wait_until(
+            lambda: runtime.recovery_generation == 1 and runtime.streaming_phase is OnlyStreamingPhase.LIVE,
+            "SIM gap recovery did not restore LIVE",
+        )
+
+        audit = runtime.market_data_audit_store.records()
+        trigger_statuses = tuple(item.status for item in audit if str(item.update_id) == "fixture-live-gap-42")
+        assert trigger_statuses == (
+            OnlyMarketDataProcessingStatus.GAP_DETECTED,
+            OnlyMarketDataProcessingStatus.APPLIED,
+        )
+        recovery_statuses = tuple(
+            item.status for item in audit if str(item.update_id).startswith(f"recovery-{runtime.runtime_id}-1-")
+        )
+        assert recovery_statuses == (OnlyMarketDataProcessingStatus.APPLIED,) * 4
+        audit_ids = tuple(str(item.update_id) for item in audit)
+        assert sum(item.startswith("fixture-recovery-") for item in audit_ids) == 0
+        assert sum(item.startswith(f"recovery-{runtime.runtime_id}-1-") for item in audit_ids) == 4
+        assert runtime.recovery_failure is None
+        assert runtime.recovery_plan is None
+        _wait_until(
+            lambda: runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2,
+            "recovered Bar Trade did not reach Projection Ready",
+        )
+        assert len(runtime.order_snapshots) == 1
+        assert runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED
+        assert runtime.order_snapshots[0].fill_count == 1
+        assert len(runtime.position_manager.snapshot_all()) == 1
+        assert len(runtime.allocation_manager.snapshot_all()) == 1
+        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
+        assert _sqlite_transaction_state(database) == (2, 2, ("ORDER_ACCEPTED", "TRADE_FILL"))
+    finally:
+        engine.stop()
+
+
+def test_engine_sim_incomplete_gap_recovery_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, _ = _engine(tmp_path, monkeypatch, engine_id="sim-gap-incomplete")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        source,
+        "load_bars",
+        lambda request: _recovery_stream(runtime, request, omit_minute=40),
+    )
+    try:
+        _publish_and_wait_received(runtime, xtdata, clock, 37)
+        _publish_and_wait_received(runtime, xtdata, clock, 38)
+        _wait_until(
+            lambda: (
+                runtime.health().last_closed_bar_end
+                == OnlyTimestamp.from_datetime(datetime(2026, 8, 4, 1, 37, tzinfo=UTC))
+            ),
+            "pre-gap confirmed frontier did not reach 01:37",
+        )
+        _wait_until(
+            lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+            "pre-gap Worker callback did not complete",
+        )
+        _publish_closed_gap_trigger(runtime, clock, 42)
+        _wait_until(
+            lambda: runtime.streaming_phase is OnlyStreamingPhase.FAILED,
+            "incomplete historical coverage did not fail closed",
+        )
+
+        assert runtime.state is OnlyRuntimeState.FAILED
+        assert runtime.recovery_failure == "historical recovery coverage is incomplete"
+        trigger_statuses = tuple(
+            item.status
+            for item in runtime.market_data_audit_store.records()
+            if str(item.update_id) == "fixture-live-gap-42"
+        )
+        assert trigger_statuses == (OnlyMarketDataProcessingStatus.GAP_DETECTED,)
+        assert not any(
+            str(item.update_id).startswith(f"recovery-{runtime.runtime_id}-")
+            for item in runtime.market_data_audit_store.records()
+        )
+    finally:
+        engine.stop()
+
+
+def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, user_data = _engine(tmp_path, monkeypatch, engine_id="sim-stop-recovery")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
+    database = _database(user_data, "sim-stop-recovery", runtime)
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    entered = Event()
+    release = Event()
+
+    def blocked(request: object) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+        entered.set()
+        assert release.wait(3)
+        return _recovery_stream(runtime, request)
+
+    monkeypatch.setattr(source, "load_bars", blocked)
+    _publish_and_wait_received(runtime, xtdata, clock, 37)
+    _publish_and_wait_received(runtime, xtdata, clock, 38)
+    _wait_until(
+        lambda: (
+            runtime.health().last_closed_bar_end == OnlyTimestamp.from_datetime(datetime(2026, 8, 4, 1, 37, tzinfo=UTC))
+        ),
+        "pre-gap confirmed frontier did not reach 01:37",
+    )
+    _wait_until(
+        lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+        "pre-gap Worker callback did not complete",
+    )
+    _publish_closed_gap_trigger(runtime, clock, 42)
+    assert entered.wait(3)
+    before_results = len(runtime.processing_results)
+    before_transactions = _sqlite_transaction_state(database)
+
+    stop_failure: list[BaseException] = []
+
+    def stop_engine() -> None:
+        try:
+            engine.stop()
+        except BaseException as exc:
+            stop_failure.append(exc)
+
+    stopper = Thread(target=stop_engine)
+    stopper.start()
+    _wait_until(
+        lambda: runtime.streaming_phase is OnlyStreamingPhase.STOPPING,
+        "stop did not revoke processing permission during recovery",
+    )
+    release.set()
+    stopper.join(timeout=3)
+
+    assert not stopper.is_alive()
+    assert stop_failure == []
+    assert runtime.streaming_phase is OnlyStreamingPhase.STOPPED
+    assert len(runtime.processing_results) == before_results
+    assert _sqlite_transaction_state(database) == before_transactions
+
+
+def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, _ = _engine(tmp_path, monkeypatch, engine_id="sim-reconnect")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
+    try:
+        _publish_and_wait_received(runtime, xtdata, clock, 37)
+        _publish_and_wait_received(runtime, xtdata, clock, 38)
+        _wait_until(
+            lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+            "pre-disconnect Worker callback did not complete",
+        )
+        source.disconnect()
+        clock.advance_to(datetime(2026, 8, 4, 1, 42, tzinfo=UTC))
+
+        _wait_until(
+            lambda: runtime.recovery_generation == 1 and runtime.streaming_phase is OnlyStreamingPhase.LIVE,
+            "disconnect recovery did not restore LIVE",
+        )
+
+        assert runtime.recovery_failure is None
+        assert runtime.subscription_active
+        assert runtime.health().source_connected
+        assert len(xtdata.subscriptions) == 1
+        assert (
+            tuple(
+                item.status
+                for item in runtime.market_data_audit_store.records()
+                if str(item.update_id).startswith(f"recovery-{runtime.runtime_id}-1-")
+            )
+            == (OnlyMarketDataProcessingStatus.APPLIED,) * 5
+        )
+    finally:
+        engine.stop()
+
+
+def test_engine_sim_reconnect_failure_is_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, _ = _engine(tmp_path, monkeypatch, engine_id="sim-reconnect-failure")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source.disconnect()
+    monkeypatch.setattr(source, "connect", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+    clock.advance_to(datetime(2026, 8, 4, 1, 42, tzinfo=UTC))
+    try:
+        _wait_until(
+            lambda: runtime.streaming_phase is OnlyStreamingPhase.FAILED,
+            "reconnect failure did not fail closed",
+        )
+        assert runtime.state is OnlyRuntimeState.FAILED
+        assert runtime.recovery_failure == "streaming DataSource reconnect failed"
+        assert runtime.recovery_generation == 0
+    finally:
+        engine.stop()
+
+
+def test_engine_sim_streaming_phase_permission_matrix_blocks_retroactive_orders(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, _, _, _ = _engine(tmp_path, monkeypatch, engine_id="sim-phase-permission")
+    engine.initialize()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    request = cast(OnlyOrderRequest, object())
+    try:
+        expected = {
+            OnlyStreamingPhase.BOOTSTRAP: "ORDER_INTENT_SUPPRESSED_DURING_BOOTSTRAP",
+            OnlyStreamingPhase.CATCH_UP: "ORDER_INTENT_SUPPRESSED_DURING_CATCH_UP",
+            OnlyStreamingPhase.DEGRADED: "ORDER_INTENT_SUPPRESSED_DURING_DEGRADED",
+            OnlyStreamingPhase.RECOVERING: "ORDER_INTENT_SUPPRESSED_DURING_RECOVERY",
+        }
+        for phase, error in expected.items():
+            runtime._streaming_phase = phase  # type: ignore[attr-defined]
+            result = runtime._intercept_order_submit(request)  # type: ignore[attr-defined]
+            assert result is not None
+            assert not result.created
+            assert not result.submitted
+            assert result.error == error
+        runtime._streaming_phase = OnlyStreamingPhase.LIVE  # type: ignore[attr-defined]
+        assert runtime._intercept_order_submit(request) is None  # type: ignore[attr-defined]
+    finally:
+        engine.stop()
 
 
 def test_engine_sim_requires_a_deterministic_broker_driver(

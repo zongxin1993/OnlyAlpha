@@ -23,7 +23,8 @@ class OnlyStreamingMarketDataWorker:
         clock: OnlyClock,
         *,
         maximum_future_wait_seconds: float = 10.0,
-        on_result: Callable[[OnlyMarketDataProcessingResult], None] | None = None,
+        on_result: Callable[[OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult], None] | None = None,
+        on_idle: Callable[[], None] | None = None,
         accept_update: Callable[[OnlyMarketDataInboundUpdate], bool] | None = None,
         accept_finalized: Callable[[OnlyMarketDataInboundUpdate], bool] | None = None,
     ) -> None:
@@ -32,7 +33,8 @@ class OnlyStreamingMarketDataWorker:
         self._finalizer = finalizer
         self._clock = clock
         self._maximum_future_wait_seconds = maximum_future_wait_seconds
-        self._on_result = on_result or (lambda result: None)
+        self._on_result = on_result or (lambda update, result: None)
+        self._on_idle = on_idle or (lambda: None)
         self._accept_update = accept_update or (lambda update: True)
         self._accept_finalized = accept_finalized or (lambda update: True)
         self._stop = Event()
@@ -81,6 +83,7 @@ class OnlyStreamingMarketDataWorker:
             while not self._stop.wait(0.01):
                 update = self._queue.get()
                 if update is None:
+                    self._on_idle()
                     continue
                 self._process_update(update)
         except BaseException as exc:
@@ -100,7 +103,12 @@ class OnlyStreamingMarketDataWorker:
             with self._processing_permission:
                 if self._stop.is_set():
                     return
-                self._on_result(self._processor.process(finalized))
+                result = self._processor.process(finalized)
+            self._on_result(finalized, result)
+
+    @property
+    def stop_requested(self) -> bool:
+        return self._stop.is_set()
 
     def _await_event_time(self, update: OnlyMarketDataInboundUpdate) -> bool:
         if not isinstance(update.payload, OnlyBarUpdate):

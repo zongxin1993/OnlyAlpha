@@ -14,6 +14,7 @@ from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay
 from onlyalpha.market.session_clock import OnlyMarketSessionResolver, OnlyMarketSessionState
 from onlyalpha.market_data.completed_boundary import OnlyCompletedBarBoundaryResolver
+from onlyalpha.runtime.streaming.recovery import only_expected_closed_bar_boundaries
 
 
 def _calendar(*, holidays: tuple[date, ...] = (), special: tuple[OnlySessionSchedule, ...] = ()) -> OnlyTradingCalendar:
@@ -127,3 +128,21 @@ def test_completed_boundary_supports_cross_midnight_session() -> None:
     assert OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
         calendar=night, bar_type=_bar_type(1), observed_at=observed
     ).to_datetime() == night.to_utc(datetime(2026, 8, 4, 1, 14))
+
+
+def test_recovery_boundaries_follow_sessions_weekends_holidays_and_bar_step() -> None:
+    calendar = _calendar(holidays=(date(2026, 8, 4),))
+    boundaries = only_expected_closed_bar_boundaries(
+        calendar=calendar,
+        bar_type=_bar_type(3),
+        confirmed_bar_end=OnlyTimestamp.from_datetime(calendar.to_utc(datetime(2026, 8, 3, 11, 27))),
+        recovery_target=OnlyTimestamp.from_datetime(calendar.to_utc(datetime(2026, 8, 5, 13, 6))),
+    )
+    local = tuple(calendar.to_local(item).replace(tzinfo=None) for item in boundaries)
+    assert local[0] == datetime(2026, 8, 3, 11, 30)
+    assert local[-1] == datetime(2026, 8, 5, 13, 6)
+    assert datetime(2026, 8, 3, 13, 3) in local
+    assert datetime(2026, 8, 5, 9, 33) in local
+    assert all(item.date() != date(2026, 8, 4) for item in local)
+    assert all(not (time(11, 30) < item.time() < time(13)) for item in local)
+    assert all(item.minute % 3 == 0 for item in local)

@@ -9,6 +9,8 @@ class OnlyStreamingPhase(StrEnum):
     BOOTSTRAP = "BOOTSTRAP"
     CATCH_UP = "CATCH_UP"
     LIVE = "LIVE"
+    DEGRADED = "DEGRADED"
+    RECOVERING = "RECOVERING"
     STOPPING = "STOPPING"
     STOPPED = "STOPPED"
     FAILED = "FAILED"

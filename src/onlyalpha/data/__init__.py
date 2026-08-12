@@ -13,6 +13,7 @@ from onlyalpha.data.processor import (
     OnlyMarketDataDeduplicator,
     OnlyMarketDataGapDetector,
     OnlyMarketDataProcessor,
+    OnlyMarketDataSequenceAssessment,
     OnlyMarketDataSequenceTracker,
 )
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue, OnlyMarketDataQueueFullError
