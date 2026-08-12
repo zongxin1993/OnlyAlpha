@@ -16,10 +16,10 @@ from onlyalpha.runtime.checkpoint.codec import only_validate_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import OnlyCheckpointRestoreContext, OnlyRuntimeCheckpoint
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.persistence.store import OnlyRuntimeCheckpointQueryPort
+from onlyalpha.runtime.recovery.session import OnlyRuntimeRecoveryDriverResult
 from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionRecoveryQueryPort
 
 if TYPE_CHECKING:
-    from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayResult
     from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 
 
@@ -59,7 +59,7 @@ class OnlyRuntimeRecoveryOrchestrator:
         transaction_query: OnlyRuntimeTransactionRecoveryQueryPort,
         causal_replay: Callable[
             [OnlyRuntimeCheckpoint, OnlyExecutionRecoverySession],
-            OnlyBacktestRecoveryReplayResult,
+            OnlyRuntimeRecoveryDriverResult,
         ],
     ) -> None:
         self._runtime_id = runtime_id
@@ -83,7 +83,7 @@ class OnlyRuntimeRecoveryOrchestrator:
             raise RuntimeError("CHECKPOINT_PARTICIPANT_REGISTRY_FINGERPRINT_MISMATCH")
         self._registry.restore(
             checkpoint.components,
-            OnlyCheckpointRestoreContext(self._runtime_id, checkpoint.header.replay_cursor),
+            OnlyCheckpointRestoreContext(self._runtime_id),
         )
         plan = self._plan_builder.build(
             self._runtime_id,
@@ -115,7 +115,7 @@ class OnlyRuntimeRecoveryOrchestrator:
             session.unprojected_recovered_count,
             final_ready,
             checkpoint.header.pending_outbox_count,
-            0 if replay_result is None else replay_result.catch_up_bar_count,
+            0 if replay_result is None else replay_result.catch_up_fact_count,
             continuation_count,
             None if replay_result is None else str(replay_result.final_boundary.update_id),
         )

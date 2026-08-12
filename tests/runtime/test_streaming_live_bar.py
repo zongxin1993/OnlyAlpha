@@ -18,7 +18,7 @@ from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.runtime.streaming.live_bar import OnlyLiveBarFinalizationError, OnlyLiveBarFinalizer
-from onlyalpha.runtime.streaming.processing_lane import OnlyStreamingProcessingLane
+from onlyalpha.runtime.streaming.semantic_lane import OnlyStreamingSemanticLane
 from onlyalpha.runtime.streaming.worker import OnlyStreamingMarketDataWorker
 
 
@@ -83,7 +83,7 @@ def test_stop_does_not_fabricate_the_last_pending_bar(make_runtime_bar) -> None:
     finalizer = OnlyLiveBarFinalizer()
     worker = OnlyStreamingMarketDataWorker(
         queue,
-        OnlyStreamingProcessingLane(processor),
+        OnlyStreamingSemanticLane(processor),
         finalizer,
         OnlyBacktestClock(make_runtime_bar(0).bar_end),
         commit_result=lambda update, result: None,
@@ -115,7 +115,7 @@ def test_worker_stop_does_not_drain_queued_updates(make_runtime_bar) -> None:
 
     worker = OnlyStreamingMarketDataWorker(
         queue,
-        OnlyStreamingProcessingLane(processor),
+        OnlyStreamingSemanticLane(processor),
         OnlyLiveBarFinalizer(),
         OnlyBacktestClock(make_runtime_bar(1).bar_end),
         commit_result=lambda update, result: None,
@@ -156,7 +156,7 @@ def test_worker_stop_prevents_processing_after_acceptance_boundary(make_runtime_
 
     worker = OnlyStreamingMarketDataWorker(
         queue,
-        OnlyStreamingProcessingLane(processor),
+        OnlyStreamingSemanticLane(processor),
         OnlyLiveBarFinalizer(),
         OnlyBacktestClock(bar.ts_event),
         commit_result=lambda update, result: None,
@@ -180,7 +180,7 @@ def test_worker_stop_interrupts_wait_for_future_bar(make_runtime_bar) -> None:
     processor = Mock()
     worker = OnlyStreamingMarketDataWorker(
         queue,
-        OnlyStreamingProcessingLane(processor),
+        OnlyStreamingSemanticLane(processor),
         OnlyLiveBarFinalizer(),
         OnlyBacktestClock(0),
         commit_result=lambda update, result: None,

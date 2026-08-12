@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onlyalpha.broker.ports import OnlyBrokerGateway
+from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,12 +55,26 @@ class OnlyGatewayBrokerRecoveryAuthorityView:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyRuntimeDriverFrontierView:
+    source_id: OnlyMarketDataSourceId
+    data_version: OnlyDataVersion
+    update_id: OnlyMarketDataUpdateId | None
+    source_sequence: int
+    event_time: OnlyTimestamp | None
+    processed_fact_count: int
+
+    def __post_init__(self) -> None:
+        if self.source_sequence < 0 or self.processed_fact_count < 0:
+            raise ValueError("Runtime driver frontier counters cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyRuntimeBoundaryAuthorityView:
     runtime_id: OnlyRuntimeId
     broker_inbound_count: int
     market_data_inbound_count: int
     event_bus_pending_count: int
-    replay_cursor: OnlyBacktestReplayCursor
+    driver_frontier: OnlyRuntimeDriverFrontierView
     processed_bar_count: int
     last_market_processing_sequence: int
     market_processing_sequence: int
@@ -86,4 +100,5 @@ __all__ = [
     "OnlyBrokerRecoveryOrderSnapshot",
     "OnlyGatewayBrokerRecoveryAuthorityView",
     "OnlyRuntimeBoundaryAuthorityView",
+    "OnlyRuntimeDriverFrontierView",
 ]

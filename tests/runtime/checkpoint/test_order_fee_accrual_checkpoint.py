@@ -1,15 +1,10 @@
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.fee import OnlyOrderFeeAccrualManager
-from onlyalpha.runtime.checkpoint.model import (
-    OnlyBacktestReplayCursor,
-    OnlyCheckpointCaptureContext,
-    OnlyCheckpointRestoreContext,
-)
+from onlyalpha.runtime.checkpoint.model import OnlyCheckpointCaptureContext, OnlyCheckpointRestoreContext
 from onlyalpha.runtime.checkpoint.participant import OnlyJsonRuntimeCheckpointParticipant
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from tests.execution.support.order_fee_accrual import only_test_order_fee_accrual_steps
-from tests.runtime.checkpoint.test_checkpoint_contract import _cursor
 
 
 def test_runtime_checkpoint_registry_restores_order_fee_accrual_authority() -> None:
@@ -25,9 +20,8 @@ def test_runtime_checkpoint_registry_restores_order_fee_accrual_authority() -> N
             manager.restore_checkpoint,
         )
     )
-    cursor: OnlyBacktestReplayCursor = _cursor()
     runtime_id = OnlyRuntimeId("runtime")
-    components = registry.capture(OnlyCheckpointCaptureContext(runtime_id, OnlyTimestamp(2), cursor, 0))
+    components = registry.capture(OnlyCheckpointCaptureContext(runtime_id, OnlyTimestamp(2), 0))
     manager.restore_checkpoint([])
-    registry.restore(components, OnlyCheckpointRestoreContext(runtime_id, cursor))
+    registry.restore(components, OnlyCheckpointRestoreContext(runtime_id))
     assert manager.get(state.order_id) == state

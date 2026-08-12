@@ -1,17 +1,22 @@
-"""Single serialized authority for streaming MarketData semantic processing."""
+"""Single permission authority for every Streaming semantic mutation."""
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Lock
+from typing import TypeVar
 
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult
 from onlyalpha.data.processor import OnlyMarketDataProcessor
 
+T = TypeVar("T")
+
 
 @dataclass(frozen=True, slots=True)
-class OnlyStreamingProcessingOutcome:
+class OnlyStreamingSemanticOutcome[T]:
     started: bool
-    result: OnlyMarketDataProcessingResult | None = None
+    result: T | None = None
 
 
 OnlyStreamingProcessingCommit = Callable[
@@ -20,28 +25,33 @@ OnlyStreamingProcessingCommit = Callable[
 ]
 
 
-class OnlyStreamingProcessingLane:
-    """Own the atomic permission to process and commit one streaming update."""
+class OnlyStreamingSemanticLane:
+    """Own permission to complete exactly one mutation action before another starts."""
 
     def __init__(self, processor: OnlyMarketDataProcessor) -> None:
         self._processor = processor
         self._permission = Lock()
         self._revoked = False
 
+    def execute(self, action: Callable[[], T]) -> OnlyStreamingSemanticOutcome[T]:
+        with self._permission:
+            if self._revoked:
+                return OnlyStreamingSemanticOutcome(False)
+            return OnlyStreamingSemanticOutcome(True, action())
+
     def process(
         self,
         update: OnlyMarketDataInboundUpdate,
         commit_result: OnlyStreamingProcessingCommit,
-    ) -> OnlyStreamingProcessingOutcome:
-        with self._permission:
-            if self._revoked:
-                return OnlyStreamingProcessingOutcome(False)
+    ) -> OnlyStreamingSemanticOutcome[OnlyMarketDataProcessingResult]:
+        def action() -> OnlyMarketDataProcessingResult:
             result = self._processor.process(update)
             commit_result(update, result)
-            return OnlyStreamingProcessingOutcome(True, result)
+            return result
+
+        return self.execute(action)
 
     def revoke(self, establish_cutoff: Callable[[], object] | None = None) -> None:
-        """Establish the cutoff after any already-started atomic update completes."""
         with self._permission:
             if establish_cutoff is not None:
                 establish_cutoff()
@@ -51,3 +61,10 @@ class OnlyStreamingProcessingLane:
     def revoked(self) -> bool:
         with self._permission:
             return self._revoked
+
+
+__all__ = [
+    "OnlyStreamingProcessingCommit",
+    "OnlyStreamingSemanticLane",
+    "OnlyStreamingSemanticOutcome",
+]

@@ -8,7 +8,6 @@ from onlyalpha.runtime.backtest.recovery_boundary import (
     OnlyBacktestRecoveryPhase,
     OnlyBacktestRecoverySession,
 )
-from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayResult
 from onlyalpha.runtime.backtest.result import (
     OnlyBacktestDataSummary,
     OnlyBacktestExecutionSummary,

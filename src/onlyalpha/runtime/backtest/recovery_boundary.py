@@ -14,7 +14,7 @@ from onlyalpha.execution.causal_recovery import (
     OnlyExecutionRecoverySession,
 )
 from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor
+from onlyalpha.runtime.backtest.checkpoint import OnlyBacktestReplayCursor
 
 
 class OnlyBacktestRecoveryError(RuntimeError):

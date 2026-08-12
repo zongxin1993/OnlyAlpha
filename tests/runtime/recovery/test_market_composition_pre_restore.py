@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.fee.models import OnlyMarketFeePackIdentity
@@ -14,7 +13,6 @@ from onlyalpha.market.product import (
     OnlyMarketProductIdentity,
     OnlyMarketProductVersion,
 )
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor
 from onlyalpha.runtime.checkpoint.participant import OnlyJsonRuntimeCheckpointParticipant
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.checkpoint.service import OnlyRuntimeCheckpointService
@@ -87,15 +85,7 @@ def _assert_pre_restore_rejected(
         outbox_port=store,
         retain_last=1,
     )
-    cursor = OnlyBacktestReplayCursor(
-        OnlyMarketDataSourceId("source"),
-        OnlyDataVersion("version"),
-        None,
-        0,
-        None,
-        0,
-    )
-    service.create(cursor, OnlyTimestamp.from_unix_nanos(1))
+    service.create(OnlyTimestamp.from_unix_nanos(1))
     orchestrator = OnlyRuntimeRecoveryOrchestrator(
         runtime_id=runtime_id,
         config_fingerprint=runtime_config,

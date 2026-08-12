@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
 from dataclasses import replace
 
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
-from onlyalpha.domain.time import OnlyTimestamp
-
 from .model import (
-    OnlyBacktestReplayCursor,
     OnlyRuntimeCheckpoint,
     OnlyRuntimeCheckpointComponent,
     OnlyRuntimeCheckpointHeader,
@@ -47,35 +42,6 @@ def only_decode_checkpoint_component(component: OnlyRuntimeCheckpointComponent) 
     return json.loads(component.payload)
 
 
-def only_encode_replay_cursor(cursor: OnlyBacktestReplayCursor) -> str:
-    return only_canonical_checkpoint_payload(
-        {
-            "data_version": str(cursor.data_version),
-            "last_event_time_ns": None if cursor.last_event_time is None else cursor.last_event_time.unix_nanos,
-            "last_source_sequence": cursor.last_source_sequence,
-            "last_update_id": None if cursor.last_update_id is None else str(cursor.last_update_id),
-            "processed_bar_count": cursor.processed_bar_count,
-            "source_id": str(cursor.source_id),
-        }
-    )
-
-
-def only_decode_replay_cursor(payload: str) -> OnlyBacktestReplayCursor:
-    value = json.loads(payload)
-    if not isinstance(value, Mapping) or only_canonical_checkpoint_payload(value) != payload:
-        raise ValueError("replay cursor payload is not canonical")
-    update_id = value["last_update_id"]
-    event_ns = value["last_event_time_ns"]
-    return OnlyBacktestReplayCursor(
-        OnlyMarketDataSourceId(str(value["source_id"])),
-        OnlyDataVersion(str(value["data_version"])),
-        None if update_id is None else OnlyMarketDataUpdateId(str(update_id)),
-        int(value["last_source_sequence"]),
-        None if event_ns is None else OnlyTimestamp.from_unix_nanos(int(event_ns)),
-        int(value["processed_bar_count"]),
-    )
-
-
 def _aggregate_projection(
     header: OnlyRuntimeCheckpointHeader,
     components: tuple[OnlyRuntimeCheckpointComponent, ...],
@@ -87,9 +53,9 @@ def _aggregate_projection(
             "config_fingerprint": header.config_fingerprint,
             "covered_execution_sequence": header.covered_execution_sequence,
             "created_at_ns": header.created_at.unix_nanos,
+            "market_composition_fingerprint": header.market_composition_fingerprint,
             "participant_registry_fingerprint": header.participant_registry_fingerprint,
             "pending_outbox_count": header.pending_outbox_count,
-            "replay_cursor": json.loads(only_encode_replay_cursor(header.replay_cursor)),
             "runtime_id": str(header.runtime_id),
         },
         "components": [

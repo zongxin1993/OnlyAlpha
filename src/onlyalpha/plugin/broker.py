@@ -36,6 +36,9 @@ class OnlyBrokerCreateRequest:
 
 
 class OnlyDeterministicBrokerDriver(Protocol):
+    @property
+    def checkpoint_schema_version(self) -> int: ...
+
     def on_bar(self, bar: OnlyBar) -> None: ...
 
     def run_due(self) -> int: ...

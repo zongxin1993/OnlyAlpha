@@ -4,28 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.plugin.capabilities import OnlyCheckpointCapability as OnlyCheckpointCapability
 
-ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION = 4
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyBacktestReplayCursor:
-    source_id: OnlyMarketDataSourceId
-    data_version: OnlyDataVersion
-    last_update_id: OnlyMarketDataUpdateId | None
-    last_source_sequence: int
-    last_event_time: OnlyTimestamp | None
-    processed_bar_count: int
-
-    def __post_init__(self) -> None:
-        if self.last_source_sequence < 0 or self.processed_bar_count < 0:
-            raise ValueError("replay cursor sequences cannot be negative")
-        if (self.last_update_id is None) != (self.last_event_time is None):
-            raise ValueError("replay cursor update identity and event time must be both empty or both present")
+ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +30,6 @@ class OnlyRuntimeCheckpointHeader:
     covered_execution_sequence: int
     checkpoint_schema_version: int
     created_at: OnlyTimestamp
-    replay_cursor: OnlyBacktestReplayCursor
     config_fingerprint: str
     market_composition_fingerprint: str
     participant_registry_fingerprint: str
@@ -92,11 +74,9 @@ class OnlyRuntimeCheckpoint:
 class OnlyCheckpointCaptureContext:
     runtime_id: OnlyRuntimeId
     created_at: OnlyTimestamp
-    replay_cursor: OnlyBacktestReplayCursor
     covered_execution_sequence: int
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyCheckpointRestoreContext:
     runtime_id: OnlyRuntimeId
-    replay_cursor: OnlyBacktestReplayCursor

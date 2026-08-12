@@ -12,6 +12,7 @@ from onlyalpha.execution import (
     OnlyExecutionRecoverySession,
     OnlyPreparedRuntimeTransaction,
 )
+from onlyalpha.runtime.backtest.checkpoint import OnlyBacktestReplayCursor
 from onlyalpha.runtime.backtest.recovery_boundary import (
     OnlyBacktestRecoveryBoundary,
     OnlyBacktestRecoveryError,
@@ -19,7 +20,6 @@ from onlyalpha.runtime.backtest.recovery_boundary import (
     OnlyBacktestRecoverySession,
 )
 from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from tests.execution.factories.transaction_factory import only_test_generic_t0_cash_buy_open_transaction
 from tests.execution.test_causal_execution_recovery import _update

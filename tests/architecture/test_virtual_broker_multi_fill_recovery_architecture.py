@@ -45,8 +45,8 @@ def test_checkpoint_contract_is_version_three_and_descriptor_driven_without_faul
     runtime = (ROOT / "src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     production = "\n".join(path.read_text(encoding="utf-8") for path in PLUGIN.glob("*.py"))
     assert '"schema_version": 3' in gateway
-    assert "deterministic_broker_checkpoint_schema_version=plan.broker_checkpoint_schema_version" in factory
-    assert '"broker.virtual",\n                    deterministic_broker_checkpoint_schema_version,' in runtime
+    assert "deterministic_broker_checkpoint_schema_version" not in factory
+    assert '"broker.virtual",\n                    deterministic_broker_driver.checkpoint_schema_version,' in runtime
     assert ONLY_VIRTUAL_PLUGIN_DESCRIPTOR.capabilities.checkpoint_schema_version == 3
     assert "crash_after_fill" not in production
     assert "fail_after_fill" not in production

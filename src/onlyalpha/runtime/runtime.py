@@ -103,6 +103,7 @@ from onlyalpha.position.reservations import OnlyPositionReservationManager
 from onlyalpha.risk.profile import OnlyRiskProfile
 from onlyalpha.risk.service import OnlyRiskService
 from onlyalpha.runtime.events.gate import OnlyRuntimeEventGatePhase, OnlyRuntimeEventGateSnapshot
+from onlyalpha.runtime.persistence.lease import OnlyRuntimeStateLease
 from onlyalpha.runtime.persistence.store import (
     OnlyRuntimePersistenceStorePort,
 )
@@ -482,6 +483,7 @@ class OnlyRuntime:
         self._execution_recovery_diagnostics: list[OnlyExecutionRecoveryResult] = []
         self._plugin_resources: tuple[OnlyPluginResource, ...] = ()
         self._runtime_persistence_store: OnlyRuntimePersistenceStorePort | None = None
+        self._runtime_state_lease: OnlyRuntimeStateLease | None = None
         self._clusters_started = False
         self._clusters_recovered = False
         self._stop_attempted = False
@@ -1056,6 +1058,11 @@ class OnlyRuntime:
                 self._runtime_persistence_store.close()
             except BaseException as exc:
                 failure = failure or exc
+        if self._runtime_state_lease is not None:
+            try:
+                self._runtime_state_lease.close()
+            except BaseException as exc:
+                failure = failure or exc
         try:
             self._services.clock.close()
         except BaseException as exc:
@@ -1095,6 +1102,11 @@ class OnlyRuntime:
         if self._state is not OnlyRuntimeState.CREATED or self._runtime_persistence_store is not None:
             raise OnlyLifecycleError("Runtime Persistence Store must be bound once while Runtime is CREATED")
         self._runtime_persistence_store = store
+
+    def _bind_runtime_state_lease(self, lease: OnlyRuntimeStateLease) -> None:
+        if self._state is not OnlyRuntimeState.CREATED or self._runtime_state_lease is not None:
+            raise OnlyLifecycleError("Runtime State Lease must be bound once while Runtime is CREATED")
+        self._runtime_state_lease = lease
 
     def _rollback_plugin_resources(self, resources: tuple[OnlyPluginResource, ...]) -> None:
         for operation in ("stop", "close"):

@@ -10,7 +10,7 @@ from onlyalpha.data.ports import OnlyHistoricalDataSource, OnlyMarketDataGateway
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.streaming.live_bar import OnlyLiveBarFinalizer
-from onlyalpha.runtime.streaming.processing_lane import OnlyStreamingProcessingLane
+from onlyalpha.runtime.streaming.semantic_lane import OnlyStreamingSemanticLane
 from onlyalpha.runtime.streaming.worker import OnlyStreamingMarketDataWorker
 
 
@@ -23,7 +23,7 @@ class OnlyStreamingMarketDataDriver:
         source: OnlyHistoricalDataSource | OnlyMarketDataGateway | OnlyPluginResource,
         subscription: OnlyMarketDataSubscriptionRequest,
         inbound_queue: OnlyMarketDataInboundQueue,
-        processing_lane: OnlyStreamingProcessingLane,
+        processing_lane: OnlyStreamingSemanticLane,
         finalizer: OnlyLiveBarFinalizer,
         clock: OnlyLiveClock,
         shutdown_timeout_seconds: float,

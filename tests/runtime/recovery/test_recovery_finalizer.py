@@ -6,14 +6,14 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
+from onlyalpha.runtime.backtest.checkpoint import OnlyBacktestReplayCursor
 from onlyalpha.runtime.checkpoint.codec import only_seal_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
     ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
-    OnlyBacktestReplayCursor,
     OnlyRuntimeCheckpointHeader,
 )
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
-from onlyalpha.runtime.recovery.authority_views import OnlyRuntimeBoundaryAuthorityView
+from onlyalpha.runtime.recovery.authority_views import OnlyRuntimeBoundaryAuthorityView, OnlyRuntimeDriverFrontierView
 from onlyalpha.runtime.recovery.finalizer import (
     OnlyRuntimeRecoveryFinalizationError,
     OnlyRuntimeRecoveryFinalizationPhase,
@@ -77,8 +77,8 @@ class OnlyTestCheckpointService:
         self.failure = failure
         self.calls: list[str] = []
 
-    def capture(self, cursor, created_at):  # type: ignore[no-untyped-def]
-        del cursor, created_at
+    def capture(self, created_at):  # type: ignore[no-untyped-def]
+        del created_at
         self.calls.append("capture")
         if self.failure == "capture":
             raise RuntimeError("capture failed")
@@ -115,7 +115,6 @@ def _fixture(
             0,
             ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
             OnlyTimestamp.from_unix_nanos(1),
-            cursor,
             "config",
             "0" * 64,
             "registry",
@@ -140,7 +139,14 @@ def _fixture(
             broker_inbound_count,
             market_data_inbound_count,
             event_bus_pending_count,
-            cursor,
+            OnlyRuntimeDriverFrontierView(
+                cursor.source_id,
+                cursor.data_version,
+                cursor.last_update_id,
+                cursor.last_source_sequence,
+                cursor.last_event_time,
+                cursor.processed_bar_count,
+            ),
             0,
             0,
             0,
@@ -156,7 +162,6 @@ def _fixture(
         validator=validator,  # type: ignore[arg-type]
         context_factory=lambda _: context,
         checkpoint_service=service,  # type: ignore[arg-type]
-        replay_cursor=lambda: cursor,
         created_at=lambda: OnlyTimestamp.from_unix_nanos(1),
     )
     return outcome, manager, service, validator, finalizer

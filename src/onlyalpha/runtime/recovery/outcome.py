@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from onlyalpha.runtime.backtest.recovery_boundary import OnlyBacktestRecoveryBoundary
 from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
+from onlyalpha.runtime.recovery.session import OnlyRuntimeRecoveryBoundary
 
 from .orchestrator import OnlyRuntimeRecoveryDiagnostic
 
@@ -18,7 +18,7 @@ class OnlyRuntimeRecoveryOutcome:
     persisted_tail_end_sequence: int | None
     continuation_start_sequence: int | None
     continuation_end_sequence: int | None
-    final_boundary: OnlyBacktestRecoveryBoundary | None
+    final_boundary: OnlyRuntimeRecoveryBoundary | None
     replay_performed: bool
 
     def __post_init__(self) -> None:

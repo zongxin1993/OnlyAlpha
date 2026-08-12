@@ -6,6 +6,7 @@ from .finalizer import (
 )
 from .orchestrator import OnlyRuntimeRecoveryDiagnostic, OnlyRuntimeRecoveryOrchestrator, OnlyRuntimeRecoveryStatus
 from .outcome import OnlyRuntimeRecoveryOutcome
+from .session import OnlyRuntimeRecoveryBoundary, OnlyRuntimeRecoveryDriverResult
 from .validation import (
     OnlyPostRecoveryAuthorityValidator,
     OnlyPostRecoveryCheckStatus,
@@ -18,6 +19,8 @@ __all__ = [
     "OnlyRuntimeRecoveryDiagnostic",
     "OnlyRuntimeRecoveryOrchestrator",
     "OnlyRuntimeRecoveryOutcome",
+    "OnlyRuntimeRecoveryBoundary",
+    "OnlyRuntimeRecoveryDriverResult",
     "OnlyRuntimeRecoveryStatus",
     "OnlyRuntimeRecoveryFinalizationError",
     "OnlyRuntimeRecoveryFinalizationPhase",

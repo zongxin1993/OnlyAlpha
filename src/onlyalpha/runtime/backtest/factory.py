@@ -169,7 +169,6 @@ class OnlyBacktestRuntimeFactory:
                 owned_event_bus=plan.event_bus,
                 broker_gateway=gateway,
                 deterministic_broker_driver=broker_component.deterministic_driver,
-                deterministic_broker_checkpoint_schema_version=plan.broker_checkpoint_schema_version,
                 broker_inbound_queue=plan.broker_queue,
                 runtime_persistence_store=persistence_store,
                 persistence_config=config.runtime.persistence,

@@ -294,6 +294,8 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
 
         initial_account = runtime.account_manager.list_accounts()[0]
         initial_ledger = runtime.strategy_ledger_manager.list_ledgers()[0]
+        processing_count = len(runtime.processing_results)
+        closed_bar_count = runtime.closed_external_bar_count
 
         _publish_and_wait_received(runtime, xtdata, clock, 37)
         assert runtime.order_snapshots == ()
@@ -306,6 +308,12 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
             ),
             "Bar N order did not reach Broker Accepted Projection Ready",
         )
+        _wait_until(
+            lambda: len(runtime.processing_results) == processing_count + 1,
+            "live Bar processing result was not committed exactly once",
+        )
+        assert len(runtime.processing_results) == processing_count + 1
+        assert runtime.closed_external_bar_count == closed_bar_count + 1
 
         after_bar_n = OnlyEngineInspectionService().capture(engine)[0]
         order_after_bar_n = runtime.order_snapshots[0]

@@ -85,6 +85,10 @@ from onlyalpha_plugin_broker_virtual.submission_control import (
 class OnlyVirtualBrokerGateway:
     """Virtual external system; it never imports or shares a Runtime Manager."""
 
+    @property
+    def checkpoint_schema_version(self) -> int:
+        return 3
+
     def __init__(
         self,
         config: OnlyVirtualBrokerConfig,

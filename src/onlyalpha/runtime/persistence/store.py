@@ -12,23 +12,21 @@ from threading import RLock
 from typing import Protocol
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
+from onlyalpha.core.clock import OnlyTimerEvent, OnlyTimerId
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyOrderId, OnlyRuntimeId, OnlyTradeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.execution.accepted_fact import OnlyCommittedOrderAcceptedFactDraft
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.terminal_fact import OnlyCommittedTerminalExecutionFactDraft
 from onlyalpha.execution.trade_fact import OnlyCommittedExecutionFactDraft
-from onlyalpha.runtime.checkpoint.codec import (
-    only_decode_replay_cursor,
-    only_encode_replay_cursor,
-    only_validate_runtime_checkpoint,
-)
+from onlyalpha.runtime.checkpoint.codec import only_validate_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
     OnlyRuntimeCheckpoint,
     OnlyRuntimeCheckpointComponent,
     OnlyRuntimeCheckpointHeader,
 )
+from onlyalpha.runtime.persistence.timer_journal import OnlyRuntimeTimerOccurrence
 from onlyalpha.transaction.codec import (
     only_committed_runtime_transaction_payload_hash,
     only_decode_committed_execution_transaction,
@@ -56,7 +54,7 @@ from onlyalpha.transaction.transaction import (
     OnlyStoredRuntimeTransaction,
 )
 
-ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "6"
+ONLY_RUNTIME_PERSISTENCE_SCHEMA_VERSION = "7"
 
 
 class OnlyRuntimePersistenceIdentityMismatch(OnlyRuntimePersistenceStoreError):
@@ -95,6 +93,19 @@ class OnlyRuntimePersistenceStorePort(
     """Complete composition-root store contract; consumers receive narrower ports."""
 
     def bind_participant_registry_fingerprint(self, fingerprint: str) -> None: ...
+
+    def admit(
+        self,
+        runtime_id: OnlyRuntimeId,
+        timer_id: OnlyTimerId,
+        cluster_id: OnlyClusterId,
+        event: OnlyTimerEvent,
+        admitted_at: OnlyTimestamp,
+    ) -> OnlyRuntimeTimerOccurrence: ...
+
+    def unresolved(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeTimerOccurrence, ...]: ...
+
+    def cover(self, runtime_id: OnlyRuntimeId, checkpoint_sequence: int) -> None: ...
 
     def close(self) -> None: ...
 
@@ -161,6 +172,7 @@ class OnlyInMemoryRuntimePersistenceStore:
         ] = {}
         self._outbox: dict[tuple[OnlyRuntimeId, int, int], OnlyRuntimeTransactionOutboxRecord] = {}
         self._checkpoints: dict[tuple[OnlyRuntimeId, int], OnlyRuntimeCheckpoint] = {}
+        self._timer_occurrences: list[OnlyRuntimeTimerOccurrence] = []
         self._participant_registry_fingerprint: str | None = None
 
     def commit(
@@ -487,6 +499,45 @@ class OnlyInMemoryRuntimePersistenceStore:
             raise OnlyRuntimePersistenceStoreError("participant registry fingerprint mismatch")
         self._participant_registry_fingerprint = fingerprint
 
+    def admit(
+        self,
+        runtime_id: OnlyRuntimeId,
+        timer_id: OnlyTimerId,
+        cluster_id: OnlyClusterId,
+        event: OnlyTimerEvent,
+        admitted_at: OnlyTimestamp,
+    ) -> OnlyRuntimeTimerOccurrence:
+        sequence = len([item for item in self._timer_occurrences if item.runtime_id == runtime_id]) + 1
+        occurrence = OnlyRuntimeTimerOccurrence(
+            runtime_id,
+            sequence,
+            timer_id,
+            cluster_id,
+            int(event.deadline_ns),
+            int(event.fire_count),
+            admitted_at,
+        )
+        with self._lock:
+            self._timer_occurrences.append(occurrence)
+        return occurrence
+
+    def unresolved(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeTimerOccurrence, ...]:
+        with self._lock:
+            return tuple(
+                item
+                for item in self._timer_occurrences
+                if item.runtime_id == runtime_id and item.covered_checkpoint_sequence is None
+            )
+
+    def cover(self, runtime_id: OnlyRuntimeId, checkpoint_sequence: int) -> None:
+        with self._lock:
+            self._timer_occurrences = [
+                replace(item, covered_checkpoint_sequence=checkpoint_sequence)
+                if item.runtime_id == runtime_id and item.covered_checkpoint_sequence is None
+                else item
+                for item in self._timer_occurrences
+            ]
+
     def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
         if retain_last < 1:
             raise ValueError("checkpoint retention must be positive")
@@ -497,6 +548,12 @@ class OnlyInMemoryRuntimePersistenceStore:
             if existing is not None and existing != checkpoint:
                 raise OnlyRuntimePersistenceStoreError("checkpoint sequence conflicts with existing payload")
             self._checkpoints[key] = checkpoint
+            self._timer_occurrences = [
+                replace(item, covered_checkpoint_sequence=checkpoint.header.checkpoint_sequence)
+                if item.runtime_id == checkpoint.header.runtime_id and item.covered_checkpoint_sequence is None
+                else item
+                for item in self._timer_occurrences
+            ]
             sequences = sorted(
                 sequence for runtime_id, sequence in self._checkpoints if runtime_id == checkpoint.header.runtime_id
             )
@@ -668,7 +725,6 @@ class OnlySqliteRuntimePersistenceStore:
                     checkpoint_sequence INTEGER NOT NULL,
                     covered_execution_sequence INTEGER NOT NULL,
                     checkpoint_schema_version INTEGER NOT NULL,
-                    replay_cursor_payload TEXT NOT NULL,
                     config_fingerprint TEXT NOT NULL,
                     market_composition_fingerprint TEXT NOT NULL,
                     participant_registry_fingerprint TEXT NOT NULL,
@@ -688,6 +744,17 @@ class OnlySqliteRuntimePersistenceStore:
                     FOREIGN KEY(runtime_id, checkpoint_sequence)
                         REFERENCES runtime_checkpoints(runtime_id, checkpoint_sequence)
                         ON DELETE CASCADE
+                );
+                CREATE TABLE timer_occurrences (
+                    runtime_id TEXT NOT NULL,
+                    occurrence_sequence INTEGER NOT NULL,
+                    timer_id TEXT NOT NULL,
+                    cluster_id TEXT NOT NULL,
+                    deadline_ns INTEGER NOT NULL,
+                    fire_count INTEGER NOT NULL,
+                    admitted_at INTEGER NOT NULL,
+                    covered_checkpoint_sequence INTEGER,
+                    PRIMARY KEY(runtime_id, occurrence_sequence)
                 );
                 """
                     )
@@ -960,6 +1027,70 @@ class OnlySqliteRuntimePersistenceStore:
                     ("participant_registry_fingerprint", fingerprint),
                 )
 
+    def admit(
+        self,
+        runtime_id: OnlyRuntimeId,
+        timer_id: OnlyTimerId,
+        cluster_id: OnlyClusterId,
+        event: OnlyTimerEvent,
+        admitted_at: OnlyTimestamp,
+    ) -> OnlyRuntimeTimerOccurrence:
+        with self._lock, self._connection:
+            row = self._connection.execute(
+                "SELECT COALESCE(MAX(occurrence_sequence), 0) + 1 AS value FROM timer_occurrences WHERE runtime_id=?",
+                (str(runtime_id),),
+            ).fetchone()
+            sequence = int(row["value"])
+            self._connection.execute(
+                "INSERT INTO timer_occurrences VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+                (
+                    str(runtime_id),
+                    sequence,
+                    str(timer_id),
+                    str(cluster_id),
+                    int(event.deadline_ns),
+                    int(event.fire_count),
+                    admitted_at.unix_nanos,
+                ),
+            )
+        return OnlyRuntimeTimerOccurrence(
+            runtime_id,
+            sequence,
+            timer_id,
+            cluster_id,
+            int(event.deadline_ns),
+            int(event.fire_count),
+            admitted_at,
+        )
+
+    def unresolved(self, runtime_id: OnlyRuntimeId) -> tuple[OnlyRuntimeTimerOccurrence, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM timer_occurrences WHERE runtime_id=? AND covered_checkpoint_sequence IS NULL "
+                "ORDER BY occurrence_sequence",
+                (str(runtime_id),),
+            ).fetchall()
+        return tuple(
+            OnlyRuntimeTimerOccurrence(
+                runtime_id,
+                int(row["occurrence_sequence"]),
+                OnlyTimerId(str(row["timer_id"])),
+                OnlyClusterId(str(row["cluster_id"])),
+                int(row["deadline_ns"]),
+                int(row["fire_count"]),
+                OnlyTimestamp.from_unix_nanos(int(row["admitted_at"])),
+            )
+            for row in rows
+        )
+
+    def cover(self, runtime_id: OnlyRuntimeId, checkpoint_sequence: int) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE timer_occurrences SET covered_checkpoint_sequence=? "
+                "WHERE runtime_id=? AND covered_checkpoint_sequence IS NULL",
+                (checkpoint_sequence, str(runtime_id)),
+            )
+
     def write_checkpoint(self, checkpoint: OnlyRuntimeCheckpoint, *, retain_last: int) -> None:
         if retain_last < 1:
             raise ValueError("checkpoint retention must be positive")
@@ -969,13 +1100,12 @@ class OnlySqliteRuntimePersistenceStore:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
                 self._connection.execute(
-                    "INSERT INTO runtime_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO runtime_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(header.runtime_id),
                         header.checkpoint_sequence,
                         header.covered_execution_sequence,
                         header.checkpoint_schema_version,
-                        only_encode_replay_cursor(header.replay_cursor),
                         header.config_fingerprint,
                         header.market_composition_fingerprint,
                         header.participant_registry_fingerprint,
@@ -1011,6 +1141,11 @@ class OnlySqliteRuntimePersistenceStore:
                     "SELECT checkpoint_sequence FROM runtime_checkpoints "
                     "WHERE runtime_id=? ORDER BY checkpoint_sequence DESC LIMIT ?)",
                     (str(header.runtime_id), str(header.runtime_id), retain_last),
+                )
+                self._connection.execute(
+                    "UPDATE timer_occurrences SET covered_checkpoint_sequence=? "
+                    "WHERE runtime_id=? AND covered_checkpoint_sequence IS NULL",
+                    (header.checkpoint_sequence, str(header.runtime_id)),
                 )
                 self._connection.execute("COMMIT")
             except sqlite3.Error as exc:
@@ -1052,7 +1187,6 @@ class OnlySqliteRuntimePersistenceStore:
                     int(row["covered_execution_sequence"]),
                     int(row["checkpoint_schema_version"]),
                     OnlyTimestamp.from_unix_nanos(int(row["created_at"])),
-                    only_decode_replay_cursor(str(row["replay_cursor_payload"])),
                     str(row["config_fingerprint"]),
                     str(row["market_composition_fingerprint"]),
                     str(row["participant_registry_fingerprint"]),

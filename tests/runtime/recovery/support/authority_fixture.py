@@ -7,14 +7,14 @@ from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.fee.ledger import OnlyFeeApplicationRecord
+from onlyalpha.runtime.backtest.checkpoint import OnlyBacktestReplayCursor
 from onlyalpha.runtime.checkpoint.codec import only_seal_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
     ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
-    OnlyBacktestReplayCursor,
     OnlyRuntimeCheckpointHeader,
 )
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
-from onlyalpha.runtime.recovery.authority_views import OnlyRuntimeBoundaryAuthorityView
+from onlyalpha.runtime.recovery.authority_views import OnlyRuntimeBoundaryAuthorityView, OnlyRuntimeDriverFrontierView
 from onlyalpha.runtime.recovery.orchestrator import OnlyRuntimeRecoveryDiagnostic, OnlyRuntimeRecoveryStatus
 from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 from onlyalpha.runtime.recovery.validation import OnlyPostRecoveryValidationContext
@@ -80,7 +80,6 @@ class OnlyPostRecoveryAuthorityFixture:
                 covered_sequence,
                 ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
                 timestamp,
-                cursor,
                 "config",
                 "0" * 64,
                 "registry",
@@ -111,7 +110,24 @@ class OnlyPostRecoveryAuthorityFixture:
             store,
             store,
             OnlyInMemoryAppliedRuntimeProjectionLedger(),
-            OnlyRuntimeBoundaryAuthorityView(runtime_id, 0, 0, 0, cursor, 0, 0, 0, timestamp),
+            OnlyRuntimeBoundaryAuthorityView(
+                runtime_id,
+                0,
+                0,
+                0,
+                OnlyRuntimeDriverFrontierView(
+                    cursor.source_id,
+                    cursor.data_version,
+                    cursor.last_update_id,
+                    cursor.last_source_sequence,
+                    cursor.last_event_time,
+                    cursor.processed_bar_count,
+                ),
+                0,
+                0,
+                0,
+                timestamp,
+            ),
             fee_records=fee_records,
             settlement_records=settlement_records,
         )

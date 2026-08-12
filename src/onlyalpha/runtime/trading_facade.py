@@ -192,10 +192,11 @@ from onlyalpha.risk.views import (
     OnlyInstrumentRiskMappingView,
     OnlyRiskSnapshotView,
 )
+from onlyalpha.runtime.backtest.checkpoint import OnlyBacktestReplayCursor
 from onlyalpha.runtime.backtest.recovery_boundary import OnlyBacktestRecoverySession
 from onlyalpha.runtime.backtest.recovery_replay import OnlyBacktestRecoveryReplayService
 from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion, OnlyBacktestResultProgress
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor, OnlyCheckpointCapability
+from onlyalpha.runtime.checkpoint.model import OnlyCheckpointCapability
 from onlyalpha.runtime.checkpoint.participant import (
     OnlyJsonRuntimeCheckpointParticipant,
     OnlyStatelessRuntimeCheckpointParticipant,
@@ -222,6 +223,7 @@ from onlyalpha.runtime.reconciliation import (
 from onlyalpha.runtime.recovery.authority_views import (
     OnlyGatewayBrokerRecoveryAuthorityView,
     OnlyRuntimeBoundaryAuthorityView,
+    OnlyRuntimeDriverFrontierView,
 )
 from onlyalpha.runtime.recovery.finalizer import OnlyRuntimeRecoveryFinalizer
 from onlyalpha.runtime.recovery.orchestrator import (
@@ -422,7 +424,6 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         broker_gateway: OnlyBrokerGateway | None = None,
         execution_service: OnlyExecutionService | None = None,
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
-        deterministic_broker_checkpoint_schema_version: int | None = None,
         broker_inbound_queue: OnlyBrokerInboundQueue | None = None,
         market_data_inbound_queue: OnlyMarketDataInboundQueue | None = None,
         runtime_persistence_store: OnlyRuntimePersistenceStorePort,
@@ -985,17 +986,32 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 self._restore_runtime_progress_checkpoint,
             )
         )
-        self._checkpoint_registry.register(
-            OnlyJsonRuntimeCheckpointParticipant(
-                "backtest.result-progress",
-                1,
-                self._result_progress.capture_checkpoint,
-                self._result_progress.restore_checkpoint,
+        if run_plan is not None:
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    "backtest.replay-frontier",
+                    1,
+                    lambda: self._replay_cursor.to_checkpoint(),
+                    self._restore_backtest_replay_frontier,
+                )
             )
-        )
-        if persistence_config.checkpoint.enabled:
-            if replay_source_id is None:
-                raise ValueError("checkpoint-enabled Backtest requires a stable Historical DataSource identity")
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    "backtest.clock",
+                    1,
+                    self._capture_backtest_clock_checkpoint,
+                    self._restore_backtest_clock_checkpoint,
+                )
+            )
+            self._checkpoint_registry.register(
+                OnlyJsonRuntimeCheckpointParticipant(
+                    "backtest.result-progress",
+                    1,
+                    self._result_progress.capture_checkpoint,
+                    self._result_progress.restore_checkpoint,
+                )
+            )
+        if persistence_config.checkpoint.enabled and replay_source_id is not None:
             self._checkpoint_registry.register(
                 OnlyStatelessRuntimeCheckpointParticipant(f"data-source.{replay_source_id}")
             )
@@ -1212,15 +1228,15 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             if deterministic_broker_driver is None:
                 raise ValueError("checkpoint-enabled Backtest requires a checkpoint-capable Broker driver")
             if (
-                not isinstance(deterministic_broker_checkpoint_schema_version, int)
-                or isinstance(deterministic_broker_checkpoint_schema_version, bool)
-                or deterministic_broker_checkpoint_schema_version < 1
+                not isinstance(deterministic_broker_driver.checkpoint_schema_version, int)
+                or isinstance(deterministic_broker_driver.checkpoint_schema_version, bool)
+                or deterministic_broker_driver.checkpoint_schema_version < 1
             ):
                 raise ValueError("checkpoint-enabled Backtest requires a positive Broker checkpoint schema version")
             self._checkpoint_registry.register(
                 OnlyJsonRuntimeCheckpointParticipant(
                     "broker.virtual",
-                    deterministic_broker_checkpoint_schema_version,
+                    deterministic_broker_driver.checkpoint_schema_version,
                     deterministic_broker_driver.capture_checkpoint,
                     deterministic_broker_driver.restore_checkpoint,
                 )
@@ -1262,7 +1278,6 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             validator=only_default_post_recovery_authority_validator(),
             context_factory=self._post_recovery_validation_context,
             checkpoint_service=self._checkpoint_service,
-            replay_cursor=lambda: self._replay_cursor,
             created_at=lambda: OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
         )
         self._cluster_checkpoint_participants_registered = False
@@ -1381,7 +1396,14 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 len(self._services.broker_inbound),
                 len(self._services.market_data_inbound),
                 self._services.event_bus.pending_count(),
-                self._replay_cursor,
+                OnlyRuntimeDriverFrontierView(
+                    self._replay_cursor.source_id,
+                    self._replay_cursor.data_version,
+                    self._replay_cursor.last_update_id,
+                    self._replay_cursor.last_source_sequence,
+                    self._replay_cursor.last_event_time,
+                    self._replay_cursor.processed_bar_count,
+                ),
                 progress.processed_bar_count,
                 progress.last_market_processing_sequence,
                 self._services.market_data_processor.processing_sequence,
@@ -1411,10 +1433,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             return
         self._drain_execution_updates_for_checkpoint()
         self._services.event_bus.drain()
-        self._checkpoint_service.create(
-            self._replay_cursor,
-            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
-        )
+        self._checkpoint_service.create(OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()))
 
     def _register_cluster_checkpoint_participants(self) -> None:
         if self._cluster_checkpoint_participants_registered:
@@ -1524,47 +1543,15 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         )
         if not self._persistence_config.checkpoint.enabled or self._backtest_recovery_session is not None:
             return
-        self._checkpoint_service.create(
-            self._replay_cursor,
-            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()),
-        )
+        self._checkpoint_service.create(OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns()))
 
     def _capture_runtime_progress_checkpoint(self) -> object:
-        clock_snapshot = cast(OnlyBacktestClock, self._services.clock).snapshot()
         return {
             "account_valuation_version": self._account_valuation_version,
-            "clock_sequence": clock_snapshot.sequence,
-            "clock_timestamp_ns": self._services.clock.timestamp_ns(),
-            "timers": [
-                {
-                    "created_at_ns": timer.created_at_ns,
-                    "fire_count": timer.fire_count,
-                    "interval_ns": timer.interval_ns,
-                    "metadata": dict(sorted(timer.metadata.items())),
-                    "mode": timer.mode.value,
-                    "next_deadline_ns": timer.next_deadline_ns,
-                    "sequence": timer.sequence,
-                    "state": timer.state.value,
-                    "timer_id": str(timer.timer_id),
-                }
-                for timer in clock_snapshot.active_timers
-            ],
             "last_market_trading_day": None
             if self._last_market_trading_day is None
             else self._last_market_trading_day.value.isoformat(),
             "legacy_market_data_sequence": self._legacy_market_data_sequence,
-            "replay_cursor": {
-                "data_version": str(self._replay_cursor.data_version),
-                "last_event_time_ns": None
-                if self._replay_cursor.last_event_time is None
-                else self._replay_cursor.last_event_time.unix_nanos,
-                "last_source_sequence": self._replay_cursor.last_source_sequence,
-                "last_update_id": None
-                if self._replay_cursor.last_update_id is None
-                else str(self._replay_cursor.last_update_id),
-                "processed_bar_count": self._replay_cursor.processed_bar_count,
-                "source_id": str(self._replay_cursor.source_id),
-            },
             "strategy_valuation_versions": [
                 [key.to_json(), value]
                 for key, value in sorted(self._valuation_versions.items(), key=lambda item: item[0].to_json())
@@ -1574,59 +1561,6 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
     def _restore_runtime_progress_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, Mapping):
             raise ValueError("runtime progress checkpoint must be an object")
-        from types import MappingProxyType
-
-        from onlyalpha.core.clock import (
-            OnlyClockSnapshot,
-            OnlyTimerId,
-            OnlyTimerMode,
-            OnlyTimerSnapshot,
-            OnlyTimerState,
-        )
-
-        raw_timers = payload["timers"]
-        if not isinstance(raw_timers, list):
-            raise ValueError("runtime timer checkpoint must be an array")
-        timers: list[OnlyTimerSnapshot] = []
-        for raw in raw_timers:
-            if not isinstance(raw, Mapping):
-                raise ValueError("runtime timer checkpoint entry must be an object")
-            metadata = raw["metadata"]
-            if not isinstance(metadata, Mapping):
-                raise ValueError("runtime timer metadata must be an object")
-            timers.append(
-                OnlyTimerSnapshot(
-                    OnlyTimerId(str(raw["timer_id"])),
-                    OnlyTimerMode(str(raw["mode"])),
-                    int(raw["created_at_ns"]),
-                    int(raw["next_deadline_ns"]),
-                    None if raw["interval_ns"] is None else int(raw["interval_ns"]),
-                    int(raw["sequence"]),
-                    OnlyTimerState(str(raw["state"])),
-                    int(raw["fire_count"]),
-                    MappingProxyType({str(key): str(value) for key, value in metadata.items()}),
-                )
-            )
-        cast(OnlyBacktestClock, self._services.clock).restore_with_registered_callbacks(
-            OnlyClockSnapshot(
-                int(payload["clock_timestamp_ns"]),
-                int(payload["clock_sequence"]),
-                tuple(timers),
-            )
-        )
-        cursor = payload["replay_cursor"]
-        if not isinstance(cursor, Mapping):
-            raise ValueError("runtime replay cursor checkpoint must be an object")
-        update_id = cursor["last_update_id"]
-        event_time_ns = cursor["last_event_time_ns"]
-        self._replay_cursor = OnlyBacktestReplayCursor(
-            OnlyMarketDataSourceId(str(cursor["source_id"])),
-            OnlyDataVersion(str(cursor["data_version"])),
-            None if update_id is None else OnlyMarketDataUpdateId(str(update_id)),
-            int(cursor["last_source_sequence"]),
-            None if event_time_ns is None else OnlyTimestamp.from_unix_nanos(int(event_time_ns)),
-            int(cursor["processed_bar_count"]),
-        )
         self._account_valuation_version = int(payload["account_valuation_version"])
         self._legacy_market_data_sequence = int(payload["legacy_market_data_sequence"])
         trading_day = payload["last_market_trading_day"]
@@ -1641,6 +1575,68 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             for item in versions
             if isinstance(item, list) and len(item) == 2
         }
+
+    def _restore_backtest_replay_frontier(self, payload: object) -> None:
+        self._replay_cursor = OnlyBacktestReplayCursor.from_checkpoint(payload)
+
+    def _capture_backtest_clock_checkpoint(self) -> object:
+        snapshot = cast(OnlyBacktestClock, self._services.clock).snapshot()
+        return {
+            "clock_sequence": snapshot.sequence,
+            "clock_timestamp_ns": snapshot.current_timestamp_ns,
+            "timers": [
+                {
+                    "created_at_ns": timer.created_at_ns,
+                    "fire_count": timer.fire_count,
+                    "interval_ns": timer.interval_ns,
+                    "metadata": dict(sorted(timer.metadata.items())),
+                    "mode": timer.mode.value,
+                    "next_deadline_ns": timer.next_deadline_ns,
+                    "sequence": timer.sequence,
+                    "state": timer.state.value,
+                    "timer_id": str(timer.timer_id),
+                }
+                for timer in snapshot.active_timers
+            ],
+        }
+
+    def _restore_backtest_clock_checkpoint(self, payload: object) -> None:
+        if not isinstance(payload, Mapping) or not isinstance(payload["timers"], list):
+            raise ValueError("Backtest clock checkpoint must be an object with timers")
+        from types import MappingProxyType
+
+        from onlyalpha.core.clock import (
+            OnlyClockSnapshot,
+            OnlyTimerId,
+            OnlyTimerMode,
+            OnlyTimerSnapshot,
+            OnlyTimerState,
+        )
+
+        timers: list[OnlyTimerSnapshot] = []
+        for raw in payload["timers"]:
+            if not isinstance(raw, Mapping) or not isinstance(raw["metadata"], Mapping):
+                raise ValueError("Backtest Timer checkpoint entry must be an object")
+            timers.append(
+                OnlyTimerSnapshot(
+                    OnlyTimerId(str(raw["timer_id"])),
+                    OnlyTimerMode(str(raw["mode"])),
+                    int(raw["created_at_ns"]),
+                    int(raw["next_deadline_ns"]),
+                    None if raw["interval_ns"] is None else int(raw["interval_ns"]),
+                    int(raw["sequence"]),
+                    OnlyTimerState(str(raw["state"])),
+                    int(raw["fire_count"]),
+                    MappingProxyType({str(key): str(value) for key, value in raw["metadata"].items()}),
+                )
+            )
+        cast(OnlyBacktestClock, self._services.clock).restore_with_registered_callbacks(
+            OnlyClockSnapshot(
+                int(payload["clock_timestamp_ns"]),
+                int(payload["clock_sequence"]),
+                tuple(timers),
+            )
+        )
 
     def _activate_backtest_recovery(self, session: OnlyBacktestRecoverySession) -> None:
         if self._backtest_recovery_session is not None:

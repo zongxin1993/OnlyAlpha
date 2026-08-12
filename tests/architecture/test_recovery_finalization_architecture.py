@@ -53,7 +53,7 @@ def test_finalizer_distinguishes_inbound_and_event_bus_quiescence_errors() -> No
 def test_finalizer_orders_verify_before_recovered_transition() -> None:
     finalizer = Path("src/onlyalpha/runtime/recovery/finalizer.py").read_text(encoding="utf-8")
     assert finalizer.index("verify_durable(checkpoint)") < finalizer.index("mark_recovered_all()")
-    assert "capture(self._replay_cursor()" in finalizer
+    assert "capture(self._created_at())" in finalizer
     assert "self._checkpoint_service.write(checkpoint)" in finalizer
     assert "publish_pending" not in finalizer
     assert "resume_recovered_all" not in finalizer

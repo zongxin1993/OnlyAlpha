@@ -6,6 +6,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.result import only_backtest_business_projection
+from onlyalpha.runtime.backtest.checkpoint import only_backtest_replay_cursor
 from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.persistence.factory import (
@@ -100,8 +101,8 @@ def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> N
     reopened = OnlySqliteRuntimePersistenceStore(state_path)
     checkpoint_after_recovery = reopened.latest_checkpoint(runtime_id)
     assert checkpoint_after_recovery is not None
-    assert checkpoint_after_recovery.header.replay_cursor.last_source_sequence > (
-        checkpoint_before_tail.header.replay_cursor.last_source_sequence
+    assert only_backtest_replay_cursor(checkpoint_after_recovery).last_source_sequence > (
+        only_backtest_replay_cursor(checkpoint_before_tail).last_source_sequence
     )
     assert checkpoint_after_recovery.header.checkpoint_sequence > checkpoint_before_tail.header.checkpoint_sequence
     reopened.close()

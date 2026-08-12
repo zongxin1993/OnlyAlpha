@@ -3,7 +3,7 @@ from unittest.mock import Mock, call
 
 import pytest
 
-from onlyalpha.runtime.streaming.processing_lane import OnlyStreamingProcessingLane
+from onlyalpha.runtime.streaming.semantic_lane import OnlyStreamingSemanticLane
 
 pytestmark = pytest.mark.unit
 
@@ -11,7 +11,7 @@ pytestmark = pytest.mark.unit
 def test_revoke_waits_for_atomic_commit_then_prevents_next_update() -> None:
     processor = Mock()
     processor.process.side_effect = ("first-result", "forbidden-result")
-    lane = OnlyStreamingProcessingLane(processor)
+    lane = OnlyStreamingSemanticLane(processor)
     entered_commit = Event()
     release_commit = Event()
     first_outcome = []
@@ -41,7 +41,7 @@ def test_revoke_waits_for_atomic_commit_then_prevents_next_update() -> None:
 def test_commit_failure_remains_inside_atomic_processing_boundary() -> None:
     processor = Mock()
     processor.process.return_value = "result"
-    lane = OnlyStreamingProcessingLane(processor)
+    lane = OnlyStreamingSemanticLane(processor)
 
     with pytest.raises(RuntimeError, match="commit failed"):
         lane.process("update", lambda update, result: (_ for _ in ()).throw(RuntimeError("commit failed")))  # type: ignore[arg-type]
@@ -53,7 +53,7 @@ def test_commit_failure_remains_inside_atomic_processing_boundary() -> None:
 def test_cutoff_publication_and_revocation_share_the_processing_permission() -> None:
     processor = Mock()
     processor.process.return_value = "result"
-    lane = OnlyStreamingProcessingLane(processor)
+    lane = OnlyStreamingSemanticLane(processor)
     cutoff_visible = Event()
     release_cutoff = Event()
 
@@ -74,3 +74,13 @@ def test_cutoff_publication_and_revocation_share_the_processing_permission() -> 
 
     assert not outcome[0].started
     processor.process.assert_not_called()
+
+
+def test_generic_semantic_actions_share_the_same_stop_cutoff() -> None:
+    lane = OnlyStreamingSemanticLane(Mock())
+    mutations: list[str] = []
+
+    assert lane.execute(lambda: mutations.append("timer")).started
+    lane.revoke()
+    assert not lane.execute(lambda: mutations.append("late-checkpoint")).started
+    assert mutations == ["timer"]

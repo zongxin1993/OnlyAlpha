@@ -9,7 +9,7 @@ from enum import StrEnum
 from onlyalpha.cluster.manager import OnlyClusterManager
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor, OnlyRuntimeCheckpoint
+from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
 from onlyalpha.runtime.checkpoint.service import OnlyRuntimeCheckpointService
 from onlyalpha.runtime.runtime import OnlyRuntimeError
 
@@ -80,7 +80,6 @@ class OnlyRuntimeRecoveryFinalizer:
         validator: OnlyPostRecoveryAuthorityValidator,
         context_factory: Callable[[OnlyRuntimeRecoveryOutcome], OnlyPostRecoveryValidationContext],
         checkpoint_service: OnlyRuntimeCheckpointService,
-        replay_cursor: Callable[[], OnlyBacktestReplayCursor],
         created_at: Callable[[], OnlyTimestamp],
     ) -> None:
         self._cluster_manager = cluster_manager
@@ -88,7 +87,6 @@ class OnlyRuntimeRecoveryFinalizer:
         self._validator = validator
         self._context_factory = context_factory
         self._checkpoint_service = checkpoint_service
-        self._replay_cursor = replay_cursor
         self._created_at = created_at
         self._phase = OnlyRuntimeRecoveryFinalizationPhase.CREATED
 
@@ -122,7 +120,7 @@ class OnlyRuntimeRecoveryFinalizer:
                 raise RuntimeError(f"POST_RECOVERY_AUTHORITY_VALIDATION_FAILED: {failed}")
 
             self._phase = failure_phase = OnlyRuntimeRecoveryFinalizationPhase.CHECKPOINT_CAPTURE
-            checkpoint = self._checkpoint_service.capture(self._replay_cursor(), self._created_at())
+            checkpoint = self._checkpoint_service.capture(self._created_at())
 
             self._phase = failure_phase = OnlyRuntimeRecoveryFinalizationPhase.CHECKPOINT_WRITE
             try:

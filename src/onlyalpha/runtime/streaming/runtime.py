@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
 from math import lcm
@@ -11,7 +12,8 @@ from typing import cast
 
 from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
-from onlyalpha.core.clock import OnlyLiveClock
+from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
+from onlyalpha.core.clock import OnlyLiveClock, OnlyTimerEvent, OnlyTimerHandle, OnlyTimerId
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataUpdateId
 from onlyalpha.data.models import (
@@ -57,21 +59,25 @@ from onlyalpha.order.execution.service import OnlyExecutionService
 from onlyalpha.order.results import OnlyOrderSubmitResult
 from onlyalpha.plugin.broker import OnlyDeterministicBrokerDriver
 from onlyalpha.plugin.lifecycle import OnlyPluginResource
+from onlyalpha.runtime.checkpoint.participant import OnlyJsonRuntimeCheckpointParticipant
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
+from onlyalpha.runtime.persistence.timer_journal import OnlyRuntimeTimerOccurrence
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeError, OnlyRuntimeState
 from onlyalpha.runtime.trading_facade import OnlyTradingRuntimeFacade
 
+from .continuity import OnlyStreamingContinuityTracker
 from .driver import OnlyStreamingMarketDataDriver
 from .health import OnlyStreamingRuntimeHealth, only_streaming_data_state
 from .live_bar import OnlyLiveBarFinalizer
 from .phase import OnlyStreamingDataState, OnlyStreamingPhase
 from .phase_controller import OnlyStreamingPhaseController, OnlyStreamingPhaseSnapshot
-from .processing_lane import OnlyStreamingProcessingLane
 from .recovery import (
     OnlyStreamingRecoveryPlan,
     OnlyStreamingRecoveryReason,
 )
 from .recovery_loader import OnlyStreamingRecoveryLoader
+from .semantic_lane import OnlyStreamingSemanticLane
+from .timer_registry import OnlyRuntimeTimerRegistry
 
 
 class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
@@ -89,6 +95,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         data_source: OnlyHistoricalDataSource | OnlyMarketDataGateway | OnlyPluginResource,
         inbound_queue: OnlyMarketDataInboundQueue,
         persistence_store: OnlyRuntimePersistenceStorePort,
+        persistence_config: OnlyRuntimePersistenceConfig | None = None,
+        config_fingerprint: str = "",
         subscription: OnlyMarketDataSubscriptionRequest,
         data_version: OnlyDataVersion,
         execution_service: OnlyExecutionService | None = None,
@@ -120,6 +128,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             broker_inbound_queue=broker_inbound_queue,
             market_data_inbound_queue=inbound_queue,
             runtime_persistence_store=persistence_store,
+            persistence_config=persistence_config,
+            config_fingerprint=config_fingerprint,
             plugin_resources=(
                 ((broker_resource,) if broker_resource is not None else ()) + (cast(OnlyPluginResource, data_source),)
             ),
@@ -134,7 +144,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._stale_after_seconds = stale_after_seconds
         self._historical_warmup_results: list[OnlyHistoricalWarmupResult] = []
         self._historical_watermarks: dict[tuple[str, OnlyBarType], OnlyHistoricalWatermark] = {}
-        self._processed_bar_identities: set[tuple[str, OnlyBarType, int]] = set()
+        self._continuity = OnlyStreamingContinuityTracker()
         self._overlap_count = 0
         self._duplicate_count = 0
         self._sequence_gap_count = 0
@@ -162,10 +172,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._degraded_suppressed_intent_count = 0
         self._recovery_suppressed_intent_count = 0
         self._last_received_at: OnlyTimestamp | None = None
-        self._last_closed_bar_end: OnlyTimestamp | None = None
         self._latest_bars: dict[tuple[str, OnlyBarType], OnlyBar] = {}
         self._latest_sources: dict[tuple[str, OnlyBarType], OnlyObservationSource] = {}
-        self._accepted_market_sequences: dict[tuple[str, OnlyMarketDataType], int] = {}
         self._recovery_generation = 0
         self._recovery_plan: OnlyStreamingRecoveryPlan | None = None
         self._recovery_failure: str | None = None
@@ -177,7 +185,29 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._streaming_stop_attempted = False
         self._processing_results: list[OnlyMarketDataProcessingResult] = []
         self._live_finalizer = OnlyLiveBarFinalizer()
-        self._processing_lane = OnlyStreamingProcessingLane(self._services.market_data_processor)
+        self._semantic_lane = OnlyStreamingSemanticLane(self._services.market_data_processor)
+        self._timer_registry = OnlyRuntimeTimerRegistry(
+            OnlyRuntimeId(self.runtime_id),
+            clock,
+            persistence_store,
+            self._execute_timer_occurrence,
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "streaming.continuity",
+                self._continuity.checkpoint_schema_version,
+                self._continuity.capture_checkpoint,
+                self._continuity.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "streaming.timer-authority",
+                self._timer_registry.checkpoint_schema_version,
+                self._timer_registry.capture_checkpoint,
+                self._timer_registry.restore_checkpoint,
+            )
+        )
         source_id = data_source.source_id  # type: ignore[union-attr]
         self._recovery_loader = OnlyStreamingRecoveryLoader(
             source=cast(OnlyHistoricalDataSource, data_source),
@@ -190,7 +220,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             source=data_source,
             subscription=subscription,
             inbound_queue=inbound_queue,
-            processing_lane=self._processing_lane,
+            processing_lane=self._semantic_lane,
             finalizer=self._live_finalizer,
             clock=clock,
             shutdown_timeout_seconds=float(historical_timeout_seconds) + 5.0,
@@ -447,7 +477,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if self._streaming_stop_attempted:
             return
         self._streaming_stop_attempted = True
-        self._processing_lane.revoke(self._phase_controller.begin_stop)
+        self._semantic_lane.revoke(self._phase_controller.begin_stop)
         self._driver.request_stop()
         failure: BaseException | None = None
         for operation in (
@@ -576,7 +606,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 source_sequence=OnlyDataSequence(replay_sequence),
                 metadata=update.metadata + (("provider_sequence", str(int(update.source_sequence))),),
             )
-            outcome = self._processing_lane.process(update, self._record_processing_result)
+            outcome = self._semantic_lane.process(update, self._record_processing_result)
             if not outcome.started or outcome.result is None:
                 raise OnlyRuntimeError("historical warmup lost processing permission")
             result = outcome.result
@@ -595,9 +625,6 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 if result.status is OnlyMarketDataProcessingStatus.FAILED:
                     raise OnlyRuntimeError(f"historical warmup failed: {result}")
                 continue
-            self._processed_bar_identities.add(
-                (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
-            )
             processed_records.append(update)
             processed_by_type.setdefault(bar.bar_type, []).append(result.pipeline_result.base_bar)
             self._historical_last_processed_bar_end = OnlyTimestamp.from_datetime(
@@ -676,11 +703,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             bar = pipeline.base_bar
             key = (str(bar.instrument_id), bar.bar_type)
             self._latest_bars[key] = bar
-            self._processed_bar_identities.add(
-                (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
-            )
-            self._accepted_market_sequences[(str(update.source_id), update.data_type)] = int(update.source_sequence)
-            self._last_closed_bar_end = OnlyTimestamp.from_datetime(bar.bar_end)
+            self._continuity.advance(update)
             source = (
                 OnlyObservationSource.HISTORICAL_BOOTSTRAP
                 if self.streaming_phase is OnlyStreamingPhase.BOOTSTRAP
@@ -708,7 +731,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 continue
             for finalized in self._live_finalizer.accept(update):
                 if self._accept_finalized_bar(finalized):
-                    outcome = self._processing_lane.process(finalized, self._record_processing_result)
+                    outcome = self._semantic_lane.process(finalized, self._record_processing_result)
                     if not outcome.started:
                         return
 
@@ -730,9 +753,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
     def _accept_finalized_bar(self, update: OnlyMarketDataInboundUpdate) -> bool:
         if not isinstance(update.payload, OnlyBarUpdate):
             return True
-        bar = update.payload.bar
-        identity = (str(bar.instrument_id), bar.bar_type, OnlyTimestamp.from_datetime(bar.bar_start).unix_nanos)
-        if identity in self._processed_bar_identities:
+        if self._continuity.contains(update):
             self._duplicate_count += 1
             return False
         return True
@@ -742,10 +763,60 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         update: OnlyMarketDataInboundUpdate,
         result: OnlyMarketDataProcessingResult,
     ) -> None:
-        self._record_processing_result(update, result)
         if result.status is not OnlyMarketDataProcessingStatus.GAP_DETECTED:
             return
         self._recover_gap(update)
+
+    def _execute_timer_occurrence(
+        self,
+        occurrence: OnlyRuntimeTimerOccurrence,
+        event: OnlyTimerEvent,
+        callback: Callable[[OnlyTimerEvent], None],
+    ) -> None:
+        del occurrence
+        outcome = self._semantic_lane.execute(lambda: callback(event))
+        if not outcome.started:
+            raise OnlyRuntimeError("STREAMING_TIMER_SEMANTIC_PERMISSION_REVOKED")
+
+    def _schedule_at(self, cluster_id: OnlyClusterId, timer_id: str, when_ns: int) -> OnlyTimerHandle:
+        self._require_timer_permission(cluster_id)
+        identifier = OnlyTimerId(self._timer_name(cluster_id, timer_id))
+        handle = self._timer_registry.schedule_at(
+            identifier,
+            cluster_id,
+            when_ns,
+            lambda event: super(OnlyStreamingRuntime, self)._timer_callback(cluster_id, event),
+        )
+        return self._remember_timer(cluster_id, timer_id, handle)
+
+    def _schedule_after(self, cluster_id: OnlyClusterId, timer_id: str, delay_ns: int) -> OnlyTimerHandle:
+        self._require_timer_permission(cluster_id)
+        identifier = OnlyTimerId(self._timer_name(cluster_id, timer_id))
+        handle = self._timer_registry.schedule_after(
+            identifier,
+            cluster_id,
+            delay_ns,
+            lambda event: super(OnlyStreamingRuntime, self)._timer_callback(cluster_id, event),
+        )
+        return self._remember_timer(cluster_id, timer_id, handle)
+
+    def _schedule_every(
+        self,
+        cluster_id: OnlyClusterId,
+        timer_id: str,
+        interval_ns: int,
+        start_ns: int | None,
+    ) -> OnlyTimerHandle:
+        self._require_timer_permission(cluster_id)
+        identifier = OnlyTimerId(self._timer_name(cluster_id, timer_id))
+        handle = self._timer_registry.schedule_every(
+            identifier,
+            cluster_id,
+            interval_ns,
+            lambda event: super(OnlyStreamingRuntime, self)._timer_callback(cluster_id, event),
+            start_ns=start_ns,
+        )
+        return self._remember_timer(cluster_id, timer_id, handle)
 
     def _recover_gap(self, trigger: OnlyMarketDataInboundUpdate) -> None:
         if not isinstance(trigger.payload, OnlyBarUpdate):
@@ -775,19 +846,19 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._recovery_plan = plan
         self._live_finalizer.reset_pending()
         try:
-            if self._processing_lane.revoked:
+            if self._semantic_lane.revoked:
                 return
             if not self._transition_streaming_phase(OnlyStreamingPhase.RECOVERING):
                 return
-            accepted_sequence = self._accepted_market_sequences.get(
-                (str(self._driver.source.source_id), OnlyMarketDataType.BAR),  # type: ignore[union-attr]
-                0,
+            accepted_sequence = self._continuity.accepted_sequence(
+                self._driver.source.source_id,  # type: ignore[union-attr]
+                OnlyMarketDataType.BAR,
             )
             batch = self._recovery_loader.load(plan, accepted_sequence)
-            if self._processing_lane.revoked or self.streaming_phase is OnlyStreamingPhase.STOPPING:
+            if self._semantic_lane.revoked or self.streaming_phase is OnlyStreamingPhase.STOPPING:
                 return
             for update in batch.updates:
-                outcome = self._processing_lane.process(update, self._record_processing_result)
+                outcome = self._semantic_lane.process(update, self._record_processing_result)
                 if not outcome.started:
                     return
                 if outcome.result is None:
@@ -827,7 +898,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         )
         seen: set[tuple[str, OnlyBarType, int]] = set()
         for update in ordered:
-            if self._processing_lane.revoked:
+            if self._semantic_lane.revoked:
                 return
             if not self._accept_streaming_update(update):
                 continue
@@ -840,10 +911,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     continue
                 seen.add(identity)
                 next_sequence = (
-                    self._accepted_market_sequences.get(
-                        (str(finalized.source_id), finalized.data_type),
-                        0,
-                    )
+                    self._continuity.accepted_sequence(finalized.source_id, finalized.data_type)
                     + 1
                 )
                 normalized = replace(
@@ -851,7 +919,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     source_sequence=OnlyDataSequence(next_sequence),
                     metadata=finalized.metadata + (("provider_sequence", str(int(finalized.source_sequence))),),
                 )
-                outcome = self._processing_lane.process(normalized, self._record_processing_result)
+                outcome = self._semantic_lane.process(normalized, self._record_processing_result)
                 if not outcome.started:
                     return
                 if outcome.result is None:
@@ -866,7 +934,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     raise OnlyRuntimeError(f"buffered realtime update was not applied: {result.status.value}")
 
     def _verify_recovery_complete(self, plan: OnlyStreamingRecoveryPlan) -> None:
-        if self._processing_lane.revoked or self.streaming_phase in {
+        if self._semantic_lane.revoked or self.streaming_phase in {
             OnlyStreamingPhase.STOPPING,
             OnlyStreamingPhase.FAILED,
         }:
@@ -1069,7 +1137,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._source_connected(),
             self.worker_alive,
             self._last_received_at,
-            self._last_closed_bar_end,
+            self._continuity.last_closed_bar_end,
             next_expected,
             session.next_market_open,
             session.next_market_close,
@@ -1104,7 +1172,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             return None
         steps = tuple(item.specification.step for item in self._driver.subscription.bar_types)
         duration = timedelta(minutes=min(steps))
-        last = self._last_closed_bar_end
+        last = self._continuity.last_closed_bar_end
         candidate = (
             active[0] + duration if last is None or last.to_datetime() < active[0] else last.to_datetime() + duration
         )

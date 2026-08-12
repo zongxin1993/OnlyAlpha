@@ -2,13 +2,11 @@ from dataclasses import replace
 
 import pytest
 
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.runtime.checkpoint.codec import only_seal_runtime_checkpoint
 from onlyalpha.runtime.checkpoint.model import (
     ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
-    OnlyBacktestReplayCursor,
     OnlyRuntimeCheckpointHeader,
 )
 from onlyalpha.runtime.recovery.orchestrator import OnlyRuntimeRecoveryDiagnostic, OnlyRuntimeRecoveryStatus
@@ -16,14 +14,12 @@ from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 
 
 def _outcome() -> OnlyRuntimeRecoveryOutcome:
-    cursor = OnlyBacktestReplayCursor(OnlyMarketDataSourceId("source"), OnlyDataVersion("version"), None, 0, None, 0)
     header = OnlyRuntimeCheckpointHeader(
         OnlyRuntimeId("runtime"),
         1,
         0,
         ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
         OnlyTimestamp.from_unix_nanos(1),
-        cursor,
         "config",
         "0" * 64,
         "registry",

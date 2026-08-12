@@ -915,12 +915,13 @@ class OnlyRuntimeBoundaryAuthorityCheck:
     def evaluate(self, context: OnlyPostRecoveryValidationContext) -> tuple[OnlyPostRecoveryValidationCheck, ...]:
         view = context.runtime_boundary_view
         boundary = context.outcome.final_boundary
+        frontier = view.driver_frontier
         cursor_matches = boundary is None or (
-            view.replay_cursor.source_id == boundary.source_id
-            and view.replay_cursor.data_version == boundary.data_version
-            and view.replay_cursor.last_update_id == boundary.update_id
-            and view.replay_cursor.last_source_sequence == boundary.source_sequence
-            and view.replay_cursor.last_event_time == boundary.ts_event
+            frontier.source_id == boundary.source_id
+            and frontier.data_version == boundary.data_version
+            and frontier.update_id == boundary.update_id
+            and frontier.source_sequence == boundary.source_sequence
+            and frontier.event_time == boundary.ts_event
         )
         clock_ok = boundary is None or view.clock_time >= boundary.ts_event
         return (
@@ -945,14 +946,14 @@ class OnlyRuntimeBoundaryAuthorityCheck:
                 "cursor",
                 cursor_matches,
                 boundary,
-                view.replay_cursor,
+                frontier,
                 "cursor must equal exact final boundary",
             ),
             _check(
                 "POST_RECOVERY_RESULT_COUNT_CURSOR_MISMATCH",
                 "result-count",
-                view.processed_bar_count == view.replay_cursor.processed_bar_count,
-                view.replay_cursor.processed_bar_count,
+                view.processed_bar_count == frontier.processed_fact_count,
+                frontier.processed_fact_count,
                 view.processed_bar_count,
                 "bar counts must agree",
             ),

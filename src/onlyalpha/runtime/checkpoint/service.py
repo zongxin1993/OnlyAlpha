@@ -16,7 +16,6 @@ from onlyalpha.transaction.persistence_ports import (
 from .codec import only_seal_runtime_checkpoint, only_validate_runtime_checkpoint
 from .model import (
     ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
-    OnlyBacktestReplayCursor,
     OnlyCheckpointCaptureContext,
     OnlyRuntimeCheckpoint,
     OnlyRuntimeCheckpointHeader,
@@ -48,7 +47,7 @@ class OnlyRuntimeCheckpointService:
         self._outbox_port = outbox_port
         self._retain_last = retain_last
 
-    def capture(self, cursor: OnlyBacktestReplayCursor, created_at: OnlyTimestamp) -> OnlyRuntimeCheckpoint:
+    def capture(self, created_at: OnlyTimestamp) -> OnlyRuntimeCheckpoint:
         transactions = self._transaction_query.records(self._runtime_id)
         covered = 0
         for item in transactions:
@@ -57,7 +56,7 @@ class OnlyRuntimeCheckpointService:
             covered = item.execution_sequence
         previous = self._query_port.latest_checkpoint(self._runtime_id)
         sequence = 1 if previous is None else previous.header.checkpoint_sequence + 1
-        context = OnlyCheckpointCaptureContext(self._runtime_id, created_at, cursor, covered)
+        context = OnlyCheckpointCaptureContext(self._runtime_id, created_at, covered)
         components = self._registry.capture(context)
         header = OnlyRuntimeCheckpointHeader(
             self._runtime_id,
@@ -65,7 +64,6 @@ class OnlyRuntimeCheckpointService:
             covered,
             ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION,
             created_at,
-            cursor,
             self._config_fingerprint,
             self._market_composition_fingerprint,
             self._registry.fingerprint,
@@ -98,7 +96,6 @@ class OnlyRuntimeCheckpointService:
             and actual_header.covered_execution_sequence == expected_header.covered_execution_sequence
             and actual_header.checkpoint_schema_version == expected_header.checkpoint_schema_version
             and actual_header.created_at == expected_header.created_at
-            and actual_header.replay_cursor == expected_header.replay_cursor
             and actual_header.config_fingerprint == expected_header.config_fingerprint
             and actual_header.market_composition_fingerprint == expected_header.market_composition_fingerprint
             and actual_header.participant_registry_fingerprint == expected_header.participant_registry_fingerprint
@@ -112,11 +109,11 @@ class OnlyRuntimeCheckpointService:
             raise RuntimeError("POST_RECOVERY_CHECKPOINT_COMPONENT_MISMATCH")
         return actual
 
-    def create(self, cursor: OnlyBacktestReplayCursor, created_at: OnlyTimestamp) -> OnlyRuntimeCheckpoint:
-        checkpoint = self.capture(cursor, created_at)
+    def create(self, created_at: OnlyTimestamp) -> OnlyRuntimeCheckpoint:
+        checkpoint = self.capture(created_at)
         self.write(checkpoint)
         return checkpoint
 
-    def create_verified(self, cursor: OnlyBacktestReplayCursor, created_at: OnlyTimestamp) -> OnlyRuntimeCheckpoint:
-        checkpoint = self.create(cursor, created_at)
+    def create_verified(self, created_at: OnlyTimestamp) -> OnlyRuntimeCheckpoint:
+        checkpoint = self.create(created_at)
         return self.verify_durable(checkpoint)

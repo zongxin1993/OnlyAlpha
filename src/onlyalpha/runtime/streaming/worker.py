@@ -9,14 +9,14 @@ from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, On
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 
 from .live_bar import OnlyLiveBarFinalizer
-from .processing_lane import OnlyStreamingProcessingCommit, OnlyStreamingProcessingLane
+from .semantic_lane import OnlyStreamingProcessingCommit, OnlyStreamingSemanticLane
 
 
 class OnlyStreamingMarketDataWorker:
     def __init__(
         self,
         queue: OnlyMarketDataInboundQueue,
-        processing_lane: OnlyStreamingProcessingLane,
+        processing_lane: OnlyStreamingSemanticLane,
         finalizer: OnlyLiveBarFinalizer,
         clock: OnlyClock,
         *,

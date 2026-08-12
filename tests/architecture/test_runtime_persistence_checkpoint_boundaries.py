@@ -74,6 +74,30 @@ def test_removed_restart_bootstrap_and_unsafe_checkpoint_shortcuts_are_absent() 
     assert ".__dict__" not in checkpoint_source
 
 
+def test_common_checkpoint_and_recovery_have_no_backtest_dependency() -> None:
+    root = Path(__file__).parents[2] / "src" / "onlyalpha" / "runtime"
+    for package in ("checkpoint", "recovery"):
+        source = "\n".join(path.read_text(encoding="utf-8") for path in (root / package).glob("*.py"))
+        assert "onlyalpha.runtime.backtest" not in source
+        assert "OnlyBacktest" not in source
+
+
+def test_common_durability_kernel_has_no_streaming_dependency() -> None:
+    root = Path(__file__).parents[2] / "src" / "onlyalpha" / "runtime"
+    for package in ("checkpoint", "persistence", "recovery"):
+        source = "\n".join(path.read_text(encoding="utf-8") for path in (root / package).glob("*.py"))
+        assert "onlyalpha.runtime.streaming" not in source
+
+
+def test_runtime_instance_identity_cannot_enter_semantic_identity_generation() -> None:
+    production = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (Path(__file__).parents[2] / "src" / "onlyalpha").rglob("*.py")
+        if path.name != "lease.py"
+    )
+    assert "runtime_instance_id" not in production
+
+
 def test_runtime_factory_does_not_restore_managers_or_analyze_tail() -> None:
     source = inspect.getsource(OnlyBacktestRuntimeFactory)
     assert "restore_checkpoint" not in source

@@ -43,6 +43,7 @@ from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 from onlyalpha.runtime.persistence.factory import OnlyRuntimePersistenceStoreCreateRequest
+from onlyalpha.runtime.persistence.lease import OnlyRuntimeStateLease
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
@@ -77,6 +78,7 @@ class OnlySimRuntimeFactory:
         source: OnlyDataSource | None = None
         broker_resource: OnlyPluginResource | None = None
         persistence: OnlyRuntimePersistenceStorePort | None = None
+        lease: OnlyRuntimeStateLease | None = None
         clock: OnlyLiveClock | None = None
         event_bus: OnlyEventBus | None = None
         try:
@@ -121,6 +123,7 @@ class OnlySimRuntimeFactory:
                 if request.user_data_root is not None
                 else Path(tempfile.gettempdir()) / "onlyalpha" / "runtime_state" / str(config.runtime_id)
             )
+            lease = OnlyRuntimeStateLease(state_root, config.runtime_id)
             by_instrument = {item.instrument_id: item for item in base_bar_types}
             data_factory = components.data_sources.resolve(source_common.plugin_id)
             data_request = OnlyDataSourceCreateRequest(
@@ -271,6 +274,8 @@ class OnlySimRuntimeFactory:
                 deterministic_broker_driver=broker_component.deterministic_driver,
                 broker_resource=broker_resource,
                 persistence_store=persistence,
+                persistence_config=config.runtime.persistence,
+                config_fingerprint=self._fingerprint(request),
                 subscription=subscription,
                 data_version=source_common.data_version,
                 bootstrap_bars=streaming.bootstrap_bars,
@@ -285,6 +290,7 @@ class OnlySimRuntimeFactory:
                 observation_sinks=self._observation_sinks(config, request.user_data_root),
                 observation_queue_capacity=streaming.observation_queue_capacity,
             )
+            runtime._bind_runtime_state_lease(lease)
             for instrument in config.reference_data.instruments:
                 runtime.register_instrument(instrument)
             for cluster in clusters:
@@ -293,16 +299,18 @@ class OnlySimRuntimeFactory:
             source = None
             broker_resource = None
             persistence = None
+            lease = None
             clock = None
             event_bus = None
             return OnlyRuntimeBuildResult(runtime=runtime)
         except Exception as exc:
-            self._rollback(persistence, broker_resource, source, event_bus, clock)
+            self._rollback(persistence, lease, broker_resource, source, event_bus, clock)
             return self._failure(exc)
 
     @staticmethod
     def _rollback(
         persistence: OnlyRuntimePersistenceStorePort | None,
+        lease: OnlyRuntimeStateLease | None,
         broker_resource: OnlyPluginResource | None,
         source: OnlyDataSource | None,
         event_bus: OnlyEventBus | None,
@@ -311,6 +319,8 @@ class OnlySimRuntimeFactory:
         operations: list[tuple[str, Callable[[], object]]] = []
         if persistence is not None:
             operations.append(("persistence.close", persistence.close))
+        if lease is not None:
+            operations.append(("runtime_state_lease.close", lease.close))
         if broker_resource is not None:
             operations.extend(
                 (

@@ -5,6 +5,7 @@ from onlyalpha.config import OnlyRuntimePersistenceConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.runtime.backtest.checkpoint import only_backtest_replay_cursor
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.persistence.factory import (
     OnlyDefaultRuntimePersistenceStoreFactory,
@@ -47,8 +48,9 @@ def test_engine_restart_restores_open_order_and_virtual_broker_before_fill(tmp_p
     reader = OnlySqliteRuntimePersistenceStore(path)
     checkpoint = reader.latest_checkpoint(runtime_id)
     assert checkpoint is not None
-    assert checkpoint.header.replay_cursor.last_event_time is not None
-    assert checkpoint.header.replay_cursor.last_event_time.to_datetime().minute == 51
+    cursor = only_backtest_replay_cursor(checkpoint)
+    assert cursor.last_event_time is not None
+    assert cursor.last_event_time.to_datetime().minute == 51
     order_component = next(item for item in checkpoint.components if item.component_id == "order.authority")
     order_payload = json.loads(order_component.payload)
     assert json.loads(order_payload["orders"][0]["snapshot"])["status"] == "ACCEPTED"

@@ -2,24 +2,11 @@ from dataclasses import replace
 
 import pytest
 
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.runtime.checkpoint.model import OnlyBacktestReplayCursor
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
 from onlyalpha.runtime.checkpoint.service import OnlyRuntimeCheckpointService
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
-
-
-def _cursor() -> OnlyBacktestReplayCursor:
-    return OnlyBacktestReplayCursor(
-        OnlyMarketDataSourceId("source"),
-        OnlyDataVersion("version"),
-        None,
-        0,
-        None,
-        0,
-    )
 
 
 def _service(store: OnlyInMemoryRuntimePersistenceStore) -> OnlyRuntimeCheckpointService:
@@ -39,7 +26,7 @@ def _service(store: OnlyInMemoryRuntimePersistenceStore) -> OnlyRuntimeCheckpoin
 def test_capture_write_and_full_durable_read_back_are_separate() -> None:
     store = OnlyInMemoryRuntimePersistenceStore()
     service = _service(store)
-    captured = service.capture(_cursor(), OnlyTimestamp.from_unix_nanos(1))
+    captured = service.capture(OnlyTimestamp.from_unix_nanos(1))
     assert store.latest_checkpoint(OnlyRuntimeId("runtime")) is None
     service.write(captured)
     assert service.verify_durable(captured) == captured
@@ -48,7 +35,7 @@ def test_capture_write_and_full_durable_read_back_are_separate() -> None:
 def test_verify_rejects_missing_and_header_mismatch() -> None:
     store = OnlyInMemoryRuntimePersistenceStore()
     service = _service(store)
-    captured = service.capture(_cursor(), OnlyTimestamp.from_unix_nanos(1))
+    captured = service.capture(OnlyTimestamp.from_unix_nanos(1))
     with pytest.raises(RuntimeError, match="NOT_DURABLE"):
         service.verify_durable(captured)
     service.write(captured)
@@ -59,5 +46,5 @@ def test_verify_rejects_missing_and_header_mismatch() -> None:
 
 def test_create_verified_returns_the_store_read_back() -> None:
     store = OnlyInMemoryRuntimePersistenceStore()
-    checkpoint = _service(store).create_verified(_cursor(), OnlyTimestamp.from_unix_nanos(1))
+    checkpoint = _service(store).create_verified(OnlyTimestamp.from_unix_nanos(1))
     assert store.latest_checkpoint(OnlyRuntimeId("runtime")) == checkpoint

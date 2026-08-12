@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from onlyalpha.data.enums import OnlyMarketDataProcessingStatus
 from onlyalpha.data.models import (
@@ -15,19 +14,14 @@ from onlyalpha.data.ports import OnlyHistoricalDataSource
 from onlyalpha.data.registry import OnlyMarketDataSourceRegistry
 from onlyalpha.data.replay import OnlyHistoricalReplayService
 from onlyalpha.execution.causal_recovery import OnlyExecutionRecoverySession
+from onlyalpha.runtime.backtest.checkpoint import only_backtest_replay_cursor
 from onlyalpha.runtime.backtest.recovery_boundary import (
     OnlyBacktestRecoveryBoundary,
     OnlyBacktestRecoveryPhase,
     OnlyBacktestRecoverySession,
 )
 from onlyalpha.runtime.checkpoint.model import OnlyRuntimeCheckpoint
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyBacktestRecoveryReplayResult:
-    catch_up_bar_count: int
-    final_boundary: OnlyBacktestRecoveryBoundary
-    continuation_transaction_count: int
+from onlyalpha.runtime.recovery.session import OnlyRuntimeRecoveryBoundary, OnlyRuntimeRecoveryDriverResult
 
 
 class OnlyBacktestRecoveryReplayService:
@@ -52,13 +46,13 @@ class OnlyBacktestRecoveryReplayService:
         self,
         checkpoint: OnlyRuntimeCheckpoint,
         execution_session: OnlyExecutionRecoverySession,
-    ) -> OnlyBacktestRecoveryReplayResult:
+    ) -> OnlyRuntimeRecoveryDriverResult:
         if self._source is None or self._request is None:
             raise RuntimeError("Recovery replay source is unavailable")
         if not self._source_registry.contains(self._source.source_id):
             self._source_registry.register(self._source)
         stream = self._source.load_bars(self._request)
-        cursor = checkpoint.header.replay_cursor
+        cursor = only_backtest_replay_cursor(checkpoint)
         if cursor.last_update_id is None:
             remaining = stream.records
         else:
@@ -111,8 +105,14 @@ class OnlyBacktestRecoveryReplayService:
         final_boundary = backtest_session.final_boundary
         if final_boundary is None:
             raise AssertionError("completed Backtest recovery lost its final boundary")
-        return OnlyBacktestRecoveryReplayResult(
+        return OnlyRuntimeRecoveryDriverResult(
             processed,
-            final_boundary,
+            OnlyRuntimeRecoveryBoundary(
+                final_boundary.source_id,
+                final_boundary.data_version,
+                final_boundary.update_id,
+                final_boundary.source_sequence,
+                final_boundary.ts_event,
+            ),
             len(execution_session.continuations),
         )
