@@ -12,7 +12,6 @@ def _imports(path: Path) -> set[str]:
 def test_common_config_and_assembler_do_not_import_concrete_components() -> None:
     forbidden = (
         "onlyalpha.runtime.backtest",
-        "onlyalpha.runtime.paper",
         "onlyalpha.runtime.live",
         "onlyalpha.data.synthetic",
         "onlyalpha.broker.virtual",
@@ -28,9 +27,8 @@ def test_common_config_and_assembler_do_not_import_concrete_components() -> None
 def test_concrete_implementations_live_below_parent_component_packages() -> None:
     required = (
         "src/onlyalpha/runtime/backtest/runtime.py",
-        "src/onlyalpha/runtime/paper/runtime.py",
+        "src/onlyalpha/runtime/sim/runtime.py",
         "src/onlyalpha/runtime/live/runtime.py",
-        "src/onlyalpha/runtime/shadow/runtime.py",
         "src/onlyalpha/runtime/research/runtime.py",
         "src/onlyalpha/data/synthetic/source.py",
         "packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual/gateway.py",

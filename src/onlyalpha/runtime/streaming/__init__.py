@@ -6,7 +6,6 @@ _EXPORTS = {
     "OnlyExecutionSubmissionCapability": "onlyalpha.runtime.streaming.execution",
     "OnlyLiveBarFinalizationError": "onlyalpha.runtime.streaming.live_bar",
     "OnlyLiveBarFinalizer": "onlyalpha.runtime.streaming.live_bar",
-    "OnlyShadowExecutionService": "onlyalpha.runtime.streaming.execution",
     "OnlyStreamingDataState": "onlyalpha.runtime.streaming.phase",
     "OnlyStreamingMarketDataWorker": "onlyalpha.runtime.streaming.worker",
     "OnlyStreamingPhase": "onlyalpha.runtime.streaming.phase",

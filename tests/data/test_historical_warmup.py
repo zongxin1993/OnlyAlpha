@@ -22,7 +22,7 @@ def _request() -> OnlyHistoricalWarmupRequest:
     instrument = OnlyInstrumentId.parse("600000.XSHG")
     return OnlyHistoricalWarmupRequest(
         "warmup-1",
-        OnlyRuntimeId("paper-1"),
+        OnlyRuntimeId("streaming-1"),
         instrument,
         OnlyBarType(
             instrument,

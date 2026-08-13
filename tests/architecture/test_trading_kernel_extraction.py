@@ -37,12 +37,11 @@ def test_streaming_package_has_no_backtest_dependency() -> None:
 def test_trading_kernel_has_no_concrete_runtime_or_mode_dependency() -> None:
     forbidden_packages = (
         "onlyalpha.runtime.backtest",
-        "onlyalpha.runtime.paper",
         "onlyalpha.runtime.streaming",
         "onlyalpha.runtime.live",
         "onlyalpha.runtime.sim",
     )
-    forbidden_names = {"OnlyRuntimeMode", "BACKTEST", "PAPER", "SIM", "LIVE"}
+    forbidden_names = {"OnlyRuntimeMode", "RESEARCH", "BACKTEST", "SIM", "LIVE"}
     for path in (_ROOT / "trading").glob("*.py"):
         assert not any(name.startswith(forbidden_packages) for name in _imports(path)), path
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

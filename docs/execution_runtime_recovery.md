@@ -121,10 +121,9 @@ Risk accounting incremental and checkpoints Order Fee Accrual authority. PR4.3.3
 and proves restart recovery across execute-before-publish, Commit, Projection, Outbox, partial-plan checkpoint and A→B→C
 boundaries without a new Recovery Phase. PR4.4.2 extends that exact recovery protocol to multi-fill Long Close and durable
 Cancel/Reject/Expire `ORDER_TERMINAL` operations. Close Fill 1/2 checkpoints, execute-before-publish, Commit, mid-Projection,
-Outbox and A→B→C failures are compared with a no-fault baseline. Short/Hedging, Futures/Margin transactions, legacy `PAPER`
-streaming recovery, target Sim/Live streaming recovery, exactly-once Outbox, full Broker reconciliation, schema migration,
-distributed checkpointing and remote stores remain outside this phase. Current `PAPER` is only a Sim Migration Source;
-standalone Shadow is not a target Runtime.
+Outbox and A→B→C failures are compared with a no-fault baseline. Short/Hedging, Futures/Margin transactions, exactly-once
+Outbox, full Broker reconciliation, schema migration, distributed checkpointing and remote stores remain outside this phase.
+SIM streaming recovery is implemented through the same forward-recovery invariants and its dedicated recovery lane.
 
 ## Event delivery failure semantics
 

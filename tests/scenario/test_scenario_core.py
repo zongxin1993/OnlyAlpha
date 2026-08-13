@@ -243,11 +243,10 @@ def test_uninstalled_futures_market_product_fails_closed_before_execution(
         OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / position_side))
 
 
-@pytest.mark.parametrize("mode", ["PAPER", "LIVE", "SHADOW"])
-def test_runtime_modes_share_commands_and_fail_capability_explicitly(mode: str) -> None:
+def test_live_runtime_shares_commands_and_fails_capability_explicitly() -> None:
     backtest = OnlyMarketScenarioParser().parse(scenario_payload())
     payload = scenario_payload()
-    payload["runtime"]["mode"] = mode  # type: ignore[index]
+    payload["runtime"]["mode"] = "LIVE"  # type: ignore[index]
     other = OnlyMarketScenarioParser().parse(payload)
     backtest_plan = OnlyMarketScenarioPlanner().plan(backtest)
     other_plan = OnlyMarketScenarioPlanner().plan(other)
@@ -255,3 +254,12 @@ def test_runtime_modes_share_commands_and_fail_capability_explicitly(mode: str) 
     assert not other_plan.executable
     assert backtest_plan.commands == other_plan.commands
     assert other_plan.issues[0].code is OnlyScenarioErrorCode.SCENARIO_RUNTIME_MODE_UNSUPPORTED
+
+
+@pytest.mark.parametrize("legacy", ["PAPER", "SHADOW"])
+def test_legacy_runtime_modes_are_not_parseable(legacy: str) -> None:
+    payload = scenario_payload()
+    payload["runtime"]["mode"] = legacy  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="runtime.mode"):
+        OnlyMarketScenarioParser().parse(payload)

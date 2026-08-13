@@ -102,7 +102,7 @@ brokers:
         type: NONE
 
 strategy:
-  class_path: examples.strategy.acceptance.strategy:OnlyPaperAcceptanceIntentStrategy
+  class_path: examples.strategy.acceptance.strategy:OnlySimCertificationIntentStrategy
   config_path: examples.strategy.observation.config:OnlyFirstBarIntentStrategyConfig
   extensions:
     strategy_id: sim-acceptance-intent

@@ -59,7 +59,7 @@ OnlyAlpha 的长期目标不是“功能可以运行”，而是建立一个：
 
 派生视图必须从权威状态投影，不得重新维护平行状态。
 
-### 2.3 Backtest / Paper / Live Semantic Consistency
+### 2.3 Backtest / Sim / Live Trading Semantic Equivalence
 
 Domain、Strategy、Risk、Execution 的核心语义应尽可能共享。
 
@@ -69,7 +69,7 @@ Domain、Strategy、Risk、Execution 的核心语义应尽可能共享。
 
 - backtest implementation；
 - live implementation；
-- paper implementation。
+- sim implementation。
 
 ### 2.4 Determinism First
 
@@ -903,4 +903,3 @@ Independent Review
 最终标准：
 
 > 正确设计成为阻力最小的路径，错误设计成为难以通过工程系统的路径。
-

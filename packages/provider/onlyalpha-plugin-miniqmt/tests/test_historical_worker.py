@@ -55,7 +55,7 @@ def _request(*, timeout: int) -> OnlyHistoricalWarmupRequest:
     )
     return OnlyHistoricalWarmupRequest(
         "warmup-test",
-        OnlyRuntimeId("paper-test"),
+        OnlyRuntimeId("streaming-test"),
         instrument_id,
         bar_type,
         2,

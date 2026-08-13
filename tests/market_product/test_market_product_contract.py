@@ -370,7 +370,7 @@ def test_runtime_label_is_not_an_input_to_market_composition_identity(
     binding = factory.resolve(_config(), context)
     fingerprints = {
         runtime_label: binding.composition_identity.fingerprint
-        for runtime_label in ("BACKTEST", "PAPER", "SIM", "LIVE")
+        for runtime_label in ("RESEARCH", "BACKTEST", "SIM", "LIVE")
     }
     assert len(set(fingerprints.values())) == 1
 

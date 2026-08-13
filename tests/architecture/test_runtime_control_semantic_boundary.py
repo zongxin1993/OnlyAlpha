@@ -75,7 +75,7 @@ def test_trading_economic_packages_do_not_reference_runtime_mode() -> None:
 def test_runtime_assembly_and_concrete_runtimes_retain_product_identity() -> None:
     assert "mode" in OnlyRuntimeAssemblyConfig.__dataclass_fields__
     assert OnlyBacktestRuntime._supported_modes == frozenset({OnlyRuntimeMode.BACKTEST})
-    assert OnlyStreamingRuntime._supported_modes == frozenset({OnlyRuntimeMode.PAPER, OnlyRuntimeMode.LIVE})
+    assert OnlyStreamingRuntime._supported_modes == frozenset({OnlyRuntimeMode.SIM, OnlyRuntimeMode.LIVE})
 
 
 def test_operational_runtime_guard_accepts_supported_product_and_rejects_wrong_product() -> None:
@@ -86,16 +86,16 @@ def test_operational_runtime_guard_accepts_supported_product_and_rejects_wrong_p
     )
 
     rejected = OnlyBacktestRuntime.__new__(OnlyBacktestRuntime)
-    with pytest.raises(ValueError, match="does not support PAPER mode"):
+    with pytest.raises(ValueError, match="does not support SIM mode"):
         OnlyRuntime.__init__(
             rejected,
-            OnlyRuntimeAssemblyConfig("engine", "rejected", OnlyRuntimeMode.PAPER),
+            OnlyRuntimeAssemblyConfig("engine", "rejected", OnlyRuntimeMode.SIM),
         )
 
     streaming = OnlyStreamingRuntime.__new__(OnlyStreamingRuntime)
     OnlyRuntime.__init__(
         streaming,
-        OnlyRuntimeAssemblyConfig("engine", "streaming", OnlyRuntimeMode.PAPER),
+        OnlyRuntimeAssemblyConfig("engine", "streaming", OnlyRuntimeMode.SIM),
     )
 
     wrong_streaming = OnlyStreamingRuntime.__new__(OnlyStreamingRuntime)

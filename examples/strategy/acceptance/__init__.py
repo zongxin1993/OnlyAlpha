@@ -1,3 +1,3 @@
-from .strategy import OnlyPaperAcceptanceIntentStrategy
+from .strategy import OnlySimCertificationIntentStrategy
 
-__all__ = ["OnlyPaperAcceptanceIntentStrategy"]
+__all__ = ["OnlySimCertificationIntentStrategy"]

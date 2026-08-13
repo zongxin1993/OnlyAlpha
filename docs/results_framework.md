@@ -66,5 +66,5 @@ Result、Analysis 和 Artifact Content 指纹基于排序后的规范内容。�
 
 Scenario Assertion 只能消费本结果链的标准事实。Profile timeline、compiled rule identity 和 market decisions 已由正式
 Collector 投影。FeeManager 已在正式成交事务中消费唯一 Fee Instruction；完整 adjustment/reconciliation timeline 的 Artifact
-投影仍待目标 Live 的 Broker reconciliation 入口落地。当前 legacy `PAPER` 只提供 observation/shadow migration baseline，
-不构成该交易对账入口；Assertion 不得离线重算费用或把 Broker Snapshot 差额当作新费用。
+投影仍待目标 Live 的 Broker reconciliation 入口落地。SIM Virtual Broker 不构成 Real Broker 对账入口；Assertion 不得离线
+重算费用或把 Broker Snapshot 差额当作新费用。

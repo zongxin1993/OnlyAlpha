@@ -123,10 +123,6 @@ class OnlyEngineInspectionService:
                     catch_up_suppressed_intent_count=runtime.catch_up_suppressed_intent_count,
                     live_order_intent_count=len(runtime.risk_service.audits),
                     risk_rejected_count=sum(not item.decision.is_accepted for item in runtime.risk_service.audits),
-                    shadow_suppressed_count=sum(
-                        item.failure is not None and item.failure.message == "EXECUTION_SUPPRESSED_BY_RUNTIME"
-                        for item in orders
-                    ),
                     external_order_id_count=sum(item.venue_order_id is not None for item in orders),
                     order_count=len(orders),
                     fill_count=sum(item.fill_count for item in orders),

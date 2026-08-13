@@ -140,7 +140,7 @@ tests/property
 - 静态和动态加载；
 - 订单到成交到持仓；
 - Cache 落盘恢复；
-- 当前 legacy `PAPER` streaming / Sim Migration Source（不作为目标 Runtime 产品验收）；
+- SIM streaming、continuity 与 durable recovery；
 - Backtest；
 - Web Service 调用。
 
@@ -208,7 +208,7 @@ thread/关闭，以及 Cluster 无推进权限。核心源码的直接系统时�
 关闭。`tests/market_data` 覆盖默认/显式主周期、1m→3m/5m/15m Calendar 聚合、午休 Session 锚定、缺失和
 不完整窗口、Cache/version、Required/Optional Indicator barrier、Snapshot 不可变与 closed-only、每时间片
 单次回调、多 Cluster 共享/隔离、Backtest 与目标 Sim/Live 同语义和序列化 Event 重放。SIM realtime Virtual Broker
-normal path 由独立集成测试证明；当前 legacy `PAPER` 用例只证明可迁移的 realtime/streaming 边界，不能替代 SIM 验收。
+normal path、continuity 与 durable recovery 由独立 integration/recovery tests 证明。
 多周期业务测试不得以 EventBus priority 或订阅注册顺序作为准备步骤。
 
 ## 10. RuntimeContext 测试

@@ -77,23 +77,21 @@ Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environme
 | Sim | Realtime | Event-driven | Live Clock | Virtual Broker | Streaming |
 | Live | Realtime | Event-driven | Live Clock | Real Broker | Streaming |
 
-当前源码状态与目标不同：
+当前源码状态：
 
-| Current source spelling | Current implementation status | Target treatment |
+| Runtime | Current implementation status | Target treatment |
 |---|---|---|
 | `BACKTEST` | 已实现，是当前主要产品 Runtime | 保留并继续使用完整 Trading Kernel |
-| `PAPER` | 已实现受限 streaming/observation + Shadow execution | Legacy Streaming Implementation / Sim migration source |
 | `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
-| `SHADOW` | Standalone Factory 注册但返回 unsupported | 非目标 Runtime，迁移后删除 |
 | `RESEARCH` | Factory 注册但返回 unsupported | 后续实现目标 Research Runtime |
-| `SIM` | realtime Virtual Broker normal path 与 same-process gap/reconnect recovery 已实现；checkpoint/new-process restart 尚未实现 | P6.5 补齐 streaming checkpoint/restart 后继续产品退出 |
+| `SIM` | realtime Virtual Broker、gap/reconnect、durable checkpoint 与 new-process restart 已实现 | 保持 shared Trading Kernel 与 recovery contract |
 
-当前 `PAPER/SHADOW` 源码是 migration debt，不是第五、第六种目标 Runtime，也不是长期 public compatibility contract。迁移时更新配置和测试后删除旧接口，不建立 alias 或 wrapper。
+历史 `PAPER/SHADOW` active package、Factory、配置与 public export 已删除，没有 alias 或 wrapper。
 
 P6.2 已建立 SIM operational composition contract：SIM 使用 `LIVE_CLOCK`、streaming lifecycle、显式
 `SIMULATED` execution capability、恰好一个同时支持 historical/live bars 的 DataSource、恰好一个声明
 `simulated_execution` 与最小订单/query 能力的 Broker，并拒绝有限 start/end range、checkpoint 与 Real Broker。
-Runtime environment identity 保留 `SIM` product identity，因此不会与 PAPER 或 BACKTEST grouping/fingerprint 混同。
+Runtime environment identity 保留 `SIM` product identity，因此不会与 BACKTEST grouping/fingerprint 混同。
 
 P6.3 在该合同上增加 `OnlySimRuntime -> OnlyStreamingRuntime -> OnlyTradingRuntimeFacade -> OnlyTradingKernel` 的
 可执行组合。Factory 通过正式 SPI 创建 DataSource/Broker，通过显式 `OnlyDeterministicBrokerDriver` 推进 Virtual Broker，
@@ -106,8 +104,8 @@ order，也不创造 terminal/trade fact。
 fail closed；Streaming Runtime 独占 `DEGRADED/RECOVERING/CATCH_UP/LIVE` transition、Recovery Plan 与 confirmed frontier，
 Historical DataSource 只提供事实，Worker 仍是唯一语义 consumer。Recovered fact 进入同一 Processor/Pipeline/Broker hooks，
 既有订单可推进但新 Strategy submit 被抑制；reconnect 只恢复 transport，必须经 historical repair、buffered catch-up 与 LIVE
-proof 才恢复交易权限。Streaming checkpoint/new-process restart 和长期生产运行仍未闭环；Runtime Persistence 的 Durable
-Transaction 不等于 Streaming Checkpoint。
+proof 才恢复交易权限。P6.5 已闭合 Streaming checkpoint/new-process restart；长期生产运行仍未闭环，Runtime Persistence
+的 Durable Transaction 也不等于 Streaming Checkpoint。
 
 ## 4. Research Runtime
 
@@ -185,11 +183,9 @@ Streaming `STOP` 表示撤销未来处理权限，不是推进 market event time
 `STOPPING` 后 Worker 不 drain inbound queue、不 close pending Live Bar，也不开始新的 MarketData processing/result
 callback；未处理输入的 checkpoint/restart/gap recovery 仍属于后续阶段。
 
-Backtest 具备完整正式 durable trading product path。SIM 已具备 realtime Virtual Broker normal path 与 same-process
-gap/reconnect recovery，Accepted/Trade 经相同 Durable Transaction 与 Ordered Projection；streaming checkpoint/new-process
-restart 尚未实现。旧 `PAPER`
-streaming 路径仍使用 Shadow suppression，并不定义 Sim；Live 也尚未具备 durable outbound Broker command、同步、对账和
-长期恢复闭环。
+Backtest 具备完整正式 durable trading product path。SIM 已具备 realtime Virtual Broker、gap/reconnect、durable checkpoint
+与 new-process restart，Accepted/Trade 经相同 Durable Transaction 与 Ordered Projection。Live 尚未具备 durable outbound
+Broker command、同步、对账和长期恢复闭环。
 
 ## 6. Cluster / Strategy / Factor / Indicator
 
@@ -277,7 +273,7 @@ OnlyMarketProductConfig
 → Restricted Decision / Instruction
 ```
 
-Resolution 在 Runtime Factory 之上执行一次，Backtest/Paper Factory 只消费 Binding。旧 Profile Registry、Core A-share Reference/Rules、legacy concrete compiler 与 concrete fee registry selection 已删除；没有 adapter、fallback、compatibility wrapper 或按 product ID dispatch 的 Runtime branch。
+Resolution 在 Runtime Factory 之上执行一次，Backtest/SIM Factory 只消费 Binding。旧 Profile Registry、Core A-share Reference/Rules、legacy concrete compiler 与 concrete fee registry selection 已删除；没有 adapter、fallback、compatibility wrapper 或按 product ID dispatch 的 Runtime branch。
 
 市场合法性与执行实现能力仍是两个 Authority：
 
@@ -303,7 +299,9 @@ DataSource
 
 Historical 与 Realtime 复用 Domain Bar/Tick。历史数据由 Replay Service 推进 Backtest Clock；DataSource 不直接推进 Runtime 时间。只有成功进入正式 Pipeline 的数据可以推进 processed watermark。
 
-当前 legacy `PAPER` 路径已经具备 subscribe-first bootstrap、isolated historical worker、Historical replay、warmup、Historical-to-Live handoff、realtime queue、aggregation、observation 和 ordered shutdown。Provider raw、worker accepted、replay attempted/processed/rejected、pipeline last successful bar 与 historical watermark 是不同事实，不能互相替代。这些边界后续迁移到 Sim；reconnect、gap recovery 与 streaming checkpoint/restart 尚未闭环。
+SIM 的 product-neutral Streaming control plane 具备 subscribe-first bootstrap、isolated historical worker、Historical replay、
+warmup、Historical-to-Live handoff、realtime queue、aggregation、continuity 和 ordered shutdown。Provider raw、worker
+accepted、replay attempted/processed/rejected、pipeline last successful bar 与 historical watermark 是不同事实，不能互相替代。
 
 ## 10. Broker Boundary
 
@@ -426,7 +424,7 @@ Restore Durable State
 
 OnlyAlpha 只支持 Forward Recovery。Committed fact 不删除、不回滚、不按当前规则重算；失败 projection 不跳过；schema/identity/fingerprint 不兼容时 fail closed。
 
-当前 durable checkpoint/restart/recovery 产品闭环属于 Backtest。目标 Sim/Live 应共享 recovery semantics，但 streaming checkpoint/restart 和 long-running recovery 仍是迁移任务，不能由 legacy `PAPER` 当前能力推断已完成。
+Backtest 与 SIM 均具备各自 lifecycle 下的 durable checkpoint/restart/recovery 产品闭环并共享 forward recovery semantics；Live 与长期生产 recovery 仍是后续任务。
 
 ## 16. Result / Analytics / Artifact
 
@@ -441,7 +439,7 @@ Projection Ready Committed Fact
 
 Collector 是只读消费者，不从 Broker、EventBus 或最终 Manager snapshot 反推交易历史。Result/Artifact 必须稳定序列化、保持 Cluster/Runtime scope、使用 canonical Decimal/Enum/Timestamp，并通过 manifest、relative path 与 fingerprint 表达 provenance。
 
-Legacy `PAPER` Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。目标 Research Artifact 与 Trading Result 是不同 DTO/语义；Web 只能通过 Query/API 读取 immutable result/artifact。
+Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。目标 Research Artifact 与 Trading Result 是不同 DTO/语义；Web 只能通过 Query/API 读取 immutable result/artifact。
 
 ## 17. Plugin Boundaries
 
@@ -473,7 +471,9 @@ onlyalpha.plugin.api
 
 Runtime Planner、Environment Builder、Assembly Plan、Assembler、Session、Manager、Registry 内部容器、ExecutionProcessor 内部步骤、Projection applier、Recovery orchestration state 和 persistence schema 属于内部实现。
 
-当前根包和 `onlyalpha.runtime` 仍导出部分具体 Runtime 类（包括 legacy `OnlyPaperRuntime`，后者还在 `onlyalpha.runtime` 导出 standalone `OnlyShadowRuntime`）；`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster` 仍导出 `OnlyClusterManager`。这些是当前可导入事实和待收紧 API debt，不能被描述为已删除，也不自动构成长久稳定合同。P6 应迁移正式调用方、配置与测试后删除旧 Runtime spelling；不得添加 `PAPER -> SIM` 或 `SHADOW -> SIM` alias。
+当前根包和 `onlyalpha.runtime` 仍导出部分具体目标 Runtime 类；`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster`
+仍导出 `OnlyClusterManager`。这些是当前可导入事实和待收紧 API debt，不自动构成长久稳定合同。历史 Paper/Shadow Runtime
+导出已删除，不存在 compatibility alias。
 
 ## 19. Dependency Direction
 
@@ -518,14 +518,10 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 
 `CN_A_SHARE_DURABLE_BACKTEST_V1` 是已认证的有限 A 股 Backtest 产品合同；它不升级完整 A 股市场范围，也不证明所有 A 股产品或实时 Runtime 可用。
 
-当前 legacy `PAPER` 路径完成了当前 Market Product binding 下的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并有真实 MiniQMT 当前环境验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产运维闭环。
-
 当前未完成项：
 
-- `SIM`：目标 Runtime，源码 spelling/Factory 与 full Trading Kernel streaming composition 尚未实现；
 - `RESEARCH`：目标 Runtime，Factory unsupported，vectorized job/result/artifact workflow 尚未实现；
 - `LIVE`：目标 Runtime，Factory unsupported，durable outbound Broker command、同步/对账与长期恢复尚未实现；
-- standalone `SHADOW`：非目标 Runtime，Factory unsupported，待 P6 删除；
-- `PAPER`：迁移债务，待 P6 迁移 useful streaming infrastructure 后删除。
+- `SIM`：当前认证不覆盖 Real Broker、长期生产运维、24h soak 或 broad MiniQMT compatibility matrix。
 
 从当前实现到目标架构的阶段与删除条件见 [Roadmap](roadmap.md)。

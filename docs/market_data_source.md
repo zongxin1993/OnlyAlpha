@@ -12,7 +12,7 @@ BACKTEST: Local HistoricalDataSource → ReplayService → Clock → Processor �
 Trading execution: Cluster → Order/Risk → Broker Queue → ExecutionProcessor
 ```
 
-当前 legacy `PAPER` 已部分实现第一条 realtime/streaming 数据路径，是 Sim Migration Source；这不表示目标 `SIM` 已实现。
+SIM 已实现第一条 realtime/streaming 数据路径，并由 continuity/recovery 与 durable restart 测试冻结。
 Research 使用 Historical Dataset 与纯计算边界，不经过 Trading Cluster、Broker Queue 或 ExecutionProcessor。
 
 连接、订阅、Stream、历史查询、Instrument、Calendar 和 MarketRule 都是独立窄 Port。Envelope 保存 Runtime/Update/Source ID、

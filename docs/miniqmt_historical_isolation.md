@@ -2,11 +2,11 @@
 
 ## 边界
 
-MiniQMT 的原生历史查询可能在 BSON/C++ 层调用 `abort()`。这种失败无法被 Python `try/except` 捕获，线程也不能保护主进程。因此当前 legacy `PAPER` streaming warmup 使用短生命周期独立解释器：
+MiniQMT 的原生历史查询可能在 BSON/C++ 层调用 `abort()`。这种失败无法被 Python `try/except` 捕获，线程也不能保护主进程。因此 SIM streaming warmup 使用短生命周期独立解释器：
 
 ```text
 OnlyEngine
-→ Legacy PAPER Runtime（Sim Migration Source）
+→ SIM Runtime
 → OnlyHistoricalWarmupPort
 → MiniQMT Isolated Client
 → python -m onlyalpha_plugin_miniqmt.historical_worker.worker
@@ -34,8 +34,7 @@ Worker 和 Parent 均检查数量、严格递增、唯一键、OHLC、正价格�
 Warmup 是 `REQUIRED`。当前启动顺序先冻结 bootstrap boundary 并建立实时订阅，再执行独立 Historical Worker；
 `IMPORT_FAILED`、`QUERY_FAILED`、`WORKER_ABORTED`、`TIMEOUT`、协议错误或数据错误都会使 Runtime 在 live handoff 前进入
 `FAILED`，取消已建立的订阅并关闭 DataSource、Worker、Clock 和 EventBus。进程隔离解决的是 OnlyAlpha 主进程安全性，
-不是修复 XtQuant 原生 Bug；Isolation 通过不等于 MiniQMT Compatibility，也不等于当前 legacy `PAPER` 整体验收或目标 Sim
-产品验收通过。
+不是修复 XtQuant 原生 Bug；Isolation 通过不等于 broad MiniQMT Compatibility，也不单独等于 SIM 产品验收通过。
 
 诊断命令：
 

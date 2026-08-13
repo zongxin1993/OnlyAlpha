@@ -127,7 +127,7 @@ def test_generic_market_product_has_no_runtime_broker_or_concrete_market_depende
     forbidden_tokens = (
         "OnlyRuntimeMode",
         "BACKTEST",
-        "PAPER",
+        "RESEARCH",
         "SIM",
         "LIVE",
         "Ashare",
@@ -235,7 +235,7 @@ def test_market_economic_identity_sources_have_no_runtime_mode_vocabulary() -> N
     violations = [
         f"{path}: {token}"
         for path in sorted(paths)
-        for token in ("OnlyRuntimeMode", "runtime_type", "BACKTEST", "PAPER", "SIM", "LIVE")
+        for token in ("OnlyRuntimeMode", "runtime_type", "RESEARCH", "BACKTEST", "SIM", "LIVE")
         if token in path.read_text(encoding="utf-8")
     ]
     assert not violations

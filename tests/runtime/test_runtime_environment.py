@@ -79,7 +79,7 @@ def test_runtime_environment_is_order_independent_and_excludes_cluster_local_con
         ),
         lambda config: replace(
             config,
-            brokers=(replace(config.brokers[0], extensions=MappingProxyType({"endpoint": "paper"})),),
+            brokers=(replace(config.brokers[0], extensions=MappingProxyType({"endpoint": "alternate"})),),
         ),
         lambda config: replace(
             config,
@@ -131,7 +131,7 @@ def test_sim_environment_uses_live_clock_and_has_distinct_product_identity() -> 
     baseline = _config()
     common_runtime = replace(baseline.runtime, start_time=None, end_time=None)
     sim = replace(baseline, runtime=replace(common_runtime, runtime_type="SIM"))
-    paper = replace(baseline, runtime=replace(common_runtime, runtime_type="PAPER"))
+    live = replace(baseline, runtime=replace(common_runtime, runtime_type="LIVE"))
     backtest = replace(baseline, runtime=replace(common_runtime, runtime_type="BACKTEST"))
     builder = OnlyRuntimeEnvironmentBuilder()
     binding = _binding(baseline)
@@ -140,7 +140,7 @@ def test_sim_environment_uses_live_clock_and_has_distinct_product_identity() -> 
 
     assert sim_environment.runtime_type == "SIM"
     assert sim_environment.clock_policy == "LIVE_CLOCK"
-    assert sim_environment.fingerprint != builder.build(paper, binding).fingerprint
+    assert sim_environment.fingerprint != builder.build(live, binding).fingerprint
     assert sim_environment.fingerprint != builder.build(backtest, binding).fingerprint
 
 

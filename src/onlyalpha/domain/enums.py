@@ -51,12 +51,10 @@ class OnlyOrderSide(StrEnum):
 
 
 class OnlyRuntimeMode(StrEnum):
-    LIVE = "LIVE"
-    PAPER = "PAPER"
+    RESEARCH = "RESEARCH"
     BACKTEST = "BACKTEST"
     SIM = "SIM"
-    SHADOW = "SHADOW"
-    RESEARCH = "RESEARCH"
+    LIVE = "LIVE"
 
 
 class OnlyMarketType(StrEnum):

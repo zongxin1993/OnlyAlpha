@@ -15,7 +15,7 @@ brokers:
   - gateway_id: broker-main
     plugin: vendor-broker
     enabled: true
-    extensions: {environment: paper}
+    extensions: {environment: simulation}
 ```
 
 核心只解析公共字段并原样传递 extensions。DataSource/Broker 的 `type` 是未知字段并立即失败；唯一字段是 `plugin`。

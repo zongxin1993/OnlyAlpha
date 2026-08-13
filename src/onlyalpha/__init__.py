@@ -29,7 +29,6 @@ from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.context import OnlyClusterContext
 from onlyalpha.runtime.live.runtime import OnlyLiveRuntime
-from onlyalpha.runtime.paper.runtime import OnlyPaperRuntime
 from onlyalpha.runtime.research.runtime import OnlyResearchRuntime
 from onlyalpha.runtime.runtime import (
     OnlyRuntime,
@@ -61,7 +60,6 @@ __all__ = [
     "OnlyMarketDataPipeline",
     "OnlyMarketDataSnapshot",
     "OnlyMemoryCache",
-    "OnlyPaperRuntime",
     "OnlyResearchRuntime",
     "OnlyRuntime",
     "OnlyRuntimeState",

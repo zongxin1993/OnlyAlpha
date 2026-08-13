@@ -101,7 +101,6 @@ class OnlyStreamingRuntimeInspectionSnapshot:
     catch_up_suppressed_intent_count: int
     live_order_intent_count: int
     risk_rejected_count: int
-    shadow_suppressed_count: int
     external_order_id_count: int
     order_count: int
     fill_count: int

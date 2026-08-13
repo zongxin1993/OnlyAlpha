@@ -19,7 +19,7 @@ def test_cluster_document_round_trip_preserves_typed_configuration() -> None:
 
 def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -> None:
     baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
-    for runtime_type in ("BACKTEST", "PAPER", "SIM", "LIVE", "SHADOW", "RESEARCH"):
+    for runtime_type in ("RESEARCH", "BACKTEST", "SIM", "LIVE"):
         payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
         payload["runtime"]["type"] = runtime_type
         payload["cluster"]["runtime_type"] = runtime_type
@@ -46,3 +46,14 @@ def test_sim_runtime_spelling_is_canonicalized_without_aliases() -> None:
         payload["cluster"]["runtime_type"] = alias
         with pytest.raises(OnlyClusterConfigError, match="unsupported runtime.type"):
             OnlyClusterRunConfig.from_mapping(payload)
+
+
+@pytest.mark.parametrize("legacy", ("PAPER", "SHADOW"))
+def test_legacy_runtime_products_are_rejected_without_aliases(legacy: str) -> None:
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["runtime"]["type"] = legacy
+    payload["cluster"]["runtime_type"] = legacy
+
+    with pytest.raises(OnlyClusterConfigError, match="unsupported runtime.type"):
+        OnlyClusterRunConfig.from_mapping(payload)

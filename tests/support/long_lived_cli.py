@@ -12,7 +12,7 @@ class _LongLivedEngine:
     def __init__(self) -> None:
         self.engine_id = "signal-subprocess"
         self.state = "CREATED"
-        self.cluster_definitions = (SimpleNamespace(runtime=SimpleNamespace(runtime_type="PAPER")),)
+        self.cluster_definitions = (SimpleNamespace(runtime=SimpleNamespace(runtime_type="SIM")),)
 
     def initialize(self) -> None:
         self.state = "READY"

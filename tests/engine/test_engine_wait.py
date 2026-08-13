@@ -22,7 +22,7 @@ def _waiting_engine(tmp_path: object, *runtimes: object) -> OnlyEngine:
 
 def _runtime() -> Mock:
     runtime = Mock()
-    runtime.runtime_type = "PAPER"
+    runtime.runtime_type = "SIM"
     return runtime
 
 

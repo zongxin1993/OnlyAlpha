@@ -570,7 +570,6 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
         accepted_records = runtime.execution_transaction_query.records(OnlyRuntimeId(runtime.runtime_id))
         assert order_after_bar_n.venue_order_id is not None
         assert after_bar_n.live_order_intent_count >= 1
-        assert after_bar_n.shadow_suppressed_count == 0
         assert after_bar_n.external_order_id_count == 1
         assert after_bar_n.fill_count == 0
         assert after_bar_n.position_count == 0

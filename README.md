@@ -1715,15 +1715,7 @@ PAPER
 SHADOW Runtime
 ```
 
-其中 Shadow 如果仍有价值，只能作为内部：
-
-```text
-Execution Capability
-```
-
-而不是正式 Runtime Product。
-
-当前源码仍含 `PAPER` 和 standalone `SHADOW` spelling：前者是 Sim 的 streaming migration source，后者是待删除的 unsupported Factory。它们是实现债务，不是 public compatibility promise；迁移不保留 alias 或 wrapper。
+历史 `PAPER` 与 standalone `SHADOW` 产品路径已删除；配置、Factory、公共导出均不接受旧 spelling，也没有 alias、wrapper 或自动迁移。
 
 ---
 
@@ -1778,20 +1770,16 @@ engine.close()
 
 ---
 
-# 41. Current Runtime Migration State
+# 41. Current Runtime State
 
-| Runtime / source spelling | 当前事实 | 目标处理 |
+| Runtime | 当前事实 | 后续处理 |
 |---|---|---|
 | `BACKTEST` | 已实现，是当前 primary Runtime | 保留 event-driven + Virtual Broker + full Trading Kernel |
-| `PAPER` | 已实现受限 streaming/observation + Shadow execution | 迁移 useful streaming infrastructure 到 Sim 后删除 |
-| standalone `SHADOW` | Factory unsupported | 非目标 Runtime，迁移后删除 |
-| `SIM` | 当前 enum、配置和 Factory 均不存在 | P6 接入 Virtual Broker 与完整 Trading Kernel |
+| `SIM` | 已实现 realtime Virtual Broker、continuity、checkpoint 与 restart | 保持 shared Trading Kernel 与 durable recovery contract |
 | `RESEARCH` | Factory unsupported | P7 实现 vectorized Research Job/Result/Artifact workflow |
 | `LIVE` | Factory unsupported | P8/P9 补齐 Broker durability、同步、恢复和运维 |
 
-当前 `PAPER` 已具备 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、realtime queue、aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown，并完成当前 Market Product binding 下的真实 MiniQMT 验收。它仍只是 read-only market observation + Shadow execution，不具备 reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 或长期生产闭环。
-
-Runtime mode 中立化也尚未全仓完成：当前 Position authority、Fee finality 和 compiled Market Rule identity 仍有历史 mode 分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已 mode-neutral；其余分支和暴露面是后续迁移债务，不能作为新增 Runtime-specific economics 的先例。
+SIM 的 product identity 只参与 composition、planning 与 lifecycle；Strategy Context 和 Trading Semantic Plane 不读取 Runtime mode。SIM 永不连接 Real Broker，长期生产运维与 broad MiniQMT compatibility matrix 仍不在当前认证范围。
 
 ## 当前 Alpha 产品能力
 
@@ -1872,10 +1860,9 @@ Live 已生产完成
 P5  Market Product Composition Authority Neutralization
 
 P6  Sim Streaming Runtime Closure
-    PAPER streaming infrastructure
-    → Virtual Broker + Full Trading Kernel
-    → gap/reconnect/checkpoint/restart
-    → delete PAPER and standalone SHADOW
+    Virtual Broker + Full Trading Kernel
+    + gap/reconnect/checkpoint/restart
+    + legacy product removal and taxonomy closure
 
 P7  Vectorized Research Runtime
     + Research Artifact

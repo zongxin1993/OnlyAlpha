@@ -111,9 +111,8 @@ runtime_id、cluster_id、callback、ts_event、bar_type、错误类型和消息
 ## 9. 多 Runtime 与并发
 
 第一版 Backtest Runtime 单线程同步执行；单 Cluster 回调天然串行。Runtime 间没有 Clock、Cache、
-Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。目标 Sim/Live 必须复用相同 Cluster 回调和 Context
-权限，但其线程与完整 Gateway 装配不在本阶段。当前 legacy `PAPER` 只提供部分 streaming/observation 基础设施，是 Sim
-Migration Source，不是目标 Runtime。
+Aggregator、Indicator、Dispatcher、Timer 或 Event Scope 共享。SIM 已复用相同 Cluster 回调和 Context 权限并完成
+streaming Gateway 装配；future Live 必须保持该受限 Context，不得把 Real Broker 权限暴露给 Strategy。
 
 ## 10. Demo 与限制
 

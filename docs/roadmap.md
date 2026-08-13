@@ -11,7 +11,7 @@ SIM       Realtime + Event-driven + Virtual Broker + Full Trading Kernel
 LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```
 
-`PAPER` 与 standalone `SHADOW` 不是目标 Runtime。当前源码中的相关类型是 migration debt，不是长期兼容合同。
+历史 `PAPER` 与 standalone `SHADOW` 不是目标 Runtime；P6.6 已从 active source、配置、Factory、测试 fixture 与 public contract 删除这些产品 spelling，且未保留 alias 或 wrapper。
 
 ## 当前产品事实（2026-08-13）
 
@@ -24,15 +24,13 @@ checkpoint/new-process restart：`OnlySimRuntime` 使用 Live Clock、historical
 Timer durable occurrence、post-recovery authority validation 和 verified recovery checkpoint。该范围不包含 Real Broker reconciliation、
 24h soak、长期生产运维或 broad MiniQMT compatibility matrix。
 
-当前 legacy `PAPER` 路径已完成当前 Market Product binding 下真实 MiniQMT 的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown。它仍是 read-only market observation + Shadow execution，只作为 Sim streaming migration baseline；reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 与长期生产运行尚未闭环。
-
 当前实现状态：
 
 - `BACKTEST` 已实现，是 primary Runtime；
 - `SIM` 已有 canonical enum/config spelling、`LIVE_CLOCK` environment identity、专用 composition Factory 和可执行 realtime Virtual Broker normal path；
 - `RESEARCH` 与 `LIVE` 是目标 Runtime，但当前 Factory 返回 unsupported；
-- standalone `SHADOW` Factory 返回 unsupported，且不是目标 Runtime；
-- `PAPER` 是待迁移并删除的旧源码路径。
+- active Runtime taxonomy 只有 `RESEARCH / BACKTEST / SIM / LIVE`；
+- historical Paper durable state 不会被转换为 SIM state，配置旧 spelling 会 fail closed。
 
 Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CASH` plugin 已拥有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，其 Cash-Long economic shape 可由统一 Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成 Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级完整 A 股市场范围，也不表示所有 A 股、Sim 或 Live 产品可用。
 
@@ -106,13 +104,13 @@ Bar N enters normalized realtime pipeline
 realtime normal path，不包含 gap/reconnect/checkpoint/restart；`OnlyEngine.run()` 仍只接受有限 BACKTEST，SIM 使用
 `initialize/start/wait/stop/close`。
 
-### P6.4 — Realtime Market Continuity & Same-Process Recovery（实现完成，待同 SHA 远端认证）
+### P6.4 — Realtime Market Continuity & Same-Process Recovery（实现完成）
 
 P6.4 已完成 continuity assess/commit 分离、unexpected-gap admission cutoff、`DEGRADED/RECOVERING` phase、Calendar-aware historical repair、recovery sequence normalization、同一 MarketData Pipeline replay、恢复期 Strategy 新订单抑制、既有 Virtual Broker order 推进、buffered suffix catch-up、STALE/disconnect 触发、MiniQMT same-process reconnect 与显式 LIVE resume proof。恢复失败一律进入 `FAILED`，不会自动取消订单或创造 synthetic terminal trading fact；Stop 在 blocked historical I/O 返回后仍拥有 processing cutoff authority。
 
 该阶段仍不包含 streaming checkpoint、new-process restart、Real Broker reconciliation 或 long-running operations；这些分别属于 P6.5 及后续阶段。P6.4 只有 final SHA 的 static、build、core-full、recovery、ashare、miniqmt-contract 与 quality-gate 全部成功后才能标记 `DONE / CERTIFIED`。
 
-### P6.5 — Streaming Durable Checkpoint & New-Process Recovery（实现完成，待同 SHA 远端认证）
+### P6.5 — Streaming Durable Checkpoint & New-Process Recovery（实现完成）
 
 Runtime lifecycle 已分为 `initialize = local durable bootstrap` 与 `start = external driver recovery + common finalization`。
 SIM Factory 正式接受 `MEMORY + checkpoint=false`、`SQLITE + checkpoint=false` 和带稳定 state root 的
@@ -127,10 +125,10 @@ queue 永不 durable。独立 `sim-recovery` lane 已接入 PR/master/release ga
 P6.5 只有 final SHA 的 static、build、fast、integration、core-full、recovery、sim-recovery、ashare、miniqmt-contract 与
 quality-gate 全部成功后才能标记 `DONE / CERTIFIED`。
 
-P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
+P6 不是一套与 Backtest 分离的 Sim 系统。最终 ownership 为：
 
 ```text
-Current PAPER streaming infrastructure
+Product-neutral Streaming control plane
 → Realtime MarketData + LiveClock
 → Historical bootstrap where needed
 → Historical-to-Realtime handoff + Watermark
@@ -150,6 +148,16 @@ P6 退出条件：
 - realtime gap/reconnect/checkpoint/restart 的失败与恢复边界闭环；
 - `PAPER` Runtime 和 standalone `SHADOW` Runtime 源码、配置、测试与 public spelling 被删除；
 - 不保留 alias、deprecated spelling 或 compatibility wrapper。
+
+### P6.6 — Runtime Taxonomy Migration & Legacy Removal（本地实现完成，待 final SHA 远端认证）
+
+P6.6 已将 active Runtime enum、config vocabulary、Factory Registry 与 public exports 一次性切换为
+`RESEARCH / BACKTEST / SIM / LIVE`，删除 `runtime/paper`、`runtime/shadow`、Shadow execution suppression、旧
+acceptance runner/config 和相关 product tests。通用 subscription、bootstrap/handoff、watermark、continuity、gap/reconnect、
+timer、checkpoint 与 recovery 继续由 product-neutral `runtime/streaming` 拥有；Virtual Broker、persistence、state lease 与
+SIM composition 继续由 `runtime/sim` 拥有。未修改 checkpoint/persistence schema，也不支持 Paper durable state 自动转换。
+
+最终状态只能在同一 final SHA 的完整 local lanes 与 remote required checks 均取得真实证据后升级为 `DONE / CERTIFIED`。
 
 ## P7 — Vectorized Research Runtime
 

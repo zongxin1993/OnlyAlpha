@@ -69,16 +69,15 @@ FILL_FORWARD 与 TRUNCATE 接口已预留但首版明确拒绝，避免把无成
 
 Event、Bar Subscription、Update Result、Snapshot 和 Dispatch Result 均提供稳定 DTO。Event/Snapshot 保存
 Unix 纳秒，Bar 保存 Decimal/UTC/强类型 Domain DTO。相同序列在新 Runtime Pipeline 中重放，Snapshot、
-主 Bar、updated types、调用次数与调用时刻一致。目标 Backtest、Sim 与 Live 共用同一 prepare/dispatch 语义。当前 Backtest
-已装配完整同步路径，legacy `PAPER` 只证明可迁移的部分 realtime/streaming 边界，不表示目标 Sim/Live 已实现。
+主 Bar、updated types、调用次数与调用时刻一致。Backtest、Sim 与 future Live 共用同一 prepare/dispatch 语义。当前
+Backtest 已装配完整同步路径，SIM 已装配 realtime/streaming path。
 
 ## 10. 已知限制
 
 - 只支持外部 1m TIME Bar 到内部 3m/5m/15m。
 - 尚无 Tick/Volume/Value Aggregator、partial Bar、修订替换、自动填充或持久化恢复。
 - 核心路径同步串行；长策略 callback 会阻塞该 Runtime 的后续输入。
-- Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext；legacy `PAPER` 已装配受限 MiniQMT realtime path，但目标
-  Sim/Live 的完整 Gateway 与 Trading Kernel 组合尚未实现。
+- Pipeline/Dispatcher 已装配进同步 Backtest RuntimeContext 与 SIM streaming path；Live 的 Real Broker 组合尚未实现。
 - Indicator 值首版限 Decimal/int/string/bool/None，复杂向量需后续稳定 DTO。
 
 ## 11. 标准数据入口

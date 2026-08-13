@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 
 from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config.document import OnlyClusterConfigError
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.plugin.broker import OnlyBrokerGatewayFactory
@@ -128,19 +129,17 @@ def test_default_composition_installs_only_the_verified_cny_policy() -> None:
 
 def test_unimplemented_runtime_factories_return_structured_unsupported_results() -> None:
     services = only_default_engine_services()
-    for runtime_type in ("LIVE", "SHADOW", "RESEARCH"):
+    for runtime_type in ("LIVE", "RESEARCH"):
         build = services.assembler.build(_plan(runtime_type))
         assert build.runtime is None
         assert build.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
         assert build.failure_message == f"{runtime_type} Runtime is registered but not implemented in phase one"
 
 
-def test_paper_factory_is_selected_and_fails_closed_on_an_enabled_broker() -> None:
-    build = only_default_engine_services().assembler.build(_plan("PAPER"))
-
-    assert build.runtime is None
-    assert build.failure_code == "RUNTIME_ASSEMBLY_FAILED"
-    assert "forbids enabled Broker adapters" in str(build.failure_message)
+@pytest.mark.parametrize("legacy", ("PAPER", "SHADOW"))
+def test_legacy_runtime_factory_is_not_available(legacy: str) -> None:
+    with pytest.raises(OnlyClusterConfigError, match="unsupported runtime.type"):
+        _plan(legacy)
 
 
 def test_default_runtime_registry_installs_the_sim_factory() -> None:
@@ -160,14 +159,17 @@ def test_valid_sim_contract_is_operationally_accepted() -> None:
     assert validation.failure_message is None
 
 
-@pytest.mark.parametrize("capability", ("SHADOW", "LIVE"))
-def test_sim_rejects_non_simulated_execution_capabilities(capability: str) -> None:
+@pytest.mark.parametrize(
+    ("capability", "failure_code"),
+    (("SHADOW", "RUNTIME_ASSEMBLY_FAILED"), ("LIVE", "SIM_EXECUTION_CAPABILITY_REQUIRED")),
+)
+def test_sim_rejects_non_simulated_execution_capabilities(capability: str, failure_code: str) -> None:
     def change(payload: dict[str, Any]) -> None:
         payload["runtime"]["extensions"]["execution_capability"] = capability
 
     build = only_default_engine_services().assembler.validate(_sim_plan(change))
 
-    assert build.failure_code == "SIM_EXECUTION_CAPABILITY_REQUIRED"
+    assert build.failure_code == failure_code
 
 
 @pytest.mark.parametrize("boundary", ("start_time", "end_time"))

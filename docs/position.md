@@ -114,9 +114,8 @@ Restriction/Broker/Difference/Reconciliation/Unallocated 均以 Decimal 字符�
 - HEDGING、Short、FIFO/LIFO、Inverse/Quanto、公司行动和今昨仓平仓尚未实现。
 - 尚无真实 Gateway 或数据库 Position Repository；Backtest Runtime 对受支持的 Generic T0 Cash BUY OPEN 与 multi-fill
   Long CLOSE 已使用 Runtime Persistence Store、ordered Projection 和 Recovery。
-- 目标 Sim/Live 的完整资源装配与 streaming recovery 尚未实现。当前 legacy `PAPER` 虽由 trading-shaped 基类构造部分
-  状态，但它仍是 read-only observation + Shadow execution 的迁移实现；这不建立长期 Position authority 合同，也不表示
-  Research 应拥有 Position/Allocation 状态域。
+- SIM 已使用共享 Trading Kernel 与 durable streaming recovery；future Live 仍需 Real Broker synchronization。Research 不拥有
+  Position/Allocation 状态域。
 ## Virtual Broker Position Snapshot
 
 Virtual Broker Position Update 经 Runtime inbound queue 转换为 Position 标准 Broker Snapshot，再进入现有字段级 Authority 与

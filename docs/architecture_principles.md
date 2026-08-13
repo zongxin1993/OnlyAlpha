@@ -3,8 +3,7 @@
 ## Runtime taxonomy 与 authority
 
 - Rule: 唯一目标 Runtime vocabulary 是 `RESEARCH`、`BACKTEST`、`SIM`、`LIVE`。
-- Rule: 当前源码 `PAPER` 是 Legacy Streaming Implementation / Sim Migration Source，不是第五种目标 Runtime，也不得新增依赖。
-- Rule: Standalone `SHADOW` 不是目标 Runtime；当前 Factory 和 `PAPER` 内部 Shadow capability 是待迁移实现债务。
+- Rule: 历史 `PAPER` 与 standalone `SHADOW` active product path 已删除，不得重新引入或增加兼容 alias。
 - Rule: Research Runtime 使用 Research Job / Plan，只拥有 research execution、Dataset、Calculation、Result 与 Artifact state。
 - Rule: Research 不得为父类对称或代码复用创建 Order、Position、Account、Broker、Reservation 或 Trading Transaction authority。
 - Rule: Backtest、Sim 与 Live 是 Trading Runtime，并共享一套 Trading Semantic Core。
@@ -12,7 +11,7 @@
 - Rule: Runtime Type 不等于 Execution Permission；Strategy 和交易经济逻辑不得按 Runtime type 分支。
 - Rule: Runtime 差异主要限于 Clock Driver、MarketData Driver、Broker Adapter 和 Lifecycle Driver。
 - Rule: Sim 使用 Realtime、Virtual Broker 和完整 Trading Kernel，绝不能向 Real Broker 提交订单。
-- Rule: `PAPER` / `SHADOW` 迁移后删除 spelling 与实现，不保留 alias、deprecated spelling 或 wrapper。
+- Rule: 旧 Runtime spelling 与实现不保留 alias、deprecated spelling 或 wrapper。
 
 ## Product-style Demo
 

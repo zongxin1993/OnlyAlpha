@@ -103,7 +103,7 @@ Position、Allocation、Ledger、Account、Risk Snapshot Bundle。内存 Audit S
 
 第一版是 Runtime 单线程、单写入者、FIFO。Processor 不开线程、不并行 Manager、不读取系统时间；时间全部来自 Runtime Clock，
 processing/audit/reconciliation ID 按 Runtime sequence 生成。目标 Backtest、Sim 与 Live 共用相同 API；Virtual Broker 只产生
-标准 Broker Update。当前 legacy `PAPER` 的 Shadow execution 尚未进入该完整链，必须在 Sim 迁移时被替换。
+标准 Broker Update。SIM 已通过 Virtual Broker、Broker Inbound Queue 与共享 Processor 进入该完整链。
 
 专项 Demo 位于 `examples/execution_processor_demo/`；统一 23 场景位于 `examples/integration_demo/`。
 
@@ -111,8 +111,7 @@ processing/audit/reconciliation ID 按 Runtime sequence 生成。目标 Backtest
 
 - SQLite Transaction Store 可持久化事务与 Outbox，但尚无持久 Audit/Reconciliation Queue 或完整 Runtime bootstrap orchestrator；
 - Connection Update 第一版只保存 Runtime-owned 状态，尚未建立完整重连状态机；
-- 目标 Sim/Live 的完整 Trading Runtime 装配尚未实现；Real Broker SDK 仅属于未来 Live 边界，当前 legacy `PAPER` 仍是
-  read-only observation + Shadow execution；
+- SIM Trading Runtime 装配已实现；Real Broker SDK 仅属于 future Live 边界；
 - Coordinator 当前覆盖 Generic T0 Cash、LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING 的 whole/partial/multi Fill、
   Terminal Transaction 和当前正式多 Cluster 固定资金归约；Short/Hedging、Futures/Margin 仍不支持；
 - 当前正式 Backtest 恢复由 checkpoint、committed transaction tail 与 forward recovery 组成；streaming Sim/Live recovery

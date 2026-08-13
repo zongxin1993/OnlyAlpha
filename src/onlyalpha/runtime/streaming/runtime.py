@@ -88,7 +88,7 @@ from .timer_registry import OnlyRuntimeTimerRegistry
 class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
     """Trading Kernel composed with one long-lived market-data driver."""
 
-    _supported_modes = frozenset({OnlyRuntimeMode.PAPER, OnlyRuntimeMode.LIVE})
+    _supported_modes = frozenset({OnlyRuntimeMode.SIM, OnlyRuntimeMode.LIVE})
 
     def __init__(
         self,

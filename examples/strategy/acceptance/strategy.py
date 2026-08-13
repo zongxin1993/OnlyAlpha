@@ -1,4 +1,4 @@
-"""Ordinary strategy used by the frozen Paper acceptance profile."""
+"""Runtime-neutral first-bar intent strategy used by SIM certification."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from onlyalpha.strategy.base import OnlyStrategy
 from onlyalpha.strategy.context import OnlyStrategyBarContext
 
 
-class OnlyPaperAcceptanceIntentStrategy(OnlyStrategy):
-    """Attempt a normal intent until Runtime policy permits one to become an Order."""
+class OnlySimCertificationIntentStrategy(OnlyStrategy):
+    """Submit one ordinary intent through the canonical Strategy Order Port."""
 
     def __init__(self, config: OnlyFirstBarIntentStrategyConfig) -> None:
         super().__init__(config)
@@ -32,27 +32,27 @@ class OnlyPaperAcceptanceIntentStrategy(OnlyStrategy):
                 self.intent_config.quantity,
             )
         ):
-            raise ValueError("Paper acceptance strategy configuration is incomplete")
+            raise ValueError("SIM certification strategy configuration is incomplete")
 
     def on_bar(self, context: OnlyStrategyBarContext) -> None:
         if self._completed:
             return
         bar = context.primary_bar
         if not isinstance(bar, OnlyBar):
-            raise TypeError("Paper acceptance strategy requires a Bar")
+            raise TypeError("SIM certification strategy requires a Bar")
         instrument_id = self.intent_config.instrument_id
         account_id = self.intent_config.account_id
         quantity = self.intent_config.quantity
         cluster_id = self.intent_config.cluster_id
         if instrument_id is None or account_id is None or quantity is None or cluster_id is None:
-            raise RuntimeError("Paper acceptance strategy is not initialized")
+            raise RuntimeError("SIM certification strategy is not initialized")
         orders = context.strategy.orders
         if not isinstance(orders, OnlyOrderServiceView):
             raise TypeError("Strategy Order Port is unavailable")
         self._attempt_count += 1
         result = orders.submit(
             OnlyOrderRequest(
-                OnlyOrderRequestId(f"{cluster_id}-paper-acceptance-{bar.bar_start.isoformat()}"),
+                OnlyOrderRequestId(f"{cluster_id}-sim-certification-{bar.bar_start.isoformat()}"),
                 instrument_id,
                 OnlyOrderSide.BUY,
                 OnlyOrderType.LIMIT,
@@ -60,13 +60,13 @@ class OnlyPaperAcceptanceIntentStrategy(OnlyStrategy):
                 price=bar.close,
                 account_id=account_id,
                 offset=OnlyOffset.OPEN,
-                tags=("PAPER_ACCEPTANCE_INTENT",),
+                tags=("SIM_CERTIFICATION_INTENT",),
             )
         )
         self._completed = result.created
 
     def build_result_extension(self) -> dict[str, object]:
-        return {"paper_acceptance": {"attempt_count": self._attempt_count, "completed": self._completed}}
+        return {"sim_certification": {"attempt_count": self._attempt_count, "completed": self._completed}}
 
     @property
     def checkpoint_schema_version(self) -> int | None:
@@ -81,6 +81,6 @@ class OnlyPaperAcceptanceIntentStrategy(OnlyStrategy):
 
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, dict):
-            raise ValueError("Paper acceptance strategy checkpoint must be an object")
+            raise ValueError("SIM certification strategy checkpoint must be an object")
         self._attempt_count = int(payload.get("attempt_count", 0))
         self._completed = bool(payload.get("completed", False))

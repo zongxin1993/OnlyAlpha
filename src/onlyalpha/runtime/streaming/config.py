@@ -18,7 +18,7 @@ class OnlyStreamingRuntimeConfig:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "OnlyStreamingRuntimeConfig":
-        capability = OnlyExecutionSubmissionCapability(str(value.get("execution_capability", "SHADOW")).upper())
+        capability = OnlyExecutionSubmissionCapability(str(value.get("execution_capability", "")).upper())
         raw_streaming = value.get("streaming", {})
         if not isinstance(raw_streaming, Mapping):
             raise ValueError("runtime.extensions.streaming must be an object")

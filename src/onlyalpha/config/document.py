@@ -96,7 +96,7 @@ class OnlyRuntimeConfig:
     extensions: OnlyJsonMapping
 
     def __post_init__(self) -> None:
-        if self.runtime_type not in {"BACKTEST", "PAPER", "SIM", "LIVE", "SHADOW", "RESEARCH"}:
+        if self.runtime_type not in {"RESEARCH", "BACKTEST", "SIM", "LIVE"}:
             raise OnlyClusterConfigError(f"unsupported runtime.type value: {self.runtime_type}")
         if self.start_time is not None:
             only_require_utc(self.start_time, "runtime.start_time")

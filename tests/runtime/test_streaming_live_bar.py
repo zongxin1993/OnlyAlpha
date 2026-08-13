@@ -27,7 +27,7 @@ def _update(bar, sequence: int) -> OnlyMarketDataInboundUpdate:
     stamp = OnlyTimestamp.from_datetime(updating.ts_event)
     return OnlyMarketDataInboundUpdate(
         OnlyMarketDataUpdateId(f"live-{sequence}"),
-        OnlyRuntimeId("paper"),
+        OnlyRuntimeId("streaming"),
         OnlyMarketDataSourceId("miniqmt-live"),
         OnlyDataSequence(sequence),
         OnlyDataVersion("live-v1"),

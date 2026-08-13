@@ -3,7 +3,7 @@ from pathlib import Path
 
 _FACTORIES = (
     Path("src/onlyalpha/runtime/backtest/factory.py"),
-    Path("src/onlyalpha/runtime/paper/factory.py"),
+    Path("src/onlyalpha/runtime/sim/factory.py"),
     Path("src/onlyalpha/runtime/live/factory.py"),
 )
 

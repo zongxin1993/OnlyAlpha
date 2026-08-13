@@ -22,13 +22,11 @@ from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries, OnlyEngi
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
 from onlyalpha.runtime.factory import OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.live.factory import OnlyLiveRuntimeFactory
-from onlyalpha.runtime.paper.factory import OnlyPaperRuntimeFactory
 from onlyalpha.runtime.persistence.factory import (
     OnlyDefaultRuntimePersistenceStoreFactory,
     OnlyRuntimePersistenceStoreFactory,
 )
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
-from onlyalpha.runtime.shadow.factory import OnlyShadowRuntimeFactory
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 from onlyalpha.strategy.factory import OnlyStrategyFactory
@@ -67,9 +65,7 @@ def only_default_engine_services(
     runtimes = OnlyRuntimeFactoryRegistry()
     runtimes.register(OnlyBacktestRuntimeFactory())
     runtimes.register(OnlySimRuntimeFactory())
-    runtimes.register(OnlyPaperRuntimeFactory())
     runtimes.register(OnlyLiveRuntimeFactory())
-    runtimes.register(OnlyShadowRuntimeFactory())
     runtimes.register(OnlyResearchRuntimeFactory())
     reconciliation_policies = OnlyFeeReconciliationPolicyRegistry()
     reconciliation_policies.register(only_standard_fee_reconciliation_policy(OnlyCurrency("CNY", 2)))

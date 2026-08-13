@@ -4,6 +4,12 @@ Status: Accepted
 
 Date: 2026-08-10
 
+Implementation update: 2026-08-13 — P6.6 已完成 active Runtime taxonomy one-shot cutover：production enum、配置、
+Factory Registry 与 public exports 只保留 `RESEARCH/BACKTEST/SIM/LIVE`；历史 `PAPER` 与 standalone `SHADOW` product
+package、Factory、配置与 acceptance path 已删除，未保留 alias、wrapper 或 durable-state converter。product-neutral
+Streaming control plane 继续拥有 subscription、bootstrap/handoff、watermark、continuity、gap/reconnect、timer、checkpoint 与
+recovery；SIM 继续拥有 Virtual Broker composition、persistence 与 Runtime State Lease。本更新不改写下方历史 Context。
+
 Implementation update: 2026-08-11 — P6.1 已实现本 ADR 的 Runtime control/semantic boundary：
 Strategy-facing Context 与 shared Trading facade/Kernel 不再读取 `OnlyRuntimeMode`；Runtime product guard 保留在
 operational `OnlyRuntime`/concrete Runtime。Streaming `STOP` 被定义为 future processing permission cutoff，不能

@@ -4,9 +4,8 @@
 Runtime Ports → ExecutionProcessor → Result Collector`。Market Profile 是带生效区间、版本、来源与内容指纹的制度配置；
 Instrument Reference 提供每个标的的 tick、step、lot、minimum notional、board、ST、停牌与 multiplier。
 
-在目标架构中，`market` 是 Backtest/Sim/Live Trading Runtime 的必填配置，不存在 Legacy 缺省路径。当前配置 schema 仍识别
-`BACKTEST/PAPER/LIVE/SHADOW`：其中 `PAPER` 是 Legacy Streaming Implementation / Sim Migration Source，standalone
-`SHADOW` 是 unsupported implementation debt；两者不是目标 Runtime 或兼容合同。Research 可以复用 Reference、Calendar 与
+`market` 是 Backtest/Sim/Live Trading Runtime 的必填配置，不存在 Legacy 缺省路径。配置 schema 只识别
+`RESEARCH/BACKTEST/SIM/LIVE`；旧 Runtime spelling fail closed。Research 可以复用 Reference、Calendar 与
 MarketData Domain，但不承担正式交易 Market Rule lifecycle。
 
 新规则不得写入通用 Order、Position 或 Account。Broker 只产生决定和更新，ExecutionProcessor 保持唯一正式交易状态写入者。

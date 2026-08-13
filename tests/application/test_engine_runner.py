@@ -26,13 +26,13 @@ def _engine(*modes: str) -> Mock:
 
 def test_lifecycle_kind_rejects_mixed_finite_and_long_lived() -> None:
     assert only_engine_lifecycle_kind(_engine("BACKTEST")) is OnlyRuntimeLifecycleKind.FINITE  # type: ignore[arg-type]
-    assert only_engine_lifecycle_kind(_engine("PAPER")) is OnlyRuntimeLifecycleKind.LONG_LIVED  # type: ignore[arg-type]
+    assert only_engine_lifecycle_kind(_engine("SIM")) is OnlyRuntimeLifecycleKind.LONG_LIVED  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="cannot share"):
-        only_engine_lifecycle_kind(_engine("BACKTEST", "PAPER"))  # type: ignore[arg-type]
+        only_engine_lifecycle_kind(_engine("BACKTEST", "SIM"))  # type: ignore[arg-type]
 
 
 def test_long_lived_runner_uses_finite_wait_and_stops_once_after_keyboard_interrupt() -> None:
-    engine = _engine("PAPER")
+    engine = _engine("SIM")
     engine.wait.side_effect = KeyboardInterrupt
     messages: list[str] = []
 
@@ -47,7 +47,7 @@ def test_long_lived_runner_uses_finite_wait_and_stops_once_after_keyboard_interr
 
 @pytest.mark.parametrize(("signum", "expected"), ((signal.SIGINT, 130), (signal.SIGTERM, 143)))
 def test_real_signal_handler_requests_shutdown_and_is_restored(signum: signal.Signals, expected: int) -> None:
-    engine = _engine("PAPER")
+    engine = _engine("SIM")
     previous = signal.getsignal(signum)
 
     def wait(*, timeout: float) -> None:
@@ -74,7 +74,7 @@ class _RecordingForcedExit:
 
 
 def test_second_interrupt_during_blocked_shutdown_forces_exit_without_repeating_stop() -> None:
-    engine = _engine("PAPER")
+    engine = _engine("SIM")
     forced = _RecordingForcedExit()
     engine.wait.side_effect = KeyboardInterrupt
     engine.stop.side_effect = KeyboardInterrupt
@@ -97,7 +97,7 @@ def test_controller_supports_windows_break_when_available() -> None:
 
 @pytest.mark.parametrize("operation", ("initialize", "start"))
 def test_startup_failure_preserves_primary_error_and_still_cleans_up(operation: str) -> None:
-    engine = _engine("PAPER")
+    engine = _engine("SIM")
     getattr(engine, operation).side_effect = RuntimeError(f"{operation} failed")
     engine.stop.side_effect = RuntimeError("cleanup failed")
 
@@ -109,7 +109,7 @@ def test_startup_failure_preserves_primary_error_and_still_cleans_up(operation: 
 
 
 def test_runtime_worker_failure_is_not_hidden_by_polling() -> None:
-    engine = _engine("PAPER")
+    engine = _engine("SIM")
     engine.wait.side_effect = RuntimeError("streaming market-data worker failed")
 
     with pytest.raises(RuntimeError, match="streaming market-data worker failed"):
@@ -119,7 +119,7 @@ def test_runtime_worker_failure_is_not_hidden_by_polling() -> None:
 
 
 def test_interrupt_during_initialize_does_not_start_business_processing() -> None:
-    engine = _engine("PAPER")
+    engine = _engine("SIM")
     engine.initialize.side_effect = lambda: signal.raise_signal(signal.SIGINT)
 
     assert OnlyEngineApplicationRunner(message_writer=lambda message: None).execute(engine) == 130  # type: ignore[arg-type]

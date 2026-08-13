@@ -6,10 +6,10 @@
 Planner 与 `OnlyRuntimeTransactionCoordinator` 提交 Prepared Transaction，再按 Applied Projection Ledger 幂等投影。
 Broker 插件与 Cluster 均不持有或改写该 authority。
 
-当前 Scenario schema 的 Action/Command DTO 在源码 spelling `BACKTEST/PAPER/LIVE/SHADOW` 间一致；这只是迁移前的
-实现事实。目标 Trading Runtime vocabulary 是 `BACKTEST/SIM/LIVE`。`BACKTEST` 支持确定性有限生命周期推进；`SIM`
-已支持 Engine streaming lifecycle 下的 realtime Virtual Broker normal path 与 same-process continuity recovery，但当前 Scenario Runner 尚不驱动该长生命周期
-路径。legacy `PAPER` 是 Sim Migration Source，`LIVE` 与 standalone `SHADOW` 规划仍显式不支持，均不得静默降级。
+Scenario Action/Command DTO 保持 Runtime-neutral。目标 Trading Runtime vocabulary 是 `BACKTEST/SIM/LIVE`。
+`BACKTEST` 支持确定性有限生命周期推进；`SIM` 已支持 Engine streaming lifecycle 下的 realtime Virtual Broker、
+continuity 与 durable recovery，但当前 Scenario Runner 尚不驱动该长生命周期路径。`LIVE` 规划仍显式不支持；旧
+`PAPER/SHADOW` mode 无法解析且不得静默降级。
 
 Runtime Factory 必须先从必填 `market` 配置解析 Profile，再构建 `OnlyMarketRuleEngine`。Runtime 组件只接收
 Pre-Trade、Match-Time 或 Instruction Port，不得接收 Profile/Resolved Profile/Registry。引擎按 Trading Day
@@ -41,21 +41,18 @@ Research Runtime 使用 Research Job / Plan，只拥有研究执行、Dataset、
 对称创建 Order、Position、Account、Broker、Reservation 或 durable trading transaction authority。Backtest、Sim 与 Live
 才是拥有 mutable trading authorities 的 Trading Runtime，并追求 Trading Semantic Equivalence。
 
-当前源码仍导出以下迁移前类型：
+当前源码的 Runtime product 类型为：
 
 ```text
 OnlyRuntime
 OnlyLiveRuntime
-OnlyPaperRuntime
 OnlyBacktestRuntime
 OnlyResearchRuntime
 OnlySimRuntime
-OnlyShadowRuntime
 ```
 
-这些类名不是完整产品完成度声明。当前 `BACKTEST` 已实现；`OnlySimRuntime` 已实现 realtime Virtual Broker normal path；
-`OnlyPaperRuntime` 是 Legacy Streaming Implementation / Sim Migration Source；`LIVE`、standalone `SHADOW` 与
-`RESEARCH` Factory 仍返回 unsupported。`PAPER` / `SHADOW` 不属于目标 taxonomy，也不形成长期兼容合同。
+这些类名不是完整产品完成度声明。当前 `BACKTEST` 与 `SIM` 已实现；`LIVE` 与 `RESEARCH` Factory 仍返回 unsupported。
+历史 `PAPER` / standalone `SHADOW` package、Factory 与 public export 已删除，不形成兼容合同。
 
 ## 2. 统一上下文
 
@@ -98,24 +95,22 @@ Research Runtime 只隔离自身的 research execution、Dataset、Calculation�
 
 默认禁止在测试环境下启动真实交易。
 
-## 5. Legacy PAPER / Sim Migration Source
+## 5. Historical Migration Closure
 
-当前源码 spelling `PAPER` 是长生命周期的 Legacy Streaming Implementation，CLI 使用
+P6.6 已删除历史 `PAPER` 长生命周期产品实现。canonical SIM 使用
 `initialize → start → wait → stop`，不调用只适用于有限 Backtest 的 `OnlyEngine.run()`。它允许在盘前、盘中、午休、
 收盘后、周末和节假日启动；市场 Session 状态不进入 Runtime Lifecycle。
 
 启动按 `SUBSCRIBING → BOOTSTRAP → CATCH_UP → LIVE` 推进。Calendar 负责 Session，Completed Boundary 负责历史截止，
 Historical Watermark 负责 Catch-up 重叠去重，Latest Observation Store 负责 CLI/Console/JSONL/未来 Web 的统一只读节点。
-Required Historical Warmup 失败仍然 Fail Closed。PAPER 当前只支持内部 Shadow execution capability；当前 Profile 下的
-Closed/Open Historical、Real Live Handoff 与 PR5.1 current-scope 真实 MiniQMT 验收已经通过。该 PASS 不覆盖 broad
-MiniQMT compatibility、reconnect、gap recovery、streaming checkpoint/recovery 或完整 Trading Kernel；SIM 的完成度必须
-由独立的 SIM 产品链与验收证明。
+Required Historical Warmup 失败仍然 Fail Closed。旧 execution suppression 已删除；SIM 的完成度只由 canonical
+Virtual Broker、durable transaction、continuity 与 recovery 产品链证明。
 
-这些 streaming、bootstrap、handoff、watermark、aggregation 和 observation 边界是 Sim 的迁移来源，不是第五种目标
-Runtime。P6.3 已在独立 `OnlySimRuntime` 中以 Virtual Broker 和完整 Trading Kernel 关闭 normal path；后续阶段补齐
-gap/reconnect/checkpoint/restart 后迁移剩余配置与测试并删除 `PAPER` spelling，不保留 alias 或 wrapper。
+subscription、bootstrap、handoff、watermark、aggregation、continuity、gap/reconnect、timer 与 recovery 由
+product-neutral Streaming control plane 拥有，不是第五种 Runtime。旧配置不自动转换，legacy durable state 也不转换为
+SIM state。
 
-## 5.1 SIM Realtime Virtual Broker Normal Path
+## 5.1 SIM Realtime Virtual Broker and Recovery Path
 
 SIM 使用 `initialize → start → wait → stop → close`，不调用仅适用于有限 Backtest 的 `OnlyEngine.run()`。正式组合是：
 
@@ -191,7 +186,7 @@ Artifact，不产生正式交易状态，不经过 Strategy、Risk、Order、Bro
 
 所有 Runtime Clock 返回 UTC。`OnlyBacktestClock` 拒绝 naive 和非 UTC 时间，并只能
 单调推进。目标 Backtest/Sim/Live 必须通过同一 `OnlyTradingCalendar` 判断 Session、午休、夜盘与 TradingDay；当前
-legacy `PAPER` 也复用该 Calendar 边界，作为 Sim migration source。不得从 UTC date、本地自然 date 或 Runtime 自建规则推导。
+SIM 也复用该 Calendar 边界。不得从 UTC date、本地自然 date 或 Runtime 自建规则推导。
 Backtest 数据按历史 Calendar 与 Instrument 版本解析。当前已实现最小 Next-Bar Virtual Broker 撮合；完整历史数据驱动与
 更复杂撮合仍必须遵守 `docs/time_model.md` 和 `docs/virtual_broker.md`。
 
@@ -208,11 +203,10 @@ Reference 与 Persistence 分组。仅环境 Identity 完全相同的 Cluster �
 每个 Trading Runtime 必须独占 EventBus、`OnlyMarketDataPipeline`、`OnlyMarketDataCache`、
 `OnlyBarAggregationManager`、通用 MarketData barrier 和 Dispatcher。Runtime 级 Pipeline 只负责标准化行情、聚合与
 不可变 Snapshot，不识别或创建 MACD、RSI 等具体 Indicator。每个 Cluster 独占自己的 Indicator Registry，并在
-Cluster Pipeline 内固定执行 `Indicator → Factor → Strategy`；不同 Cluster 不共享可变 Indicator。目标 Backtest、Sim 与
-Live 使用同一数据准备顺序。当前 Backtest 已实现完整同步数据准备链，legacy `PAPER` 已实现可迁移的部分 streaming 链；
-这不表示目标 Sim/Live 装配已完成。`OnlyBacktestRuntime.process_bar` 是单记录版本化 Source/Request 的正式 Replay facade；实际顺序由
-ReplayService 执行 Clock→MarketDataProcessor→Pipeline→Event facts→Dispatcher→ClusterManager。目标 Sim/Live 的完整
-实时 Adapter 装配仍待后续阶段；当前 legacy `PAPER` 只提供部分 streaming/observation 基础设施。
+Cluster Pipeline 内固定执行 `Indicator → Factor → Strategy`；不同 Cluster 不共享可变 Indicator。Backtest、Sim 与 future
+Live 使用同一数据准备顺序。Backtest 已实现完整同步数据准备链，SIM 已实现 realtime bootstrap/handoff、continuity 与 recovery。
+`OnlyBacktestRuntime.process_bar` 是单记录版本化 Source/Request 的正式 Replay facade；实际顺序由 ReplayService 执行
+Clock→MarketDataProcessor→Pipeline→Event facts→Dispatcher→ClusterManager。Live realtime Adapter 装配仍待后续阶段。
 
 ## 11. 标准化成交编排
 
