@@ -182,7 +182,20 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "scripts.pytest_layering",
         "-p",
         "scripts.pytest_metrics",
+        "--benchmark-disable",
     ]
+    if args.coverage:
+        command.extend(
+            [
+                "--cov=src/onlyalpha",
+                "--cov-branch",
+                "--cov-report=",
+                "--cov-report=json:test-results/coverage/coverage.json",
+                "--cov-report=xml:test-results/coverage/coverage.xml",
+                "--cov-fail-under=82",
+            ]
+        )
+        workers = "0"
     if workers != "0":
         command.extend(["-n", workers, "--dist", dist])
     metric_path = ROOT / "test-results" / "metrics" / f"{name.value}.json"
@@ -196,6 +209,13 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         }
     )
     code = run(command, env)
+    if args.coverage:
+        coverage_path = ROOT / "test-results" / "coverage" / "coverage.json"
+        if coverage_path.is_file():
+            totals = json.loads(coverage_path.read_text(encoding="utf-8"))["totals"]
+            line_rate = 100 * totals["covered_lines"] / totals["num_statements"]
+            branch_rate = 100 * totals["covered_branches"] / totals["num_branches"]
+            print(f"Coverage baseline: lines={line_rate:.2f}% branches={branch_rate:.2f}%")
     if metric_path.is_file():
         metrics = json.loads(metric_path.read_text(encoding="utf-8"))
         print(f"Lane {name.value}: {metrics['collected']} collected in {metrics['total_seconds']:.2f}s")
@@ -215,6 +235,11 @@ def main() -> int:
     parser.add_argument("--dist", choices=("load", "loadscope", "loadfile", "worksteal"))
     parser.add_argument("--durations", type=int)
     parser.add_argument("--no-parallel", action="store_true")
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="collect branch coverage once for this lane; disables xdist for deterministic data",
+    )
     args = parser.parse_args()
     lane = OnlyTestLane(args.lane)
     return release(args) if lane is OnlyTestLane.RELEASE else execute(lane, args)

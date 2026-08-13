@@ -1,0 +1,33 @@
+name: Release Heavy Quality
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  critical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Critical formal contracts
+        run: uv run crosshair check tests/formal/contracts.py --per_condition_timeout 60
+      - name: Critical mutation subset
+        run: uv run mutmut run
+      - name: Stable performance benchmarks
+        run: uv run pytest tests/performance/test_quality_benchmarks.py -q --tb=short --benchmark-only
+      - name: ASV release point
+        run: uvx --from asv==0.6.6 asv run HEAD^!

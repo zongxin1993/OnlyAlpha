@@ -23,6 +23,12 @@ dev = [
     "tomlkit>=0.13",
     "twine>=6",
     "onlyalpha-test-plugin",
+    "import-linter>=2.13",
+    "hypothesis>=6.165.5",
+    "crosshair-tool>=0.0.109",
+    "mutmut>=3.7.0",
+    "coverage>=7.15.2",
+    "pytest-benchmark>=5.2.3",
 ]
 
 [project.scripts]
@@ -90,4 +96,85 @@ markers = [
     "requires_broker_account: may access or submit to a real broker account",
     "windows: Windows-only test",
     "slow: slow test",
+]
+
+[tool.importlinter]
+root_package = "onlyalpha"
+include_external_packages = true
+exclude_type_checking_imports = true
+
+
+[[tool.importlinter.contracts]]
+id = "domain-boundary"
+name = "Domain must not depend on orchestration or infrastructure"
+type = "forbidden"
+
+source_modules = [
+    "onlyalpha.domain",
+]
+
+forbidden_modules = [
+    "onlyalpha.application",
+    "onlyalpha.engine",
+    "onlyalpha.broker",
+    "onlyalpha.account",
+    "onlyalpha.analytics",
+    "onlyalpha.artifact",
+    "onlyalpha.cache",
+    "onlyalpha.cluster",
+    "onlyalpha.collector",
+    "onlyalpha.config",
+    "onlyalpha.data",
+]
+
+
+[[tool.importlinter.contracts]]
+id = "domain-acyclic"
+name = "Domain modules must remain acyclic"
+type = "acyclic_siblings"
+
+ancestors = [
+    "onlyalpha.domain",
+]
+
+depth = 3
+
+[[tool.importlinter.contracts]]
+id = "core-plugin-boundary"
+name = "Core must not import concrete plugin implementations"
+type = "forbidden"
+source_modules = ["onlyalpha"]
+forbidden_modules = [
+    "onlyalpha_plugin_broker_virtual",
+    "onlyalpha_plugin_miniqmt",
+    "onlyalpha_plugin_tushare",
+    "onlyalpha_market_cn_ashare",
+    "onlyalpha_market_generic_t0_cash",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/onlyalpha"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 82
+
+[tool.coverage.json]
+output = "test-results/coverage/coverage.json"
+
+[tool.coverage.xml]
+output = "test-results/coverage/coverage.xml"
+
+[tool.mutmut]
+source_paths = ["src/onlyalpha"]
+only_mutate = ["src/onlyalpha/domain/value.py"]
+also_copy = ["tests/property", "tests/domain_conformance"]
+pytest_add_cli_args = ["-q", "--tb=short", "--maxfail=1"]
+pytest_add_cli_args_test_selection = [
+    "tests/property/test_domain_properties.py",
+    "tests/domain_conformance",
+    "-k",
+    "financial_value_types or precision_and_increment",
 ]

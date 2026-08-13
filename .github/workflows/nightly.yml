@@ -1,4 +1,4 @@
-name: Nightly Exhaustive
+name: Nightly Heavy Quality
 
 on:
   schedule:
@@ -14,28 +14,7 @@ env:
   UV_NO_PROGRESS: "1"
 
 jobs:
-  test-lanes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [core-full, recovery, ashare, exhaustive]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: nightly-${{ matrix.lane }}-metrics
-          path: test-results/metrics/*.json
-
-  benchmark:
+  exhaustive:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -45,15 +24,23 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/benchmark_test_lanes.py --lanes fast integration --workers 6 auto --dist worksteal --repeat 3
+      - name: Exhaustive tests and Hypothesis profile
+        env:
+          HYPOTHESIS_PROFILE: exhaustive
+        run: uv run python scripts/test_suite.py exhaustive
+      - name: Exhaustive property examples
+        env:
+          HYPOTHESIS_PROFILE: exhaustive
+        run: uv run pytest tests/property -q --tb=short --maxfail=1
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: nightly-benchmark-metrics
+          name: nightly-exhaustive-metrics
           path: test-results/metrics/*.json
 
-  build:
+  formal:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -61,4 +48,40 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv build --all-packages
+      - run: uv run crosshair check tests/formal/contracts.py --per_condition_timeout 30
+
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Domain value-object mutation baseline
+        run: uv run mutmut run
+      - name: Mutation summary
+        if: always()
+        run: uv run mutmut results
+
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run pytest tests/performance/test_quality_benchmarks.py -q --tb=short --benchmark-only
+      - run: uvx --from asv==0.6.6 asv run --quick HEAD^!
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-performance-results
+          path: |
+            .benchmarks/
+            .asv/results/

@@ -37,6 +37,7 @@ jobs:
       - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+      - run: uv run lint-imports
       - run: uv run python scripts/version_sync.py check
 
   pr-lanes:
@@ -46,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [fast, integration, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -60,6 +61,27 @@ jobs:
         with:
           name: ${{ matrix.lane }}-metrics
           path: test-results/metrics/*.json
+
+  coverage:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Core tests, Hypothesis CI profile, and branch coverage
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: uv run python scripts/test_suite.py core-full --coverage
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: branch-coverage
+          path: test-results/coverage/
 
   main-lanes:
     if: github.event_name != 'pull_request'
@@ -95,15 +117,40 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages
 
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Semgrep
+        run: uv tool install semgrep
+
+      - name: OnlyAlpha semantic guardrails
+        run: |
+          semgrep scan --config semgrep/onlyalpha.yml --test semgrep/onlyalpha.py
+          semgrep scan \
+            --config semgrep/onlyalpha.yml \
+            --error \
+            src packages
+
   quality-gate:
     if: always()
-    needs: [static, pr-lanes, main-lanes, build]
+    needs: [static, semgrep, coverage, pr-lanes, main-lanes, build]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
         env:
           STATIC_RESULT: ${{ needs.static.result }}
+          SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
           PR_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_RESULT: ${{ needs.main-lanes.result }}
           BUILD_RESULT: ${{ needs.build.result }}
-        run: test "$STATIC_RESULT" = success -a "$BUILD_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$BUILD_RESULT" = success -a \( "$COVERAGE_RESULT" = success -o "$COVERAGE_RESULT" = skipped \) -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

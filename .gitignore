@@ -224,3 +224,9 @@ __marimo__/
 
 user_data/
 .VSCodeCounter
+mutants/
+.mutmut-cache/
+.benchmarks/
+.asv/env/
+.asv/results/
+.asv/html/

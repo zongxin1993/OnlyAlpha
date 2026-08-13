@@ -1,0 +1,105 @@
+rules:
+
+  # -------------------------------------------------------------------------
+  # Determinism
+  # -------------------------------------------------------------------------
+
+  - id: onlyalpha-domain-no-wall-clock
+    languages:
+      - python
+
+    severity: ERROR
+
+    message: >
+      Domain code must not read wall-clock time directly.
+      Inject deterministic time through the authoritative clock/time boundary.
+
+    paths:
+      include:
+        - "**/domain/**"
+
+    pattern-either:
+      - pattern: datetime.now(...)
+      - pattern: datetime.datetime.now(...)
+      - pattern: datetime.utcnow(...)
+      - pattern: datetime.datetime.utcnow(...)
+      - pattern: date.today(...)
+      - pattern: datetime.date.today(...)
+      - pattern: time.time(...)
+
+
+  # -------------------------------------------------------------------------
+  # Randomness
+  # -------------------------------------------------------------------------
+
+  - id: onlyalpha-domain-no-global-random
+    languages:
+      - python
+
+    severity: ERROR
+
+    message: >
+      Domain code must not use implicit global randomness.
+      Randomness must be injected through an explicit seeded boundary.
+
+    paths:
+      include:
+        - "**/domain/**"
+
+    pattern-either:
+      - pattern: random.random(...)
+      - pattern: random.randint(...)
+      - pattern: random.randrange(...)
+      - pattern: random.choice(...)
+      - pattern: random.shuffle(...)
+      - pattern: numpy.random.$FUNC(...)
+      - pattern: np.random.$FUNC(...)
+
+
+  # -------------------------------------------------------------------------
+  # Runtime configuration
+  # -------------------------------------------------------------------------
+
+  - id: onlyalpha-domain-no-environment-access
+    languages:
+      - python
+
+    severity: ERROR
+
+    message: >
+      Domain code must not read process environment directly.
+      Configuration must enter through explicit configuration/application
+      boundaries.
+
+    paths:
+      include:
+        - "**/domain/**"
+
+    pattern-either:
+      - pattern: os.getenv(...)
+      - pattern: os.environ[$KEY]
+
+
+  # -------------------------------------------------------------------------
+  # MiniQMT isolation
+  # -------------------------------------------------------------------------
+
+  - id: onlyalpha-xtquant-only-inside-miniqmt-adapter
+    languages:
+      - python
+
+    severity: ERROR
+
+    message: >
+      xtquant/MiniQMT implementation details must stay inside the MiniQMT
+      provider package.
+
+    paths:
+      exclude:
+        - /packages/provider/onlyalpha-plugin-miniqmt/**
+
+    pattern-either:
+      - pattern: import xtquant
+      - pattern: import xtquant.$MODULE
+      - pattern: from xtquant import $NAME
+      - pattern: from xtquant.$MODULE import $NAME

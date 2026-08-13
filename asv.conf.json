@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project": "OnlyAlpha",
+  "project_url": "https://github.com/zongxin1993/OnlyAlpha",
+  "repo": ".",
+  "branches": ["master"],
+  "environment_type": "uv",
+  "pythons": ["3.12"],
+  "benchmark_dir": "benchmarks",
+  "results_dir": ".asv/results",
+  "html_dir": ".asv/html"
+}
