@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.p6_certification import REQUIRED_GATES, build_evidence
+from scripts.certification import REQUIRED_GATES, build_evidence
 
 SUBJECT_SHA = "a" * 40
 

@@ -1,4 +1,4 @@
-name: P6 Final-SHA Certification
+name: Final-SHA Certification
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
   security-events: write
 
 concurrency:
-  group: p6-certification-${{ inputs.subject_sha }}
+  group: certification-${{ inputs.subject_sha }}
   cancel-in-progress: false
 
 env:
@@ -173,7 +173,7 @@ jobs:
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
         run: |
-          python scripts/p6_certification.py \
+          python scripts/certification.py \
             --subject-sha "$SUBJECT_SHA" \
             --workflow-run "$GITHUB_RUN_ID" \
             --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
@@ -184,9 +184,9 @@ jobs:
             --gate "coverage=$COVERAGE_RESULT" \
             --gate "semgrep=$SEMGREP_RESULT" \
             --gate "codeql=$CODEQL_RESULT" \
-            --output p6-certification-evidence.json
+            --output certification-evidence.json
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: p6-certification-${{ inputs.subject_sha }}
-          path: p6-certification-evidence.json
+          name: certification-${{ inputs.subject_sha }}
+          path: certification-evidence.json

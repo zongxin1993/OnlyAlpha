@@ -713,7 +713,7 @@ wheels = [
 
 [[package]]
 name = "onlyalpha"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "pyarrow" },
@@ -776,7 +776,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-market-cn-ashare"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/market/onlyalpha-market-cn-ashare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -803,7 +803,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-market-generic-t0-cash"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/market/onlyalpha-market-generic-t0-cash" }
 dependencies = [
     { name = "onlyalpha" },
@@ -830,7 +830,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-broker-virtual"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/fake/onlyalpha-plugin-broker-virtual" }
 dependencies = [
     { name = "onlyalpha" },
@@ -857,7 +857,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-factors"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/factor/onlyalpha-plugin-factors" }
 dependencies = [
     { name = "onlyalpha" },
@@ -868,7 +868,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-indicators"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/indicator/onlyalpha-plugin-indicators" }
 dependencies = [
     { name = "onlyalpha" },
@@ -893,7 +893,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-miniqmt"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/provider/onlyalpha-plugin-miniqmt" }
 dependencies = [
     { name = "onlyalpha" },
@@ -928,7 +928,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-tushare"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/provider/onlyalpha-plugin-tushare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -970,8 +970,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "onlyalpha", specifier = "==0.4.0" },
-    { name = "onlyalpha-plugin-indicators", specifier = "==0.4.0" },
+    { name = "onlyalpha", specifier = "==0.4.1" },
+    { name = "onlyalpha-plugin-indicators", specifier = "==0.4.1" },
 ]
 
 [[package]]
