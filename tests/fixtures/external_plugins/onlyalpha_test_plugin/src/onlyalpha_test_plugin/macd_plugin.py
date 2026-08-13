@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
+from onlyalpha_plugin_indicators import OnlyMacdCrossState, OnlyMacdSnapshot
+
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import (
@@ -24,7 +26,6 @@ from onlyalpha.factor.context import OnlyFactorBarContext
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.score import OnlyFactorQualityFlag, OnlyFactorScore, OnlyFactorScoreDimension
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
-from onlyalpha.indicator.macd import OnlyMacdCrossState, OnlyMacdSnapshot
 from onlyalpha.plugin.api import OnlyCheckpointCapability
 from onlyalpha.strategy.base import OnlyStrategy
 from onlyalpha.strategy.config import OnlyStrategyConfig

@@ -13,6 +13,8 @@ members = [
     "onlyalpha-market-cn-ashare",
     "onlyalpha-market-generic-t0-cash",
     "onlyalpha-plugin-broker-virtual",
+    "onlyalpha-plugin-factors",
+    "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-miniqmt",
     "onlyalpha-plugin-tushare",
 ]
@@ -728,6 +730,8 @@ dev = [
     { name = "import-linter" },
     { name = "mutmut" },
     { name = "mypy" },
+    { name = "onlyalpha-plugin-factors" },
+    { name = "onlyalpha-plugin-indicators" },
     { name = "onlyalpha-test-plugin" },
     { name = "packaging" },
     { name = "pre-commit" },
@@ -756,6 +760,8 @@ dev = [
     { name = "import-linter", specifier = ">=2.13" },
     { name = "mutmut", specifier = ">=3.7.0" },
     { name = "mypy", specifier = ">=1.15" },
+    { name = "onlyalpha-plugin-factors", editable = "packages/factor/onlyalpha-plugin-factors" },
+    { name = "onlyalpha-plugin-indicators", editable = "packages/indicator/onlyalpha-plugin-indicators" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
     { name = "packaging", specifier = ">=25" },
     { name = "pre-commit", specifier = ">=4.6" },
@@ -850,6 +856,42 @@ dev = [
 ]
 
 [[package]]
+name = "onlyalpha-plugin-factors"
+version = "0.4.0"
+source = { editable = "packages/factor/onlyalpha-plugin-factors" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[[package]]
+name = "onlyalpha-plugin-indicators"
+version = "0.4.0"
+source = { editable = "packages/indicator/onlyalpha-plugin-indicators" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.15" },
+    { name = "pytest", specifier = ">=8.4" },
+    { name = "ruff", specifier = ">=0.11" },
+]
+
+[[package]]
 name = "onlyalpha-plugin-miniqmt"
 version = "0.4.0"
 source = { editable = "packages/provider/onlyalpha-plugin-miniqmt" }
@@ -923,10 +965,14 @@ version = "0.1.0"
 source = { editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" }
 dependencies = [
     { name = "onlyalpha" },
+    { name = "onlyalpha-plugin-indicators" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "onlyalpha", specifier = "==0.4.0" }]
+requires-dist = [
+    { name = "onlyalpha", specifier = "==0.4.0" },
+    { name = "onlyalpha-plugin-indicators", specifier = "==0.4.0" },
+]
 
 [[package]]
 name = "packaging"

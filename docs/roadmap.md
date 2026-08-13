@@ -161,6 +161,15 @@ P6 Final Hardening 进一步关闭了 Engine multi-Runtime start 的 partial-sta
 
 ## P7 — Vectorized Research Runtime
 
+### P7.0 — Calculation Definition & Plugin Boundary（实现完成）
+
+P7.0 已建立 Runtime-independent `OnlyIndicatorDefinition` / `OnlyFactorDefinition`、canonical calculation DAG、稳定
+semantic fingerprint 以及 exact `type_id + semantic_version + backend` Registry。现有 MACD、EMA、SMA、RSI、ATR、
+Bollinger、Rolling Return、Rolling Volatility 与 ZScore trading backend 已从 Core 迁移到独立 workspace plugin；Core
+不反向 import concrete calculation plugin。Trading composition 由 config normalization 进入 Definition/Graph/Registry，
+并保持原有 Decimal、warmup、timestamp、snapshot/checkpoint 语义。Research backend、Calculation Store 与 Research Job
+仍属于后续 P7 阶段。
+
 P7 实现 Research，不实现“Vectorized Backtest”：
 
 ```text

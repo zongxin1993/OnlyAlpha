@@ -2,16 +2,16 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from onlyalpha_plugin_indicators import OnlyMacdIndicator, OnlyMacdSnapshot, OnlyRsiSnapshot
+from onlyalpha_plugin_indicators.registration import registrations
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.indicator import only_default_indicator_factories
 from onlyalpha.indicator.factory import OnlyIndicatorCreateRequest
 from onlyalpha.indicator.identifiers import MACD, RSI, OnlyIndicatorId
-from onlyalpha.indicator.macd import OnlyMacdIndicator, OnlyMacdIndicatorFactory, OnlyMacdSnapshot
-from onlyalpha.indicator.rsi import OnlyRsiSnapshot
+from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 
 
 def _bar_type():
@@ -48,7 +48,9 @@ def _bar(index: int, close: str) -> OnlyBar:
 
 
 def test_registry_creates_macd_with_defaults_and_special_parameters() -> None:
-    registry = only_default_indicator_factories()
+    registry = OnlyIndicatorFactoryRegistry()
+    for registration in registrations():
+        registry.register(registration)
     default = registry.create(OnlyIndicatorCreateRequest(MACD, OnlyIndicatorId("default"), _bar_type(), {}))
     special = registry.create(
         OnlyIndicatorCreateRequest(
@@ -73,7 +75,9 @@ def test_registry_creates_macd_with_defaults_and_special_parameters() -> None:
 
 
 def test_registry_creates_default_rsi_and_rejects_unknown_or_duplicate_factory() -> None:
-    registry = only_default_indicator_factories()
+    registry = OnlyIndicatorFactoryRegistry()
+    for registration in registrations():
+        registry.register(registration)
     rsi = registry.create(OnlyIndicatorCreateRequest(RSI, OnlyIndicatorId("rsi"), _bar_type(), {}))
     for index in range(14):
         rsi.update_bar(_bar(index, str(index + 1)))
@@ -84,4 +88,4 @@ def test_registry_creates_default_rsi_and_rejects_unknown_or_duplicate_factory()
             OnlyIndicatorCreateRequest(type(RSI)("vendor.custom"), OnlyIndicatorId("custom"), _bar_type(), {})
         )
     with pytest.raises(ValueError, match="duplicate indicator factory"):
-        registry.register(OnlyMacdIndicatorFactory())
+        registry.register(registrations()[-1])

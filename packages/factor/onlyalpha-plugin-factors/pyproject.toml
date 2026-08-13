@@ -1,0 +1,20 @@
+[project]
+name = "onlyalpha-plugin-factors"
+version = "0.4.0"
+description = "Official Factor backend extension point for OnlyAlpha"
+requires-python = ">=3.12,<3.13"
+dependencies = ["onlyalpha==0.4.0"]
+
+[project.entry-points."onlyalpha.calculations"]
+official-factors = "onlyalpha_plugin_factors.registration:registrations"
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_plugin_factors"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+

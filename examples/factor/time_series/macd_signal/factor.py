@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from onlyalpha_plugin_indicators import OnlyMacdCrossState, OnlyMacdSnapshot
+
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.factor.base import OnlyTimeSeriesFactor
 from onlyalpha.factor.context import OnlyFactorBarContext
@@ -9,7 +11,6 @@ from onlyalpha.factor.score import (
     OnlyFactorScore,
     OnlyFactorScoreDimension,
 )
-from onlyalpha.indicator.macd import OnlyMacdCrossState, OnlyMacdSnapshot
 from onlyalpha.plugin.api import OnlyCheckpointCapability
 
 from .config import OnlyMacdSignalFactorConfig

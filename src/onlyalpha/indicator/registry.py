@@ -6,11 +6,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TypeVar
 
+from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationKind
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
+from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.indicator.base import OnlyBarIndicator
-from onlyalpha.indicator.factory import OnlyIndicatorCreateRequest, OnlyIndicatorFactory
+from onlyalpha.indicator.factory import OnlyIndicatorCreateRequest
 from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
 from onlyalpha.indicator.score import OnlyIndicatorScore
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
@@ -28,20 +31,42 @@ class OnlyIndicatorInstanceKey:
 
 class OnlyIndicatorFactoryRegistry:
     def __init__(self) -> None:
-        self._factories: dict[OnlyIndicatorTypeId, OnlyIndicatorFactory] = {}
+        self._calculations = OnlyCalculationRegistry()
+        self._factories: dict[OnlyIndicatorTypeId, OnlyCalculationBackendRegistration] = {}
 
-    def register(self, factory: OnlyIndicatorFactory) -> None:
-        key = factory.indicator_type
+    def register(self, registration: OnlyCalculationBackendRegistration) -> None:
+        factory = registration.factory
+        key = getattr(factory, "indicator_type", None)
+        if not isinstance(key, OnlyIndicatorTypeId):
+            raise TypeError("Indicator backend factory must expose indicator_type")
         if key in self._factories:
             raise ValueError(f"duplicate indicator factory: {key}")
-        self._factories[key] = factory
+        if registration.type_definition.kind is not OnlyCalculationKind.INDICATOR:
+            raise TypeError("Indicator registry accepts Indicator definitions only")
+        self._calculations.register(registration)
+        self._factories[key] = registration
 
     def create(self, request: OnlyIndicatorCreateRequest) -> OnlyBarIndicator[OnlyIndicatorSnapshot]:
         try:
-            factory = self._factories[request.indicator_type]
+            registration = self._factories[request.indicator_type]
         except KeyError as exc:
             raise ValueError(f"unknown indicator type: {request.indicator_type}") from exc
-        return factory.create(request)
+        factory = registration.factory
+        resolve_definition = getattr(factory, "resolve_definition", None)
+        if not callable(resolve_definition):
+            raise TypeError("Indicator backend factory must define resolve_definition()")
+        definition = resolve_definition(request.parameters)
+        OnlyCalculationGraphDefinition((OnlyCalculationNodeDefinition(definition),))
+        resolved = self._calculations.resolve(
+            OnlyCalculationKind.INDICATOR,
+            definition.type_id,
+            definition.semantic_version,
+            OnlyCalculationBackendKind.TRADING,
+        )
+        indicator = resolved.factory.create(definition, request)
+        if not isinstance(indicator, OnlyBarIndicator):
+            raise TypeError("Indicator backend factory returned an invalid trading backend")
+        return indicator
 
 
 class OnlyIndicatorRegistry:

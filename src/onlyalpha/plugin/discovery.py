@@ -12,6 +12,7 @@ ONLYALPHA_DATA_SOURCE_ENTRY_POINT = "onlyalpha.data_sources"
 ONLYALPHA_BROKER_ENTRY_POINT = "onlyalpha.brokers"
 ONLYALPHA_BROKER_FEE_CONTRACT_ENTRY_POINT = "onlyalpha.broker_fee_contracts"
 ONLYALPHA_MARKET_PRODUCT_ENTRY_POINT = "onlyalpha.market_products"
+ONLYALPHA_CALCULATION_ENTRY_POINT = "onlyalpha.calculations"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,7 @@ def only_discover_plugins(
     brokers: object,
     broker_fee_contracts: object,
     market_products: object,
+    calculations: object | None = None,
     *,
     fail_fast: bool,
 ) -> OnlyPluginDiscoveryReport:
@@ -52,6 +54,7 @@ def only_discover_plugins(
             ONLYALPHA_BROKER_ENTRY_POINT,
             ONLYALPHA_BROKER_FEE_CONTRACT_ENTRY_POINT,
             ONLYALPHA_MARKET_PRODUCT_ENTRY_POINT,
+            ONLYALPHA_CALCULATION_ENTRY_POINT,
         )
         for entry in selected.select(group=group)
     ]
@@ -66,6 +69,17 @@ def only_discover_plugins(
                 if isinstance(loaded, type) or (callable(loaded) and not hasattr(loaded, "descriptor"))
                 else loaded
             )
+            if entry.group == ONLYALPHA_CALCULATION_ENTRY_POINT:
+                if calculations is None:
+                    continue
+                registrations = factory if isinstance(factory, tuple) else tuple(factory)
+                register = getattr(calculations, "register", None)
+                if not callable(register):
+                    raise OnlyPluginDiscoveryError("PLUGIN_FACTORY_INVALID", "calculation registry has no register()")
+                for registration in registrations:
+                    register(registration)
+                records.append(OnlyPluginDiscoveryRecord(entry.group, entry.name, entry.name, str(origin)))
+                continue
             if entry.group == ONLYALPHA_DATA_SOURCE_ENTRY_POINT:
                 registry = data_sources
             elif entry.group == ONLYALPHA_BROKER_ENTRY_POINT:

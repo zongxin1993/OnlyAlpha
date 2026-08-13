@@ -3,12 +3,13 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from onlyalpha_plugin_indicators import OnlyMacdIndicator, OnlyMacdIndicatorConfig, OnlyMacdSnapshot
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
-from onlyalpha.indicator import OnlyIndicatorId, OnlyMacdIndicator, OnlyMacdIndicatorConfig, OnlyMacdSnapshot
+from onlyalpha.indicator import OnlyIndicatorId
 
 
 def _bar(config: OnlyClusterRunConfig, index: int, close: str) -> OnlyBar:

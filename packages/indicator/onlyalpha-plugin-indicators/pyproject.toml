@@ -1,0 +1,28 @@
+[project]
+name = "onlyalpha-plugin-indicators"
+version = "0.4.0"
+description = "Canonical trading Indicator backends for OnlyAlpha"
+requires-python = ">=3.12,<3.13"
+dependencies = ["onlyalpha==0.4.0"]
+
+[project.entry-points."onlyalpha.calculations"]
+standard-indicators = "onlyalpha_plugin_indicators.registration:registrations"
+
+[dependency-groups]
+dev = ["mypy>=1.15", "pytest>=8.4", "ruff>=0.11"]
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_plugin_indicators"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/onlyalpha_plugin_indicators"]
+

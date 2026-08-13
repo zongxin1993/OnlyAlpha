@@ -19,7 +19,7 @@
 - Factor 分为 TimeSeries 与 CrossSection，并由稳定依赖图和固定 Pipeline 调度。
 - Indicator 实例按 Runtime/Cluster/Factor/Indicator Scope 隔离。
 - YAML 由 Factor Config 解析 Indicator Spec；Runtime 和 Assembly 不实例化具体指标。
-- 通用指标留在 `src/onlyalpha/indicator/<type>/`；示例 Factor/Strategy 留在 `examples/`。
+- P7.0 前通用指标位于 `src/onlyalpha/indicator/<type>/`；该 ownership 已由 ADR 0069 替代，concrete algorithm 迁移至 plugin。
 - 通用 Backtest Result 通过 Cluster 扩展、Factor 结果和 Indicator diagnostics 输出，不依赖具体算法类型。
 
 ## Rejected alternatives

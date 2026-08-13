@@ -23,6 +23,8 @@ dev = [
     "tomlkit>=0.13",
     "twine>=6",
     "onlyalpha-test-plugin",
+    "onlyalpha-plugin-indicators",
+    "onlyalpha-plugin-factors",
     "import-linter>=2.13",
     "hypothesis>=6.165.5",
     "crosshair-tool>=0.0.109",
@@ -41,6 +43,8 @@ members = [
     "packages/market/onlyalpha-market-cn-ashare",
     "packages/provider/onlyalpha-plugin-tushare",
     "packages/provider/onlyalpha-plugin-miniqmt",
+    "packages/indicator/onlyalpha-plugin-indicators",
+    "packages/factor/onlyalpha-plugin-factors",
 ]
 
 [build-system]
@@ -64,10 +68,16 @@ quote-style = "double"
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src/onlyalpha"]
+files = [
+    "src/onlyalpha",
+    "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
+    "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+]
 
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
+onlyalpha-plugin-indicators = { workspace = true }
+onlyalpha-plugin-factors = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -150,6 +160,8 @@ forbidden_modules = [
     "onlyalpha_plugin_tushare",
     "onlyalpha_market_cn_ashare",
     "onlyalpha_market_generic_t0_cash",
+    "onlyalpha_plugin_indicators",
+    "onlyalpha_plugin_factors",
 ]
 
 [tool.coverage.run]

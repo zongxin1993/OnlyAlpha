@@ -2,10 +2,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
+from onlyalpha_plugin_indicators import OnlyMacdSnapshot
+
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.factor.identifiers import OnlyFactorId
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
-from onlyalpha.indicator.macd import OnlyMacdSnapshot
 
 
 @dataclass(frozen=True, slots=True)

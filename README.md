@@ -21,7 +21,25 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | Primary runtime | Backtest |
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
+| P7.0 status | Canonical Calculation Definition / DAG / plugin boundary implemented |
 | License | MIT |
+
+---
+
+## Calculation Definition Authority
+
+Indicator 与 Factor 的正式身份由 Core 中 immutable、Runtime-independent 的 Calculation Definition 表达：
+
+```text
+type_id + semantic_version + resolved parameters + input bindings
++ output/warmup/missing/timestamp/numeric semantics
+→ canonical JSON → SHA-256 fingerprint
+```
+
+human alias、Python class path、文件路径、进程/时间和 Runtime identity 不进入 semantic fingerprint。Core 只拥有
+Definition、Graph 和 Registry contract；现有 9 个 concrete trading Indicator backend 位于
+`onlyalpha-plugin-indicators`，通过 `onlyalpha.calculations` entry point 确定性注册。当前没有 Research backend，也没有
+为了填充 package 而虚构 concrete Factor。
 
 ---
 

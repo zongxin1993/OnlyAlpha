@@ -16,7 +16,7 @@ def test_common_config_and_assembler_do_not_import_concrete_components() -> None
         "onlyalpha.data.synthetic",
         "onlyalpha.broker.virtual",
         "onlyalpha.strategy.macd",
-        "onlyalpha.indicator.macd",
+        "onlyalpha_plugin_indicators",
     )
     paths = [*Path("src/onlyalpha/config").glob("*.py"), Path("src/onlyalpha/runtime/assembler.py")]
     for path in paths:
@@ -32,7 +32,7 @@ def test_concrete_implementations_live_below_parent_component_packages() -> None
         "src/onlyalpha/runtime/research/runtime.py",
         "src/onlyalpha/data/synthetic/source.py",
         "packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual/gateway.py",
-        "src/onlyalpha/indicator/macd/indicator.py",
+        "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/macd.py",
     )
     assert all(Path(path).is_file() for path in required)
 

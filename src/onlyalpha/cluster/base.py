@@ -94,9 +94,7 @@ class OnlyCluster:
         if unknown:
             raise ValueError(f"Strategy references unknown required Factors: {sorted(unknown)}")
         if indicator_factories is None:
-            from onlyalpha.indicator import only_default_indicator_factories
-
-            indicator_factories = only_default_indicator_factories()
+            indicator_factories = OnlyIndicatorFactoryRegistry()
         if not isinstance(indicator_factories, OnlyIndicatorFactoryRegistry):
             raise TypeError("Cluster requires an OnlyIndicatorFactoryRegistry")
         self._indicator_factories = indicator_factories

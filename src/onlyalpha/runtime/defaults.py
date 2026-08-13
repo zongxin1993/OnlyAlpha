@@ -14,7 +14,7 @@ from onlyalpha.fee.reconciliation_policy import (
     OnlyFeeReconciliationPolicyRegistry,
     only_standard_fee_reconciliation_policy,
 )
-from onlyalpha.indicator import only_default_indicator_factories
+from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
@@ -50,17 +50,19 @@ def only_default_engine_services(
     brokers = OnlyBrokerFactoryRegistry()
     broker_contracts = OnlyBrokerFeeContractRegistry()
     market_products = OnlyMarketProductFactoryRegistry()
+    indicators = OnlyIndicatorFactoryRegistry()
     discovery = only_discover_plugins(
         data_sources,
         brokers,
         broker_contracts,
         market_products,
+        indicators,
         fail_fast=fail_fast,
     )
     clusters = OnlyClusterFactory(
         OnlyStrategyFactory(),
         OnlyFactorFactory(),
-        only_default_indicator_factories(),
+        indicators,
     )
     runtimes = OnlyRuntimeFactoryRegistry()
     runtimes.register(OnlyBacktestRuntimeFactory())
