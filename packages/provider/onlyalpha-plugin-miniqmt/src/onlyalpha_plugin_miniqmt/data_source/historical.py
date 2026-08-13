@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -6,6 +7,8 @@ from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
 from onlyalpha.data.models import OnlyBarUpdate, OnlyHistoricalBarRequest, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
@@ -23,8 +26,32 @@ def load_bars(
     create_request: OnlyDataSourceCreateRequest,
     request: OnlyHistoricalBarRequest,
 ) -> tuple[OnlyMarketDataInboundUpdate, ...]:
-    records: list[OnlyMarketDataInboundUpdate] = []
-    sequence = 0
+    bars = load_normalized_bars(xtdata, create_request.instruments, request)
+    return tuple(
+        OnlyMarketDataInboundUpdate(
+            update_id=OnlyMarketDataUpdateId(f"miniqmt-{sequence}"),
+            runtime_id=create_request.runtime_id,
+            source_id=create_request.source_id,
+            source_sequence=OnlyDataSequence(sequence),
+            data_version=request.data_version,
+            instrument_id=bar.instrument_id,
+            data_type=OnlyMarketDataType.BAR,
+            payload=OnlyBarUpdate(bar),
+            ts_event=OnlyTimestamp.from_datetime(bar.ts_event),
+            ts_init=OnlyTimestamp.from_datetime(bar.ts_init),
+        )
+        for sequence, bar in enumerate(bars, start=1)
+    )
+
+
+def load_normalized_bars(
+    xtdata: Any,
+    instruments: Mapping[OnlyInstrumentId, OnlyInstrument],
+    request: OnlyHistoricalBarRequest,
+) -> tuple[OnlyBar, ...]:
+    """Normalize vendor history without a Trading Runtime resource request."""
+
+    records: list[OnlyBar] = []
     for bar_type in sorted(request.bar_types, key=str):
         minutes = bar_type.specification.step
         period = PERIODS.get(minutes)
@@ -66,8 +93,7 @@ def load_bars(
             seen.add(event)
             if not valid_ohlc(row):
                 raise ValueError(f"invalid OHLC for {symbol} at {event.isoformat()}")
-            sequence += 1
-            precision = create_request.instruments[bar_type.instrument_id].price_precision
+            precision = instruments[bar_type.instrument_id].price_precision
             bar = OnlyBar(
                 bar_type=bar_type,
                 open=OnlyPrice(quantized_decimal(row["open"], precision), precision),
@@ -93,20 +119,7 @@ def load_bars(
                 trading_day=local_trading_day if minutes == 1440 else event.date(),
                 session_type=OnlySessionType.REGULAR,
             )
-            records.append(
-                OnlyMarketDataInboundUpdate(
-                    update_id=OnlyMarketDataUpdateId(f"miniqmt-{sequence}"),
-                    runtime_id=create_request.runtime_id,
-                    source_id=create_request.source_id,
-                    source_sequence=OnlyDataSequence(sequence),
-                    data_version=request.data_version,
-                    instrument_id=bar.instrument_id,
-                    data_type=OnlyMarketDataType.BAR,
-                    payload=OnlyBarUpdate(bar),
-                    ts_event=OnlyTimestamp.from_datetime(event),
-                    ts_init=OnlyTimestamp.from_datetime(event),
-                )
-            )
+            records.append(bar)
     return tuple(records)
 
 

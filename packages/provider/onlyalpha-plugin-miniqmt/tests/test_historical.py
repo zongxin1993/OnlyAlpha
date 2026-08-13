@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from onlyalpha_plugin_miniqmt.data_source.historical import load_bars
+from onlyalpha_plugin_miniqmt.data_source.historical import load_bars, load_normalized_bars
 from onlyalpha_plugin_miniqmt.data_source.provider import (
     OnlyMiniQmtHistoricalDataProvider,
 )
@@ -11,8 +11,9 @@ from onlyalpha.cache.historical import (
     OnlyHistoricalCacheService,
     OnlyParquetHistoricalCacheStore,
 )
-from onlyalpha.cache.historical.models import OnlyCachePolicy, OnlyHistoricalDataRequest
+from onlyalpha.cache.historical.models import OnlyCachePolicy
 from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.domain.enums import (
@@ -123,6 +124,17 @@ def test_history_is_sorted_deduplicated_and_utc() -> None:
     assert source.queries[0][0][0] == ["time", "open", "high", "low", "close", "volume"]
 
 
+def test_narrow_provider_normalization_matches_trading_historical_path() -> None:
+    rows = [
+        {"time": 1_767_576_600_000, "open": "10.00", "high": "10.03", "low": "9.99", "close": "10.02", "volume": 100}
+    ]
+    request = _request()
+    create = _create_request(request)
+    trading = load_bars(OnlyFakeXtData(rows), create, request)
+    narrow = load_normalized_bars(OnlyFakeXtData(rows), create.instruments, request)
+    assert tuple(item.payload.bar for item in trading) == narrow
+
+
 def test_invalid_ohlc_is_rejected() -> None:
     source = OnlyFakeXtData(
         [
@@ -183,7 +195,13 @@ def test_cache_only_second_load_does_not_call_xtquant(tmp_path) -> None:
         bar_type,
         OnlyTimeRange(request.data_range.start_time, datetime(2026, 1, 5, 1, 31, tzinfo=UTC)),
     )
-    provider = OnlyMiniQmtHistoricalDataProvider(source, create, request.data_version, request.batch_size)
+    provider = OnlyMiniQmtHistoricalDataProvider(
+        source,
+        create.source_id,
+        create.instruments[bar_type.instrument_id],
+        request.data_version,
+        request.batch_size,
+    )
     service = OnlyHistoricalCacheService(OnlyParquetHistoricalCacheStore(tmp_path))
     first = service.load(cache_request, provider)
     downloads = len(source.downloads)

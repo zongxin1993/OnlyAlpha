@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from onlyalpha.cache.historical.models import (
+from onlyalpha.data.historical import (
     OnlyDataQualityIssue,
     OnlyDataQualitySeverity,
 )

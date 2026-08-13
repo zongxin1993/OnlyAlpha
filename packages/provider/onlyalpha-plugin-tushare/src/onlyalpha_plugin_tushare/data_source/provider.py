@@ -4,13 +4,9 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from decimal import Decimal
 
-from onlyalpha.cache.historical.models import (
-    OnlyDataQualityReport,
-    OnlyHistoricalCacheKey,
-    OnlyHistoricalDataRequest,
-    OnlyHistoricalFetchResult,
-)
+from onlyalpha.cache.historical.models import OnlyHistoricalCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange, only_merge_ranges
+from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,

@@ -26,6 +26,10 @@ class OnlyUserDataLayout:
     def historical_market_data_cache_root(self) -> Path:
         return self.root / "cache" / "market_data"
 
+    @property
+    def research_dataset_root(self) -> Path:
+        return self.root / "research" / "datasets"
+
     def run_root(self, engine_id: OnlyEngineId, run_id: str) -> Path:
         return self.root / "runs" / str(engine_id) / run_id
 

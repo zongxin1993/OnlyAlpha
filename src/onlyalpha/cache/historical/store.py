@@ -18,12 +18,10 @@ from onlyalpha.cache.historical.models import (
     OnlyCacheInspection,
     OnlyCacheManifest,
     OnlyCacheWriteResult,
-    OnlyDataQualityIssue,
-    OnlyDataQualitySeverity,
     OnlyHistoricalCacheKey,
-    OnlyHistoricalFetchResult,
 )
 from onlyalpha.core.ranges import OnlyTimeRange, only_merge_ranges, only_missing_ranges
+from onlyalpha.data.historical import OnlyDataQualityIssue, OnlyDataQualitySeverity, OnlyHistoricalFetchResult
 from onlyalpha.domain.market import OnlyBar
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import (
     OnlyMarketDataCapability,
@@ -8,6 +7,7 @@ from onlyalpha.data.enums import (
     OnlyMarketDataRequestStatus,
     OnlyMarketDataType,
 )
+from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyMarketDataGatewayId,

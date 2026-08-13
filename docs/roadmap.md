@@ -172,10 +172,12 @@ Bollinger、Rolling Return、Rolling Volatility 与 ZScore trading backend 已�
 固定版本 reference、Factor semantic identity 边界和官方 Indicator plugin-owned characterization/coverage。最终 SHA 的
 Layered Quality、CodeQL 与 Semgrep 仍需远端证据，因此这里只声明本地验收事实。
 
-### P7.1 — Research Dataset Snapshot & Deterministic Dataset Identity（READY / 未实现）
+### P7.1 — Research Dataset Snapshot & Deterministic Dataset Identity（Implemented locally）
 
-下一阶段只在 P7.0 最终 SHA 远端门禁完成后开始；不得把当前 Calculation Foundation 误写成 Dataset、Research backend、
-Calculation Store 或 Research Runtime 已实现。
+已实现 Historical Closed Bar Dataset v1、resolved Definition、exact columnar schema、provider/path/partition-independent identity、
+immutable content-addressed Parquet Store、strict materialization、provenance 分离与 Research/Trading architecture firewall。Historical
+Cache 仍是 acquisition optimization，不是 Dataset authority。Research Runtime、Research Calculation backend、Calculation Store、
+Research Result 和 Artifact 仍未实现；P7.1 只有在 exact final-SHA remote certification 完成后才能标记 CERTIFIED。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

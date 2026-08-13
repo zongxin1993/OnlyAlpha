@@ -4,7 +4,6 @@ from datetime import timedelta
 from threading import Lock
 from typing import Any
 
-from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import (
     OnlyMarketDataCapability,
@@ -12,6 +11,7 @@ from onlyalpha.data.enums import (
     OnlyMarketDataRequestStatus,
     OnlyMarketDataType,
 )
+from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyMarketDataGatewayId,
@@ -170,12 +170,16 @@ class OnlyMiniQmtDataSource:
         if self._request.historical_cache_service is not None:
             from .provider import OnlyMiniQmtHistoricalDataProvider
 
-            provider = OnlyMiniQmtHistoricalDataProvider(
-                self._xtdata, self._request, request.data_version, request.batch_size
-            )
             updates: list[OnlyMarketDataInboundUpdate] = []
             sequence = 0
             for bar_type in sorted(request.bar_types, key=str):
+                provider = OnlyMiniQmtHistoricalDataProvider(
+                    self._xtdata,
+                    self._request.source_id,
+                    self._request.instruments[bar_type.instrument_id],
+                    request.data_version,
+                    request.batch_size,
+                )
                 cache_request = OnlyHistoricalDataRequest(
                     bar_type.instrument_id,
                     bar_type,
@@ -210,8 +214,8 @@ class OnlyMiniQmtDataSource:
         return OnlyHistoricalDataStream(load_bars(self._xtdata, self._request, request), request.batch_size)
 
     def load_warmup(self, request: OnlyHistoricalWarmupRequest) -> OnlyHistoricalWarmupResult:
-        from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
         from onlyalpha.core.ranges import OnlyTimeRange
+        from onlyalpha.data.historical import OnlyHistoricalDataRequest
 
         from ..historical_worker.cache import (
             OnlyMiniQmtIsolatedWarmupCacheProvider,

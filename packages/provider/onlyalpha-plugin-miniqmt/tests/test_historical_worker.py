@@ -20,8 +20,8 @@ from onlyalpha_plugin_miniqmt.historical_worker.query import query_history
 from onlyalpha_plugin_miniqmt.historical_worker.validation import normalize_rows, validate_records
 
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
-from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.data.warmup import (
     OnlyHistoricalValidationError,

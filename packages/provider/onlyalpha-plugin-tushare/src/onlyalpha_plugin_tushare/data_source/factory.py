@@ -1,10 +1,14 @@
 from collections.abc import Mapping, Sequence
 
+from onlyalpha.data.historical import OnlyHistoricalDataProviderCreateRequest
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from ..config import OnlyTushareConfig
 from ..descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR
+from ..sdk.adapter import OnlyTushareSdkClient
+from ..sdk.loader import load_tushare
+from .provider import OnlyTushareHistoricalDataProvider
 from .resource import OnlyTushareHistoricalDataSource
 
 
@@ -26,6 +30,19 @@ class OnlyTushareDataSourceFactory:
             request.plugin_config if isinstance(request.plugin_config, OnlyTushareConfig) else self.parse_config({})
         )
         return OnlyTushareHistoricalDataSource(request, config)
+
+    def create_historical_provider(
+        self, request: OnlyHistoricalDataProviderCreateRequest
+    ) -> OnlyTushareHistoricalDataProvider:
+        config = (
+            request.plugin_config if isinstance(request.plugin_config, OnlyTushareConfig) else self.parse_config({})
+        )
+        return OnlyTushareHistoricalDataProvider(
+            str(request.source_id),
+            request.instrument,
+            request.calendar,
+            lambda: OnlyTushareSdkClient(load_tushare(), config.resolve_token()),
+        )
 
 
 factory = OnlyTushareDataSourceFactory()

@@ -3,14 +3,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
-from onlyalpha.cache.historical.models import (
-    OnlyCachePolicy,
-    OnlyDataQualityReport,
-    OnlyHistoricalCacheKey,
-    OnlyHistoricalDataRequest,
-    OnlyHistoricalFetchResult,
-)
+from onlyalpha.cache.historical.models import OnlyCachePolicy, OnlyHistoricalCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange, only_merge_ranges, only_missing_ranges
+from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.domain.errors import OnlyValidationError
 
 from ..domain_conformance.support.market_data import build_bar

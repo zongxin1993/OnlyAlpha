@@ -5,8 +5,8 @@ from onlyalpha_plugin_tushare.data_source.provider import (
     OnlyTushareHistoricalDataProvider,
 )
 
-from onlyalpha.cache.historical.models import OnlyHistoricalDataRequest
 from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.data.historical import OnlyHistoricalDataRequest
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from tests.support.provider_frames import OnlyFakeFrame, row
 

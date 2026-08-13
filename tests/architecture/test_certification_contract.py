@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from scripts.certification import REQUIRED_GATES, build_evidence
@@ -62,3 +64,11 @@ def test_subject_identity_must_be_full_immutable_sha() -> None:
             workflow_url="https://example.invalid/actions/runs/123",
             gate_values=_gate_values(),
         )
+
+
+def test_quality_and_certification_require_research_dataset_lane_and_coverage() -> None:
+    quality = Path(".github/workflows/quality.yml").read_text()
+    certification = Path(".github/workflows/certification.yml").read_text()
+    assert "research-dataset" in quality and "research-dataset --coverage" in quality
+    assert "research-dataset" in certification and "research-dataset --coverage" in certification
+    assert '"$COVERAGE_RESULT" = success' in quality

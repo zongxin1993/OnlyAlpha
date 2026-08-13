@@ -22,6 +22,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7.0 status | **ACCEPTED locally** — contract/verification closure complete; final-SHA remote quality evidence required |
+| P7.1 status | Dataset Snapshot foundation implemented locally; final-SHA remote certification required |
 | License | MIT |
 
 ---
@@ -45,8 +46,11 @@ P7.0.1 已冻结 Definition schema v2 / Graph schema v1 的 exact/fail-closed re
 semantic type/unit）、backend-neutral Registry 与 Trading resolver、显式 `type_id@semantic_version` reference，以及官方
 Indicator 插件自有 characterization/coverage。旧 built-in token 只通过固定映射解析到 `@1`，不会选择 latest。当前
 Factor config 也显式携带 exact reference，并在 implementation load 后验证一致；Python class path 只负责定位代码，不是
-semantic identity。官方 Factor plugin 仍为空。Research backend、Dataset Snapshot、Calculation Store 与 Research Runtime
-尚未实现。
+semantic identity。官方 Factor plugin 仍为空。Research backend、Calculation Store 与 Research Runtime 尚未实现。
+
+P7.1 建立 Historical Closed Bar Dataset v1：resolved Definition、exact Decimal/precision-preserving columnar schema、provider-independent
+canonical content identity、immutable content-addressed Parquet Snapshot Store、strict materialization 与独立 provenance。Historical Cache
+仍只是 acquisition optimization；Research Runtime、Research Calculation backend、Calculation Store 与 Research Result 尚未实现。
 
 ---
 

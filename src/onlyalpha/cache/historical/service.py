@@ -1,14 +1,12 @@
 """Policy orchestration for historical cache reads and provider fetches."""
 
-from onlyalpha.cache.historical.api import OnlyHistoricalCacheStore, OnlyHistoricalDataProvider
+from onlyalpha.cache.historical.api import OnlyHistoricalCacheProvider, OnlyHistoricalCacheStore
 from onlyalpha.cache.historical.models import (
     OnlyCachePolicy,
     OnlyCacheStatistics,
-    OnlyDataQualityReport,
-    OnlyHistoricalDataRequest,
     OnlyHistoricalDataResult,
 )
-from onlyalpha.cache.historical.validation import only_validate_historical_bars
+from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, only_validate_historical_bars
 
 
 class OnlyHistoricalCacheError(RuntimeError):
@@ -22,7 +20,7 @@ class OnlyHistoricalCacheService:
     def load(
         self,
         request: OnlyHistoricalDataRequest,
-        provider: OnlyHistoricalDataProvider,
+        provider: OnlyHistoricalCacheProvider,
         policy: OnlyCachePolicy = OnlyCachePolicy.PREFER_CACHE,
     ) -> OnlyHistoricalDataResult:
         key = provider.build_cache_key(request)
@@ -39,7 +37,7 @@ class OnlyHistoricalCacheService:
             fetched = provider.fetch(request, time_range)
             rows_fetched += len(fetched.records)
             issues.extend(fetched.quality_report.issues)
-            validation = only_validate_historical_bars(key, fetched.records)
+            validation = only_validate_historical_bars(key.instrument_id, key.bar_type, fetched.records)
             issues.extend(validation.issues)
             if not fetched.quality_report.valid or not validation.valid:
                 raise OnlyHistoricalCacheError("provider data failed strict historical Bar validation")
@@ -48,7 +46,7 @@ class OnlyHistoricalCacheService:
         if not final.valid or final.manifest is None:
             raise OnlyHistoricalCacheError("cache remains incomplete after fetch")
         records = self._store.read(key, request.time_range)
-        validation = only_validate_historical_bars(key, records)
+        validation = only_validate_historical_bars(key.instrument_id, key.bar_type, records)
         if not validation.valid:
             raise OnlyHistoricalCacheError("cached data failed validation")
         report = OnlyDataQualityReport(not any(item.severity.value == "error" for item in issues), tuple(issues))

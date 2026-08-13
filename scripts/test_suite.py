@@ -23,6 +23,7 @@ WORKSPACE_TESTS = (
 
 class OnlyTestLane(StrEnum):
     CALCULATION = "calculation"
+    RESEARCH_DATASET = "research-dataset"
     FAST = "fast"
     INTEGRATION = "integration"
     ASHARE = "ashare"
@@ -52,6 +53,20 @@ LANES = {
             "tests/plugin/test_calculation_plugin_discovery.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
             "packages/indicator/onlyalpha-plugin-indicators/tests",
+        ),
+        "not external",
+        "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_DATASET: Lane(
+        (
+            "tests/research/dataset",
+            "tests/cache",
+            "tests/architecture/test_research_dataset_boundaries.py",
+            "tests/architecture/test_historical_provider_boundaries.py",
+            "packages/provider/onlyalpha-plugin-tushare/tests/test_provider.py",
+            "packages/provider/onlyalpha-plugin-tushare/tests/test_historical.py",
+            "packages/provider/onlyalpha-plugin-miniqmt/tests/test_historical.py",
         ),
         "not external",
         "4",
@@ -158,6 +173,7 @@ def release(args: argparse.Namespace) -> int:
             return code
     for lane in (
         OnlyTestLane.CALCULATION,
+        OnlyTestLane.RESEARCH_DATASET,
         OnlyTestLane.CORE_FULL,
         OnlyTestLane.RECOVERY,
         OnlyTestLane.SIM_RECOVERY,
@@ -210,9 +226,17 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         coverage_source = (
             "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators"
             if name is OnlyTestLane.CALCULATION
+            else "src/onlyalpha/research/dataset"
+            if name is OnlyTestLane.RESEARCH_DATASET
             else "src/onlyalpha"
         )
-        coverage_output = "calculation-coverage" if name is OnlyTestLane.CALCULATION else "coverage"
+        coverage_output = (
+            "calculation-coverage"
+            if name is OnlyTestLane.CALCULATION
+            else "research-dataset-coverage"
+            if name is OnlyTestLane.RESEARCH_DATASET
+            else "coverage"
+        )
         command.extend(
             [
                 f"--cov={coverage_source}",
@@ -242,13 +266,22 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             ROOT
             / "test-results"
             / "coverage"
-            / ("calculation-coverage.json" if name is OnlyTestLane.CALCULATION else "coverage.json")
+            / (
+                "calculation-coverage.json"
+                if name is OnlyTestLane.CALCULATION
+                else "research-dataset-coverage.json"
+                if name is OnlyTestLane.RESEARCH_DATASET
+                else "coverage.json"
+            )
         )
         if coverage_path.is_file():
             totals = json.loads(coverage_path.read_text(encoding="utf-8"))["totals"]
             line_rate = 100 * totals["covered_lines"] / totals["num_statements"]
             branch_rate = 100 * totals["covered_branches"] / totals["num_branches"]
             print(f"Coverage baseline: lines={line_rate:.2f}% branches={branch_rate:.2f}%")
+            if name is OnlyTestLane.RESEARCH_DATASET and branch_rate < 70:
+                print("Research Dataset branch coverage must be at least 70%", file=sys.stderr)
+                code = 1
     if metric_path.is_file():
         metrics = json.loads(metric_path.read_text(encoding="utf-8"))
         print(f"Lane {name.value}: {metrics['collected']} collected in {metrics['total_seconds']:.2f}s")

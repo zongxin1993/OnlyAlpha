@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from onlyalpha.cache.historical.models import (
-    OnlyDataQualityReport,
-    OnlyHistoricalCacheKey,
-    OnlyHistoricalDataRequest,
-    OnlyHistoricalFetchResult,
-)
+from onlyalpha.cache.historical.models import OnlyHistoricalCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange
+from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
 from onlyalpha.data.warmup import OnlyHistoricalWarmupRequest, OnlyHistoricalWarmupStatus
 
 from .client import OnlyMiniQmtHistoricalIsolatedClient

@@ -1,11 +1,13 @@
 from collections.abc import Mapping, Sequence
 
+from onlyalpha.data.historical import OnlyHistoricalDataProviderCreateRequest
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 
 from ..config import OnlyMiniQmtConfig
 from ..descriptor import DATA_CAPABILITIES, DATA_DESCRIPTOR
 from ..sdk.loader import load_xtquant
+from .provider import OnlyMiniQmtHistoricalDataProvider
 from .resource import OnlyMiniQmtDataSource
 
 
@@ -28,6 +30,22 @@ class OnlyMiniQmtDataSourceFactory:
         config.require_path()
         sdk = load_xtquant()
         return OnlyMiniQmtDataSource(request, config, sdk.xtdata)
+
+    def create_historical_provider(
+        self, request: OnlyHistoricalDataProviderCreateRequest
+    ) -> OnlyMiniQmtHistoricalDataProvider:
+        config = (
+            request.plugin_config if isinstance(request.plugin_config, OnlyMiniQmtConfig) else self.parse_config({})
+        )
+        config.require_path()
+        sdk = load_xtquant()
+        return OnlyMiniQmtHistoricalDataProvider(
+            sdk.xtdata,
+            request.source_id,
+            request.instrument,
+            request.data_version,
+            request.batch_size,
+        )
 
 
 factory = OnlyMiniQmtDataSourceFactory()

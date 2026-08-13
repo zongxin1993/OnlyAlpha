@@ -2,36 +2,34 @@
 
 from typing import Any
 
-from onlyalpha.cache.historical.models import (
-    OnlyDataQualityReport,
-    OnlyHistoricalCacheKey,
-    OnlyHistoricalDataRequest,
-    OnlyHistoricalFetchResult,
-)
+from onlyalpha.cache.historical.models import OnlyHistoricalCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange
-from onlyalpha.data.identifiers import OnlyDataVersion
-from onlyalpha.data.models import OnlyBarUpdate, OnlyHistoricalBarRequest, OnlyHistoricalDataRange
-from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
+from onlyalpha.data.historical import OnlyDataQualityReport, OnlyHistoricalDataRequest, OnlyHistoricalFetchResult
+from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
+from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
+from onlyalpha.domain.instrument import OnlyInstrument
 
-from .historical import load_bars
+from .historical import load_normalized_bars
 
 
 class OnlyMiniQmtHistoricalDataProvider:
     def __init__(
         self,
         xtdata: Any,
-        create_request: OnlyDataSourceCreateRequest,
+        source_id: OnlyMarketDataSourceId,
+        instrument: OnlyInstrument,
         data_version: OnlyDataVersion,
         batch_size: int,
     ) -> None:
         self._xtdata = xtdata
-        self._create_request = create_request
+        self._source_id = source_id
+        self._instrument = instrument
         self._data_version = data_version
         self._batch_size = batch_size
 
     def build_cache_key(self, request: OnlyHistoricalDataRequest) -> OnlyHistoricalCacheKey:
         return OnlyHistoricalCacheKey(
-            str(self._create_request.source_id),
+            str(self._source_id),
             "bars",
             request.instrument_id,
             request.bar_type,
@@ -49,8 +47,11 @@ class OnlyMiniQmtHistoricalDataProvider:
             self._data_version,
             batch_size=self._batch_size,
         )
-        updates = load_bars(self._xtdata, self._create_request, source_request)
-        bars = tuple(item.payload.bar for item in updates if isinstance(item.payload, OnlyBarUpdate))
+        bars = load_normalized_bars(
+            self._xtdata,
+            {request.instrument_id: self._instrument},
+            source_request,
+        )
         coverage = (
             (
                 OnlyTimeRange(

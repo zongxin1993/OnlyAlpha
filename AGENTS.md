@@ -421,6 +421,10 @@ Research Artifact state
 
 Research 不得仅为满足共享父类、Manager 数量对称或代码复用而创建 Order、Position、Account、Broker、Reservation、Execution Transaction 等 Trading Authorities。当前 `OnlyRuntime` 基类和 `PAPER`/`SHADOW` 源码呈现的 trading-shaped 结构属于待迁移实现事实，不得反向定义 Research 目标模型。
 
+Research Dataset 的正式 authority 是 immutable Dataset Snapshot；Historical Cache 只负责 acquisition optimization，不是
+Dataset authority。Provider identity 只进入 provenance，不进入 Dataset semantic identity。`onlyalpha.research` 不得导入
+Trading authorities，Dataset Store 不得提供 append、update、overwrite 或 invalidate 语义。
+
 当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
 
 Backtest / Sim / Live 追求 Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。差异主要限于：
