@@ -14,6 +14,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.config.models import (
     OnlyAccountRuntimeConfig,
     OnlyBarSpecificationConfig,
@@ -657,6 +658,11 @@ class _OnlyClusterDocumentParser:
         return OnlyFactorImportConfig(
             OnlyFactorId(self._str(raw.get("factor_id"), f"{path}.factor_id")),
             self._str(raw.get("factor_type"), f"{path}.factor_type").upper(),
+            OnlyCalculationTypeReference(
+                OnlyCalculationKind.FACTOR,
+                self._str(raw.get("type_id"), f"{path}.type_id"),
+                self._str(raw.get("semantic_version"), f"{path}.semantic_version"),
+            ),
             self._str(raw.get("class_path"), f"{path}.class_path"),
             self._str(raw.get("config_path"), f"{path}.config_path"),
             OnlyStrategySubscriptionConfig(instrument_bars, universe_bars),

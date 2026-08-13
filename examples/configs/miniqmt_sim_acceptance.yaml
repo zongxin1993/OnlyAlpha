@@ -112,6 +112,8 @@ strategy:
 factors:
   - factor_id: sim-macd-signal
     factor_type: TIME_SERIES
+    type_id: examples.factor.macd_signal
+    semantic_version: "1"
     class_path: examples.factor.time_series.macd_signal.factor:OnlyMacdSignalFactor
     config_path: examples.factor.time_series.macd_signal.config:OnlyMacdSignalFactorConfig
     required: true

@@ -83,9 +83,13 @@ def test_registry_creates_default_rsi_and_rejects_unknown_or_duplicate_factory()
         rsi.update_bar(_bar(index, str(index + 1)))
     assert isinstance(rsi.snapshot(), OnlyRsiSnapshot)
     assert rsi.ready
-    with pytest.raises(ValueError, match="unknown indicator type"):
+    with pytest.raises(ValueError, match="include @semantic_version"):
         registry.create(
             OnlyIndicatorCreateRequest(type(RSI)("vendor.custom"), OnlyIndicatorId("custom"), _bar_type(), {})
+        )
+    with pytest.raises(ValueError, match="unknown calculation type"):
+        registry.create(
+            OnlyIndicatorCreateRequest(type(RSI)("vendor.custom@1"), OnlyIndicatorId("custom"), _bar_type(), {})
         )
     with pytest.raises(ValueError, match="duplicate indicator factory"):
         registry.register(registrations()[-1])

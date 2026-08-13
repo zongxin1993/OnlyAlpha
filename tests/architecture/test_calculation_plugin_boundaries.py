@@ -34,3 +34,21 @@ def test_semantic_definition_layer_has_no_runtime_or_trading_authority_imports()
     for path in Path("src/onlyalpha/calculation").glob("*.py"):
         imports = _imports(path)
         assert not any(name.startswith(forbidden) for name in imports), (path, imports)
+
+
+def test_calculation_identity_has_one_authority_and_excludes_implementation_identity() -> None:
+    calculation = Path("src/onlyalpha/calculation")
+    fingerprint_calls: list[Path] = []
+    for path in calculation.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "only_canonical_fingerprint"
+            ):
+                fingerprint_calls.append(path)
+    assert set(fingerprint_calls) == {calculation / "definition.py", calculation / "graph.py"}
+    semantic_source = "\n".join(path.read_text(encoding="utf-8") for path in calculation.glob("*.py"))
+    for forbidden in ("class_path", "factor_path", "runtime_id", "cluster_id", "created_at", "uuid4"):
+        assert forbidden not in semantic_source

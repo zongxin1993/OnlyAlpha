@@ -251,7 +251,18 @@ class OnlyStandardBarIndicator(OnlyBarIndicator[OnlyIndicatorSnapshot]):
                 bool(snapshot["ready"]),
             )
             if kind == "OnlyRsiSnapshot":
-                self._snapshot = OnlyRsiSnapshot(*scalar, OnlyRsiZone(str(snapshot["zone"])))
+                value = scalar[3]
+                zone_value = snapshot.get("zone")
+                zone = (
+                    OnlyRsiZone(str(zone_value))
+                    if zone_value is not None
+                    else (
+                        OnlyRsiZone.NEUTRAL
+                        if value is None or Decimal(30) <= value <= Decimal(70)
+                        else (OnlyRsiZone.OVERSOLD if value < 30 else OnlyRsiZone.OVERBOUGHT)
+                    )
+                )
+                self._snapshot = OnlyRsiSnapshot(*scalar, zone)
             elif kind == "OnlyScalarIndicatorSnapshot":
                 self._snapshot = OnlyScalarIndicatorSnapshot(*scalar)
             else:

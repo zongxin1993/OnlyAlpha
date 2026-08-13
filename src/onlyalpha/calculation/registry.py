@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -27,7 +27,7 @@ class OnlyTradingBackendFactory(Protocol):
 class OnlyCalculationBackendRegistration:
     type_definition: OnlyCalculationTypeDefinition
     backend: OnlyCalculationBackendKind
-    factory: OnlyTradingBackendFactory
+    provider: object
 
 
 class OnlyCalculationRegistry:
@@ -41,10 +41,8 @@ class OnlyCalculationRegistry:
         key = (definition.kind, definition.type_id, definition.semantic_version, registration.backend)
         if key in self._registrations:
             raise ValueError(f"duplicate calculation backend registration: {key}")
-        if registration.backend is not OnlyCalculationBackendKind.TRADING:
-            raise ValueError("P7.0 accepts real TRADING backends only")
-        if not callable(getattr(registration.factory, "create", None)):
-            raise TypeError("calculation backend factory must define create()")
+        if registration.provider is None:
+            raise TypeError("calculation backend provider is required")
         self._registrations[key] = registration
 
     def resolve(
@@ -67,3 +65,22 @@ class OnlyCalculationRegistry:
             if backends:
                 raise ValueError(f"unsupported backend {backend} for {type_id}@{semantic_version}") from exc
             raise ValueError(f"unknown calculation type: {type_id}") from exc
+
+
+class OnlyTradingCalculationBackendResolver:
+    """Trading-only provider validation and mutable instance construction."""
+
+    def __init__(self, registry: OnlyCalculationRegistry) -> None:
+        self._registry = registry
+
+    def create(self, definition: OnlyCalculationDefinition, request: object) -> object:
+        registration = self._registry.resolve(
+            definition.kind,
+            definition.type_id,
+            definition.semantic_version,
+            OnlyCalculationBackendKind.TRADING,
+        )
+        provider = registration.provider
+        if not callable(getattr(provider, "create", None)):
+            raise TypeError("TRADING calculation backend provider must define create()")
+        return cast(OnlyTradingBackendFactory, provider).create(definition, request)

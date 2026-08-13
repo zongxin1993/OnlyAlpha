@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
-from onlyalpha.calculation.definition import OnlyCalculationDataType, OnlyCalculationDefinition
-from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.calculation.compatibility import only_calculation_output_compatibility
+from onlyalpha.calculation.definition import OnlyCalculationDefinition
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
+
+CALCULATION_GRAPH_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,9 +26,11 @@ class OnlyCalculationNodeDefinition:
 @dataclass(frozen=True, slots=True)
 class OnlyCalculationGraphDefinition:
     nodes: tuple[OnlyCalculationNodeDefinition, ...]
-    schema_version: int = 1
+    schema_version: int = CALCULATION_GRAPH_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
+        if self.schema_version != CALCULATION_GRAPH_SCHEMA_VERSION:
+            raise ValueError(f"unsupported calculation graph schema version: {self.schema_version}")
         by_fingerprint = {node.fingerprint: node for node in self.nodes}
         if len(by_fingerprint) != len(self.nodes):
             raise ValueError("calculation graph contains duplicate semantic nodes")
@@ -52,8 +59,9 @@ class OnlyCalculationGraphDefinition:
                 if output is None:
                     raise ValueError(f"calculation graph output is missing: {reference.output_name}")
                 expected = contracts[input_name]
-                if not _compatible(expected.data_type, expected.nullable, output.data_type, output.nullable):
-                    raise ValueError(f"calculation graph input is incompatible: {input_name}")
+                compatibility = only_calculation_output_compatibility(output, expected)
+                if not compatibility.compatible:
+                    raise ValueError(f"calculation graph input is incompatible: {input_name} ({compatibility.reason})")
                 visit(reference.node_fingerprint)
             state[fingerprint] = 2
 
@@ -93,11 +101,44 @@ class OnlyCalculationGraphDefinition:
             }
         )
 
+    def to_dict(self) -> Mapping[str, object]:
+        payload = only_canonical_payload(
+            {
+                "schema_version": self.schema_version,
+                "nodes": [
+                    {"definition": node.definition.to_dict(), "alias": node.alias} for node in self.ordered_nodes
+                ],
+            }
+        )
+        if not isinstance(payload, Mapping):
+            raise TypeError("canonical calculation graph must be an object")
+        return payload
 
-def _compatible(
-    expected_type: OnlyCalculationDataType,
-    expected_nullable: bool,
-    actual_type: OnlyCalculationDataType,
-    actual_nullable: bool,
-) -> bool:
-    return expected_type is actual_type and (expected_nullable or not actual_nullable)
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyCalculationGraphDefinition:
+        if set(payload) != {"schema_version", "nodes"}:
+            raise ValueError("calculation graph fields are invalid")
+        schema_version = payload["schema_version"]
+        if isinstance(schema_version, bool) or not isinstance(schema_version, int):
+            raise ValueError("calculation graph schema_version must be an integer")
+        if schema_version != CALCULATION_GRAPH_SCHEMA_VERSION:
+            raise ValueError(f"unsupported calculation graph schema version: {schema_version}")
+        nodes = payload["nodes"]
+        if not isinstance(nodes, list):
+            raise ValueError("calculation graph nodes must be an array")
+        result: list[OnlyCalculationNodeDefinition] = []
+        for item in nodes:
+            if not isinstance(item, Mapping) or set(item) != {"definition", "alias"}:
+                raise ValueError("calculation graph node fields are invalid")
+            definition = item["definition"]
+            alias = item["alias"]
+            if not isinstance(definition, Mapping):
+                raise ValueError("calculation graph node definition must be an object")
+            if alias is not None and not isinstance(alias, str):
+                raise ValueError("calculation graph node alias must be a string or null")
+            result.append(
+                OnlyCalculationNodeDefinition(
+                    OnlyCalculationDefinition.from_dict(cast(Mapping[str, object], definition)), alias
+                )
+            )
+        return cls(tuple(result), schema_version)

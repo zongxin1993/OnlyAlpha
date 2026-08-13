@@ -72,7 +72,15 @@ def only_discover_plugins(
             if entry.group == ONLYALPHA_CALCULATION_ENTRY_POINT:
                 if calculations is None:
                     continue
-                registrations = factory if isinstance(factory, tuple) else tuple(factory)
+                if isinstance(factory, tuple):
+                    registrations = factory
+                else:
+                    try:
+                        registrations = tuple(factory)
+                    except TypeError as exc:
+                        raise OnlyPluginDiscoveryError(
+                            "PLUGIN_FACTORY_INVALID", "calculation provider must return registrations"
+                        ) from exc
                 register = getattr(calculations, "register", None)
                 if not callable(register):
                     raise OnlyPluginDiscoveryError("PLUGIN_FACTORY_INVALID", "calculation registry has no register()")

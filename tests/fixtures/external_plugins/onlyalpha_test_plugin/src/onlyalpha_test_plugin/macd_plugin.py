@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from onlyalpha_plugin_indicators import OnlyMacdCrossState, OnlyMacdSnapshot
 
+from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import (
@@ -77,6 +78,8 @@ class OnlyTestMacdFactorConfig(OnlyFactorConfig):
 
 
 class OnlyTestMacdFactor(OnlyTimeSeriesFactor):
+    calculation_reference = OnlyCalculationTypeReference(OnlyCalculationKind.FACTOR, "onlyalpha.test.factor.macd", "1")
+
     def __init__(self, config: OnlyTestMacdFactorConfig) -> None:
         super().__init__(config)
         self.config = config

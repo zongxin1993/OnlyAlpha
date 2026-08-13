@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from onlyalpha_plugin_indicators import OnlyMacdCrossState, OnlyMacdSnapshot
 
+from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.factor.base import OnlyTimeSeriesFactor
 from onlyalpha.factor.context import OnlyFactorBarContext
@@ -18,6 +19,8 @@ from .snapshot import OnlyMacdSignalFactorSnapshot
 
 
 class OnlyMacdSignalFactor(OnlyTimeSeriesFactor):
+    calculation_reference = OnlyCalculationTypeReference(OnlyCalculationKind.FACTOR, "examples.factor.macd_signal", "1")
+
     def __init__(self, config: OnlyMacdSignalFactorConfig) -> None:
         super().__init__(config)
         self.config = config

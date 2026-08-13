@@ -607,6 +607,8 @@ def only_cn_a_share_product_config(
         {
             "factor_id": "product-bar-clock",
             "factor_type": "TIME_SERIES",
+            "type_id": "onlyalpha.test.factor.macd",
+            "semantic_version": "1",
             "class_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdFactor",
             "config_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdFactorConfig",
             "required": True,

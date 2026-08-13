@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
-from typing import cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
 OnlyCalculationScalar = str | int | bool | Decimal | None
+CALCULATION_DEFINITION_SCHEMA_VERSION = 2
 
 
 class OnlyCalculationKind(StrEnum):
@@ -22,6 +22,35 @@ class OnlyCalculationKind(StrEnum):
 class OnlyCalculationBackendKind(StrEnum):
     TRADING = "TRADING"
     RESEARCH = "RESEARCH"
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class OnlyCalculationTypeReference:
+    """Backend-neutral exact reference to one semantic calculation type."""
+
+    kind: OnlyCalculationKind
+    type_id: str
+    semantic_version: str
+
+    def __post_init__(self) -> None:
+        if not self.type_id or self.type_id != self.type_id.lower() or "." not in self.type_id:
+            raise ValueError("type_id must be a stable lower-case dotted identifier")
+        if not self.semantic_version or any(char.isspace() for char in self.semantic_version):
+            raise ValueError("semantic_version is required and cannot contain whitespace")
+
+    def to_dict(self) -> Mapping[str, object]:
+        return MappingProxyType(
+            {"kind": self.kind.value, "type_id": self.type_id, "semantic_version": self.semantic_version}
+        )
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyCalculationTypeReference:
+        _require_exact_fields(payload, {"kind", "type_id", "semantic_version"}, "calculation type reference")
+        return cls(
+            OnlyCalculationKind(_require_str(payload, "kind", "calculation type reference")),
+            _require_str(payload, "type_id", "calculation type reference"),
+            _require_str(payload, "semantic_version", "calculation type reference"),
+        )
 
 
 class OnlyCalculationDataType(StrEnum):
@@ -205,10 +234,12 @@ class OnlyCalculationDefinition:
     timestamp: OnlyTimestampSemantic
     numeric: OnlyNumericDefinition
     factor_kind: OnlyFactorKind | None = None
-    schema_version: int = 1
+    schema_version: int = CALCULATION_DEFINITION_SCHEMA_VERSION
     extensions: Mapping[str, OnlyCalculationScalar] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
+        if self.schema_version != CALCULATION_DEFINITION_SCHEMA_VERSION:
+            raise ValueError(f"unsupported calculation definition schema version: {self.schema_version}")
         if not self.type_id or self.type_id != self.type_id.lower() or "." not in self.type_id:
             raise ValueError("type_id must be a stable lower-case dotted identifier")
         if not self.semantic_version or any(char.isspace() for char in self.semantic_version):
@@ -255,10 +286,37 @@ class OnlyCalculationDefinition:
         payload = only_canonical_payload(self.semantic_payload())
         if not isinstance(payload, Mapping):
             raise TypeError("canonical calculation definition must be an object")
-        return MappingProxyType(dict(payload))
+        result = dict(payload)
+        result["parameters"] = {name: _scalar_to_dict(value) for name, value in self.parameters.items()}
+        result["extensions"] = {name: _scalar_to_dict(value) for name, value in self.extensions.items()}
+        return MappingProxyType(result)
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyCalculationDefinition:
+        _require_exact_fields(
+            payload,
+            {
+                "schema_version",
+                "kind",
+                "type_id",
+                "semantic_version",
+                "parameters",
+                "inputs",
+                "input_bindings",
+                "outputs",
+                "warmup",
+                "missing_values",
+                "timestamp",
+                "numeric",
+                "factor_kind",
+                "extensions",
+            },
+            "calculation definition",
+        )
+        schema_version = _require_int(payload, "schema_version", "calculation definition")
+        if schema_version != CALCULATION_DEFINITION_SCHEMA_VERSION:
+            raise ValueError(f"unsupported calculation definition schema version: {schema_version}")
+
         def mapping(name: str) -> Mapping[str, object]:
             value = payload[name]
             if not isinstance(value, Mapping):
@@ -274,31 +332,39 @@ class OnlyCalculationDefinition:
             raise ValueError("calculation inputs and outputs must be arrays")
         warmup = mapping("warmup")
         numeric = mapping("numeric")
+        _require_exact_fields(
+            warmup, {"minimum_observations", "ready_condition", "pre_ready_output", "initialization"}, "warmup"
+        )
+        _require_exact_fields(numeric, {"representation", "precision", "output_quantum", "rounding"}, "numeric")
+        decoded_parameters = {name: _scalar_from_dict(item, "parameters") for name, item in parameters.items()}
+        decoded_extensions = {name: _scalar_from_dict(item, "extensions") for name, item in extensions.items()}
         return cls(
-            OnlyCalculationKind(str(payload["kind"])),
-            str(payload["type_id"]),
-            str(payload["semantic_version"]),
-            cast(Mapping[str, OnlyCalculationScalar], parameters),
+            OnlyCalculationKind(_require_str(payload, "kind", "calculation definition")),
+            _require_str(payload, "type_id", "calculation definition"),
+            _require_str(payload, "semantic_version", "calculation definition"),
+            decoded_parameters,
             tuple(_input_from_dict(item) for item in inputs),
             {str(name): _reference_from_dict(item) for name, item in bindings.items()},
             tuple(_output_from_dict(item) for item in outputs),
             OnlyWarmupDefinition(
-                int(str(warmup["minimum_observations"])),
-                str(warmup["ready_condition"]),
-                OnlyPreReadyOutput(str(warmup["pre_ready_output"])),
-                str(warmup["initialization"]),
+                _require_int(warmup, "minimum_observations", "warmup"),
+                _require_str(warmup, "ready_condition", "warmup"),
+                OnlyPreReadyOutput(_require_str(warmup, "pre_ready_output", "warmup")),
+                _require_str(warmup, "initialization", "warmup"),
             ),
-            OnlyMissingValuePolicy(str(payload["missing_values"])),
-            OnlyTimestampSemantic(str(payload["timestamp"])),
+            OnlyMissingValuePolicy(_require_str(payload, "missing_values", "calculation definition")),
+            OnlyTimestampSemantic(_require_str(payload, "timestamp", "calculation definition")),
             OnlyNumericDefinition(
-                str(numeric["representation"]),
-                int(str(numeric["precision"])),
-                None if numeric["output_quantum"] is None else Decimal(str(numeric["output_quantum"])),
-                str(numeric["rounding"]),
+                _require_str(numeric, "representation", "numeric"),
+                _require_int(numeric, "precision", "numeric"),
+                _require_optional_decimal(numeric, "output_quantum", "numeric"),
+                _require_str(numeric, "rounding", "numeric"),
             ),
-            None if payload["factor_kind"] is None else OnlyFactorKind(str(payload["factor_kind"])),
-            int(str(payload["schema_version"])),
-            cast(Mapping[str, OnlyCalculationScalar], extensions),
+            None
+            if payload["factor_kind"] is None
+            else OnlyFactorKind(_require_str(payload, "factor_kind", "calculation definition")),
+            schema_version,
+            decoded_extensions,
         )
 
 
@@ -340,37 +406,132 @@ class OnlyCalculationTypeDefinition:
 def _input_from_dict(value: object) -> OnlyInputDefinition:
     if not isinstance(value, Mapping):
         raise ValueError("calculation input must be an object")
+    _require_exact_fields(value, {"name", "data_type", "nullable", "dimensions", "semantic_type", "unit"}, "input")
     return OnlyInputDefinition(
-        str(value["name"]),
-        OnlyCalculationDataType(str(value["data_type"])),
-        bool(value["nullable"]),
-        tuple(str(item) for item in cast(list[object], value["dimensions"])),
-        str(value["semantic_type"]),
-        None if value["unit"] is None else str(value["unit"]),
+        _require_str(value, "name", "input"),
+        OnlyCalculationDataType(_require_str(value, "data_type", "input")),
+        _require_bool(value, "nullable", "input"),
+        _require_string_array(value, "dimensions", "input"),
+        _require_str(value, "semantic_type", "input"),
+        _require_optional_str(value, "unit", "input"),
     )
 
 
 def _output_from_dict(value: object) -> OnlyOutputDefinition:
     if not isinstance(value, Mapping):
         raise ValueError("calculation output must be an object")
+    _require_exact_fields(value, {"name", "data_type", "nullable", "dimensions", "semantic_type", "unit"}, "output")
     return OnlyOutputDefinition(
-        str(value["name"]),
-        OnlyCalculationDataType(str(value["data_type"])),
-        bool(value["nullable"]),
-        tuple(str(item) for item in cast(list[object], value["dimensions"])),
-        str(value["semantic_type"]),
-        None if value["unit"] is None else str(value["unit"]),
+        _require_str(value, "name", "output"),
+        OnlyCalculationDataType(_require_str(value, "data_type", "output")),
+        _require_bool(value, "nullable", "output"),
+        _require_string_array(value, "dimensions", "output"),
+        _require_str(value, "semantic_type", "output"),
+        _require_optional_str(value, "unit", "output"),
     )
 
 
 def _reference_from_dict(value: object) -> OnlyCalculationReference:
     if not isinstance(value, Mapping):
         raise ValueError("calculation reference must be an object")
+    _require_exact_fields(value, {"node_fingerprint", "output_name", "source"}, "calculation reference")
     return OnlyCalculationReference(
-        None if value["node_fingerprint"] is None else str(value["node_fingerprint"]),
-        str(value["output_name"]),
-        None if value["source"] is None else str(value["source"]),
+        _require_optional_str(value, "node_fingerprint", "calculation reference"),
+        _require_str(value, "output_name", "calculation reference"),
+        _require_optional_str(value, "source", "calculation reference"),
     )
+
+
+def _require_exact_fields(value: Mapping[str, object], expected: set[str], context: str) -> None:
+    actual = set(value)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unknown = sorted(actual - expected)
+        raise ValueError(f"{context} fields are invalid; missing={missing}, unknown={unknown}")
+
+
+def _require_str(value: Mapping[str, object], name: str, context: str) -> str:
+    item = value[name]
+    if not isinstance(item, str):
+        raise ValueError(f"{context} {name} must be a string")
+    return item
+
+
+def _require_optional_str(value: Mapping[str, object], name: str, context: str) -> str | None:
+    item = value[name]
+    if item is not None and not isinstance(item, str):
+        raise ValueError(f"{context} {name} must be a string or null")
+    return item
+
+
+def _require_int(value: Mapping[str, object], name: str, context: str) -> int:
+    item = value[name]
+    if isinstance(item, bool) or not isinstance(item, int):
+        raise ValueError(f"{context} {name} must be an integer")
+    return item
+
+
+def _require_bool(value: Mapping[str, object], name: str, context: str) -> bool:
+    item = value[name]
+    if not isinstance(item, bool):
+        raise ValueError(f"{context} {name} must be a boolean")
+    return item
+
+
+def _require_string_array(value: Mapping[str, object], name: str, context: str) -> tuple[str, ...]:
+    item = value[name]
+    if not isinstance(item, list) or any(not isinstance(part, str) for part in item):
+        raise ValueError(f"{context} {name} must be an array of strings")
+    return tuple(item)
+
+
+def _require_optional_decimal(value: Mapping[str, object], name: str, context: str) -> Decimal | None:
+    item = value[name]
+    if item is None:
+        return None
+    if not isinstance(item, str):
+        raise ValueError(f"{context} {name} must be a canonical decimal string or null")
+    result = Decimal(item)
+    if not result.is_finite():
+        raise ValueError(f"{context} {name} must be finite")
+    return result
+
+
+def _scalar_to_dict(value: OnlyCalculationScalar) -> Mapping[str, object]:
+    scalar_type = (
+        "NULL"
+        if value is None
+        else "BOOLEAN"
+        if isinstance(value, bool)
+        else "INTEGER"
+        if isinstance(value, int)
+        else "DECIMAL"
+        if isinstance(value, Decimal)
+        else "STRING"
+    )
+    canonical_value: object = format(value, "f") if isinstance(value, Decimal) else value
+    return {"type": scalar_type, "value": canonical_value}
+
+
+def _scalar_from_dict(value: object, context: str) -> OnlyCalculationScalar:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{context} scalar must be an object")
+    _require_exact_fields(value, {"type", "value"}, f"{context} scalar")
+    scalar_type = _require_str(value, "type", f"{context} scalar")
+    item = value["value"]
+    if scalar_type == "NULL" and item is None:
+        return None
+    if scalar_type == "BOOLEAN" and isinstance(item, bool):
+        return item
+    if scalar_type == "INTEGER" and isinstance(item, int) and not isinstance(item, bool):
+        return item
+    if scalar_type == "DECIMAL" and isinstance(item, str):
+        result = Decimal(item)
+        if result.is_finite():
+            return result
+    if scalar_type == "STRING" and isinstance(item, str):
+        return item
+    raise ValueError(f"{context} scalar type/value are invalid")
 
 
 # Both names share the one calculation semantic authority; kind validation remains

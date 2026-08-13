@@ -17,10 +17,12 @@ WORKSPACE_TESTS = (
     "packages/market/onlyalpha-market-cn-ashare/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
+    "packages/indicator/onlyalpha-plugin-indicators/tests",
 )
 
 
 class OnlyTestLane(StrEnum):
+    CALCULATION = "calculation"
     FAST = "fast"
     INTEGRATION = "integration"
     ASHARE = "ashare"
@@ -43,6 +45,18 @@ class Lane:
 
 
 LANES = {
+    OnlyTestLane.CALCULATION: Lane(
+        (
+            "tests/calculation",
+            "tests/indicator",
+            "tests/plugin/test_calculation_plugin_discovery.py",
+            "tests/architecture/test_calculation_plugin_boundaries.py",
+            "packages/indicator/onlyalpha-plugin-indicators/tests",
+        ),
+        "not external",
+        "4",
+        "worksteal",
+    ),
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
         "(unit or contract or architecture) and not (recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
@@ -101,6 +115,13 @@ def release(args: argparse.Namespace) -> int:
             "uv",
             "run",
             "mypy",
+            "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
+            "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+        ],
+        [
+            "uv",
+            "run",
+            "mypy",
             "--config-file",
             "packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml",
             "packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash",
@@ -136,6 +157,7 @@ def release(args: argparse.Namespace) -> int:
         if code:
             return code
     for lane in (
+        OnlyTestLane.CALCULATION,
         OnlyTestLane.CORE_FULL,
         OnlyTestLane.RECOVERY,
         OnlyTestLane.SIM_RECOVERY,
@@ -185,13 +207,19 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "--benchmark-disable",
     ]
     if args.coverage:
+        coverage_source = (
+            "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators"
+            if name is OnlyTestLane.CALCULATION
+            else "src/onlyalpha"
+        )
+        coverage_output = "calculation-coverage" if name is OnlyTestLane.CALCULATION else "coverage"
         command.extend(
             [
-                "--cov=src/onlyalpha",
+                f"--cov={coverage_source}",
                 "--cov-branch",
                 "--cov-report=",
-                "--cov-report=json:test-results/coverage/coverage.json",
-                "--cov-report=xml:test-results/coverage/coverage.xml",
+                f"--cov-report=json:test-results/coverage/{coverage_output}.json",
+                f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
                 "--cov-fail-under=82",
             ]
         )
@@ -210,7 +238,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     )
     code = run(command, env)
     if args.coverage:
-        coverage_path = ROOT / "test-results" / "coverage" / "coverage.json"
+        coverage_path = (
+            ROOT
+            / "test-results"
+            / "coverage"
+            / ("calculation-coverage.json" if name is OnlyTestLane.CALCULATION else "coverage.json")
+        )
         if coverage_path.is_file():
             totals = json.loads(coverage_path.read_text(encoding="utf-8"))["totals"]
             line_rate = 100 * totals["covered_lines"] / totals["num_statements"]

@@ -8,6 +8,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import cast
 
+from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderType, OnlyTimeInForce
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyOrderId, OnlyOrderRequestId
@@ -45,6 +46,10 @@ class OnlyScenarioBarFactorConfig(OnlyFactorConfig):
 
 
 class OnlyScenarioBarFactor(OnlyTimeSeriesFactor):
+    calculation_reference = OnlyCalculationTypeReference(
+        OnlyCalculationKind.FACTOR, "onlyalpha.scenario.factor.bar", "1"
+    )
+
     def __init__(self, config: OnlyScenarioBarFactorConfig) -> None:
         super().__init__(config)
         self._timestamp: OnlyTimestamp | None = None

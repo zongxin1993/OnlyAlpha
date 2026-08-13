@@ -4,9 +4,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from onlyalpha.calculation.definition import OnlyCalculationTypeReference
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.indicator.base import OnlyBarIndicator
-from onlyalpha.indicator.identifiers import OnlyIndicatorId, OnlyIndicatorTypeId
+from onlyalpha.indicator.identifiers import (
+    OnlyIndicatorId,
+    OnlyIndicatorTypeId,
+    only_indicator_calculation_reference,
+)
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
 
 
@@ -16,6 +21,10 @@ class OnlyIndicatorCreateRequest:
     indicator_id: OnlyIndicatorId
     bar_type: OnlyBarType
     parameters: Mapping[str, object]
+
+    @property
+    def calculation_reference(self) -> OnlyCalculationTypeReference:
+        return only_indicator_calculation_reference(self.indicator_type)
 
 
 class OnlyIndicatorFactory(Protocol):

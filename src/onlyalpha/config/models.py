@@ -12,6 +12,7 @@ from types import MappingProxyType
 import yaml  # type: ignore[import-untyped]
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
+from onlyalpha.calculation.definition import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyAggregationSource, OnlyBarAggregation, OnlyPriceType
@@ -215,6 +216,7 @@ class OnlyIndicatorSpecConfig:
 class OnlyFactorImportConfig:
     factor_id: OnlyFactorId
     factor_type: str
+    calculation_reference: OnlyCalculationTypeReference
     factor_path: str
     config_path: str
     subscriptions: OnlyStrategySubscriptionConfig
@@ -224,6 +226,8 @@ class OnlyFactorImportConfig:
     extensions: OnlyJsonMapping
 
     def __post_init__(self) -> None:
+        if self.calculation_reference.kind is not OnlyCalculationKind.FACTOR:
+            raise ValueError("Factor config requires a FACTOR calculation reference")
         _validate_import_path(self.factor_path, "factor_path")
         _validate_import_path(self.config_path, "config_path")
 

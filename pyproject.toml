@@ -86,6 +86,7 @@ testpaths = [
     "packages/market/onlyalpha-market-cn-ashare/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
+    "packages/indicator/onlyalpha-plugin-indicators/tests",
 ]
 markers = [
     "unit: isolated unit test",

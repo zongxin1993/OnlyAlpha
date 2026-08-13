@@ -218,6 +218,8 @@ class OnlyMarketScenarioParser:
                 {
                     "factor_id": "scenario-bar-factor",
                     "factor_type": "TIME_SERIES",
+                    "type_id": "onlyalpha.scenario.factor.bar",
+                    "semantic_version": "1",
                     "class_path": "onlyalpha.scenario.action_strategy:OnlyScenarioBarFactor",
                     "config_path": "onlyalpha.scenario.action_strategy:OnlyScenarioBarFactorConfig",
                     "required": True,

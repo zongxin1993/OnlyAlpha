@@ -71,7 +71,11 @@ class OnlyClusterFactory:
                 }
             )
             factor_instances.append(
-                self._factors.create(OnlyFactorCreateRequest(factor.factor_path, factor.config_path, parameters))
+                self._factors.create(
+                    OnlyFactorCreateRequest(
+                        factor.calculation_reference, factor.factor_path, factor.config_path, parameters
+                    )
+                )
             )
         if primary_bar_type is None:
             raise ValueError("Cluster requires one PRIMARY Bar subscription")

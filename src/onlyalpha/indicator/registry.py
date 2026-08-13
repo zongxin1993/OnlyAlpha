@@ -8,7 +8,11 @@ from typing import TypeVar
 
 from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
-from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
+from onlyalpha.calculation.registry import (
+    OnlyCalculationBackendRegistration,
+    OnlyCalculationRegistry,
+    OnlyTradingCalculationBackendResolver,
+)
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.factor.identifiers import OnlyFactorId
@@ -32,10 +36,11 @@ class OnlyIndicatorInstanceKey:
 class OnlyIndicatorFactoryRegistry:
     def __init__(self) -> None:
         self._calculations = OnlyCalculationRegistry()
+        self._trading = OnlyTradingCalculationBackendResolver(self._calculations)
         self._factories: dict[OnlyIndicatorTypeId, OnlyCalculationBackendRegistration] = {}
 
     def register(self, registration: OnlyCalculationBackendRegistration) -> None:
-        factory = registration.factory
+        factory = registration.provider
         key = getattr(factory, "indicator_type", None)
         if not isinstance(key, OnlyIndicatorTypeId):
             raise TypeError("Indicator backend factory must expose indicator_type")
@@ -47,23 +52,23 @@ class OnlyIndicatorFactoryRegistry:
         self._factories[key] = registration
 
     def create(self, request: OnlyIndicatorCreateRequest) -> OnlyBarIndicator[OnlyIndicatorSnapshot]:
-        try:
-            registration = self._factories[request.indicator_type]
-        except KeyError as exc:
-            raise ValueError(f"unknown indicator type: {request.indicator_type}") from exc
-        factory = registration.factory
+        reference = request.calculation_reference
+        registration = self._calculations.resolve(
+            reference.kind, reference.type_id, reference.semantic_version, OnlyCalculationBackendKind.TRADING
+        )
+        factory = registration.provider
         resolve_definition = getattr(factory, "resolve_definition", None)
         if not callable(resolve_definition):
             raise TypeError("Indicator backend factory must define resolve_definition()")
         definition = resolve_definition(request.parameters)
+        if (definition.kind, definition.type_id, definition.semantic_version) != (
+            reference.kind,
+            reference.type_id,
+            reference.semantic_version,
+        ):
+            raise ValueError("Indicator backend resolved a definition that does not match the exact reference")
         OnlyCalculationGraphDefinition((OnlyCalculationNodeDefinition(definition),))
-        resolved = self._calculations.resolve(
-            OnlyCalculationKind.INDICATOR,
-            definition.type_id,
-            definition.semantic_version,
-            OnlyCalculationBackendKind.TRADING,
-        )
-        indicator = resolved.factory.create(definition, request)
+        indicator = self._trading.create(definition, request)
         if not isinstance(indicator, OnlyBarIndicator):
             raise TypeError("Indicator backend factory returned an invalid trading backend")
         return indicator
