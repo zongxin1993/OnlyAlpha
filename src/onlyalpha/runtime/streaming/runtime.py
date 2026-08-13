@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
@@ -89,6 +90,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
     """Trading Kernel composed with one long-lived market-data driver."""
 
     _supported_modes = frozenset({OnlyRuntimeMode.SIM, OnlyRuntimeMode.LIVE})
+    _processing_result_capacity = 1024
 
     def __init__(
         self,
@@ -191,7 +193,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._local_recovery: OnlyRuntimeRecoveryBootstrap | None = None
         self._external_recovery_completed = False
         self._checkpoint_suspended = False
-        self._processing_results: list[OnlyMarketDataProcessingResult] = []
+        self._processing_results: deque[OnlyMarketDataProcessingResult] = deque(maxlen=self._processing_result_capacity)
+        self._processing_result_count = 0
         self._live_finalizer = OnlyLiveBarFinalizer()
         self._semantic_lane = OnlyStreamingSemanticLane(self._services.market_data_processor)
         self._timer_registry = OnlyRuntimeTimerRegistry(
@@ -251,6 +254,12 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
     @property
     def processing_results(self) -> tuple[OnlyMarketDataProcessingResult, ...]:
         return tuple(self._processing_results)
+
+    @property
+    def processing_result_count(self) -> int:
+        """Total results observed; ``processing_results`` is only a recent diagnostic window."""
+
+        return self._processing_result_count
 
     @property
     def streaming_phase(self) -> OnlyStreamingPhase:
@@ -766,6 +775,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         result: OnlyMarketDataProcessingResult,
     ) -> None:
         self._processing_results.append(result)
+        self._processing_result_count += 1
         if result.status is OnlyMarketDataProcessingStatus.DUPLICATE:
             self._duplicate_count += 1
         if result.status is OnlyMarketDataProcessingStatus.GAP_DETECTED:

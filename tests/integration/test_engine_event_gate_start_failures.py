@@ -36,8 +36,9 @@ def test_plugin_start_failure_is_completely_silent_before_open(tmp_path: Path, m
     runtime = engine.runtime_sessions[0].runtime
     with pytest.raises(Exception, match="TEST_PLUGIN_START_FAILURE"):
         engine.start()
-    assert runtime.status().state is OnlyRuntimeState.FAILED
-    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
+    assert engine.state.value == "FAILED"
+    assert runtime.status().state is OnlyRuntimeState.CLOSED
+    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
     assert runtime.event_bus.pending_count() == 0
     assert runtime.event_bus.dispatch_results == ()
     assert "RUNTIME_STARTED" not in _event_types(runtime)
@@ -59,8 +60,9 @@ def test_router_open_failure_is_atomic_and_blocks_later_start_steps(
     monkeypatch.setattr("onlyalpha.event.bus.OnlyEventBus.publish_many_atomic", fail_atomic)
     with pytest.raises(Exception, match="TEST_ROUTER_OPEN_FAILURE"):
         engine.start()
-    assert runtime.status().state is OnlyRuntimeState.FAILED
-    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
+    assert engine.state.value == "FAILED"
+    assert runtime.status().state is OnlyRuntimeState.CLOSED
+    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
     assert runtime.event_bus.pending_count() == 0
     assert runtime.event_bus.dispatch_results == ()
     assert all(item.state is not OnlyClusterState.RUNNING for item in runtime.cluster_status())
@@ -104,7 +106,8 @@ def test_outbox_failure_stops_at_first_error_and_preserves_suffix(
     assert sum(item.published for item in records) == published_prefix + fail_on - 1
     assert records[failed_index].last_error is not None
     assert all(not item.published for item in records[failed_index:])
-    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
+    assert engine.state.value == "FAILED"
+    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
     assert "RUNTIME_STARTED" not in _event_types(runtime)
     engine.stop()
     assert len(runtime.event_bus.dispatch_results) == fail_on - 1
@@ -124,9 +127,11 @@ def test_fresh_cluster_start_failure_occurs_after_bootstrap_acceptance(
     runtime = engine.runtime_sessions[0].runtime
     with pytest.raises(Exception, match="TEST_CLUSTER_START_FAILURE"):
         engine.start()
-    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
-    assert runtime.event_bus.pending_count() > 0
+    assert engine.state.value == "FAILED"
+    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
+    assert runtime.event_bus.pending_count() == 0
     assert "RUNTIME_STARTED" not in _event_types(runtime)
+    assert runtime.event_bus.dispatch_results
     engine.stop()
     assert runtime.event_bus.dispatch_results
 
@@ -148,7 +153,8 @@ def test_recovered_cluster_resume_failure_never_publishes_runtime_started(
     runtime = engine.runtime_sessions[0].runtime
     with pytest.raises(Exception, match="TEST_CLUSTER_RESUME_FAILURE"):
         engine.start()
-    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
+    assert engine.state.value == "FAILED"
+    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
     assert all(item.state is not OnlyClusterState.RUNNING for item in runtime.cluster_status())
     assert "RUNTIME_STARTED" not in _event_types(runtime)
     engine.stop()
@@ -169,7 +175,8 @@ def test_runtime_started_publication_failure_preserves_original_error(
     monkeypatch.setattr(OnlyRuntimeEventRouter, "publish_lifecycle", fail_lifecycle)
     with pytest.raises(Exception, match="TEST_RUNTIME_STARTED_PUBLICATION_FAILURE"):
         engine.start()
-    assert runtime.status().state is OnlyRuntimeState.FAILED
-    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.FAILED
+    assert engine.state.value == "FAILED"
+    assert runtime.status().state is OnlyRuntimeState.CLOSED
+    assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
     assert "RUNTIME_STARTED" not in _event_types(runtime)
     engine.stop()

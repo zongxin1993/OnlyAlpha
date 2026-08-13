@@ -211,6 +211,45 @@ def test_engine_sim_state_lease_rejects_simultaneous_runtime_writer(
 
 
 @pytest.mark.sim_recovery
+def test_sim_factory_broker_acquisition_failure_releases_source_persistence_and_state_lease(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-factory-acquisition-rollback"
+    closed_sources: list[str] = []
+    original_broker_create = OnlyVirtualBrokerFactory.create
+    original_source_close = OnlyMiniQmtDataSource.close
+
+    def fail_broker_create(self: OnlyVirtualBrokerFactory, request: object) -> OnlyBrokerComponent:
+        del self, request
+        raise RuntimeError("TEST_SIM_BROKER_ACQUISITION_FAILURE")
+
+    def close_source(self: OnlyMiniQmtDataSource) -> None:
+        closed_sources.append(self.plugin_resource_id)
+        original_source_close(self)
+
+    monkeypatch.setattr(OnlyVirtualBrokerFactory, "create", fail_broker_create)
+    monkeypatch.setattr(OnlyMiniQmtDataSource, "close", close_source)
+    failed, _feed, _clock, _ = _engine(tmp_path, monkeypatch, engine_id=engine_id, checkpoint=True)
+
+    with pytest.raises(Exception, match="TEST_SIM_BROKER_ACQUISITION_FAILURE"):
+        failed.initialize()
+
+    assert closed_sources == ["miniqmt-live"]
+    assert failed.snapshot().resource_reference_counts == ()
+
+    monkeypatch.setattr(OnlyVirtualBrokerFactory, "create", original_broker_create)
+    replacement, _replacement_feed, _replacement_clock, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+    )
+    replacement.initialize()
+    replacement.close()
+
+
+@pytest.mark.sim_recovery
 def test_engine_sim_recovery_fails_closed_on_corrupt_checkpoint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

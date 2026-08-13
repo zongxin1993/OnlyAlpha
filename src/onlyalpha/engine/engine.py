@@ -283,13 +283,52 @@ class OnlyEngine:
     def start(self) -> None:
         if self.state is not OnlyEngineState.READY:
             raise OnlyLifecycleError("engine can only start from READY")
-        for session in self.runtime_sessions:
-            session.runtime.start()
-            session.state = "RUNNING"
-            for cluster_id in session.bound_cluster_ids:
-                self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.RUNNING
-                self._handles[cluster_id] = replace(self._handles[cluster_id], status=OnlyEngineClusterStatus.RUNNING)
+        try:
+            for session in self.runtime_sessions:
+                session.runtime.start()
+                session.state = "RUNNING"
+                for cluster_id in session.bound_cluster_ids:
+                    self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.RUNNING
+                    self._handles[cluster_id] = replace(
+                        self._handles[cluster_id], status=OnlyEngineClusterStatus.RUNNING
+                    )
+        except BaseException as failure:
+            self._converge_failed_start(failure)
+            raise
         self.state = OnlyEngineState.RUNNING
+
+    def _converge_failed_start(self, failure: BaseException) -> None:
+        """Close the entire initialized world while preserving the startup failure."""
+
+        self._stop_attempted = True
+        for session in reversed(self.runtime_sessions):
+            try:
+                session.runtime.close()
+            except BaseException as cleanup_failure:
+                failure.add_note(
+                    f"Runtime startup cleanup also failed for {session.runtime_id}: "
+                    f"{type(cleanup_failure).__name__}: {cleanup_failure}"
+                )
+            session.state = "FAILED"
+            for cluster_id in reversed(session.bound_cluster_ids):
+                self._cluster_sessions[cluster_id].state = OnlyEngineClusterStatus.FAILED
+                self._handles[cluster_id] = replace(self._handles[cluster_id], status=OnlyEngineClusterStatus.FAILED)
+        for cluster_id in reversed(tuple(self._cluster_definitions)):
+            try:
+                self._infrastructure.release(cluster_id)
+            except BaseException as cleanup_failure:
+                failure.add_note(
+                    f"Infrastructure startup cleanup also failed for {cluster_id}: "
+                    f"{type(cleanup_failure).__name__}: {cleanup_failure}"
+                )
+        if self.storage is not None:
+            try:
+                self.storage.close()
+            except BaseException as cleanup_failure:
+                failure.add_note(
+                    f"Storage startup cleanup also failed: {type(cleanup_failure).__name__}: {cleanup_failure}"
+                )
+        self.state = OnlyEngineState.FAILED
 
     def wait(self, timeout: float | None = None) -> None:
         """Wait for all long-lived Runtime sessions through the sole product entry."""

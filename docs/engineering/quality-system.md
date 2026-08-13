@@ -412,6 +412,20 @@ ADR-0002-xxx.md
 
 只有 `ACCEPTED` 才默认允许进入下一阶段。
 
+### 8.1 Development Gate 与 Certification Gate
+
+普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 P6 最终认证。
+
+P6 的唯一 Final-SHA Certification Authority 是手工触发的 `P6 Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/p6_certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
+
+状态含义固定为：
+
+- `IMPLEMENTED`：代码实现完成；
+- `VERIFIED`：指定本地或远端门禁已有实际证据；
+- `CERTIFIED / ACCEPTED`：外部 certification artifact 对同一个 immutable subject SHA 给出接受结论。
+
+没有 exact-SHA remote artifact 时只能是 `CONDITIONALLY_ACCEPTED` 或 `REJECTED`，不得预判远端 PASS。
+
 ---
 
 ## 9. AI / Codex 开发工作流

@@ -137,6 +137,8 @@ Lane exclusivity 内写入并 reread 验证 checkpoint；持续到达的 MarketD
 subscription、Thread/Lock/Socket 均不 durable。Runtime State Lease 保证同一 state root 只有一个 writer。Real Broker reconciliation 与
 long-running production operations 仍未实现。
 
+Streaming Runtime 的 processing result collection 只用于 diagnostics：累计 counter 保存总处理量，内存中仅保留最近 1024 个结果。该裁剪不适用于 continuity frontier、checkpoint、timer、transaction、order、position、account 或其他 authoritative state。`OnlyEngine.start()` 以全部 Runtime 为一个生命周期事务；任一 Runtime 启动失败会在异常返回前反向关闭所有已初始化 Runtime、释放 Engine infrastructure、将 Engine/Runtime session/Cluster session/handle 收敛为 `FAILED`，并把 cleanup errors 附注到原始启动异常。
+
 ## 6. Backtest
 
 正式成品式入口为 `CLI → OnlyEngine.add_cluster(OnlyClusterRunConfig) → OnlyEngine.run()`。Engine 内部通用 Assembler 仅从 Runtime Registry

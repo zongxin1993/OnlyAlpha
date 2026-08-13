@@ -124,10 +124,12 @@ def test_worker_stop_does_not_drain_queued_updates(make_runtime_bar) -> None:
 
     worker.start()
     assert accepting.wait(1)
-    releaser = Thread(target=lambda: (sleep(0.02), release.set()))
-    releaser.start()
-    worker.stop()
-    releaser.join()
+    stopper = Thread(target=worker.stop)
+    stopper.start()
+    assert worker.stop_requested
+    release.set()
+    stopper.join(1)
+    assert not stopper.is_alive()
 
     assert len(queue) == 1
     processor.process.assert_not_called()
@@ -165,10 +167,12 @@ def test_worker_stop_prevents_processing_after_acceptance_boundary(make_runtime_
 
     worker.start()
     assert accepting.wait(1)
-    releaser = Thread(target=lambda: (sleep(0.02), release.set()))
-    releaser.start()
-    worker.stop()
-    releaser.join()
+    stopper = Thread(target=worker.stop)
+    stopper.start()
+    assert worker.stop_requested
+    release.set()
+    stopper.join(1)
+    assert not stopper.is_alive()
 
     processor.process.assert_not_called()
 

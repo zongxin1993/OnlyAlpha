@@ -66,10 +66,10 @@ def test_open_failure_cleanup_drains_accepted_events_once(tmp_path: Path, monkey
     accepted = runtime.event_gate_snapshot.staged_count
     with pytest.raises(Exception, match="TEST_CLUSTER_START_FAILURE"):
         engine.start()
-    assert runtime.event_bus.pending_count() == accepted
-    runtime.close()
+    assert runtime.event_bus.pending_count() == 0
     first_dispatch_count = len(runtime.event_bus.dispatch_results)
-    runtime.close()
+    engine.stop()
+    engine.close()
     assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.CLOSED
     assert first_dispatch_count == accepted
     assert len(runtime.event_bus.dispatch_results) == first_dispatch_count

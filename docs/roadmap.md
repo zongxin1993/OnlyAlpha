@@ -149,7 +149,7 @@ P6 退出条件：
 - `PAPER` Runtime 和 standalone `SHADOW` Runtime 源码、配置、测试与 public spelling 被删除；
 - 不保留 alias、deprecated spelling 或 compatibility wrapper。
 
-### P6.6 — Runtime Taxonomy Migration & Legacy Removal（本地实现完成，待 final SHA 远端认证）
+### P6.6 — Runtime Taxonomy Migration & Legacy Removal（实现完成，待 final SHA 远端认证）
 
 P6.6 已将 active Runtime enum、config vocabulary、Factory Registry 与 public exports 一次性切换为
 `RESEARCH / BACKTEST / SIM / LIVE`，删除 `runtime/paper`、`runtime/shadow`、Shadow execution suppression、旧
@@ -157,7 +157,7 @@ acceptance runner/config 和相关 product tests。通用 subscription、bootstr
 timer、checkpoint 与 recovery 继续由 product-neutral `runtime/streaming` 拥有；Virtual Broker、persistence、state lease 与
 SIM composition 继续由 `runtime/sim` 拥有。未修改 checkpoint/persistence schema，也不支持 Paper durable state 自动转换。
 
-最终状态只能在同一 final SHA 的完整 local lanes 与 remote required checks 均取得真实证据后升级为 `DONE / CERTIFIED`。
+P6 Final Hardening 进一步关闭了 Engine multi-Runtime start 的 partial-start world、Streaming processing diagnostics 无界增长，以及 certification report 的 self-reference cycle。Development Quality 与 Final-SHA Certification 已分离；后者以不可变 `subject_sha` 为对象，强制 static/build/canonical lanes/branch coverage/Semgrep/CodeQL 全部真实成功并输出外部 evidence artifact。最终状态只能在当前 final SHA 的完整 local lanes 与该 remote artifact 均取得真实证据后升级为 `DONE / CERTIFIED`。P7 在此之前不开始。
 
 ## P7 — Vectorized Research Runtime
 

@@ -1,0 +1,192 @@
+name: P6 Final-SHA Certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      subject_sha:
+        description: Immutable full commit SHA to certify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: p6-certification-${{ inputs.subject_sha }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONUTF8: "1"
+  UV_NO_PROGRESS: "1"
+  SUBJECT_SHA: ${{ inputs.subject_sha }}
+
+jobs:
+  subject:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SUBJECT_SHA }}
+      - id: identity
+        name: Verify immutable certification subject
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SUBJECT_SHA"
+          test "${#SUBJECT_SHA}" = 40
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  static:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run ruff check src tests examples packages scripts
+      - run: uv run ruff format --check src tests examples packages scripts
+      - run: uv run mypy src/onlyalpha
+      - run: uv run mypy --config-file packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
+      - run: uv run mypy --config-file packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash
+      - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
+      - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
+      - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+      - run: uv run lint-imports
+      - run: uv run python scripts/version_sync.py check
+
+  build:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv build --all-packages
+
+  lanes:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: certification-${{ needs.subject.outputs.sha }}-${{ matrix.lane }}
+          path: test-results/metrics/*.json
+
+  coverage:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - name: Mandatory branch coverage
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: uv run python scripts/test_suite.py core-full --coverage
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: certification-${{ needs.subject.outputs.sha }}-branch-coverage
+          path: test-results/coverage/
+
+  semgrep:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv tool install semgrep
+      - run: semgrep scan --config semgrep/onlyalpha.yml --test semgrep/onlyalpha.py
+      - run: semgrep scan --config semgrep/onlyalpha.yml --error src packages
+
+  codeql:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v4
+
+  verdict:
+    if: always()
+    needs: [subject, static, build, lanes, coverage, semgrep, codeql]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.subject_sha }}
+      - name: Require every mandatory final-SHA gate
+        env:
+          SUBJECT_RESULT: ${{ needs.subject.result }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          LANES_RESULT: ${{ needs.lanes.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
+        run: |
+          python scripts/p6_certification.py \
+            --subject-sha "$SUBJECT_SHA" \
+            --workflow-run "$GITHUB_RUN_ID" \
+            --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --gate "subject=$SUBJECT_RESULT" \
+            --gate "static=$STATIC_RESULT" \
+            --gate "build=$BUILD_RESULT" \
+            --gate "lanes=$LANES_RESULT" \
+            --gate "coverage=$COVERAGE_RESULT" \
+            --gate "semgrep=$SEMGREP_RESULT" \
+            --gate "codeql=$CODEQL_RESULT" \
+            --output p6-certification-evidence.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: p6-certification-${{ inputs.subject_sha }}
+          path: p6-certification-evidence.json

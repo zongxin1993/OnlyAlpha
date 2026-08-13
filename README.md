@@ -20,6 +20,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | Architecture | 模块化单体 |
 | Primary runtime | Backtest |
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
+| P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | License | MIT |
 
 ---
