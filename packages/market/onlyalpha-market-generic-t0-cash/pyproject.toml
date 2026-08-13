@@ -1,10 +1,10 @@
 [project]
 name = "onlyalpha-market-generic-t0-cash"
-version = "0.4.1"
+version = "0.4.2"
 description = "Generic T0 Cash Market Product plugin for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.4.1"]
+dependencies = ["onlyalpha==0.4.2"]
 
 [project.entry-points."onlyalpha.market_products"]
 generic-t0-cash = "onlyalpha_market_generic_t0_cash.factory:OnlyGenericT0CashMarketProductFactory"

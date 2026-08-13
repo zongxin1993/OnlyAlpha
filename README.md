@@ -14,7 +14,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.4.1` |
+| Version | `0.4.2` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
