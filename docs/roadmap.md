@@ -36,6 +36,11 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 
 ## 已完成阶段
 
+- P7.2 — Research Calculation Backend & Deterministic Execution：verified Arrow Dataset admission、exact RESEARCH backend、显式
+  source binding、instrument-isolated canonical DAG execution、官方 Indicator Decimal batch backend、Trading↔Research exact
+  characterization、ephemeral output 与 process-independent identity 已本地实现；Research Runtime/Job、Calculation Store、Result、
+  Parameter Sweep 和 Factor Research 不在本阶段，最终 SHA 远端认证仍待完成。
+
 - P0 — Test Baseline & Feedback Loop Closure：正式 test lanes、metrics、分层 marker 与质量门禁。
 - P1 — Fee Authority Integrity Closure：Market Fee Pack 与 Broker Fee Contract 独立版本化 authority。
 - P2 — Fee Reconciliation Semantic Closure：Evidence、Policy、Correction、Blocker 与 Recovery 语义。

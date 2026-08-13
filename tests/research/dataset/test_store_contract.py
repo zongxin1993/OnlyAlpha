@@ -40,6 +40,9 @@ def test_commit_load_verify_and_idempotent_reuse(tmp_path) -> None:
     assert first == second == store.load(snapshot.snapshot_fingerprint)
     assert store.load_bars(snapshot.snapshot_fingerprint) == partitions[0]
     assert store.verify(snapshot.snapshot_fingerprint).valid
+    verified = store.load_verified_table(snapshot.snapshot_fingerprint)
+    assert verified.snapshot == first
+    assert verified.table.num_rows == 1
 
 
 def test_tampered_partition_and_manifest_fail_closed_without_overwrite(tmp_path) -> None:

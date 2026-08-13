@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -79,6 +79,8 @@ jobs:
         run: uv run python scripts/test_suite.py core-full --coverage
       - name: Official Calculation plugin branch coverage
         run: uv run python scripts/test_suite.py calculation --coverage
+      - name: Research Calculation branch coverage
+        run: uv run python scripts/test_suite.py research-calculation --coverage
       - name: Research Dataset branch coverage
         run: uv run python scripts/test_suite.py research-dataset --coverage
       - uses: actions/upload-artifact@v6
@@ -94,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7

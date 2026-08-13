@@ -12,7 +12,7 @@ from .parquet_store import (
     OnlyResearchDatasetStoreError,
 )
 from .plan import OnlyResearchDatasetMaterializationPlan
-from .ports import OnlyResearchDatasetSnapshotStore, OnlyResearchDatasetVerification
+from .ports import OnlyResearchDatasetSnapshotStore, OnlyResearchDatasetVerification, OnlyVerifiedResearchDataset
 from .schema import OnlyResearchBarDatasetSchema
 from .validation import OnlyResearchDatasetError
 
@@ -30,4 +30,5 @@ __all__ = [
     "OnlyResearchDatasetStoreError",
     "OnlyResearchDatasetType",
     "OnlyResearchDatasetVerification",
+    "OnlyVerifiedResearchDataset",
 ]

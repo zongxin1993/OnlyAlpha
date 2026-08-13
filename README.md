@@ -23,6 +23,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7.0 status | **ACCEPTED locally** — contract/verification closure complete; final-SHA remote quality evidence required |
 | P7.1 status | Dataset Snapshot foundation implemented locally; final-SHA remote certification required |
+| P7.2 status | Deterministic Research Calculation execution implemented locally; final-SHA remote certification required |
 | License | MIT |
 
 ---
@@ -50,7 +51,13 @@ semantic identity。官方 Factor plugin 仍为空。Research backend、Calculat
 
 P7.1 建立 Historical Closed Bar Dataset v1：resolved Definition、exact Decimal/precision-preserving columnar schema、provider-independent
 canonical content identity、immutable content-addressed Parquet Snapshot Store、strict materialization 与独立 provenance。Historical Cache
-仍只是 acquisition optimization；Research Runtime、Research Calculation backend、Calculation Store 与 Research Result 尚未实现。
+仍只是 acquisition optimization。
+
+P7.2 建立 verified columnar Dataset admission、exact RESEARCH backend resolver、显式 Dataset source binding、按 instrument 隔离且按
+canonical DAG 顺序执行的 batch executor、Research Calculation fingerprint 与 ephemeral canonical output。官方 EMA、SMA、RSI、
+Bollinger、Rolling Return、Rolling Volatility、ZScore、MACD `@1` 以及完整声明 high/low/close 的 ATR `@2` 已有独立 Decimal
+RESEARCH backend，并通过逐观察点 Trading↔Research characterization；输入不完整的 ATR `@1` 保持原 fingerprint 且不注册
+RESEARCH backend。Research Runtime、Research Job、Calculation/Result Store、Parameter Sweep、Factor Research 与 Web UI 仍未实现。
 
 ---
 

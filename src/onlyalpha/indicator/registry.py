@@ -40,16 +40,20 @@ class OnlyIndicatorFactoryRegistry:
         self._factories: dict[OnlyIndicatorTypeId, OnlyCalculationBackendRegistration] = {}
 
     def register(self, registration: OnlyCalculationBackendRegistration) -> None:
+        if registration.backend is not OnlyCalculationBackendKind.TRADING:
+            self._calculations.register(registration)
+            return
         factory = registration.provider
         key = getattr(factory, "indicator_type", None)
         if not isinstance(key, OnlyIndicatorTypeId):
             raise TypeError("Indicator backend factory must expose indicator_type")
-        if key in self._factories:
+        if key in self._factories and registration.type_definition.semantic_version == "1":
             raise ValueError(f"duplicate indicator factory: {key}")
         if registration.type_definition.kind is not OnlyCalculationKind.INDICATOR:
             raise TypeError("Indicator registry accepts Indicator definitions only")
         self._calculations.register(registration)
-        self._factories[key] = registration
+        if registration.type_definition.semantic_version == "1":
+            self._factories[key] = registration
 
     def create(self, request: OnlyIndicatorCreateRequest) -> OnlyBarIndicator[OnlyIndicatorSnapshot]:
         reference = request.calculation_reference

@@ -23,6 +23,7 @@ WORKSPACE_TESTS = (
 
 class OnlyTestLane(StrEnum):
     CALCULATION = "calculation"
+    RESEARCH_CALCULATION = "research-calculation"
     RESEARCH_DATASET = "research-dataset"
     FAST = "fast"
     INTEGRATION = "integration"
@@ -53,6 +54,18 @@ LANES = {
             "tests/plugin/test_calculation_plugin_discovery.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
             "packages/indicator/onlyalpha-plugin-indicators/tests",
+        ),
+        "not external",
+        "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_CALCULATION: Lane(
+        (
+            "tests/research/calculation",
+            "tests/calculation",
+            "tests/architecture/test_research_calculation_boundaries.py",
+            "tests/architecture/test_calculation_plugin_boundaries.py",
+            "packages/indicator/onlyalpha-plugin-indicators/tests/test_research_characterization.py",
         ),
         "not external",
         "4",
@@ -172,6 +185,7 @@ def release(args: argparse.Namespace) -> int:
         if code:
             return code
     for lane in (
+        OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.CALCULATION,
         OnlyTestLane.RESEARCH_DATASET,
         OnlyTestLane.CORE_FULL,
@@ -224,14 +238,18 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_source = (
-            "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators"
+            "src/onlyalpha/research/calculation"
+            if name is OnlyTestLane.RESEARCH_CALCULATION
+            else "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators"
             if name is OnlyTestLane.CALCULATION
             else "src/onlyalpha/research/dataset"
             if name is OnlyTestLane.RESEARCH_DATASET
             else "src/onlyalpha"
         )
         coverage_output = (
-            "calculation-coverage"
+            "research-calculation-coverage"
+            if name is OnlyTestLane.RESEARCH_CALCULATION
+            else "calculation-coverage"
             if name is OnlyTestLane.CALCULATION
             else "research-dataset-coverage"
             if name is OnlyTestLane.RESEARCH_DATASET
@@ -269,6 +287,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "calculation-coverage.json"
                 if name is OnlyTestLane.CALCULATION
+                else "research-calculation-coverage.json"
+                if name is OnlyTestLane.RESEARCH_CALCULATION
                 else "research-dataset-coverage.json"
                 if name is OnlyTestLane.RESEARCH_DATASET
                 else "coverage.json"

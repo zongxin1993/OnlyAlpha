@@ -148,7 +148,11 @@ def test_macd_observable_semantics_and_checkpoint_continuation() -> None:
 
 
 def test_all_official_definitions_have_exact_identity_and_defaults() -> None:
-    definitions = tuple(item.type_definition for item in registrations())
+    definitions = tuple(
+        item.type_definition
+        for item in registrations()
+        if item.backend.value == "TRADING" and item.type_definition.semantic_version == "1"
+    )
     assert len(definitions) == 9
     assert {item.semantic_version for item in definitions} == {"1"}
     assert {item.type_id for item in definitions} == {

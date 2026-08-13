@@ -9,6 +9,7 @@ import shutil
 import uuid
 from pathlib import Path
 
+import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.domain.market import OnlyBar
@@ -19,7 +20,8 @@ from .manifest import (
     OnlyResearchDatasetPartitionManifest,
     OnlyResearchDatasetSnapshot,
 )
-from .ports import OnlyResearchDatasetVerification
+from .ports import OnlyResearchDatasetVerification, OnlyVerifiedResearchDataset
+from .schema import RESEARCH_BAR_DATASET_SCHEMA_V1
 
 
 class OnlyResearchDatasetStoreError(RuntimeError):
@@ -122,10 +124,23 @@ class OnlyParquetResearchDatasetSnapshotStore:
             bars.extend(only_table_to_bars(pq.read_table(target / partition.relative_path)))
         return only_canonical_bars(tuple(bars))
 
+    def load_verified_table(self, snapshot_fingerprint: str) -> OnlyVerifiedResearchDataset:
+        """Verify every durable authority before exposing one canonical Arrow table."""
+
+        _, snapshot, table = self._read_verified(self._target(snapshot_fingerprint), snapshot_fingerprint)
+        return OnlyVerifiedResearchDataset(snapshot, table)
+
     def verify(self, snapshot_fingerprint: str) -> OnlyResearchDatasetVerification:
-        return self._verify_root(self._target(snapshot_fingerprint), snapshot_fingerprint)
+        verification, _, _ = self._read_verified(self._target(snapshot_fingerprint), snapshot_fingerprint)
+        return verification
 
     def _verify_root(self, root: Path, expected_fingerprint: str) -> OnlyResearchDatasetVerification:
+        verification, _, _ = self._read_verified(root, expected_fingerprint)
+        return verification
+
+    def _read_verified(
+        self, root: Path, expected_fingerprint: str
+    ) -> tuple[OnlyResearchDatasetVerification, OnlyResearchDatasetSnapshot, pa.Table]:
         if not root.is_dir():
             raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_NOT_FOUND")
         try:
@@ -136,18 +151,21 @@ class OnlyParquetResearchDatasetSnapshotStore:
             if snapshot.snapshot_fingerprint != expected_fingerprint:
                 raise ValueError("snapshot path identity mismatch")
             bars: list[OnlyBar] = []
+            tables: list[pa.Table] = []
             total = 0
             for partition in snapshot.partitions:
                 path = root / partition.relative_path
                 if not path.is_file() or _sha(path) != partition.byte_sha256:
                     raise ValueError("partition byte hash mismatch")
-                restored = only_table_to_bars(pq.read_table(path))
+                table = pq.read_table(path)
+                restored = only_table_to_bars(table)
                 if len(restored) != partition.row_count:
                     raise ValueError("partition row count mismatch")
                 if only_content_fingerprint(restored) != partition.semantic_fingerprint:
                     raise ValueError("partition semantic fingerprint mismatch")
                 total += len(restored)
                 bars.extend(restored)
+                tables.append(table)
             if total != snapshot.row_count or only_content_fingerprint(tuple(bars)) != snapshot.content_fingerprint:
                 raise ValueError("global content mismatch")
             if (
@@ -157,7 +175,18 @@ class OnlyParquetResearchDatasetSnapshotStore:
                 != snapshot.snapshot_fingerprint
             ):
                 raise ValueError("snapshot semantic fingerprint mismatch")
-            return OnlyResearchDatasetVerification(True, snapshot.snapshot_fingerprint, snapshot.row_count)
+            table = (
+                pa.concat_tables(tables)
+                if tables
+                else pa.Table.from_pylist([], schema=RESEARCH_BAR_DATASET_SCHEMA_V1.arrow_schema)
+            )
+            if table.schema != snapshot.dataset_schema.arrow_schema or table.num_rows != snapshot.row_count:
+                raise ValueError("verified table mismatch")
+            return (
+                OnlyResearchDatasetVerification(True, snapshot.snapshot_fingerprint, snapshot.row_count),
+                snapshot,
+                table,
+            )
         except OnlyResearchDatasetStoreError:
             raise
         except Exception as exc:

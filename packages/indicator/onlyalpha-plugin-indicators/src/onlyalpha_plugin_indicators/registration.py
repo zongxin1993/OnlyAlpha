@@ -43,6 +43,7 @@ from onlyalpha.indicator.identifiers import (
 )
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
 from onlyalpha_plugin_indicators.macd import OnlyMacdIndicator, config_from_parameters
+from onlyalpha_plugin_indicators.research import OnlyOfficialResearchIndicatorBackend
 from onlyalpha_plugin_indicators.standard import OnlyRollingIndicatorConfig, OnlyStandardBarIndicator
 
 
@@ -204,6 +205,22 @@ TYPES = (
     ),
 )
 
+ATR_V2 = OnlyCalculationTypeDefinition(
+    OnlyCalculationKind.INDICATOR,
+    "onlyalpha.indicator.atr",
+    "2",
+    TYPES[3].parameters,
+    (
+        OnlyInputDefinition("high", OnlyCalculationDataType.DECIMAL, semantic_type="PRICE"),
+        OnlyInputDefinition("low", OnlyCalculationDataType.DECIMAL, semantic_type="PRICE"),
+        OnlyInputDefinition("close", OnlyCalculationDataType.DECIMAL, semantic_type="PRICE"),
+    ),
+    TYPES[3].outputs,
+    TYPES[3].missing_values,
+    TYPES[3].timestamp,
+    TYPES[3].numeric,
+)
+
 
 def warmup(type_definition: OnlyCalculationTypeDefinition, parameters: dict[str, object]) -> OnlyWarmupDefinition:
     normalized = type_definition.parameters.normalize(parameters)
@@ -225,25 +242,36 @@ def resolve_definition(
         parameters.setdefault("warmup_bars", slow + signal - 1)
         if int(str(parameters["warmup_bars"])) < slow:
             raise ValueError("MACD warmup_bars cannot be less than slow_period")
-    return type_definition.resolve(
-        parameters,
-        {
+    if type_definition is ATR_V2:
+        bindings = {name: OnlyCalculationReference(None, name, f"bar.{name}") for name in ("high", "low", "close")}
+    else:
+        bindings = {
             "value": OnlyCalculationReference(
                 None,
                 "value",
                 "bar.close" if str(parameters.get("price_field", "CLOSE")).upper() == "CLOSE" else "bar.volume",
             )
-        },
+        }
+    return type_definition.resolve(
+        parameters,
+        bindings,
         warmup(type_definition, parameters),
     )
 
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
-    return tuple(
+    trading = tuple(
         OnlyCalculationBackendRegistration(
             item,
             OnlyCalculationBackendKind.TRADING,
             OnlyMacdBackendFactory(item) if item.type_id.endswith(".macd") else OnlyStandardBackendFactory(item),
         )
-        for item in TYPES
+        for item in (*TYPES, ATR_V2)
     )
+    research = tuple(
+        OnlyCalculationBackendRegistration(
+            item, OnlyCalculationBackendKind.RESEARCH, OnlyOfficialResearchIndicatorBackend()
+        )
+        for item in (*TYPES[:3], *TYPES[4:], ATR_V2)
+    )
+    return trading + research

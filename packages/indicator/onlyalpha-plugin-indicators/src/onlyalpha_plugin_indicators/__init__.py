@@ -2,7 +2,13 @@
 # ruff: noqa: F401
 
 from onlyalpha_plugin_indicators.macd import OnlyMacdIndicator, OnlyMacdIndicatorConfig
-from onlyalpha_plugin_indicators.registration import OnlyIndicatorBackendRequest, registrations, resolve_definition
+from onlyalpha_plugin_indicators.registration import (
+    ATR_V2,
+    OnlyIndicatorBackendRequest,
+    registrations,
+    resolve_definition,
+)
+from onlyalpha_plugin_indicators.research import OnlyOfficialResearchIndicatorBackend
 from onlyalpha_plugin_indicators.snapshots import (
     OnlyAtrSnapshot,
     OnlyBollingerSnapshot,

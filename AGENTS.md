@@ -425,6 +425,10 @@ Research Dataset 的正式 authority 是 immutable Dataset Snapshot；Historical
 Dataset authority。Provider identity 只进入 provenance，不进入 Dataset semantic identity。`onlyalpha.research` 不得导入
 Trading authorities，Dataset Store 不得提供 append、update、overwrite 或 invalidate 语义。
 
+Research 与 Trading Calculation backend 可以采用不同执行模型，但必须共享同一 Calculation semantic identity；Research
+backend 不得消费 Definition 未声明的 semantic input，不得 fallback 到 Trading backend。Research Calculation 只能消费完整
+verified Dataset Snapshot，不得为了执行 batch calculation 提前创建 Research Runtime 或伪造 Trading authorities。
+
 当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
 
 Backtest / Sim / Live 追求 Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。差异主要限于：

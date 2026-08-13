@@ -92,4 +92,4 @@ def test_registry_creates_default_rsi_and_rejects_unknown_or_duplicate_factory()
             OnlyIndicatorCreateRequest(type(RSI)("vendor.custom@1"), OnlyIndicatorId("custom"), _bar_type(), {})
         )
     with pytest.raises(ValueError, match="duplicate indicator factory"):
-        registry.register(registrations()[-1])
+        registry.register(next(item for item in registrations() if item.backend.value == "TRADING"))
