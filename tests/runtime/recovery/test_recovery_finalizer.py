@@ -29,6 +29,8 @@ from onlyalpha.runtime.recovery.validation import (
 )
 from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
 
+pytestmark = pytest.mark.sim_recovery
+
 
 class OnlyTestClusterFinalizationManager:
     def __init__(self) -> None:
@@ -213,8 +215,7 @@ def test_finalizer_cannot_run_twice() -> None:
 @pytest.mark.parametrize(
     "counts,code",
     (
-        ((1, 0, 0), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY"),
-        ((0, 1, 0), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY"),
+        ((1, 0, 0), "POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN"),
         ((0, 0, 1), "POST_RECOVERY_EVENT_BUS_NOT_DRAINED"),
     ),
 )
@@ -233,3 +234,14 @@ def test_quiescence_failure_is_precise_and_prevents_validation_and_checkpoint(
     assert validator.calls == 0
     assert service.calls == []
     assert manager.state == "FAILED"
+
+
+def test_realtime_ingress_does_not_prevent_semantic_recovery_finalization() -> None:
+    outcome, manager, service, validator, finalizer = _fixture(market_data_inbound_count=3)
+
+    result = finalizer.finalize(outcome)
+
+    assert result.validation_report.passed
+    assert validator.calls == 1
+    assert service.calls == ["capture", "write", "verify"]
+    assert manager.state == "RECOVERED"

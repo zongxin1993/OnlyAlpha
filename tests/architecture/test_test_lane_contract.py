@@ -12,7 +12,15 @@ pytestmark = pytest.mark.architecture
 
 def test_layer_and_concern_taxonomies_are_orthogonal() -> None:
     assert LAYER_MARKERS == {"unit", "contract", "architecture", "integration", "scenario"}
-    assert CONCERN_MARKERS == {"recovery", "conformance", "external", "performance", "exhaustive", "miniqmt"}
+    assert CONCERN_MARKERS == {
+        "recovery",
+        "sim_recovery",
+        "conformance",
+        "external",
+        "performance",
+        "exhaustive",
+        "miniqmt",
+    }
     assert LAYER_MARKERS.isdisjoint(CONCERN_MARKERS)
 
 
@@ -40,6 +48,7 @@ def test_lane_expressions_keep_concerns_separate() -> None:
     assert core.startswith("not (")
     assert all(concern in core for concern in ("recovery", "conformance", "exhaustive"))
     assert LANES[OnlyTestLane.RECOVERY].expression == "recovery and not external and not exhaustive"
+    assert LANES[OnlyTestLane.SIM_RECOVERY].expression == "sim_recovery and not external and not exhaustive"
     assert LANES[OnlyTestLane.ASHARE].expression == "conformance and not external and not exhaustive"
     assert LANES[OnlyTestLane.EXHAUSTIVE].expression == "exhaustive and not external"
 

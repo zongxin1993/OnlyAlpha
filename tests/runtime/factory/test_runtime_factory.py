@@ -180,7 +180,7 @@ def test_sim_rejects_finite_runtime_ranges(boundary: str) -> None:
     assert build.failure_code == "SIM_FINITE_RANGE_NOT_SUPPORTED"
 
 
-def test_sim_rejects_checkpoint_configuration() -> None:
+def test_sim_checkpoint_requires_stable_durable_state_root() -> None:
     def change(payload: dict[str, Any]) -> None:
         payload["runtime"]["persistence"] = {
             "backend": "SQLITE",
@@ -190,7 +190,7 @@ def test_sim_rejects_checkpoint_configuration() -> None:
 
     build = only_default_engine_services().assembler.validate(_sim_plan(change))
 
-    assert build.failure_code == "SIM_CHECKPOINT_NOT_SUPPORTED"
+    assert build.failure_code == "SIM_DURABLE_STATE_ROOT_REQUIRED"
 
 
 @pytest.mark.parametrize("count", (0, 2))

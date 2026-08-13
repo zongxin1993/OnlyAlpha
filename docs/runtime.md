@@ -131,11 +131,16 @@ Factory 创建 Live Clock、独占 MarketData/Broker Inbound Queue，通过 SPI 
 Execution Processor；Transaction Store 仍是 durable authority，Projection 只安装 Planner 已冻结的经济结果。
 
 Next-Bar 因果顺序固定为 Bar N Strategy intent 后 Accepted、同 Bar 不成交，Bar N+1 matching 先于 Strategy 并产生 Trade。
-停止只切断 future processing permission，不自动取消 Accepted order。SIM Runtime Persistence 可使用 Memory/SQLite，并在
-checkpoint disabled 时保存 durable transaction；这不构成 Streaming Checkpoint/Restart。P6.4 已实现 unexpected-gap、STALE 与
+停止只切断 future processing permission，不自动取消 Accepted order。SIM Runtime Persistence 可使用 Memory/SQLite；
+`SQLITE + checkpoint.enabled=true` 还要求稳定 `user_data` state root，并提供正式 new-process restart 合同。P6.4 已实现 unexpected-gap、STALE 与
 disconnect 的 same-process recovery：缺失历史事实经现有 Historical Port 加载、严格验证和归一化后进入同一 Processor/Pipeline，
 恢复期既有 Broker order 可继续推进而 Strategy 新订单被抑制，buffered realtime suffix 追平并显式证明 continuity 后才恢复 LIVE。
-Streaming checkpoint/new-process restart、Real Broker reconciliation 与 long-running production operations 尚未实现。
+P6.5 将 Runtime-neutral Checkpoint/Recovery Kernel 接入 SIM：`initialize()` 只恢复本地 durable authorities，`start()` 在资源启动后
+先订阅 realtime 并 buffer，再完成 historical repair、transaction tail、Timer occurrence、continuity proof、post-recovery validation
+与 verified recovery checkpoint，最后才恢复 Cluster、Timer 和 LIVE admission。Closed-Bar 与 Timer semantic action 在同一 Semantic
+Lane exclusivity 内写入并 reread 验证 checkpoint；持续到达的 MarketData queue 不是 quiescence 条件。partial live Bar、transport queue、
+subscription、Thread/Lock/Socket 均不 durable。Runtime State Lease 保证同一 state root 只有一个 writer。Real Broker reconciliation 与
+long-running production operations 仍未实现。
 
 ## 6. Backtest
 

@@ -15,6 +15,7 @@ class OnlyStreamingRecoveryReason(StrEnum):
     GAP = "GAP"
     STALE = "STALE"
     DISCONNECTED = "DISCONNECTED"
+    RESTART = "RESTART"
 
 
 @dataclass(frozen=True, slots=True)

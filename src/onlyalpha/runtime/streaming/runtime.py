@@ -62,6 +62,11 @@ from onlyalpha.plugin.lifecycle import OnlyPluginResource
 from onlyalpha.runtime.checkpoint.participant import OnlyJsonRuntimeCheckpointParticipant
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.persistence.timer_journal import OnlyRuntimeTimerOccurrence
+from onlyalpha.runtime.recovery.authority_views import OnlyRuntimeDriverFrontierView
+from onlyalpha.runtime.recovery.orchestrator import OnlyRuntimeRecoveryBootstrap
+from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
+from onlyalpha.runtime.recovery.session import OnlyRuntimeRecoveryBoundary, OnlyRuntimeRecoveryDriverResult
+from onlyalpha.runtime.recovery.validation import OnlyPostRecoveryValidationContext
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeError, OnlyRuntimeState
 from onlyalpha.runtime.trading_facade import OnlyTradingRuntimeFacade
 
@@ -183,6 +188,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             OnlyCompositeObservationSink(observation_sinks), observation_queue_capacity
         )
         self._streaming_stop_attempted = False
+        self._local_recovery: OnlyRuntimeRecoveryBootstrap | None = None
+        self._external_recovery_completed = False
+        self._checkpoint_suspended = False
         self._processing_results: list[OnlyMarketDataProcessingResult] = []
         self._live_finalizer = OnlyLiveBarFinalizer()
         self._semantic_lane = OnlyStreamingSemanticLane(self._services.market_data_processor)
@@ -206,6 +214,14 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 self._timer_registry.checkpoint_schema_version,
                 self._timer_registry.capture_checkpoint,
                 self._timer_registry.restore_checkpoint,
+            )
+        )
+        self._checkpoint_registry.register(
+            OnlyJsonRuntimeCheckpointParticipant(
+                "streaming.result-progress",
+                1,
+                self._result_progress.capture_checkpoint,
+                self._result_progress.restore_checkpoint,
             )
         )
         source_id = data_source.source_id  # type: ignore[union-attr]
@@ -419,10 +435,67 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         return self._live_finalizer.pending_count
 
     def _recover_runtime(self) -> None:
-        # Streaming checkpoint/restart is deliberately unsupported.
-        self._services.event_router.complete_fresh_bootstrap()
+        if not self._persistence_config.checkpoint.enabled:
+            self._services.event_router.complete_fresh_bootstrap()
+            return
+        self._register_cluster_checkpoint_participants()
+        self._checkpoint_query.bind_participant_registry_fingerprint(self._checkpoint_registry.fingerprint)
+        has_checkpoint = self._checkpoint_query.latest_checkpoint(self.config.runtime_id) is not None  # type: ignore[arg-type]
+        if not has_checkpoint:
+            self._services.event_router.complete_fresh_bootstrap()
+            return
+        self._services.event_router.begin_recovery()
+        for update in self._services.broker_inbound.drain():
+            self._services.execution_processor.replay_non_transaction(update)
+        self._services.cluster_manager.enter_recovery_all()
+        try:
+            self._local_recovery = self._runtime_recovery_orchestrator.bootstrap()
+        except Exception as exc:
+            self._services.event_router.fail()
+            self._services.cluster_manager.fail_recovery_finalization_all(exc)
+            raise
+        if self._local_recovery is None:
+            raise AssertionError("checkpoint query and Streaming recovery bootstrap disagree")
+        self._checkpoint_suspended = True
+
+    def _complete_start_recovery(self) -> None:
+        if self._local_recovery is None:
+            return
+        self._start_streaming_transport(recovery=True)
+        try:
+            outcome = self._semantic_lane.execute(self._complete_streaming_recovery)
+            if not outcome.started or outcome.result is None:
+                raise OnlyRuntimeError("STREAMING_RECOVERY_SEMANTIC_PERMISSION_REVOKED")
+            self._services.event_router.begin_finalization()
+            finalization = self._runtime_recovery_finalizer.finalize(outcome.result)
+            self._checkpoint_query.cover(
+                OnlyRuntimeId(self.runtime_id),
+                finalization.checkpoint.header.checkpoint_sequence,
+            )
+            self._services.event_router.complete_recovery()
+            self._runtime_recovery_diagnostics.append(finalization.outcome.diagnostic)
+            self._post_recovery_validation_reports.append(finalization.validation_report)
+            self._clusters_recovered = True
+            self._checkpoint_suspended = False
+            self._external_recovery_completed = True
+        except Exception:
+            self._transition_streaming_phase(OnlyStreamingPhase.FAILED)
+            self._services.event_router.fail()
+            raise
 
     def _after_clusters_started(self) -> None:
+        if self._external_recovery_completed:
+            self._transition_streaming_phase(OnlyStreamingPhase.LIVE)
+            self._rearm_restored_timers()
+            self._driver.start_worker()
+            return
+        self._start_streaming_transport(recovery=False)
+        if self._persistence_config.checkpoint.enabled:
+            outcome = self._semantic_lane.execute(self._create_verified_streaming_checkpoint)
+            if not outcome.started:
+                raise OnlyRuntimeError("STREAMING_CHECKPOINT_SEMANTIC_PERMISSION_REVOKED")
+
+    def _start_streaming_transport(self, *, recovery: bool) -> None:
         authenticate = getattr(self._driver.source, "authenticate", None)
         if callable(authenticate):
             authenticate()
@@ -436,6 +509,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             if result.subscription_id is None:
                 raise OnlyRuntimeError(f"live subscription failed: {result.reason}")
             self._driver.subscription_id = result.subscription_id
+            if recovery:
+                self._transition_streaming_phase(OnlyStreamingPhase.RECOVERING)
+                return
             self._transition_streaming_phase(OnlyStreamingPhase.BOOTSTRAP)
             self._bootstrap()
             self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP)
@@ -714,6 +790,12 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             self._latest_sources[key] = source
             if self.streaming_phase is not OnlyStreamingPhase.BOOTSTRAP:
                 self._publish_observations(bar, source)
+            if (
+                self._persistence_config.checkpoint.enabled
+                and not self._checkpoint_suspended
+                and self.streaming_phase is OnlyStreamingPhase.LIVE
+            ):
+                self._create_verified_streaming_checkpoint()
 
     def _drain_catch_up(self) -> None:
         buffered: list[OnlyMarketDataInboundUpdate] = []
@@ -772,11 +854,151 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         occurrence: OnlyRuntimeTimerOccurrence,
         event: OnlyTimerEvent,
         callback: Callable[[OnlyTimerEvent], None],
+        complete: Callable[[], None],
     ) -> None:
-        del occurrence
-        outcome = self._semantic_lane.execute(lambda: callback(event))
+        def action() -> None:
+            callback(event)
+            complete()
+            if self._persistence_config.checkpoint.enabled and not self._checkpoint_suspended:
+                self._create_verified_streaming_checkpoint()
+
+        outcome = self._semantic_lane.execute(action)
         if not outcome.started:
             raise OnlyRuntimeError("STREAMING_TIMER_SEMANTIC_PERMISSION_REVOKED")
+
+    def _create_verified_streaming_checkpoint(self) -> None:
+        if self._execution_checkpoint_blocked:
+            raise OnlyRuntimeError("STREAMING_CHECKPOINT_EXECUTION_FRONTIER_BLOCKED")
+        self._drain_execution_updates_for_checkpoint()
+        self._services.event_bus.drain()
+        if len(self._services.broker_inbound):
+            raise OnlyRuntimeError("STREAMING_CHECKPOINT_BROKER_RECOVERY_UNRESOLVED")
+        checkpoint = self._checkpoint_service.create_verified(
+            OnlyTimestamp.from_unix_nanos(self._services.clock.timestamp_ns())
+        )
+        self._checkpoint_query.cover(OnlyRuntimeId(self.runtime_id), checkpoint.header.checkpoint_sequence)
+
+    def _complete_streaming_recovery(self) -> OnlyRuntimeRecoveryOutcome:
+        bootstrap = self._local_recovery
+        if bootstrap is None:
+            raise AssertionError("Streaming recovery completion requires local bootstrap")
+        callbacks = self._timer_registry.callbacks
+        self._activate_execution_recovery(bootstrap.execution_session)
+        processed = 0
+        final_boundary: OnlyRuntimeRecoveryBoundary | None = None
+        try:
+            observed = OnlyTimestamp.from_datetime(self._services.clock.now_utc())
+            for frontier in self._continuity.frontiers:
+                target = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
+                    calendar=self._selected_calendar,
+                    bar_type=frontier.key.bar_type,
+                    observed_at=observed,
+                )
+                plan = OnlyStreamingRecoveryPlan(
+                    self._recovery_generation + 1,
+                    OnlyStreamingRecoveryReason.RESTART,
+                    frontier.key.instrument_id,
+                    frontier.key.bar_type,
+                    frontier.last_closed_bar_end,
+                    target,
+                )
+                self._recovery_generation += 1
+                batch = self._recovery_loader.load(
+                    plan,
+                    self._continuity.accepted_sequence(frontier.key.source_id, frontier.key.data_type),
+                )
+                for update in batch.updates:
+                    nested = self._semantic_lane.process(update, self._record_processing_result)
+                    if not nested.started or nested.result is None:
+                        raise OnlyRuntimeError("STREAMING_RECOVERY_SEMANTIC_PERMISSION_REVOKED")
+                    result = nested.result
+                    if result.status is not OnlyMarketDataProcessingStatus.APPLIED:
+                        raise OnlyRuntimeError(f"restart recovery Bar was not applied: {result.status.value}")
+                    processed += 1
+                    final_boundary = OnlyRuntimeRecoveryBoundary(
+                        update.source_id,
+                        update.data_version,
+                        update.update_id,
+                        int(update.source_sequence),
+                        update.ts_event,
+                    )
+            self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP)
+            self._process_buffered_updates(self._drain_buffered_updates())
+            while True:
+                suffix = self._drain_buffered_updates()
+                if not suffix:
+                    break
+                self._process_buffered_updates(suffix)
+            for occurrence in self._checkpoint_query.unresolved(OnlyRuntimeId(self.runtime_id)):
+                callback = callbacks.get(occurrence.timer_id)
+                if callback is None:
+                    raise OnlyRuntimeError(f"STREAMING_TIMER_CALLBACK_MISSING: {occurrence.timer_id}")
+                self._timer_registry.recover_occurrence(occurrence, callback)
+            bootstrap.execution_session.require_tail_resolved()
+        finally:
+            self._deactivate_execution_recovery()
+        restored_frontier = max(
+            self._continuity.frontiers,
+            key=lambda item: (item.last_closed_bar_end.unix_nanos, item.key.canonical),
+            default=None,
+        )
+        if restored_frontier is not None:
+            final_boundary = OnlyRuntimeRecoveryBoundary(
+                restored_frontier.key.source_id,
+                restored_frontier.key.data_version,
+                restored_frontier.last_update_id,
+                restored_frontier.canonical_sequence,
+                restored_frontier.last_closed_bar_end,
+            )
+        replay_result = (
+            None
+            if final_boundary is None
+            else OnlyRuntimeRecoveryDriverResult(
+                processed,
+                final_boundary,
+                len(bootstrap.execution_session.continuations),
+            )
+        )
+        outcome = self._runtime_recovery_orchestrator.complete(bootstrap, replay_result)
+        self._local_recovery = None
+        return outcome
+
+    def _rearm_restored_timers(self) -> None:
+        self._timer_registry.rearm_after_restore(self._timer_registry.callbacks)
+
+    def _post_recovery_validation_context(
+        self,
+        outcome: OnlyRuntimeRecoveryOutcome,
+    ) -> OnlyPostRecoveryValidationContext:
+        context = super()._post_recovery_validation_context(outcome)
+        frontier = max(
+            self._continuity.frontiers,
+            key=lambda item: (item.last_closed_bar_end.unix_nanos, item.key.canonical),
+            default=None,
+        )
+        driver = (
+            context.runtime_boundary_view.driver_frontier
+            if frontier is None
+            else OnlyRuntimeDriverFrontierView(
+                frontier.key.source_id,
+                frontier.key.data_version,
+                frontier.last_update_id,
+                frontier.canonical_sequence,
+                frontier.last_closed_bar_end,
+                frontier.processed_count,
+            )
+        )
+        boundary = replace(
+            context.runtime_boundary_view,
+            market_data_inbound_count=len(self._services.market_data_inbound),
+            driver_frontier=driver,
+            semantic_lane_idle=True,
+            execution_frontier_ready=not self._execution_checkpoint_blocked,
+            broker_recovery_resolved=len(self._services.broker_inbound) == 0,
+            event_delivery_stable=self._services.event_bus.pending_count() == 0,
+            driver_frontier_stable=self._driver.subscription_id is not None and self._source_connected(),
+        )
+        return replace(context, runtime_boundary_view=boundary)
 
     def _schedule_at(self, cluster_id: OnlyClusterId, timer_id: str, when_ns: int) -> OnlyTimerHandle:
         self._require_timer_permission(cluster_id)
@@ -876,6 +1098,10 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     break
                 self._process_buffered_updates(suffix)
             self._verify_recovery_complete(plan)
+            if self._persistence_config.checkpoint.enabled:
+                checkpoint = self._semantic_lane.execute(self._create_verified_streaming_checkpoint)
+                if not checkpoint.started:
+                    raise OnlyRuntimeError("STREAMING_CHECKPOINT_SEMANTIC_PERMISSION_REVOKED")
             self._recovery_plan = None
             self._transition_streaming_phase(OnlyStreamingPhase.LIVE)
         except Exception as exc:
@@ -910,10 +1136,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 if identity in seen or not self._accept_finalized_bar(finalized):
                     continue
                 seen.add(identity)
-                next_sequence = (
-                    self._continuity.accepted_sequence(finalized.source_id, finalized.data_type)
-                    + 1
-                )
+                next_sequence = self._continuity.accepted_sequence(finalized.source_id, finalized.data_type) + 1
                 normalized = replace(
                     finalized,
                     source_sequence=OnlyDataSequence(next_sequence),

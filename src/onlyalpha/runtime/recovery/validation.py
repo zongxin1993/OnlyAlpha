@@ -926,19 +926,29 @@ class OnlyRuntimeBoundaryAuthorityCheck:
         clock_ok = boundary is None or view.clock_time >= boundary.ts_event
         return (
             _check(
-                "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY",
-                "inbound",
-                view.broker_inbound_count == 0 and view.market_data_inbound_count == 0,
-                (0, 0),
-                (view.broker_inbound_count, view.market_data_inbound_count),
-                "inbound queues must be empty",
+                "POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN",
+                "semantic-boundary",
+                view.broker_inbound_count == 0
+                and view.semantic_lane_idle
+                and view.execution_frontier_ready
+                and view.broker_recovery_resolved
+                and view.driver_frontier_stable,
+                (0, True, True, True, True),
+                (
+                    view.broker_inbound_count,
+                    view.semantic_lane_idle,
+                    view.execution_frontier_ready,
+                    view.broker_recovery_resolved,
+                    view.driver_frontier_stable,
+                ),
+                "semantic recovery boundary must be sealed; realtime ingress may remain buffered",
             ),
             _check(
                 "POST_RECOVERY_EVENT_BUS_NOT_DRAINED",
                 "event-bus",
-                view.event_bus_pending_count == 0,
-                0,
-                view.event_bus_pending_count,
+                view.event_bus_pending_count == 0 and view.event_delivery_stable,
+                (0, True),
+                (view.event_bus_pending_count, view.event_delivery_stable),
                 "event bus must be drained",
             ),
             _check(

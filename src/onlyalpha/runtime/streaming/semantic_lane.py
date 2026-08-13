@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from threading import Lock
+from threading import RLock
 from typing import TypeVar
 
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult
@@ -30,7 +30,7 @@ class OnlyStreamingSemanticLane:
 
     def __init__(self, processor: OnlyMarketDataProcessor) -> None:
         self._processor = processor
-        self._permission = Lock()
+        self._permission = RLock()
         self._revoked = False
 
     def execute(self, action: Callable[[], T]) -> OnlyStreamingSemanticOutcome[T]:

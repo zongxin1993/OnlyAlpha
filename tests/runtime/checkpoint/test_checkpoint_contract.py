@@ -1,3 +1,5 @@
+import pytest
+
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
@@ -11,6 +13,8 @@ from onlyalpha.runtime.checkpoint.participant import (
     OnlyStatelessRuntimeCheckpointParticipant,
 )
 from onlyalpha.runtime.checkpoint.registry import OnlyRuntimeCheckpointParticipantRegistry
+
+pytestmark = pytest.mark.sim_recovery
 
 
 def test_participant_capture_mutate_restore_equality_and_stable_order() -> None:
@@ -32,9 +36,7 @@ def test_participant_capture_mutate_restore_equality_and_stable_order() -> None:
     )
     registry.register(OnlyJsonRuntimeCheckpointParticipant("a.stateless", 1, lambda: {}, lambda _: None))
     runtime_id = OnlyRuntimeId("runtime")
-    components = registry.capture(
-        OnlyCheckpointCaptureContext(runtime_id, OnlyTimestamp.from_unix_nanos(2), 0)
-    )
+    components = registry.capture(OnlyCheckpointCaptureContext(runtime_id, OnlyTimestamp.from_unix_nanos(2), 0))
     assert tuple(item.component_id for item in components) == ("a.stateless", "z.component")
     state["value"] = 99
     registry.restore(components, OnlyCheckpointRestoreContext(runtime_id))

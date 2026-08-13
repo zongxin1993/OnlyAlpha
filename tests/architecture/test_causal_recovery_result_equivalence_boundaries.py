@@ -13,8 +13,9 @@ def test_runtime_uses_one_causal_session_and_never_skips_existing_transactions()
         "_recover_market_data_tail",
     ):
         assert removed not in source
-    assert "execution_processor.replay(update, session.execution_session)" in source
+    assert "execution_processor.replay(update, execution_session)" in source
     assert "OnlyBacktestRecoverySession | None" in source
+    assert "OnlyExecutionRecoverySession | None" in source
 
 
 def test_stable_bar_completion_precedes_checkpoint() -> None:

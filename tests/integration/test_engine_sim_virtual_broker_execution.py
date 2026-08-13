@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -79,17 +81,17 @@ class _FakeLiveXtData:
             callback({"000001.SZ": row})
 
 
-def _config(tmp_path: Path) -> OnlyClusterRunConfig:
+def _config(tmp_path: Path, *, checkpoint: bool = False) -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load("examples/configs/miniqmt_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
     payload["runtime"]["persistence"] = {
         "backend": "SQLITE",
         "path": "sim-runtime.sqlite3",
-        "checkpoint": {"enabled": False},
+        "checkpoint": {"enabled": checkpoint},
     }
     userdata = tmp_path / "userdata_mini"
-    userdata.mkdir(parents=True)
+    userdata.mkdir(parents=True, exist_ok=True)
     payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
     return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
 
@@ -99,9 +101,11 @@ def _engine(
     monkeypatch: pytest.MonkeyPatch,
     *,
     engine_id: str,
+    checkpoint: bool = False,
+    initial_time: datetime = _INITIAL_TIME,
 ) -> tuple[OnlyEngine, _FakeLiveXtData, OnlyBacktestClock, Path]:
     xtdata = _FakeLiveXtData()
-    clock = OnlyBacktestClock(_INITIAL_TIME)
+    clock = OnlyBacktestClock(initial_time)
 
     def create(self: OnlyMiniQmtDataSourceFactory, request: object) -> OnlyMiniQmtDataSource:
         del self
@@ -125,8 +129,254 @@ def _engine(
     )
     user_data = tmp_path / "user_data"
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(engine_id), user_data))
-    engine.add_cluster(_config(tmp_path))
+    engine.add_cluster(_config(tmp_path, checkpoint=checkpoint))
     return engine, xtdata, clock, user_data
+
+
+@pytest.mark.sim_recovery
+def test_engine_sim_checkpoint_reopens_in_new_runtime_instance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-new-instance-restart"
+    first, _first_feed, _first_clock, user_data = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+    )
+    first.initialize()
+    first.start()
+    first_runtime = cast(OnlySimRuntime, first.runtimes[0])
+    database = _database(user_data, engine_id, first_runtime)
+    runtime_id = OnlyRuntimeId(first_runtime.runtime_id)
+    first_checkpoint = first_runtime._checkpoint_query.latest_checkpoint(runtime_id)  # type: ignore[attr-defined]
+    assert first_checkpoint is not None
+    assert first_checkpoint.header.checkpoint_sequence >= 1
+    first.stop()
+    first.close()
+
+    second, _second_feed, _second_clock, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+    )
+    second.initialize()
+    second_runtime = cast(OnlySimRuntime, second.runtimes[0])
+    assert OnlyRuntimeId(second_runtime.runtime_id) == runtime_id
+    second.start()
+    try:
+        assert second_runtime.state is OnlyRuntimeState.RUNNING
+        assert second_runtime.streaming_phase is OnlyStreamingPhase.LIVE
+        assert second_runtime.runtime_recovery_diagnostics
+        recovered = second_runtime._checkpoint_query.latest_checkpoint(runtime_id)  # type: ignore[attr-defined]
+        assert recovered is not None
+        assert recovered.header.checkpoint_sequence > first_checkpoint.header.checkpoint_sequence
+        assert database.is_file()
+    finally:
+        second.stop()
+        second.close()
+
+
+@pytest.mark.sim_recovery
+def test_engine_sim_state_lease_rejects_simultaneous_runtime_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-state-lease"
+    first, _feed, _clock, _ = _engine(tmp_path, monkeypatch, engine_id=engine_id, checkpoint=True)
+    first.initialize()
+    second, _second_feed, _second_clock, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+    )
+    try:
+        with pytest.raises(Exception, match="RUNTIME_STATE_LEASE_ALREADY_HELD"):
+            second.initialize()
+    finally:
+        second.close()
+        first.close()
+
+    third, _third_feed, _third_clock, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+    )
+    third.initialize()
+    third.close()
+
+
+@pytest.mark.sim_recovery
+def test_engine_sim_recovery_fails_closed_on_corrupt_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-corrupt-checkpoint"
+    first, _feed, _clock, user_data = _engine(tmp_path, monkeypatch, engine_id=engine_id, checkpoint=True)
+    first.initialize()
+    first.start()
+    runtime = cast(OnlySimRuntime, first.runtimes[0])
+    database = _database(user_data, engine_id, runtime)
+    runtime_id = runtime.runtime_id
+    first.stop()
+    first.close()
+
+    with sqlite3.connect(database) as connection:
+        sequence = connection.execute(
+            "SELECT MAX(checkpoint_sequence) FROM runtime_checkpoints WHERE runtime_id=?",
+            (runtime_id,),
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE runtime_checkpoint_components SET payload='{}' "
+            "WHERE runtime_id=? AND checkpoint_sequence=? AND component_id=("
+            "SELECT MIN(component_id) FROM runtime_checkpoint_components "
+            "WHERE runtime_id=? AND checkpoint_sequence=?)",
+            (runtime_id, sequence, runtime_id, sequence),
+        )
+        connection.commit()
+
+    second, _second_feed, _second_clock, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+    )
+    with pytest.raises(Exception, match="checkpoint component hash mismatch"):
+        second.initialize()
+    assert second.runtimes == ()
+    second.close()
+
+
+@pytest.mark.sim_recovery
+def test_engine_sim_recovery_checkpoint_supports_second_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-double-restart"
+    checkpoints: list[int] = []
+    runtime_id: OnlyRuntimeId | None = None
+    for _stage in range(3):
+        engine, _feed, _clock, _ = _engine(
+            tmp_path,
+            monkeypatch,
+            engine_id=engine_id,
+            checkpoint=True,
+        )
+        engine.initialize()
+        runtime = cast(OnlySimRuntime, engine.runtimes[0])
+        runtime_id = OnlyRuntimeId(runtime.runtime_id)
+        engine.start()
+        checkpoint = runtime._checkpoint_query.latest_checkpoint(runtime_id)  # type: ignore[attr-defined]
+        assert checkpoint is not None
+        checkpoints.append(checkpoint.header.checkpoint_sequence)
+        engine.stop()
+        engine.close()
+
+    assert checkpoints[0] < checkpoints[1] < checkpoints[2]
+
+
+@pytest.mark.sim_recovery
+def test_engine_sim_restart_crosses_real_process_boundary(tmp_path: Path) -> None:
+    helper = Path("tests/helpers/sim_recovery_process.py").resolve()
+    for stage in ("write", "recover"):
+        completed = subprocess.run(
+            [sys.executable, str(helper), stage, str(tmp_path)],
+            cwd=Path.cwd(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            env={**os.environ, "PYTHONPATH": str(Path.cwd())},
+        )
+        assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.sim_recovery
+def test_engine_sim_filled_trading_world_is_identical_after_new_instance_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_id = "sim-filled-world-restart"
+    first, feed, clock, _ = _engine(tmp_path, monkeypatch, engine_id=engine_id, checkpoint=True)
+    first.initialize()
+    first.start()
+    runtime = cast(OnlySimRuntime, first.runtimes[0])
+    _publish_and_wait_received(runtime, feed, clock, 37)
+    _publish_and_wait_received(runtime, feed, clock, 38)
+    _wait_until(
+        lambda: len(runtime.order_snapshots) == 1 and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED,
+        "checkpoint SIM did not commit Accepted",
+    )
+    _publish_and_wait_received(runtime, feed, clock, 39)
+    _wait_until(
+        lambda: runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED,
+        "checkpoint SIM did not commit Fill",
+    )
+    _wait_until(
+        lambda: (
+            (checkpoint := runtime._checkpoint_query.latest_checkpoint(OnlyRuntimeId(runtime.runtime_id)))  # type: ignore[attr-defined]
+            is not None
+            and checkpoint.header.covered_execution_sequence == 2
+        ),
+        "checkpoint SIM did not advertise the filled canonical world",
+    )
+    expected = (
+        runtime.order_snapshots,
+        runtime.position_manager.snapshot_all(),
+        runtime.allocation_manager.snapshot_all(),
+        runtime.account_manager.list_accounts(),
+        runtime.strategy_ledger_manager.list_ledgers(),
+        runtime.account_reservation_manager.snapshots(),
+        runtime.position_reservation_manager.snapshots(),
+        runtime.risk_service.reservations.snapshot_all(),
+        runtime.fee_application_ledger.records,
+        runtime.settlement_authority.records,
+        runtime.execution_transaction_query.records(OnlyRuntimeId(runtime.runtime_id)),
+        runtime._continuity.capture_checkpoint(),  # type: ignore[attr-defined]
+        runtime._deterministic_broker_driver.capture_checkpoint(),  # type: ignore[attr-defined]
+    )
+    first.stop()
+    first.close()
+
+    second, _feed_b, _clock_b, _ = _engine(
+        tmp_path,
+        monkeypatch,
+        engine_id=engine_id,
+        checkpoint=True,
+        initial_time=datetime(2026, 8, 4, 1, 38, tzinfo=UTC),
+    )
+    second.initialize()
+    recovered = cast(OnlySimRuntime, second.runtimes[0])
+    monkeypatch.setattr(
+        recovered._driver.source,  # type: ignore[attr-defined,union-attr]
+        "load_bars",
+        lambda request: OnlyHistoricalDataStream((), request.batch_size),
+    )
+    second.start()
+    try:
+        actual = (
+            recovered.order_snapshots,
+            recovered.position_manager.snapshot_all(),
+            recovered.allocation_manager.snapshot_all(),
+            recovered.account_manager.list_accounts(),
+            recovered.strategy_ledger_manager.list_ledgers(),
+            recovered.account_reservation_manager.snapshots(),
+            recovered.position_reservation_manager.snapshots(),
+            recovered.risk_service.reservations.snapshot_all(),
+            recovered.fee_application_ledger.records,
+            recovered.settlement_authority.records,
+            recovered.execution_transaction_query.records(OnlyRuntimeId(recovered.runtime_id)),
+            recovered._continuity.capture_checkpoint(),  # type: ignore[attr-defined]
+            recovered._deterministic_broker_driver.capture_checkpoint(),  # type: ignore[attr-defined]
+        )
+        assert actual == expected
+    finally:
+        second.stop()
+        second.close()
 
 
 def _database(user_data: Path, engine_id: str, runtime: OnlySimRuntime) -> Path:

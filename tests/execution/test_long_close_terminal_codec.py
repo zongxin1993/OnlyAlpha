@@ -80,7 +80,7 @@ def test_runtime_schema_two_is_rejected_without_migration_or_deletion(tmp_path: 
 
     with pytest.raises(
         OnlyRuntimePersistenceSchemaUnsupported,
-        match=r"expected='6', actual='2'",
+        match=r"expected='7', actual='2'",
     ):
         OnlySqliteRuntimePersistenceStore(path)
 

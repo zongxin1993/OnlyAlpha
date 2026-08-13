@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 LAYER_MARKERS = frozenset({"unit", "contract", "architecture", "integration", "scenario"})
-CONCERN_MARKERS = frozenset({"recovery", "conformance", "external", "performance", "exhaustive", "miniqmt"})
+CONCERN_MARKERS = frozenset(
+    {"recovery", "sim_recovery", "conformance", "external", "performance", "exhaustive", "miniqmt"}
+)
 EXTERNAL_REQUIREMENT_MARKERS = frozenset(
     {"requires_network", "requires_tushare", "requires_local_qmt", "requires_broker_account"}
 )

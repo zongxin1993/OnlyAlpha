@@ -79,6 +79,11 @@ class OnlyRuntimeBoundaryAuthorityView:
     last_market_processing_sequence: int
     market_processing_sequence: int
     clock_time: OnlyTimestamp
+    semantic_lane_idle: bool = True
+    execution_frontier_ready: bool = True
+    broker_recovery_resolved: bool = True
+    event_delivery_stable: bool = True
+    driver_frontier_stable: bool = True
 
     def __post_init__(self) -> None:
         if (

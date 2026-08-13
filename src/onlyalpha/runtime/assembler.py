@@ -49,7 +49,7 @@ class OnlyEngineRunAssembler:
             )
         return factory.create(OnlyRuntimeBuildRequest(plan, self.components, user_data_root))
 
-    def validate(self, plan: OnlyRuntimePlan) -> OnlyRuntimeBuildResult:
+    def validate(self, plan: OnlyRuntimePlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
         """Validate factory availability without constructing Runtime objects."""
 
         try:
@@ -61,5 +61,8 @@ class OnlyEngineRunAssembler:
             )
         validate = getattr(factory, "validate", None)
         if callable(validate):
-            return cast(OnlyRuntimeBuildResult, validate(OnlyRuntimeBuildRequest(plan, self.components)))
+            return cast(
+                OnlyRuntimeBuildResult,
+                validate(OnlyRuntimeBuildRequest(plan, self.components, user_data_root)),
+            )
         return OnlyRuntimeBuildResult()

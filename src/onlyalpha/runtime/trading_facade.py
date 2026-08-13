@@ -80,6 +80,7 @@ from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
 from onlyalpha.execution.accepted_identity import only_capture_execution_order_accepted_authority
 from onlyalpha.execution.accepted_planner import OnlyOrderAcceptedExecutionTransactionPlanner
 from onlyalpha.execution.capability import OnlyExecutionSupportDecision
+from onlyalpha.execution.causal_recovery import OnlyExecutionRecoverySession
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
@@ -811,16 +812,23 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         market_data_event_publisher = OnlyMarketDataEventPublisher()
         self._last_market_trading_day: OnlyTradingDay | None = None
         self._execution_checkpoint_blocked = False
+        self._deterministic_broker_driver = deterministic_broker_driver
+        self._execution_recovery_session: OnlyExecutionRecoverySession | None = None
 
         def drain_execution_updates() -> None:
             for update in broker_inbound.drain():
-                session = self._backtest_recovery_session
+                backtest_session = self._backtest_recovery_session
+                execution_session = (
+                    backtest_session.execution_session
+                    if backtest_session is not None
+                    else self._execution_recovery_session
+                )
                 processing = (
                     execution_processor.process(update)
-                    if session is None
-                    else execution_processor.replay(update, session.execution_session)
+                    if execution_session is None
+                    else execution_processor.replay(update, execution_session)
                 )
-                if session is None:
+                if execution_session is None:
                     delivery = execution_delivery_coordinator.deliver(
                         runtime_config.runtime_id,  # type: ignore[arg-type]
                         processing.delivery_intent,
@@ -1527,6 +1535,8 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
         self._cluster_checkpoint_participants_registered = True
 
     def _checkpoint_barrier(self, completion: OnlyBacktestBarCompletion) -> None:
+        if self._run_plan is None:
+            return
         if self._execution_checkpoint_blocked:
             return
         if self._persistence_config.checkpoint.enabled and (
@@ -1645,6 +1655,14 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
 
     def _deactivate_backtest_recovery(self) -> None:
         self._backtest_recovery_session = None
+
+    def _activate_execution_recovery(self, session: OnlyExecutionRecoverySession) -> None:
+        if self._execution_recovery_session is not None or self._backtest_recovery_session is not None:
+            raise OnlyRuntimeError("Execution recovery session is already active")
+        self._execution_recovery_session = session
+
+    def _deactivate_execution_recovery(self) -> None:
+        self._execution_recovery_session = None
 
     def register_instrument(
         self,

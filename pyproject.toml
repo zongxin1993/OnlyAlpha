@@ -79,6 +79,7 @@ markers = [
     "scenario: Engine scenario test",
     "conformance: market conformance test",
     "recovery: checkpoint, restart, fault injection, or projection recovery test",
+    "sim_recovery: SIM durable product and new-process recovery certification test",
     "external: external service integration test",
     "performance: explicit performance or scale test",
     "exhaustive: combinatorial, 100-run, or full fault-matrix verification",

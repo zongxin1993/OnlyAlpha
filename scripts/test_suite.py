@@ -25,6 +25,7 @@ class OnlyTestLane(StrEnum):
     INTEGRATION = "integration"
     ASHARE = "ashare"
     RECOVERY = "recovery"
+    SIM_RECOVERY = "sim-recovery"
     MINIQMT_CONTRACT = "miniqmt-contract"
     MINIQMT_LOCAL = "miniqmt-local"
     CORE_FULL = "core-full"
@@ -44,18 +45,25 @@ class Lane:
 LANES = {
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
-        "(unit or contract or architecture) and not (recovery or conformance or external or performance or exhaustive or slow)",
+        "(unit or contract or architecture) and not (recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
         "8",
         "worksteal",
     ),
     OnlyTestLane.INTEGRATION: Lane(
         ("tests",),
-        "(integration or scenario) and not (recovery or conformance or external or performance or exhaustive or slow)",
+        "(integration or scenario) and not (recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
         "6",
         "worksteal",
     ),
     OnlyTestLane.ASHARE: Lane(WORKSPACE_TESTS, "conformance and not external and not exhaustive", "4", "worksteal"),
     OnlyTestLane.RECOVERY: Lane(WORKSPACE_TESTS, "recovery and not external and not exhaustive", "8", "worksteal", 100),
+    OnlyTestLane.SIM_RECOVERY: Lane(
+        WORKSPACE_TESTS,
+        "sim_recovery and not external and not exhaustive",
+        "4",
+        "worksteal",
+        100,
+    ),
     OnlyTestLane.MINIQMT_CONTRACT: Lane(
         ("packages/provider/onlyalpha-plugin-miniqmt/tests",),
         "contract and miniqmt and not external",
@@ -70,7 +78,7 @@ LANES = {
     ),
     OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
-        "not (recovery or conformance or external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
+        "not (recovery or sim_recovery or conformance or external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
         "8",
         "worksteal",
         100,
@@ -130,6 +138,7 @@ def release(args: argparse.Namespace) -> int:
     for lane in (
         OnlyTestLane.CORE_FULL,
         OnlyTestLane.RECOVERY,
+        OnlyTestLane.SIM_RECOVERY,
         OnlyTestLane.ASHARE,
         OnlyTestLane.MINIQMT_CONTRACT,
     ):

@@ -9,7 +9,7 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.runtime.streaming.continuity import OnlyStreamingContinuityTracker
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.sim_recovery]
 
 
 def _update(bar, sequence: int) -> OnlyMarketDataInboundUpdate:  # type: ignore[no-untyped-def]

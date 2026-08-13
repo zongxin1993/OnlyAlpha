@@ -916,6 +916,7 @@ class OnlyRuntime:
             for resource in self._plugin_resources:
                 current_resource = resource
                 resource.start()
+            self._complete_start_recovery()
             self._services.event_router.open()
             outbox = self._drain_execution_outbox()
             if outbox.failed or outbox.remaining:
@@ -955,6 +956,9 @@ class OnlyRuntime:
 
     def _after_clusters_started(self) -> None:
         """Concrete Runtime hook for a stable post-start boundary."""
+
+    def _complete_start_recovery(self) -> None:
+        """Complete driver recovery after external resources have started."""
 
     def _require_all_clusters_running(self, operation: str) -> None:
         failed = tuple(

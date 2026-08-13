@@ -5,7 +5,7 @@ import pytest
 
 from onlyalpha.runtime.streaming.semantic_lane import OnlyStreamingSemanticLane
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.sim_recovery]
 
 
 def test_revoke_waits_for_atomic_commit_then_prevents_next_update() -> None:

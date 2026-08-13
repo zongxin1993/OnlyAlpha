@@ -47,6 +47,16 @@ class OnlyRuntimeRecoveryDiagnostic:
     final_boundary_update_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyRuntimeRecoveryBootstrap:
+    """Restored durable world awaiting driver-specific continuity recovery."""
+
+    checkpoint: OnlyRuntimeCheckpoint
+    execution_session: OnlyExecutionRecoverySession
+    ready_tail_count: int
+    unprojected_tail_count: int
+
+
 class OnlyRuntimeRecoveryOrchestrator:
     def __init__(
         self,
@@ -71,6 +81,19 @@ class OnlyRuntimeRecoveryOrchestrator:
         self._causal_replay = causal_replay
 
     def recover(self) -> OnlyRuntimeRecoveryOutcome | None:
+        bootstrap = self.bootstrap()
+        if bootstrap is None:
+            return None
+        replay_result = (
+            self._causal_replay(bootstrap.checkpoint, bootstrap.execution_session)
+            if bootstrap.execution_session.next_entry is not None
+            else None
+        )
+        return self.complete(bootstrap, replay_result)
+
+    def bootstrap(self) -> OnlyRuntimeRecoveryBootstrap | None:
+        """Restore local durable state without touching an external driver."""
+
         checkpoint = self._checkpoint_query.latest_checkpoint(self._runtime_id)
         if checkpoint is None:
             return None
@@ -91,12 +114,29 @@ class OnlyRuntimeRecoveryOrchestrator:
             covered_execution_sequence=checkpoint.header.covered_execution_sequence,
         )
         session = OnlyExecutionRecoverySession(plan)
-        replay_result = self._causal_replay(checkpoint, session) if plan.entries else None
-        session.require_tail_resolved()
         ready_count = sum(item.state.value == "READY" for item in plan.entries)
-        unprojected_count = len(plan.entries) - ready_count
+        return OnlyRuntimeRecoveryBootstrap(
+            checkpoint,
+            session,
+            ready_count,
+            len(plan.entries) - ready_count,
+        )
+
+    def complete(
+        self,
+        bootstrap: OnlyRuntimeRecoveryBootstrap,
+        replay_result: OnlyRuntimeRecoveryDriverResult | None,
+    ) -> OnlyRuntimeRecoveryOutcome:
+        """Seal common diagnostics after the driver resolves its recovery frontier."""
+
+        checkpoint = bootstrap.checkpoint
+        session = bootstrap.execution_session
+        session.require_tail_resolved()
+        ready_count = bootstrap.ready_tail_count
+        unprojected_count = bootstrap.unprojected_tail_count
+        tail_count = ready_count + unprojected_count
         continuation_count = 0 if replay_result is None else replay_result.continuation_transaction_count
-        final_ready = checkpoint.header.covered_execution_sequence + len(plan.entries) + continuation_count
+        final_ready = checkpoint.header.covered_execution_sequence + tail_count + continuation_count
         status = (
             OnlyRuntimeRecoveryStatus.RESTORED_AND_RECOVERED
             if unprojected_count
@@ -121,8 +161,8 @@ class OnlyRuntimeRecoveryOrchestrator:
         )
         from onlyalpha.runtime.recovery.outcome import OnlyRuntimeRecoveryOutcome
 
-        tail_start = checkpoint.header.covered_execution_sequence + 1 if plan.entries else None
-        tail_end = checkpoint.header.covered_execution_sequence + len(plan.entries) if plan.entries else None
+        tail_start = checkpoint.header.covered_execution_sequence + 1 if tail_count else None
+        tail_end = checkpoint.header.covered_execution_sequence + tail_count if tail_count else None
         continuation_start = tail_end + 1 if tail_end is not None and continuation_count else None
         if continuation_count and continuation_start is None:
             continuation_start = checkpoint.header.covered_execution_sequence + 1
@@ -137,3 +177,11 @@ class OnlyRuntimeRecoveryOrchestrator:
             None if replay_result is None else replay_result.final_boundary,
             replay_result is not None,
         )
+
+
+__all__ = [
+    "OnlyRuntimeRecoveryBootstrap",
+    "OnlyRuntimeRecoveryDiagnostic",
+    "OnlyRuntimeRecoveryOrchestrator",
+    "OnlyRuntimeRecoveryStatus",
+]

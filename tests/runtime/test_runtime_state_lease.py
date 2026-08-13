@@ -5,7 +5,7 @@ import pytest
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.runtime.persistence.lease import OnlyRuntimeStateLease, OnlyRuntimeStateLeaseAlreadyHeld
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.sim_recovery]
 
 
 def test_runtime_state_lease_is_exclusive_and_released_on_close(tmp_path) -> None:

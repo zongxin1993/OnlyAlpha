@@ -163,6 +163,12 @@ class OnlyAccountPerformanceProjector:
         if not isinstance(payload, dict):
             raise ValueError("Account performance checkpoint must be an object")
         points = tuple(OnlyAccountEquityPoint.from_json(str(item)) for item in payload["points"])
+        # Composition creates one provisional bootstrap point. A checkpoint is the
+        # canonical timeline authority and must replace that process-local bootstrap,
+        # whose wall-clock timestamp can differ after a new-process restart.
+        self._points.clear()
+        self._external_cash_flow.clear()
+        self._sequence = 0
         self.restore_execution_points(points)
         self.restore_execution_sequence_head(int(payload["sequence"]))
 

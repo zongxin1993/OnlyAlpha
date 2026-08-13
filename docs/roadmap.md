@@ -13,11 +13,16 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 `PAPER` 与 standalone `SHADOW` 不是目标 Runtime。当前源码中的相关类型是 migration debt，不是长期兼容合同。
 
-## 当前产品事实（2026-08-12）
+## 当前产品事实（2026-08-13）
 
 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、单/多 Cluster、Result/Analytics/Artifact/Report。
 
-SIM 的当前正式范围是 `GENERIC_T0_CASH@1` 下的 realtime normal path 与 same-process continuity recovery：`OnlySimRuntime` 使用 Live Clock、historical bootstrap/live handoff、Virtual Broker 和共享 Trading Kernel，标准 Accepted/Trade fact 均进入 Broker Inbound Queue、Durable Transaction 与 Ordered Projection；unexpected gap、STALE 或 disconnect 会撤销新订单权限，复用 Historical DataSource 与同一 MarketData Processor/Pipeline 修复缺失事实，再确定性追平 buffered realtime suffix。SIM 的 Runtime Persistence 可使用 Memory 或 SQLite，且与 disabled streaming checkpoint 正交。该范围不包含 streaming checkpoint/new-process restart、Real Broker reconciliation 或长期生产运行。
+SIM 的当前正式范围是 `GENERIC_T0_CASH@1` 下的 realtime normal path、same-process continuity recovery 与 SQLite durable
+checkpoint/new-process restart：`OnlySimRuntime` 使用 Live Clock、historical bootstrap/live handoff、Virtual Broker 和共享 Trading Kernel，
+标准 Accepted/Trade fact 均进入 Broker Inbound Queue、Durable Transaction 与 Ordered Projection；unexpected gap、STALE 或 disconnect
+会撤销新订单权限并确定性修复 continuity。checkpoint-enabled SIM 要求稳定 state root、Runtime State Lease、subscribe-first recovery、
+Timer durable occurrence、post-recovery authority validation 和 verified recovery checkpoint。该范围不包含 Real Broker reconciliation、
+24h soak、长期生产运维或 broad MiniQMT compatibility matrix。
 
 当前 legacy `PAPER` 路径已完成当前 Market Product binding 下真实 MiniQMT 的 Historical/Open-Market Bootstrap、Historical-to-Live handoff、watermark、1m external bar、1m-to-3m aggregation、warmup/observation、Strategy intent、Shadow suppression、Reservation create/release 和 ordered shutdown。它仍是 read-only market observation + Shadow execution，只作为 Sim streaming migration baseline；reconnect、realtime gap recovery、streaming checkpoint/recovery、Real Broker submission/synchronization 与长期生产运行尚未闭环。
 
@@ -106,6 +111,21 @@ realtime normal path，不包含 gap/reconnect/checkpoint/restart；`OnlyEngine.
 P6.4 已完成 continuity assess/commit 分离、unexpected-gap admission cutoff、`DEGRADED/RECOVERING` phase、Calendar-aware historical repair、recovery sequence normalization、同一 MarketData Pipeline replay、恢复期 Strategy 新订单抑制、既有 Virtual Broker order 推进、buffered suffix catch-up、STALE/disconnect 触发、MiniQMT same-process reconnect 与显式 LIVE resume proof。恢复失败一律进入 `FAILED`，不会自动取消订单或创造 synthetic terminal trading fact；Stop 在 blocked historical I/O 返回后仍拥有 processing cutoff authority。
 
 该阶段仍不包含 streaming checkpoint、new-process restart、Real Broker reconciliation 或 long-running operations；这些分别属于 P6.5 及后续阶段。P6.4 只有 final SHA 的 static、build、core-full、recovery、ashare、miniqmt-contract 与 quality-gate 全部成功后才能标记 `DONE / CERTIFIED`。
+
+### P6.5 — Streaming Durable Checkpoint & New-Process Recovery（实现完成，待同 SHA 远端认证）
+
+Runtime lifecycle 已分为 `initialize = local durable bootstrap` 与 `start = external driver recovery + common finalization`。
+SIM Factory 正式接受 `MEMORY + checkpoint=false`、`SQLITE + checkpoint=false` 和带稳定 state root 的
+`SQLITE + checkpoint=true`；checkpoint-enabled SIM 通过 Runtime State Lease 保持 single writer。
+
+Streaming restart 先订阅并 buffer realtime evidence，再按 checkpoint continuity frontier 做 historical repair、transaction-tail/Timer
+恢复、buffered suffix merge 和 continuity proof。恢复期 Strategy normal trading permission 关闭；post-recovery authority validation、
+checkpoint atomic write 与 reread verification 完成后才恢复 Cluster、Timer 和 LIVE admission。Closed-Bar/Timer checkpoint cadence 位于
+唯一 Semantic Lane exclusivity 内，physical MarketData queue empty 不再是 realtime quiescence invariant，partial live Bar 和 transport
+queue 永不 durable。独立 `sim-recovery` lane 已接入 PR/master/release gates。
+
+P6.5 只有 final SHA 的 static、build、fast、integration、core-full、recovery、sim-recovery、ashare、miniqmt-contract 与
+quality-gate 全部成功后才能标记 `DONE / CERTIFIED`。
 
 P6 不是新建一套与 Backtest 分离的 Sim 系统。它迁移并清理当前 `PAPER` 的 useful streaming infrastructure：
 

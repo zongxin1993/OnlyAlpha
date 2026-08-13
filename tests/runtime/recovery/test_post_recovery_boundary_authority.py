@@ -30,14 +30,20 @@ def test_runtime_boundary_keeps_inbound_and_event_bus_diagnostics_distinct() -> 
     inbound = replace(boundary, broker_inbound_count=1)
     pending = replace(boundary, event_bus_pending_count=1)
     assert (
-        _status(fixture.context(runtime_boundary_view=inbound), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY").value
+        _status(
+            fixture.context(runtime_boundary_view=inbound),
+            "POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN",
+        ).value
         == "FAILED"
     )
     assert (
         _status(fixture.context(runtime_boundary_view=inbound), "POST_RECOVERY_EVENT_BUS_NOT_DRAINED").value == "PASSED"
     )
     assert (
-        _status(fixture.context(runtime_boundary_view=pending), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY").value
+        _status(
+            fixture.context(runtime_boundary_view=pending),
+            "POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN",
+        ).value
         == "PASSED"
     )
     assert (
@@ -45,12 +51,27 @@ def test_runtime_boundary_keeps_inbound_and_event_bus_diagnostics_distinct() -> 
     )
 
 
-def test_market_data_queue_is_an_inbound_queue_failure() -> None:
+def test_market_data_queue_does_not_invalidate_a_sealed_semantic_boundary() -> None:
     fixture = OnlyPostRecoveryAuthorityFixture.create()
     boundary: OnlyRuntimeBoundaryAuthorityView = replace(
         fixture.context().runtime_boundary_view, market_data_inbound_count=1
     )
     assert (
-        _status(fixture.context(runtime_boundary_view=boundary), "POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY").value
+        _status(
+            fixture.context(runtime_boundary_view=boundary),
+            "POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN",
+        ).value
+        == "PASSED"
+    )
+
+
+def test_driver_frontier_proof_is_required_even_with_empty_physical_queues() -> None:
+    fixture = OnlyPostRecoveryAuthorityFixture.create()
+    boundary = replace(fixture.context().runtime_boundary_view, driver_frontier_stable=False)
+    assert (
+        _status(
+            fixture.context(runtime_boundary_view=boundary),
+            "POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN",
+        ).value
         == "FAILED"
     )

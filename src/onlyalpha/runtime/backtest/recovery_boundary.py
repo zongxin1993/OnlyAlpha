@@ -13,8 +13,8 @@ from onlyalpha.execution.causal_recovery import (
     OnlyExecutionRecoveryPhase,
     OnlyExecutionRecoverySession,
 )
-from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion
 from onlyalpha.runtime.backtest.checkpoint import OnlyBacktestReplayCursor
+from onlyalpha.runtime.backtest.result_progress import OnlyBacktestBarCompletion
 
 
 class OnlyBacktestRecoveryError(RuntimeError):

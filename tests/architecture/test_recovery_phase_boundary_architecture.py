@@ -11,11 +11,12 @@ def test_execution_recovery_does_not_depend_on_runtime_boundary_types() -> None:
     assert "def require_complete" not in execution
 
 
-def test_runtime_owns_one_composed_backtest_recovery_session() -> None:
+def test_runtime_owns_one_active_driver_neutral_execution_recovery_session() -> None:
     runtime = Path("src/onlyalpha/runtime/trading_facade.py").read_text(encoding="utf-8")
     assert "self._backtest_recovery_session: OnlyBacktestRecoverySession | None" in runtime
-    assert "_execution_recovery_session" not in runtime
-    assert "execution_processor.replay(update, session.execution_session)" in runtime
+    assert "self._execution_recovery_session: OnlyExecutionRecoverySession | None" in runtime
+    assert "execution_processor.replay(update, execution_session)" in runtime
+    assert "backtest_session.execution_session" in runtime
     assert "self._backtest_recovery_session is not None" in runtime
 
 

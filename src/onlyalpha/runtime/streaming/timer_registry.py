@@ -45,7 +45,13 @@ class OnlyRuntimeTimerRegistry:
         clock: OnlyClock,
         journal: OnlyRuntimeTimerOccurrenceJournal,
         execute_occurrence: Callable[
-            [OnlyRuntimeTimerOccurrence, OnlyTimerEvent, Callable[[OnlyTimerEvent], None]], None
+            [
+                OnlyRuntimeTimerOccurrence,
+                OnlyTimerEvent,
+                Callable[[OnlyTimerEvent], None],
+                Callable[[], None],
+            ],
+            None,
         ],
     ) -> None:
         self._runtime_id = runtime_id
@@ -99,6 +105,45 @@ class OnlyRuntimeTimerRegistry:
     def definitions(self) -> tuple[OnlyRuntimeTimerDefinition, ...]:
         return tuple(self._definitions[key] for key in sorted(self._definitions, key=str))
 
+    @property
+    def callbacks(self) -> Mapping[OnlyTimerId, Callable[[OnlyTimerEvent], None]]:
+        return dict(self._callbacks)
+
+    def recover_occurrence(
+        self,
+        occurrence: OnlyRuntimeTimerOccurrence,
+        callback: Callable[[OnlyTimerEvent], None],
+    ) -> None:
+        definition = self._definitions.get(occurrence.timer_id)
+        if definition is None or definition.cluster_id != occurrence.cluster_id:
+            raise RuntimeError(f"STREAMING_TIMER_AUTHORITY_MISSING: {occurrence.timer_id}")
+        event = OnlyTimerEvent(
+            occurrence.timer_id,
+            occurrence.deadline_ns,
+            occurrence.admitted_at.unix_nanos,
+            occurrence.occurrence_sequence,
+            occurrence.fire_count,
+        )
+        self._execute_occurrence(occurrence, event, callback, lambda: self.complete_occurrence(occurrence))
+
+    def complete_occurrence(self, occurrence: OnlyRuntimeTimerOccurrence) -> None:
+        definition = self._definitions.get(occurrence.timer_id)
+        if definition is None or definition.cluster_id != occurrence.cluster_id:
+            raise RuntimeError(f"STREAMING_TIMER_AUTHORITY_MISSING: {occurrence.timer_id}")
+        next_deadline = definition.next_deadline_ns
+        state = OnlyRuntimeTimerLogicalState.COMPLETED
+        if definition.mode is not OnlyTimerMode.ONE_SHOT:
+            if definition.interval_ns is None:
+                raise RuntimeError("STREAMING_TIMER_INTERVAL_MISSING")
+            next_deadline += definition.interval_ns
+            state = OnlyRuntimeTimerLogicalState.SCHEDULED
+        self._definitions[definition.timer_id] = replace(
+            definition,
+            next_deadline_ns=next_deadline,
+            fire_count=max(definition.fire_count, occurrence.fire_count + 1),
+            state=state,
+        )
+
     def capture_checkpoint(self) -> object:
         return {
             "logical_sequence": self._sequence,
@@ -120,6 +165,9 @@ class OnlyRuntimeTimerRegistry:
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, Mapping) or not isinstance(payload["timers"], list):
             raise ValueError("Streaming Timer checkpoint must be an object with timers")
+        for handle in self._handles.values():
+            handle.cancel()
+        self._handles.clear()
         self._sequence = int(payload["logical_sequence"])
         restored: dict[OnlyTimerId, OnlyRuntimeTimerDefinition] = {}
         for raw in payload["timers"]:
@@ -198,21 +246,7 @@ class OnlyRuntimeTimerRegistry:
                 event,
                 OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
             )
-            self._execute_occurrence(occurrence, event, callback)
-            current = self._definitions[definition.timer_id]
-            next_deadline = current.next_deadline_ns
-            state = OnlyRuntimeTimerLogicalState.COMPLETED
-            if current.mode is not OnlyTimerMode.ONE_SHOT:
-                if current.interval_ns is None:
-                    raise RuntimeError("STREAMING_TIMER_INTERVAL_MISSING")
-                next_deadline += current.interval_ns
-                state = OnlyRuntimeTimerLogicalState.SCHEDULED
-            self._definitions[definition.timer_id] = replace(
-                current,
-                next_deadline_ns=next_deadline,
-                fire_count=current.fire_count + 1,
-                state=state,
-            )
+            self._execute_occurrence(occurrence, event, callback, lambda: self.complete_occurrence(occurrence))
 
         if definition.mode is OnlyTimerMode.ONE_SHOT:
             handle = self._clock.schedule_at(definition.timer_id, definition.next_deadline_ns, admitted)

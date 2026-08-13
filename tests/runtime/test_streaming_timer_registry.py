@@ -10,7 +10,7 @@ from onlyalpha.runtime.streaming.timer_registry import (
     OnlyRuntimeTimerRegistry,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.sim_recovery]
 
 
 def _registry(clock, store, fired):  # type: ignore[no-untyped-def]
@@ -18,7 +18,11 @@ def _registry(clock, store, fired):  # type: ignore[no-untyped-def]
         OnlyRuntimeId("runtime"),
         clock,
         store,
-        lambda occurrence, event, callback: (fired.append((occurrence, event)), callback(event)),
+        lambda occurrence, event, callback, complete: (
+            fired.append((occurrence, event)),
+            callback(event),
+            complete(),
+        ),
     )
 
 
@@ -51,9 +55,7 @@ def test_restore_skips_downtime_recurring_occurrences_and_marks_expired_one_shot
         lambda event: None,
         start_ns=10,
     )
-    original.schedule_at(
-        OnlyTimerId("runtime:cluster:once"), OnlyClusterId("cluster"), 15, lambda event: None
-    )
+    original.schedule_at(OnlyTimerId("runtime:cluster:once"), OnlyClusterId("cluster"), 15, lambda event: None)
     payload = original.capture_checkpoint()
 
     restored_clock = OnlyBacktestClock(100)
@@ -82,3 +84,15 @@ def test_timer_checkpoint_excludes_clock_wall_and_monotonic_state() -> None:
     payload = str(registry.capture_checkpoint()).lower()
     assert "monotonic" not in payload
     assert "current_timestamp" not in payload
+
+
+def test_restore_cancels_process_local_handles_until_explicit_rearm() -> None:
+    clock = OnlyBacktestClock(0)
+    registry = _registry(clock, OnlyInMemoryRuntimePersistenceStore(), [])
+    callback = Mock()
+    registry.schedule_at(OnlyTimerId("runtime:cluster:timer"), OnlyClusterId("cluster"), 10, callback)
+
+    registry.restore_checkpoint(registry.capture_checkpoint())
+    clock.advance_to(10)
+
+    callback.assert_not_called()

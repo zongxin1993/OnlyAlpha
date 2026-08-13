@@ -46,8 +46,9 @@ def test_validation_closure_keeps_the_single_structured_outbox_identity() -> Non
 
 def test_finalizer_distinguishes_inbound_and_event_bus_quiescence_errors() -> None:
     finalizer = Path("src/onlyalpha/runtime/recovery/finalizer.py").read_text(encoding="utf-8")
-    assert 'RuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")' in finalizer
+    assert 'RuntimeError("POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN")' in finalizer
     assert 'RuntimeError("POST_RECOVERY_EVENT_BUS_NOT_DRAINED")' in finalizer
+    assert "market_data_inbound_count != 0" not in finalizer
 
 
 def test_finalizer_orders_verify_before_recovered_transition() -> None:

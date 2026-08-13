@@ -23,9 +23,14 @@ from .validation import (
 
 def _require_quiescent(context: OnlyPostRecoveryValidationContext) -> None:
     boundary = context.runtime_boundary_view
-    if boundary.broker_inbound_count != 0 or boundary.market_data_inbound_count != 0:
-        raise RuntimeError("POST_RECOVERY_INBOUND_QUEUE_NOT_EMPTY")
-    if boundary.event_bus_pending_count != 0:
+    if boundary.broker_inbound_count != 0 or not (
+        boundary.semantic_lane_idle
+        and boundary.execution_frontier_ready
+        and boundary.broker_recovery_resolved
+        and boundary.driver_frontier_stable
+    ):
+        raise RuntimeError("POST_RECOVERY_SEMANTIC_QUIESCENCE_NOT_PROVEN")
+    if boundary.event_bus_pending_count != 0 or not boundary.event_delivery_stable:
         raise RuntimeError("POST_RECOVERY_EVENT_BUS_NOT_DRAINED")
 
 

@@ -178,7 +178,7 @@ class OnlyEngine:
         plan = self._planner.plan(self.config.engine_id, self.cluster_definitions, self._market_products)
         services = self._require_services()
         for runtime_plan in plan.runtime_plans:
-            validation = services.assembler.validate(runtime_plan)
+            validation = services.assembler.validate(runtime_plan, self.config.user_data_root)
             if validation.failure_code is not None:
                 errors.append(f"{runtime_plan.cluster_ids}: {validation.failure_code}: {validation.failure_message}")
         return OnlyEngineValidationResult(

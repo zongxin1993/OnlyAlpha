@@ -13,6 +13,7 @@ from pathlib import Path
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
+from onlyalpha.config.persistence import OnlyRuntimePersistenceBackend
 from onlyalpha.core.clock import OnlyLiveClock
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest
@@ -70,6 +71,7 @@ class OnlySimRuntimeFactory:
         try:
             components, _, _ = self._validate(request)
             components.runtime_persistence_stores.validate(request.config.runtime.persistence)
+            self._validate_durable_root(request)
         except Exception as exc:
             return self._failure(exc)
         return OnlyRuntimeBuildResult()
@@ -370,11 +372,7 @@ class OnlySimRuntimeFactory:
                 "SIM_FINITE_RANGE_NOT_SUPPORTED",
                 "SIM does not support runtime.start_time or runtime.end_time",
             )
-        if config.runtime.persistence.checkpoint.enabled:
-            raise _OnlySimCompositionError(
-                "SIM_CHECKPOINT_NOT_SUPPORTED",
-                "SIM checkpoint/restart is not yet supported",
-            )
+        OnlySimRuntimeFactory._validate_durable_root(request)
 
         sources = tuple(item for item in config.data_sources if item.enabled)
         if len(sources) != 1:
@@ -447,6 +445,22 @@ class OnlySimRuntimeFactory:
             account.initial_cash.currency,
         )
         return components, streaming, reconciliation_policy
+
+    @staticmethod
+    def _validate_durable_root(request: OnlyRuntimeBuildRequest) -> None:
+        persistence = request.config.runtime.persistence
+        if not persistence.checkpoint.enabled:
+            return
+        if persistence.backend is not OnlyRuntimePersistenceBackend.SQLITE:
+            raise _OnlySimCompositionError(
+                "SIM_DURABLE_PERSISTENCE_REQUIRED",
+                "checkpoint-enabled SIM requires SQLITE Runtime persistence",
+            )
+        if request.user_data_root is None:
+            raise _OnlySimCompositionError(
+                "SIM_DURABLE_STATE_ROOT_REQUIRED",
+                "checkpoint-enabled SIM requires a stable user_data state root",
+            )
 
     @staticmethod
     def _market_rules(
