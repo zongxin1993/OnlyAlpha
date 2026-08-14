@@ -1593,14 +1593,28 @@ Fake SDK 通过只能证明 Contract，不等于真实产品通过。
 
 ### 26.4 Agent Impact-Aware Verification
 
-Agent 开发反馈采用四级边界：
+Agent 必须区分 inner loop、P7 implementation increment closure 与 P7 Major Milestone closure：
 
 ```text
-Targeted tests
+Inner loop
+→ targeted tests
+
+P7.x Increment Closure
 → affected canonical lanes
 → impact-aware local gate
-→ immutable Final-SHA Certification
+→ VERIFIED
+
+P7 Final Closure / explicit certification checkpoint
+→ exact immutable SHA
+→ complete Final-SHA Certification
+→ ACCEPTED
 ```
+
+同一 P7 Major Milestone 内，前一个 increment 达到 `VERIFIED` 后即可进入下一个 P7.x；不得默认要求每个 P7.x 单独执行
+Final-SHA Certification。`VERIFIED` 必须有实现完整、required targeted/affected tests、architecture invariants、impact-aware verification、
+适用的 Layered Quality、Independent Review 和无未解决 Critical / High 的实际 evidence。P7 → P8 仍必须在 P7 Final Closure 对 exact
+immutable SHA 取得完整 Final-SHA `ACCEPTED` artifact。Release/tag、Live deployment、重大 persistence 或 Runtime/Recovery authority
+变更、nondeterminism incident closure 等高风险边界可以显式建立中间 certification checkpoint；其 mandatory matrix 不得裁剪。
 
 `scripts/verify.py` 只用于本地开发验证。必须显式提供 base revision：
 
@@ -1623,6 +1637,7 @@ Rule 合并必须单调且确定，未知 path fail closed，verification infras
 - 只有 exact immutable SHA 的全部 mandatory certification gates 成功且 artifact verdict 为 `ACCEPTED`，才能声明
   `CERTIFIED / ACCEPTED`；
 - 远端 workflow 未完成时只能记录 `REMOTE CERTIFICATION PENDING`，不得高频轮询或预判 PASS。
+- 成功的长时间运行日志默认只保存在 evidence 文件中，Agent context 与最终报告只记录 compact summary；仅在失败诊断时读取有界日志。
 
 ---
 

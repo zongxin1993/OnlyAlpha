@@ -403,7 +403,7 @@ ADR-0002-xxx.md
 
 ---
 
-## 8. Definition of Done
+## 8. Definition of Done 与阶段粒度
 
 任何 P6.x / P7.x 等阶段任务不得仅以“代码写完 + 测试通过”作为完成标准。
 
@@ -426,15 +426,27 @@ ADR-0002-xxx.md
 - [ ] Independent Review 已完成
 - [ ] 无已知 Critical / High 未处理问题
 
-阶段状态建议只允许：
+质量状态必须按工程粒度区分，不得把 implementation increment 与 major milestone 混为同一 gate：
 
-- `ACCEPTED`
-- `CONDITIONALLY_ACCEPTED`
-- `REJECTED`
+- P7.x 等同一 Major Milestone 内的 **Implementation Increment** 只使用 `PLANNED / IMPLEMENTED / VERIFIED / BLOCKED`；
+- P6、P7、P8 等 **Major Milestone** 使用 `IN_PROGRESS / CONDITIONALLY_ACCEPTED / ACCEPTED / REJECTED`。
 
-只有 `ACCEPTED` 才默认允许进入下一阶段。
+同一 Major Milestone 内，前一个 increment 达到 `VERIFIED` 后即可进入下一个 increment。`VERIFIED` 至少要求实现完整、required
+targeted tests 与 affected canonical lanes 通过、architecture invariants 通过、impact-aware local verification 通过、适用时
+Layered Quality 通过、Independent Review 完成、无未解决 Critical / High，且相关文档足以解释当前实现。
 
-### 8.1 Development Gate 与 Certification Gate
+只有 `ACCEPTED` 的 Major Milestone 才默认允许进入下一个 Major Milestone。因此 P7.x → 下一个 P7.x 要求前一个 increment
+`VERIFIED`；P7 → P8 仍要求 P7 Final Closure 对 exact immutable SHA 完成 Final-SHA Certification 并取得 `ACCEPTED` artifact。
+
+### 8.1 Certification Cadence
+
+Final-SHA Certification 是 Repository 唯一正式 exact immutable SHA final certification authority，但它不要求在每个
+implementation increment 后执行。默认 cadence 是 Major Milestone Final Closure；普通 increment 通过 affected verification
+取得 `VERIFIED`。Release/tag、Live deployment、重大 persistence migration、Runtime/Recovery authority 重构、已知 nondeterminism
+incident closure、高风险架构 baseline freeze 或长周期 milestone 中间冻结，可以显式建立 certification checkpoint。显式 checkpoint
+仍必须执行完整且未裁剪的 Final-SHA mandatory gates。
+
+### 8.2 Development Gate 与 Certification Gate
 
 普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
 
@@ -451,12 +463,15 @@ timeout inflation 改变 verdict。
 - `VERIFIED`：指定本地或远端门禁已有实际证据；
 - `CERTIFIED / ACCEPTED`：外部 certification artifact 对同一个 immutable subject SHA 给出接受结论。
 
-没有 exact-SHA remote artifact 时只能是 `CONDITIONALLY_ACCEPTED` 或 `REJECTED`，不得预判远端 PASS。
+Implementation Increment 可以依据上述实际 development evidence 达到 `VERIFIED`，但不得据此声明 `CERTIFIED / ACCEPTED`。在
+Major Milestone Final Closure 或显式 certification checkpoint 中，没有 exact-SHA remote artifact 时只能是
+`CONDITIONALLY_ACCEPTED` 或 `REJECTED`，不得预判远端 PASS。
 
-### 8.2 Impact-Aware Local Verification
+### 8.3 Impact-Aware Local Verification
 
-Agent 的默认开发验证顺序是 targeted test、affected canonical lane、impact-aware local gate；稳定并形成 immutable final SHA 后，
-再进入完整 Final-SHA Certification。`scripts/verify.py plan --base <sha>` 以显式 base、HEAD 和完整 dirty worktree 解析 change set，
+Agent 的默认开发验证顺序是 targeted test、affected canonical lane、impact-aware local gate；increment closure 以这些实际 evidence
+取得 `VERIFIED`。只有 Major Milestone Final Closure 或显式 certification checkpoint 在形成 immutable final SHA 后进入完整
+Final-SHA Certification。`scripts/verify.py plan --base <sha>` 以显式 base、HEAD 和完整 dirty worktree 解析 change set，
 用 typed explicit rules 产生可解释的 deterministic union。Unknown impact 必须 fail closed；verification infrastructure change 必须
 执行完整 local release check/lane/build 集合，不能用新工具自证一个狭窄子集。
 
@@ -467,6 +482,9 @@ Manifest 的 authority 固定为 `LOCAL_DEVELOPMENT_VERIFICATION_ONLY`，`VERIFI
 
 Coverage 不属于默认 inner loop。Final-SHA workflow 仍完整执行 exact-SHA static、build、canonical lanes、mandatory coverage、Semgrep、
 CodeQL 和 fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。
+
+成功的长时间运行日志默认保存在 evidence 文件中，不重复加载进 Agent context；console 与最终报告只保留 gate、exit code 和简短摘要，
+仅在失败诊断时读取有界的相关日志。
 
 ---
 

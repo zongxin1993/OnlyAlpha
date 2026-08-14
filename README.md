@@ -21,11 +21,9 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | Primary runtime | Backtest |
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
-| P7.0 status | **ACCEPTED locally** — contract/verification closure complete; final-SHA remote quality evidence required |
-| P7.1 status | Dataset Snapshot foundation implemented locally; final-SHA remote certification required |
-| P7.2 status | Deterministic Research Calculation execution implemented locally; final-SHA remote certification required |
-| P7.3 status | Immutable Calculation Result authority implemented locally; final-SHA remote certification required |
-| P7.4 status | Deterministic single Research Job orchestration implemented and verified locally; final-SHA remote certification required |
+| P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
+| P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
+| P7.6 readiness | Previous P7 increment is `VERIFIED`; P7.6 may proceed |
 | License | MIT |
 
 ---
@@ -43,7 +41,8 @@ type_id + semantic_version + resolved parameters + input bindings
 human alias、Python class path、文件路径、进程/时间和 Runtime identity 不进入 semantic fingerprint。Core 只拥有
 Definition、Graph 和 Registry contract；现有 9 个 concrete trading Indicator backend 位于
 `onlyalpha-plugin-indicators`，通过 `onlyalpha.calculations` entry point 确定性注册。P7.2 已为当前正式支持的 Indicator
-semantic versions 提供 exact RESEARCH backend；官方 Factor plugin 仍 intentionally empty，没有为了填充 package 而虚构 concrete Factor。
+semantic versions 提供 exact RESEARCH backend；P7.5 已在官方 Factor plugin 中提供 RESEARCH-only Momentum TIME_SERIES Factor
+与 Cross-Section Percentile Scorer，并继续复用 Calculation Definition / Graph / Result / Job authority。
 
 P7.0.1 已冻结 Definition schema v2 / Graph schema v1 的 exact/fail-closed reader、完整 DAG port compatibility（type/nullability/dimensions/
 semantic type/unit）、backend-neutral Registry 与 Trading resolver、显式 `type_id@semantic_version` reference，以及官方
@@ -72,8 +71,13 @@ P7.4 建立 immutable resolved Job Plan 与单一 `OnlyResearchJobExecutor`：Pl
 Calculation Graph，不增加重复 Job/Plan fingerprint；orchestrator 只以 `load_verified()` 判定复用，且仅 `RESULT_NOT_FOUND`
 进入 P7.2 execution 与 P7.3 immutable commit。成功 Outcome 显式区分 `EXECUTED/REUSED`，两条路径保持相同 Calculation/Result
 identity；corrupt/invalid authority、Dataset verification、calculation、commit 与 deterministic conflict 均保留 phase/code 并
-fail closed。Research Runtime 仍未激活；Parameter Sweep、Factor Research、Statistics、Research Result/Artifact、Scheduler、
-Query/API 与 Web UI 仍未实现。
+fail closed。P7.5 进一步冻结 Feature、raw Factor Value、`[0,1]` Factor Score 与 TIME_SERIES/CROSS_SECTION execution semantics，
+但 Research Runtime 仍未激活；Parameter Sweep、Forward Return/IC/Statistics、Research Result/Artifact、Scheduler、Query/API 与 Web UI
+仍未实现。
+
+P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
+即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
+仍必须由 Final-SHA artifact 给出 `ACCEPTED`，development evidence 不得冒充 certification。
 
 ---
 

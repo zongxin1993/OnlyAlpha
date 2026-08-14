@@ -171,11 +171,11 @@ acceptance runner/config 和相关 product tests。通用 subscription、bootstr
 timer、checkpoint 与 recovery 继续由 product-neutral `runtime/streaming` 拥有；Virtual Broker、persistence、state lease 与
 SIM composition 继续由 `runtime/sim` 拥有。未修改 checkpoint/persistence schema，也不支持 Paper durable state 自动转换。
 
-P6 Final Hardening 进一步关闭了 Engine multi-Runtime start 的 partial-start world、Streaming processing diagnostics 无界增长，以及 certification report 的 self-reference cycle。Development Quality 与 Final-SHA Certification 已分离；后者以不可变 `subject_sha` 为对象，强制 static/build/canonical lanes/branch coverage/Semgrep/CodeQL 全部真实成功并输出外部 evidence artifact。阶段只能在对应 final SHA 的完整 local lanes 与该 remote artifact 均取得真实证据后升级为 `DONE / CERTIFIED`；Repository 当前已进入 P7，但没有 exact-SHA external artifact 时仍只声明本地实现/验证事实。
+P6 Final Hardening 进一步关闭了 Engine multi-Runtime start 的 partial-start world、Streaming processing diagnostics 无界增长，以及 certification report 的 self-reference cycle。Development Quality 与 Final-SHA Certification 已分离；后者以不可变 `subject_sha` 为对象，强制 static/build/canonical lanes/branch coverage/Semgrep/CodeQL 全部真实成功并输出外部 evidence artifact。Major Milestone 只能在对应 final SHA 的完整 local lanes 与该 remote artifact 均取得真实证据后升级为 `DONE / CERTIFIED`；同一 Major Milestone 内的 implementation increment 以实际 affected verification 达到 `VERIFIED` 后即可继续，不能冒充 `ACCEPTED`。
 
 ## P7 — Vectorized Research Runtime
 
-### P7.0 — Calculation Definition & Plugin Boundary（ACCEPTED locally）
+### P7.0 — Calculation Definition & Plugin Boundary（VERIFIED increment）
 
 P7.0 已建立 Runtime-independent `OnlyIndicatorDefinition` / `OnlyFactorDefinition`、canonical calculation DAG、稳定
 semantic fingerprint 以及 exact `type_id + semantic_version + backend` Registry。现有 MACD、EMA、SMA、RSI、ATR、
@@ -250,7 +250,7 @@ identity、Result verified reload、Job `EXECUTED -> REUSED`、score range 与 a
 Parameter Sweep、Forward Return/IC/Statistics、Research Result/Artifact、Scheduler/Distributed Research、Query/API/Web 与
 Research Runtime activation 仍未实现。
 
-### P7.5.1 — Final-SHA Certification Reliability & Streaming Recovery Verification Closure（Implemented locally）
+### P7.5.1 — Final-SHA Certification Reliability & Streaming Recovery Verification Closure（VERIFIED increment）
 
 P7.5 Final-SHA `core-full` 暴露的 SIM gap-recovery timeout 已归类为 test synchronization defect：Phase Controller、Semantic Lane、
 Recovery Loader 与 forward-replay production invariants 保持成立，但原测试用短于 configured historical-operation budget 的 10 秒
@@ -258,11 +258,11 @@ Recovery Loader 与 forward-replay production invariants 保持成立，但原�
 recovery diagnostics/stage，以及 secondary-gap、blocked history STOP、catch-up STOP、reconnect 和 exactly-once regression；diagnostic
 stage 不参与 Runtime 决策，持久化/Checkpoint/交易语义均未改变。
 
-该阶段只有在包含本段与 implementation report 的 immutable final SHA 通过完整本地 mandatory lanes，并由远端
-`Final-SHA Certification` 对同一 SHA 输出 `ACCEPTED` artifact 后才能标记 certified。当前没有该 remote artifact，不能声明
-`DONE / ACCEPTED`，也不能开始 P7.6。
+该 increment 的实现与本地验证证据已经完成，可声明 `VERIFIED`，但没有 remote exact-SHA artifact，不能声明
+`CERTIFIED / ACCEPTED`。独立 Final-SHA Certification 不再是进入同一 P7 milestone 后续 increment 的默认 gate；其完整 authority
+保留到 P7 Final Closure 或显式 certification checkpoint。
 
-### P7.5.2 — Agent Verification Efficiency & Impact-Aware Quality Gate（Implemented locally）
+### P7.5.2 — Agent Verification Efficiency & Impact-Aware Quality Gate（VERIFIED increment）
 
 P7.5.2 在不改变 Runtime、canonical lane、coverage 或 Final-SHA authority 的前提下，增加 deterministic change-set resolver、explicit
 impact rules、fail-closed escalation、compact local runner、完整日志和 local verification manifest。Planner 只引用
@@ -270,8 +270,16 @@ impact rules、fail-closed escalation、compact local runner、完整日志和 l
 change 不运行无关 Runtime lanes。该机制只优化 development feedback，不能裁剪 Final-SHA mandatory matrix，也不能产生
 `CERTIFIED / ACCEPTED` verdict。
 
-当前只声明本地实现；P7.5.1 仍没有 remote exact-SHA `ACCEPTED` artifact，P7.5.2 同样需要最终 immutable SHA 的完整本地证明与远端
-Final-SHA Certification，不能据此开始 P7.6。
+Implementation report 已记录 targeted tooling/architecture tests、static checks、全部 canonical lanes 与 all-package build 的真实本地
+PASS evidence，因此 P7.5.2 达到 `VERIFIED`，P7.6 可以开始。该结论不是 `CERTIFIED / ACCEPTED`；P7 Major Milestone 仍必须在
+P7 Final Closure 对一个 exact immutable SHA 执行完整 Final-SHA Certification，取得 `ACCEPTED` 后才可进入 P8。
+
+### P7 Quality Gate Granularity Closure（VERIFIED）
+
+P7 内部 increment 与 Major Milestone gate 已正式分离：P7.x → 下一个 P7.x 要求前一个 increment `VERIFIED`；P7 → P8 要求 P7
+`ACCEPTED`。Final-SHA Certification 的 exact-SHA、static/build/canonical lanes/coverage/Semgrep/CodeQL 与 fail-closed authority 均未改变，
+默认 cadence 调整为 P7 Final Closure；release、高风险 authority 变更等边界仍可使用显式 certification checkpoint。本 closure 是
+governance-docs-only increment，以 current evidence 和最窄文档验证达到 `VERIFIED`，不要求 standalone Final-SHA Certification。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 
