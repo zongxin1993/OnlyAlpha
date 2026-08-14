@@ -32,7 +32,7 @@ jobs:
         env:
           HYPOTHESIS_PROFILE: exhaustive
         run: uv run pytest tests/property -q --tb=short --maxfail=1
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nightly-exhaustive-metrics
@@ -78,7 +78,7 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv run pytest tests/performance/test_quality_benchmarks.py -q --tb=short --benchmark-only
       - run: uvx --from asv==0.6.6 asv run --quick HEAD^!
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nightly-performance-results

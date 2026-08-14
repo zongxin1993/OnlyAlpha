@@ -57,7 +57,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ${{ matrix.lane }}-metrics
@@ -89,7 +89,7 @@ jobs:
         run: uv run python scripts/test_suite.py research-sweep --coverage
       - name: Research Dataset branch coverage
         run: uv run python scripts/test_suite.py research-dataset --coverage
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: branch-coverage
@@ -111,7 +111,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ${{ matrix.lane }}-metrics
