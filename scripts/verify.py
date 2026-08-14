@@ -147,10 +147,20 @@ RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_CALCULATION,
     OnlyTestLane.RESEARCH_FACTOR,
     OnlyTestLane.RESEARCH_JOB,
+    OnlyTestLane.RESEARCH_SWEEP,
 )
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
+    VerificationImpactRule(
+        "research-sweep",
+        ("src/onlyalpha/research/sweep/", "tests/research/sweep/"),
+        ("tests/architecture/test_research_sweep_boundaries.py",),
+        (OnlyTestLane.RESEARCH_SWEEP, OnlyTestLane.RESEARCH_JOB),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Sweep composition delegates execution to immutable Research Jobs",
+    ),
     VerificationImpactRule(
         "verification-infrastructure",
         ("scripts/pytest_", "tests/architecture/test_agent_verification", ".github/workflows/"),
@@ -188,7 +198,7 @@ IMPACT_RULES = (
         "research-factor",
         ("tests/research/factor/", "packages/factor/onlyalpha-plugin-factors/"),
         (),
-        (OnlyTestLane.RESEARCH_FACTOR, OnlyTestLane.RESEARCH_JOB),
+        (OnlyTestLane.RESEARCH_FACTOR, OnlyTestLane.RESEARCH_JOB, OnlyTestLane.RESEARCH_SWEEP),
         STATIC,
         VerificationEscalation.COMPONENT,
         "factor semantics are consumed by immutable research jobs",
@@ -197,7 +207,7 @@ IMPACT_RULES = (
         "research-job",
         ("src/onlyalpha/research/job/", "tests/research/job/"),
         (),
-        (OnlyTestLane.RESEARCH_JOB,),
+        (OnlyTestLane.RESEARCH_JOB, OnlyTestLane.RESEARCH_SWEEP),
         STATIC,
         VerificationEscalation.COMPONENT,
         "research job changes are covered by the canonical job application lane",

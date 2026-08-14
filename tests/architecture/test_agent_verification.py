@@ -39,6 +39,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.RESEARCH_FACTOR,
         OnlyTestLane.RESEARCH_JOB,
+        OnlyTestLane.RESEARCH_SWEEP,
     }
 
 
@@ -83,7 +84,7 @@ def test_shared_core_and_shared_test_fixture_are_conservative() -> None:
 def test_specific_test_change_uses_component_lane() -> None:
     plan = _plan("tests/research/job/test_orchestration.py")
 
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_JOB,)
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_SWEEP, OnlyTestLane.RESEARCH_JOB)
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
 
 

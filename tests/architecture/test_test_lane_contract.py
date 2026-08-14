@@ -80,3 +80,15 @@ def test_research_factor_lane_owns_semantics_execution_architecture_and_full_cov
     source = Path("scripts/test_suite.py").read_text()
     assert '"research-factor-coverage"' in source
     assert "100 if name is OnlyTestLane.RESEARCH_FACTOR" in source
+
+
+def test_research_sweep_lane_owns_composition_architecture_and_branch_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_SWEEP]
+    assert lane.paths == (
+        "tests/research/sweep",
+        "tests/architecture/test_research_sweep_boundaries.py",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/sweep"' in source
+    assert '"research-sweep-coverage"' in source
+    assert "Research Sweep branch coverage must be at least 85%" in source

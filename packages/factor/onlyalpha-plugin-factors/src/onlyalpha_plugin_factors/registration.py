@@ -1,6 +1,7 @@
 """Canonical official Factor definitions and exact RESEARCH registrations."""
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from decimal import Decimal
 
 from onlyalpha.calculation import (
@@ -102,6 +103,20 @@ CROSS_SECTION_PERCENTILE = OnlyCalculationTypeDefinition(
 _WARMUP = OnlyWarmupDefinition(1, "declared upstream value is available", OnlyPreReadyOutput.NULL, "UPSTREAM")
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyOfficialFactorDefinitionResolver:
+    """Own complete, backend-neutral semantics for one official Factor type."""
+
+    type_definition: OnlyCalculationTypeDefinition
+
+    def resolve(
+        self,
+        parameters: Mapping[str, object],
+        input_bindings: Mapping[str, OnlyCalculationReference],
+    ) -> OnlyCalculationDefinition:
+        return self.type_definition.resolve(parameters, input_bindings, _WARMUP)
+
+
 def resolve_momentum(
     parameters: Mapping[str, object],
     short: OnlyCalculationReference,
@@ -117,6 +132,11 @@ def resolve_percentile(parameters: Mapping[str, object], value: OnlyCalculationR
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     backend = OnlyOfficialResearchFactorBackend()
     return tuple(
-        OnlyCalculationBackendRegistration(item, OnlyCalculationBackendKind.RESEARCH, backend)
+        OnlyCalculationBackendRegistration(
+            item,
+            OnlyCalculationBackendKind.RESEARCH,
+            backend,
+            OnlyOfficialFactorDefinitionResolver(item),
+        )
         for item in (MOMENTUM, CROSS_SECTION_PERCENTILE)
     )

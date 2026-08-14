@@ -23,7 +23,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
-| P7.6 readiness | Previous P7 increment is `VERIFIED`; P7.6 may proceed |
+| P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | License | MIT |
 
 ---
@@ -72,8 +72,10 @@ Calculation Graph，不增加重复 Job/Plan fingerprint；orchestrator 只以 `
 进入 P7.2 execution 与 P7.3 immutable commit。成功 Outcome 显式区分 `EXECUTED/REUSED`，两条路径保持相同 Calculation/Result
 identity；corrupt/invalid authority、Dataset verification、calculation、commit 与 deterministic conflict 均保留 phase/code 并
 fail closed。P7.5 进一步冻结 Feature、raw Factor Value、`[0,1]` Factor Score 与 TIME_SERIES/CROSS_SECTION execution semantics，
-但 Research Runtime 仍未激活；Parameter Sweep、Forward Return/IC/Statistics、Research Result/Artifact、Scheduler、Query/API 与 Web UI
-仍未实现。
+P7.6 已增加 backend-neutral Definition re-materialization、serializable Graph Template、template-local node/dependency reference、finite
+explicit parameter dimensions、typed canonical Cartesian planning 与 sequential JobExecutor-only execution。每个 Cell 继续使用 existing
+`calculation_fingerprint`，重复/部分重入通过 verified Result `REUSED/EXECUTED` 收敛，不创建 Sweep/Trial Store 或 fingerprint。
+Research Runtime 仍未激活；Forward Return/IC/Statistics、Research Result/Artifact、Scheduler、Query/API 与 Web UI 仍未实现。
 
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8

@@ -418,6 +418,14 @@ authority 必须 fail closed，不得用 `exists()`、recompute、repair、delet
 `EXECUTED/REUSED`，但不得改变 Calculation/Result identity。P7.4 recovery 只采用 deterministic re-entry，不创建 mutable Job
 database、scheduler、worker lease 或第二套 recovery authority；Research Runtime Factory 仍 intentionally unsupported。
 
+Research Sweep v1 是 multi-job composition，不是第二套 Calculation/Job/Result authority。Graph Template 只使用 template-local
+TemplateNodeId、exact type reference、requested parameters 与 template dependency；TemplateNodeId 不等于 node fingerprint 或 alias，且
+不得进入 materialized Definition/Graph/Result identity。Definition 必须通过 exact type-owned、backend-neutral resolver 完整重建
+parameter-derived warmup/source/default/constraint，禁止替换 resolved Definition.parameters。Finite explicit candidates 与 dimensions 必须
+canonicalize，semantic duplicate fail closed；每个 Cell 的唯一 identity 是 existing calculation_fingerprint，不创建 Trial/Cell/Sweep
+fingerprint。SweepExecutor 只能 sequential 调用 OnlyResearchJobExecutor；恢复只采用 deterministic re-entry + verified REUSED/EXECUTED，
+不得创建 Sweep/Trial Store、mutable progress、checkpoint、scheduler、lease 或 worker pool。Research Runtime Factory 继续 unsupported。
+
 Research Factor / Feature / Score 继续使用唯一 Calculation Definition / Graph / Result / Job authority。Feature 只是
 `(node_fingerprint, output_name)` output port；Raw `FACTOR_VALUE` 与 `[0,1]` Decimal `FACTOR_SCORE` 是不同 machine-readable
 semantic。TIME_SERIES 与 CROSS_SECTION execution shape 由 Definition 决定，executor 按 semantic node、stable instrument 与
@@ -1494,6 +1502,11 @@ Core 不得提供隐藏的具体插件回退实现。
 统一入口：
 
 ```bash
+uv run python scripts/test_suite.py calculation
+uv run python scripts/test_suite.py research-calculation
+uv run python scripts/test_suite.py research-factor
+uv run python scripts/test_suite.py research-job
+uv run python scripts/test_suite.py research-sweep
 uv run python scripts/test_suite.py fast
 uv run python scripts/test_suite.py integration
 uv run python scripts/test_suite.py ashare

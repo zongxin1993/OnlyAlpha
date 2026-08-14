@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol, cast, runtime_checkable
@@ -10,7 +11,9 @@ from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
     OnlyCalculationDefinition,
     OnlyCalculationKind,
+    OnlyCalculationReference,
     OnlyCalculationTypeDefinition,
+    OnlyCalculationTypeReference,
 )
 
 
@@ -24,11 +27,26 @@ class OnlyTradingBackendFactory(Protocol):
     def create(self, definition: OnlyCalculationDefinition, request: object) -> object: ...
 
 
+@runtime_checkable
+class OnlyCalculationDefinitionResolver(Protocol):
+    """Backend-neutral full semantic Definition re-materialization contract."""
+
+    @property
+    def type_definition(self) -> OnlyCalculationTypeDefinition: ...
+
+    def resolve(
+        self,
+        parameters: Mapping[str, object],
+        input_bindings: Mapping[str, OnlyCalculationReference],
+    ) -> OnlyCalculationDefinition: ...
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyCalculationBackendRegistration:
     type_definition: OnlyCalculationTypeDefinition
     backend: OnlyCalculationBackendKind
     provider: object
+    definition_resolver: OnlyCalculationDefinitionResolver | None = None
 
 
 class OnlyCalculationRegistry:
@@ -36,6 +54,7 @@ class OnlyCalculationRegistry:
         self._registrations: dict[
             tuple[OnlyCalculationKind, str, str, OnlyCalculationBackendKind], OnlyCalculationBackendRegistration
         ] = {}
+        self._definition_resolvers: dict[tuple[OnlyCalculationKind, str, str], OnlyCalculationDefinitionResolver] = {}
 
     def register(self, registration: OnlyCalculationBackendRegistration) -> None:
         definition = registration.type_definition
@@ -52,6 +71,16 @@ class OnlyCalculationRegistry:
             raise ValueError(f"calculation type definition differs across backends: {semantic_key}")
         if registration.provider is None:
             raise TypeError("calculation backend provider is required")
+        resolver = registration.definition_resolver
+        if resolver is not None:
+            if not isinstance(resolver, OnlyCalculationDefinitionResolver):
+                raise TypeError("calculation Definition resolver contract is invalid")
+            if resolver.type_definition != definition:
+                raise ValueError(f"calculation Definition resolver type mismatch: {semantic_key}")
+            existing_resolver = self._definition_resolvers.get(semantic_key)
+            if existing_resolver is not None and existing_resolver is not resolver:
+                raise ValueError(f"calculation Definition resolver differs across backends: {semantic_key}")
+            self._definition_resolvers[semantic_key] = resolver
         self._registrations[key] = registration
 
     def type_definitions(self) -> tuple[OnlyCalculationTypeDefinition, ...]:
@@ -97,6 +126,47 @@ class OnlyCalculationRegistry:
             if backends:
                 raise ValueError(f"unsupported backend {backend} for {type_id}@{semantic_version}") from exc
             raise ValueError(f"unknown calculation type: {type_id}") from exc
+
+    def resolve_type(self, reference: OnlyCalculationTypeReference) -> OnlyCalculationTypeDefinition:
+        """Resolve one exact semantic type without selecting an execution backend."""
+
+        key = (reference.kind, reference.type_id, reference.semantic_version)
+        definitions = tuple(
+            registration.type_definition
+            for registered_key, registration in self._registrations.items()
+            if registered_key[:3] == key
+        )
+        if definitions:
+            return next(iter(definitions))
+        versions = {item[2] for item in self._registrations if item[:2] == key[:2]}
+        if versions:
+            raise ValueError(f"unknown semantic version {reference.semantic_version} for {reference.type_id}")
+        raise ValueError(f"unknown calculation type: {reference.type_id}")
+
+    def rematerialize_definition(
+        self,
+        reference: OnlyCalculationTypeReference,
+        parameters: Mapping[str, object],
+        input_bindings: Mapping[str, OnlyCalculationReference],
+    ) -> OnlyCalculationDefinition:
+        """Rebuild all parameter-derived semantics through the exact type-owned resolver."""
+
+        definition = self.resolve_type(reference)
+        key = (reference.kind, reference.type_id, reference.semantic_version)
+        try:
+            resolver = self._definition_resolvers[key]
+        except KeyError as exc:
+            raise ValueError(
+                f"calculation Definition resolver is unavailable: {reference.type_id}@{reference.semantic_version}"
+            ) from exc
+        resolved = resolver.resolve(parameters, input_bindings)
+        if (
+            resolved.kind is not definition.kind
+            or resolved.type_id != definition.type_id
+            or resolved.semantic_version != definition.semantic_version
+        ):
+            raise ValueError("calculation Definition resolver returned a different semantic type")
+        return resolved
 
 
 class OnlyTradingCalculationBackendResolver:

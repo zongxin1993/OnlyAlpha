@@ -27,6 +27,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_CALCULATION = "research-calculation"
     RESEARCH_FACTOR = "research-factor"
     RESEARCH_JOB = "research-job"
+    RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
     FAST = "fast"
     INTEGRATION = "integration"
@@ -95,6 +96,15 @@ LANES = {
         (
             "tests/research/job",
             "tests/architecture/test_research_calculation_boundaries.py",
+        ),
+        "not external",
+        "2",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_SWEEP: Lane(
+        (
+            "tests/research/sweep",
+            "tests/architecture/test_research_sweep_boundaries.py",
         ),
         "not external",
         "2",
@@ -204,6 +214,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.RESEARCH_SWEEP,
     OnlyTestLane.RESEARCH_FACTOR,
     OnlyTestLane.RESEARCH_JOB,
     OnlyTestLane.RESEARCH_CALCULATION,
@@ -278,6 +289,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_sources = {
+            OnlyTestLane.RESEARCH_SWEEP: ("src/onlyalpha/research/sweep",),
             OnlyTestLane.RESEARCH_FACTOR: (
                 "onlyalpha.research.calculation.execution",
                 "onlyalpha_plugin_factors",
@@ -290,7 +302,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (
-            "research-factor-coverage"
+            "research-sweep-coverage"
+            if name is OnlyTestLane.RESEARCH_SWEEP
+            else "research-factor-coverage"
             if name is OnlyTestLane.RESEARCH_FACTOR
             else "research-job-coverage"
             if name is OnlyTestLane.RESEARCH_JOB
@@ -309,7 +323,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
             ]
         )
         workers = "0"
@@ -334,6 +348,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "calculation-coverage.json"
                 if name is OnlyTestLane.CALCULATION
+                else "research-sweep-coverage.json"
+                if name is OnlyTestLane.RESEARCH_SWEEP
                 else "research-factor-coverage.json"
                 if name is OnlyTestLane.RESEARCH_FACTOR
                 else "research-job-coverage.json"
@@ -352,6 +368,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             print(f"Coverage baseline: lines={line_rate:.2f}% branches={branch_rate:.2f}%")
             if name is OnlyTestLane.RESEARCH_DATASET and branch_rate < 70:
                 print("Research Dataset branch coverage must be at least 70%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_SWEEP and branch_rate < 85:
+                print("Research Sweep branch coverage must be at least 85%", file=sys.stderr)
                 code = 1
     if metric_path.is_file():
         metrics = json.loads(metric_path.read_text(encoding="utf-8"))

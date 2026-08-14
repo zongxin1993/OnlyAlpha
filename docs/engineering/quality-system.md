@@ -59,6 +59,12 @@ order/partition/fresh-process determinism、旧 Indicator identity regression、
 Research/Trading architecture firewall。`research-factor --coverage` 对 P7.5 execution module 与 official Factor plugin 执行
 100% line/branch coverage gate，并进入 PR、master、release 与 Final-SHA Certification mandatory gates。
 
+Research Sweep 使用 `python scripts/test_suite.py research-sweep` 作为 canonical composition lane；它覆盖 backend-neutral Definition
+re-materialization、Template/schema、typed candidate/dimension ordering、Cartesian planning、topological Graph materialization、identity
+propagation、fresh-process/hash-seed determinism、JobExecutor-only sequential execution、reuse/partial re-entry/corruption/fail-fast 和
+Research/Trading firewall。`research-sweep --coverage` 独立统计 `onlyalpha.research.sweep`，要求至少 90% line 与 85% branch，并进入 PR、
+master、release 与未来 P7 Final-SHA Certification mandatory gates。
+
 ### 2.1 Repository Is the Source of Truth
 
 每个阶段开始前必须重新读取当前仓库状态。
@@ -450,7 +456,7 @@ incident closure、高风险架构 baseline freeze 或长周期 milestone 中间
 
 普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
 
-Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-factor`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
+Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-sweep`、`research-factor`、`research-job`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
 
 Streaming/async certification test 必须等待正式 state/revision/continuity evidence；bounded timeout 只能是统一、可解释的
 deadlock watchdog。watchdog failure 必须输出 immutable diagnostics，至少覆盖 phase/revision、recovery generation/stage/plan、

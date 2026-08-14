@@ -574,7 +574,9 @@ def _require_optional_decimal(value: Mapping[str, object], name: str, context: s
     return result
 
 
-def _scalar_to_dict(value: OnlyCalculationScalar) -> Mapping[str, object]:
+def only_calculation_scalar_to_dict(value: OnlyCalculationScalar) -> Mapping[str, object]:
+    """Encode one semantic scalar without losing its declared value type."""
+
     scalar_type = (
         "NULL"
         if value is None
@@ -590,7 +592,9 @@ def _scalar_to_dict(value: OnlyCalculationScalar) -> Mapping[str, object]:
     return {"type": scalar_type, "value": canonical_value}
 
 
-def _scalar_from_dict(value: object, context: str) -> OnlyCalculationScalar:
+def only_calculation_scalar_from_dict(value: object, context: str = "calculation") -> OnlyCalculationScalar:
+    """Decode the exact scalar representation shared by composition contracts."""
+
     if not isinstance(value, Mapping):
         raise ValueError(f"{context} scalar must be an object")
     _require_exact_fields(value, {"type", "value"}, f"{context} scalar")
@@ -609,6 +613,19 @@ def _scalar_from_dict(value: object, context: str) -> OnlyCalculationScalar:
     if scalar_type == "STRING" and isinstance(item, str):
         return item
     raise ValueError(f"{context} scalar type/value are invalid")
+
+
+def only_calculation_scalar_sort_key(value: OnlyCalculationScalar) -> tuple[str, str]:
+    """Return a total, typed order consistent with canonical scalar semantics."""
+
+    encoded = only_calculation_scalar_to_dict(value)
+    return str(encoded["type"]), str(encoded["value"])
+
+
+# Private aliases keep the Definition codec implementation compact while the public
+# helpers let composition layers reuse exactly the same scalar authority.
+_scalar_to_dict = only_calculation_scalar_to_dict
+_scalar_from_dict = only_calculation_scalar_from_dict
 
 
 # Both names share the one calculation semantic authority; kind validation remains

@@ -101,6 +101,23 @@ class OnlyMacdBackendFactory:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyOfficialIndicatorDefinitionResolver:
+    """Own complete, backend-neutral semantics for one official Indicator type."""
+
+    type_definition: OnlyCalculationTypeDefinition
+
+    def resolve(
+        self,
+        parameters: Mapping[str, object],
+        input_bindings: Mapping[str, OnlyCalculationReference],
+    ) -> OnlyCalculationDefinition:
+        resolved = resolve_definition(self.type_definition, dict(parameters))
+        if input_bindings and dict(input_bindings) != dict(resolved.input_bindings):
+            raise ValueError("Indicator template inputs conflict with parameter-derived source bindings")
+        return resolved
+
+
 def _legacy_type(type_id: str) -> OnlyIndicatorTypeId:
     return {
         "onlyalpha.indicator.ema": EMA,
@@ -260,17 +277,23 @@ def resolve_definition(
 
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
+    resolvers = tuple(OnlyOfficialIndicatorDefinitionResolver(item) for item in (*TYPES, ATR_V2))
+
+    def resolver_for(item: OnlyCalculationTypeDefinition) -> OnlyOfficialIndicatorDefinitionResolver:
+        return next(resolver for resolver in resolvers if resolver.type_definition is item)
+
     trading = tuple(
         OnlyCalculationBackendRegistration(
             item,
             OnlyCalculationBackendKind.TRADING,
             OnlyMacdBackendFactory(item) if item.type_id.endswith(".macd") else OnlyStandardBackendFactory(item),
+            resolver_for(item),
         )
         for item in (*TYPES, ATR_V2)
     )
     research = tuple(
         OnlyCalculationBackendRegistration(
-            item, OnlyCalculationBackendKind.RESEARCH, OnlyOfficialResearchIndicatorBackend()
+            item, OnlyCalculationBackendKind.RESEARCH, OnlyOfficialResearchIndicatorBackend(), resolver_for(item)
         )
         for item in (*TYPES[:3], *TYPES[4:], ATR_V2)
     )

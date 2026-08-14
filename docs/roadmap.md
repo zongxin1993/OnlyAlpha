@@ -36,6 +36,11 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 
 ## 已完成阶段
 
+- P7.6 — Deterministic Parameter Sweep & Multi-Job Composition：backend-neutral full Definition re-materialization、serializable
+  Graph Template、finite typed Cartesian planning、existing Graph/Job identity、JobExecutor-only sequential execution 与 deterministic
+  partial re-entry 已本地实现并通过 affected canonical/coverage gates；Research Runtime 仍 unsupported，P7 Final Closure certification
+  仍待完成。
+
 - P7.4 — Research Job / Plan Contract & Deterministic Orchestration：exact immutable Plan、verified Result reuse、
   `RESULT_NOT_FOUND`-only execute、P7.2/P7.3 composition、phase-aware failure、re-entry recovery 与 same-job concurrency
   convergence 已本地实现并通过完整本地 release/coverage 门禁；Research Runtime 仍 unsupported，最终 SHA 远端认证仍待完成。
@@ -280,6 +285,20 @@ P7 内部 increment 与 Major Milestone gate 已正式分离：P7.x → 下一�
 `ACCEPTED`。Final-SHA Certification 的 exact-SHA、static/build/canonical lanes/coverage/Semgrep/CodeQL 与 fail-closed authority 均未改变，
 默认 cadence 调整为 P7 Final Closure；release、高风险 authority 变更等边界仍可使用显式 certification checkpoint。本 closure 是
 governance-docs-only increment，以 current evidence 和最窄文档验证达到 `VERIFIED`，不要求 standalone Final-SHA Certification。
+
+### P7.6 — Deterministic Parameter Sweep & Multi-Job Composition（VERIFIED increment）
+
+P7.6 将 exact Dataset Snapshot、parameterized Graph Template 与 finite explicit parameter space 确定性编译为 ordered existing
+Calculation Graph / Research Job Plans。Calculation Registry 的 backend-neutral Definition resolver 会完整重建 parameter-derived warmup、
+source binding、default 与 cross-parameter constraint；禁止 parameter-only replacement。TemplateNodeId 只作为 template-local topology 与
+parameter target，不进入 materialized Calculation identity，alias 继续 presentation-neutral。
+
+Candidate 与 dimension 均 canonicalize，Cartesian cardinality 在执行前确定；duplicate normalized candidate、duplicate target 和 duplicate
+materialized calculation identity fail closed。Cell identity 继续是 existing `calculation_fingerprint`，不创建 Trial/Cell/Sweep fingerprint。
+Executor v1 sequential fail-fast 且只调用 `OnlyResearchJobExecutor`；partial recovery 通过同一 deterministic plan 的 verified
+`REUSED/EXECUTED` 收敛，corrupt Result 不重算、不覆盖、不修复。Sweep Outcome 只是 ephemeral invocation evidence，没有 Sweep Store、
+Trial DB、checkpoint、scheduler 或 worker pool。`research-sweep` canonical lane 与 impact-aware/future P7 Final Certification matrix 已纳入。
+Research Runtime Factory 仍 intentionally unsupported；Statistics/Optimization/Experiment/Web 不属于本 increment。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

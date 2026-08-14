@@ -9,6 +9,7 @@ from onlyalpha.calculation.definition import *  # noqa: F403
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
 from onlyalpha.calculation.registry import (
     OnlyCalculationBackendRegistration,
+    OnlyCalculationDefinitionResolver,
     OnlyCalculationRegistry,
     OnlyTradingCalculationBackend,
     OnlyTradingCalculationBackendResolver,
