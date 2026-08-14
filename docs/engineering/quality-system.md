@@ -40,7 +40,7 @@ OnlyAlpha 的长期目标不是“功能可以运行”，而是建立一个：
 Calculation Foundation 使用 `python scripts/test_suite.py calculation` 作为 canonical lane；它覆盖 Core definition/schema/
 DAG/registry/discovery/architecture tests 和 official Indicator package characterization。`calculation --coverage` 独立统计
 官方 Indicator plugin，Core `core-full --coverage` 的既有 82% gate 保持不变。Core、Indicator plugin 与 Factor plugin
-均须进入 mypy；空 Factor provider 是合法 discovery 结果，不等于免除类型和构建门禁。
+均须进入 mypy；P7.5 official Factor provider 的 RESEARCH-only registrations 同样进入 discovery、类型和构建门禁。
 
 Research Calculation 使用 `python scripts/test_suite.py research-calculation` 作为 canonical lane；它覆盖 exact backend/source
 contracts、verified Dataset admission、instrument/DAG determinism、Result logical identity、immutable Store admission/atomicity、
@@ -52,6 +52,12 @@ Research Job 使用 `python scripts/test_suite.py research-job` 作为独立 can
 verified reuse-or-execute、corruption fail-closed、re-entry recovery、same-job concurrency、fresh-process reuse、显式 Outcome 与
 Research/Trading architecture firewall。`research-job --coverage` 独立统计 `onlyalpha.research.job`，并进入 PR、master、release
 与 Final-SHA Certification mandatory gates。
+
+Research Factor 使用 `python scripts/test_suite.py research-factor` 作为 semantic/execution closure lane；它覆盖 official
+Momentum/Percentile backends、canonical Factor Graph、semantic-node-first TIME_SERIES/CROSS_SECTION execution、physical
+order/partition/fresh-process determinism、旧 Indicator identity regression、Calculation Result/Research Job integration 与
+Research/Trading architecture firewall。`research-factor --coverage` 对 P7.5 execution module 与 official Factor plugin 执行
+100% line/branch coverage gate，并进入 PR、master、release 与 Final-SHA Certification mandatory gates。
 
 ### 2.1 Repository Is the Source of Truth
 
@@ -432,7 +438,7 @@ ADR-0002-xxx.md
 
 普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
 
-Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
+Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-factor`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
 
 状态含义固定为：
 

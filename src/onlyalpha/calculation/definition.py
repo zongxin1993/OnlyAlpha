@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
+from typing import cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
@@ -63,6 +64,35 @@ class OnlyCalculationDataType(StrEnum):
 class OnlyFactorKind(StrEnum):
     TIME_SERIES = "TIME_SERIES"
     CROSS_SECTION = "CROSS_SECTION"
+
+
+class OnlyFactorScoreDirection(StrEnum):
+    HIGHER_IS_BETTER = "HIGHER_IS_BETTER"
+    LOWER_IS_BETTER = "LOWER_IS_BETTER"
+
+
+FACTOR_VALUE_SEMANTIC_TYPE = "FACTOR_VALUE"
+FACTOR_SCORE_SEMANTIC_TYPE = "FACTOR_SCORE"
+
+
+def only_calculation_execution_shape(
+    definition: OnlyCalculationDefinition | OnlyCalculationTypeDefinition,
+) -> OnlyFactorKind:
+    """Return the Definition-owned execution axis without consulting Runtime state."""
+
+    if definition.kind is OnlyCalculationKind.INDICATOR:
+        return OnlyFactorKind.TIME_SERIES
+    if definition.factor_kind is None:  # defensive for non-canonical objects
+        raise ValueError("Factor calculation requires an execution shape")
+    return definition.factor_kind
+
+
+def only_calculation_semantic_bounds(semantic_type: str) -> tuple[Decimal, Decimal] | None:
+    """Return the formal closed value range for bounded port semantics."""
+
+    if semantic_type == FACTOR_SCORE_SEMANTIC_TYPE:
+        return Decimal(0), Decimal(1)
+    return None
 
 
 class OnlyMissingValuePolicy(StrEnum):
@@ -381,6 +411,20 @@ class OnlyCalculationTypeDefinition:
     numeric: OnlyNumericDefinition
     factor_kind: OnlyFactorKind | None = None
 
+    def __post_init__(self) -> None:
+        if not self.type_id or self.type_id != self.type_id.lower() or "." not in self.type_id:
+            raise ValueError("type_id must be a stable lower-case dotted identifier")
+        if not self.semantic_version or any(char.isspace() for char in self.semantic_version):
+            raise ValueError("semantic_version is required and cannot contain whitespace")
+        if self.kind is OnlyCalculationKind.FACTOR and self.factor_kind is None:
+            raise ValueError("Factor type definition requires factor_kind")
+        if self.kind is OnlyCalculationKind.INDICATOR and self.factor_kind is not None:
+            raise ValueError("Indicator type definition cannot declare factor_kind")
+        input_names = tuple(item.name for item in self.inputs)
+        output_names = tuple(item.name for item in self.outputs)
+        if not output_names or len(input_names) != len(set(input_names)) or len(output_names) != len(set(output_names)):
+            raise ValueError("calculation type inputs/outputs must be non-empty and uniquely named")
+
     def resolve(
         self,
         parameters: Mapping[str, object],
@@ -401,6 +445,39 @@ class OnlyCalculationTypeDefinition:
             self.numeric,
             self.factor_kind,
         )
+
+    def descriptor(self) -> Mapping[str, object]:
+        """Return deterministic read-only introspection from this canonical contract."""
+
+        payload = only_canonical_payload(
+            {
+                "kind": self.kind,
+                "type_id": self.type_id,
+                "semantic_version": self.semantic_version,
+                "parameters": self.parameters.fields,
+                "inputs": self.inputs,
+                "outputs": self.outputs,
+                "missing_values": self.missing_values,
+                "timestamp": self.timestamp,
+                "numeric": self.numeric,
+                "factor_kind": self.factor_kind,
+                "execution_shape": only_calculation_execution_shape(self),
+                "semantic_bounds": {
+                    output.name: only_calculation_semantic_bounds(output.semantic_type) for output in self.outputs
+                },
+            }
+        )
+        if not isinstance(payload, Mapping):  # pragma: no cover - fixed object payload
+            raise TypeError("calculation type descriptor must be an object")
+        return cast(Mapping[str, object], _freeze_descriptor(payload))
+
+
+def _freeze_descriptor(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(name): _freeze_descriptor(item) for name, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_descriptor(item) for item in value)
+    return value
 
 
 def _input_from_dict(value: object) -> OnlyInputDefinition:

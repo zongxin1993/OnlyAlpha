@@ -203,6 +203,9 @@ semantic versions 提供独立 Decimal Research backend，并以 Trading↔Resea
 无 Research registration，ATR `@2` 显式声明 high/low/close 并支持两类 backend。Research Runtime Factory 仍 intentionally
 unsupported，官方 Factor plugin 仍为空，输出仍是 ephemeral execution object。
 
+该段描述 P7.2 当时的边界；P7.5 已在不改变 P7.2 Calculation identity 的前提下提供正式 Factor/Scorer，并将内部执行
+升级为 semantic-node-first。
+
 ### P7.3 — Calculation Result Identity & Immutable Calculation Store（Implemented locally）
 
 已实现 Result Content fingerprint、Calculation Result fingerprint、`calculation_fingerprint` durable primary key、exact/versioned
@@ -228,12 +231,32 @@ code 并 fail closed。成功 Outcome 只表达 `SUCCEEDED + EXECUTED/REUSED + C
 Trading authorities，不激活 Research Runtime Factory。Parameter Sweep、Statistics、Factor Research product、Research Result/
 Artifact、Scheduler/Distributed Research、Query/API/Web 均不在 P7.4。
 
+### P7.5 — Factor / Feature / Score Semantic Closure & Deterministic Factor Execution（Implemented and verified locally）
+
+已冻结 Indicator、Feature、Raw Factor Value 与 Factor Score 边界：Feature 只是既有 Calculation node/output port，不创建新
+identity/store/job；`FACTOR_VALUE` 保留原始研究值，`FACTOR_SCORE` 是 machine-readable 的 Decimal `[0,1]` semantic。
+Scorer 继续使用 `FACTOR + CROSS_SECTION` Calculation 表达，direction 与 average-tie method 是 exact semantic parameters。
+
+官方 Factor plugin 已提供 RESEARCH-only Momentum TIME_SERIES Factor 与 Cross-Section Percentile Scorer。Momentum 的两个
+Rolling Return 依赖全部显式位于 canonical Graph；Factor backend 不隐藏 Indicator execution。Research executor 已从
+instrument-first 升级为 semantic-node-first：TIME_SERIES node 按 stable instrument/event-time 执行，CROSS_SECTION node 按
+exact timestamp 与 sorted instrument axis 执行；null、tie、singleton、direction、Decimal quantum/rounding 与 alignment failure
+均有固定合同。最终输出仍 materialize 为 P7.3 `(node_fingerprint, instrument_id)` partition，P7.2 Calculation、P7.3 Result 与
+P7.4 Job authority 均未复制或改写。
+
+P7.5 专属 `research-factor` lane 覆盖物理 order/partition independence、fresh-process identity、旧 Indicator graph/result golden
+identity、Result verified reload、Job `EXECUTED -> REUSED`、score range 与 architecture firewall；新增执行/Factor narrow modules
+执行 100% line/branch coverage gate。当前只声明本地实现与验证；没有新 working tree 对应的 exact final-SHA remote artifact。
+Parameter Sweep、Forward Return/IC/Statistics、Research Result/Artifact、Scheduler/Distributed Research、Query/API/Web 与
+Research Runtime activation 仍未实现。
+
 P7 实现 Research，不实现“Vectorized Backtest”：
 
 ```text
 Historical Dataset
 → Vectorized Indicator
 → Factor / Feature
+→ Factor Value / Cross-Section Score
 → Parameter Sweep
 → Statistics
 → Research Result

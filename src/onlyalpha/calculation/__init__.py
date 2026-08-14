@@ -14,4 +14,4 @@ from onlyalpha.calculation.registry import (
     OnlyTradingCalculationBackendResolver,
 )
 
-__all__ = [name for name in globals() if name.startswith("Only")]
+__all__ = [name for name in globals() if name.startswith(("Only", "only_", "FACTOR_VALUE_", "FACTOR_SCORE_"))]

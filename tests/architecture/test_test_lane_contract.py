@@ -69,3 +69,14 @@ def test_research_job_lane_owns_application_contract_and_architecture_gate() -> 
     source = Path("scripts/test_suite.py").read_text()
     assert '"src/onlyalpha/research/job"' in source
     assert '"research-job-coverage"' in source
+
+
+def test_research_factor_lane_owns_semantics_execution_architecture_and_full_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_FACTOR]
+    assert "tests/research/factor" in lane.paths
+    assert "packages/factor/onlyalpha-plugin-factors/tests" in lane.paths
+    assert "tests/research/calculation/test_execution.py" in lane.paths
+    assert "tests/architecture/test_research_factor_boundaries.py" in lane.paths
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"research-factor-coverage"' in source
+    assert "100 if name is OnlyTestLane.RESEARCH_FACTOR" in source

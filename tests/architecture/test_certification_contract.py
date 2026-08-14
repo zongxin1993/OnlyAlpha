@@ -73,4 +73,6 @@ def test_quality_and_certification_require_research_authority_lanes_and_coverage
     assert "research-dataset" in certification and "research-dataset --coverage" in certification
     assert "research-job" in quality and "research-job --coverage" in quality
     assert "research-job" in certification and "research-job --coverage" in certification
+    assert "research-factor" in quality and "research-factor --coverage" in quality
+    assert "research-factor" in certification and "research-factor --coverage" in certification
     assert '"$COVERAGE_RESULT" = success' in quality

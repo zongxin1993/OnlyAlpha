@@ -168,7 +168,7 @@ LIVE
 RESEARCH
 ```
 
-`SIM` 已有 enum、配置、Factory、realtime Virtual Broker durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported target Factory，而是已删除的历史产品 spelling。`RESEARCH` calculation infrastructure 已实现 P7.0–P7.3；这不等于 Research product Runtime 已激活，`OnlyResearchRuntimeFactory` 仍 intentionally unsupported。`LIVE` 生产工作流同样未完成。
+`SIM` 已有 enum、配置、Factory、realtime Virtual Broker durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported target Factory，而是已删除的历史产品 spelling。`RESEARCH` calculation infrastructure 已实现 P7.0–P7.5；这不等于 Research product Runtime 已激活，`OnlyResearchRuntimeFactory` 仍 intentionally unsupported。`LIVE` 生产工作流同样未完成。
 
 ### 2.5 领域模型不等于产品能力
 
@@ -417,6 +417,11 @@ Store `load_verified()` 判定复用，只有 `RESULT_NOT_FOUND` 可以进入 P7
 authority 必须 fail closed，不得用 `exists()`、recompute、repair、delete 或 overwrite 掩盖。成功 Outcome 显式区分
 `EXECUTED/REUSED`，但不得改变 Calculation/Result identity。P7.4 recovery 只采用 deterministic re-entry，不创建 mutable Job
 database、scheduler、worker lease 或第二套 recovery authority；Research Runtime Factory 仍 intentionally unsupported。
+
+Research Factor / Feature / Score 继续使用唯一 Calculation Definition / Graph / Result / Job authority。Feature 只是
+`(node_fingerprint, output_name)` output port；Raw `FACTOR_VALUE` 与 `[0,1]` Decimal `FACTOR_SCORE` 是不同 machine-readable
+semantic。TIME_SERIES 与 CROSS_SECTION execution shape 由 Definition 决定，executor 按 semantic node、stable instrument 与
+exact event-time axis 执行；不得创建 Factor/Feature/Score Store、Graph、Job 或复用 mutable Trading Factor lifecycle。
 
 当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
 

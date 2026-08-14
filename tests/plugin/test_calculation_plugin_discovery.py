@@ -47,14 +47,18 @@ def _discover(monkeypatch, entries, *, fail_fast=True):
     return indicators, report
 
 
-def test_calculation_discovery_is_stable_and_empty_factor_provider_is_valid(monkeypatch) -> None:
+def test_calculation_discovery_is_stable_and_registers_research_only_factors(monkeypatch) -> None:
     entries = (
-        _Entry("z-empty", "factor:registrations", factor_registrations),
+        _Entry("z-factors", "factor:registrations", factor_registrations),
         _Entry("a-indicators", "indicator:registrations", indicator_registrations),
     )
     registry, report = _discover(monkeypatch, entries)
-    assert tuple(item.name for item in report.discovered) == ("a-indicators", "z-empty")
+    assert tuple(item.name for item in report.discovered) == ("a-indicators", "z-factors")
     assert len(registry._factories) == 9  # noqa: SLF001 - discovery contract inspection
+    assert {item.type_id for item in registry._calculations.type_definitions()} >= {  # noqa: SLF001
+        "onlyalpha.factor.momentum",
+        "onlyalpha.factor.cross_section_percentile",
+    }
 
 
 @pytest.mark.parametrize("provider", (object(), lambda: (object(),), ImportError("boom")))

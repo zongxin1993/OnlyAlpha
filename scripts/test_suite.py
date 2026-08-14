@@ -18,12 +18,14 @@ WORKSPACE_TESTS = (
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
     "packages/indicator/onlyalpha-plugin-indicators/tests",
+    "packages/factor/onlyalpha-plugin-factors/tests",
 )
 
 
 class OnlyTestLane(StrEnum):
     CALCULATION = "calculation"
     RESEARCH_CALCULATION = "research-calculation"
+    RESEARCH_FACTOR = "research-factor"
     RESEARCH_JOB = "research-job"
     RESEARCH_DATASET = "research-dataset"
     FAST = "fast"
@@ -67,6 +69,18 @@ LANES = {
             "tests/architecture/test_research_calculation_boundaries.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
             "packages/indicator/onlyalpha-plugin-indicators/tests/test_research_characterization.py",
+        ),
+        "not external",
+        "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_FACTOR: Lane(
+        (
+            "tests/research/factor",
+            "packages/factor/onlyalpha-plugin-factors/tests",
+            "tests/research/calculation/test_execution.py",
+            "tests/architecture/test_research_factor_boundaries.py",
+            "tests/architecture/test_calculation_plugin_boundaries.py",
         ),
         "not external",
         "4",
@@ -195,6 +209,7 @@ def release(args: argparse.Namespace) -> int:
         if code:
             return code
     for lane in (
+        OnlyTestLane.RESEARCH_FACTOR,
         OnlyTestLane.RESEARCH_JOB,
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.CALCULATION,
@@ -248,19 +263,22 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "--benchmark-disable",
     ]
     if args.coverage:
-        coverage_source = (
-            "src/onlyalpha/research/job"
-            if name is OnlyTestLane.RESEARCH_JOB
-            else "src/onlyalpha/research/calculation"
-            if name is OnlyTestLane.RESEARCH_CALCULATION
-            else "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators"
-            if name is OnlyTestLane.CALCULATION
-            else "src/onlyalpha/research/dataset"
-            if name is OnlyTestLane.RESEARCH_DATASET
-            else "src/onlyalpha"
-        )
+        coverage_sources = {
+            OnlyTestLane.RESEARCH_FACTOR: (
+                "onlyalpha.research.calculation.execution",
+                "onlyalpha_plugin_factors",
+            ),
+            OnlyTestLane.RESEARCH_JOB: ("src/onlyalpha/research/job",),
+            OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),
+            OnlyTestLane.CALCULATION: (
+                "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
+            ),
+            OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
+        }.get(name, ("src/onlyalpha",))
         coverage_output = (
-            "research-job-coverage"
+            "research-factor-coverage"
+            if name is OnlyTestLane.RESEARCH_FACTOR
+            else "research-job-coverage"
             if name is OnlyTestLane.RESEARCH_JOB
             else "research-calculation-coverage"
             if name is OnlyTestLane.RESEARCH_CALCULATION
@@ -272,12 +290,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         )
         command.extend(
             [
-                f"--cov={coverage_source}",
+                *(f"--cov={source}" for source in coverage_sources),
                 "--cov-branch",
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                "--cov-fail-under=82",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 82}",
             ]
         )
         workers = "0"
@@ -302,6 +320,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "calculation-coverage.json"
                 if name is OnlyTestLane.CALCULATION
+                else "research-factor-coverage.json"
+                if name is OnlyTestLane.RESEARCH_FACTOR
                 else "research-job-coverage.json"
                 if name is OnlyTestLane.RESEARCH_JOB
                 else "research-calculation-coverage.json"
