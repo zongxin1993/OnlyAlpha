@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
@@ -109,7 +109,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
@@ -152,7 +152,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
         with:
@@ -186,7 +186,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
@@ -229,7 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
@@ -246,7 +246,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
@@ -270,7 +270,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
@@ -324,7 +324,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7
@@ -442,7 +442,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v7

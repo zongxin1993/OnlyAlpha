@@ -19,7 +19,7 @@ jobs:
       ONLYALPHA_MINIQMT_ACCOUNT_ID: ${{ secrets.MINIQMT_ACCOUNT_ID }}
       ONLYALPHA_MINIQMT_REAL_HISTORY: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
