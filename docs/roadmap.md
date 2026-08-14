@@ -300,7 +300,7 @@ Executor v1 sequential fail-fast 且只调用 `OnlyResearchJobExecutor`；partia
 Trial DB、checkpoint、scheduler 或 worker pool。`research-sweep` canonical lane 与 impact-aware/future P7 Final Certification matrix 已纳入。
 Research Runtime Factory 仍 intentionally unsupported；Statistics/Optimization/Experiment/Web 不属于本 increment。
 
-### P7.6.1 — Remote Quality Factor Resolver Verification Closure（REMOTE VERIFICATION PENDING）
+### P7.6.1 — Remote Quality Factor Resolver Verification Closure（VERIFIED increment）
 
 P7.6.1 不增加 Research capability，也不改变任何 Calculation/Factor/Graph/Result/Job/Sweep identity。它补齐 official Factor
 owner lane 对 P7.6 Definition Resolver 的直接 semantic verification：所有 official Factor registration 必须携带 exact
@@ -308,7 +308,8 @@ RESEARCH backend 与 exact type-owned resolver；Momentum 与 Cross-Section Perc
 re-materialization 必须保持完整 Definition/fingerprint 等价，parameter normalization、upstream binding identity propagation、
 parameter identity propagation 与 invalid semantic request fail-closed 均由 Factor plugin 自己验证。Production semantics、semantic
 version 和 100% research-factor line/branch coverage gate 均未改变。最终状态取决于 immutable implementation SHA 的远端
-`Layered Quality`；本 increment 不单独要求 Final-SHA Certification。
+`Layered Quality`；exact implementation SHA `6bcce0b5708d6bca00a7c4204f0e8f61d4d0b591` 的 run `31804158921` 已整体
+GREEN，coverage 与 final quality-gate PASS。本 increment 达到 `VERIFIED`，不单独要求 Final-SHA Certification。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

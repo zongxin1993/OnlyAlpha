@@ -91,10 +91,20 @@ the independent build gate. Final remote evidence is recorded after the exact im
 
 ## Remote Verification
 
-- Final implementation SHA: pending immutable commit.
-- Layered Quality: **NOT EXECUTED for the implementation tree**.
+- Final implementation SHA: `6bcce0b5708d6bca00a7c4204f0e8f61d4d0b591`.
+- PR: `#65` (`codex/p7-6-1-factor-resolver-verification` → `master`).
+- Layered Quality run: `31804158921` — **PASS**.
+- Static, build, Semgrep, coverage, research-factor, research-calculation, research-job, research-sweep, research-dataset,
+  recovery, sim-recovery, A-share, MiniQMT contract and final quality-gate all passed as required by the PR matrix.
+- The remote `research-factor` normal lane passed 57 tests. The aggregate coverage job passed, including the mandatory
+  `research-factor --coverage` step that had failed at the baseline SHA.
+- Independent CodeQL analysis passed. The separate dependency-review workflow was **BLOCKED** before dependency analysis because
+  GitHub Dependency graph is disabled for the repository; no dependency files changed in P7.6.1. This repository configuration
+  issue is outside Layered Quality and did not alter its green verdict.
 - Final-SHA Certification: not required for this same-P7 verification increment and not executed.
 
 ## Closure Status
 
-P7.6.1 = **NOT VERIFIED** while remote `Layered Quality` is pending.
+P7.6.1 = **VERIFIED**.
+
+This status is not `CERTIFIED` or `ACCEPTED`; P7 Final-SHA Certification remains required at P7 Final Closure before P8.
