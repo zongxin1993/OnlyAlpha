@@ -19,6 +19,7 @@ from onlyalpha.calculation import (
     OnlyCalculationKind,
     OnlyCalculationReference,
     OnlyCalculationRegistry,
+    OnlyCalculationTypeReference,
     OnlyFactorKind,
     only_calculation_semantic_bounds,
 )
@@ -38,6 +39,39 @@ def _percentile(parameters=None):
     return resolve_percentile(parameters or {}, _reference("c", "factor_value"))
 
 
+def _factor_registry() -> OnlyCalculationRegistry:
+    registry = OnlyCalculationRegistry()
+    for registration in registrations():
+        registry.register(registration)
+    return registry
+
+
+def _type_reference(type_definition) -> OnlyCalculationTypeReference:
+    return OnlyCalculationTypeReference(
+        type_definition.kind,
+        type_definition.type_id,
+        type_definition.semantic_version,
+    )
+
+
+def _assert_complete_definition_semantics_equal(direct, rematerialized) -> None:
+    assert direct == rematerialized
+    assert direct.kind is rematerialized.kind
+    assert direct.type_id == rematerialized.type_id
+    assert direct.semantic_version == rematerialized.semantic_version
+    assert direct.parameters == rematerialized.parameters
+    assert direct.input_bindings == rematerialized.input_bindings
+    assert direct.inputs == rematerialized.inputs
+    assert direct.outputs == rematerialized.outputs
+    assert direct.warmup == rematerialized.warmup
+    assert direct.missing_values is rematerialized.missing_values
+    assert direct.timestamp is rematerialized.timestamp
+    assert direct.numeric == rematerialized.numeric
+    assert direct.factor_kind is rematerialized.factor_kind
+    assert direct.extensions == rematerialized.extensions
+    assert direct.fingerprint == rematerialized.fingerprint
+
+
 def test_official_factor_contracts_and_exact_registry_are_machine_readable() -> None:
     assert MOMENTUM.kind is CROSS_SECTION_PERCENTILE.kind is OnlyCalculationKind.FACTOR
     assert MOMENTUM.factor_kind is OnlyFactorKind.TIME_SERIES
@@ -52,6 +86,113 @@ def test_official_factor_contracts_and_exact_registry_are_machine_readable() -> 
         registry.register(registration)
     assert registry.type_definitions() == (CROSS_SECTION_PERCENTILE, MOMENTUM)
     assert all(registration.backend is OnlyCalculationBackendKind.RESEARCH for registration in registrations())
+
+
+def test_all_official_factor_registrations_have_exact_definition_resolvers() -> None:
+    official = registrations()
+    assert {registration.type_definition for registration in official} == {MOMENTUM, CROSS_SECTION_PERCENTILE}
+    for registration in official:
+        assert registration.backend is OnlyCalculationBackendKind.RESEARCH
+        assert registration.definition_resolver is not None
+        assert registration.definition_resolver.type_definition == registration.type_definition
+
+
+def test_momentum_definition_resolver_preserves_complete_direct_semantics() -> None:
+    registry = _factor_registry()
+    parameters = {"short_weight": "0.25", "long_weight": Decimal("0.75")}
+    short = _reference("a", "return")
+    long = _reference("b", "return")
+    direct = resolve_momentum(parameters, short, long)
+    rematerialized = registry.rematerialize_definition(
+        _type_reference(MOMENTUM),
+        parameters,
+        {"return_short": short, "return_long": long},
+    )
+
+    _assert_complete_definition_semantics_equal(direct, rematerialized)
+    assert rematerialized.parameters == {
+        "long_weight": Decimal("0.75"),
+        "short_weight": Decimal("0.25"),
+    }
+
+
+def test_percentile_definition_resolver_reapplies_normalization_and_complete_semantics() -> None:
+    registry = _factor_registry()
+    value = _reference("c", "factor_value")
+    parameters = {"direction": "lower_is_better"}
+    direct = resolve_percentile(parameters, value)
+    rematerialized = registry.rematerialize_definition(
+        _type_reference(CROSS_SECTION_PERCENTILE),
+        parameters,
+        {"factor_value": value},
+    )
+
+    _assert_complete_definition_semantics_equal(direct, rematerialized)
+    assert rematerialized.parameters == {"direction": "LOWER_IS_BETTER", "tie_method": "AVERAGE"}
+
+
+def test_momentum_rematerialization_propagates_binding_and_parameter_identity() -> None:
+    registry = _factor_registry()
+    reference = _type_reference(MOMENTUM)
+    baseline_bindings = {
+        "return_short": _reference("a", "return"),
+        "return_long": _reference("b", "return"),
+    }
+    changed_bindings = {
+        "return_short": _reference("c", "return"),
+        "return_long": _reference("d", "return"),
+    }
+    baseline = registry.rematerialize_definition(
+        reference,
+        {"short_weight": "0.5", "long_weight": "0.5"},
+        baseline_bindings,
+    )
+    rebound = registry.rematerialize_definition(
+        reference,
+        {"short_weight": "0.5", "long_weight": "0.5"},
+        changed_bindings,
+    )
+    reparameterized = registry.rematerialize_definition(
+        reference,
+        {"short_weight": "0.25", "long_weight": "0.75"},
+        baseline_bindings,
+    )
+
+    assert baseline.input_bindings == baseline_bindings
+    assert rebound.input_bindings == changed_bindings
+    assert baseline != rebound
+    assert baseline.fingerprint != rebound.fingerprint
+    assert baseline != reparameterized
+    assert baseline.fingerprint != reparameterized.fingerprint
+    assert baseline.type_id == rebound.type_id == reparameterized.type_id
+    assert baseline.semantic_version == rebound.semantic_version == reparameterized.semantic_version
+    assert baseline.factor_kind is rebound.factor_kind is reparameterized.factor_kind is OnlyFactorKind.TIME_SERIES
+    assert baseline.outputs == rebound.outputs == reparameterized.outputs
+    assert baseline.numeric == rebound.numeric == reparameterized.numeric
+
+
+@pytest.mark.parametrize(
+    ("type_definition", "parameters", "bindings", "message"),
+    (
+        (
+            MOMENTUM,
+            {"hidden_period": 20},
+            {"return_short": _reference("a", "return"), "return_long": _reference("b", "return")},
+            "unknown calculation parameters",
+        ),
+        (
+            CROSS_SECTION_PERCENTILE,
+            {"direction": "SIDEWAYS"},
+            {"factor_value": _reference("c", "factor_value")},
+            "not an allowed value",
+        ),
+    ),
+)
+def test_factor_rematerialization_rejects_invalid_semantic_parameters(
+    type_definition, parameters, bindings, message
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _factor_registry().rematerialize_definition(_type_reference(type_definition), parameters, bindings)
 
 
 def test_descriptors_are_deterministic_read_only_and_exclude_provider_identity() -> None:

@@ -24,6 +24,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
+| P7.6.1 increment | **REMOTE VERIFICATION PENDING** — Factor-owned resolver contract coverage closure |
 | License | MIT |
 
 ---
