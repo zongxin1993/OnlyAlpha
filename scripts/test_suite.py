@@ -40,6 +40,11 @@ class OnlyTestLane(StrEnum):
     RELEASE = "release"
 
 
+class OnlyReleaseCheck(StrEnum):
+    STATIC = "release-static"
+    BUILD = "build"
+
+
 @dataclass(frozen=True, slots=True)
 class Lane:
     paths: tuple[str, ...]
@@ -152,6 +157,71 @@ LANES = {
     OnlyTestLane.EXHAUSTIVE: Lane(WORKSPACE_TESTS, "exhaustive and not external", "8", "worksteal", 100),
 }
 
+RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
+    ("uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts"),
+    ("uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts"),
+    ("uv", "run", "mypy", "src/onlyalpha"),
+    (
+        "uv",
+        "run",
+        "mypy",
+        "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
+        "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+    ),
+    (
+        "uv",
+        "run",
+        "mypy",
+        "--config-file",
+        "packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml",
+        "packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash",
+    ),
+    (
+        "uv",
+        "run",
+        "mypy",
+        "--config-file",
+        "packages/market/onlyalpha-market-cn-ashare/pyproject.toml",
+        "packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare",
+    ),
+    (
+        "uv",
+        "run",
+        "mypy",
+        "--config-file",
+        "packages/provider/onlyalpha-plugin-tushare/pyproject.toml",
+        "packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare",
+    ),
+    (
+        "uv",
+        "run",
+        "mypy",
+        "--config-file",
+        "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
+        "packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt",
+    ),
+    ("uv", "run", "python", "scripts/version_sync.py", "check"),
+)
+BUILD_COMMAND = ("uv", "build", "--all-packages")
+RELEASE_LANES = (
+    OnlyTestLane.RESEARCH_FACTOR,
+    OnlyTestLane.RESEARCH_JOB,
+    OnlyTestLane.RESEARCH_CALCULATION,
+    OnlyTestLane.CALCULATION,
+    OnlyTestLane.RESEARCH_DATASET,
+    OnlyTestLane.CORE_FULL,
+    OnlyTestLane.RECOVERY,
+    OnlyTestLane.SIM_RECOVERY,
+    OnlyTestLane.ASHARE,
+    OnlyTestLane.MINIQMT_CONTRACT,
+)
+
+
+def release_check_commands(check: OnlyReleaseCheck) -> tuple[tuple[str, ...], ...]:
+    if check is OnlyReleaseCheck.STATIC:
+        return RELEASE_STATIC_COMMANDS
+    return (BUILD_COMMAND,)
+
 
 def run(command: list[str], env: dict[str, str] | None = None) -> int:
     print("> " + subprocess.list2cmdline(command), flush=True)
@@ -159,71 +229,15 @@ def run(command: list[str], env: dict[str, str] | None = None) -> int:
 
 
 def release(args: argparse.Namespace) -> int:
-    commands = [
-        ["uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts"],
-        ["uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts"],
-        ["uv", "run", "mypy", "src/onlyalpha"],
-        [
-            "uv",
-            "run",
-            "mypy",
-            "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
-            "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
-        ],
-        [
-            "uv",
-            "run",
-            "mypy",
-            "--config-file",
-            "packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml",
-            "packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash",
-        ],
-        [
-            "uv",
-            "run",
-            "mypy",
-            "--config-file",
-            "packages/market/onlyalpha-market-cn-ashare/pyproject.toml",
-            "packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare",
-        ],
-        [
-            "uv",
-            "run",
-            "mypy",
-            "--config-file",
-            "packages/provider/onlyalpha-plugin-tushare/pyproject.toml",
-            "packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare",
-        ],
-        [
-            "uv",
-            "run",
-            "mypy",
-            "--config-file",
-            "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
-            "packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt",
-        ],
-        ["uv", "run", "python", "scripts/version_sync.py", "check"],
-    ]
-    for command in commands:
-        code = run(command)
+    for command in release_check_commands(OnlyReleaseCheck.STATIC):
+        code = run(list(command))
         if code:
             return code
-    for lane in (
-        OnlyTestLane.RESEARCH_FACTOR,
-        OnlyTestLane.RESEARCH_JOB,
-        OnlyTestLane.RESEARCH_CALCULATION,
-        OnlyTestLane.CALCULATION,
-        OnlyTestLane.RESEARCH_DATASET,
-        OnlyTestLane.CORE_FULL,
-        OnlyTestLane.RECOVERY,
-        OnlyTestLane.SIM_RECOVERY,
-        OnlyTestLane.ASHARE,
-        OnlyTestLane.MINIQMT_CONTRACT,
-    ):
+    for lane in RELEASE_LANES:
         code = execute(lane, args)
         if code:
             return code
-    return run(["uv", "build", "--all-packages"])
+    return run(list(BUILD_COMMAND))
 
 
 def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:

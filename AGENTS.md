@@ -1591,6 +1591,39 @@ Fake SDK 通过只能证明 Contract，不等于真实产品通过。
 - 不进入默认 `miniqmt-local`；
 - 未完成安全门禁前不得自动提交。
 
+### 26.4 Agent Impact-Aware Verification
+
+Agent 开发反馈采用四级边界：
+
+```text
+Targeted tests
+→ affected canonical lanes
+→ impact-aware local gate
+→ immutable Final-SHA Certification
+```
+
+`scripts/verify.py` 只用于本地开发验证。必须显式提供 base revision：
+
+```bash
+uv run python scripts/verify.py plan --base <base_sha>
+uv run python scripts/verify.py agent --base <base_sha>
+```
+
+Change set 必须同时包含 `base..HEAD`、staged、unstaged、untracked、rename 和 delete，dirty worktree 不得静默忽略。Impact rule
+只能选择 `scripts/test_suite.py` 拥有的 canonical lane/check；不得复制 lane path、marker、worker、coverage 或 release semantics。
+Rule 合并必须单调且确定，未知 path fail closed，verification infrastructure 自改必须升级到最宽本地验证。完整成功日志保存在
+`test-results/verification/`，console 默认只显示摘要；失败必须显示 gate、exit code、command、有界诊断和完整日志路径。
+
+固定权威边界：
+
+- Targeted 与 impact-aware 结果只是 local development evidence；
+- inner loop 默认不收集 coverage，也不在每次小改动后运行 `release`；
+- `release` 的正式重型本地语义不变；
+- Impact plan 不得控制 Final-SHA workflow 的 job/lane/coverage omission；
+- 只有 exact immutable SHA 的全部 mandatory certification gates 成功且 artifact verdict 为 `ACCEPTED`，才能声明
+  `CERTIFIED / ACCEPTED`；
+- 远端 workflow 未完成时只能记录 `REMOTE CERTIFICATION PENDING`，不得高频轮询或预判 PASS。
+
 ---
 
 ## 27. 静态质量门禁

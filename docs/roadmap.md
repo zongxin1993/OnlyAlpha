@@ -262,6 +262,17 @@ stage 不参与 Runtime 决策，持久化/Checkpoint/交易语义均未改变�
 `Final-SHA Certification` 对同一 SHA 输出 `ACCEPTED` artifact 后才能标记 certified。当前没有该 remote artifact，不能声明
 `DONE / ACCEPTED`，也不能开始 P7.6。
 
+### P7.5.2 — Agent Verification Efficiency & Impact-Aware Quality Gate（Implemented locally）
+
+P7.5.2 在不改变 Runtime、canonical lane、coverage 或 Final-SHA authority 的前提下，增加 deterministic change-set resolver、explicit
+impact rules、fail-closed escalation、compact local runner、完整日志和 local verification manifest。Planner 只引用
+`scripts/test_suite.py` 的 canonical lane/check identity；unknown path 与 verification infrastructure self-change 自动升级，纯 docs/prompt
+change 不运行无关 Runtime lanes。该机制只优化 development feedback，不能裁剪 Final-SHA mandatory matrix，也不能产生
+`CERTIFIED / ACCEPTED` verdict。
+
+当前只声明本地实现；P7.5.1 仍没有 remote exact-SHA `ACCEPTED` artifact，P7.5.2 同样需要最终 immutable SHA 的完整本地证明与远端
+Final-SHA Certification，不能据此开始 P7.6。
+
 P7 实现 Research，不实现“Vectorized Backtest”：
 
 ```text

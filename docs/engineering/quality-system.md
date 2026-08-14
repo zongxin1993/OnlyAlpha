@@ -453,6 +453,21 @@ timeout inflation 改变 verdict。
 
 没有 exact-SHA remote artifact 时只能是 `CONDITIONALLY_ACCEPTED` 或 `REJECTED`，不得预判远端 PASS。
 
+### 8.2 Impact-Aware Local Verification
+
+Agent 的默认开发验证顺序是 targeted test、affected canonical lane、impact-aware local gate；稳定并形成 immutable final SHA 后，
+再进入完整 Final-SHA Certification。`scripts/verify.py plan --base <sha>` 以显式 base、HEAD 和完整 dirty worktree 解析 change set，
+用 typed explicit rules 产生可解释的 deterministic union。Unknown impact 必须 fail closed；verification infrastructure change 必须
+执行完整 local release check/lane/build 集合，不能用新工具自证一个狭窄子集。
+
+Impact planner 不是 test semantics authority。Canonical lane paths、marker expressions、worker strategy、coverage 和 release 顺序仍只由
+`scripts/test_suite.py` 管理；planner 只能引用 lane/check identity。Local runner 顺序执行所选 gate，将完整输出和 machine-readable
+manifest 保存到 `test-results/verification/<verification-id>/`，成功 console 只输出 gate summary，失败输出有界诊断和完整日志路径。
+Manifest 的 authority 固定为 `LOCAL_DEVELOPMENT_VERIFICATION_ONLY`，`VERIFICATION_PASSED` 不等于 `CERTIFIED` 或 `ACCEPTED`。
+
+Coverage 不属于默认 inner loop。Final-SHA workflow 仍完整执行 exact-SHA static、build、canonical lanes、mandatory coverage、Semgrep、
+CodeQL 和 fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。
+
 ---
 
 ## 9. AI / Codex 开发工作流
