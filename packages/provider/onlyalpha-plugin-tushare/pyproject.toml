@@ -17,7 +17,7 @@ tushare = "onlyalpha_plugin_tushare.data_source.factory:factory"
 onlyalpha-tushare = "onlyalpha_plugin_tushare.doctor:main"
 
 [dependency-groups]
-dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.11"]
+dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.16.2"]
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]

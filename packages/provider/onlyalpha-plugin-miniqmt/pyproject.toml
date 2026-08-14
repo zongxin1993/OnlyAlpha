@@ -39,7 +39,7 @@ onlyalpha-miniqmt = "onlyalpha_plugin_miniqmt.doctor:main"
 packages = ["src/onlyalpha_plugin_miniqmt"]
 
 [dependency-groups]
-dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.11"]
+dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.16.2"]
 
 [tool.uv.sources]
 onlyalpha = { workspace = true }
