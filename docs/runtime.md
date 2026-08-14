@@ -139,6 +139,12 @@ long-running production operations 仍未实现。
 
 Streaming Runtime 的 processing result collection 只用于 diagnostics：累计 counter 保存总处理量，内存中仅保留最近 1024 个结果。该裁剪不适用于 continuity frontier、checkpoint、timer、transaction、order、position、account 或其他 authoritative state。`OnlyEngine.start()` 以全部 Runtime 为一个生命周期事务；任一 Runtime 启动失败会在异常返回前反向关闭所有已初始化 Runtime、释放 Engine infrastructure、将 Engine/Runtime session/Cluster session/handle 收敛为 `FAILED`，并把 cleanup errors 附注到原始启动异常。
 
+Streaming Recovery 的异步完成由 Phase revision 与 continuity proof 决定，不由固定 wall-clock 时长决定。测试或运维等待先观察
+baseline 之后的正式 Phase revision，再等待新的 `LIVE` revision；timeout 只使用由 historical-operation budget 派生的统一
+deadlock watchdog。`OnlyStreamingRecoveryDiagnostics` 只读投影 phase/revision、generation、当前 recovery stage/plan、Semantic Lane
+cutoff、worker/source/subscription、continuity frontier 与 buffered suffix；这些字段不参与 Runtime 决策，也不成为第二套 Recovery
+authority。STOP 建立后，迟到 historical batch 不进入 Semantic Lane，诊断 stage 也保持 `STOP_CUTOFF`。
+
 ## 6. Backtest
 
 正式成品式入口为 `CLI → OnlyEngine.add_cluster(OnlyClusterRunConfig) → OnlyEngine.run()`。Engine 内部通用 Assembler 仅从 Runtime Registry

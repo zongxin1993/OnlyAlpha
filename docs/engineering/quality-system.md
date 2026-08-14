@@ -440,6 +440,11 @@ ADR-0002-xxx.md
 
 Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-factor`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
 
+Streaming/async certification test 必须等待正式 state/revision/continuity evidence；bounded timeout 只能是统一、可解释的
+deadlock watchdog。watchdog failure 必须输出 immutable diagnostics，至少覆盖 phase/revision、recovery generation/stage/plan、
+Semantic Lane cutoff、worker/source、continuity frontier 与 buffered suffix。禁止用 sleep、rerun、flaky marker、lane removal 或散落的
+timeout inflation 改变 verdict。
+
 状态含义固定为：
 
 - `IMPLEMENTED`：代码实现完成；

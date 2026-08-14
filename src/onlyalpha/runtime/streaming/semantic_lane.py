@@ -19,6 +19,12 @@ class OnlyStreamingSemanticOutcome[T]:
     result: T | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyStreamingSemanticLaneDiagnostics:
+    revoked: bool | None
+    busy: bool
+
+
 OnlyStreamingProcessingCommit = Callable[
     [OnlyMarketDataInboundUpdate, OnlyMarketDataProcessingResult],
     None,
@@ -62,9 +68,20 @@ class OnlyStreamingSemanticLane:
         with self._permission:
             return self._revoked
 
+    def diagnostics(self) -> OnlyStreamingSemanticLaneDiagnostics:
+        """Return immediately even when a semantic action owns the Lane."""
+
+        if not self._permission.acquire(blocking=False):
+            return OnlyStreamingSemanticLaneDiagnostics(revoked=None, busy=True)
+        try:
+            return OnlyStreamingSemanticLaneDiagnostics(revoked=self._revoked, busy=False)
+        finally:
+            self._permission.release()
+
 
 __all__ = [
     "OnlyStreamingProcessingCommit",
     "OnlyStreamingSemanticLane",
+    "OnlyStreamingSemanticLaneDiagnostics",
     "OnlyStreamingSemanticOutcome",
 ]

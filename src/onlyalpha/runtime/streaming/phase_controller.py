@@ -71,3 +71,20 @@ class OnlyStreamingPhaseController:
                     return None
                 self._condition.wait(remaining)
             return OnlyStreamingPhaseSnapshot(self._phase, self._revision)
+
+    def wait_for_revision(
+        self,
+        after_revision: int,
+        *,
+        timeout: float | None = None,
+    ) -> OnlyStreamingPhaseSnapshot | None:
+        """Wait for any formal phase transition after ``after_revision``."""
+
+        deadline = None if timeout is None else monotonic() + timeout
+        with self._condition:
+            while self._revision <= after_revision:
+                remaining = None if deadline is None else deadline - monotonic()
+                if remaining is not None and remaining <= 0:
+                    return None
+                self._condition.wait(remaining)
+            return OnlyStreamingPhaseSnapshot(self._phase, self._revision)

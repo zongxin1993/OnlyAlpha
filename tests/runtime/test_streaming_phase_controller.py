@@ -45,3 +45,16 @@ def test_wait_for_requires_a_new_target_revision() -> None:
     assert result[0] is not None
     assert result[0].phase is OnlyStreamingPhase.LIVE
     assert result[0].revision > before.revision
+
+
+def test_wait_for_revision_observes_a_transition_even_if_target_phase_already_changed_again() -> None:
+    controller = OnlyStreamingPhaseController(OnlyStreamingPhase.LIVE)
+    before = controller.snapshot()
+
+    assert controller.transition({OnlyStreamingPhase.LIVE}, OnlyStreamingPhase.DEGRADED)
+    assert controller.transition({OnlyStreamingPhase.DEGRADED}, OnlyStreamingPhase.RECOVERING)
+    changed = controller.wait_for_revision(before.revision, timeout=0)
+
+    assert changed is not None
+    assert changed.phase is OnlyStreamingPhase.RECOVERING
+    assert changed.revision == before.revision + 2

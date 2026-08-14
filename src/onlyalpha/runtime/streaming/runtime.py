@@ -72,6 +72,7 @@ from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig, OnlyRuntimeErro
 from onlyalpha.runtime.trading_facade import OnlyTradingRuntimeFacade
 
 from .continuity import OnlyStreamingContinuityTracker
+from .diagnostics import OnlyStreamingRecoveryDiagnostics, OnlyStreamingRecoveryStage
 from .driver import OnlyStreamingMarketDataDriver
 from .health import OnlyStreamingRuntimeHealth, only_streaming_data_state
 from .live_bar import OnlyLiveBarFinalizer
@@ -147,6 +148,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._historical_protocol_version = historical_protocol_version
         self._historical_time_semantics_version = historical_time_semantics_version
         self._historical_timeout_seconds = historical_timeout_seconds
+        # The configured historical-operation budget plus one shared scheduling/notification
+        # grace is an operational watchdog, never a recovery correctness condition.
+        self._streaming_recovery_watchdog_seconds = float(historical_timeout_seconds) + 5.0
         self._warmup_alignment_steps = tuple(sorted(set(warmup_alignment_steps)))
         self._stale_after_seconds = stale_after_seconds
         self._historical_warmup_results: list[OnlyHistoricalWarmupResult] = []
@@ -184,6 +188,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         self._recovery_generation = 0
         self._recovery_plan: OnlyStreamingRecoveryPlan | None = None
         self._recovery_failure: str | None = None
+        self._recovery_stage = OnlyStreamingRecoveryStage.IDLE
         self._idle_check_ns = 0
         self._observation_store = OnlyLatestObservationStore()
         self._observation_publisher = OnlyObservationPublisher(
@@ -242,7 +247,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             processing_lane=self._semantic_lane,
             finalizer=self._live_finalizer,
             clock=clock,
-            shutdown_timeout_seconds=float(historical_timeout_seconds) + 5.0,
+            shutdown_timeout_seconds=self._streaming_recovery_watchdog_seconds,
             commit_result=self._record_processing_result,
             on_processed=self._handle_worker_result,
             on_idle=self._handle_worker_idle,
@@ -277,6 +282,14 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         timeout: float | None = None,
     ) -> OnlyStreamingPhaseSnapshot | None:
         return self._phase_controller.wait_for(target, after_revision=after_revision, timeout=timeout)
+
+    def wait_for_streaming_phase_revision(
+        self,
+        after_revision: int,
+        *,
+        timeout: float | None = None,
+    ) -> OnlyStreamingPhaseSnapshot | None:
+        return self._phase_controller.wait_for_revision(after_revision, timeout=timeout)
 
     def _transition_streaming_phase(self, target: OnlyStreamingPhase) -> bool:
         return self._phase_controller.transition(set(OnlyStreamingPhase), target)
@@ -440,6 +453,40 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         return self._recovery_failure
 
     @property
+    def streaming_recovery_watchdog_seconds(self) -> float:
+        """Operational deadlock watchdog; recovery correctness has no time budget."""
+
+        return self._streaming_recovery_watchdog_seconds
+
+    @property
+    def streaming_recovery_diagnostics(self) -> OnlyStreamingRecoveryDiagnostics:
+        phase = self._phase_controller.snapshot()
+        plan = self._recovery_plan
+        worker_failure = self.worker_failure
+        lane = self._semantic_lane.diagnostics()
+        return OnlyStreamingRecoveryDiagnostics(
+            phase=phase.phase,
+            phase_revision=phase.revision,
+            recovery_generation=self._recovery_generation,
+            recovery_stage=self._recovery_stage,
+            recovery_plan_present=plan is not None,
+            recovery_reason=None if plan is None else plan.reason.value,
+            recovery_from=None if plan is None else plan.confirmed_bar_end,
+            recovery_to=None if plan is None else plan.recovery_target,
+            processing_lane_revoked=lane.revoked,
+            processing_lane_busy=lane.busy,
+            worker_alive=self.worker_alive,
+            worker_failure=(None if worker_failure is None else f"{type(worker_failure).__name__}: {worker_failure}"),
+            source_connected=self._source_connected(),
+            subscription_active=self.subscription_active,
+            last_closed_bar_end=self._continuity.last_closed_bar_end,
+            buffered_suffix_count=len(self._services.market_data_inbound),
+            pending_live_bar_count=self.pending_live_bar_count,
+            recovery_failure=self._recovery_failure,
+            watchdog_seconds=self._streaming_recovery_watchdog_seconds,
+        )
+
+    @property
     def pending_live_bar_count(self) -> int:
         return self._live_finalizer.pending_count
 
@@ -563,6 +610,8 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
             return
         self._streaming_stop_attempted = True
         self._semantic_lane.revoke(self._phase_controller.begin_stop)
+        if self._recovery_plan is not None:
+            self._recovery_stage = OnlyStreamingRecoveryStage.STOP_CUTOFF
         self._driver.request_stop()
         failure: BaseException | None = None
         for operation in (
@@ -1076,6 +1125,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
 
     def _recover_market_continuity(self, plan: OnlyStreamingRecoveryPlan) -> None:
         self._recovery_plan = plan
+        self._recovery_stage = OnlyStreamingRecoveryStage.PLAN_INSTALLED
         self._live_finalizer.reset_pending()
         try:
             if self._semantic_lane.revoked:
@@ -1086,9 +1136,11 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 self._driver.source.source_id,  # type: ignore[union-attr]
                 OnlyMarketDataType.BAR,
             )
+            self._recovery_stage = OnlyStreamingRecoveryStage.LOADING_HISTORY
             batch = self._recovery_loader.load(plan, accepted_sequence)
             if self._semantic_lane.revoked or self.streaming_phase is OnlyStreamingPhase.STOPPING:
                 return
+            self._recovery_stage = OnlyStreamingRecoveryStage.REPLAYING_HISTORY
             for update in batch.updates:
                 outcome = self._semantic_lane.process(update, self._record_processing_result)
                 if not outcome.started:
@@ -1100,19 +1152,26 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                     raise OnlyRuntimeError(f"recovery Bar was not applied: {result.status.value}")
             if not self._transition_streaming_phase(OnlyStreamingPhase.CATCH_UP):
                 return
+            self._recovery_stage = OnlyStreamingRecoveryStage.RECONCILING_SUFFIX
             buffered = (() if plan.trigger_update is None else (plan.trigger_update,)) + self._drain_buffered_updates()
             self._process_buffered_updates(buffered)
             while True:
+                if self._semantic_lane.revoked:
+                    return
                 suffix = self._drain_buffered_updates()
                 if not suffix:
                     break
                 self._process_buffered_updates(suffix)
+            if self._semantic_lane.revoked:
+                return
+            self._recovery_stage = OnlyStreamingRecoveryStage.VERIFYING_CONTINUITY
             self._verify_recovery_complete(plan)
             if self._persistence_config.checkpoint.enabled:
                 checkpoint = self._semantic_lane.execute(self._create_verified_streaming_checkpoint)
                 if not checkpoint.started:
                     raise OnlyRuntimeError("STREAMING_CHECKPOINT_SEMANTIC_PERMISSION_REVOKED")
             self._recovery_plan = None
+            self._recovery_stage = OnlyStreamingRecoveryStage.CONTINUITY_VERIFIED
             self._transition_streaming_phase(OnlyStreamingPhase.LIVE)
         except Exception as exc:
             self._fail_streaming_recovery(str(exc))
@@ -1193,6 +1252,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         if self.streaming_phase in {OnlyStreamingPhase.STOPPING, OnlyStreamingPhase.STOPPED}:
             return
         self._recovery_failure = reason
+        self._recovery_stage = OnlyStreamingRecoveryStage.FAILED
         if self._transition_streaming_phase(OnlyStreamingPhase.FAILED):
             self._state = OnlyRuntimeState.FAILED
 

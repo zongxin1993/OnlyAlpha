@@ -51,6 +51,39 @@ def test_streaming_semantic_lane_is_the_only_processor_call_authority() -> None:
     assert [path for path, _line in bypasses] == [root / "semantic_lane.py"]
 
 
+def test_streaming_phase_state_is_owned_only_by_the_phase_controller() -> None:
+    root = Path("src/onlyalpha/runtime/streaming")
+    owners: set[Path] = set()
+    for path in root.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            targets: tuple[ast.expr, ...]
+            if isinstance(node, ast.Assign):
+                targets = tuple(node.targets)
+            elif isinstance(node, ast.AnnAssign):
+                targets = (node.target,)
+            else:
+                continue
+            if any(isinstance(target, ast.Attribute) and target.attr == "_phase" for target in targets):
+                owners.add(path)
+    assert owners == {root / "phase_controller.py"}
+
+
+def test_recovery_diagnostic_stage_never_controls_runtime_behavior() -> None:
+    path = Path("src/onlyalpha/runtime/streaming/runtime.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    decision_reads = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.If, ast.While, ast.IfExp)):
+            continue
+        if any(
+            isinstance(child, ast.Attribute) and isinstance(child.ctx, ast.Load) and child.attr == "_recovery_stage"
+            for child in ast.walk(node.test)
+        ):
+            decision_reads.append(node.lineno)
+    assert decision_reads == []
+
+
 def test_worker_reaction_does_not_commit_processing_result_twice() -> None:
     path = Path("src/onlyalpha/runtime/streaming/runtime.py")
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

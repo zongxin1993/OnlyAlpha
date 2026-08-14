@@ -250,6 +250,18 @@ identity、Result verified reload、Job `EXECUTED -> REUSED`、score range 与 a
 Parameter Sweep、Forward Return/IC/Statistics、Research Result/Artifact、Scheduler/Distributed Research、Query/API/Web 与
 Research Runtime activation 仍未实现。
 
+### P7.5.1 — Final-SHA Certification Reliability & Streaming Recovery Verification Closure（Implemented locally）
+
+P7.5 Final-SHA `core-full` 暴露的 SIM gap-recovery timeout 已归类为 test synchronization defect：Phase Controller、Semantic Lane、
+Recovery Loader 与 forward-replay production invariants 保持成立，但原测试用短于 configured historical-operation budget 的 10 秒
+常量表达 recovery completion，且 timeout 只显示 `None`。P7.5.1 增加 formal phase-revision wait、统一 operational watchdog、immutable
+recovery diagnostics/stage，以及 secondary-gap、blocked history STOP、catch-up STOP、reconnect 和 exactly-once regression；diagnostic
+stage 不参与 Runtime 决策，持久化/Checkpoint/交易语义均未改变。
+
+该阶段只有在包含本段与 implementation report 的 immutable final SHA 通过完整本地 mandatory lanes，并由远端
+`Final-SHA Certification` 对同一 SHA 输出 `ACCEPTED` artifact 后才能标记 certified。当前没有该 remote artifact，不能声明
+`DONE / ACCEPTED`，也不能开始 P7.6。
+
 P7 实现 Research，不实现“Vectorized Backtest”：
 
 ```text

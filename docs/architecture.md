@@ -107,6 +107,12 @@ Historical DataSource 只提供事实，Worker 仍是唯一语义 consumer。Rec
 proof 才恢复交易权限。P6.5 已闭合 Streaming checkpoint/new-process restart；长期生产运行仍未闭环，Runtime Persistence
 的 Durable Transaction 也不等于 Streaming Checkpoint。
 
+Streaming phase 的唯一 mutable owner 是 `OnlyStreamingPhaseController`，其单调 revision 也是异步验证的正式同步点。
+`OnlyStreamingRecoveryDiagnostics` 只是从 Phase Controller、Recovery Plan、Semantic Lane、Worker/Driver、Continuity 与 Inbound
+Queue 组合出的 immutable projection；diagnostic stage 只说明 recovery 停在 history loading、replay、suffix reconciliation 或
+continuity verification 的哪一步，禁止反向驱动控制流。Recovery timeout 是按配置派生的 stuck-operation watchdog，不进入
+continuity correctness。具体决定见 [ADR 0077](adr/0077-streaming-recovery-verification-and-diagnostics.md)。
+
 ## 4. Research Runtime
 
 Research Runtime 的目标边界是 Historical + Vectorized/Batch + Research-oriented。它拥有 dataset、calculation、job progress、Research Result 和 Artifact state，不拥有 formal trading Account、Position、Order、Broker、Risk Reservation 或 durable Trading Transaction authority。

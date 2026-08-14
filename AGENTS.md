@@ -875,6 +875,12 @@ Historical Watermark
 
 这些边界由当前 Streaming/SIM authority 持有；不得恢复 `PAPER` 产品依赖，也不得复制第二套 streaming authority。
 
+Streaming Recovery 的完成必须由 Phase revision、suffix reconciliation 与 continuity proof 验证，不能由固定 wall-clock 时长定义。
+Timeout 只允许作为按正式 operation budget 派生的 bounded watchdog；到期必须输出 immutable diagnostics，至少包含 phase/revision、
+recovery generation/stage/plan、Semantic Lane cutoff、worker/source、confirmed frontier 与 buffered suffix。Diagnostic stage 只读且不得
+参与 Runtime control decision。`OnlyStreamingPhaseController` 仍是唯一 Phase authority，`OnlyStreamingSemanticLane` 仍是唯一
+MarketData semantic writer；STOPPING 建立后，迟到 loader facts 与 diagnostic progress 都不得越过 cutoff。
+
 ---
 
 ## 13. Event 合同

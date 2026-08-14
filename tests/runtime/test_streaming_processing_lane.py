@@ -84,3 +84,27 @@ def test_generic_semantic_actions_share_the_same_stop_cutoff() -> None:
     lane.revoke()
     assert not lane.execute(lambda: mutations.append("late-checkpoint")).started
     assert mutations == ["timer"]
+
+
+def test_diagnostics_never_wait_for_a_busy_semantic_action() -> None:
+    lane = OnlyStreamingSemanticLane(Mock())
+    entered = Event()
+    release = Event()
+
+    def blocked() -> None:
+        entered.set()
+        assert release.wait(3)
+
+    worker = Thread(target=lambda: lane.execute(blocked))
+    worker.start()
+    assert entered.wait(3)
+
+    busy = lane.diagnostics()
+    assert busy.busy
+    assert busy.revoked is None
+
+    release.set()
+    worker.join(3)
+    available = lane.diagnostics()
+    assert not available.busy
+    assert available.revoked is False

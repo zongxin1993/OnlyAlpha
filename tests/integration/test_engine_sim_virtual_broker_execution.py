@@ -44,7 +44,9 @@ from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.runtime.runtime import OnlyRuntimeState
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
+from onlyalpha.runtime.streaming.diagnostics import OnlyStreamingRecoveryStage
 from onlyalpha.runtime.streaming.phase import OnlyStreamingPhase
+from onlyalpha.runtime.streaming.phase_controller import OnlyStreamingPhaseSnapshot
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 
@@ -437,6 +439,36 @@ def _wait_until(condition: Callable[[], bool], message: str) -> None:
     pytest.fail(message)
 
 
+def _wait_for_recovery_cycle(
+    runtime: OnlySimRuntime,
+    before: OnlyStreamingPhaseSnapshot,
+    *,
+    expected_generation: int,
+) -> OnlyStreamingPhaseSnapshot:
+    watchdog = runtime.streaming_recovery_watchdog_seconds
+    started = runtime.wait_for_streaming_phase_revision(before.revision, timeout=watchdog)
+    if started is None:
+        pytest.fail(
+            "Streaming recovery did not establish a phase transition before the watchdog: "
+            f"{runtime.streaming_recovery_diagnostics!r}"
+        )
+    if started.phase is OnlyStreamingPhase.FAILED:
+        pytest.fail(f"Streaming recovery failed before completion: {runtime.streaming_recovery_diagnostics!r}")
+    completed = runtime.wait_for_streaming_phase(
+        OnlyStreamingPhase.LIVE,
+        after_revision=before.revision,
+        timeout=watchdog,
+    )
+    if completed is None:
+        pytest.fail(
+            "Streaming recovery did not complete before the operational watchdog: "
+            f"{runtime.streaming_recovery_diagnostics!r}"
+        )
+    assert completed.revision > before.revision
+    assert runtime.recovery_generation == expected_generation
+    return completed
+
+
 def _publish_and_wait_received(
     runtime: OnlySimRuntime,
     xtdata: _FakeLiveXtData,
@@ -764,14 +796,8 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
         before = runtime.streaming_phase_snapshot
         _publish_closed_gap_trigger(runtime, clock, 42)
-        assert (
-            runtime.wait_for_streaming_phase(
-                OnlyStreamingPhase.LIVE,
-                after_revision=before.revision,
-                timeout=10,
-            )
-            is not None
-        )
+        completed = _wait_for_recovery_cycle(runtime, before, expected_generation=1)
+        assert completed.revision > before.revision
         assert runtime.recovery_generation == 1
 
         audit = runtime.market_data_audit_store.records()
@@ -789,6 +815,7 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         assert sum(item.startswith(f"recovery-{runtime.runtime_id}-1-") for item in audit_ids) == 4
         assert runtime.recovery_failure is None
         assert runtime.recovery_plan is None
+        assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.CONTINUITY_VERIFIED
         _wait_until(
             lambda: runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2,
             "recovered Bar Trade did not reach Projection Ready",
@@ -841,6 +868,10 @@ def test_engine_sim_incomplete_gap_recovery_fails_closed(
 
         assert runtime.state is OnlyRuntimeState.FAILED
         assert runtime.recovery_failure == "historical recovery coverage is incomplete"
+        diagnostics = runtime.streaming_recovery_diagnostics
+        assert diagnostics.recovery_stage is OnlyStreamingRecoveryStage.FAILED
+        assert diagnostics.recovery_plan_present
+        assert diagnostics.worker_alive
         trigger_statuses = tuple(
             item.status
             for item in runtime.market_data_audit_store.records()
@@ -852,6 +883,55 @@ def test_engine_sim_incomplete_gap_recovery_fails_closed(
             for item in runtime.market_data_audit_store.records()
         )
     finally:
+        engine.stop()
+
+
+def test_engine_sim_secondary_gap_during_suffix_reconciliation_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, xtdata, clock, _ = _engine(tmp_path, monkeypatch, engine_id="sim-secondary-gap")
+    engine.initialize()
+    engine.start()
+    runtime = cast(OnlySimRuntime, engine.runtimes[0])
+    runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
+    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    entered = Event()
+    release = Event()
+
+    def blocked(request: OnlyHistoricalBarRequest) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
+        entered.set()
+        assert release.wait(runtime.streaming_recovery_watchdog_seconds)
+        return _recovery_stream(runtime, request)
+
+    monkeypatch.setattr(source, "load_bars", blocked)
+    try:
+        _publish_and_wait_received(runtime, xtdata, clock, 37)
+        _publish_and_wait_received(runtime, xtdata, clock, 38)
+        _wait_until(
+            lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+            "pre-gap Worker callback did not complete",
+        )
+        before = runtime.streaming_phase_snapshot
+        _publish_closed_gap_trigger(runtime, clock, 42)
+        assert entered.wait(runtime.streaming_recovery_watchdog_seconds)
+        _publish_closed_gap_trigger(runtime, clock, 46)
+        release.set()
+
+        failed = runtime.wait_for_streaming_phase(
+            OnlyStreamingPhase.FAILED,
+            after_revision=before.revision,
+            timeout=runtime.streaming_recovery_watchdog_seconds,
+        )
+        if failed is None:
+            pytest.fail(
+                f"Secondary gap did not fail closed before the watchdog: {runtime.streaming_recovery_diagnostics!r}"
+            )
+        assert runtime.recovery_failure == "buffered realtime suffix contains a secondary gap"
+        assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.FAILED
+        assert runtime.streaming_phase is OnlyStreamingPhase.FAILED
+    finally:
+        release.set()
         engine.stop()
 
 
@@ -871,7 +951,7 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
 
     def blocked(request: object) -> OnlyHistoricalDataStream[OnlyMarketDataInboundUpdate]:
         entered.set()
-        assert release.wait(3)
+        assert release.wait(runtime.streaming_recovery_watchdog_seconds)
         return _recovery_stream(runtime, request)
 
     monkeypatch.setattr(source, "load_bars", blocked)
@@ -889,7 +969,11 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
     )
     before = runtime.streaming_phase_snapshot
     _publish_closed_gap_trigger(runtime, clock, 42)
-    assert entered.wait(3)
+    assert entered.wait(runtime.streaming_recovery_watchdog_seconds)
+    loading = runtime.streaming_recovery_diagnostics
+    assert loading.recovery_stage is OnlyStreamingRecoveryStage.LOADING_HISTORY
+    assert loading.recovery_plan_present
+    assert loading.worker_alive
     before_results = len(runtime.processing_results)
     before_transactions = _sqlite_transaction_state(database)
 
@@ -907,16 +991,18 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
         runtime.wait_for_streaming_phase(
             OnlyStreamingPhase.STOPPING,
             after_revision=before.revision,
-            timeout=10,
+            timeout=runtime.streaming_recovery_watchdog_seconds,
         )
         is not None
     )
     release.set()
-    stopper.join(timeout=3)
+    stopper.join(timeout=runtime.streaming_recovery_watchdog_seconds)
 
     assert not stopper.is_alive()
     assert stop_failure == []
     assert runtime.streaming_phase is OnlyStreamingPhase.STOPPED
+    assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.STOP_CUTOFF
+    assert runtime.streaming_recovery_diagnostics.processing_lane_revoked
     assert len(runtime.processing_results) == before_results
     assert _sqlite_transaction_state(database) == before_transactions
 
@@ -937,7 +1023,7 @@ def test_engine_sim_stop_during_buffered_suffix_catch_up_prevents_late_processin
 
     def blocked(updates: tuple[OnlyMarketDataInboundUpdate, ...]) -> None:
         entered.set()
-        assert release.wait(10)
+        assert release.wait(runtime.streaming_recovery_watchdog_seconds)
         original(updates)
 
     monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
@@ -949,17 +1035,28 @@ def test_engine_sim_stop_during_buffered_suffix_catch_up_prevents_late_processin
         "pre-gap Worker callback did not complete",
     )
     _publish_closed_gap_trigger(runtime, clock, 42)
-    assert entered.wait(10)
+    assert entered.wait(runtime.streaming_recovery_watchdog_seconds)
+    reconciling = runtime.streaming_recovery_diagnostics
+    assert reconciling.recovery_stage is OnlyStreamingRecoveryStage.RECONCILING_SUFFIX
+    assert reconciling.recovery_plan_present
     before_results = len(runtime.processing_results)
 
     stopper = Thread(target=lambda: engine.stop())
     stopper.start()
-    assert runtime.wait_for_streaming_phase(OnlyStreamingPhase.STOPPING, timeout=10) is not None
+    assert (
+        runtime.wait_for_streaming_phase(
+            OnlyStreamingPhase.STOPPING,
+            timeout=runtime.streaming_recovery_watchdog_seconds,
+        )
+        is not None
+    )
     release.set()
-    stopper.join(10)
+    stopper.join(runtime.streaming_recovery_watchdog_seconds)
 
     assert not stopper.is_alive()
     assert runtime.streaming_phase is OnlyStreamingPhase.STOPPED
+    assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.STOP_CUTOFF
+    assert runtime.streaming_recovery_diagnostics.processing_lane_revoked
     assert len(runtime.processing_results) == before_results
 
 
@@ -984,17 +1081,11 @@ def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
         source.disconnect()
         clock.advance_to(datetime(2026, 8, 4, 1, 42, tzinfo=UTC))
 
-        assert (
-            runtime.wait_for_streaming_phase(
-                OnlyStreamingPhase.LIVE,
-                after_revision=before.revision,
-                timeout=10,
-            )
-            is not None
-        )
+        _wait_for_recovery_cycle(runtime, before, expected_generation=1)
         assert runtime.recovery_generation == 1
 
         assert runtime.recovery_failure is None
+        assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.CONTINUITY_VERIFIED
         assert runtime.subscription_active
         assert runtime.health().source_connected
         assert len(xtdata.subscriptions) == 1
