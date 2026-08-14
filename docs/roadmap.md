@@ -13,7 +13,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 历史 `PAPER` 与 standalone `SHADOW` 不是目标 Runtime；P6.6 已从 active source、配置、Factory、测试 fixture 与 public contract 删除这些产品 spelling，且未保留 alias 或 wrapper。
 
-## 当前产品事实（2026-08-13）
+## 当前产品事实（2026-08-14）
 
 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、单/多 Cluster、Result/Analytics/Artifact/Report。
 
@@ -35,6 +35,10 @@ Timer durable occurrence、post-recovery authority validation 和 verified recov
 Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CASH` plugin 已拥有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，其 Cash-Long economic shape 可由统一 Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成 Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级完整 A 股市场范围，也不表示所有 A 股、Sim 或 Live 产品可用。
 
 ## 已完成阶段
+
+- P7.4 — Research Job / Plan Contract & Deterministic Orchestration：exact immutable Plan、verified Result reuse、
+  `RESULT_NOT_FOUND`-only execute、P7.2/P7.3 composition、phase-aware failure、re-entry recovery 与 same-job concurrency
+  convergence 已本地实现并通过完整本地 release/coverage 门禁；Research Runtime 仍 unsupported，最终 SHA 远端认证仍待完成。
 
 - P7.3 — Calculation Result Identity & Immutable Calculation Store：logical Result Content / Calculation Result identity、
   defensive durable admission、exact manifest、partition byte/semantic integrity、staged verified atomic publish、verified reload、
@@ -210,6 +214,19 @@ compression、row-group 与 `created_at` 不进入 semantic identity。
 P7.3 没有激活 Research Runtime，也没有实现 Research Job/Plan、Parameter Sweep、Factor Research、Research Result/Artifact、
 Query/API/Web 或 mutable Calculation Cache。Calculation Result、Research Result 与 Research Artifact 继续保持不同 authority；
 exact final-SHA remote certification 尚未发生，因此当前只声明 implemented locally。
+
+### P7.4 — Research Job / Plan Contract & Deterministic Orchestration（Implemented and verified locally）
+
+已实现只包含 exact Dataset Snapshot fingerprint 与 canonical Calculation Graph 的 immutable resolved Plan，并复用现有
+`calculation_fingerprint` 作为单作业完整语义 identity，不创建重复 Job/Plan fingerprint。正式 orchestrator 先调用 Result
+Store `load_verified()`：verified authority 返回 `REUSED`，只有 `RESULT_NOT_FOUND` 进入 P7.2 deterministic execution 与 P7.3
+immutable commit；corrupt/invalid、Dataset verification、calculation、commit 和 deterministic conflict 均按明确 phase 保留稳定
+code 并 fail closed。成功 Outcome 只表达 `SUCCEEDED + EXECUTED/REUSED + Calculation/Result identity`。
+
+恢复采用 deterministic re-entry：commit 前中断允许相同 Job 重算，commit 后 Outcome 前中断通过 verified reuse 收敛；并发
+相同 Job 依赖 P7.3 atomic/idempotent/conflict authority 收敛，不增加 Job DB、lease 或 global lock。Research Job package 不导入
+Trading authorities，不激活 Research Runtime Factory。Parameter Sweep、Statistics、Factor Research product、Research Result/
+Artifact、Scheduler/Distributed Research、Query/API/Web 均不在 P7.4。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

@@ -74,6 +74,7 @@ def test_ashare_lane_selects_offline_miniqmt_golden_conformance() -> None:
 def test_release_and_local_runner_boundaries_are_explicit() -> None:
     source = (ROOT / "scripts/test_suite.py").read_text(encoding="utf-8")
     for lane in (
+        "OnlyTestLane.RESEARCH_JOB",
         "OnlyTestLane.CORE_FULL",
         "OnlyTestLane.RECOVERY",
         "OnlyTestLane.ASHARE",

@@ -50,6 +50,32 @@ def test_research_calculation_result_store_has_no_trading_authority_imports() ->
         assert not any(module.startswith("onlyalpha.") and module.split(".")[1] in forbidden for module in imports)
 
 
+def test_research_job_has_no_trading_or_runtime_authority_imports() -> None:
+    forbidden = {
+        "account",
+        "broker",
+        "cluster",
+        "engine",
+        "execution",
+        "fee",
+        "margin",
+        "order",
+        "position",
+        "risk",
+        "runtime",
+        "settlement",
+        "strategy",
+        "transaction",
+    }
+    for path in Path("src/onlyalpha/research/job").rglob("*.py"):
+        source = path.read_text()
+        tree = ast.parse(source)
+        imports = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module]
+        assert not any(module.startswith("onlyalpha.") and module.split(".")[1] in forbidden for module in imports)
+        assert "OnlyRuntimeMode" not in source
+        assert "only_canonical_fingerprint" not in source
+
+
 def test_calculation_core_does_not_import_research_or_arrow() -> None:
     for path in Path("src/onlyalpha/calculation").rglob("*.py"):
         source = path.read_text()

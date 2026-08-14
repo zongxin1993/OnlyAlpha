@@ -14,7 +14,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.4.3` |
+| Version | `0.4.4` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -25,6 +25,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | P7.1 status | Dataset Snapshot foundation implemented locally; final-SHA remote certification required |
 | P7.2 status | Deterministic Research Calculation execution implemented locally; final-SHA remote certification required |
 | P7.3 status | Immutable Calculation Result authority implemented locally; final-SHA remote certification required |
+| P7.4 status | Deterministic single Research Job orchestration implemented and verified locally; final-SHA remote certification required |
 | License | MIT |
 
 ---
@@ -65,8 +66,14 @@ P7.3 将完整 P7.2 execution 按 `(node_fingerprint, instrument_id)` 形成 can
 分离的 Result Content fingerprint 和 Calculation Result fingerprint，并以 `calculation_fingerprint` 为唯一 durable key 写入
 immutable Parquet Store。Store 在 admission、staging read-back、atomic publication 和正式 load 时验证 Dataset/Graph linkage、
 完整 partition set、timestamp/output schema、logical values、semantic hash 与 byte SHA-256；相同结果重复提交幂等，不同结果以
-`DETERMINISTIC_RESULT_CONFLICT` fail closed，corrupt authority 不覆盖、不修复、不 fallback。Research Runtime、Research Job、
-Parameter Sweep、Factor Research、Research Result/Artifact、Query/API 与 Web UI 仍未实现。
+`DETERMINISTIC_RESULT_CONFLICT` fail closed，corrupt authority 不覆盖、不修复、不 fallback。
+
+P7.4 建立 immutable resolved Job Plan 与单一 `OnlyResearchJobExecutor`：Plan 只引用 exact Dataset Snapshot 和 canonical
+Calculation Graph，不增加重复 Job/Plan fingerprint；orchestrator 只以 `load_verified()` 判定复用，且仅 `RESULT_NOT_FOUND`
+进入 P7.2 execution 与 P7.3 immutable commit。成功 Outcome 显式区分 `EXECUTED/REUSED`，两条路径保持相同 Calculation/Result
+identity；corrupt/invalid authority、Dataset verification、calculation、commit 与 deterministic conflict 均保留 phase/code 并
+fail closed。Research Runtime 仍未激活；Parameter Sweep、Factor Research、Statistics、Research Result/Artifact、Scheduler、
+Query/API 与 Web UI 仍未实现。
 
 ---
 

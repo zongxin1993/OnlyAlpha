@@ -104,7 +104,8 @@ corrupt target 不 overwrite、repair 或 fallback。公开读取只有 verified
 completeness、byte/semantic hashes、schema、row count、timestamp 与全局 Result identities，不返回 partial result。
 
 该 Store 不提供 update、delete、overwrite、invalidate、refresh、TTL、LRU 或 cache-miss recomputation，也不复用 Trading
-Transaction Store。Research Runtime、Job、Research Result 与 Artifact 仍是独立且尚未激活的上层 authority。
+Transaction Store。P7.4 Research Job 只编排 verified reuse-or-execute，不成为新的 durable authority；Research Runtime、Research
+Result 与 Artifact 仍是独立且尚未激活的上层 authority。
 
 ## 7. 时间持久化协议
 

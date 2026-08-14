@@ -411,6 +411,13 @@ Calculation fingerprint、logical Result Content fingerprint、Calculation Resul
 staged atomic publication 与正式 load 时验证 Dataset/Graph linkage、完整 partition set、schema、timestamp、logical semantic hash
 和 byte hash；不得 overwrite/repair corrupt target，不得提供 cache、fallback、update、delete 或 unverified public load 语义。
 
+Research Job v1 的正式 resolved contract 只引用 exact Dataset Snapshot fingerprint 与 canonical Calculation Graph；其完整
+semantic identity 已由现有 `calculation_fingerprint` 表达，不得增加重复 Job/Plan fingerprint。Job orchestration 只能以 Result
+Store `load_verified()` 判定复用，只有 `RESULT_NOT_FOUND` 可以进入 P7.2 execution 与 P7.3 immutable commit；corrupt/invalid
+authority 必须 fail closed，不得用 `exists()`、recompute、repair、delete 或 overwrite 掩盖。成功 Outcome 显式区分
+`EXECUTED/REUSED`，但不得改变 Calculation/Result identity。P7.4 recovery 只采用 deterministic re-entry，不创建 mutable Job
+database、scheduler、worker lease 或第二套 recovery authority；Research Runtime Factory 仍 intentionally unsupported。
+
 当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
 
 Backtest / Sim / Live 追求 Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。差异主要限于：

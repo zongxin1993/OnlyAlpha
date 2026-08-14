@@ -58,3 +58,14 @@ def test_every_regular_lane_uses_one_workspace_pytest_session() -> None:
         if name is OnlyTestLane.MINIQMT_LOCAL:
             continue
         assert lane.paths
+
+
+def test_research_job_lane_owns_application_contract_and_architecture_gate() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_JOB]
+    assert lane.paths == (
+        "tests/research/job",
+        "tests/architecture/test_research_calculation_boundaries.py",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/job"' in source
+    assert '"research-job-coverage"' in source

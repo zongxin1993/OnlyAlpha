@@ -48,6 +48,11 @@ idempotency/deterministic conflict、manifest/partition corruption、fresh-proce
 Indicator Trading↔Research characterization。`research-calculation --coverage` 对 Core Research Calculation package 执行独立
 branch coverage gate；P7.3 沿用该 mandatory lane，Final-SHA Certification 已消费该 lane 与 coverage gate。
 
+Research Job 使用 `python scripts/test_suite.py research-job` 作为独立 canonical application lane；它覆盖 exact resolved Plan、
+verified reuse-or-execute、corruption fail-closed、re-entry recovery、same-job concurrency、fresh-process reuse、显式 Outcome 与
+Research/Trading architecture firewall。`research-job --coverage` 独立统计 `onlyalpha.research.job`，并进入 PR、master、release
+与 Final-SHA Certification mandatory gates。
+
 ### 2.1 Repository Is the Source of Truth
 
 每个阶段开始前必须重新读取当前仓库状态。

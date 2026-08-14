@@ -24,6 +24,7 @@ WORKSPACE_TESTS = (
 class OnlyTestLane(StrEnum):
     CALCULATION = "calculation"
     RESEARCH_CALCULATION = "research-calculation"
+    RESEARCH_JOB = "research-job"
     RESEARCH_DATASET = "research-dataset"
     FAST = "fast"
     INTEGRATION = "integration"
@@ -69,6 +70,15 @@ LANES = {
         ),
         "not external",
         "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_JOB: Lane(
+        (
+            "tests/research/job",
+            "tests/architecture/test_research_calculation_boundaries.py",
+        ),
+        "not external",
+        "2",
         "worksteal",
     ),
     OnlyTestLane.RESEARCH_DATASET: Lane(
@@ -185,6 +195,7 @@ def release(args: argparse.Namespace) -> int:
         if code:
             return code
     for lane in (
+        OnlyTestLane.RESEARCH_JOB,
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.CALCULATION,
         OnlyTestLane.RESEARCH_DATASET,
@@ -238,7 +249,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_source = (
-            "src/onlyalpha/research/calculation"
+            "src/onlyalpha/research/job"
+            if name is OnlyTestLane.RESEARCH_JOB
+            else "src/onlyalpha/research/calculation"
             if name is OnlyTestLane.RESEARCH_CALCULATION
             else "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators"
             if name is OnlyTestLane.CALCULATION
@@ -247,7 +260,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             else "src/onlyalpha"
         )
         coverage_output = (
-            "research-calculation-coverage"
+            "research-job-coverage"
+            if name is OnlyTestLane.RESEARCH_JOB
+            else "research-calculation-coverage"
             if name is OnlyTestLane.RESEARCH_CALCULATION
             else "calculation-coverage"
             if name is OnlyTestLane.CALCULATION
@@ -287,6 +302,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "calculation-coverage.json"
                 if name is OnlyTestLane.CALCULATION
+                else "research-job-coverage.json"
+                if name is OnlyTestLane.RESEARCH_JOB
                 else "research-calculation-coverage.json"
                 if name is OnlyTestLane.RESEARCH_CALCULATION
                 else "research-dataset-coverage.json"
