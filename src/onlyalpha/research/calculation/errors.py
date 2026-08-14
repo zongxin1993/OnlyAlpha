@@ -8,3 +8,7 @@ class OnlyResearchCalculationError(RuntimeError):
         self.code = code
         self.detail = detail
         super().__init__(f"{code}: {detail}")
+
+
+class OnlyResearchCalculationResultStoreError(OnlyResearchCalculationError):
+    """Stable public failure contract for immutable Result persistence."""

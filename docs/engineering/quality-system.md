@@ -43,9 +43,10 @@ DAG/registry/discovery/architecture tests 和 official Indicator package charact
 均须进入 mypy；空 Factor provider 是合法 discovery 结果，不等于免除类型和构建门禁。
 
 Research Calculation 使用 `python scripts/test_suite.py research-calculation` 作为 canonical lane；它覆盖 exact backend/source
-contracts、verified Dataset admission、instrument/DAG determinism、failure atomicity、fresh-process identity、architecture firewall
-和官方 Indicator Trading↔Research characterization。`research-calculation --coverage` 对 Core Research Calculation package 执行
-独立 branch coverage gate。
+contracts、verified Dataset admission、instrument/DAG determinism、Result logical identity、immutable Store admission/atomicity、
+idempotency/deterministic conflict、manifest/partition corruption、fresh-process verified reload、architecture firewall 和官方
+Indicator Trading↔Research characterization。`research-calculation --coverage` 对 Core Research Calculation package 执行独立
+branch coverage gate；P7.3 沿用该 mandatory lane，Final-SHA Certification 已消费该 lane 与 coverage gate。
 
 ### 2.1 Repository Is the Source of Truth
 

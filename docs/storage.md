@@ -79,6 +79,33 @@ transaction 重建，不是第二份成交真值。Order、Position、Allocation
 OnlyAlpha 只做 Forward Recovery：commit 后不跨 Manager rollback，不删除或改写历史 transaction，也不跳过失败 Projection。
 完整协议见 `execution_runtime_recovery.md`。
 
+## 6.1 Research Calculation Result Storage
+
+Research Calculation Result Store 是 Storage，不是 Cache。它把 P7.2 deterministic execution 提升为 immutable durable research
+fact，正式 authority key 是 `calculation_fingerprint`：
+
+```text
+<result-root>/sha256/<prefix>/<calculation_fingerprint>/
+├── manifest.json
+└── data/p-<index>.parquet
+```
+
+Calculation fingerprint 继续只回答“应计算什么”。Result Content fingerprint 基于 canonical logical partitions、exact Arrow
+logical schema、timestamp axis 与 values；Calculation Result fingerprint 再绑定 Result schema version、Calculation fingerprint 与
+Result Content fingerprint。Parquet `byte_sha256` 只检测 physical corruption，root、compression、row-group 和 `created_at` 不进入
+semantic identity。
+
+`created_at` 必须来自显式注入且经过 UTC 校验的 audit-time authority；Store 不直接读取系统时间。
+
+Commit 先重新验证 Dataset Snapshot、Calculation Graph 与完整 execution linkage，在 sibling stage 写入每个
+`(node_fingerprint, instrument_id)` partition，回读验证 logical round-trip，写 exact/versioned manifest，完整验证 stage 后才
+atomic rename。相同 Calculation/Result 重复提交幂等；相同 Calculation 的不同 Result 是 deterministic conflict；existing
+corrupt target 不 overwrite、repair 或 fallback。公开读取只有 verified path，会重算 Dataset/Graph/Calculation、partition
+completeness、byte/semantic hashes、schema、row count、timestamp 与全局 Result identities，不返回 partial result。
+
+该 Store 不提供 update、delete、overwrite、invalidate、refresh、TTL、LRU 或 cache-miss recomputation，也不复用 Trading
+Transaction Store。Research Runtime、Job、Research Result 与 Artifact 仍是独立且尚未激活的上层 authority。
+
 ## 7. 时间持久化协议
 
 绝对时间只能存为 UTC ISO 8601 `Z`，或字段名明确单位的 Unix 整数（`*_ns/*_us/*_ms`）。

@@ -14,7 +14,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.4.2` |
+| Version | `0.4.3` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -24,6 +24,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | P7.0 status | **ACCEPTED locally** — contract/verification closure complete; final-SHA remote quality evidence required |
 | P7.1 status | Dataset Snapshot foundation implemented locally; final-SHA remote certification required |
 | P7.2 status | Deterministic Research Calculation execution implemented locally; final-SHA remote certification required |
+| P7.3 status | Immutable Calculation Result authority implemented locally; final-SHA remote certification required |
 | License | MIT |
 
 ---
@@ -47,7 +48,8 @@ P7.0.1 已冻结 Definition schema v2 / Graph schema v1 的 exact/fail-closed re
 semantic type/unit）、backend-neutral Registry 与 Trading resolver、显式 `type_id@semantic_version` reference，以及官方
 Indicator 插件自有 characterization/coverage。旧 built-in token 只通过固定映射解析到 `@1`，不会选择 latest。当前
 Factor config 也显式携带 exact reference，并在 implementation load 后验证一致；Python class path 只负责定位代码，不是
-semantic identity。P7.0 当时尚未实现 Research backend；该能力已由下述 P7.2 完成。Calculation Store 与 Research Runtime 尚未实现。
+semantic identity。P7.0 当时尚未实现 Research backend；该能力已由下述 P7.2 完成。Calculation Result Store 已由 P7.3
+实现；Research Runtime 仍未激活。
 
 P7.1 建立 Historical Closed Bar Dataset v1：resolved Definition、exact Decimal/precision-preserving columnar schema、provider-independent
 canonical content identity、immutable content-addressed Parquet Snapshot Store、strict materialization 与独立 provenance。Historical Cache
@@ -57,7 +59,14 @@ P7.2 建立 verified columnar Dataset admission、exact RESEARCH backend resolve
 canonical DAG 顺序执行的 batch executor、Research Calculation fingerprint 与 ephemeral canonical output。官方 EMA、SMA、RSI、
 Bollinger、Rolling Return、Rolling Volatility、ZScore、MACD `@1` 以及完整声明 high/low/close 的 ATR `@2` 已有独立 Decimal
 RESEARCH backend，并通过逐观察点 Trading↔Research characterization；输入不完整的 ATR `@1` 保持原 fingerprint 且不注册
-RESEARCH backend。Research Runtime、Research Job、Calculation/Result Store、Parameter Sweep、Factor Research 与 Web UI 仍未实现。
+RESEARCH backend。
+
+P7.3 将完整 P7.2 execution 按 `(node_fingerprint, instrument_id)` 形成 canonical logical partitions，建立与 Parquet bytes
+分离的 Result Content fingerprint 和 Calculation Result fingerprint，并以 `calculation_fingerprint` 为唯一 durable key 写入
+immutable Parquet Store。Store 在 admission、staging read-back、atomic publication 和正式 load 时验证 Dataset/Graph linkage、
+完整 partition set、timestamp/output schema、logical values、semantic hash 与 byte SHA-256；相同结果重复提交幂等，不同结果以
+`DETERMINISTIC_RESULT_CONFLICT` fail closed，corrupt authority 不覆盖、不修复、不 fallback。Research Runtime、Research Job、
+Parameter Sweep、Factor Research、Research Result/Artifact、Query/API 与 Web UI 仍未实现。
 
 ---
 

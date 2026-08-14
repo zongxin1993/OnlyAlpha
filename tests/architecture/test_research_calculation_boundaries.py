@@ -29,6 +29,27 @@ def test_research_calculation_has_no_trading_or_product_authority_imports() -> N
         assert not any(module.split(".")[1:2] and module.split(".")[1] in forbidden for module in imports)
 
 
+def test_research_calculation_result_store_has_no_trading_authority_imports() -> None:
+    forbidden = {
+        "account",
+        "broker",
+        "cluster",
+        "engine",
+        "fee",
+        "margin",
+        "order",
+        "position",
+        "risk",
+        "runtime",
+        "settlement",
+        "transaction",
+    }
+    for name in ("result.py", "result_identity.py", "result_ports.py", "result_store.py"):
+        tree = ast.parse((Path("src/onlyalpha/research/calculation") / name).read_text())
+        imports = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module]
+        assert not any(module.startswith("onlyalpha.") and module.split(".")[1] in forbidden for module in imports)
+
+
 def test_calculation_core_does_not_import_research_or_arrow() -> None:
     for path in Path("src/onlyalpha/calculation").rglob("*.py"):
         source = path.read_text()

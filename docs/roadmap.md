@@ -36,10 +36,15 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 
 ## 已完成阶段
 
+- P7.3 — Calculation Result Identity & Immutable Calculation Store：logical Result Content / Calculation Result identity、
+  defensive durable admission、exact manifest、partition byte/semantic integrity、staged verified atomic publish、verified reload、
+  idempotency 与 deterministic conflict 已本地实现；Research Runtime/Job、Parameter Sweep、Research Result/Artifact 和 API/Web
+  不在本阶段，最终 SHA 远端认证仍待完成。
+
 - P7.2 — Research Calculation Backend & Deterministic Execution：verified Arrow Dataset admission、exact RESEARCH backend、显式
   source binding、instrument-isolated canonical DAG execution、官方 Indicator Decimal batch backend、Trading↔Research exact
-  characterization、ephemeral output 与 process-independent identity 已本地实现；Research Runtime/Job、Calculation Store、Result、
-  Parameter Sweep 和 Factor Research 不在本阶段，最终 SHA 远端认证仍待完成。
+  characterization、ephemeral output 与 process-independent identity 已本地实现；durable Result authority 后续已由 P7.3 实现，
+  最终 SHA 远端认证仍待完成。
 
 - P0 — Test Baseline & Feedback Loop Closure：正式 test lanes、metrics、分层 marker 与质量门禁。
 - P1 — Fee Authority Integrity Closure：Market Fee Pack 与 Broker Fee Contract 独立版本化 authority。
@@ -194,11 +199,17 @@ semantic versions 提供独立 Decimal Research backend，并以 Trading↔Resea
 无 Research registration，ATR `@2` 显式声明 high/low/close 并支持两类 backend。Research Runtime Factory 仍 intentionally
 unsupported，官方 Factor plugin 仍为空，输出仍是 ephemeral execution object。
 
-### P7.3 — Calculation Result Identity & Immutable Calculation Store（NEXT / not implemented）
+### P7.3 — Calculation Result Identity & Immutable Calculation Store（Implemented locally）
 
-下一阶段只负责把 P7.2 的 deterministic ephemeral output 转化为 durable、immutable、verifiable Calculation Result。Research
-Job/Plan、Parameter Sweep、Research Result/Artifact 与 Query/API/Web 不由 P7.2 Closure 提前实现；Calculation Result、Research
-Result 与 Research Artifact 继续保持不同 authority。
+已实现 Result Content fingerprint、Calculation Result fingerprint、`calculation_fingerprint` durable primary key、exact/versioned
+manifest、`(node_fingerprint, instrument_id)` logical partition、Parquet byte hash、logical semantic hash、defensive execution
+admission、verified Dataset/Graph linkage、staged read-back verification 与 atomic rename。已有相同结果幂等复用，已有不同结果
+以 `DETERMINISTIC_RESULT_CONFLICT` 拒绝；corrupt target 不覆盖、不修复，正式读取只提供 verified path。physical root、
+compression、row-group 与 `created_at` 不进入 semantic identity。
+
+P7.3 没有激活 Research Runtime，也没有实现 Research Job/Plan、Parameter Sweep、Factor Research、Research Result/Artifact、
+Query/API/Web 或 mutable Calculation Cache。Calculation Result、Research Result 与 Research Artifact 继续保持不同 authority；
+exact final-SHA remote certification 尚未发生，因此当前只声明 implemented locally。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

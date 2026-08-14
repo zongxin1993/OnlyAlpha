@@ -168,7 +168,7 @@ LIVE
 RESEARCH
 ```
 
-`SIM` 已有 enum、配置、Factory、realtime Virtual Broker durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported target Factory，而是已删除的历史产品 spelling。`RESEARCH` calculation infrastructure 已实现 P7.0–P7.2；这不等于 Research product Runtime 已激活，`OnlyResearchRuntimeFactory` 仍 intentionally unsupported。`LIVE` 生产工作流同样未完成。
+`SIM` 已有 enum、配置、Factory、realtime Virtual Broker durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported target Factory，而是已删除的历史产品 spelling。`RESEARCH` calculation infrastructure 已实现 P7.0–P7.3；这不等于 Research product Runtime 已激活，`OnlyResearchRuntimeFactory` 仍 intentionally unsupported。`LIVE` 生产工作流同样未完成。
 
 ### 2.5 领域模型不等于产品能力
 
@@ -404,6 +404,12 @@ Trading authorities，Dataset Store 不得提供 append、update、overwrite 或
 Research 与 Trading Calculation backend 可以采用不同执行模型，但必须共享同一 Calculation semantic identity；Research
 backend 不得消费 Definition 未声明的 semantic input，不得 fallback 到 Trading backend。Research Calculation 只能消费完整
 verified Dataset Snapshot，不得为了执行 batch calculation 提前创建 Research Runtime 或伪造 Trading authorities。
+
+Research Calculation Result 的 durable authority 是以 `calculation_fingerprint` 为 key 的 immutable Calculation Result Store。
+Calculation fingerprint、logical Result Content fingerprint、Calculation Result fingerprint 与 physical partition byte hash 必须
+分层；同一 Calculation 的相同 Result 重复提交幂等，不同 Result 必须作为 deterministic conflict fail closed。Store 必须在
+staged atomic publication 与正式 load 时验证 Dataset/Graph linkage、完整 partition set、schema、timestamp、logical semantic hash
+和 byte hash；不得 overwrite/repair corrupt target，不得提供 cache、fallback、update、delete 或 unverified public load 语义。
 
 当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
 
