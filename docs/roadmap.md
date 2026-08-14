@@ -162,7 +162,7 @@ acceptance runner/config 和相关 product tests。通用 subscription、bootstr
 timer、checkpoint 与 recovery 继续由 product-neutral `runtime/streaming` 拥有；Virtual Broker、persistence、state lease 与
 SIM composition 继续由 `runtime/sim` 拥有。未修改 checkpoint/persistence schema，也不支持 Paper durable state 自动转换。
 
-P6 Final Hardening 进一步关闭了 Engine multi-Runtime start 的 partial-start world、Streaming processing diagnostics 无界增长，以及 certification report 的 self-reference cycle。Development Quality 与 Final-SHA Certification 已分离；后者以不可变 `subject_sha` 为对象，强制 static/build/canonical lanes/branch coverage/Semgrep/CodeQL 全部真实成功并输出外部 evidence artifact。最终状态只能在当前 final SHA 的完整 local lanes 与该 remote artifact 均取得真实证据后升级为 `DONE / CERTIFIED`。P7 在此之前不开始。
+P6 Final Hardening 进一步关闭了 Engine multi-Runtime start 的 partial-start world、Streaming processing diagnostics 无界增长，以及 certification report 的 self-reference cycle。Development Quality 与 Final-SHA Certification 已分离；后者以不可变 `subject_sha` 为对象，强制 static/build/canonical lanes/branch coverage/Semgrep/CodeQL 全部真实成功并输出外部 evidence artifact。阶段只能在对应 final SHA 的完整 local lanes 与该 remote artifact 均取得真实证据后升级为 `DONE / CERTIFIED`；Repository 当前已进入 P7，但没有 exact-SHA external artifact 时仍只声明本地实现/验证事实。
 
 ## P7 — Vectorized Research Runtime
 
@@ -181,8 +181,24 @@ Layered Quality、CodeQL 与 Semgrep 仍需远端证据，因此这里只声明�
 
 已实现 Historical Closed Bar Dataset v1、resolved Definition、exact columnar schema、provider/path/partition-independent identity、
 immutable content-addressed Parquet Store、strict materialization、provenance 分离与 Research/Trading architecture firewall。Historical
-Cache 仍是 acquisition optimization，不是 Dataset authority。Research Runtime、Research Calculation backend、Calculation Store、
-Research Result 和 Artifact 仍未实现；P7.1 只有在 exact final-SHA remote certification 完成后才能标记 CERTIFIED。
+Cache 仍是 acquisition optimization，不是 Dataset authority。P7.1 本身未实现 Research Runtime、Research Calculation backend、
+Calculation Store、Research Result 或 Artifact；Research Calculation backend 后续已由 P7.2 实现，其余能力当前仍未实现。
+P7.1 只有在 exact final-SHA remote certification 完成后才能标记 CERTIFIED。
+
+### P7.2 — Research Calculation Backend & Deterministic Execution（Implemented locally / closure verified）
+
+已实现 verified Dataset admission、exact `kind + type_id + semantic_version + RESEARCH` backend resolution、显式且无 coercion 的
+Historical Bar source binding、instrument-isolated canonical DAG execution、严格 output validation、fresh-process determinism 与
+只包含 Dataset Snapshot、Calculation Graph、RESEARCH backend kind 的 calculation fingerprint。官方 Indicator plugin 为受支持的
+semantic versions 提供独立 Decimal Research backend，并以 Trading↔Research characterization 冻结语义；ATR `@1` 保持原定义且
+无 Research registration，ATR `@2` 显式声明 high/low/close 并支持两类 backend。Research Runtime Factory 仍 intentionally
+unsupported，官方 Factor plugin 仍为空，输出仍是 ephemeral execution object。
+
+### P7.3 — Calculation Result Identity & Immutable Calculation Store（NEXT / not implemented）
+
+下一阶段只负责把 P7.2 的 deterministic ephemeral output 转化为 durable、immutable、verifiable Calculation Result。Research
+Job/Plan、Parameter Sweep、Research Result/Artifact 与 Query/API/Web 不由 P7.2 Closure 提前实现；Calculation Result、Research
+Result 与 Research Artifact 继续保持不同 authority。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

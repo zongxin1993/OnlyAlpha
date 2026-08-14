@@ -72,7 +72,7 @@ Runtime Type
 Execution Permission.
 ```
 
-`PAPER` 和 standalone `SHADOW` 不是目标产品 Runtime。当前源码中的相关 enum、配置、Factory、Runtime 和测试是迁移债务，不是长期兼容合同；不得新增依赖，也不得通过 alias、deprecated spelling 或 wrapper 长期保留。
+历史 `PAPER` 和 standalone `SHADOW` 已从 active enum、配置、Factory、Runtime、测试 fixture 与 public contract 删除，且未保留 alias、deprecated spelling 或 wrapper。它们只可出现在明确标记的历史记录或防回流门禁中，不得重新成为产品依赖。
 
 ### 2.2 当前正式完成范围
 
@@ -114,7 +114,7 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 → Checkpoint / Recovery
 ```
 
-P6.3 另已完成 SIM 的 realtime Virtual Broker normal path：
+SIM 已完成 realtime Virtual Broker normal path、continuity/gap/reconnect、streaming checkpoint 与 new-process recovery：
 
 ```text
 Runtime          : SIM
@@ -124,14 +124,14 @@ Open             : BUY OPEN
 Data             : Historical Bootstrap → Realtime Handoff
 Execution        : Virtual Broker Accepted → Next-Bar Trade
 Durability       : Memory / SQLite Transaction + Ordered Projection
-Checkpoint       : Disabled
+Checkpoint       : Enabled / New-Process Recovery
 ```
 
-该范围只证明正常因果链和 durable projection，不升级为 gap/reconnect/checkpoint/restart 或长期生产运行能力。
+该范围不升级为 Real Broker submission、Broker account/order/trade/position synchronization、完整 reconciliation、长期生产运行能力或广泛 MiniQMT compatibility matrix。
 
-### 2.3 Legacy Streaming / SIM 迁移基线
+### 2.3 Streaming / SIM 当前边界
 
-当前源码 spelling `PAPER` 已实现并完成当前 Market Product 下的真实 MiniQMT 验收。它只表示 Sim 所需的一部分 streaming 基础设施已经存在：
+历史 PAPER streaming 基础设施已迁移到 product-neutral `runtime/streaming` 与正式 `runtime/sim` 组合。当前 active path 是：
 
 ```text
 Historical Bootstrap
@@ -141,28 +141,17 @@ Historical Watermark
 1m External Bar
 1m → 3m Internal Aggregation
 Indicator / Factor Warmup
-Observation
 Strategy Intent
-Shadow Execution Suppression
-Reservation Create / Release
+Virtual Broker Accepted / Trade / Terminal
+Durable Transaction / Ordered Projection
+Continuity / Gap / Reconnect
+Streaming Checkpoint / Recovery
 Ordered Shutdown
 ```
 
-当前 `PAPER` 路径仍是：
+SIM 通过 Virtual Broker + 完整 Trading Kernel 产生正式 durable facts；不存在 active PAPER 或 Shadow execution product path。以下能力仍未闭环：
 
 ```text
-Read-only Market Observation
-+
-Shadow Execution
-```
-
-P6.3 已在独立 `OnlySimRuntime` 中以 Virtual Broker + 完整 Trading Kernel 替换 Shadow execution，关闭 realtime normal path。
-`PAPER` 仍不是目标产品 Runtime，且不得据此声称 Production Sim 已完成。以下能力仍未闭环：
-
-```text
-Reconnect
-Realtime Gap Recovery
-Streaming Checkpoint / Recovery
 Real Broker Submission
 Broker Account Synchronization
 Broker Order / Trade / Position Synchronization
@@ -170,29 +159,16 @@ Long-running Production Operations
 Broad MiniQMT Compatibility Matrix
 ```
 
-后续 P6 必须补齐 gap/reconnect/checkpoint/restart，迁移剩余基础设施和测试，然后删除 `PAPER` spelling/implementation；不保留 compatibility wrapper。
-
 ### 2.4 当前不可用或不存在的目标能力
 
-以下 Runtime Factory 当前明确不可用：
+以下目标 Runtime Factory 当前明确不可用：
 
 ```text
 LIVE
-Standalone SHADOW
 RESEARCH
 ```
 
-目标 `SIM` 已有 enum、配置、Factory 与 realtime Virtual Broker normal path；不得把它扩写为已具备 gap/reconnect、streaming checkpoint/restart 或 production operations。
-
-注意：
-
-```text
-Paper 内有 Shadow Execution
-≠
-Standalone Shadow Runtime 已实现
-```
-
-当前 unsupported `SHADOW` Factory 也是待删除的实现债务；standalone Shadow 不得成为产品方向。`RESEARCH` 和 `LIVE` 虽是目标 Runtime，但当前生产工作流仍未完成。
+`SIM` 已有 enum、配置、Factory、realtime Virtual Broker durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported target Factory，而是已删除的历史产品 spelling。`RESEARCH` calculation infrastructure 已实现 P7.0–P7.2；这不等于 Research product Runtime 已激活，`OnlyResearchRuntimeFactory` 仍 intentionally unsupported。`LIVE` 生产工作流同样未完成。
 
 ### 2.5 领域模型不等于产品能力
 
@@ -419,7 +395,7 @@ Research Result state
 Research Artifact state
 ```
 
-Research 不得仅为满足共享父类、Manager 数量对称或代码复用而创建 Order、Position、Account、Broker、Reservation、Execution Transaction 等 Trading Authorities。当前 `OnlyRuntime` 基类和 `PAPER`/`SHADOW` 源码呈现的 trading-shaped 结构属于待迁移实现事实，不得反向定义 Research 目标模型。
+Research 不得仅为满足共享父类、Manager 数量对称或代码复用而创建 Order、Position、Account、Broker、Reservation、Execution Transaction 等 Trading Authorities。当前 `OnlyResearchRuntime` 仍继承 trading-shaped `OnlyRuntime`，但 Factory intentionally unsupported；该未激活结构不得反向定义 Research 目标模型。
 
 Research Dataset 的正式 authority 是 immutable Dataset Snapshot；Historical Cache 只负责 acquisition optimization，不是
 Dataset authority。Provider identity 只进入 provenance，不进入 Dataset semantic identity。`onlyalpha.research` 不得导入
@@ -722,7 +698,7 @@ onlyalpha.plugin.api
 - Projection Applier；
 - 内部 Audit Store。
 
-当前根包/`onlyalpha.runtime` 仍导出部分具体 Runtime 类，`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster` 仍导出 `OnlyClusterManager`。这是当前可导入事实和 API 收紧债务；不得谎称已经不可导入，也不得据此把 legacy `PAPER/SHADOW` 或内部编排对象升级为长期兼容合同。
+当前根包/`onlyalpha.runtime` 仍导出部分具体 Runtime 类，`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster` 仍导出 `OnlyClusterManager`。这是当前可导入事实和 API 收紧债务；不得谎称已经不可导入，也不得据此把已删除的 legacy `PAPER/SHADOW` 或内部编排对象升级为长期兼容合同。
 
 规则：
 
@@ -846,9 +822,9 @@ Historical DataSource
 - Catch-up、Dedup 和 Gap 必须有唯一 Authority；
 - 不能通过修改 Bar 时间制造验收通过。
 
-### 12.1 Legacy PAPER Bootstrap / SIM 迁移基线
+### 12.1 Streaming Bootstrap / SIM 当前基线
 
-当前 `PAPER` streaming 实现的调用顺序是：
+当前 product-neutral Streaming + SIM bootstrap 的调用顺序是：
 
 ```text
 Subscribe and buffer live input
@@ -863,7 +839,7 @@ Subscribe and buffer live input
 → Live Handoff
 ```
 
-目标不变量是 logical bootstrap boundary 明确、订阅与历史回放之间不丢数据、catch-up 顺序确定；P6 迁移到 Sim 时必须保留这些性质并由正式测试冻结，不能把当前调用顺序臆写成另一种已实现行为。
+不变量是 logical bootstrap boundary 明确、订阅与历史回放之间不丢数据、catch-up 顺序确定；这些性质已迁移并由正式 SIM 测试冻结，不能把当前调用顺序臆写成另一种行为。
 
 必须区分：
 
@@ -879,7 +855,7 @@ Historical Watermark
 
 这些计数和尾部不得互相替代。
 
-这些边界应在 P6 迁移到 `SIM`；不得为 `PAPER` 新增长期产品依赖，也不得复制第二套 streaming authority。
+这些边界由当前 Streaming/SIM authority 持有；不得恢复 `PAPER` 产品依赖，也不得复制第二套 streaming authority。
 
 ---
 
@@ -1411,7 +1387,7 @@ Artifact 写入要求：
 - Enum 使用 value；
 - 不泄漏 Secret、Token、账户凭据和用户绝对路径。
 
-Legacy `PAPER` Observation（未来迁移到 `SIM`）：
+Streaming Observation：
 
 - 只读；
 - 不成为交易状态权威；
@@ -1690,7 +1666,7 @@ temporary_trade_store
 - Checkpoint Schema 不兼容；
 - Projection 前置状态不匹配；
 - Broker/Local Authority 冲突达到阻断级；
-- Paper 启动历史数据不足；
+- SIM bootstrap 历史数据不足；
 - Session 边界无法确认；
 - Secret 或外部环境未配置。
 

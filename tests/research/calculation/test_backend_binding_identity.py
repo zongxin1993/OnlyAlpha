@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pyarrow as pa
 import pytest
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 
@@ -87,6 +88,50 @@ def test_dataset_source_binding_fails_closed_on_contract_mismatch() -> None:
         only_bind_research_dataset_source("bar.close", expected, missing, RESEARCH_BAR_DATASET_SCHEMA_V1)
     with pytest.raises(OnlyResearchCalculationError, match="nullability"):
         only_bind_research_dataset_source("bar.quote_volume", expected, table, RESEARCH_BAR_DATASET_SCHEMA_V1)
+
+
+@pytest.mark.parametrize(
+    "expected",
+    (
+        OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL, dimensions=("ASSET", "TIME")),
+        OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL, dimensions=()),
+    ),
+)
+def test_dataset_source_binding_rejects_unsupported_dimensions(expected: OnlyInputDefinition) -> None:
+    with pytest.raises(OnlyResearchCalculationError) as raised:
+        only_bind_research_dataset_source(
+            "bar.close", expected, only_bars_to_table(bars()), RESEARCH_BAR_DATASET_SCHEMA_V1
+        )
+    assert raised.value.code == "RESEARCH_INPUT_INCOMPATIBLE"
+    assert raised.value.detail == "bar.close dimensions"
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        pa.field("close", pa.int64(), nullable=False),
+        pa.field("close", pa.decimal128(38, 18), nullable=True),
+    ),
+    ids=("data-type", "field-nullability"),
+)
+def test_dataset_source_binding_rejects_wrong_arrow_field(field: pa.Field) -> None:
+    table = only_bars_to_table(bars())
+    index = table.schema.get_field_index("close")
+    values = (
+        pa.array(range(table.num_rows), type=pa.int64())
+        if pa.types.is_integer(field.type)
+        else table.column("close").combine_chunks()
+    )
+    incompatible = table.set_column(index, field, values)
+    with pytest.raises(OnlyResearchCalculationError) as raised:
+        only_bind_research_dataset_source(
+            "bar.close",
+            OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL),
+            incompatible,
+            RESEARCH_BAR_DATASET_SCHEMA_V1,
+        )
+    assert raised.value.code == "RESEARCH_INPUT_INCOMPATIBLE"
+    assert raised.value.detail == "wrong Arrow field close"
 
 
 def test_research_calculation_identity_contains_only_semantic_authorities() -> None:

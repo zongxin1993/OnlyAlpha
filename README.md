@@ -40,14 +40,14 @@ type_id + semantic_version + resolved parameters + input bindings
 
 human alias、Python class path、文件路径、进程/时间和 Runtime identity 不进入 semantic fingerprint。Core 只拥有
 Definition、Graph 和 Registry contract；现有 9 个 concrete trading Indicator backend 位于
-`onlyalpha-plugin-indicators`，通过 `onlyalpha.calculations` entry point 确定性注册。当前没有 Research backend，也没有
-为了填充 package 而虚构 concrete Factor。
+`onlyalpha-plugin-indicators`，通过 `onlyalpha.calculations` entry point 确定性注册。P7.2 已为当前正式支持的 Indicator
+semantic versions 提供 exact RESEARCH backend；官方 Factor plugin 仍 intentionally empty，没有为了填充 package 而虚构 concrete Factor。
 
 P7.0.1 已冻结 Definition schema v2 / Graph schema v1 的 exact/fail-closed reader、完整 DAG port compatibility（type/nullability/dimensions/
 semantic type/unit）、backend-neutral Registry 与 Trading resolver、显式 `type_id@semantic_version` reference，以及官方
 Indicator 插件自有 characterization/coverage。旧 built-in token 只通过固定映射解析到 `@1`，不会选择 latest。当前
 Factor config 也显式携带 exact reference，并在 implementation load 后验证一致；Python class path 只负责定位代码，不是
-semantic identity。官方 Factor plugin 仍为空。Research backend、Calculation Store 与 Research Runtime 尚未实现。
+semantic identity。P7.0 当时尚未实现 Research backend；该能力已由下述 P7.2 完成。Calculation Store 与 Research Runtime 尚未实现。
 
 P7.1 建立 Historical Closed Bar Dataset v1：resolved Definition、exact Decimal/precision-preserving columnar schema、provider-independent
 canonical content identity、immutable content-addressed Parquet Snapshot Store、strict materialization 与独立 provenance。Historical Cache

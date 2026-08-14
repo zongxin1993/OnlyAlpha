@@ -424,9 +424,9 @@ ADR-0002-xxx.md
 
 ### 8.1 Development Gate 与 Certification Gate
 
-普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 P6 最终认证。
+普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
 
-P6 的唯一 Final-SHA Certification Authority 是手工触发的 `P6 Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/p6_certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
+Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
 
 状态含义固定为：
 
