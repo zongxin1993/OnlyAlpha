@@ -140,6 +140,399 @@ Domain、Strategy、Risk、Execution 的核心语义应尽可能共享。
 
 不应长期依赖 Prompt 或开发者记忆。
 
+### 2.7 Quality Acceptance Model
+
+OnlyAlpha 的工程验证只定义三个正式质量层级：
+
+1. Task Gate
+2. Phase Gate
+3. Certification Gate
+
+三个层级回答不同的问题，不得相互混用。
+
+Task Gate 回答：
+
+> 本次明确范围内的修改及其工程影响是否正确？
+
+Phase Gate 回答：
+
+> 本阶段所有 Task 组合后，OnlyAlpha 整体功能、架构与关键不变量是否仍然正确？
+
+Certification Gate 回答：
+
+> 某个不可变 Final SHA 是否已经通过正式、可追溯的工程认证？
+
+不得因为某个 Task 需要额外验证而创造新的正式 Gate 层级。
+
+Integration、coverage、security scan、build smoke、cross-platform smoke 等均是
+上述 Gate 内的验证手段，不是新的完成状态。
+
+---
+
+### 2.8 Task Gate
+
+普通 P7.x / P8.x / Pn.x 实现任务默认属于 Task Gate。
+
+Task 必须在设计阶段明确：
+
+- Goal；
+- Modification Scope；
+- Impact Scope；
+- Required Behavior；
+- Acceptance Tests；
+- Out of Scope。
+
+Task Gate 的验证范围必须由 Impact Scope 决定，而不是由仓库总体规模决定。
+
+当：
+
+- 任务要求已经实现；
+- 修改保持在声明的 Modification Scope 内；
+- Impact Scope 内需要新增或修改的测试已经建立；
+- 声明的 Acceptance Tests 全部通过；
+- 必要的局部 contract / architecture / typing / package checks 通过；
+
+即可标记：
+
+`Task Complete`
+
+Task Complete 表示当前修改已经获得足够的局部工程证据。
+
+Task Complete 不表示整个 Repository 已经完成 Phase Certification。
+
+普通 Task Gate 默认不要求：
+
+- repository-wide pytest；
+- `core-full --coverage`；
+- repository-wide branch coverage；
+- 全部 Research lanes；
+- 全部 recovery / sim-recovery；
+- 全部插件和 Market Product 测试；
+- repository-wide build certification；
+- Semgrep 全仓扫描；
+- dependency audit；
+- CodeQL；
+- cross-platform distribution certification；
+- Final-SHA Certification；
+- 等待 GitHub 全量 CI 完成。
+
+---
+
+### 2.9 Impact Scope
+
+Task Gate 不得仅根据：
+
+- 修改了哪个文件；
+- 新增了哪个 test；
+- 哪个 test 名称与修改函数相同；
+
+判断测试范围。
+
+Impact Scope 应从实际工程依赖关系推导。
+
+至少考虑：
+
+1. changed symbol 的直接调用方；
+2. changed symbol 的间接调用方；
+3. import / module dependency；
+4. Protocol / interface / model consumer；
+5. runtime composition；
+6. plugin / registry / Entry Point consumer；
+7. persistence / serialization consumer；
+8. existing regression / contract / architecture tests；
+9. 已知跨模块不变量。
+
+例如：
+
+`test_func_b -> B -> C -> A`
+
+即使 `test_func_b` 没有直接引用 `A`，当 `A` 的行为变化可能传播到该路径时，
+`test_func_b` 仍属于候选 Impact Scope。
+
+验证范围的目标不是执行最少数量的测试，而是：
+
+> 用最小但充分的验证集合覆盖实际 Impact Scope。
+
+---
+
+### 2.10 Conservative Impact Expansion
+
+“没有找到依赖”不得自动解释为“没有影响”。
+
+当影响范围能够可靠确定为局部时，使用局部 Acceptance Tests。
+
+当影响范围无法可靠确定时，应逐级扩大：
+
+`function -> class/module -> subsystem -> existing canonical lane`
+
+默认扩大到最近的稳定工程边界。
+
+不得因为存在不确定性直接无条件升级到 repository-wide validation，
+除非修改本身确实影响 repository-wide contract。
+
+如果实现过程中发现任务定义遗漏了一个明确依赖：
+
+- 将该依赖加入 Impact Scope；
+- 增加对应验证；
+- 只扩大到该依赖所属的最近稳定 subsystem/lane。
+
+不得因为发现一个额外依赖而顺手重新设计整个质量体系。
+
+---
+
+### 2.11 High-Risk Task Gate Expansion
+
+以下变化虽然可能 diff 很小，但其 Impact Scope 天然可能跨模块，因此 Task Gate
+必须执行相应的现有专项验证。
+
+#### Public / Architecture Contract
+
+包括：
+
+- Protocol；
+- ABC；
+- public model；
+- public Enum；
+- Runtime interface；
+- Core / Runtime / Plugin dependency direction。
+
+应增加相关：
+
+- contract tests；
+- architecture tests；
+- mypy；
+- Import Linter；
+
+但不自动要求 repository-wide certification。
+
+#### State / Persistence / Recovery Contract
+
+包括：
+
+- state machine；
+- checkpoint；
+- serialization；
+- persistence schema；
+- resume；
+- replay；
+- recovery；
+- idempotency semantics。
+
+应增加对应 state / recovery regression tests，必要时执行现有：
+
+- `recovery` lane；
+- `sim-recovery` lane；
+
+具体范围由实际 Impact Scope 决定。
+
+#### Package / Plugin Contract
+
+包括：
+
+- Entry Point；
+- plugin discovery；
+- `pyproject.toml`；
+- package metadata；
+- distribution dependency；
+- workspace dependency。
+
+应增加对应：
+
+- plugin contract tests；
+- discovery tests；
+- version synchronization；
+- targeted package/build smoke；
+
+但普通 package change 不自动要求完整 cross-platform certification。
+
+---
+
+### 2.12 Phase Gate
+
+一个完整开发阶段，例如 P7、P8，在所有 Task Complete 后执行一次 Phase Gate。
+
+Phase Gate 用于验证所有 Task 组合后的系统完整性。
+
+Phase Gate 应根据当前 Repository 的正式质量工具链执行：
+
+- repository-wide static quality；
+- canonical regression lanes；
+- architecture verification；
+- recovery / conformance verification；
+- full branch coverage；
+- build verification；
+- 本阶段新增功能的端到端 functional scenarios。
+
+`--coverage` 类型的完整覆盖率验证默认属于 Phase Gate。
+
+例如：
+
+`uv run python scripts/test_suite.py core-full --coverage`
+
+不属于普通 Task Gate。
+
+Phase Gate 可以发现不同 Task 组合后产生的 integration regression。
+
+Phase Gate 失败时：
+
+1. 修复真实 regression；
+2. 重新执行受影响验证；
+3. 最终重新得到完整 Phase Gate PASS。
+
+只有通过 Phase Gate 后，阶段才可标记：
+
+`Phase Complete`
+
+---
+
+### 2.13 Certification Gate
+
+Certification Gate 面向一个不可变 Final SHA。
+
+它的目标不是开发反馈，而是留下正式、可追溯的版本质量证据。
+
+Certification 应消费当前 Repository 定义的正式认证能力，包括适用的：
+
+- static verification；
+- canonical lanes；
+- mandatory coverage；
+- build；
+- semantic guardrails；
+- dependency audit；
+- CodeQL；
+- certification evidence。
+
+Certification Gate 不应在每个普通 Task 后运行。
+
+流程应为：
+
+`Task Complete x N`
+`-> Phase Gate`
+`-> Phase Complete`
+`-> Freeze Final SHA`
+`-> Final-SHA Certification`
+`-> Certified`
+
+只有 Certification Gate 通过的 immutable SHA 才标记：
+
+`Certified`
+
+---
+
+### 2.14 GitHub CI Semantics
+
+GitHub 自动 CI 与 Task Gate 是两个不同概念。
+
+普通 Task 在声明的 Task Gate 通过后即可标记 Task Complete，
+不需要因为 GitHub CI 仍处于 pending 状态而等待。
+
+GitHub CI 是持续质量信号，可以比 Task Gate 覆盖更大的范围。
+
+规则如下：
+
+`CI pending != Task blocked`
+
+但：
+
+`known real CI regression = must fix`
+
+如果 GitHub CI 已经明确发现由当前 HEAD 引入的真实 regression，
+不得长期继续叠加新的工程债务。
+
+该 regression 最迟必须在 Phase Complete 前解决。
+
+GitHub CI 自动运行哪些 jobs，不直接决定单 Task 的 Acceptance Boundary。
+
+---
+
+### 2.15 Coverage Placement
+
+完整 branch coverage 是系统级质量证明，不是普通局部开发反馈。
+
+因此所有：
+
+`scripts/test_suite.py <lane> --coverage`
+
+默认属于：
+
+- Phase Gate；或
+- Certification Gate。
+
+普通 Task 可以新增、维护和执行测试，
+但无需在每个 Task 后重新计算 repository-wide coverage。
+
+只有以下情况可以在 Task Gate 中显式使用 coverage：
+
+- Task 本身修改 coverage infrastructure；
+- Task 的 acceptance objective 本身就是 coverage closure；
+- 无法通过更小的验证可靠证明某个明确的局部路径。
+
+即使如此，也应优先执行最小适用 coverage scope，
+而不是默认运行全部 repository coverage。
+
+---
+
+### 2.16 Quality Framework Stability
+
+质量体系属于长期基础设施，不属于普通功能 Task 的可自由修改范围。
+
+除非出现明确证据证明现有体系存在：
+
+- false negative；
+- false positive；
+- 无法验证新的关键系统不变量；
+- 新架构边界无法由现有机制表达；
+- certification evidence 本身不可靠；
+
+否则不得因为单次任务开发便利性修改：
+
+- Gate 层级；
+- Task Complete 定义；
+- Phase Complete 定义；
+- Certification 定义；
+- CI architecture；
+- coverage architecture；
+- test layering architecture。
+
+新增功能优先增加对应测试和现有 lane 覆盖。
+
+不要优先增加新的 Gate、workflow 或质量框架层。
+
+---
+
+### 2.17 Codex Task Contract
+
+面向 Codex 的普通实现任务应尽量在 Prompt 中明确：
+
+`Goal`
+
+`Modification Scope`
+
+`Impact Scope`
+
+`Required Behavior`
+
+`Acceptance Tests`
+
+`Out of Scope`
+
+`Validation Boundary`
+
+其中 Validation Boundary 应明确：
+
+- 当前任务是 Task Gate 还是 Phase/Certification task；
+- 哪些测试是 Task Complete 的必要证据；
+- 哪些 repository-wide checks 明确不属于本次任务；
+- 当发现额外真实依赖时最多扩大到哪个 subsystem/lane。
+
+Codex 不应在任务完成阶段重新发明验收标准。
+
+任务设计阶段应尽可能完成影响分析；
+实现阶段只有在发现新的具体工程事实时才调整 Impact Scope。
+
+这样可以减少重复 repository exploration、重复完整测试、
+重复 CI 分析以及无关质量基础设施修改。
+
 ---
 
 ## 3. Architecture Invariants
