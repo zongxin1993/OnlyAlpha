@@ -3,7 +3,7 @@
 - Date: 2026-08-15
 - Repository baseline SHA: `b3a4a0da76b35646a1da28a3f72861cb7a23178a`
 - Implementation branch: `codex/p7-7-research-evaluation`
-- Implementation commit SHA: PENDING IMMUTABLE IMPLEMENTATION COMMIT
+- Implementation commit SHA: `b04ed630462b41ac761077b35a8403815f30a383`
 - Version: `0.7.7`
 - P7 milestone: `IN_PROGRESS`
 - Increment status: `IMPLEMENTED`; remote mandatory gates pending
