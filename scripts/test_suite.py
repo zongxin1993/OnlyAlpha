@@ -19,6 +19,7 @@ WORKSPACE_TESTS = (
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
     "packages/indicator/onlyalpha-plugin-indicators/tests",
     "packages/factor/onlyalpha-plugin-factors/tests",
+    "packages/target/onlyalpha-plugin-targets/tests",
 )
 
 
@@ -26,6 +27,7 @@ class OnlyTestLane(StrEnum):
     CALCULATION = "calculation"
     RESEARCH_CALCULATION = "research-calculation"
     RESEARCH_FACTOR = "research-factor"
+    RESEARCH_EVALUATION = "research-evaluation"
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
@@ -87,6 +89,17 @@ LANES = {
             "tests/research/calculation/test_execution.py",
             "tests/architecture/test_research_factor_boundaries.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
+        ),
+        "not external",
+        "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_EVALUATION: Lane(
+        (
+            "tests/research/evaluation",
+            "packages/target/onlyalpha-plugin-targets/tests",
+            "tests/architecture/test_research_evaluation_boundaries.py",
+            "tests/research/factor/test_indicator_identity_regression.py",
         ),
         "not external",
         "4",
@@ -177,6 +190,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
         "mypy",
         "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
         "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+        "packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
     ),
     (
         "uv",
@@ -214,6 +228,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.RESEARCH_EVALUATION,
     OnlyTestLane.RESEARCH_SWEEP,
     OnlyTestLane.RESEARCH_FACTOR,
     OnlyTestLane.RESEARCH_JOB,
@@ -289,6 +304,10 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_sources = {
+            OnlyTestLane.RESEARCH_EVALUATION: (
+                "src/onlyalpha/research/evaluation",
+                "onlyalpha_plugin_targets",
+            ),
             OnlyTestLane.RESEARCH_SWEEP: ("src/onlyalpha/research/sweep",),
             OnlyTestLane.RESEARCH_FACTOR: (
                 "onlyalpha.research.calculation.execution",
@@ -302,7 +321,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (
-            "research-sweep-coverage"
+            "research-evaluation-coverage"
+            if name is OnlyTestLane.RESEARCH_EVALUATION
+            else "research-sweep-coverage"
             if name is OnlyTestLane.RESEARCH_SWEEP
             else "research-factor-coverage"
             if name is OnlyTestLane.RESEARCH_FACTOR
@@ -323,7 +344,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 95 if name is OnlyTestLane.RESEARCH_EVALUATION else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
             ]
         )
         workers = "0"
@@ -348,6 +369,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "calculation-coverage.json"
                 if name is OnlyTestLane.CALCULATION
+                else "research-evaluation-coverage.json"
+                if name is OnlyTestLane.RESEARCH_EVALUATION
                 else "research-sweep-coverage.json"
                 if name is OnlyTestLane.RESEARCH_SWEEP
                 else "research-factor-coverage.json"
@@ -371,6 +394,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 code = 1
             if name is OnlyTestLane.RESEARCH_SWEEP and branch_rate < 85:
                 print("Research Sweep branch coverage must be at least 85%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_EVALUATION and branch_rate < 90:
+                print("Research Evaluation branch coverage must be at least 90%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_EVALUATION and line_rate < 95:
+                print("Research Evaluation line coverage must be at least 95%", file=sys.stderr)
                 code = 1
     if metric_path.is_file():
         metrics = json.loads(metric_path.read_text(encoding="utf-8"))

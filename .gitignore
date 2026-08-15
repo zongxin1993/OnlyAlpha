@@ -78,6 +78,12 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+!packages/target/
+!packages/target/**
+packages/target/**/__pycache__/
+packages/target/**/*.py[cod]
+packages/target/**/.pytest_cache/
+packages/target/**/dist/
 
 # Jupyter Notebook
 .ipynb_checkpoints

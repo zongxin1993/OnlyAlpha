@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from onlyalpha.calculation.compatibility import only_calculation_output_compatibility
-from onlyalpha.calculation.definition import OnlyCalculationDefinition
+from onlyalpha.calculation.definition import OnlyCalculationDefinition, OnlyCalculationKind
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
 CALCULATION_GRAPH_SCHEMA_VERSION = 1
@@ -37,6 +37,9 @@ class OnlyCalculationGraphDefinition:
         aliases = tuple(node.alias for node in self.nodes if node.alias is not None)
         if len(aliases) != len(set(aliases)):
             raise ValueError("calculation graph contains duplicate aliases")
+        kinds = {node.definition.kind for node in self.nodes}
+        if OnlyCalculationKind.TARGET in kinds and kinds != {OnlyCalculationKind.TARGET}:
+            raise ValueError("Target and Feature calculations require separate graphs")
         state: dict[str, int] = {}
 
         def visit(fingerprint: str) -> None:
@@ -54,6 +57,10 @@ class OnlyCalculationGraphDefinition:
                 dependency = by_fingerprint.get(reference.node_fingerprint)
                 if dependency is None:
                     raise ValueError(f"calculation graph dependency is missing: {reference.node_fingerprint}")
+                if node.definition.kind is OnlyCalculationKind.TARGET:
+                    raise ValueError("Target V1 may depend only on external Dataset sources")
+                if dependency.definition.kind is OnlyCalculationKind.TARGET:
+                    raise ValueError("Feature calculations may not consume Target output")
                 outputs = {item.name: item for item in dependency.definition.outputs}
                 output = outputs.get(reference.output_name)
                 if output is None:

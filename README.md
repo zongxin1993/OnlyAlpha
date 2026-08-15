@@ -18,7 +18,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.4.4` |
+| Version | `0.7.7` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -26,11 +26,12 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.6.2 — IMPLEMENTED / VERIFICATION IN PROGRESS** — quality infrastructure checkpoint |
+| Current increment | **P7.7 — IMPLEMENTED** — Research Target & Statistics Semantic Closure; remote verification pending |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
-| Next semantic increment | **P7.7 — PLANNED** — Research Target & Statistics Semantic Closure |
+| P7.6.2 increment | **VERIFIED** — exact merged subject passed Layered Quality, CodeQL, Final-SHA and Nightly Heavy Quality |
+| Next semantic increment | **P7.8 — PLANNED** — immutable Research Result and provenance composition |
 | License | MIT |
 
 ---
@@ -82,16 +83,26 @@ fail closed。P7.5 进一步冻结 Feature、raw Factor Value、`[0,1]` Factor S
 P7.6 已增加 backend-neutral Definition re-materialization、serializable Graph Template、template-local node/dependency reference、finite
 explicit parameter dimensions、typed canonical Cartesian planning 与 sequential JobExecutor-only execution。每个 Cell 继续使用 existing
 `calculation_fingerprint`，重复/部分重入通过 verified Result `REUSED/EXECUTED` 收敛，不创建 Sweep/Trial Store 或 fingerprint。
-Research Runtime 仍未激活；Forward Return/IC/Statistics、Research Result/Artifact、Scheduler、Query/API 与 Web UI 仍未实现。
+P7.7 在同一 Calculation semantic model 中增加非 Factor 的 `TARGET` kind，并由官方 Target plugin 提供 RESEARCH-only
+`onlyalpha.target.forward_return@1`。Feature Graph 与 Target Graph 独立，Target V1 只依赖 Dataset source；Graph construction
+禁止 Evaluation 输出反向进入 Indicator/Factor，也禁止 Target 依赖 Calculation node。Forward Return 使用 exact bar offset、保留原
+observation axis、future tail 为 NULL，并继续复用 Calculation Result Store 与 Job verified reuse。
+
+独立 Research Evaluation Plane 按 exact Feature/Target series reference 和相同 Dataset Snapshot 做 pairwise alignment，以 Decimal
+显式计算 IC / AVERAGE-tie Rank IC，并将 sample count、合法退化 status 与 nullable value 写入 immutable Statistics Result Store。
+Statistics identity、Result Content identity 与 Statistics Result identity 分层；staged verified publication、idempotent reuse、deterministic
+conflict 和 corruption fail-closed 均已闭环。Research Runtime 仍未激活；Research Result/Artifact、Scheduler、Optimizer、Query/API 与
+Web UI 仍未实现。
 
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
 仍必须由 Final-SHA artifact 给出 `ACCEPTED`，development evidence 不得冒充 certification。
 
-P7.6.2 正在关闭验证基础设施自身的完整性：Nightly performance 使用 fresh-runner 自举、同一 runner 的 parent/candidate ASV
+P7.6.2 已关闭验证基础设施自身的完整性：Nightly performance 使用 fresh-runner 自举、同一 runner 的 parent/candidate ASV
 comparison 与持久 evidence；root `uv.lock` 由固定版本 OSV-Scanner fail-closed 审计，并成为 Layered Quality 与 Final-SHA
-Certification mandatory gate。该 checkpoint 尚未取得全部远端 evidence，因此当前只声明 `IMPLEMENTED / VERIFICATION IN
-PROGRESS`，不声明 `VERIFIED` 或 P7 `CERTIFIED`。
+Certification mandatory gate。merged subject `b3a4a0da76b35646a1da28a3f72861cb7a23178a` 的 Layered Quality、CodeQL、
+Final-SHA Certification 与 Nightly exhaustive/formal/mutation/performance 均通过，因此该 increment 为 `VERIFIED`；这不等于 P7
+milestone 已 `CERTIFIED`。
 
 ---
 
@@ -230,8 +241,8 @@ Web Visualization
 * 支持向量化计算；
 * 面向 K 线、指标、因子、特征和参数研究；
 * 支持批量参数搜索；
-* 支持 IC、Rank IC、Forward Return、分组收益等统计；
-* 生成标准化 Research Result / Artifact；
+* 当前支持 IC、Rank IC 与 Forward Return；分组收益等扩展统计仍未实现；
+* 标准化 Research Result / Artifact 是后续目标，当前未实现；
 * 面向 Web、Notebook、CLI 等研究界面；
 * 不要求经过完整 Order / Broker / Transaction Kernel。
 

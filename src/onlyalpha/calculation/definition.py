@@ -18,6 +18,7 @@ CALCULATION_DEFINITION_SCHEMA_VERSION = 2
 class OnlyCalculationKind(StrEnum):
     INDICATOR = "INDICATOR"
     FACTOR = "FACTOR"
+    TARGET = "TARGET"
 
 
 class OnlyCalculationBackendKind(StrEnum):
@@ -73,6 +74,7 @@ class OnlyFactorScoreDirection(StrEnum):
 
 FACTOR_VALUE_SEMANTIC_TYPE = "FACTOR_VALUE"
 FACTOR_SCORE_SEMANTIC_TYPE = "FACTOR_SCORE"
+TARGET_VALUE_SEMANTIC_TYPE = "TARGET_VALUE"
 
 
 def only_calculation_execution_shape(
@@ -81,6 +83,8 @@ def only_calculation_execution_shape(
     """Return the Definition-owned execution axis without consulting Runtime state."""
 
     if definition.kind is OnlyCalculationKind.INDICATOR:
+        return OnlyFactorKind.TIME_SERIES
+    if definition.kind is OnlyCalculationKind.TARGET:
         return OnlyFactorKind.TIME_SERIES
     if definition.factor_kind is None:  # defensive for non-canonical objects
         raise ValueError("Factor calculation requires an execution shape")
@@ -276,8 +280,8 @@ class OnlyCalculationDefinition:
             raise ValueError("semantic_version is required and cannot contain whitespace")
         if self.kind is OnlyCalculationKind.FACTOR and self.factor_kind is None:
             raise ValueError("Factor definition requires factor_kind")
-        if self.kind is OnlyCalculationKind.INDICATOR and self.factor_kind is not None:
-            raise ValueError("Indicator definition cannot declare factor_kind")
+        if self.kind is not OnlyCalculationKind.FACTOR and self.factor_kind is not None:
+            raise ValueError(f"{self.kind.value.title()} definition cannot declare factor_kind")
         input_names = tuple(item.name for item in self.inputs)
         output_names = tuple(item.name for item in self.outputs)
         if not output_names or len(input_names) != len(set(input_names)) or len(output_names) != len(set(output_names)):
@@ -418,8 +422,8 @@ class OnlyCalculationTypeDefinition:
             raise ValueError("semantic_version is required and cannot contain whitespace")
         if self.kind is OnlyCalculationKind.FACTOR and self.factor_kind is None:
             raise ValueError("Factor type definition requires factor_kind")
-        if self.kind is OnlyCalculationKind.INDICATOR and self.factor_kind is not None:
-            raise ValueError("Indicator type definition cannot declare factor_kind")
+        if self.kind is not OnlyCalculationKind.FACTOR and self.factor_kind is not None:
+            raise ValueError(f"{self.kind.value.title()} type definition cannot declare factor_kind")
         input_names = tuple(item.name for item in self.inputs)
         output_names = tuple(item.name for item in self.outputs)
         if not output_names or len(input_names) != len(set(input_names)) or len(output_names) != len(set(output_names)):

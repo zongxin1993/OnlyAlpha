@@ -38,6 +38,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
     assert set(first.impact.lanes) == {
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.RESEARCH_FACTOR,
+        OnlyTestLane.RESEARCH_EVALUATION,
         OnlyTestLane.RESEARCH_JOB,
         OnlyTestLane.RESEARCH_SWEEP,
     }

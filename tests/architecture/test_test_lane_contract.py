@@ -92,3 +92,19 @@ def test_research_sweep_lane_owns_composition_architecture_and_branch_coverage()
     assert '"src/onlyalpha/research/sweep"' in source
     assert '"research-sweep-coverage"' in source
     assert "Research Sweep branch coverage must be at least 85%" in source
+
+
+def test_research_evaluation_lane_owns_target_statistics_and_strict_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_EVALUATION]
+    assert lane.paths == (
+        "tests/research/evaluation",
+        "packages/target/onlyalpha-plugin-targets/tests",
+        "tests/architecture/test_research_evaluation_boundaries.py",
+        "tests/research/factor/test_indicator_identity_regression.py",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/evaluation"' in source
+    assert '"research-evaluation-coverage"' in source
+    assert "95 if name is OnlyTestLane.RESEARCH_EVALUATION" in source
+    assert "Research Evaluation branch coverage must be at least 90%" in source
+    assert "Research Evaluation line coverage must be at least 95%" in source

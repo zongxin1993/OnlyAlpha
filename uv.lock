@@ -16,6 +16,7 @@ members = [
     "onlyalpha-plugin-factors",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-miniqmt",
+    "onlyalpha-plugin-targets",
     "onlyalpha-plugin-tushare",
 ]
 
@@ -713,7 +714,7 @@ wheels = [
 
 [[package]]
 name = "onlyalpha"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "." }
 dependencies = [
     { name = "pyarrow" },
@@ -732,6 +733,7 @@ dev = [
     { name = "mypy" },
     { name = "onlyalpha-plugin-factors" },
     { name = "onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-targets" },
     { name = "onlyalpha-test-plugin" },
     { name = "packaging" },
     { name = "pre-commit" },
@@ -762,6 +764,7 @@ dev = [
     { name = "mypy", specifier = ">=1.15" },
     { name = "onlyalpha-plugin-factors", editable = "packages/factor/onlyalpha-plugin-factors" },
     { name = "onlyalpha-plugin-indicators", editable = "packages/indicator/onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-targets", editable = "packages/target/onlyalpha-plugin-targets" },
     { name = "onlyalpha-test-plugin", editable = "tests/fixtures/external_plugins/onlyalpha_test_plugin" },
     { name = "packaging", specifier = ">=25" },
     { name = "pre-commit", specifier = ">=4.6" },
@@ -776,7 +779,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-market-cn-ashare"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/market/onlyalpha-market-cn-ashare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -803,7 +806,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-market-generic-t0-cash"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/market/onlyalpha-market-generic-t0-cash" }
 dependencies = [
     { name = "onlyalpha" },
@@ -830,7 +833,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-broker-virtual"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/fake/onlyalpha-plugin-broker-virtual" }
 dependencies = [
     { name = "onlyalpha" },
@@ -857,7 +860,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-factors"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/factor/onlyalpha-plugin-factors" }
 dependencies = [
     { name = "onlyalpha" },
@@ -868,7 +871,7 @@ requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
 name = "onlyalpha-plugin-indicators"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/indicator/onlyalpha-plugin-indicators" }
 dependencies = [
     { name = "onlyalpha" },
@@ -893,7 +896,7 @@ dev = [
 
 [[package]]
 name = "onlyalpha-plugin-miniqmt"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/provider/onlyalpha-plugin-miniqmt" }
 dependencies = [
     { name = "onlyalpha" },
@@ -927,8 +930,19 @@ dev = [
 ]
 
 [[package]]
+name = "onlyalpha-plugin-targets"
+version = "0.7.7"
+source = { editable = "packages/target/onlyalpha-plugin-targets" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[[package]]
 name = "onlyalpha-plugin-tushare"
-version = "0.4.4"
+version = "0.7.7"
 source = { editable = "packages/provider/onlyalpha-plugin-tushare" }
 dependencies = [
     { name = "onlyalpha" },
@@ -970,8 +984,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "onlyalpha", specifier = "==0.4.4" },
-    { name = "onlyalpha-plugin-indicators", specifier = "==0.4.4" },
+    { name = "onlyalpha", specifier = "==0.7.7" },
+    { name = "onlyalpha-plugin-indicators", specifier = "==0.7.7" },
 ]
 
 [[package]]
