@@ -146,12 +146,26 @@ FULL_CHECKS = (OnlyReleaseCheck.STATIC, OnlyReleaseCheck.BUILD)
 RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_CALCULATION,
     OnlyTestLane.RESEARCH_FACTOR,
+    OnlyTestLane.RESEARCH_EVALUATION,
     OnlyTestLane.RESEARCH_JOB,
     OnlyTestLane.RESEARCH_SWEEP,
 )
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
+    VerificationImpactRule(
+        "research-evaluation",
+        (
+            "src/onlyalpha/research/evaluation/",
+            "tests/research/evaluation/",
+            "packages/target/onlyalpha-plugin-targets/",
+        ),
+        ("tests/architecture/test_research_evaluation_boundaries.py",),
+        (OnlyTestLane.RESEARCH_EVALUATION,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "evaluation owns Target, Statistics identity, alignment, and immutable result verification",
+    ),
     VerificationImpactRule(
         "research-sweep",
         ("src/onlyalpha/research/sweep/", "tests/research/sweep/"),

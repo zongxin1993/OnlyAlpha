@@ -13,7 +13,8 @@ def test_core_does_not_import_calculation_plugins_or_own_concrete_algorithms() -
     for path in Path("src/onlyalpha").rglob("*.py"):
         imports = _imports(path)
         assert not any(
-            name.startswith(("onlyalpha_plugin_indicators", "onlyalpha_plugin_factors")) for name in imports
+            name.startswith(("onlyalpha_plugin_indicators", "onlyalpha_plugin_factors", "onlyalpha_plugin_targets"))
+            for name in imports
         ), path
     forbidden = {"macd", "ema", "sma", "rsi", "atr", "bollinger", "rolling_return", "rolling_volatility", "zscore"}
     assert not forbidden.intersection(

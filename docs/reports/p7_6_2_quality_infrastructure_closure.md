@@ -3,7 +3,8 @@
 - Date: 2026-08-15
 - Starting SHA: `05052448239f2aac178695362d67d6731a7d229c`
 - Starting branch/default branch: `master`
-- Final implementation SHA: PENDING IMMUTABLE COMMIT
+- Final implementation SHA: `f37e2dde0bb78c713054d6aed4a188ee2d39e2cf`
+- Exact merged verification subject: `b3a4a0da76b35646a1da28a3f72861cb7a23178a`
 - Version: `0.4.4` (unchanged)
 - P7 status: `IN_PROGRESS`
 - P7 Final Certification: `NOT COMPLETE`
@@ -107,27 +108,27 @@ Actual results on Darwin 24.6.0 arm64, Python 3.12.12, uv 0.10.5:
 - `git diff --check`: PASS.
 
 The first immutable-candidate ASV comparison failed closed before measurement because the default monorepo build emitted multiple
-wheels; the explicit root-distribution build contract was added in response. The final candidate comparison result remains to be
-recorded after the amended candidate exists. The required fresh-runner comparison remains owned by the remote Nightly performance
-gate and is never inferred from `asv check`.
+wheels; the explicit root-distribution build contract was added in response. The final fresh-runner comparison was subsequently
+executed by the remote Nightly performance gate recorded below; it is not inferred from local `asv check`.
 
 ## Remote Evidence
 
-- Layered Quality: `NOT EXECUTED`
-- CodeQL: `NOT EXECUTED`
-- Nightly Heavy Quality: `NOT EXECUTED`
-- Final-SHA Certification: `NOT EXECUTED`
-- Certification artifact/run: `NONE`
-
-No remote result is inferred from local evidence.
+- Layered Quality: run `31857857900` — PASS on exact merged subject.
+- CodeQL: run `31857857896` — PASS on exact merged subject.
+- Nightly Heavy Quality: run `31862902178` — PASS; exhaustive, formal, mutation and performance jobs all succeeded. The performance
+  job executed fresh-runner machine bootstrap, `asv check`, pytest-benchmark health, same-runner parent/candidate ASV comparison and
+  required-evidence validation.
+- Final-SHA Certification: run `31859600423` — PASS / ACCEPTED on exact merged subject; static, build, all canonical lanes, coverage,
+  Semgrep, dependency audit and embedded CodeQL all succeeded.
+- Certification workflow URL: `https://github.com/zongxin1993/OnlyAlpha/actions/runs/31859600423`.
 
 ## Remaining Risks
 
 - External advisory state is time-scoped; the same lock may receive new findings later, which is why every mandatory run rescans.
 - GitHub-hosted runner performance remains noisy; same-run interleaving reduces order bias but does not create cross-run hardware
   comparability.
-- Remote checkpoint evidence is still required before this increment can be marked `VERIFIED`.
+- P7 Final Closure remains separate; P7.6.2 verification does not certify the whole P7 milestone.
 
 ## Current Verdict
 
-`P7.6.2 NOT VERIFIED — mandatory remote aggregate gates and exact-SHA certification have not executed.`
+`P7.6.2 VERIFIED — exact merged subject passed all required remote aggregate, heavy and Final-SHA gates.`

@@ -470,6 +470,15 @@ Research Factor / Feature / Score 继续使用唯一 Calculation Definition / Gr
 semantic。TIME_SERIES 与 CROSS_SECTION execution shape 由 Definition 决定，executor 按 semantic node、stable instrument 与
 exact event-time axis 执行；不得创建 Factor/Feature/Score Store、Graph、Job 或复用 mutable Trading Factor lifecycle。
 
+Research Evaluation Plane 使用非 Factor 的 `TARGET` Calculation kind。Target 与 Feature 必须使用独立 Graph；Target V1 只可直接
+消费 Dataset external source，Indicator/Factor 不得消费 Target，Target 也不得依赖任何 Calculation node。Forward Return 只使用
+canonical per-instrument bar offset、保留 observation axis、future tail 为 NULL，并复用 Calculation Result / Job authority，不创建
+Target/Label Store。Statistics 通过 exact Feature/Target series reference verified-load 同一 Dataset Snapshot 的 Calculation Result，按
+instrument + timestamp 做 pairwise complete alignment；IC/Rank IC 与退化 status 使用显式 Decimal semantics。Statistics fingerprint、
+Result Content fingerprint 与 Statistics Result fingerprint 分层；immutable Statistics Result Store staged publish、verified load、
+idempotent reuse、deterministic conflict 与 corruption fail-closed。不得把 Statistics 伪装成 per-instrument Calculation node，不得创建
+Optimizer、Experiment/Trial Store，也不得激活 Research Runtime。
+
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
 identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。

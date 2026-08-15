@@ -2,6 +2,7 @@
 
 from onlyalpha.research.calculation import *  # noqa: F403
 from onlyalpha.research.dataset import *  # noqa: F403
+from onlyalpha.research.evaluation import *  # noqa: F403
 from onlyalpha.research.job import *  # noqa: F403
 from onlyalpha.research.sweep import *  # noqa: F403
 

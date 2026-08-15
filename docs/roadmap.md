@@ -24,10 +24,10 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.6.2 — IMPLEMENTED / VERIFICATION IN PROGRESS
-Previous Verified Increment: P7.6.1
+Current Increment: P7.7 — VERIFIED
+Latest Verified Increment: P7.7
 P7 Final Certification: NOT COMPLETE
-Next Semantic Increment: P7.7 — PLANNED
+Next Semantic Increment: P7.8 — PLANNED
 ```
 
 `VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
@@ -333,7 +333,7 @@ version 和 100% research-factor line/branch coverage gate 均未改变。最终
 `Layered Quality`；exact implementation SHA `6bcce0b5708d6bca00a7c4204f0e8f61d4d0b591` 的 run `31804158921` 已整体
 GREEN，coverage 与 final quality-gate PASS。本 increment 达到 `VERIFIED`，不单独要求 Final-SHA Certification。
 
-### P7.6.2 — Quality Infrastructure Closure（IMPLEMENTED / VERIFICATION IN PROGRESS）
+### P7.6.2 — Quality Infrastructure Closure（VERIFIED increment）
 
 P7.6.2 不增加 Research 或 Trading capability。它修复验证系统本身：ASV benchmark definition 先经 `asv check`，GitHub fresh
 runner 非交互创建 run-local machine identity，并在同一 runner/environment 中使用正式 `asv continuous` 比较 `HEAD^` 与 `HEAD`；
@@ -344,14 +344,29 @@ Dependency security 以 root `uv.lock` 为唯一 resolved dependency audit input
 infrastructure failure 均 fail closed。Dependency audit 是 Layered Quality aggregate gate 与 Final-SHA verdict 的 mandatory dependency，
 evidence 记录 subject SHA、lock digest、scan time、scanner version、findings 与 exceptions；当前 exceptions 为 `NONE`。
 
-本 increment 属于显式高风险 infrastructure checkpoint。实现存在不等于 `VERIFIED`；只有当前实现 subject 的 Layered Quality、CodeQL、
-Nightly exhaustive/formal/mutation/performance 与 Final-SHA `ACCEPTED` evidence 全部真实成功后才可升级状态。P7 仍保持 `IN_PROGRESS`，
-P7 Final Certification 仍为 `NOT COMPLETE`。
+本 increment 属于显式高风险 infrastructure checkpoint。implementation SHA
+`f37e2dde0bb78c713054d6aed4a188ee2d39e2cf` 合并后的 exact subject
+`b3a4a0da76b35646a1da28a3f72861cb7a23178a` 已通过 Layered Quality `31857857900`、CodeQL `31857857896`、
+Final-SHA Certification `31859600423` 与 Nightly Heavy Quality `31862902178`；Nightly exhaustive/formal/mutation/performance
+全部成功，因此状态为 `VERIFIED`。P7 仍保持 `IN_PROGRESS`，P7 Final Certification 仍为 `NOT COMPLETE`。
 
-### P7.7 — Research Target & Statistics Semantic Closure（PLANNED / NEXT）
+### P7.7 — Research Target & Statistics Semantic Closure（VERIFIED increment）
 
-P7.7 将处理 Forward Return、temporal alignment、look-ahead isolation、IC、Rank IC 与 Statistics identity。P7.6.2 不实现这些业务
-语义，也不激活 Research Runtime。
+P7.7 已在不改变既有 Indicator/Factor/Graph fingerprints 的前提下增加 `TARGET` Calculation kind；官方 Target plugin 提供
+RESEARCH-only `onlyalpha.target.forward_return@1`，使用 Dataset-owned adjustment、explicit price source binding、canonical
+per-instrument bar offset、原 observation axis 与 insufficient-future NULL policy。Target Graph 与 Feature Graph 独立；Target V1 只可
+直接消费 Dataset source，Indicator/Factor 不可消费 Target，Target 也不可消费任何 Calculation node。
+
+Research Evaluation Plane 通过 exact Feature/Target series reference verified-load 两个 Calculation Result，要求完全相同 Dataset
+Snapshot，并按 instrument + timestamp 做 deterministic pairwise alignment。IC 与 AVERAGE-tie Rank IC 使用 explicit Decimal(38)、
+1e-12、ROUND_HALF_EVEN semantics，输出 value/sample_count/status。Statistics/Result Content/Statistics Result identities 分层，
+immutable Parquet authority 使用 staged read-back、atomic publication、verified reuse、deterministic conflict 与 corruption fail-closed。
+单一 `research-evaluation` lane 强制 line >=95%、branch >=90%，并进入 Layered Quality、release 与 Final-SHA canonical gates。
+
+P7.7 不实现 Optimizer、Research Result/Artifact、Query/API/Web，也不激活 Research 或 Live Runtime。verification subject
+`ea0bcf8628435b12125c6e67f481ad2c1be575ac` 已通过 Layered Quality `31865555598` 与独立 CodeQL `31865555591`；前者的
+static、dependency audit、Semgrep、build、mandatory lanes、coverage、recovery 与 aggregate quality-gate 全部成功，因此本
+increment 达到 `VERIFIED`。P7 仍保持 `IN_PROGRESS`，P7 Final Certification 仍为 `NOT COMPLETE`。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

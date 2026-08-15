@@ -33,7 +33,7 @@ jobs:
       - run: uv run ruff check src tests examples packages scripts
       - run: uv run ruff format --check src tests examples packages scripts
       - run: uv run mypy src/onlyalpha
-      - run: uv run mypy packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors
+      - run: uv run mypy packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets
       - run: uv run mypy --config-file packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash
       - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-evaluation, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -83,6 +83,10 @@ jobs:
         run: uv run python scripts/test_suite.py research-calculation --coverage
       - name: Research Factor branch coverage
         run: uv run python scripts/test_suite.py research-factor --coverage
+      - name: Research Evaluation branch coverage
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: uv run python scripts/test_suite.py research-evaluation --coverage
       - name: Research Job branch coverage
         run: uv run python scripts/test_suite.py research-job --coverage
       - name: Research Sweep branch coverage
@@ -102,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7

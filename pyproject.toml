@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha"
-version = "0.4.4"
+version = "0.7.7"
 description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
@@ -25,6 +25,7 @@ dev = [
     "onlyalpha-test-plugin",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-factors",
+    "onlyalpha-plugin-targets",
     "import-linter>=2.13",
     "hypothesis>=6.165.5",
     "crosshair-tool>=0.0.109",
@@ -45,6 +46,7 @@ members = [
     "packages/provider/onlyalpha-plugin-miniqmt",
     "packages/indicator/onlyalpha-plugin-indicators",
     "packages/factor/onlyalpha-plugin-factors",
+    "packages/target/onlyalpha-plugin-targets",
 ]
 
 [build-system]
@@ -72,12 +74,14 @@ files = [
     "src/onlyalpha",
     "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
     "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
+    "packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
 ]
 
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-factors = { workspace = true }
+onlyalpha-plugin-targets = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -88,6 +92,7 @@ testpaths = [
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
     "packages/indicator/onlyalpha-plugin-indicators/tests",
     "packages/factor/onlyalpha-plugin-factors/tests",
+    "packages/target/onlyalpha-plugin-targets/tests",
 ]
 markers = [
     "unit: isolated unit test",
@@ -164,6 +169,7 @@ forbidden_modules = [
     "onlyalpha_market_generic_t0_cash",
     "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_factors",
+    "onlyalpha_plugin_targets",
 ]
 
 [tool.coverage.run]
