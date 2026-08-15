@@ -4,9 +4,10 @@
 - Repository baseline SHA: `b3a4a0da76b35646a1da28a3f72861cb7a23178a`
 - Implementation branch: `codex/p7-7-research-evaluation`
 - Implementation commit SHA: `b04ed630462b41ac761077b35a8403815f30a383`
+- Verification subject SHA: `ea0bcf8628435b12125c6e67f481ad2c1be575ac`
 - Version: `0.7.7`
 - P7 milestone: `IN_PROGRESS`
-- Increment status: `IMPLEMENTED`; remote mandatory gates pending
+- Increment status: `VERIFIED`
 
 ## Current Truth Before Change
 
@@ -124,6 +125,16 @@ Additional final-tree local evidence:
 - `uv build --all-packages`: PASS; all 9 formal workspace distributions produced sdist and wheel, including Target plugin 0.7.7.
 - `git diff --check`: PASS.
 
+Remote verification for exact subject `ea0bcf8628435b12125c6e67f481ad2c1be575ac`:
+
+- Layered Quality: `31865555598` — PASS. Static, dependency audit, Semgrep, build, all mandatory PR lanes, coverage, recovery and
+  aggregate quality-gate completed successfully.
+- CodeQL: `31865555591` — PASS. Independent Python analysis completed successfully. The Layered Quality workflow's embedded CodeQL
+  compatibility job was skipped by design; it is not the independent CodeQL authority.
+
+This later documentation update records evidence for the immutable verification subject above; it does not claim that the
+documentation commit inherited that subject's exact-SHA evidence.
+
 ## Documentation and Version
 
 README, roadmap and architecture now describe implemented Dataset/Calculation/Result/Job/Factor/Sweep/Target/Statistics boundaries,
@@ -137,9 +148,8 @@ version row and `uv.lock`; the new Target plugin is a formal workspace member.
 - Research Result, provenance composition, Research Artifact and finite product lifecycle remain P7.8+ work.
 - No optimizer, calendar/session horizon, cross-Dataset evaluation, ICIR/decay/portfolio analytics, scheduler, distributed execution,
   Query/API/Web or Trading Target backend is implemented.
-- P7.7 remote Layered Quality, CodeQL and other mandatory workflow evidence is not yet available; no remote result is inferred.
 
 ## Current Verdict
 
-`P7.7 IMPLEMENTED — local semantic, identity, corruption, property, coverage and integration closure exists; remote mandatory gates
-must complete before VERIFIED.`
+`P7.7 VERIFIED — local semantic, identity, corruption, property, coverage and integration closure passed; exact verification subject
+ea0bcf8628435b12125c6e67f481ad2c1be575ac passed mandatory Layered Quality and independent CodeQL.`

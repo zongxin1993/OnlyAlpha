@@ -26,7 +26,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.7 — IMPLEMENTED** — Research Target & Statistics Semantic Closure; remote verification pending |
+| Current increment | **P7.7 — VERIFIED** — Research Target & Statistics Semantic Closure; mandatory Layered Quality and CodeQL passed |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |

@@ -24,8 +24,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.7 — IMPLEMENTED / REMOTE VERIFICATION PENDING
-Previous Verified Increment: P7.6.2
+Current Increment: P7.7 — VERIFIED
+Latest Verified Increment: P7.7
 P7 Final Certification: NOT COMPLETE
 Next Semantic Increment: P7.8 — PLANNED
 ```
@@ -350,7 +350,7 @@ evidence 记录 subject SHA、lock digest、scan time、scanner version、findin
 Final-SHA Certification `31859600423` 与 Nightly Heavy Quality `31862902178`；Nightly exhaustive/formal/mutation/performance
 全部成功，因此状态为 `VERIFIED`。P7 仍保持 `IN_PROGRESS`，P7 Final Certification 仍为 `NOT COMPLETE`。
 
-### P7.7 — Research Target & Statistics Semantic Closure（IMPLEMENTED / REMOTE VERIFICATION PENDING）
+### P7.7 — Research Target & Statistics Semantic Closure（VERIFIED increment）
 
 P7.7 已在不改变既有 Indicator/Factor/Graph fingerprints 的前提下增加 `TARGET` Calculation kind；官方 Target plugin 提供
 RESEARCH-only `onlyalpha.target.forward_return@1`，使用 Dataset-owned adjustment、explicit price source binding、canonical
@@ -363,8 +363,10 @@ Snapshot，并按 instrument + timestamp 做 deterministic pairwise alignment。
 immutable Parquet authority 使用 staged read-back、atomic publication、verified reuse、deterministic conflict 与 corruption fail-closed。
 单一 `research-evaluation` lane 强制 line >=95%、branch >=90%，并进入 Layered Quality、release 与 Final-SHA canonical gates。
 
-P7.7 不实现 Optimizer、Research Result/Artifact、Query/API/Web，也不激活 Research 或 Live Runtime。实现完成不等于远端
-`VERIFIED`；当前仍等待 P7.7 branch mandatory remote gates。
+P7.7 不实现 Optimizer、Research Result/Artifact、Query/API/Web，也不激活 Research 或 Live Runtime。verification subject
+`ea0bcf8628435b12125c6e67f481ad2c1be575ac` 已通过 Layered Quality `31865555598` 与独立 CodeQL `31865555591`；前者的
+static、dependency audit、Semgrep、build、mandatory lanes、coverage、recovery 与 aggregate quality-gate 全部成功，因此本
+increment 达到 `VERIFIED`。P7 仍保持 `IN_PROGRESS`，P7 Final Certification 仍为 `NOT COMPLETE`。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 
