@@ -19,7 +19,23 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 历史 `PAPER` 与 standalone `SHADOW` 不是目标 Runtime；P6.6 已从 active source、配置、Factory、测试 fixture 与 public contract 删除这些产品 spelling，且未保留 alias 或 wrapper。
 
-## 当前产品事实（2026-08-14）
+## 当前状态
+
+```text
+Current Milestone: P7
+Milestone State: IN_PROGRESS
+Current Increment: P7.6.2 — IMPLEMENTED / VERIFICATION IN PROGRESS
+Previous Verified Increment: P7.6.1
+P7 Final Certification: NOT COMPLETE
+Next Semantic Increment: P7.7 — PLANNED
+```
+
+`VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
+certification artifact 为 `ACCEPTED`。P7.6.2 修改验证基础设施本身，因此是显式高风险 checkpoint；只有 Layered Quality、CodeQL、
+Nightly Heavy Quality 与 Final-SHA Certification 的实际聚合结果全部成功后才能从上述进行中状态升级为 `VERIFIED`。这不会使 P7
+milestone 自动变为 `CERTIFIED`。
+
+## 当前产品事实（2026-08-15）
 
 当前正式可用的完整产品纵切面是 Backtest 下的 `GENERIC_T0_CASH`、CASH、LIMIT、LONG/NETTING、BUY OPEN 与 SELL CLOSE，支持 Whole/Partial/Multi-Fill、Terminal Transaction、Memory/SQLite、Checkpoint/Restart/Forward Recovery、单/多 Cluster、Result/Analytics/Artifact/Report。
 
@@ -74,7 +90,7 @@ Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CAS
 
 此前建立且仍有效的内核包括统一 Market Runtime、版本化 A 股 Reference/Rule Decision、Prepared Transaction、Durable Commit、Ordered Projection、Projection Ready、完整 Long Close、多部分成交、Multi-Cluster Close Cost、Checkpoint 与因果 Forward Recovery。历史细节保存在 `docs/adr/` 与 `docs/reports/`。
 
-## 当前阶段：P6 — Sim Streaming Runtime Closure
+## P6 — Historical Implemented Stage（非当前 Milestone）
 
 ### P6.0 — Trading Runtime Kernel Extraction（完成）
 
@@ -316,6 +332,26 @@ parameter identity propagation 与 invalid semantic request fail-closed 均由 F
 version 和 100% research-factor line/branch coverage gate 均未改变。最终状态取决于 immutable implementation SHA 的远端
 `Layered Quality`；exact implementation SHA `6bcce0b5708d6bca00a7c4204f0e8f61d4d0b591` 的 run `31804158921` 已整体
 GREEN，coverage 与 final quality-gate PASS。本 increment 达到 `VERIFIED`，不单独要求 Final-SHA Certification。
+
+### P7.6.2 — Quality Infrastructure Closure（IMPLEMENTED / VERIFICATION IN PROGRESS）
+
+P7.6.2 不增加 Research 或 Trading capability。它修复验证系统本身：ASV benchmark definition 先经 `asv check`，GitHub fresh
+runner 非交互创建 run-local machine identity，并在同一 runner/environment 中使用正式 `asv continuous` 比较 `HEAD^` 与 `HEAD`；
+pytest-benchmark、ASV comparison、subject/parent SHA、ASV version 和 machine identity 均保存为实际 artifact。`--quick` 不再作为
+正式 performance evidence，performance failure 保持 blocking。
+
+Dependency security 以 root `uv.lock` 为唯一 resolved dependency audit input，使用固定 OSV-Scanner `2.5.0`，未批准 finding 与 scanner
+infrastructure failure 均 fail closed。Dependency audit 是 Layered Quality aggregate gate 与 Final-SHA verdict 的 mandatory dependency，
+evidence 记录 subject SHA、lock digest、scan time、scanner version、findings 与 exceptions；当前 exceptions 为 `NONE`。
+
+本 increment 属于显式高风险 infrastructure checkpoint。实现存在不等于 `VERIFIED`；只有当前实现 subject 的 Layered Quality、CodeQL、
+Nightly exhaustive/formal/mutation/performance 与 Final-SHA `ACCEPTED` evidence 全部真实成功后才可升级状态。P7 仍保持 `IN_PROGRESS`，
+P7 Final Certification 仍为 `NOT COMPLETE`。
+
+### P7.7 — Research Target & Statistics Semantic Closure（PLANNED / NEXT）
+
+P7.7 将处理 Forward Return、temporal alignment、look-ahead isolation、IC、Rank IC 与 Statistics identity。P7.6.2 不实现这些业务
+语义，也不激活 Research Runtime。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

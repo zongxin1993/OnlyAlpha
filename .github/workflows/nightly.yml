@@ -71,17 +71,62 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run pytest tests/performance/test_quality_benchmarks.py -q --tb=short --benchmark-only
-      - run: uvx --from asv==0.6.6 asv run --quick HEAD^!
+      - name: Prepare run-local performance evidence
+        env:
+          ASV_MACHINE: github-actions-${{ github.run_id }}
+        run: |
+          mkdir -p test-results/performance
+          printf 'subject_sha=%s\nparent_sha=%s\nasv_version=%s\nmachine_identity=%s\nworkflow_run=%s\n' \
+            "$(git rev-parse HEAD)" \
+            "$(git rev-parse HEAD^)" \
+            "$(uvx --from asv==0.6.6 asv --version)" \
+            "$ASV_MACHINE" \
+            "$GITHUB_RUN_ID" \
+            > test-results/performance/metadata.txt
+          uvx --from asv==0.6.6 asv machine --yes \
+            --machine "$ASV_MACHINE" \
+            --os "$(uname -s) $(uname -r)" \
+            --arch "$(uname -m)" \
+            --cpu "$(lscpu | awk -F: '/Model name/{sub(/^[[:space:]]+/, "", $2); print $2; exit}')" \
+            --num_cpu "$(nproc)" \
+            --ram "$(awk '/MemTotal/{print $2 "KB"; exit}' /proc/meminfo)"
+      - name: Validate ASV benchmark definitions
+        run: uvx --from asv==0.6.6 asv check
+      - name: Record current-environment benchmark health
+        run: >-
+          uv run pytest tests/performance/test_quality_benchmarks.py
+          -q --tb=short --benchmark-only
+          --benchmark-json=test-results/performance/pytest-benchmark.json
+      - name: Compare parent and candidate on the same runner
+        env:
+          ASV_MACHINE: github-actions-${{ github.run_id }}
+        shell: bash
+        run: |
+          set -o pipefail
+          uvx --from asv==0.6.6 asv continuous \
+            --interleave-rounds \
+            --machine "$ASV_MACHINE" \
+            HEAD^ HEAD \
+            | tee test-results/performance/asv-continuous.txt
+      - name: Require complete performance evidence
+        run: |
+          test -s test-results/performance/metadata.txt
+          test -s test-results/performance/pytest-benchmark.json
+          test -s test-results/performance/asv-continuous.txt
+          test -d .asv/results
+          test "$(find .asv/results -type f -size +0c | wc -l)" -gt 0
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: nightly-performance-results
           path: |
-            .benchmarks/
+            test-results/performance/
             .asv/results/
+          if-no-files-found: error

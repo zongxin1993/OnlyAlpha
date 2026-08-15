@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.pytest_layering import path_concerns, path_layer  # noqa: E402
-from scripts.test_suite import LANES, WORKSPACE_TESTS, OnlyTestLane  # noqa: E402
+from scripts.test_suite import LANES, RELEASE_LANES, WORKSPACE_TESTS, OnlyTestLane  # noqa: E402
 
 
 def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
@@ -83,6 +83,10 @@ def test_release_and_local_runner_boundaries_are_explicit() -> None:
         assert lane in source
     assert LANES[OnlyTestLane.MINIQMT_LOCAL].workers == "0"
     assert "not requires_broker_account" in LANES[OnlyTestLane.MINIQMT_LOCAL].expression
+
+
+def test_release_runs_each_canonical_lane_exactly_once() -> None:
+    assert len(RELEASE_LANES) == len(set(RELEASE_LANES))
 
 
 def test_miniqmt_read_only_and_order_workflows_are_separate() -> None:

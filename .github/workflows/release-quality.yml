@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
@@ -27,7 +29,30 @@ jobs:
         run: uv run crosshair check tests/formal/contracts.py --per_condition_timeout 60
       - name: Critical mutation subset
         run: uv run mutmut run
+      - name: Bootstrap run-local ASV machine
+        env:
+          ASV_MACHINE: github-actions-${{ github.run_id }}
+        run: >-
+          uvx --from asv==0.6.6 asv machine --yes
+          --machine "$ASV_MACHINE"
+          --os "$(uname -s) $(uname -r)"
+          --arch "$(uname -m)"
+          --cpu "$(lscpu | awk -F: '/Model name/{sub(/^[[:space:]]+/, "", $2); print $2; exit}')"
+          --num_cpu "$(nproc)"
+          --ram "$(awk '/MemTotal/{print $2 "KB"; exit}' /proc/meminfo)"
+      - name: Validate ASV benchmark definitions
+        run: uvx --from asv==0.6.6 asv check
       - name: Stable performance benchmarks
-        run: uv run pytest tests/performance/test_quality_benchmarks.py -q --tb=short --benchmark-only
-      - name: ASV release point
-        run: uvx --from asv==0.6.6 asv run HEAD^!
+        run: |
+          mkdir -p test-results/performance
+          uv run pytest tests/performance/test_quality_benchmarks.py \
+            -q --tb=short --benchmark-only \
+            --benchmark-json=test-results/performance/pytest-benchmark.json
+      - name: ASV release comparison
+        env:
+          ASV_MACHINE: github-actions-${{ github.run_id }}
+        run: >-
+          uvx --from asv==0.6.6 asv continuous
+          --interleave-rounds
+          --machine "$ASV_MACHINE"
+          HEAD^ HEAD
