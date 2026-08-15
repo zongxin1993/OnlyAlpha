@@ -1,6 +1,9 @@
 # OnlyAlpha 路线图
 
-本文件只描述从当前实现迁移到目标架构的阶段、退出条件与非目标。当前事实以源码、正式测试和产品认证为准；目标 Runtime taxonomy 由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 冻结。
+本文件只描述从当前实现迁移到目标架构的阶段、退出条件与非目标。当前事实以源码、正式测试和产品认证为准；目标 Runtime
+taxonomy 由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 冻结，多市场/异构 Runtime 拓扑由
+[ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 冻结，Live 人工控制由
+[ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 冻结。
 
 ## 目标 Runtime taxonomy
 
@@ -10,6 +13,9 @@ BACKTEST  Historical + Event-driven + Virtual Broker + Full Trading Kernel
 SIM       Realtime + Event-driven + Virtual Broker + Full Trading Kernel
 LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```
+
+目标 `OnlyEngine` 可以同时持有四类 Runtime Session，且各 Runtime 生命周期独立。当前 Trading 产品采用
+`One Runtime = One Account = One Market Product = One Currency`；多市场由 Engine 下多个隔离 Runtime 组合，跨市场汇总只读。
 
 历史 `PAPER` 与 standalone `SHADOW` 不是目标 Runtime；P6.6 已从 active source、配置、Factory、测试 fixture 与 public contract 删除这些产品 spelling，且未保留 alias 或 wrapper。
 
@@ -32,7 +38,7 @@ Timer durable occurrence、post-recovery authority validation 和 verified recov
 - active Runtime taxonomy 只有 `RESEARCH / BACKTEST / SIM / LIVE`；
 - historical Paper durable state 不会被转换为 SIM state，配置旧 spelling 会 fail closed。
 
-Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CASH` plugin 已拥有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，其 Cash-Long economic shape 可由统一 Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成 Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级完整 A 股市场范围，也不表示所有 A 股、Sim 或 Live 产品可用。
+Market Product plugin 或 identity 存在不代表产品可用。`CN_A_SHARE_CASH` plugin 已拥有版本化 Reference、Pre-Trade Rule 与 Production Fee Authority，其 Cash-Long economic shape 可由统一 Durable Kernel 识别。P4.3 的有限合同 `CN_A_SHARE_DURABLE_BACKTEST_V1` / `product_contract_version = "1"` 已完成 Product Conformance、恢复/确定性、静态/构建和同提交远端质量门禁，因此该有限产品为 **CERTIFIED**。这不升级完整 A 股市场范围，也不表示所有 A 股、Sim 或 Live 产品可用；在 A 股 Research/Backtest/Sim/Live 四种正式产品全部闭环前，不得声称 OnlyAlpha 已正式支持整个 A 股市场。
 
 ## 已完成阶段
 
@@ -342,6 +348,9 @@ P8 为目标 Live 建立外部执行前置能力：
 - local canonical state 与 Broker evidence reconciliation；
 - reconnect 后的 gap detection/recovery；
 - command、fact、checkpoint 与 recovery identity。
+- Live 首次 Open 的 immutable/versioned/idempotent genesis import；
+- Cash、Position/cost basis、Open Order、Pending Settlement 与 Broker/Account evidence verification；
+- 历史成交和资金流水 evidence attachment，不伪造本地历史交易。
 
 Broker snapshot/evidence 不能覆盖 committed local history；差异必须通过正式 reconciliation fact/policy 表达。
 
@@ -361,6 +370,37 @@ Realtime MarketData
 ```
 
 Live 不能通过 Runtime-mode economic branch、Broker direct Manager mutation 或复用 legacy Shadow path 实现。真实资金提交必须保留独立 manual/safety gate，并通过正式产品验收后才可启用。
+
+P9 还必须完成：
+
+- authenticated Web/Application → Engine → single Runtime lifecycle control；
+- 只属于 LIVE 的 first-class `MANUAL` workload、Allocation、Ledger、operator permission 与 audit；
+- 人工订单复用 Market Rule/Risk/Reservation/Order/Broker/Durable Transaction 全链；
+- 单 Live Runtime 与全部 Live Runtime liquidation；
+- Engine parent liquidation request + Runtime-local durable child request；
+- liquidation 后禁止重新开仓，直至授权人工显式复位；
+- 对手一价 → 显式市价 → 显式斩仓价的 versioned execution policy 与 Broker/Market capability gate；
+- partial/blocked/unknown/recovery 的真实结果语义，不以 submitted order 冒充 flat position。
+
+## P10 — Multi-Market Product Expansion
+
+P10 及后续市场阶段在共享 Domain、Market Product SPI、Calculation、Trading Kernel、Result 和 Recovery authority 上逐市场闭环：
+
+```text
+Market Domain/Reference
+→ Market Product / DataSource / Broker
+→ Research
+→ Backtest
+→ Sim
+→ Live
+→ Product Conformance
+```
+
+一个市场只有 Research、Backtest、Sim、Live 四种产品均形成正式入口、恢复/确定性与认证证据后，才能声明 OnlyAlpha 正式支持
+该市场。阶段中允许发布精确命名、版本化、有限的 Research/Backtest/Sim/Live 产品，但不得扩大产品口径。
+
+当前每个 Trading Runtime 只支持一个 Account、一个 Market Product 和一个 currency。港股、美股、Crypto 等市场先以独立 Runtime
+接入同一 Engine；单 Runtime 多市场、多币种、FX valuation、跨市场资金共享与组合保证金需要未来独立 ADR 和产品阶段。
 
 ## 后续候选
 
@@ -385,5 +425,10 @@ Distributed Event-driven Backtest 只表示并行执行多个完整 Backtest job
 - Backtest/Sim/Live 共享一个 trading semantic core；
 - Runtime Type 不是 Execution Permission；
 - 不创建 Runtime-specific duplicate economic authority；
+- 一个 Trading Runtime 只绑定一个 Account、Market Product 和 currency；
+- 四类 Runtime 可以在一个 Engine 中同时存在且生命周期独立；
+- 跨市场汇总只读，不成为交易 authority；
+- 四种 Runtime 未闭环时，不声称正式支持整个市场；
+- Web/Manual/Liquidation 不绕过 Engine、Risk、Broker 或 Durable Transaction；
 - 不新增 `PAPER` 或 standalone `SHADOW` 产品依赖；
 - 不以永久兼容层代替迁移和删除。

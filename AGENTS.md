@@ -12,6 +12,10 @@
 
 OnlyAlpha 是一个独立设计的模块化量化交易系统。
 
+OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定义全平台共享的 canonical 基础语言；A 股、港股、
+美股、加密货币及后续市场通过 versioned Market Product、DataSource 与 Broker 插件接入，不得反向污染 Core 或复制
+Engine/Runtime/Manager。多市场平台目标与产品声明口径由 ADR 0080 冻结。
+
 当前工程形态：
 
 ```text
@@ -58,6 +62,22 @@ LIVE
 | BACKTEST | Historical | Event-driven | Virtual Broker | 完整承担 |
 | SIM | Realtime | Event-driven | Virtual Broker | 完整承担 |
 | LIVE | Realtime | Event-driven | Real Broker | 完整承担 |
+
+目标 Engine 必须允许 `RESEARCH/BACKTEST/SIM/LIVE` 四类 Runtime 同时存在并独立运行。一个 Runtime 的完成、停止或失败
+不得被解释为另一个 Runtime 的 lifecycle command 或 domain fact。该异构生命周期是目标合同；当前 Engine 尚未完成四类
+Runtime 的同时产品组合。
+
+当前 Trading 产品组合遵守：
+
+```text
+One Trading Runtime
+= One Account authority
+= One resolved Market Product
+= One Account currency
+```
+
+多市场通过一个 Engine 下多个隔离 Runtime 实现。跨市场 Result/Analytics/Artifact/Web 汇总只读，不得成为资金、仓位、
+风险或订单 authority。单 Runtime 多市场、多币种账户、FX valuation、跨市场资金共享和组合保证金不属于当前目标合同。
 
 正式原则：
 
@@ -197,6 +217,18 @@ CN_A_SHARE_CASH Market Product Plugin 存在
 ≠ 完整 A 股产品已完成
 ```
 
+必须区分：
+
+```text
+正式、版本化、有限 Runtime 产品合同
+!=
+OnlyAlpha 正式支持整个市场
+```
+
+只有某市场的 `RESEARCH + BACKTEST + SIM + LIVE` 四种产品纵切面均通过唯一正式入口、完整 authority/recovery/result 链和
+产品认证后，才能声明“OnlyAlpha 正式支持该市场”。在此之前只能声明已认证的精确有限产品，例如
+`CN_A_SHARE_DURABLE_BACKTEST_V1`；不得由该合同推导完整 A 股市场已正式支持。
+
 ---
 
 ## 3. 事实来源优先级
@@ -289,6 +321,9 @@ engine.snapshot()
 
 - `OnlyEngine.run()` 只用于有限生命周期的 Backtest；
 - 长生命周期 Runtime 使用 `initialize/start/wait/stop/close`；
+- 目标 Engine 可以同时持有四种 Runtime，且每个 Runtime 生命周期必须独立；
+- 目标 Web/Application 可以通过 Engine 单独控制 Runtime，不得直接控制 Runtime Manager；
+- 有限 Research/Backtest 完成不得隐式停止 Sim/Live；
 - 一个 Engine 实例不得被重复完整运行；
 - Engine 终止后不得重新打开；
 - CLI 只负责参数、配置路径和 Application 调用。
@@ -385,6 +420,10 @@ Recovery State
 Runtime Audit
 ```
 
+每个 Trading Runtime 当前只允许绑定一个 Account authority、一个 resolved Market Product 和一个 Account currency。市场或币种
+不兼容的 Cluster 必须由 Planner 拆分到不同 Runtime 或 fail closed；不得为了跨市场组合在 Runtime 内共享 Account、Position、
+Risk、Reservation 或 Settlement authority。
+
 Research Runtime 只拥有：
 
 ```text
@@ -431,7 +470,9 @@ Research Factor / Feature / Score 继续使用唯一 Calculation Definition / Gr
 semantic。TIME_SERIES 与 CROSS_SECTION execution shape 由 Definition 决定，executor 按 semantic node、stable instrument 与
 exact event-time axis 执行；不得创建 Factor/Feature/Score Store、Graph、Job 或复用 mutable Trading Factor lifecycle。
 
-当前源码仍存在 Position authority、Fee finality 和 compiled Market Rule identity 读取 Runtime mode 的历史分支，`OnlyRuntimeContext` 也仍暴露 `mode`。Durable Execution Capability Resolver 已保持 mode-neutral，但全系统尚未完成该中立化；这些分支和暴露面是必须审计/迁移的实现债务，不得复制、扩散或被 Strategy 消费，也不得写成目标经济合同。
+当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
+Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
+identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。
 
 Backtest / Sim / Live 追求 Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。差异主要限于：
 
@@ -492,7 +533,30 @@ Cluster 不得：
 - 推进 Runtime Clock；
 - 修改账户级 Manager。
 
-### 8.2 Research Job / Research Plan
+### 8.2 LIVE Manual Workload（目标合同）
+
+人工交易只属于 `LIVE`。目标 `MANUAL` workload 与 Strategy Cluster 并列，但不得伪装成 Strategy；它拥有明确的 workload
+identity、Allocation scope、Ledger scope、operator provenance、permission 和 audit，其 mutable Manager 仍由 Live Runtime 独占。
+
+人工订单固定经过：
+
+```text
+Authenticated Operator Intent
+→ Market Rule
+→ Risk
+→ Reservation
+→ Order
+→ Real Broker
+→ Broker Inbound Queue
+→ Durable Transaction
+→ Ordered Projection
+→ Manual Allocation / Ledger
+```
+
+Web/Application 只能通过 `OnlyEngine` 和正式 Command boundary 操作，不能直接访问 Manager、Broker SDK、Position 或 Account。
+Backtest、Sim、Research 不接受产品级交互式人工订单；Scenario 中预声明的 deterministic action 不是 Manual workload。
+
+### 8.3 Research Job / Research Plan
 
 Research Job 是研究任务，不得伪装成 Trading Cluster。它可以描述：
 
@@ -508,7 +572,7 @@ Output specification
 
 Research 可以复用纯 Indicator / Factor 定义和 canonical data model，但不经过 Strategy、Order、Broker、Risk Reservation、Trading Account、Trading Position 或 Durable Trading Transaction。Web 只能查询 immutable Research Result / Artifact，不得操作 Runtime internal mutable state。
 
-### 8.3 固定计算顺序
+### 8.4 固定计算顺序
 
 同一行情时间片的业务顺序必须显式确定：
 
@@ -536,7 +600,7 @@ MarketData Validate / Process
 
 需要排序时，必须使用稳定、业务可解释的 Key。
 
-### 8.4 Indicator
+### 8.5 Indicator
 
 Indicator：
 
@@ -547,7 +611,7 @@ Indicator：
 - Checkpoint 能力必须显式声明；
 - 恢复后输出必须与连续运行一致。
 
-### 8.5 Factor
+### 8.6 Factor
 
 Factor：
 
@@ -557,7 +621,7 @@ Factor：
 - 不直接访问 Account、Position 或 Broker；
 - Cross-Section 调度必须由正式 Runtime/Cluster 流程完成。
 
-### 8.6 Strategy
+### 8.7 Strategy
 
 Strategy：
 
@@ -959,6 +1023,36 @@ Order Service
 - 用外部回报顺序作为业务确定性顺序。
 
 重复、乱序和迟到 Update 必须通过正式 Identity、Sequence、Dedup 和 Reconciliation 处理。
+
+### 14.1 LIVE Genesis Import（目标合同）
+
+LIVE 首次 Open 前必须从 exact Broker evidence 以 immutable、versioned、idempotent genesis/import transaction 导入当前：
+
+```text
+Cash
+Position + Cost Basis
+Open Order
+Pending Settlement
+Broker / Account Identity
+Evidence Timestamp / Source / Fingerprint
+```
+
+导入完成后必须验证 schema、identity、aggregate 与 reconciliation，再允许 Runtime Open。Broker 历史成交和历史资金流水只作为
+evidence attachment 保存，不伪造为本地历史 Trade/Cash transaction。已有本地 committed history 时，Snapshot 只能作为 evidence，
+不能覆盖；冲突无法解释时 fail closed。
+
+### 14.2 LIVE Liquidation（目标合同）
+
+清仓只支持“单个 LIVE Runtime”和“一个 Engine 当前拥有的全部 LIVE Runtime”两个作用域。全量清仓使用一个 Engine-level
+parent request 和每个 Runtime 的独立 durable child request；父请求只编排和聚合，不是跨 Runtime economic transaction。
+
+Runtime 接受清仓请求后必须撤销新的开仓权限，同时继续处理行情、撤单、平仓、Broker facts、对账和恢复。完成、部分完成或
+阻断后，未经授权人工显式复位不得重新开仓。清仓不得直接修改 Position；每个 close intent 仍经过 Market Rule、显式
+Liquidation Risk Policy、Reservation、Order、Broker、Durable Transaction 和原 Allocation/Ledger 归属。
+
+默认价格升级层级是 `对手一价 → 显式支持的市价执行 → 显式斩仓价`。具体等待时间、重报、滑点、Market Order 表达和斩仓算法
+必须在实现前由 versioned policy、Market Product instruction 与 Broker capability 冻结；当前文档不得臆造。真实清仓非原子，
+必须报告 `COMPLETED/PARTIALLY_COMPLETED/BLOCKED/ABORTED` 及剩余数量，不得把“已发单”描述为“已清仓”。
 
 ---
 
@@ -1427,6 +1521,10 @@ Streaming Observation：
 - Observation 丢弃必须可计数和诊断；
 - 停止后不得继续增长。
 
+目标 Web 是正式控制面，但不是状态 authority：只读查询通过 Result/Artifact/Observation Query；生命周期和 LIVE 人工命令通过
+authenticated Application/API → `OnlyEngine` → target Runtime command。Web 不直接访问 Manager、Broker SDK 或 Persistence，
+所有命令必须具有 authorization、stable request identity、idempotency 和 audit。
+
 ---
 
 ## 24. 配置规则
@@ -1774,6 +1872,11 @@ temporary_trade_store
 11. Runtime 差异主要限于 Clock、MarketData Driver、Broker Adapter 和 Lifecycle Driver。
 12. Runtime Type 不是 Execution Permission；不得创建 Runtime-specific duplicate economic authorities。
 13. 不得通过 compatibility alias、deprecated spelling 或 wrapper 长期保留 `PAPER` / `SHADOW` public Runtime vocabulary。
+14. 一个 Engine 的目标形态允许四类 Runtime 同时存在，且 Runtime 生命周期相互独立。
+15. 一个 Trading Runtime 当前只绑定一个 Account、一个 resolved Market Product 和一个 currency。
+16. 跨市场聚合只读，不得成为交易 authority。
+17. 未完成某市场四种 Runtime 正式闭环时，不得声称 OnlyAlpha 正式支持整个市场。
+18. Manual workload、genesis import 与 liquidation 只属于目标 LIVE 产品，不得回流到 Backtest/SIM/Research 旁路。
 
 ---
 
@@ -1921,13 +2024,16 @@ NOT EXECUTED
 
 - 依赖方向正确；
 - Trading Runtime 仍是 mutable trading authority 唯一所有者；
+- Trading Runtime 仍只绑定一个 Account、一个 Market Product 和一个 currency；
 - Research Runtime 未因结构对称创建 Trading Authorities；
 - 目标 Runtime vocabulary 仍只有 `RESEARCH/BACKTEST/SIM/LIVE`；
 - Backtest/Sim/Live 未产生 Runtime-specific economic path；
 - 插件未穿透 Core 内部；
 - Strategy/Factor 未获得越权能力；
 - Market Rule 未复制；
-- Result 仍来自正式成交权威。
+- Result 仍来自正式成交权威；
+- 跨市场聚合保持只读；
+- LIVE 人工命令、genesis 和清仓未绕过 Engine、Risk、Broker 或 Durable Transaction。
 
 ### 恢复正确性
 

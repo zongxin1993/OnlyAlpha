@@ -2,6 +2,10 @@
 
 **OnlyAlpha** 是一个面向个人与小型团队的模块化量化交易工程，核心目标是在保持工程结构清晰、运行结果确定、状态可恢复的前提下，为 **Research、Backtest、Sim、Live** 四种 Runtime 提供统一的量化基础设施。
 
+OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定义所有产品共享的 canonical 基础语言；A 股、港股、美股、
+加密货币及后续市场通过 versioned Market Product、DataSource 与 Broker 插件接入。Core 和 Trading Kernel 不根据市场名称分支，
+也不为具体市场复制 Engine、Runtime 或 Manager。
+
 OnlyAlpha 不把回测、实时模拟和实盘设计成三套独立交易系统。
 
 其核心设计原则是：
@@ -112,6 +116,7 @@ OnlyAlpha 的长期目标包括：
 
    * 一个 `OnlyEngine` 作为产品级唯一运行入口；
    * 一个 Engine 可以管理多个 Runtime；
+   * 一个 Engine 的目标形态可以同时运行 Research、Backtest、Sim、Live，且各 Runtime 生命周期独立；
    * Trading Runtime 内可以承载多个相互隔离的 Cluster；
    * Research Runtime 承载 Research Job / Plan，不被强制包装成交易 Cluster。
 
@@ -147,6 +152,8 @@ OnlyAlpha 的长期目标包括：
 
    * Execution Kernel 不根据市场名称做业务分支；
    * 市场差异通过 Reference、Market Rule、Fee、Settlement 等 Authority 表达。
+   * 当前一个 Trading Runtime 只绑定一个 Account、一个 Market Product 和一个 Currency；
+   * 多市场由一个 Engine 下多个隔离 Runtime 组合，跨市场汇总只读。
 
 8. **Fail Closed**
 
@@ -169,8 +176,24 @@ OnlyEngine
 ├── Sim Runtime
 │   └── Cluster workload(s)
 └── Live Runtime
-    └── Cluster workload(s)
+    ├── Cluster workload(s)
+    └── Manual workload(s)
 ```
+
+四类 Runtime 的 target lifecycle 相互独立。有限 Research/Backtest 完成不停止 Sim/Live；Web/Application 通过 Engine 控制目标
+Runtime，不直接访问 Runtime Manager。当前源码尚未实现四类 Runtime 在一个 Engine 中的完整异构同时组合。
+
+当前 Trading 产品采用：
+
+```text
+One Trading Runtime
+= One Account
+= One resolved Market Product
+= One Account currency
+```
+
+因此多市场平台通过同一 Engine 下多个单市场、单币种 Runtime 组合。多币种账户、FX valuation、跨市场资金共享和组合保证金
+不是当前隐含能力。
 
 ## 3.1 Research
 
@@ -349,14 +372,21 @@ Live 与 Sim 应尽可能共用全部交易核心。
 
 Live 特有职责主要包括：
 
+* 首次 Open 前的 immutable、versioned genesis import；
+* Cash、Position/cost basis、Open Order、Pending Settlement evidence verification；
 * Durable Broker outbound command；
 * Broker idempotency；
 * Broker ACK / Reject / Unknown；
 * Account / Order / Trade / Position synchronization；
 * reconnect；
 * reconciliation；
+* Web lifecycle control 与只属于 LIVE 的 Manual workload；
+* 单 Runtime / 全 Live Runtime durable liquidation；
 * long-running recovery；
 * 生产运维。
+
+Broker 历史成交和历史资金流水只作为 evidence attachments 保存，不伪造为本地历史交易；Broker Snapshot 不覆盖 committed
+local history。上述内容均是目标合同，当前 LIVE Factory 仍 unsupported。
 
 ---
 
@@ -1525,6 +1555,23 @@ Browser
 
 Web 不直接访问 Runtime Manager。
 
+目标 Web 也是 authenticated control client：
+
+```text
+Web
+→ Application / API
+→ OnlyEngine
+→ Target Runtime Command
+```
+
+Web 可以独立控制 Runtime lifecycle，并且只在 LIVE 中提交人工交易。LIVE `MANUAL` workload 与 Strategy Cluster 并列，拥有
+独立 Allocation/Ledger 和 operator audit，但不伪装成 Strategy；所有人工订单仍经过 Market Rule、Risk、Reservation、Order、
+Real Broker、Durable Transaction 与 Ordered Projection。Backtest、Sim、Research 不接受产品级交互式人工订单。
+
+目标 LIVE 还支持单 Runtime 和全部 Live Runtime 清仓。全量清仓由 Engine parent request 编排 Runtime-local durable child request；
+清仓后未经授权人工复位不得重新开仓。默认价格层级为对手一价、显式支持的市价执行和显式斩仓价，具体时间、重报、滑点和
+斩仓算法必须在实现时由 versioned policy 与 Broker/Market capability 冻结。
+
 ---
 
 # 34. 推荐研究工作流
@@ -1910,6 +1957,10 @@ Live 已生产完成
 
 产品认证范围必须等于实际 Conformance 范围。
 
+只有一个市场的 Research、Backtest、Sim、Live 四种正式产品全部通过唯一入口和产品认证闭环后，才能声明“OnlyAlpha 正式支持
+该市场”。因此 `CN_A_SHARE_DURABLE_BACKTEST_V1` 是正式、已认证的有限 A 股 Backtest 产品，但当前不能据此声明平台已经
+正式支持完整 A 股市场。
+
 ---
 
 # 43. 当前主要工程演进方向
@@ -1932,6 +1983,9 @@ P8  Durable Broker Outbound Command
     + Broker Synchronization / Reconciliation
 
 P9  Live Runtime Foundation
+
+P10 Multi-Market Product Expansion
+    per-market Research + Backtest + Sim + Live closure
 ```
 
 详细迁移范围和非目标见 [Roadmap](docs/roadmap.md)。

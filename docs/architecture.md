@@ -2,7 +2,10 @@
 
 本文档描述当前系统如何组织，并标明当前实现与已接受目标架构之间的差距。历史阶段、PR 编号和完成记录由 `docs/adr/`、`docs/reports/` 与 Git history 保存，不在此维护。
 
-Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定。任何“目标”描述都不是实现完成声明；当前能力必须由可执行源码、正式测试和产品认证证明。
+Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定；多市场
+拓扑与异构生命周期由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 决定；目标 Live
+导入、人工操作和清仓控制由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 决定。任何“目标”
+描述都不是实现完成声明；当前能力必须由可执行源码、正式测试和产品认证证明。
 
 ## 1. Architecture Principles
 
@@ -12,6 +15,10 @@ OnlyAlpha 当前采用 Monorepo + 模块化单体 Core + 插件化 DataSource/Br
 
 ```text
 One Engine → Multiple Runtime
+
+One Engine → Concurrent Heterogeneous Runtime Sessions
+
+One Trading Runtime → One Account + One Market Product + One Currency
 
 Trading Runtime → Mutable Trading Authority Owner
 
@@ -30,7 +37,9 @@ Runtime Type != Execution Permission
 Unsupported or Ambiguous → Fail Closed
 ```
 
-Research 为研究效率服务；Backtest、Sim、Live 为 Trading Semantic Equivalence 服务。架构复用不能产生第二套经济真值，也不能迫使 Research 经过 formal Trading Kernel。
+OnlyAlpha 是多市场平台：Domain 定义跨市场 canonical vocabulary，具体市场制度由 Market Product Plugin 拥有。Research 为研究
+效率服务；Backtest、Sim、Live 为 Trading Semantic Equivalence 服务。架构复用不能产生第二套经济真值，也不能迫使 Research
+经过 formal Trading Kernel。
 
 ## 2. Engine / Runtime Model
 
@@ -47,7 +56,8 @@ OnlyEngine
 ├── Sim Runtime
 │   └── Cluster C
 └── Live Runtime
-    └── Cluster D
+    ├── Cluster D
+    └── Manual Workload E
 ```
 
 `OnlyEngine` 是唯一产品级入口。当前调用链为：
@@ -65,6 +75,10 @@ CLI / Application
 Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environment grouping、Runtime/Cluster Session、共享资源引用、装配、生命周期、Result/Artifact 聚合、`user_data` 布局和失败清理。Engine 不拥有 Order、Position、Account 或其他交易经济状态。
 
 当前 `OnlyEngine.run()` 只接受有限 `BACKTEST`。Streaming 路径使用 `initialize/start/wait/stop/close`。目标 Research 仍由 Engine 管理产品生命周期，但使用 Research Job / Plan；当前以 Cluster config 为中心的入口不能被当作迫使 Research 交易化的长期接口合同。
+
+目标 Engine 允许四种 Runtime Session 同时存在且生命周期独立。Research/Backtest 完成不得隐式停止 Sim/Live；一个 Runtime 的
+start/stop/failure 不能成为另一个 Runtime 的 lifecycle command。Web/Application 未来通过 Engine 控制单个 Runtime；Engine 的
+跨 Runtime Result/diagnostic aggregation 保持只读。当前 Engine 尚未实现四种 Runtime 的完整异构同时组合。
 
 ## 3. Runtime Product Taxonomy
 
@@ -222,6 +236,13 @@ MarketData Validate / Process
 
 Indicator 和 Factor 没有交易权限。Strategy 只通过受限 Context 读取 immutable Snapshot，并通过正式订单接口表达 intent；它不能创建 Fill、模拟 Broker 回报或维护平行账户真值。
 
+### 6.1 Target LIVE Manual Workload
+
+目标 `MANUAL` workload 只存在于 LIVE，与 Strategy Cluster 并列但不伪装成 Strategy。它拥有独立 workload identity、Allocation、
+Ledger、operator provenance、permission 与 audit，mutable authority 仍由 Live Runtime 独占。人工订单从 authenticated
+Application/API 经 Engine 进入同一 Market Rule、Risk、Reservation、Order、Broker、Durable Transaction 与 Ordered Projection
+链。Backtest、Sim、Research 不接受产品级交互式人工交易。
+
 ## 7. Runtime Environment Composition
 
 当前组合链：
@@ -289,6 +310,13 @@ Market Fee Pack 与 Broker Fee Contract 是独立 authority；Order binding、fe
 
 Market Product plugin 的存在不升级产品范围。`CN_A_SHARE_DURABLE_BACKTEST_V1` 只认证有限 Backtest surface，不代表完整 A 股市场、Sim 或 Live 稳定。
 
+当前 Trading Runtime 产品拓扑只允许一个 Account、一个 resolved Market Product 和一个 Account currency。市场或币种不兼容的
+Cluster 由 Planner 拆分到不同 Runtime；多市场通过同一 Engine 下多个隔离 Runtime 实现。跨市场 Result/Analytics/Artifact/Web
+汇总不拥有交易写权限。单 Runtime 多市场、多币种、FX valuation、跨市场资金共享和组合保证金是未来新合同，不是当前隐含能力。
+
+只有某市场的 Research、Backtest、Sim、Live 四种产品纵切面均由正式入口和认证证据闭环后，平台才能声明“正式支持该市场”。
+有限、版本化的 Runtime 产品可以独立认证，但必须使用精确产品合同名称，不能扩大为整个市场支持声明。
+
 ## 9. MarketData Boundary
 
 正式行情路径：
@@ -328,6 +356,19 @@ Gateway 和 SDK callback 不持有或修改 Runtime Manager。重复、乱序和
 Virtual Broker 是独立 Broker plugin，负责 deterministic matching、Accepted/Trade/Terminal、whole/partial/multi-fill、slippage、fill plan 和 checkpointable external execution state；它不修改 Account、Position、Risk 或正式 Fee authority。Backtest 与目标 Sim 使用 Virtual Broker。Sim 永远不能解析或提交到 Real Broker。
 
 目标 Live 使用 Real Broker，并在启用真实资金前补齐 durable outbound command、idempotency、ACK/Reject/Unknown、Broker query/synchronization、reconciliation、reconnect 和 long-running recovery。
+
+### 10.1 Target LIVE Genesis and Liquidation
+
+Live 首次 Open 不假设空账户。目标组合从 exact Broker evidence 以 immutable/versioned/idempotent genesis transactions 导入
+Cash、Position/cost basis、Open Order、Pending Settlement 和 Broker/Account identity，并在 Open 前验证 schema、fingerprint、
+aggregate 与 reconciliation。历史成交和资金流水只保存为 evidence attachments；Broker Snapshot 不覆盖本地 committed history。
+
+Live 清仓支持单 Runtime 和 Engine 下全部 Live Runtime 两个 scope。全量请求由 Engine parent request 冻结 target set，每个 Runtime
+持有独立 durable child request；父级只编排和聚合，不构成跨 Runtime transaction。清仓立即禁止新开仓，但 Runtime 继续处理行情、
+撤单、平仓、Broker facts 与恢复；未经授权人工复位不恢复开仓。close intent 仍经过完整交易链并保持原 Allocation/Ledger 归属。
+
+默认执行层级为对手一价、显式支持的市价执行、显式斩仓价。等待、重报、滑点和斩仓算法尚未冻结，必须在实现时由 versioned
+policy、Market Product instruction 和 Broker capability 明确。结果允许 partial/block，不允许用 submitted order 冒充 flat position。
 
 ## 11. Order / Risk / Reservation
 
@@ -445,7 +486,12 @@ Projection Ready Committed Fact
 
 Collector 是只读消费者，不从 Broker、EventBus 或最终 Manager snapshot 反推交易历史。Result/Artifact 必须稳定序列化、保持 Cluster/Runtime scope、使用 canonical Decimal/Enum/Timestamp，并通过 manifest、relative path 与 fingerprint 表达 provenance。
 
-Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。目标 Research Artifact 与 Trading Result 是不同 DTO/语义；Web 只能通过 Query/API 读取 immutable result/artifact。
+Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。目标 Research Artifact 与 Trading
+Result 是不同 DTO/语义；Web 的数据读取只能通过 Query/API 消费 immutable result/artifact/observation。
+
+目标 Web 同时是 authenticated control client：生命周期和 LIVE Manual/Liquidation 请求经 Application/API → OnlyEngine → target
+Runtime Command boundary，必须具有 authorization、stable request identity、idempotency 和 audit。Web 不访问 Manager、Broker SDK
+或 Persistence，也不成为 Runtime control/economic authority。
 
 ## 17. Plugin Boundaries
 
