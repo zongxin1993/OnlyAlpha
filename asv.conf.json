@@ -6,6 +6,9 @@
   "branches": ["master"],
   "environment_type": "uv",
   "pythons": ["3.12"],
+  "build_command": [
+    "python -m pip wheel --no-deps -w {build_cache_dir} {build_dir}"
+  ],
   "benchmark_dir": "benchmarks",
   "results_dir": ".asv/results",
   "html_dir": ".asv/html"

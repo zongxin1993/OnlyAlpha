@@ -154,6 +154,52 @@ jobs:
       - run: semgrep scan --config semgrep/onlyalpha.yml --test semgrep/onlyalpha.py
       - run: semgrep scan --config semgrep/onlyalpha.yml --error src packages
 
+  dependency-audit:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - id: scan-time
+        name: Capture advisory scan time
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Prepare dependency audit evidence directory
+        run: mkdir -p test-results/security
+      - id: osv-scan
+        name: Scan authoritative uv.lock with OSV-Scanner 2.5.0
+        uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
+        with:
+          scan-args: |-
+            --format=json
+            --output-file=test-results/security/osv-results.json
+            --lockfile=uv.lock
+      - name: Build fail-closed dependency audit evidence
+        if: always()
+        env:
+          AUDIT_SUBJECT_SHA: ${{ needs.subject.outputs.sha }}
+          SCAN_OUTCOME: ${{ steps.osv-scan.outcome }}
+          SCAN_TIME: ${{ steps.scan-time.outputs.value }}
+        run: >-
+          python scripts/dependency_audit.py
+          --subject-sha "$AUDIT_SUBJECT_SHA"
+          --lockfile uv.lock
+          --scanner OSV-Scanner
+          --scanner-version "2.5.0"
+          --scan-time "$SCAN_TIME"
+          --workflow-run "$GITHUB_RUN_ID"
+          --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          --scan-outcome "$SCAN_OUTCOME"
+          --scan-result test-results/security/osv-results.json
+          --output test-results/security/dependency-audit-evidence.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: certification-${{ needs.subject.outputs.sha }}-dependency-audit
+          path: test-results/security/
+          if-no-files-found: error
+
   codeql:
     needs: subject
     runs-on: ubuntu-latest
@@ -170,7 +216,7 @@ jobs:
 
   verdict:
     if: always()
-    needs: [subject, static, build, lanes, coverage, semgrep, codeql]
+    needs: [subject, static, build, lanes, coverage, semgrep, dependency-audit, codeql]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -184,6 +230,7 @@ jobs:
           LANES_RESULT: ${{ needs.lanes.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
         run: |
           python scripts/certification.py \
@@ -196,6 +243,7 @@ jobs:
             --gate "lanes=$LANES_RESULT" \
             --gate "coverage=$COVERAGE_RESULT" \
             --gate "semgrep=$SEMGREP_RESULT" \
+            --gate "dependency-audit=$DEPENDENCY_AUDIT_RESULT" \
             --gate "codeql=$CODEQL_RESULT" \
             --output certification-evidence.json
       - uses: actions/upload-artifact@v6

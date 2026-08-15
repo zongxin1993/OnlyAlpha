@@ -152,17 +152,60 @@ jobs:
             --error \
             src packages
 
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - id: scan-time
+        name: Capture advisory scan time
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Prepare dependency audit evidence directory
+        run: mkdir -p test-results/security
+      - id: osv-scan
+        name: Scan authoritative uv.lock with OSV-Scanner 2.5.0
+        uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
+        with:
+          scan-args: |-
+            --format=json
+            --output-file=test-results/security/osv-results.json
+            --lockfile=uv.lock
+      - name: Build fail-closed dependency audit evidence
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.osv-scan.outcome }}
+          SCAN_TIME: ${{ steps.scan-time.outputs.value }}
+        run: >-
+          python scripts/dependency_audit.py
+          --subject-sha "$GITHUB_SHA"
+          --lockfile uv.lock
+          --scanner OSV-Scanner
+          --scanner-version "2.5.0"
+          --scan-time "$SCAN_TIME"
+          --workflow-run "$GITHUB_RUN_ID"
+          --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          --scan-outcome "$SCAN_OUTCOME"
+          --scan-result test-results/security/osv-results.json
+          --output test-results/security/dependency-audit-evidence.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: dependency-audit-${{ github.sha }}
+          path: test-results/security/
+          if-no-files-found: error
+
   quality-gate:
     if: always()
-    needs: [static, semgrep, coverage, pr-lanes, main-lanes, build]
+    needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           PR_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_RESULT: ${{ needs.main-lanes.result }}
           BUILD_RESULT: ${{ needs.build.result }}
-        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$BUILD_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$BUILD_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

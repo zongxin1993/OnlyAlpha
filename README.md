@@ -26,9 +26,11 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
+| Current increment | **P7.6.2 — IMPLEMENTED / VERIFICATION IN PROGRESS** — quality infrastructure checkpoint |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
+| Next semantic increment | **P7.7 — PLANNED** — Research Target & Statistics Semantic Closure |
 | License | MIT |
 
 ---
@@ -85,6 +87,11 @@ Research Runtime 仍未激活；Forward Return/IC/Statistics、Research Result/A
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
 仍必须由 Final-SHA artifact 给出 `ACCEPTED`，development evidence 不得冒充 certification。
+
+P7.6.2 正在关闭验证基础设施自身的完整性：Nightly performance 使用 fresh-runner 自举、同一 runner 的 parent/candidate ASV
+comparison 与持久 evidence；root `uv.lock` 由固定版本 OSV-Scanner fail-closed 审计，并成为 Layered Quality 与 Final-SHA
+Certification mandatory gate。该 checkpoint 尚未取得全部远端 evidence，因此当前只声明 `IMPLEMENTED / VERIFICATION IN
+PROGRESS`，不声明 `VERIFIED` 或 P7 `CERTIFIED`。
 
 ---
 
