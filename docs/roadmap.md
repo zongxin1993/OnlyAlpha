@@ -24,10 +24,10 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.7 — VERIFIED
-Latest Verified Increment: P7.7
+Current Increment: P7.8 — VERIFIED LOCALLY
+Latest Verified Increment: P7.8
 P7 Final Certification: NOT COMPLETE
-Next Semantic Increment: P7.8 — PLANNED
+Next Semantic Increment: P7.9 — PLANNED
 ```
 
 `VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
@@ -367,6 +367,19 @@ P7.7 不实现 Optimizer、Research Result/Artifact、Query/API/Web，也不激�
 `ea0bcf8628435b12125c6e67f481ad2c1be575ac` 已通过 Layered Quality `31865555598` 与独立 CodeQL `31865555591`；前者的
 static、dependency audit、Semgrep、build、mandatory lanes、coverage、recovery 与 aggregate quality-gate 全部成功，因此本
 increment 达到 `VERIFIED`。P7 仍保持 `IN_PROGRESS`，P7 Final Certification 仍为 `NOT COMPLETE`。
+
+### P7.8 — Research Result Authority & Deterministic Research Output Closure（VERIFIED locally）
+
+P7.8 建立最终 machine-readable Research output composition authority。versioned Plan 只包含 canonical、去重的 Statistics logical
+fingerprints；Assembler 对每项调用 Statistics Result Store `load_verified()`，记录 exact Statistics/Statistics Result fingerprint pair，
+并要求所有成员属于同一 exact Dataset Snapshot。Plan、Content、Research Result 三层 identity 分离，created_at、physical root 与
+EXECUTED/REUSED invocation evidence 均不进入 semantic identity。
+
+Immutable JSON Store 以 Plan fingerprint 为 durable key，使用 staging read-back、atomic publication、verified load、referential
+integrity、idempotent REUSED、deterministic conflict 与 corruption fail-closed；它不复制 Statistics rows。`research-result` canonical
+lane、Research/Trading firewall、consumer-aware Impact Resolver、scoped Task static verification 与三层 Gate Task Contract 已建立。
+本 increment 的本地 Task Gate evidence 记录在 P7.8 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Research Artifact、
+Query/API/Web、Optimizer、跨 Dataset composition 与 Research/Live Runtime activation 仍未实现。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

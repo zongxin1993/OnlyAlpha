@@ -150,7 +150,8 @@ Research 可复用 MarketData Domain、Instrument、Reference、Calendar、canon
 以及 Research-only Target/Forward Return、exact alignment、IC/Rank IC 和 immutable Statistics Result。统一 Factor semantic 仍以
 `TIME_SERIES/CROSS_SECTION` 表达数学 execution shape，以 `RESEARCH/TRADING` 表达物理 backend；Runtime type 不进入 Factor identity。
 Evaluation 只允许消费 verified Feature/Target Result，Evaluation → Feature dependency 在 Calculation Graph construction 时 fail closed。
-当前 Research Factory 仍明确 unsupported；Research Result、Artifact、完整 finite Runtime lifecycle 与 Web query workflow 尚未实现。
+当前 Research Factory 仍明确 unsupported；P7.8 已实现 composition-only immutable Research Result，Artifact、完整 finite Runtime
+lifecycle 与 Web query workflow 尚未实现。
 当前 trading-shaped `OnlyRuntime` 基类不能反向定义未来 Research ownership。
 
 ## 5. Trading Runtime
@@ -577,7 +578,7 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 
 当前未完成项：
 
-- `RESEARCH`：目标 Runtime，Factory unsupported；Dataset/Calculation/Job/Factor/Sweep/Target/Statistics 已实现，Research Result、
+- `RESEARCH`：目标 Runtime，Factory unsupported；Dataset/Calculation/Job/Factor/Sweep/Target/Statistics/Research Result 已实现，
   Artifact 与产品 Runtime lifecycle 尚未实现；
 - `LIVE`：目标 Runtime，Factory unsupported，durable outbound Broker command、同步/对账与长期恢复尚未实现；
 - `SIM`：当前认证不覆盖 Real Broker、长期生产运维、24h soak 或 broad MiniQMT compatibility matrix。

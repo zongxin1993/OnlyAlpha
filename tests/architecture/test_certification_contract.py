@@ -92,7 +92,20 @@ def test_quality_and_certification_require_research_authority_lanes_and_coverage
     assert "research-sweep" in certification and "research-sweep --coverage" in certification
     assert "research-evaluation" in quality and "research-evaluation --coverage" in quality
     assert "research-evaluation" in certification and "research-evaluation --coverage" in certification
+    assert "research-result" in quality and "research-result --coverage" in quality
+    assert "research-result" in certification and "research-result --coverage" in certification
     assert '"$COVERAGE_RESULT" = success' in quality
+
+
+def test_task_impact_resolver_cannot_trim_certification_mandatory_matrix() -> None:
+    certification = Path(".github/workflows/certification.yml").read_text()
+    verify_source = Path("scripts/verify.py").read_text()
+
+    assert "scripts/verify.py" not in certification
+    assert "subject_sha" in certification
+    for mandatory in ("static", "build", "coverage", "semgrep", "dependency-audit", "codeql"):
+        assert mandatory in certification
+    assert 'authority": "LOCAL_DEVELOPMENT_VERIFICATION_ONLY' in verify_source
 
 
 def test_quality_and_certification_require_exact_uv_lock_dependency_audit() -> None:
@@ -136,8 +149,8 @@ def test_readme_and_roadmap_expose_one_truthful_current_increment() -> None:
     roadmap = Path("docs/roadmap.md").read_text()
     assert roadmap.count("Current Milestone: P7") == 1
     assert roadmap.count("Milestone State: IN_PROGRESS") == 1
-    assert roadmap.count("Current Increment: P7.7 — VERIFIED") == 1
+    assert roadmap.count("Current Increment: P7.8 — VERIFIED LOCALLY") == 1
     assert roadmap.count("P7 Final Certification: NOT COMPLETE") == 1
     assert "## 当前阶段：P6" not in roadmap
     assert "P7 milestone status | **IN_PROGRESS**" in readme
-    assert "Current increment | **P7.7 — VERIFIED**" in readme
+    assert "Current increment | **P7.8 — VERIFIED locally**" in readme

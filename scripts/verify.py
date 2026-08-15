@@ -76,9 +76,12 @@ class VerificationImpactRule:
     checks: tuple[OnlyReleaseCheck, ...]
     escalation: VerificationEscalation
     rationale: str
+    excluded_paths: tuple[str, ...] = ()
 
     def matches(self, path: str) -> bool:
-        return path in self.exact_paths or any(path.startswith(prefix) for prefix in self.prefixes)
+        return path not in self.excluded_paths and (
+            path in self.exact_paths or any(path.startswith(prefix) for prefix in self.prefixes)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +100,7 @@ class VerificationImpact:
     checks: tuple[OnlyReleaseCheck, ...]
     reasons: tuple[ImpactReason, ...]
     escalation: VerificationEscalation
+    static_plan: VerificationStaticPlan | None = None
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -104,6 +108,27 @@ class VerificationImpact:
             "selected_lanes": [item.value for item in self.lanes],
             "escalation": self.escalation.name,
             "matched_rules": [item.as_json() for item in self.reasons],
+            "static_plan": None if self.static_plan is None else self.static_plan.as_json(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationStaticPlan:
+    ruff_targets: tuple[str, ...] = ()
+    format_targets: tuple[str, ...] = ()
+    mypy_targets: tuple[str, ...] = ()
+    import_linter_required: bool = False
+    version_sync_required: bool = False
+    build_targets: tuple[str, ...] = ()
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "ruff_targets": list(self.ruff_targets),
+            "format_targets": list(self.format_targets),
+            "mypy_targets": list(self.mypy_targets),
+            "import_linter_required": self.import_linter_required,
+            "version_sync_required": self.version_sync_required,
+            "build_targets": list(self.build_targets),
         }
 
 
@@ -154,6 +179,15 @@ CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM
 
 IMPACT_RULES = (
     VerificationImpactRule(
+        "research-result",
+        ("src/onlyalpha/research/result/", "tests/research/result/"),
+        ("tests/architecture/test_research_result_boundaries.py",),
+        (OnlyTestLane.RESEARCH_RESULT,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Result owns deterministic composition and immutable output authority",
+    ),
+    VerificationImpactRule(
         "research-evaluation",
         (
             "src/onlyalpha/research/evaluation/",
@@ -161,7 +195,7 @@ IMPACT_RULES = (
             "packages/target/onlyalpha-plugin-targets/",
         ),
         ("tests/architecture/test_research_evaluation_boundaries.py",),
-        (OnlyTestLane.RESEARCH_EVALUATION,),
+        (OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT),
         STATIC,
         VerificationEscalation.COMPONENT,
         "evaluation owns Target, Statistics identity, alignment, and immutable result verification",
@@ -182,13 +216,23 @@ IMPACT_RULES = (
             "scripts/test_suite.py",
             "scripts/certification.py",
             "scripts/verify.py",
-            "pyproject.toml",
             "tests/conftest.py",
+            "tests/architecture/test_test_lane_contract.py",
+            "tests/architecture/test_certification_contract.py",
         ),
         RELEASE_LANES,
         FULL_CHECKS,
         VerificationEscalation.VERIFICATION_INFRASTRUCTURE,
         "verification tooling cannot narrow its own local proof boundary",
+    ),
+    VerificationImpactRule(
+        "package-metadata",
+        (),
+        ("pyproject.toml", "uv.lock"),
+        (),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "package metadata requires version synchronization and a targeted root package build",
     ),
     VerificationImpactRule(
         "research-dataset",
@@ -306,6 +350,7 @@ IMPACT_RULES = (
         FULL_CHECKS,
         VerificationEscalation.FULL_LOCAL,
         "shared fixtures, support, and architecture gates can affect every canonical lane",
+        ("tests/architecture/test_research_result_boundaries.py",),
     ),
     VerificationImpactRule(
         "docs-only",
@@ -342,10 +387,15 @@ def plan_for_change_set(change_set: VerificationChangeSet) -> VerificationPlan:
                 reasons.append(ImpactReason(path, rule.name, rule.rationale))
     lanes = tuple(lane for lane in RELEASE_LANES if lane in lane_set)
     checks = tuple(check for check in OnlyReleaseCheck if check in check_set)
+    static_plan = _static_plan(change_set, tuple(reason.rule for reason in reasons), escalation)
     return VerificationPlan(
         change_set,
         VerificationImpact(
-            lanes, checks, tuple(sorted(set(reasons), key=lambda item: (item.path, item.rule))), escalation
+            lanes,
+            checks,
+            tuple(sorted(set(reasons), key=lambda item: (item.path, item.rule))),
+            escalation,
+            static_plan,
         ),
     )
 
@@ -359,6 +409,50 @@ def _unknown_rule(path: str) -> VerificationImpactRule:
         FULL_CHECKS,
         VerificationEscalation.FULL_LOCAL,
         "unclassified path fails closed to the complete local release gate set",
+    )
+
+
+def _static_plan(
+    change_set: VerificationChangeSet,
+    rule_names: tuple[str, ...],
+    escalation: VerificationEscalation,
+) -> VerificationStaticPlan | None:
+    if escalation is VerificationEscalation.DOCS_ONLY:
+        return None
+    if escalation >= VerificationEscalation.FULL_LOCAL:
+        return VerificationStaticPlan()
+    changed_python = tuple(
+        sorted(
+            {
+                path
+                for changed in change_set.changed_paths
+                for path in changed.impact_paths()
+                if path.endswith(".py") and changed.kind is not ChangeKind.DELETED
+            }
+        )
+    )
+    rules = set(rule_names)
+    typed_roots = {
+        "research-result": ("src/onlyalpha/research/result",),
+        "research-evaluation": ("src/onlyalpha/research/evaluation", "src/onlyalpha/research/result"),
+        "research-sweep": ("src/onlyalpha/research/sweep",),
+        "research-job": ("src/onlyalpha/research/job",),
+        "research-calculation": ("src/onlyalpha/research/calculation",),
+        "research-dataset": ("src/onlyalpha/research/dataset",),
+    }
+    mypy_targets = tuple(sorted({target for rule in rules for target in typed_roots.get(rule, ())}))
+    architecture = any(
+        path.startswith("tests/architecture/")
+        for changed in change_set.changed_paths
+        for path in changed.impact_paths()
+    )
+    return VerificationStaticPlan(
+        changed_python,
+        changed_python,
+        mypy_targets,
+        architecture,
+        "package-metadata" in rules,
+        ("onlyalpha",) if "package-metadata" in rules else (),
     )
 
 
@@ -456,12 +550,40 @@ def verification_commands(plan: VerificationPlan) -> list[tuple[str, tuple[str, 
     commands: list[tuple[str, tuple[str, ...]]] = []
     for check in plan.impact.checks:
         if check is not OnlyReleaseCheck.BUILD:
-            _append_check_commands(commands, check)
+            if (
+                check is OnlyReleaseCheck.STATIC
+                and plan.impact.escalation is VerificationEscalation.COMPONENT
+                and plan.impact.static_plan is not None
+            ):
+                _append_scoped_static_commands(commands, plan.impact.static_plan)
+            else:
+                _append_check_commands(commands, check)
     for lane in plan.impact.lanes:
         commands.append((f"lane:{lane.value}", ("uv", "run", "python", "scripts/test_suite.py", lane.value)))
     if OnlyReleaseCheck.BUILD in plan.impact.checks:
         _append_check_commands(commands, OnlyReleaseCheck.BUILD)
     return commands
+
+
+def _append_scoped_static_commands(
+    commands: list[tuple[str, tuple[str, ...]]], static_plan: VerificationStaticPlan | None
+) -> None:
+    if static_plan is None:
+        return
+    if static_plan.ruff_targets:
+        commands.append(("check:affected-ruff", ("uv", "run", "ruff", "check", *static_plan.ruff_targets)))
+    if static_plan.format_targets:
+        commands.append(
+            ("check:affected-format", ("uv", "run", "ruff", "format", "--check", *static_plan.format_targets))
+        )
+    if static_plan.mypy_targets:
+        commands.append(("check:affected-mypy", ("uv", "run", "mypy", *static_plan.mypy_targets)))
+    if static_plan.import_linter_required:
+        commands.append(("check:import-linter", ("uv", "run", "lint-imports")))
+    if static_plan.version_sync_required:
+        commands.append(("check:version-sync", ("uv", "run", "python", "scripts/version_sync.py", "check")))
+    for package in static_plan.build_targets:
+        commands.append((f"check:build-{package}", ("uv", "build", "--package", package)))
 
 
 def _append_check_commands(commands: list[tuple[str, tuple[str, ...]]], check: OnlyReleaseCheck) -> None:

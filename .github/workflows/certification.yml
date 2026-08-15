@@ -86,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -130,6 +130,8 @@ jobs:
         env:
           HYPOTHESIS_PROFILE: ci
         run: uv run python scripts/test_suite.py research-evaluation --coverage
+      - name: Mandatory Research Result branch coverage
+        run: uv run python scripts/test_suite.py research-result --coverage
       - name: Mandatory Research Job branch coverage
         run: uv run python scripts/test_suite.py research-job --coverage
       - name: Mandatory Research Sweep branch coverage

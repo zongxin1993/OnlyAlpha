@@ -140,6 +140,10 @@ Dependabot independently检查 `uv`、GitHub Actions 和 pre-commit 等依赖更
 
 普通修改只运行本次 Task 的最小充分验证。
 
+正式顺序是：冻结含 `TASK_BASE_SHA`、Goal、Modification/Impact Scope、Required Behavior、Expected Acceptance Tests、Expansion
+Triggers 与 Out of Scope 的 Task Contract；实施并运行 expected tests；根据实际 changed set 由 `scripts/verify.py` 校验 Impact；
+只有具体证据触发时才扩大；最后给出一个 Task Gate verdict。模板见 `docs/engineering/task-gate-template.md`，它不是新的规范 authority。
+
 典型组合包括：
 
 ```bash
@@ -160,6 +164,10 @@ uv run python scripts/test_suite.py <lane>
 ```
 
 是否运行整个 lane 由 Task 的 Impact Scope 决定，而不是固定要求。
+
+`scripts/verify.py` 的 component plan 对 Ruff、Format 和 Mypy 使用 affected targets；architecture boundary 才要求 Import Linter，
+package/build metadata 才要求 version sync 与 targeted build。Unknown impact 和 verification infrastructure 仍 fail closed 到
+FULL_LOCAL。Coverage 默认属于 Phase/Certification，不因 lane 已注册就自动进入普通 Task Gate。
 
 ---
 
@@ -815,6 +823,9 @@ Validation Boundary
 ```
 
 Codex 应按声明范围实现和验证。
+
+实现前还必须记录 `TASK_BASE_SHA`、Expected Acceptance Tests 与 Expansion Triggers；完成时记录 actual changed/impact scope、
+实际执行的检查、扩张理由以及明确未执行的 Phase/Certification 项。
 
 不得在任务完成阶段自行把：
 

@@ -108,3 +108,16 @@ def test_research_evaluation_lane_owns_target_statistics_and_strict_coverage() -
     assert "95 if name is OnlyTestLane.RESEARCH_EVALUATION" in source
     assert "Research Evaluation branch coverage must be at least 90%" in source
     assert "Research Evaluation line coverage must be at least 95%" in source
+
+
+def test_research_result_lane_owns_composition_architecture_and_strict_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_RESULT]
+    assert lane.paths == (
+        "tests/research/result",
+        "tests/architecture/test_research_result_boundaries.py",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/result"' in source
+    assert '"research-result-coverage"' in source
+    assert "Research Result branch coverage must be at least 90%" in source
+    assert "Research Result line coverage must be at least 95%" in source

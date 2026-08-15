@@ -1759,6 +1759,19 @@ Rule 合并必须单调且确定，未知 path fail closed，verification infras
 - 远端 workflow 未完成时只能记录 `REMOTE CERTIFICATION PENDING`，不得高频轮询或预判 PASS。
 - 成功的长时间运行日志默认只保存在 evidence 文件中，Agent context 与最终报告只记录 compact summary；仅在失败诊断时读取有界日志。
 
+### 26.5 Quality Acceptance Contract
+
+OnlyAlpha 只有 `Task Gate / Phase Gate / Certification Gate` 三种正式验收层级。普通 implementation task 默认只执行 Task Gate；
+Implementation Block 不是 Gate。开始前必须冻结 `TASK_BASE_SHA`、Goal、Modification Scope、Impact Scope、Required Behavior、
+Expected Acceptance Tests、Expansion Triggers 与 Out of Scope。上游传播到已有正式 contract 保护的 stable authority boundary 后停止；
+底层 public authority 修改则沿正式 consumer rules 扩张，Impact union 不得缩小。Task-level Ruff、Format、Mypy、Import Linter、
+version sync 与 build 同样必须 impact-aware。
+
+普通 Task 不得仅为“保险”默认执行 `release`、`core-full --coverage`、repository-wide coverage、Nightly 或 Final-SHA
+Certification；只有真实 Impact Scope、verification infrastructure 自改或当前 Gate 类型明确要求时才执行。验收语义唯一权威是
+`docs/engineering/quality-system.md`，工具执行方式以 `docs/engineering/quality-toolchain.md` 为准；
+`docs/engineering/task-gate-template.md` 只用于记录，不建立第二份质量政策。
+
 ---
 
 ## 27. 静态质量门禁

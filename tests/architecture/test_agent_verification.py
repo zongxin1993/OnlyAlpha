@@ -53,6 +53,44 @@ def test_unknown_production_path_fails_closed_to_full_local() -> None:
     assert {reason.rule for reason in plan.impact.reasons} == {"unknown-impact-fallback"}
 
 
+def test_research_result_change_is_scoped_to_its_lane_and_static_targets() -> None:
+    plan = _plan("src/onlyalpha/research/result/result_store.py", "tests/research/result/test_result_store.py")
+
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_RESULT,)
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/result",)
+    assert OnlyTestLane.CORE_FULL not in plan.impact.lanes
+    assert OnlyTestLane.RESEARCH_EVALUATION not in plan.impact.lanes
+
+
+def test_statistics_authority_change_propagates_to_research_result_consumer() -> None:
+    plan = _plan("src/onlyalpha/research/evaluation/result_store.py")
+
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_EVALUATION)
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == (
+        "src/onlyalpha/research/evaluation",
+        "src/onlyalpha/research/result",
+    )
+
+
+def test_research_result_architecture_boundary_requests_import_linter_without_full_local() -> None:
+    plan = _plan("tests/architecture/test_research_result_boundaries.py")
+
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_RESULT,)
+    assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+
+
+def test_package_metadata_requests_version_sync_and_targeted_build() -> None:
+    plan = _plan("pyproject.toml")
+
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.version_sync_required
+    assert plan.impact.static_plan.build_targets == ("onlyalpha",)
+
+
 def test_verification_infrastructure_cannot_self_narrow() -> None:
     plan = _plan("scripts/test_suite.py")
 

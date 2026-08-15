@@ -175,12 +175,17 @@ Integration、coverage、security scan、build smoke、cross-platform smoke 等�
 
 Task 必须在设计阶段明确：
 
+- `TASK_BASE_SHA`；
 - Goal；
 - Modification Scope；
 - Impact Scope；
 - Required Behavior；
-- Acceptance Tests；
+- Expected Acceptance Tests；
+- Expansion Triggers；
 - Out of Scope。
+
+该 Task Contract 必须在实现前冻结。Implementation Block 只是工作分解，不是第四种 Gate；Prompt 或 Agent 不得建立与本文
+冲突的验收层级。
 
 Task Gate 的验证范围必须由 Impact Scope 决定，而不是由仓库总体规模决定。
 
@@ -267,8 +272,15 @@ Impact Scope 应从实际工程依赖关系推导。
 
 默认扩大到最近的稳定工程边界。
 
+当高层 consumer 只消费已经由正式 contract test 保护的 immutable authority 时，反向传播到该稳定 authority boundary 后停止；
+不得仅因概念链更长就继续扩到 provider 或整个 Repository。反之，底层 public authority 变化必须沿已编码的正式 consumer
+dependency 扩张，Impact union 只能增加、不能缩小。
+
 不得因为存在不确定性直接无条件升级到 repository-wide validation，
 除非修改本身确实影响 repository-wide contract。
+
+Task-level Ruff、Format、Mypy、Import Linter、version sync 与 build 同样必须按 Impact Scope 选择。未知路径和 verification
+infrastructure 自改继续 fail closed 到完整本地验证；这类 Task-level firewall 不等于 Phase Gate。
 
 如果实现过程中发现任务定义遗漏了一个明确依赖：
 
