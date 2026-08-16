@@ -174,15 +174,26 @@ RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_EVALUATION,
     OnlyTestLane.RESEARCH_JOB,
     OnlyTestLane.RESEARCH_SWEEP,
+    OnlyTestLane.RESEARCH_RESULT,
+    OnlyTestLane.RESEARCH_ARTIFACT,
 )
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
     VerificationImpactRule(
+        "research-artifact",
+        ("src/onlyalpha/research/artifact/", "tests/research/artifact/"),
+        ("tests/architecture/test_research_artifact_boundaries.py",),
+        (OnlyTestLane.RESEARCH_ARTIFACT,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Artifact owns the derived immutable portable read boundary",
+    ),
+    VerificationImpactRule(
         "research-result",
         ("src/onlyalpha/research/result/", "tests/research/result/"),
         ("tests/architecture/test_research_result_boundaries.py",),
-        (OnlyTestLane.RESEARCH_RESULT,),
+        (OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Research Result owns deterministic composition and immutable output authority",
@@ -195,7 +206,7 @@ IMPACT_RULES = (
             "packages/target/onlyalpha-plugin-targets/",
         ),
         ("tests/architecture/test_research_evaluation_boundaries.py",),
-        (OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT),
+        (OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT),
         STATIC,
         VerificationEscalation.COMPONENT,
         "evaluation owns Target, Statistics identity, alignment, and immutable result verification",
@@ -433,6 +444,7 @@ def _static_plan(
     )
     rules = set(rule_names)
     typed_roots = {
+        "research-artifact": ("src/onlyalpha/research/artifact",),
         "research-result": ("src/onlyalpha/research/result",),
         "research-evaluation": ("src/onlyalpha/research/evaluation", "src/onlyalpha/research/result"),
         "research-sweep": ("src/onlyalpha/research/sweep",),

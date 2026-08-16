@@ -121,3 +121,16 @@ def test_research_result_lane_owns_composition_architecture_and_strict_coverage(
     assert '"research-result-coverage"' in source
     assert "Research Result branch coverage must be at least 90%" in source
     assert "Research Result line coverage must be at least 95%" in source
+
+
+def test_research_artifact_lane_owns_portable_boundary_and_strict_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_ARTIFACT]
+    assert lane.paths == (
+        "tests/research/artifact",
+        "tests/architecture/test_research_artifact_boundaries.py",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/artifact"' in source
+    assert '"research-artifact-coverage"' in source
+    assert "Research Artifact branch coverage must be at least 90%" in source
+    assert "Research Artifact line coverage must be at least 95%" in source

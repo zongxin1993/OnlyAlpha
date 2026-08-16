@@ -479,6 +479,13 @@ Result Content fingerprint 与 Statistics Result fingerprint 分层；immutable 
 idempotent reuse、deterministic conflict 与 corruption fail-closed。不得把 Statistics 伪装成 per-instrument Calculation node，不得创建
 Optimizer、Experiment/Trial Store，也不得激活 Research Runtime。
 
+Research Result 是 exact Statistics Result composition authority，Statistics Result 是 rows semantic authority；Research Artifact
+只是由 verified Research Result 精确成员确定的 immutable materialized read view。Artifact 可以复制 Statistics rows，但不得扫描
+Store 猜测 composition、重新计算 Statistics、反向写回或恢复上游 authority。发布后的 V1 Artifact 只含严格 Manifest 与 canonical
+Statistics Parquet，必须在不访问 Dataset/Calculation/Statistics/Research Result Store 时完成 byte、row、Statistics identity、Research
+Result identity 与 Artifact logical identity 验证。Artifact 不得新增 Plan/Result semantic identity、Query/API/Web、Analytics、mutable
+Experiment state 或 Trading/Research 通用 Artifact framework；Research Runtime Factory 继续 unsupported。
+
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
 identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。

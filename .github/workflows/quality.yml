@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -89,6 +89,8 @@ jobs:
         run: uv run python scripts/test_suite.py research-evaluation --coverage
       - name: Research Result branch coverage
         run: uv run python scripts/test_suite.py research-result --coverage
+      - name: Research Artifact branch coverage
+        run: uv run python scripts/test_suite.py research-artifact --coverage
       - name: Research Job branch coverage
         run: uv run python scripts/test_suite.py research-job --coverage
       - name: Research Sweep branch coverage
@@ -108,7 +110,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7

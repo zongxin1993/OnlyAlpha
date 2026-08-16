@@ -18,7 +18,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.7.8` |
+| Version | `0.7.9` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -26,7 +26,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.8 — VERIFIED locally** — Research Result Authority & Deterministic Research Output Closure |
+| Current increment | **P7.9 — VERIFIED locally** — Research Artifact Materialization & Portable Read Boundary |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
@@ -93,8 +93,10 @@ observation axis、future tail 为 NULL，并继续复用 Calculation Result Sto
 Statistics identity、Result Content identity 与 Statistics Result identity 分层；staged verified publication、idempotent reuse、deterministic
 conflict 和 corruption fail-closed 均已闭环。P7.8 在其上建立 composition-only Research Result：Plan/Content/Result identity 分层，
 verified-load exact Statistics Result references，单一 Dataset Snapshot 约束，以及 staged/atomic immutable JSON Store。它不复制
-Statistics rows，EXECUTED/REUSED 与物理路径不进入 semantic identity。Research Runtime 仍未激活；Research Artifact、Scheduler、
-Optimizer、Query/API 与 Web UI 仍未实现。
+Statistics rows，EXECUTED/REUSED 与物理路径不进入 semantic identity。P7.9 从 verified Research Result 的精确成员确定 immutable
+Research Artifact，复制 canonical Statistics rows 到自包含 Parquet/Manifest 包；发布后无需上游 Store 即可重证 Statistics、Research
+Result 与 Artifact identity，但 Artifact 不成为新的 semantic authority。Research Runtime 仍未激活；Scheduler、Optimizer、Query/API
+与 Web UI 仍未实现。
 
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8

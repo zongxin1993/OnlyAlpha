@@ -24,10 +24,10 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.8 — VERIFIED LOCALLY
-Latest Verified Increment: P7.8
+Current Increment: P7.9 — VERIFIED LOCALLY
+Latest Verified Increment: P7.9
 P7 Final Certification: NOT COMPLETE
-Next Semantic Increment: P7.9 — PLANNED
+Next Semantic Increment: Read-only Research Query/API boundary — PLANNED
 ```
 
 `VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
@@ -380,6 +380,23 @@ integrity、idempotent REUSED、deterministic conflict 与 corruption fail-close
 lane、Research/Trading firewall、consumer-aware Impact Resolver、scoped Task static verification 与三层 Gate Task Contract 已建立。
 本 increment 的本地 Task Gate evidence 记录在 P7.8 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Research Artifact、
 Query/API/Web、Optimizer、跨 Dataset composition 与 Research/Live Runtime activation 仍未实现。
+
+### P7.9 — Research Artifact Materialization & Portable Read Boundary（VERIFIED locally）
+
+P7.9 在 Research execution plane 与未来 consumer plane 之间建立首个稳定读取边界。Research Result 继续拥有 exact Statistics
+composition，Statistics Result 继续拥有 rows semantic；Artifact 只复制 Research Result 精确选择的 rows，形成严格且不可变的
+`artifact_manifest.json` 与 canonical `statistics.parquet` 派生视图。
+
+Materializer 只从 verified Research Result 开始并 verified-load 每个 exact Statistics reference。Artifact logical content fingerprint
+与 Parquet byte SHA 分层，created_at、物理路径和 compression 不进入 semantic identity。Store 使用 staged read-back 与 atomic directory
+publication，equal re-entry 为 REUSED，deterministic conflict 与 existing corruption 均 fail closed。已发布 Artifact 的
+`load_verified()` 不依赖 Dataset、Calculation、Statistics 或 Research Result Store，并独立重证 Statistics Plan/content/result、
+Research Result plan/content/result 与 Artifact content linkage。`research-artifact` canonical lane、consumer-aware impact propagation
+和 Research/Trading firewall 已建立。
+
+本 increment 的本地 Task Gate evidence 记录在 P7.9 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Query Service、
+API、Web、Optimizer、新 Statistics/Analytics、Artifact import/restore、跨 Dataset composition 与 Research/Live Runtime activation
+仍未实现。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

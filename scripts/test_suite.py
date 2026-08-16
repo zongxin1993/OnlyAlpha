@@ -29,6 +29,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_FACTOR = "research-factor"
     RESEARCH_EVALUATION = "research-evaluation"
     RESEARCH_RESULT = "research-result"
+    RESEARCH_ARTIFACT = "research-artifact"
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
@@ -110,6 +111,15 @@ LANES = {
         (
             "tests/research/result",
             "tests/architecture/test_research_result_boundaries.py",
+        ),
+        "not external",
+        "2",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_ARTIFACT: Lane(
+        (
+            "tests/research/artifact",
+            "tests/architecture/test_research_artifact_boundaries.py",
         ),
         "not external",
         "2",
@@ -238,6 +248,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.RESEARCH_ARTIFACT,
     OnlyTestLane.RESEARCH_RESULT,
     OnlyTestLane.RESEARCH_EVALUATION,
     OnlyTestLane.RESEARCH_SWEEP,
@@ -315,6 +326,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_sources = {
+            OnlyTestLane.RESEARCH_ARTIFACT: ("src/onlyalpha/research/artifact",),
             OnlyTestLane.RESEARCH_RESULT: ("src/onlyalpha/research/result",),
             OnlyTestLane.RESEARCH_EVALUATION: (
                 "src/onlyalpha/research/evaluation",
@@ -333,7 +345,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (
-            "research-result-coverage"
+            "research-artifact-coverage"
+            if name is OnlyTestLane.RESEARCH_ARTIFACT
+            else "research-result-coverage"
             if name is OnlyTestLane.RESEARCH_RESULT
             else "research-evaluation-coverage"
             if name is OnlyTestLane.RESEARCH_EVALUATION
@@ -358,7 +372,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 95 if name is OnlyTestLane.RESEARCH_EVALUATION else 95 if name is OnlyTestLane.RESEARCH_RESULT else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 95 if name is OnlyTestLane.RESEARCH_EVALUATION else 95 if name is OnlyTestLane.RESEARCH_RESULT else 95 if name is OnlyTestLane.RESEARCH_ARTIFACT else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
             ]
         )
         workers = "0"
@@ -381,7 +395,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / "test-results"
             / "coverage"
             / (
-                "research-result-coverage.json"
+                "research-artifact-coverage.json"
+                if name is OnlyTestLane.RESEARCH_ARTIFACT
+                else "research-result-coverage.json"
                 if name is OnlyTestLane.RESEARCH_RESULT
                 else "calculation-coverage.json"
                 if name is OnlyTestLane.CALCULATION
@@ -422,6 +438,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 code = 1
             if name is OnlyTestLane.RESEARCH_RESULT and line_rate < 95:
                 print("Research Result line coverage must be at least 95%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_ARTIFACT and branch_rate < 90:
+                print("Research Artifact branch coverage must be at least 90%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_ARTIFACT and line_rate < 95:
+                print("Research Artifact line coverage must be at least 95%", file=sys.stderr)
                 code = 1
     if metric_path.is_file():
         metrics = json.loads(metric_path.read_text(encoding="utf-8"))
