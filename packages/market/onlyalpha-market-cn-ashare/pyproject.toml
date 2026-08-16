@@ -10,7 +10,7 @@ dependencies = ["onlyalpha==0.7.10"]
 cn-ashare = "onlyalpha_market_cn_ashare.factory:OnlyCnAshareMarketProductFactory"
 
 [dependency-groups]
-dev = ["mypy>=1.15", "pytest>=8.4", "pytest-cov>=6", "ruff>=0.11"]
+dev = ["mypy>=1.15", "pytest>=9.0.3", "pytest-cov>=6", "ruff>=0.11"]
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]

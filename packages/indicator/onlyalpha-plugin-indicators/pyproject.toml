@@ -9,7 +9,7 @@ dependencies = ["onlyalpha==0.7.10"]
 standard-indicators = "onlyalpha_plugin_indicators.registration:registrations"
 
 [dependency-groups]
-dev = ["mypy>=1.15", "pytest>=8.4", "ruff>=0.11"]
+dev = ["mypy>=1.15", "pytest>=9.0.3", "ruff>=0.11"]
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]
@@ -25,4 +25,3 @@ onlyalpha = { workspace = true }
 python_version = "3.12"
 strict = true
 files = ["src/onlyalpha_plugin_indicators"]
-
