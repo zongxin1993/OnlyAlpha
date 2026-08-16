@@ -45,3 +45,20 @@ def test_plan_rejects_unknown_fields_and_schema_versions() -> None:
         OnlyResearchResultPlan.from_dict({**payload, "title": "presentation must not enter identity"})
     with pytest.raises(ValueError, match="unsupported"):
         OnlyResearchResultPlan.from_dict({**payload, "schema_version": 2})
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("schema_version", True, "integer"),
+        ("schema_version", "1", "integer"),
+        ("statistics_fingerprints", (A,), "array of strings"),
+        ("statistics_fingerprints", [1], "array of strings"),
+    ),
+)
+def test_plan_parser_rejects_non_exact_serialized_types(field: str, value: object, match: str) -> None:
+    payload = OnlyResearchResultPlan((A,)).to_dict()
+    payload[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        OnlyResearchResultPlan.from_dict(payload)

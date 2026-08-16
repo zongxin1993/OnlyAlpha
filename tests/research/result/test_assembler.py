@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -65,3 +65,47 @@ def test_execution_disposition_and_physical_location_do_not_enter_identity(tmp_p
         assembler2.assemble(plan2).manifest.research_result_fingerprint == result2.manifest.research_result_fingerprint
     )
     assert result1.manifest.research_result_fingerprint == result2.manifest.research_result_fingerprint
+
+
+def test_assembler_rejects_invalid_plan_and_upstream_logical_identity(tmp_path) -> None:
+    with pytest.raises(OnlyResearchResultError) as invalid_plan:
+        OnlyResearchResultAssembler({}, audit_time=lambda: datetime(2026, 8, 16, tzinfo=UTC)).assemble(None)  # type: ignore[arg-type]
+    assert invalid_plan.value.code == "RESEARCH_RESULT_INVALID"
+
+    plan, _, _, result, _ = result_case(tmp_path)
+    first = result.manifest.statistics_results[0]
+    mismatched = SimpleNamespace(
+        manifest=SimpleNamespace(
+            statistics_fingerprint="e" * 64,
+            statistics_result_fingerprint=first.statistics_result_fingerprint,
+            dataset_snapshot_fingerprint=result.manifest.dataset_snapshot_fingerprint,
+        )
+    )
+    assembler = OnlyResearchResultAssembler(
+        _MappingStatisticsStore({first.statistics_fingerprint: mismatched}),
+        audit_time=lambda: datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    one_member_plan = OnlyResearchResultPlan((first.statistics_fingerprint,))
+
+    with pytest.raises(OnlyResearchResultError) as logical_mismatch:
+        assembler.assemble(one_member_plan)
+    assert logical_mismatch.value.code == "RESEARCH_RESULT_INVALID"
+    assert "logical identity" in logical_mismatch.value.detail
+
+
+@pytest.mark.parametrize(
+    "audit_time",
+    (
+        lambda: "2026-08-16T00:00:00Z",
+        lambda: datetime(2026, 8, 16),
+        lambda: datetime(2026, 8, 16, tzinfo=timezone(timedelta(hours=8))),
+    ),
+)
+def test_assembler_rejects_non_utc_audit_evidence(tmp_path, audit_time) -> None:  # type: ignore[no-untyped-def]
+    plan, _, _, _, statistics_store = result_case(tmp_path)
+    assembler = OnlyResearchResultAssembler(statistics_store, audit_time=audit_time)
+
+    with pytest.raises(OnlyResearchResultError) as raised:
+        assembler.assemble(plan)
+    assert raised.value.code == "RESEARCH_RESULT_INVALID"
+    assert "timezone-aware UTC" in raised.value.detail

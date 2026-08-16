@@ -190,7 +190,7 @@ P6 退出条件：
 - `PAPER` Runtime 和 standalone `SHADOW` Runtime 源码、配置、测试与 public spelling 被删除；
 - 不保留 alias、deprecated spelling 或 compatibility wrapper。
 
-### P6.6 — Runtime Taxonomy Migration & Legacy Removal（实现完成，待 final SHA 远端认证）
+### P6.6 — Runtime Taxonomy Migration & Legacy Removal（DONE / CERTIFIED）
 
 P6.6 已将 active Runtime enum、config vocabulary、Factory Registry 与 public exports 一次性切换为
 `RESEARCH / BACKTEST / SIM / LIVE`，删除 `runtime/paper`、`runtime/shadow`、Shadow execution suppression、旧

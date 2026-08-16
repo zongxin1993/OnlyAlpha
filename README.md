@@ -24,7 +24,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | Architecture | 模块化单体 |
 | Primary runtime | Backtest |
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
-| P6 status | Implemented and locally verified; final-SHA remote certification still required |
+| P6 status | **DONE / CERTIFIED** — exact Final-SHA remote certification completed |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
 | Current increment | **P7.10 — VERIFIED locally** — Research Read Model & Read-only Query/API Boundary |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
