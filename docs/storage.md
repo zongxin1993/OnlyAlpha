@@ -104,8 +104,9 @@ corrupt target 不 overwrite、repair 或 fallback。公开读取只有 verified
 completeness、byte/semantic hashes、schema、row count、timestamp 与全局 Result identities，不返回 partial result。
 
 该 Store 不提供 update、delete、overwrite、invalidate、refresh、TTL、LRU 或 cache-miss recomputation，也不复用 Trading
-Transaction Store。P7.4 Research Job 只编排 verified reuse-or-execute，不成为新的 durable authority；Research Runtime、Research
-Result 与 Artifact 仍是独立且尚未激活的上层 authority。
+Transaction Store。P7.4 Research Job 只编排 verified reuse-or-execute，不成为新的 durable authority。Research Result 是 exact
+Statistics composition authority，portable Research Artifact 是 immutable materialized read view；P7.10 Query/API 只从 Artifact
+`load_verified()` 产生 ephemeral projection，不写入 Store、不创建 Query authority。Research Runtime Factory 仍 unsupported。
 
 ## 7. 时间持久化协议
 

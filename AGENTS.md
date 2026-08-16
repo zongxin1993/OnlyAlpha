@@ -486,6 +486,13 @@ Statistics Parquet，必须在不访问 Dataset/Calculation/Statistics/Research 
 Result identity 与 Artifact logical identity 验证。Artifact 不得新增 Plan/Result semantic identity、Query/API/Web、Analytics、mutable
 Experiment state 或 Trading/Research 通用 Artifact framework；Research Runtime Factory 继续 unsupported。
 
+Research Query/API 的唯一 upstream read boundary 是 portable Research Artifact。Query Core 只可通过最小 Reader Port 调用
+`load_verified(exact_research_result_fingerprint)`，并进行 exact lookup、projection、半开时间范围过滤、稳定排序和 cursor 分页；
+不得读取 physical Artifact layout、访问任何 execution Store、重算 Statistics、持久化 Query Result、建立 Catalog/latest/search/cache。
+Query Result 是 ephemeral deterministic projection，不是 authority。HTTP transport 位于独立 `onlyalpha-api` workspace package，Core
+不得依赖 FastAPI/Pydantic/Uvicorn；Decimal 必须编码为无损字符串，event time 必须保留 exact nanosecond integer，corrupt 不得映射为
+missing/empty/rebuild。Research Runtime 与 Live Runtime Factory 继续 unsupported，Web UI 仍未实现。
+
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
 identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。

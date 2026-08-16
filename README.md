@@ -18,7 +18,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.7.9` |
+| Version | `0.7.10` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -26,12 +26,12 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | Implemented and locally verified; final-SHA remote certification still required |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.9 — VERIFIED locally** — Research Artifact Materialization & Portable Read Boundary |
+| Current increment | **P7.10 — VERIFIED locally** — Research Read Model & Read-only Query/API Boundary |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
 | P7.6.2 increment | **VERIFIED** — exact merged subject passed Layered Quality, CodeQL, Final-SHA and Nightly Heavy Quality |
-| Next semantic increment | **P7.9 — PLANNED** — Research Artifact and read-only output consumption boundary |
+| Next semantic direction | Research Web consumption/visualization and finite Research Runtime lifecycle remain open |
 | License | MIT |
 
 ---
@@ -95,8 +95,9 @@ conflict 和 corruption fail-closed 均已闭环。P7.8 在其上建立 composit
 verified-load exact Statistics Result references，单一 Dataset Snapshot 约束，以及 staged/atomic immutable JSON Store。它不复制
 Statistics rows，EXECUTED/REUSED 与物理路径不进入 semantic identity。P7.9 从 verified Research Result 的精确成员确定 immutable
 Research Artifact，复制 canonical Statistics rows 到自包含 Parquet/Manifest 包；发布后无需上游 Store 即可重证 Statistics、Research
-Result 与 Artifact identity，但 Artifact 不成为新的 semantic authority。Research Runtime 仍未激活；Scheduler、Optimizer、Query/API
-与 Web UI 仍未实现。
+Result 与 Artifact identity，但 Artifact 不成为新的 semantic authority。P7.10 在其上建立 transport-neutral Query Model、确定性
+Query Service 与独立 `onlyalpha-api` FastAPI package；消费者只使用 exact identity 与 `load_verified()`，Decimal 以字符串、事件时间以
+纳秒整数传输。Research Runtime 仍未激活；Scheduler、Optimizer 与 Web UI 仍未实现。
 
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
@@ -246,7 +247,7 @@ Web Visualization
 * 面向 K 线、指标、因子、特征和参数研究；
 * 支持批量参数搜索；
 * 当前支持 IC、Rank IC 与 Forward Return；分组收益等扩展统计仍未实现；
-* Research Result composition authority 已实现；标准化 Research Artifact 与只读 Query/API/Web 仍是后续目标；
+* Research Result composition authority、portable Research Artifact 与只读 Query/API 已实现；Web 仍是后续目标；
 * 面向 Web、Notebook、CLI 等研究界面；
 * 不要求经过完整 Order / Broker / Transaction Kernel。
 

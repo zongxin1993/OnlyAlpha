@@ -24,10 +24,10 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.9 — VERIFIED LOCALLY
-Latest Verified Increment: P7.9
+Current Increment: P7.10 — VERIFIED LOCALLY
+Latest Verified Increment: P7.10
 P7 Final Certification: NOT COMPLETE
-Next Semantic Increment: Read-only Research Query/API boundary — PLANNED
+Next Semantic Direction: Research Web consumption/visualization and finite Research Runtime lifecycle remain open
 ```
 
 `VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
@@ -397,6 +397,21 @@ Research Result plan/content/result 与 Artifact content linkage。`research-art
 本 increment 的本地 Task Gate evidence 记录在 P7.9 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Query Service、
 API、Web、Optimizer、新 Statistics/Analytics、Artifact import/restore、跨 Dataset composition 与 Research/Live Runtime activation
 仍未实现。
+
+### P7.10 — Research Read Model & Read-only Query/API Boundary（VERIFIED locally）
+
+P7.10 以 portable Research Artifact 为唯一 upstream read boundary。Core `onlyalpha.research.query` 只依赖最小
+`OnlyResearchArtifactReader.load_verified()` Port，提供 versioned immutable Summary、exact Statistics Catalog 与 Series Page；
+支持 UTC nanosecond `[from,to)`、strict `after` cursor、稳定分页，并保持 Decimal，不建立 Query fingerprint、Store、cache、latest
+pointer 或任何 durable authority。
+
+独立 workspace package `onlyalpha-api` 通过 FastAPI/Pydantic/Uvicorn 暴露三个 `/api/v1` GET endpoint。Decimal 无损编码为字符串，
+事件时间保留 exact int64 nanosecond；invalid、missing、corrupt 分别映射稳定 machine code 与 400/404/500。API routes 不读取
+Manifest/Parquet，也不访问 Dataset、Calculation、Statistics Result 或 Research Result Store。`research-query` canonical lane、
+architecture firewall、consumer-aware impact propagation、workspace build/version graph 已建立。
+
+本 increment 的本地 Task Gate evidence 记录在 P7.10 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Web UI、
+Research Runtime lifecycle、Optimizer、新 Statistics/Analytics、Artifact catalog/search 与 Research/Live Runtime activation 仍未实现。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

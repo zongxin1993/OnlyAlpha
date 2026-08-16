@@ -176,15 +176,29 @@ RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_SWEEP,
     OnlyTestLane.RESEARCH_RESULT,
     OnlyTestLane.RESEARCH_ARTIFACT,
+    OnlyTestLane.RESEARCH_QUERY,
 )
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
     VerificationImpactRule(
+        "research-query",
+        (
+            "src/onlyalpha/research/query/",
+            "tests/research/query/",
+            "packages/api/onlyalpha-api/",
+        ),
+        ("tests/architecture/test_research_query_boundaries.py",),
+        (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Query owns the read-only consumer projection and API boundary",
+    ),
+    VerificationImpactRule(
         "research-artifact",
         ("src/onlyalpha/research/artifact/", "tests/research/artifact/"),
         ("tests/architecture/test_research_artifact_boundaries.py",),
-        (OnlyTestLane.RESEARCH_ARTIFACT,),
+        (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Research Artifact owns the derived immutable portable read boundary",
@@ -193,7 +207,7 @@ IMPACT_RULES = (
         "research-result",
         ("src/onlyalpha/research/result/", "tests/research/result/"),
         ("tests/architecture/test_research_result_boundaries.py",),
-        (OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT),
+        (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Research Result owns deterministic composition and immutable output authority",
@@ -206,7 +220,12 @@ IMPACT_RULES = (
             "packages/target/onlyalpha-plugin-targets/",
         ),
         ("tests/architecture/test_research_evaluation_boundaries.py",),
-        (OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT),
+        (
+            OnlyTestLane.RESEARCH_QUERY,
+            OnlyTestLane.RESEARCH_EVALUATION,
+            OnlyTestLane.RESEARCH_RESULT,
+            OnlyTestLane.RESEARCH_ARTIFACT,
+        ),
         STATIC,
         VerificationEscalation.COMPONENT,
         "evaluation owns Target, Statistics identity, alignment, and immutable result verification",
@@ -239,7 +258,7 @@ IMPACT_RULES = (
     VerificationImpactRule(
         "package-metadata",
         (),
-        ("pyproject.toml", "uv.lock"),
+        ("pyproject.toml", "uv.lock", "packages/api/onlyalpha-api/pyproject.toml"),
         (),
         STATIC,
         VerificationEscalation.COMPONENT,
@@ -361,7 +380,10 @@ IMPACT_RULES = (
         FULL_CHECKS,
         VerificationEscalation.FULL_LOCAL,
         "shared fixtures, support, and architecture gates can affect every canonical lane",
-        ("tests/architecture/test_research_result_boundaries.py",),
+        (
+            "tests/architecture/test_research_result_boundaries.py",
+            "tests/architecture/test_research_query_boundaries.py",
+        ),
     ),
     VerificationImpactRule(
         "docs-only",
@@ -445,6 +467,10 @@ def _static_plan(
     rules = set(rule_names)
     typed_roots = {
         "research-artifact": ("src/onlyalpha/research/artifact",),
+        "research-query": (
+            "src/onlyalpha/research/query",
+            "packages/api/onlyalpha-api/src/onlyalpha_api",
+        ),
         "research-result": ("src/onlyalpha/research/result",),
         "research-evaluation": ("src/onlyalpha/research/evaluation", "src/onlyalpha/research/result"),
         "research-sweep": ("src/onlyalpha/research/sweep",),
@@ -464,7 +490,14 @@ def _static_plan(
         mypy_targets,
         architecture,
         "package-metadata" in rules,
-        ("onlyalpha",) if "package-metadata" in rules else (),
+        tuple(
+            sorted(
+                {
+                    *(("onlyalpha-api",) if "research-query" in rules else ()),
+                    *(("onlyalpha",) if "package-metadata" in rules else ()),
+                }
+            )
+        ),
     )
 
 

@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-plugin-factors"
-version = "0.7.9"
+version = "0.7.10"
 description = "Official Factor backend extension point for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.7.9"]
+dependencies = ["onlyalpha==0.7.10"]
 
 [project.entry-points."onlyalpha.calculations"]
 official-factors = "onlyalpha_plugin_factors.registration:registrations"

@@ -105,7 +105,7 @@ def test_research_evaluation_lane_owns_target_statistics_and_strict_coverage() -
     source = Path("scripts/test_suite.py").read_text()
     assert '"src/onlyalpha/research/evaluation"' in source
     assert '"research-evaluation-coverage"' in source
-    assert "95 if name is OnlyTestLane.RESEARCH_EVALUATION" in source
+    assert "OnlyTestLane.RESEARCH_EVALUATION" in source
     assert "Research Evaluation branch coverage must be at least 90%" in source
     assert "Research Evaluation line coverage must be at least 95%" in source
 
@@ -134,3 +134,18 @@ def test_research_artifact_lane_owns_portable_boundary_and_strict_coverage() -> 
     assert '"research-artifact-coverage"' in source
     assert "Research Artifact branch coverage must be at least 90%" in source
     assert "Research Artifact line coverage must be at least 95%" in source
+
+
+def test_research_query_lane_owns_core_api_architecture_and_strict_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_QUERY]
+    assert lane.paths == (
+        "tests/research/query",
+        "tests/architecture/test_research_query_boundaries.py",
+        "packages/api/onlyalpha-api/tests",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/query"' in source
+    assert '"packages/api/onlyalpha-api/src/onlyalpha_api"' in source
+    assert '"research-query-coverage"' in source
+    assert "Research Query branch coverage must be at least 90%" in source
+    assert "Research Query line coverage must be at least 95%" in source

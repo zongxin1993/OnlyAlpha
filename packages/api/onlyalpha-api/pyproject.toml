@@ -1,0 +1,37 @@
+[project]
+name = "onlyalpha-api"
+version = "0.7.10"
+description = "Read-only Research Query HTTP API for OnlyAlpha"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "onlyalpha==0.7.10",
+    "fastapi>=0.116,<1",
+    "pydantic>=2.11,<3",
+    "uvicorn>=0.35,<1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<1",
+    "httpx2>=2,<3",
+    "pytest>=8.4,<9",
+]
+
+[project.scripts]
+onlyalpha-api = "onlyalpha_api.main:main"
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_api"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/onlyalpha_api"]

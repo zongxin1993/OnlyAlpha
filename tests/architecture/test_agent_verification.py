@@ -43,6 +43,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
         OnlyTestLane.RESEARCH_SWEEP,
         OnlyTestLane.RESEARCH_RESULT,
         OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_QUERY,
     }
 
 
@@ -58,7 +59,11 @@ def test_unknown_production_path_fails_closed_to_full_local() -> None:
 def test_research_result_change_is_scoped_to_its_lane_and_static_targets() -> None:
     plan = _plan("src/onlyalpha/research/result/result_store.py", "tests/research/result/test_result_store.py")
 
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_ARTIFACT, OnlyTestLane.RESEARCH_RESULT)
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_RESULT,
+    )
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/result",)
@@ -70,6 +75,7 @@ def test_statistics_authority_change_propagates_to_research_result_consumer() ->
     plan = _plan("src/onlyalpha/research/evaluation/result_store.py")
 
     assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_QUERY,
         OnlyTestLane.RESEARCH_ARTIFACT,
         OnlyTestLane.RESEARCH_RESULT,
         OnlyTestLane.RESEARCH_EVALUATION,
@@ -84,7 +90,11 @@ def test_statistics_authority_change_propagates_to_research_result_consumer() ->
 def test_research_result_architecture_boundary_requests_import_linter_without_full_local() -> None:
     plan = _plan("tests/architecture/test_research_result_boundaries.py")
 
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_ARTIFACT, OnlyTestLane.RESEARCH_RESULT)
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_ARTIFACT,
+        OnlyTestLane.RESEARCH_RESULT,
+    )
     assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
 
@@ -92,10 +102,44 @@ def test_research_result_architecture_boundary_requests_import_linter_without_fu
 def test_research_artifact_change_is_scoped_to_portable_boundary() -> None:
     plan = _plan("src/onlyalpha/research/artifact/store.py", "tests/research/artifact/test_store.py")
 
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_ARTIFACT,)
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT)
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/artifact",)
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
+
+
+def test_research_query_and_api_changes_use_consumer_lane_and_targeted_api_build() -> None:
+    plan = _plan(
+        "src/onlyalpha/research/query/service.py",
+        "packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py",
+        "tests/research/query/test_service.py",
+    )
+
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT)
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == (
+        "packages/api/onlyalpha-api/src/onlyalpha_api",
+        "src/onlyalpha/research/query",
+    )
+    assert plan.impact.static_plan.build_targets == ("onlyalpha-api",)
+    assert OnlyTestLane.CORE_FULL not in plan.impact.lanes
+
+
+def test_research_query_architecture_gate_is_component_scoped() -> None:
+    plan = _plan("tests/architecture/test_research_query_boundaries.py")
+
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT)
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
+
+
+def test_api_package_metadata_requires_version_sync_and_api_build() -> None:
+    plan = _plan("packages/api/onlyalpha-api/pyproject.toml")
+
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.version_sync_required
+    assert plan.impact.static_plan.build_targets == ("onlyalpha", "onlyalpha-api")
 
 
 def test_package_metadata_requests_version_sync_and_targeted_build() -> None:

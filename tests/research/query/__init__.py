@@ -1,0 +1,1 @@
+"""Research Query contract tests."""

@@ -151,8 +151,8 @@ def test_readme_and_roadmap_expose_one_truthful_current_increment() -> None:
     roadmap = Path("docs/roadmap.md").read_text()
     assert roadmap.count("Current Milestone: P7") == 1
     assert roadmap.count("Milestone State: IN_PROGRESS") == 1
-    assert roadmap.count("Current Increment: P7.9 — VERIFIED LOCALLY") == 1
+    assert roadmap.count("Current Increment: P7.10 — VERIFIED LOCALLY") == 1
     assert roadmap.count("P7 Final Certification: NOT COMPLETE") == 1
     assert "## 当前阶段：P6" not in roadmap
     assert "P7 milestone status | **IN_PROGRESS**" in readme
-    assert "Current increment | **P7.9 — VERIFIED locally**" in readme
+    assert "Current increment | **P7.10 — VERIFIED locally**" in readme
