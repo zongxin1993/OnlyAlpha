@@ -11,8 +11,7 @@ from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntim
 
 if TYPE_CHECKING:
     from onlyalpha.cluster.base import OnlyCluster
-    from onlyalpha.runtime.environment import OnlyRuntimeEnvironmentIdentity
-    from onlyalpha.runtime.runtime import OnlyRuntime
+    from onlyalpha.runtime.product import OnlyRuntimeEnvironment, OnlyRuntimeProduct
 
 
 class OnlyClusterLoadError(Exception):
@@ -82,8 +81,8 @@ class OnlyClusterSession:
 @dataclass(slots=True)
 class OnlyRuntimeSession:
     runtime_id: OnlyRuntimeId
-    runtime: OnlyRuntime
-    environment: OnlyRuntimeEnvironmentIdentity
+    runtime: OnlyRuntimeProduct
+    environment: OnlyRuntimeEnvironment
     bound_cluster_ids: tuple[OnlyClusterId, ...]
     state: str
 

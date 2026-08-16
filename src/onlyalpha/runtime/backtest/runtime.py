@@ -8,3 +8,4 @@ class OnlyBacktestRuntime(OnlyTradingRuntimeFacade):
     """Trading Kernel composed with the finite historical Backtest driver."""
 
     _supported_modes = frozenset({OnlyRuntimeMode.BACKTEST})
+    is_finite_runtime = True

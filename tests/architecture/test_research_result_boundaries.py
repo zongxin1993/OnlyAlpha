@@ -53,8 +53,7 @@ def test_research_result_defines_no_parallel_data_or_trading_authority() -> None
     assert "statistics_result_fingerprint" in source
 
 
-def test_research_and_live_runtime_remain_unsupported_after_result_closure() -> None:
-    research = OnlyResearchRuntimeFactory().create(None)
+def test_research_is_activated_and_live_remains_unsupported_after_p7_11() -> None:
     live = OnlyLiveRuntimeFactory().create(None)
-    assert not research.supported and research.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+    assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"

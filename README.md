@@ -18,7 +18,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.7.10` |
+| Version | `0.7.11` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -26,12 +26,12 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | **DONE / CERTIFIED** — exact Final-SHA remote certification completed |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.10 — VERIFIED locally** — Research Read Model & Read-only Query/API Boundary |
+| Current increment | **P7.11 — VERIFIED locally** — Finite Research Runtime & Runtime Product Boundary |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
 | P7.6.2 increment | **VERIFIED** — exact merged subject passed Layered Quality, CodeQL, Final-SHA and Nightly Heavy Quality |
-| Next semantic direction | Research Web consumption/visualization and finite Research Runtime lifecycle remain open |
+| Next semantic direction | Verify P7.11 closure; Research Web consumption/visualization remains open |
 | License | MIT |
 
 ---
@@ -57,7 +57,7 @@ semantic type/unit）、backend-neutral Registry 与 Trading resolver、显式 `
 Indicator 插件自有 characterization/coverage。旧 built-in token 只通过固定映射解析到 `@1`，不会选择 latest。当前
 Factor config 也显式携带 exact reference，并在 implementation load 后验证一致；Python class path 只负责定位代码，不是
 semantic identity。P7.0 当时尚未实现 Research backend；该能力已由下述 P7.2 完成。Calculation Result Store 已由 P7.3
-实现；Research Runtime 仍未激活。
+实现；P7.11 已在不改变这些 semantic identities 的前提下激活 finite Research Runtime。
 
 P7.1 建立 Historical Closed Bar Dataset v1：resolved Definition、exact Decimal/precision-preserving columnar schema、provider-independent
 canonical content identity、immutable content-addressed Parquet Snapshot Store、strict materialization 与独立 provenance。Historical Cache
@@ -97,7 +97,7 @@ Statistics rows，EXECUTED/REUSED 与物理路径不进入 semantic identity。P
 Research Artifact，复制 canonical Statistics rows 到自包含 Parquet/Manifest 包；发布后无需上游 Store 即可重证 Statistics、Research
 Result 与 Artifact identity，但 Artifact 不成为新的 semantic authority。P7.10 在其上建立 transport-neutral Query Model、确定性
 Query Service 与独立 `onlyalpha-api` FastAPI package；消费者只使用 exact identity 与 `load_verified()`，Decimal 以字符串、事件时间以
-纳秒整数传输。Research Runtime 仍未激活；Scheduler、Optimizer 与 Web UI 仍未实现。
+纳秒整数传输。P7.11 已激活 programmatic finite Research Runtime；Research YAML/CLI、Scheduler、Optimizer 与 Web UI 仍未实现。
 
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
@@ -1906,7 +1906,7 @@ engine.close()
 |---|---|---|
 | `BACKTEST` | 已实现，是当前 primary Runtime | 保留 event-driven + Virtual Broker + full Trading Kernel |
 | `SIM` | 已实现 realtime Virtual Broker、continuity、checkpoint 与 restart | 保持 shared Trading Kernel 与 durable recovery contract |
-| `RESEARCH` | Factory unsupported | P7 实现 vectorized Research Job/Result/Artifact workflow |
+| `RESEARCH` | finite programmatic Engine product 已实现 | Research YAML/CLI、Web 与 mixed heterogeneous lifecycle 尚未实现 |
 | `LIVE` | Factory unsupported | P8/P9 补齐 Broker durability、同步、恢复和运维 |
 
 SIM 的 product identity 只参与 composition、planning 与 lifecycle；Strategy Context 和 Trading Semantic Plane 不读取 Runtime mode。SIM 永不连接 Real Broker，长期生产运维与 broad MiniQMT compatibility matrix 仍不在当前认证范围。

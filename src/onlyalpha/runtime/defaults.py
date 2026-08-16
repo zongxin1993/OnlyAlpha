@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
@@ -50,13 +51,14 @@ def only_default_engine_services(
     brokers = OnlyBrokerFactoryRegistry()
     broker_contracts = OnlyBrokerFeeContractRegistry()
     market_products = OnlyMarketProductFactoryRegistry()
-    indicators = OnlyIndicatorFactoryRegistry()
+    calculations = OnlyCalculationRegistry()
+    indicators = OnlyIndicatorFactoryRegistry(calculations)
     discovery = only_discover_plugins(
         data_sources,
         brokers,
         broker_contracts,
         market_products,
-        indicators,
+        calculations,
         fail_fast=fail_fast,
     )
     clusters = OnlyClusterFactory(
@@ -74,6 +76,7 @@ def only_default_engine_services(
     assembler = OnlyEngineRunAssembler(
         runtimes,
         OnlyComponentFactoryRegistries(
+            calculations,
             data_sources,
             brokers,
             market_products,

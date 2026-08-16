@@ -43,6 +43,7 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
 )
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
+from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -200,6 +201,8 @@ class OnlyBacktestRuntimeFactory:
 
     @staticmethod
     def _config_fingerprint(request: OnlyRuntimeBuildRequest) -> str:
+        if not isinstance(request.plan, OnlyRuntimePlan):
+            raise TypeError("Backtest factory requires OnlyRuntimePlan")
         payloads = [
             dict(config.normalized_payload)
             for config in sorted(request.plan.cluster_configs, key=lambda item: str(item.cluster_id))

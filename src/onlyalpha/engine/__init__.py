@@ -13,6 +13,7 @@ from onlyalpha.engine.models import (
     OnlyEngineState,
     OnlyEngineValidationResult,
 )
+from onlyalpha.runtime.research import OnlyResearchWorkloadPlan
 
 __all__ = [
     "OnlyClusterHandle",
@@ -26,4 +27,5 @@ __all__ = [
     "OnlyEngineSnapshot",
     "OnlyEngineState",
     "OnlyEngineValidationResult",
+    "OnlyResearchWorkloadPlan",
 ]

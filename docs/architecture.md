@@ -65,16 +65,18 @@ OnlyEngine
 ```text
 CLI / Application
 → OnlyEngine
-→ OnlyRuntimePlanner
+→ Trading Runtime Planner / Research Workload Plan
 → OnlyEngineRunAssembler
 → Runtime Factory
-→ OnlyRuntime
-→ OnlyCluster
+→ Runtime Product
+→ Trading Cluster or Research Job/Sweep
 ```
 
 Engine 当前负责 Cluster Definition、配置/扩展验证、Runtime environment grouping、Runtime/Cluster Session、共享资源引用、装配、生命周期、Result/Artifact 聚合、`user_data` 布局和失败清理。Engine 不拥有 Order、Position、Account 或其他交易经济状态。
 
-当前 `OnlyEngine.run()` 只接受有限 `BACKTEST`。Streaming 路径使用 `initialize/start/wait/stop/close`。目标 Research 仍由 Engine 管理产品生命周期，但使用 Research Job / Plan；当前以 Cluster config 为中心的入口不能被当作迫使 Research 交易化的长期接口合同。
+当前 `OnlyEngine.run()` 只接受有限 `BACKTEST`。Streaming 路径使用 `initialize/start/wait/stop/close`。有限 Research 通过
+`add_research_workload()` 注册，并由 `initialize/start/run_runtime/stop/close` 驱动；它使用 Research Job/Sweep Plan，不创建
+Trading Cluster。P7.11 仍显式拒绝 Research 与 Trading 在同一 Engine 中混合，完整异构生命周期尚未实现。
 
 目标 Engine 允许四种 Runtime Session 同时存在且生命周期独立。Research/Backtest 完成不得隐式停止 Sim/Live；一个 Runtime 的
 start/stop/failure 不能成为另一个 Runtime 的 lifecycle command。Web/Application 未来通过 Engine 控制单个 Runtime；Engine 的
@@ -97,7 +99,7 @@ start/stop/failure 不能成为另一个 Runtime 的 lifecycle command。Web/App
 |---|---|---|
 | `BACKTEST` | 已实现，是当前主要产品 Runtime | 保留并继续使用完整 Trading Kernel |
 | `LIVE` | Factory 注册但返回 unsupported | 后续实现目标 Live Runtime |
-| `RESEARCH` | Factory 注册但返回 unsupported | 后续实现目标 Research Runtime |
+| `RESEARCH` | finite Factory、programmatic workload 与 Engine product path 已实现 | 保持无 Trading authority 的 batch lifecycle |
 | `SIM` | realtime Virtual Broker、gap/reconnect、durable checkpoint 与 new-process restart 已实现 | 保持 shared Trading Kernel 与 recovery contract |
 
 历史 `PAPER/SHADOW` active package、Factory、配置与 public export 已删除，没有 alias 或 wrapper。
@@ -129,7 +131,9 @@ continuity correctness。具体决定见 [ADR 0077](adr/0077-streaming-recovery-
 
 ## 4. Research Runtime
 
-Research Runtime 的目标边界是 Historical + Vectorized/Batch + Research-oriented。它拥有 dataset、calculation、job progress、Research Result 和 Artifact state，不拥有 formal trading Account、Position、Order、Broker、Risk Reservation 或 durable Trading Transaction authority。
+Research Runtime 的正式边界是 Historical + Vectorized/Batch + Research-oriented。它只拥有有限执行状态；Dataset、Calculation、
+Statistics、Research Result 与 Artifact 仍由既有 immutable content-addressed Store 拥有，不属于 Runtime mutable authority。它不拥有
+formal trading Account、Position、Order、Broker、Market Product、Risk Reservation、checkpoint 或 durable Trading Transaction authority。
 
 目标研究链：
 
@@ -150,11 +154,13 @@ Research 可复用 MarketData Domain、Instrument、Reference、Calendar、canon
 以及 Research-only Target/Forward Return、exact alignment、IC/Rank IC 和 immutable Statistics Result。统一 Factor semantic 仍以
 `TIME_SERIES/CROSS_SECTION` 表达数学 execution shape，以 `RESEARCH/TRADING` 表达物理 backend；Runtime type 不进入 Factor identity。
 Evaluation 只允许消费 verified Feature/Target Result，Evaluation → Feature dependency 在 Calculation Graph construction 时 fail closed。
-当前 Research Factory 仍明确 unsupported；P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result
+P7.11 已激活 finite Research Factory：Runtime 从 exact verified Dataset Snapshot 开始，按 Direct Job、Sweep、Statistics、Result、
+Artifact 与 final verified load 顺序编排既有 authority，并使用 verified immutable authority + deterministic re-entry 恢复；不创建
+Runtime checkpoint 或 workload semantic fingerprint。P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result
 精确选择的 Statistics rows、可脱离全部上游 Store 自验证的 immutable Research Artifact。P7.10 已在 Artifact 之上实现无状态、
 transport-neutral Query Model/Service，并由独立 `onlyalpha-api` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
-Statistics 或 Research authority，Query Result 只是 ephemeral projection；完整 finite Runtime lifecycle 与 Web workflow 尚未实现。
-当前 trading-shaped `OnlyRuntime` 基类不能反向定义未来 Research ownership。
+Statistics 或 Research authority，Query Result 只是 ephemeral projection。Research YAML/CLI、Web workflow、Scheduler、数据库控制面
+与完整 mixed Runtime lifecycle 尚未实现。
 
 ## 5. Trading Runtime
 
@@ -580,8 +586,8 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 
 当前未完成项：
 
-- `RESEARCH`：目标 Runtime，Factory unsupported；Dataset/Calculation/Job/Factor/Sweep/Target/Statistics/Research Result、portable
-  Research Artifact 与只读 Query/API 已实现，Web 与产品 Runtime lifecycle 尚未实现；
+- `RESEARCH`：formal finite Runtime 已实现；从 exact verified Dataset Snapshot 编排 Job/Sweep/Statistics/Result/Artifact，提供
+  programmatic Engine entry 与 deterministic re-entry；Research YAML/CLI、Web 和 mixed heterogeneous lifecycle 尚未实现；
 - `LIVE`：目标 Runtime，Factory unsupported，durable outbound Broker command、同步/对账与长期恢复尚未实现；
 - `SIM`：当前认证不覆盖 Real Broker、长期生产运维、24h soak 或 broad MiniQMT compatibility matrix。
 

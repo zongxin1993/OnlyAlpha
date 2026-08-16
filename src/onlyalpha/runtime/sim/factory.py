@@ -46,6 +46,7 @@ from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildR
 from onlyalpha.runtime.persistence.factory import OnlyRuntimePersistenceStoreCreateRequest
 from onlyalpha.runtime.persistence.lease import OnlyRuntimeStateLease
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
+from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
 from onlyalpha.runtime.streaming.config import OnlyStreamingRuntimeConfig
@@ -506,6 +507,8 @@ class OnlySimRuntimeFactory:
 
     @staticmethod
     def _fingerprint(request: OnlyRuntimeBuildRequest) -> str:
+        if not isinstance(request.plan, OnlyRuntimePlan):
+            raise TypeError("SIM factory requires OnlyRuntimePlan")
         payload = json.dumps(
             [dict(item.normalized_payload) for item in request.plan.cluster_configs],
             sort_keys=True,

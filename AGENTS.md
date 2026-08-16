@@ -185,10 +185,13 @@ Broad MiniQMT Compatibility Matrix
 
 ```text
 LIVE
-RESEARCH
 ```
 
-`SIM` 已有 enum、配置、Factory、realtime Virtual Broker durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported target Factory，而是已删除的历史产品 spelling。`RESEARCH` calculation infrastructure 已实现 P7.0–P7.5；这不等于 Research product Runtime 已激活，`OnlyResearchRuntimeFactory` 仍 intentionally unsupported。`LIVE` 生产工作流同样未完成。
+`RESEARCH` 已由 P7.11 激活为 programmatic finite Runtime：从 exact verified Dataset Snapshot 编排既有 Job/Sweep/Statistics/Result/Artifact
+authority，并以 deterministic re-entry 恢复；它不创建 Trading Cluster、Account、Broker、Market Product、Trading Kernel 或 Runtime
+checkpoint。Research YAML/CLI、Web 与 mixed heterogeneous lifecycle 仍未实现。`SIM` 已有 enum、配置、Factory、realtime Virtual Broker
+durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported
+target Factory，而是已删除的历史产品 spelling。`LIVE` 生产工作流仍未完成。
 
 ### 2.5 领域模型不等于产品能力
 
@@ -434,7 +437,7 @@ Research Result state
 Research Artifact state
 ```
 
-Research 不得仅为满足共享父类、Manager 数量对称或代码复用而创建 Order、Position、Account、Broker、Reservation、Execution Transaction 等 Trading Authorities。当前 `OnlyResearchRuntime` 仍继承 trading-shaped `OnlyRuntime`，但 Factory intentionally unsupported；该未激活结构不得反向定义 Research 目标模型。
+Research 不得仅为满足共享父类、Manager 数量对称或代码复用而创建 Order、Position、Account、Broker、Reservation、Execution Transaction 等 Trading Authorities。`OnlyResearchRuntime` 通过最小 structural Runtime product boundary 独立实现，不继承 trading-shaped `OnlyRuntime`。
 
 Research Dataset 的正式 authority 是 immutable Dataset Snapshot；Historical Cache 只负责 acquisition optimization，不是
 Dataset authority。Provider identity 只进入 provenance，不进入 Dataset semantic identity。`onlyalpha.research` 不得导入
@@ -455,7 +458,7 @@ semantic identity 已由现有 `calculation_fingerprint` 表达，不得增加�
 Store `load_verified()` 判定复用，只有 `RESULT_NOT_FOUND` 可以进入 P7.2 execution 与 P7.3 immutable commit；corrupt/invalid
 authority 必须 fail closed，不得用 `exists()`、recompute、repair、delete 或 overwrite 掩盖。成功 Outcome 显式区分
 `EXECUTED/REUSED`，但不得改变 Calculation/Result identity。P7.4 recovery 只采用 deterministic re-entry，不创建 mutable Job
-database、scheduler、worker lease 或第二套 recovery authority；Research Runtime Factory 仍 intentionally unsupported。
+database、scheduler、worker lease 或第二套 recovery authority；P7.11 Runtime 只可编排该既有 authority。
 
 Research Sweep v1 是 multi-job composition，不是第二套 Calculation/Job/Result authority。Graph Template 只使用 template-local
 TemplateNodeId、exact type reference、requested parameters 与 template dependency；TemplateNodeId 不等于 node fingerprint 或 alias，且
@@ -463,7 +466,7 @@ TemplateNodeId、exact type reference、requested parameters 与 template depend
 parameter-derived warmup/source/default/constraint，禁止替换 resolved Definition.parameters。Finite explicit candidates 与 dimensions 必须
 canonicalize，semantic duplicate fail closed；每个 Cell 的唯一 identity 是 existing calculation_fingerprint，不创建 Trial/Cell/Sweep
 fingerprint。SweepExecutor 只能 sequential 调用 OnlyResearchJobExecutor；恢复只采用 deterministic re-entry + verified REUSED/EXECUTED，
-不得创建 Sweep/Trial Store、mutable progress、checkpoint、scheduler、lease 或 worker pool。Research Runtime Factory 继续 unsupported。
+不得创建 Sweep/Trial Store、mutable progress、checkpoint、scheduler、lease 或 worker pool。P7.11 Runtime 必须保留 SweepExecutor ownership。
 
 Research Factor / Feature / Score 继续使用唯一 Calculation Definition / Graph / Result / Job authority。Feature 只是
 `(node_fingerprint, output_name)` output port；Raw `FACTOR_VALUE` 与 `[0,1]` Decimal `FACTOR_SCORE` 是不同 machine-readable
@@ -484,14 +487,14 @@ Research Result 是 exact Statistics Result composition authority，Statistics R
 Store 猜测 composition、重新计算 Statistics、反向写回或恢复上游 authority。发布后的 V1 Artifact 只含严格 Manifest 与 canonical
 Statistics Parquet，必须在不访问 Dataset/Calculation/Statistics/Research Result Store 时完成 byte、row、Statistics identity、Research
 Result identity 与 Artifact logical identity 验证。Artifact 不得新增 Plan/Result semantic identity、Query/API/Web、Analytics、mutable
-Experiment state 或 Trading/Research 通用 Artifact framework；Research Runtime Factory 继续 unsupported。
+Experiment state 或 Trading/Research 通用 Artifact framework；P7.11 Runtime 只物化并 verified-load exact Artifact。
 
 Research Query/API 的唯一 upstream read boundary 是 portable Research Artifact。Query Core 只可通过最小 Reader Port 调用
 `load_verified(exact_research_result_fingerprint)`，并进行 exact lookup、projection、半开时间范围过滤、稳定排序和 cursor 分页；
 不得读取 physical Artifact layout、访问任何 execution Store、重算 Statistics、持久化 Query Result、建立 Catalog/latest/search/cache。
 Query Result 是 ephemeral deterministic projection，不是 authority。HTTP transport 位于独立 `onlyalpha-api` workspace package，Core
 不得依赖 FastAPI/Pydantic/Uvicorn；Decimal 必须编码为无损字符串，event time 必须保留 exact nanosecond integer，corrupt 不得映射为
-missing/empty/rebuild。Research Runtime 与 Live Runtime Factory 继续 unsupported，Web UI 仍未实现。
+missing/empty/rebuild。Research Runtime 不得使用 Query/API 作为 execution infrastructure；Live Runtime Factory 与 Web UI 仍未实现。
 
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
@@ -1628,6 +1631,7 @@ uv run python scripts/test_suite.py research-calculation
 uv run python scripts/test_suite.py research-factor
 uv run python scripts/test_suite.py research-job
 uv run python scripts/test_suite.py research-sweep
+uv run python scripts/test_suite.py research-runtime
 uv run python scripts/test_suite.py fast
 uv run python scripts/test_suite.py integration
 uv run python scripts/test_suite.py ashare
@@ -1670,7 +1674,7 @@ windows
 |---|---|
 | 纯值对象、纯函数 | 目标单测 + `fast` |
 | 公共 API / Plugin SPI | Contract + `fast` |
-| Engine / Runtime / Cluster | `integration` |
+| Engine / Runtime / Cluster | 对应 product lane + `integration`；Research 使用 `research-runtime` |
 | Market Product / A-share 规则 | `ashare` |
 | Transaction / Projection / Checkpoint | `recovery` |
 | MiniQMT 转换 | `miniqmt-contract` |

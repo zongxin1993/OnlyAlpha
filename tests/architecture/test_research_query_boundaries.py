@@ -105,11 +105,10 @@ def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() ->
     assert "load_verified" in source
 
 
-def test_product_api_has_exactly_three_get_routes_and_runtimes_remain_unsupported() -> None:
+def test_product_api_has_exactly_three_get_routes_and_live_remains_unsupported() -> None:
     routes = (Path("packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py")).read_text(encoding="utf-8")
     assert routes.count("@router.get(") == 3
     assert not any(token in routes for token in ("@router.post", "@router.put", "@router.patch", "@router.delete"))
-    research = OnlyResearchRuntimeFactory().create(None)
     live = OnlyLiveRuntimeFactory().create(None)
-    assert not research.supported and research.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+    assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"

@@ -169,6 +169,7 @@ class VerificationStepResult:
 STATIC = (OnlyReleaseCheck.STATIC,)
 FULL_CHECKS = (OnlyReleaseCheck.STATIC, OnlyReleaseCheck.BUILD)
 RESEARCH_CHAIN = (
+    OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_CALCULATION,
     OnlyTestLane.RESEARCH_FACTOR,
     OnlyTestLane.RESEARCH_EVALUATION,
@@ -181,6 +182,15 @@ RESEARCH_CHAIN = (
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
+    VerificationImpactRule(
+        "research-runtime",
+        ("src/onlyalpha/runtime/research/", "tests/runtime/research/"),
+        ("src/onlyalpha/runtime/product.py", "tests/architecture/test_research_runtime_boundaries.py"),
+        (OnlyTestLane.RESEARCH_RUNTIME,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "finite Research Runtime orchestrates existing immutable Research authorities",
+    ),
     VerificationImpactRule(
         "research-query",
         (
@@ -198,7 +208,7 @@ IMPACT_RULES = (
         "research-artifact",
         ("src/onlyalpha/research/artifact/", "tests/research/artifact/"),
         ("tests/architecture/test_research_artifact_boundaries.py",),
-        (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT),
+        (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Research Artifact owns the derived immutable portable read boundary",
@@ -207,7 +217,12 @@ IMPACT_RULES = (
         "research-result",
         ("src/onlyalpha/research/result/", "tests/research/result/"),
         ("tests/architecture/test_research_result_boundaries.py",),
-        (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT),
+        (
+            OnlyTestLane.RESEARCH_RUNTIME,
+            OnlyTestLane.RESEARCH_QUERY,
+            OnlyTestLane.RESEARCH_RESULT,
+            OnlyTestLane.RESEARCH_ARTIFACT,
+        ),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Research Result owns deterministic composition and immutable output authority",
@@ -221,6 +236,7 @@ IMPACT_RULES = (
         ),
         ("tests/architecture/test_research_evaluation_boundaries.py",),
         (
+            OnlyTestLane.RESEARCH_RUNTIME,
             OnlyTestLane.RESEARCH_QUERY,
             OnlyTestLane.RESEARCH_EVALUATION,
             OnlyTestLane.RESEARCH_RESULT,
@@ -234,7 +250,7 @@ IMPACT_RULES = (
         "research-sweep",
         ("src/onlyalpha/research/sweep/", "tests/research/sweep/"),
         ("tests/architecture/test_research_sweep_boundaries.py",),
-        (OnlyTestLane.RESEARCH_SWEEP, OnlyTestLane.RESEARCH_JOB),
+        (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_SWEEP, OnlyTestLane.RESEARCH_JOB),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Sweep composition delegates execution to immutable Research Jobs",
@@ -286,7 +302,12 @@ IMPACT_RULES = (
         "research-factor",
         ("tests/research/factor/", "packages/factor/onlyalpha-plugin-factors/"),
         (),
-        (OnlyTestLane.RESEARCH_FACTOR, OnlyTestLane.RESEARCH_JOB, OnlyTestLane.RESEARCH_SWEEP),
+        (
+            OnlyTestLane.RESEARCH_RUNTIME,
+            OnlyTestLane.RESEARCH_FACTOR,
+            OnlyTestLane.RESEARCH_JOB,
+            OnlyTestLane.RESEARCH_SWEEP,
+        ),
         STATIC,
         VerificationEscalation.COMPONENT,
         "factor semantics are consumed by immutable research jobs",
@@ -295,7 +316,7 @@ IMPACT_RULES = (
         "research-job",
         ("src/onlyalpha/research/job/", "tests/research/job/"),
         (),
-        (OnlyTestLane.RESEARCH_JOB, OnlyTestLane.RESEARCH_SWEEP),
+        (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_JOB, OnlyTestLane.RESEARCH_SWEEP),
         STATIC,
         VerificationEscalation.COMPONENT,
         "research job changes are covered by the canonical job application lane",
@@ -466,6 +487,7 @@ def _static_plan(
     )
     rules = set(rule_names)
     typed_roots = {
+        "research-runtime": ("src/onlyalpha/runtime/research", "src/onlyalpha/runtime/product.py"),
         "research-artifact": ("src/onlyalpha/research/artifact",),
         "research-query": (
             "src/onlyalpha/research/query",

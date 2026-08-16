@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.basis import OnlyFeeBasisProviderRegistry
@@ -15,11 +16,12 @@ from onlyalpha.fee.reconciliation_policy import OnlyFeeReconciliationPolicyRegis
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult, OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.persistence.factory import OnlyRuntimePersistenceStoreFactory
-from onlyalpha.runtime.planning import OnlyRuntimePlan
+from onlyalpha.runtime.product import OnlyRuntimeProductPlan
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyComponentFactoryRegistries:
+    calculations: OnlyCalculationRegistry
     data_sources: OnlyDataSourceFactoryRegistry
     brokers: OnlyBrokerFactoryRegistry
     market_products: OnlyMarketProductFactoryRegistry
@@ -39,7 +41,7 @@ class OnlyEngineRunAssembler:
         self._runtime_factories = runtime_factories
         self.components = component_factories
 
-    def build(self, plan: OnlyRuntimePlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
+    def build(self, plan: OnlyRuntimeProductPlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
         try:
             factory = self._runtime_factories.require(plan.environment.runtime_type)
         except ValueError as exc:
@@ -49,7 +51,7 @@ class OnlyEngineRunAssembler:
             )
         return factory.create(OnlyRuntimeBuildRequest(plan, self.components, user_data_root))
 
-    def validate(self, plan: OnlyRuntimePlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
+    def validate(self, plan: OnlyRuntimeProductPlan, user_data_root: Path | None = None) -> OnlyRuntimeBuildResult:
         """Validate factory availability without constructing Runtime objects."""
 
         try:

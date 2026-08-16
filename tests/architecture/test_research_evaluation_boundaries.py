@@ -119,7 +119,5 @@ def test_evaluation_plane_has_no_trading_authority_imports() -> None:
             assert not any(name.startswith(forbidden) for name in imports), (path, imports)
 
 
-def test_research_runtime_remains_unsupported_after_evaluation_closure() -> None:
-    result = OnlyResearchRuntimeFactory().create(None)
-    assert not result.supported
-    assert result.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+def test_research_runtime_factory_is_formally_activated_after_p7_11() -> None:
+    assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"

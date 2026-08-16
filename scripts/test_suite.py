@@ -32,6 +32,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_RESULT = "research-result"
     RESEARCH_ARTIFACT = "research-artifact"
     RESEARCH_QUERY = "research-query"
+    RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
     RESEARCH_DATASET = "research-dataset"
@@ -132,6 +133,18 @@ LANES = {
             "tests/research/query",
             "tests/architecture/test_research_query_boundaries.py",
             "packages/api/onlyalpha-api/tests",
+        ),
+        "not external",
+        "2",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_RUNTIME: Lane(
+        (
+            "tests/runtime/research",
+            "tests/runtime/factory/test_runtime_factory.py",
+            "tests/engine/test_runtime_planning.py",
+            "tests/engine/test_engine_wait.py",
+            "tests/architecture/test_research_runtime_boundaries.py",
         ),
         "not external",
         "2",
@@ -268,6 +281,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_QUERY,
     OnlyTestLane.RESEARCH_ARTIFACT,
     OnlyTestLane.RESEARCH_RESULT,
@@ -347,6 +361,10 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_sources = {
+            OnlyTestLane.RESEARCH_RUNTIME: (
+                "src/onlyalpha/runtime/research",
+                "onlyalpha.runtime.product",
+            ),
             OnlyTestLane.RESEARCH_QUERY: (
                 "src/onlyalpha/research/query",
                 "packages/api/onlyalpha-api/src/onlyalpha_api",
@@ -370,7 +388,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (
-            "research-query-coverage"
+            "research-runtime-coverage"
+            if name is OnlyTestLane.RESEARCH_RUNTIME
+            else "research-query-coverage"
             if name is OnlyTestLane.RESEARCH_QUERY
             else "research-artifact-coverage"
             if name is OnlyTestLane.RESEARCH_ARTIFACT
@@ -399,7 +419,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 95 if name in (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 95 if name in (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
             ]
         )
         workers = "0"
@@ -422,7 +442,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / "test-results"
             / "coverage"
             / (
-                "research-query-coverage.json"
+                "research-runtime-coverage.json"
+                if name is OnlyTestLane.RESEARCH_RUNTIME
+                else "research-query-coverage.json"
                 if name is OnlyTestLane.RESEARCH_QUERY
                 else "research-artifact-coverage.json"
                 if name is OnlyTestLane.RESEARCH_ARTIFACT
@@ -479,6 +501,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 code = 1
             if name is OnlyTestLane.RESEARCH_QUERY and line_rate < 95:
                 print("Research Query line coverage must be at least 95%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_RUNTIME and branch_rate < 90:
+                print("Research Runtime branch coverage must be at least 90%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_RUNTIME and line_rate < 95:
+                print("Research Runtime line coverage must be at least 95%", file=sys.stderr)
                 code = 1
     if metric_path.is_file():
         metrics = json.loads(metric_path.read_text(encoding="utf-8"))

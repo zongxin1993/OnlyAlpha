@@ -15,9 +15,11 @@ from onlyalpha.plugin.data_source import OnlyDataSourceFactory
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor, OnlyPluginOrigin, OnlyPluginOriginType, OnlyPluginType
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
 from onlyalpha.runtime.defaults import only_default_engine_services
-from onlyalpha.runtime.factory import OnlyRuntimeFactoryRegistry
+from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from onlyalpha.runtime.research import only_research_runtime_plan
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
+from tests.runtime.research.support import workload_case
 from tests.runtime_support.market_product import only_generic_market_product
 
 
@@ -127,13 +129,26 @@ def test_default_composition_installs_only_the_verified_cny_policy() -> None:
         )
 
 
-def test_unimplemented_runtime_factories_return_structured_unsupported_results() -> None:
+def test_live_remains_unsupported_and_research_rejects_a_trading_plan() -> None:
     services = only_default_engine_services()
-    for runtime_type in ("LIVE", "RESEARCH"):
-        build = services.assembler.build(_plan(runtime_type))
-        assert build.runtime is None
-        assert build.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
-        assert build.failure_message == f"{runtime_type} Runtime is registered but not implemented in phase one"
+    live = services.assembler.build(_plan("LIVE"))
+    assert live.runtime is None
+    assert live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+    research = services.assembler.build(_plan("RESEARCH"))
+    assert research.runtime is None
+    assert research.failure_code == "RESEARCH_RUNTIME_PLAN_REQUIRED"
+
+
+def test_research_factory_rejects_invalid_components_and_missing_root(tmp_path: object) -> None:
+    services = only_default_engine_services()
+    _, workload = workload_case(tmp_path)  # type: ignore[arg-type]
+    plan = only_research_runtime_plan(workload)
+    factory = services.assembler._runtime_factories.require("RESEARCH")  # type: ignore[attr-defined]
+    components = services.assembler.components
+    invalid = factory.create(OnlyRuntimeBuildRequest(plan, object(), tmp_path))  # type: ignore[arg-type]
+    assert invalid.failure_code == "RESEARCH_RUNTIME_COMPONENTS_INVALID"
+    missing = factory.create(OnlyRuntimeBuildRequest(plan, components, None))
+    assert missing.failure_code == "RESEARCH_USER_DATA_ROOT_REQUIRED"
 
 
 @pytest.mark.parametrize("legacy", ("PAPER", "SHADOW"))

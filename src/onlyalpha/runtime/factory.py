@@ -9,27 +9,31 @@ from typing import Protocol
 from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.runtime.planning import OnlyRuntimePlan
-from onlyalpha.runtime.runtime import OnlyRuntime
+from onlyalpha.runtime.product import OnlyRuntimeProduct, OnlyRuntimeProductPlan
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyRuntimeBuildRequest:
-    plan: OnlyRuntimePlan
+    plan: OnlyRuntimeProductPlan
     components: object
     user_data_root: Path | None = None
 
     @property
     def config(self) -> OnlyRuntimeAssemblyPlan:
+        if not isinstance(self.plan, OnlyRuntimePlan):
+            raise TypeError("Trading Runtime factory requires OnlyRuntimePlan")
         return self.plan.assembly_plan
 
     @property
     def market_product(self) -> OnlyResolvedMarketProductBinding:
+        if not isinstance(self.plan, OnlyRuntimePlan):
+            raise TypeError("Trading Runtime factory requires OnlyRuntimePlan")
         return self.plan.market_product
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyRuntimeBuildResult:
-    runtime: OnlyRuntime | None = None
+    runtime: OnlyRuntimeProduct | None = None
     failure_code: str | None = None
     failure_message: str | None = None
 

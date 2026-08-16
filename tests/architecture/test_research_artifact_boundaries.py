@@ -54,7 +54,7 @@ def test_portable_store_constructor_and_load_boundary_require_no_upstream_store(
     assert tuple(load.parameters) == ("self", "research_result_fingerprint")
 
 
-def test_artifact_defines_no_plan_result_or_trading_authority_and_runtimes_remain_unsupported() -> None:
+def test_artifact_defines_no_plan_result_or_trading_authority_and_live_remains_unsupported() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in Path("src/onlyalpha/research/artifact").glob("*.py")
     )
@@ -71,7 +71,6 @@ def test_artifact_defines_no_plan_result_or_trading_authority_and_runtimes_remai
     assert not any(name in source for name in forbidden)
     assert "load_verified" in source
     assert "artifact_manifest.json" in source and "statistics.parquet" in source
-    research = OnlyResearchRuntimeFactory().create(None)
     live = OnlyLiveRuntimeFactory().create(None)
-    assert not research.supported and research.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+    assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"

@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -137,6 +137,8 @@ jobs:
         run: uv run python scripts/test_suite.py research-artifact --coverage
       - name: Mandatory Research Query branch coverage
         run: uv run python scripts/test_suite.py research-query --coverage
+      - name: Mandatory Research Runtime branch coverage
+        run: uv run python scripts/test_suite.py research-runtime --coverage
       - name: Mandatory Research Job branch coverage
         run: uv run python scripts/test_suite.py research-job --coverage
       - name: Mandatory Research Sweep branch coverage

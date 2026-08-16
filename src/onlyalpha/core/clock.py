@@ -23,6 +23,12 @@ from onlyalpha.core.time import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def only_system_utc_now() -> datetime:
+    """Return wall-clock UTC through the repository's sole system-time boundary."""
+
+    return only_unix_ns_to_datetime_utc(time.time_ns(), allow_truncation=True)
+
+
 class OnlyClockError(OnlyError):
     """Base error for Clock lifecycle, timer, and advancement failures."""
 

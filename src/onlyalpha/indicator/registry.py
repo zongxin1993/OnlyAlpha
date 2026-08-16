@@ -34,8 +34,8 @@ class OnlyIndicatorInstanceKey:
 
 
 class OnlyIndicatorFactoryRegistry:
-    def __init__(self) -> None:
-        self._calculations = OnlyCalculationRegistry()
+    def __init__(self, calculations: OnlyCalculationRegistry | None = None) -> None:
+        self._calculations = calculations or OnlyCalculationRegistry()
         self._trading = OnlyTradingCalculationBackendResolver(self._calculations)
         self._factories: dict[OnlyIndicatorTypeId, OnlyCalculationBackendRegistration] = {}
 

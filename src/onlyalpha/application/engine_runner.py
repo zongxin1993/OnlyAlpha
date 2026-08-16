@@ -5,8 +5,10 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from enum import StrEnum
+from typing import cast
 
 from onlyalpha.engine import OnlyEngine
+from onlyalpha.runtime.runtime import OnlyRuntime
 
 from .stop_controller import (
     OnlyApplicationShutdownReason,
@@ -97,7 +99,8 @@ class OnlyEngineApplicationRunner:
             engine.initialize()
             engine.start()
             snapshots: list[dict[str, object]] = []
-            for runtime in engine.runtimes:
+            for runtime_product in engine.runtimes:
+                runtime = cast(OnlyRuntime, runtime_product)
                 store = getattr(runtime, "latest_observation_store", None)
                 if store is None:
                     raise RuntimeError(f"{runtime.runtime_type} Runtime has no Observation authority")

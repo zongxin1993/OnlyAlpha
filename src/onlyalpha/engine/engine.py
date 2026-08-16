@@ -14,7 +14,7 @@ from onlyalpha.analytics import OnlyBacktestAnalyticsService
 from onlyalpha.artifact import OnlyBacktestArtifactWriter, OnlyRunArtifactTarget
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.errors import OnlyDuplicateIdError, OnlyLifecycleError
-from onlyalpha.domain.identifiers import OnlyClusterId
+from onlyalpha.domain.identifiers import OnlyClusterId, OnlyRuntimeId
 from onlyalpha.engine.composition import OnlyClusterComposition
 from onlyalpha.engine.infrastructure import OnlyInfrastructureRegistry
 from onlyalpha.engine.models import (
@@ -42,6 +42,12 @@ from onlyalpha.runtime.planning import (
     OnlyEngineExecutionPlan,
     OnlyRuntimePlanner,
 )
+from onlyalpha.runtime.product import (
+    OnlyFiniteRuntime,
+    OnlyPluginResourceSnapshotRuntime,
+    OnlyRuntimeProduct,
+)
+from onlyalpha.runtime.research import OnlyResearchRuntimePlan, OnlyResearchWorkloadPlan, only_research_runtime_plan
 from onlyalpha.runtime.result import OnlyRuntimeResult
 from onlyalpha.runtime.runtime import OnlyRuntime
 from onlyalpha.storage.base import OnlyStorage
@@ -68,6 +74,7 @@ class OnlyEngine:
         self._cluster_definitions: dict[OnlyClusterId, OnlyClusterRunConfig] = {}
         self._cluster_sessions: dict[OnlyClusterId, OnlyClusterSession] = {}
         self._runtime_sessions: dict[str, OnlyRuntimeSession] = {}
+        self._research_plans: dict[str, OnlyResearchRuntimePlan] = {}
         self._handles: dict[OnlyClusterId, OnlyClusterHandle] = {}
         self._infrastructure = OnlyInfrastructureRegistry()
         self._environment_builder = OnlyRuntimeEnvironmentBuilder()
@@ -77,7 +84,7 @@ class OnlyEngine:
         self._stop_attempted = False
 
     @property
-    def runtimes(self) -> tuple[OnlyRuntime, ...]:
+    def runtimes(self) -> tuple[OnlyRuntimeProduct, ...]:
         return tuple(item.runtime for item in self._runtime_sessions.values())
 
     @property
@@ -140,6 +147,19 @@ class OnlyEngine:
             self.state = previous
             raise
 
+    def add_research_workload(self, workload: OnlyResearchWorkloadPlan) -> OnlyRuntimeId:
+        if self.state not in {OnlyEngineState.CREATED, OnlyEngineState.CONFIGURING, OnlyEngineState.READY}:
+            raise OnlyLifecycleError(f"cannot add Research workload while Engine is {self.state}")
+        if not isinstance(workload, OnlyResearchWorkloadPlan):
+            raise TypeError("workload must be OnlyResearchWorkloadPlan")
+        plan = only_research_runtime_plan(workload)
+        key = str(plan.runtime_id)
+        if key in self._research_plans:
+            raise OnlyDuplicateIdError(f"Research Runtime already registered: {plan.runtime_id}")
+        self._research_plans[key] = plan
+        self.state = OnlyEngineState.READY
+        return plan.runtime_id
+
     def remove_cluster(
         self,
         cluster_id: OnlyClusterId,
@@ -175,16 +195,22 @@ class OnlyEngine:
 
     def validate(self) -> OnlyEngineValidationResult:
         errors: list[str] = []
+        if self._research_plans and self._cluster_definitions:
+            errors.append("MIXED_RESEARCH_TRADING_NOT_SUPPORTED")
         plan = self._planner.plan(self.config.engine_id, self.cluster_definitions, self._market_products)
         services = self._require_services()
         for runtime_plan in plan.runtime_plans:
             validation = services.assembler.validate(runtime_plan, self.config.user_data_root)
             if validation.failure_code is not None:
                 errors.append(f"{runtime_plan.cluster_ids}: {validation.failure_code}: {validation.failure_message}")
+        for research_plan in self._research_plans.values():
+            validation = services.assembler.validate(research_plan, self.config.user_data_root)
+            if validation.failure_code is not None:
+                errors.append(f"{research_plan.runtime_id}: {validation.failure_code}: {validation.failure_message}")
         return OnlyEngineValidationResult(
-            not errors and bool(self._cluster_definitions),
+            not errors and bool(self._cluster_definitions or self._research_plans),
             len(self._cluster_definitions),
-            len(plan.runtime_plans),
+            len(plan.runtime_plans) + len(self._research_plans),
             tuple(errors),
             self.config.user_data_root,
             self._plugin_descriptions(services),
@@ -212,22 +238,25 @@ class OnlyEngine:
 
     def initialize(self) -> None:
         self._require_not_terminated("initialize")
-        if self._cluster_sessions:
+        if self._runtime_sessions:
             if self.state is OnlyEngineState.READY:
                 return
             raise OnlyLifecycleError("Engine sessions are already initialized")
         if self.state not in {OnlyEngineState.CREATED, OnlyEngineState.READY}:
             raise OnlyLifecycleError(f"cannot initialize Engine while {self.state}")
-        if not self._cluster_definitions:
-            raise OnlyLifecycleError("Engine requires at least one Cluster definition")
+        if not self._cluster_definitions and not self._research_plans:
+            raise OnlyLifecycleError("Engine requires at least one Runtime product definition")
+        validation = self.validate()
+        if not validation.valid:
+            raise OnlyLifecycleError("; ".join(validation.errors))
         plan = self._planner.plan(self.config.engine_id, self.cluster_definitions, self._market_products)
-        created: list[OnlyRuntime] = []
+        created: list[OnlyRuntimeProduct] = []
         try:
             for runtime_plan in plan.runtime_plans:
                 build = self._require_services().assembler.build(runtime_plan, self.config.user_data_root)
                 if build.runtime is None:
                     raise RuntimeError(f"{build.failure_code}: {build.failure_message}")
-                runtime = build.runtime
+                runtime = cast(OnlyRuntime, build.runtime)
                 created.append(runtime)
                 runtime.initialize()
                 runtime_session = OnlyRuntimeSession(
@@ -255,12 +284,26 @@ class OnlyEngine:
                         runtime_id=runtime_plan.runtime_id,
                         status=OnlyEngineClusterStatus.READY,
                     )
+            for research_plan in self._research_plans.values():
+                build = self._require_services().assembler.build(research_plan, self.config.user_data_root)
+                if build.runtime is None:
+                    raise RuntimeError(f"{build.failure_code}: {build.failure_message}")
+                research_runtime = build.runtime
+                created.append(research_runtime)
+                research_runtime.initialize()
+                self._runtime_sessions[str(research_plan.runtime_id)] = OnlyRuntimeSession(
+                    research_plan.runtime_id,
+                    research_runtime,
+                    research_plan.environment,
+                    (),
+                    "READY",
+                )
             self._execution_plan = plan
             self.state = OnlyEngineState.READY
         except Exception as failure:
-            for runtime in reversed(created):
+            for created_runtime in reversed(created):
                 try:
-                    runtime.close()
+                    created_runtime.close()
                 except Exception as cleanup_failure:
                     failure.add_note(
                         f"Runtime initialization cleanup also failed: "
@@ -344,6 +387,19 @@ class OnlyEngine:
             remaining = None if deadline is None or budget is None else min(budget, max(0.0, deadline - monotonic()))
             wait(remaining)
 
+    def run_runtime(self, runtime_id: OnlyRuntimeId | str) -> OnlyRuntimeResult:
+        if self.state is not OnlyEngineState.RUNNING:
+            raise OnlyLifecycleError("engine can only run a finite Runtime while RUNNING")
+        try:
+            session = self._runtime_sessions[str(runtime_id)]
+        except KeyError as exc:
+            raise OnlyLifecycleError(f"RUNTIME_NOT_FOUND: {runtime_id}") from exc
+        if not isinstance(session.runtime, OnlyFiniteRuntime):
+            raise OnlyLifecycleError(f"RUNTIME_NOT_FINITE: {runtime_id}")
+        result = session.runtime.run()
+        session.state = "FAILED" if str(result.status) == "FAILED" else "COMPLETED"
+        return result
+
     def run(self) -> OnlyEngineRunResult:
         self._require_not_terminated("run")
         runtime_types = {config.runtime.runtime_type for config in self.cluster_definitions}
@@ -376,10 +432,12 @@ class OnlyEngine:
             for session in self.runtime_sessions:
                 runtime_plan = plans[str(session.runtime_id)]
                 try:
+                    if not isinstance(session.runtime, OnlyFiniteRuntime):
+                        raise OnlyLifecycleError("BACKTEST Runtime must expose finite execution")
                     result = session.runtime.run()
                     if not hasattr(result, "to_dict"):
                         raise TypeError("Runtime.run() must return a serializable result")
-                    typed_result = cast(OnlyRuntimeResult, result)
+                    typed_result = result
                     if isinstance(result, OnlyBacktestResult):
                         backtest_results.append(result)
                     projection = typed_result.to_dict()
@@ -523,6 +581,7 @@ class OnlyEngine:
                 ),
             )
             for session in self.runtime_sessions
+            if isinstance(session.runtime, OnlyPluginResourceSnapshotRuntime)
             for snapshot in session.runtime.plugin_resource_snapshots
         )
         return OnlyEngineSnapshot(

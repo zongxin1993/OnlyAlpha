@@ -83,10 +83,8 @@ def test_calculation_core_does_not_import_research_or_arrow() -> None:
         assert "pyarrow" not in source
 
 
-def test_research_runtime_remains_unsupported() -> None:
-    result = OnlyResearchRuntimeFactory().create(None)
-    assert not result.supported
-    assert result.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
+def test_research_runtime_factory_is_formally_activated() -> None:
+    assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
 
 
 def test_plugin_research_backend_does_not_reuse_trading_indicator_classes() -> None:

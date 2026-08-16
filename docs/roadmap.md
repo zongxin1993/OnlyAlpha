@@ -24,10 +24,10 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.10 — VERIFIED LOCALLY
-Latest Verified Increment: P7.10
+Current Increment: P7.11 — VERIFIED LOCALLY
+Latest Verified Increment: P7.11
 P7 Final Certification: NOT COMPLETE
-Next Semantic Direction: Research Web consumption/visualization and finite Research Runtime lifecycle remain open
+Next Semantic Direction: verify P7.11 closure, then Research Web consumption/visualization remains open
 ```
 
 `VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
@@ -50,7 +50,7 @@ Timer durable occurrence、post-recovery authority validation 和 verified recov
 
 - `BACKTEST` 已实现，是 primary Runtime；
 - `SIM` 已有 canonical enum/config spelling、`LIVE_CLOCK` environment identity、专用 composition Factory 和可执行 realtime Virtual Broker normal path；
-- `RESEARCH` 与 `LIVE` 是目标 Runtime，但当前 Factory 返回 unsupported；
+- `RESEARCH` finite Runtime、programmatic Engine workload entry 与 deterministic re-entry 已实现；`LIVE` Factory 仍 unsupported；
 - active Runtime taxonomy 只有 `RESEARCH / BACKTEST / SIM / LIVE`；
 - historical Paper durable state 不会被转换为 SIM state，配置旧 spelling 会 fail closed。
 
@@ -411,7 +411,22 @@ Manifest/Parquet，也不访问 Dataset、Calculation、Statistics Result 或 Re
 architecture firewall、consumer-aware impact propagation、workspace build/version graph 已建立。
 
 本 increment 的本地 Task Gate evidence 记录在 P7.10 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Web UI、
-Research Runtime lifecycle、Optimizer、新 Statistics/Analytics、Artifact catalog/search 与 Research/Live Runtime activation 仍未实现。
+Optimizer、新 Statistics/Analytics、Artifact catalog/search、Web 与 Live Runtime activation 仍未实现。
+
+### P7.11 — Finite Research Runtime & Runtime Product Boundary（Implemented locally）
+
+P7.11 建立最小 Runtime-neutral product/environment/finite/waitable capability boundary，同时保留强 Trading Plan 与 Environment。
+默认 composition 只创建一个共享 `OnlyCalculationRegistry`，Indicator Trading resolver 与 Research resolver 消费同一注册 authority，
+plugin discovery 仍只执行一次。
+
+`OnlyResearchWorkloadPlan` 是 application composition contract，不增加 workload semantic fingerprint。formal finite Research Runtime 从
+exact verified Dataset Snapshot 开始，按 Direct Job、Sweep、Statistics、Research Result、Artifact 和 final verified load 调用既有
+executor/store；所有 durable authority 继续存于共享 content-addressed `user_data/research/*`，恢复采用 verified deterministic re-entry，
+不创建 Runtime checkpoint、Account、Broker、Market Product、Trading Kernel 或 Cluster。Engine 提供 `add_research_workload()` 与
+`run_runtime()`；Research-only Engine 无 Cluster 可运行，Research+Trading mixed Engine 在本 increment 显式 fail closed。
+
+`research-runtime` canonical lane 已加入 PR/main/release/final-certification 与 line/branch coverage 门禁。P7.11 不实现 Research YAML/CLI、
+Web、Scheduler、数据库控制面、完整异构 Runtime lifecycle 或 LIVE；P7 milestone 仍为 `IN_PROGRESS`。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 
