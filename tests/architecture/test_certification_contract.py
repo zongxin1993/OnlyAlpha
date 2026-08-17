@@ -99,6 +99,12 @@ def test_quality_and_certification_require_research_authority_lanes_and_coverage
     assert "research-runtime" in quality and "research-runtime --coverage" in quality
     assert "research-runtime" in certification and "research-runtime --coverage" in certification
     assert '"$COVERAGE_RESULT" = success' in quality
+    for workflow in (quality, certification):
+        assert 'node-version: "24"' in workflow
+        assert "web-static" in workflow
+        assert "web-unit" in workflow
+        assert "web-build" in workflow
+        assert "web-e2e" in workflow
 
 
 def test_task_impact_resolver_cannot_trim_certification_mandatory_matrix() -> None:
@@ -120,10 +126,11 @@ def test_quality_and_certification_require_exact_uv_lock_dependency_audit() -> N
         assert "--lockfile=uv.lock" in workflow
         assert 'scanner-version "2.5.0"' in workflow
         assert "continue-on-error" not in workflow
-    assert "needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build]" in quality
+    assert "needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build, web]" in quality
     assert '"$DEPENDENCY_AUDIT_RESULT" = success' in quality
-    assert "needs: [subject, static, build, lanes, coverage, semgrep, dependency-audit, codeql]" in certification
+    assert "needs: [subject, static, build, web, lanes, coverage, semgrep, dependency-audit, codeql]" in certification
     assert '--gate "dependency-audit=$DEPENDENCY_AUDIT_RESULT"' in certification
+    assert '--gate "web=$WEB_RESULT"' in certification
 
 
 def test_nightly_performance_is_a_same_runner_commit_comparison_with_real_evidence() -> None:
@@ -153,8 +160,8 @@ def test_readme_and_roadmap_expose_one_truthful_current_increment() -> None:
     roadmap = Path("docs/roadmap.md").read_text()
     assert roadmap.count("Current Milestone: P7") == 1
     assert roadmap.count("Milestone State: IN_PROGRESS") == 1
-    assert roadmap.count("Current Increment: P7.11 — VERIFIED LOCALLY") == 1
+    assert roadmap.count("Current Increment: P7.12 — VERIFIED LOCALLY") == 1
     assert roadmap.count("P7 Final Certification: NOT COMPLETE") == 1
     assert "## 当前阶段：P6" not in roadmap
     assert "P7 milestone status | **IN_PROGRESS**" in readme
-    assert "Current increment | **P7.11 — VERIFIED locally**" in readme
+    assert "Current increment | **P7.12 — VERIFIED locally**" in readme

@@ -169,6 +169,10 @@ uv run python scripts/test_suite.py <lane>
 package/build metadata 才要求 version sync 与 targeted build。Unknown impact 和 verification infrastructure 仍 fail closed 到
 FULL_LOCAL。Coverage 默认属于 Phase/Certification，不因 lane 已注册就自动进入普通 Task Gate。
 
+Web 不被塞入 pytest lane。`scripts/web_suite.py` 拥有 `static/unit/build/e2e/all` 明确证据；Node 24 + `npm ci` + checked-in
+`package-lock.json` 是 CI contract。Web-only impact 选择 web-static/unit/build/e2e 并止于 Research API boundary；API/OpenAPI transport
+变更额外传播到 Web checks。修改 Web verifier 或 workflow 仍属于 verification infrastructure self-change，升级 FULL_LOCAL。
+
 ---
 
 ### 3.1 普通局部修改

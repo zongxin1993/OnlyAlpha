@@ -167,7 +167,13 @@ class VerificationStepResult:
 
 
 STATIC = (OnlyReleaseCheck.STATIC,)
-FULL_CHECKS = (OnlyReleaseCheck.STATIC, OnlyReleaseCheck.BUILD)
+WEB_CHECKS = (
+    OnlyReleaseCheck.WEB_STATIC,
+    OnlyReleaseCheck.WEB_UNIT,
+    OnlyReleaseCheck.WEB_BUILD,
+    OnlyReleaseCheck.WEB_E2E,
+)
+FULL_CHECKS = tuple(OnlyReleaseCheck)
 RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_CALCULATION,
@@ -182,6 +188,24 @@ RESEARCH_CHAIN = (
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
+    VerificationImpactRule(
+        "research-web",
+        ("apps/onlyalpha-web/",),
+        (),
+        (),
+        WEB_CHECKS,
+        VerificationEscalation.COMPONENT,
+        "Web is a read-only consumer whose impact stops at the Research API contract boundary",
+    ),
+    VerificationImpactRule(
+        "research-api-web-contract",
+        ("packages/api/onlyalpha-api/", "contracts/research-api/v2/"),
+        ("scripts/export_research_openapi.py",),
+        (),
+        WEB_CHECKS,
+        VerificationEscalation.COMPONENT,
+        "HTTP transport changes require generated contract and browser-consumer verification",
+    ),
     VerificationImpactRule(
         "research-runtime",
         ("src/onlyalpha/runtime/research/", "tests/runtime/research/"),
@@ -262,6 +286,7 @@ IMPACT_RULES = (
             "scripts/test_suite.py",
             "scripts/certification.py",
             "scripts/verify.py",
+            "scripts/web_suite.py",
             "tests/conftest.py",
             "tests/architecture/test_test_lane_contract.py",
             "tests/architecture/test_certification_contract.py",

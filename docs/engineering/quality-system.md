@@ -897,7 +897,8 @@ manifest 保存到 `test-results/verification/<verification-id>/`，成功 conso
 Manifest 的 authority 固定为 `LOCAL_DEVELOPMENT_VERIFICATION_ONLY`，`VERIFICATION_PASSED` 不等于 `CERTIFIED` 或 `ACCEPTED`。
 
 Coverage 不属于默认 inner loop。Final-SHA workflow 仍完整执行 exact-SHA static、build、canonical lanes、mandatory coverage、Semgrep、
-CodeQL 和 fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。
+CodeQL、Web static/unit/build/E2E 和 fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。Web evidence 使用 Node 24、
+`npm ci`、strict TypeScript/ESLint/Prettier/Vitest/Playwright；它是现有 Task/Phase/Certification Gate 中的 evidence，不创建第四种 Gate。
 
 成功的长时间运行日志默认保存在 evidence 文件中，不重复加载进 Agent context；console 与最终报告只保留 gate、exit code 和简短摘要，
 仅在失败诊断时读取有界的相关日志。

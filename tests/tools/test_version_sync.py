@@ -65,6 +65,14 @@ members = ["packages/a", "packages/b"]
     )
     _write(tmp_path / "README.md", "| Version | `0.3.7` |\n")
     _write(
+        tmp_path / "apps/onlyalpha-web/package.json",
+        '{"name":"onlyalpha-web","private":true,"version":"0.3.7"}\n',
+    )
+    _write(
+        tmp_path / "apps/onlyalpha-web/package-lock.json",
+        '{"name":"onlyalpha-web","version":"0.3.7","packages":{"":{"version":"0.3.7"}}}\n',
+    )
+    _write(
         tmp_path / "packages/a/pyproject.toml",
         f"""[project]
 name = {a_name!r}
@@ -256,6 +264,8 @@ def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_pat
     assert fixture["project"]["version"] == "7.9"
     assert list(fixture["project"]["dependencies"]) == ["onlyalpha==0.3.8"]
     assert (root / "README.md").read_text(encoding="utf-8") == "| Version | `0.3.8` |\n"
+    assert '"version": "0.3.8"' in (root / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
+    assert '"version": "0.3.8"' in (root / "apps/onlyalpha-web/package-lock.json").read_text(encoding="utf-8")
 
 
 def test_set_versions_locks_then_checks_complete_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

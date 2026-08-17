@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -15,19 +16,21 @@ from onlyalpha.research.query import (
     OnlyResearchStatisticSeriesPage,
 )
 
+RESEARCH_API_SCHEMA_VERSION: Literal[2] = 2
+
 
 class _ReadDto(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class ResearchErrorDto(_ReadDto):
-    schema_version: int = 1
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
     code: str
     detail: str
 
 
 class ResearchArtifactSummaryDto(_ReadDto):
-    schema_version: int
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
     research_result_plan_fingerprint: str
     research_result_content_fingerprint: str
     research_result_fingerprint: str
@@ -44,7 +47,6 @@ class ResearchArtifactSummaryDto(_ReadDto):
     def from_model(cls, value: OnlyResearchArtifactSummary) -> ResearchArtifactSummaryDto:
         created_at = value.created_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         return cls(
-            schema_version=value.schema_version,
             research_result_plan_fingerprint=value.research_result_plan_fingerprint,
             research_result_content_fingerprint=value.research_result_content_fingerprint,
             research_result_fingerprint=value.research_result_fingerprint,
@@ -132,21 +134,20 @@ class ResearchStatisticsDescriptorDto(_ReadDto):
 
 
 class ResearchStatisticsCatalogDto(_ReadDto):
-    schema_version: int
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
     research_result_fingerprint: str
     statistics: tuple[ResearchStatisticsDescriptorDto, ...]
 
     @classmethod
     def from_model(cls, value: OnlyResearchStatisticsCatalog) -> ResearchStatisticsCatalogDto:
         return cls(
-            schema_version=value.schema_version,
             research_result_fingerprint=value.research_result_fingerprint,
             statistics=tuple(ResearchStatisticsDescriptorDto.from_model(item) for item in value.statistics),
         )
 
 
 class ResearchStatisticPointDto(_ReadDto):
-    ts_event_ns: int
+    ts_event_ns: str
     statistic_value: str | None
     sample_count: int
     status: str
@@ -154,7 +155,7 @@ class ResearchStatisticPointDto(_ReadDto):
     @classmethod
     def from_model(cls, value: OnlyResearchStatisticPoint) -> ResearchStatisticPointDto:
         return cls(
-            ts_event_ns=value.ts_event_ns,
+            ts_event_ns=str(value.ts_event_ns),
             statistic_value=None if value.statistic_value is None else format(value.statistic_value, "f"),
             sample_count=value.sample_count,
             status=value.status,
@@ -162,20 +163,21 @@ class ResearchStatisticPointDto(_ReadDto):
 
 
 class ResearchStatisticSeriesPageDto(_ReadDto):
-    schema_version: int
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
     research_result_fingerprint: str
     statistics_fingerprint: str
     points: tuple[ResearchStatisticPointDto, ...]
     has_more: bool
-    next_after_ts_event_ns: int | None
+    next_after_ts_event_ns: str | None
 
     @classmethod
     def from_model(cls, value: OnlyResearchStatisticSeriesPage) -> ResearchStatisticSeriesPageDto:
         return cls(
-            schema_version=value.schema_version,
             research_result_fingerprint=value.research_result_fingerprint,
             statistics_fingerprint=value.statistics_fingerprint,
             points=tuple(ResearchStatisticPointDto.from_model(item) for item in value.points),
             has_more=value.has_more,
-            next_after_ts_event_ns=value.next_after_ts_event_ns,
+            next_after_ts_event_ns=(
+                None if value.next_after_ts_event_ns is None else str(value.next_after_ts_event_ns)
+            ),
         )

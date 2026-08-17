@@ -106,7 +106,8 @@ completeness、byte/semantic hashes、schema、row count、timestamp 与全局 R
 该 Store 不提供 update、delete、overwrite、invalidate、refresh、TTL、LRU 或 cache-miss recomputation，也不复用 Trading
 Transaction Store。P7.4 Research Job 只编排 verified reuse-or-execute，不成为新的 durable authority。Research Result 是 exact
 Statistics composition authority，portable Research Artifact 是 immutable materialized read view；P7.10 Query/API 只从 Artifact
-`load_verified()` 产生 ephemeral projection，不写入 Store、不创建 Query authority。Research Runtime Factory 仍 unsupported。
+`load_verified()` 产生 ephemeral projection，不写入 Store、不创建 Query authority。finite Research Runtime 只编排既有 immutable
+authority，不创建新的 storage/recovery authority。
 
 ## 7. 时间持久化协议
 
@@ -114,6 +115,10 @@ Statistics composition authority，portable Research Artifact 是 immutable mate
 禁止无 offset 文本和无单位 `timestamp`。Domain serializer 会拒绝 naive/非 UTC datetime；
 `OnlyTimestamp.unix_nanos` 可保存纳秒真值。IANA timezone、TradingDay、Calendar ID、
 Calendar version 和 SessionType 必须作为独立业务字段保留。
+
+P7.12 HTTP v2 只在 transport 边界把纳秒整数编码为 canonical decimal string；Web admission 后直接保存为 `bigint`。这不改变
+Artifact/Query 的整数语义，也不创建 Web 时间 authority。Decimal 同样以 fixed decimal string 保持 exact；只有单向 chart projection
+允许显式转换为有限 `number`，投影结果不得持久化或反向写回。
 
 旧 naive 数据迁移必须提供来源 IANA 时区与迁移来源；DST 重复时间提供 fold，未知来源
 或不存在时间失败。迁移批次应保留原值、转换值与回滚映射。Runtime Persistence Store 使用 canonical payload、显式

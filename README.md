@@ -18,7 +18,7 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.7.11` |
+| Version | `0.7.12` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | 模块化单体 |
@@ -26,12 +26,12 @@ Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Ris
 | CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
 | P6 status | **DONE / CERTIFIED** — exact Final-SHA remote certification completed |
 | P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.11 — VERIFIED locally** — Finite Research Runtime & Runtime Product Boundary |
+| Current increment | **P7.12 — VERIFIED locally** — Research Web Consumption & Visualization Boundary |
 | P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
 | P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
 | P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
 | P7.6.2 increment | **VERIFIED** — exact merged subject passed Layered Quality, CodeQL, Final-SHA and Nightly Heavy Quality |
-| Next semantic direction | Verify P7.11 closure; Research Web consumption/visualization remains open |
+| Next semantic direction | P7 Final Closure / exact Final-SHA Certification |
 | License | MIT |
 
 ---
@@ -96,8 +96,10 @@ verified-load exact Statistics Result references，单一 Dataset Snapshot 约�
 Statistics rows，EXECUTED/REUSED 与物理路径不进入 semantic identity。P7.9 从 verified Research Result 的精确成员确定 immutable
 Research Artifact，复制 canonical Statistics rows 到自包含 Parquet/Manifest 包；发布后无需上游 Store 即可重证 Statistics、Research
 Result 与 Artifact identity，但 Artifact 不成为新的 semantic authority。P7.10 在其上建立 transport-neutral Query Model、确定性
-Query Service 与独立 `onlyalpha-api` FastAPI package；消费者只使用 exact identity 与 `load_verified()`，Decimal 以字符串、事件时间以
-纳秒整数传输。P7.11 已激活 programmatic finite Research Runtime；Research YAML/CLI、Scheduler、Optimizer 与 Web UI 仍未实现。
+Query Service 与独立 `onlyalpha-api` FastAPI package；消费者只使用 exact identity 与 `load_verified()`。P7.12 将 HTTP transport 独立
+升级到 schema v2，Decimal、事件纳秒和 cursor 均以 canonical string 传输，并建立 same-origin `onlyalpha-web`：Zod admission 后 exact
+time 为 `bigint`、Decimal 为 string，URL 拥有 selection，chart 只消费可失败的 lossy projection。P7.11 已激活 programmatic finite
+Research Runtime；Research YAML/CLI、Scheduler、Optimizer、Trading/Live Web control 仍未实现。
 
 P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
 即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
@@ -247,7 +249,7 @@ Web Visualization
 * 面向 K 线、指标、因子、特征和参数研究；
 * 支持批量参数搜索；
 * 当前支持 IC、Rank IC 与 Forward Return；分组收益等扩展统计仍未实现；
-* Research Result composition authority、portable Research Artifact 与只读 Query/API 已实现；Web 仍是后续目标；
+* Research Result composition authority、portable Research Artifact、只读 Query/API 与 exact Research Web vertical slice 已实现；
 * 面向 Web、Notebook、CLI 等研究界面；
 * 不要求经过完整 Order / Broker / Transaction Kernel。
 
@@ -1578,6 +1580,10 @@ Browser
 
 Web 不直接访问 Runtime Manager。
 
+当前 P7.12 只实现 Research read consumer：浏览器只通过 `/api/v2` 读取 exact Artifact Summary、Statistics Catalog 与 paginated Series，
+不访问 Artifact filesystem、Parquet、execution Store 或 Runtime state。下面的 authenticated lifecycle/manual control 仍是目标合同，
+不属于当前 Web 产品能力。
+
 目标 Web 也是 authenticated control client：
 
 ```text
@@ -1906,7 +1912,7 @@ engine.close()
 |---|---|---|
 | `BACKTEST` | 已实现，是当前 primary Runtime | 保留 event-driven + Virtual Broker + full Trading Kernel |
 | `SIM` | 已实现 realtime Virtual Broker、continuity、checkpoint 与 restart | 保持 shared Trading Kernel 与 durable recovery contract |
-| `RESEARCH` | finite programmatic Engine product 已实现 | Research YAML/CLI、Web 与 mixed heterogeneous lifecycle 尚未实现 |
+| `RESEARCH` | finite programmatic Engine product + read-only Research Web 已实现 | Research YAML/CLI、execution control 与 mixed heterogeneous lifecycle 尚未实现 |
 | `LIVE` | Factory unsupported | P8/P9 补齐 Broker durability、同步、恢复和运维 |
 
 SIM 的 product identity 只参与 composition、planning 与 lifecycle；Strategy Context 和 Trading Semantic Plane 不读取 Runtime mode。SIM 永不连接 Real Broker，长期生产运维与 broad MiniQMT compatibility matrix 仍不在当前认证范围。

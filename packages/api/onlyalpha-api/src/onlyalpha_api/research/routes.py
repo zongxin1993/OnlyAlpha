@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
 
@@ -25,9 +26,20 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     500: {"model": ResearchErrorDto, "description": "Research Artifact verification failed"},
 }
 
+_CANONICAL_INTEGER = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
+CanonicalIntegerQuery = Annotated[str | None, Query(pattern=_CANONICAL_INTEGER.pattern)]
+
+
+def _optional_integer(value: str | None) -> int | None:
+    if value is None:
+        return None
+    if _CANONICAL_INTEGER.fullmatch(value) is None:
+        raise ValueError("timestamp query must be a canonical decimal integer string")
+    return int(value)
+
 
 def create_research_router(service: OnlyResearchQueryService) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/research/artifacts", tags=["research"])
+    router = APIRouter(prefix="/api/v2/research/artifacts", tags=["research"])
 
     @router.get(
         "/{research_result_fingerprint}",
@@ -53,17 +65,17 @@ def create_research_router(service: OnlyResearchQueryService) -> APIRouter:
     def statistic_series(
         research_result_fingerprint: str,
         statistics_fingerprint: str,
-        from_ts_event_ns: int | None = Query(default=None),
-        to_ts_event_ns: int | None = Query(default=None),
-        after_ts_event_ns: int | None = Query(default=None),
+        from_ts_event_ns: CanonicalIntegerQuery = None,
+        to_ts_event_ns: CanonicalIntegerQuery = None,
+        after_ts_event_ns: CanonicalIntegerQuery = None,
         limit: int = Query(default=DEFAULT_PAGE_SIZE),
     ) -> ResearchStatisticSeriesPageDto:
         query = OnlyResearchStatisticSeriesQuery(
             research_result_fingerprint,
             statistics_fingerprint,
-            from_ts_event_ns,
-            to_ts_event_ns,
-            after_ts_event_ns,
+            _optional_integer(from_ts_event_ns),
+            _optional_integer(to_ts_event_ns),
+            _optional_integer(after_ts_event_ns),
             limit,
         )
         return ResearchStatisticSeriesPageDto.from_model(service.get_statistic_series(query))

@@ -51,6 +51,12 @@ coverage.xml
 .pytest_cache/
 .test-metrics/
 test-results/
+node_modules/
+apps/onlyalpha-web/dist/
+apps/onlyalpha-web/coverage/
+apps/onlyalpha-web/playwright-report/
+apps/onlyalpha-web/test-results/
+*.tsbuildinfo
 .test-cache/
 .baseline-*.txt
 cover/

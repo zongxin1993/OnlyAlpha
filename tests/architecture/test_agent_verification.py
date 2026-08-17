@@ -53,7 +53,7 @@ def test_unknown_production_path_fails_closed_to_full_local() -> None:
 
     assert plan.impact.escalation is VerificationEscalation.FULL_LOCAL
     assert plan.impact.lanes == RELEASE_LANES
-    assert plan.impact.checks == (OnlyReleaseCheck.STATIC, OnlyReleaseCheck.BUILD)
+    assert plan.impact.checks == tuple(OnlyReleaseCheck)
     assert {reason.rule for reason in plan.impact.reasons} == {"unknown-impact-fallback"}
 
 
@@ -132,6 +132,16 @@ def test_research_query_and_api_changes_use_consumer_lane_and_targeted_api_build
     )
     assert plan.impact.static_plan.build_targets == ("onlyalpha-api",)
     assert OnlyTestLane.CORE_FULL not in plan.impact.lanes
+    assert set(verify.WEB_CHECKS).issubset(plan.impact.checks)
+
+
+def test_web_only_change_stops_at_api_boundary_and_runs_web_evidence() -> None:
+    plan = _plan("apps/onlyalpha-web/src/charts/researchSeriesProjection.ts")
+
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.lanes == ()
+    assert plan.impact.checks == verify.WEB_CHECKS
+    assert {reason.rule for reason in plan.impact.reasons} == {"research-web"}
 
 
 def test_research_query_architecture_gate_is_component_scoped() -> None:
@@ -163,7 +173,7 @@ def test_verification_infrastructure_cannot_self_narrow() -> None:
 
     assert plan.impact.escalation is VerificationEscalation.VERIFICATION_INFRASTRUCTURE
     assert plan.impact.lanes == RELEASE_LANES
-    assert plan.impact.checks == (OnlyReleaseCheck.STATIC, OnlyReleaseCheck.BUILD)
+    assert plan.impact.checks == tuple(OnlyReleaseCheck)
 
 
 def test_docs_only_selects_no_runtime_lane_and_mixed_change_cannot_downgrade() -> None:
@@ -275,7 +285,13 @@ def test_full_local_command_order_preserves_release_static_lanes_build(monkeypat
     commands = verify.verification_commands(plan)
 
     assert commands[0][0] == "check:release-static"
-    assert [gate for gate, _ in commands[1:-1]] == [f"lane:{lane.value}" for lane in RELEASE_LANES]
+    assert [gate for gate, _ in commands[1:5]] == [
+        "check:web-static",
+        "check:web-unit",
+        "check:web-build",
+        "check:web-e2e",
+    ]
+    assert [gate for gate, _ in commands[5:-1]] == [f"lane:{lane.value}" for lane in RELEASE_LANES]
     assert commands[-1][0] == "check:build"
 
 

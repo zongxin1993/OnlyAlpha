@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -17,6 +18,8 @@ from tomlkit import dumps, parse
 ROOT = Path(__file__).resolve().parents[1]
 README_VERSION_PATTERN = re.compile(r"(?m)^\| Version \| `([^`]+)` \|$")
 TEST_DISTRIBUTION_PATHS = (Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml"),)
+WEB_PACKAGE_PATH = Path("apps/onlyalpha-web/package.json")
+WEB_LOCK_PATH = Path("apps/onlyalpha-web/package-lock.json")
 
 
 class VersionSyncError(RuntimeError):
@@ -242,6 +245,26 @@ def workspace_graph_errors(
                 version=release_version,
             )
         )
+    for relative_path in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
+        path = root / relative_path
+        if not path.is_file():
+            errors.append(f"{path}: missing Web version authority")
+            continue
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            errors.append(f"{path}: invalid JSON: {exc}")
+            continue
+        version = document.get("version")
+        if version != str(release_version):
+            errors.append(f"{path}: expected version {str(release_version)!r}; found {version!r}")
+        if relative_path == WEB_LOCK_PATH:
+            root_package = document.get("packages", {}).get("", {})
+            if root_package.get("version") != str(release_version):
+                errors.append(
+                    f"{path}: root package expected version {str(release_version)!r}; "
+                    f"found {root_package.get('version')!r}"
+                )
     return errors
 
 
@@ -357,8 +380,22 @@ def rewrite_workspace(
     if replacements != 1:
         raise VersionSyncError(f"{readme_path}: expected exactly one Version table row")
 
+    web_documents: list[tuple[Path, dict[str, Any]]] = []
+    for relative_path in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
+        path = root / relative_path
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise VersionSyncError(f"invalid Web version document {path}: {exc}") from exc
+        document["version"] = normalized
+        if relative_path == WEB_LOCK_PATH:
+            document["packages"][""]["version"] = normalized
+        web_documents.append((path, document))
+
     for path, document in documents:
         write_document(path, document)
+    for path, document in web_documents:
+        path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     readme_path.write_text(updated_readme, encoding="utf-8")
 
 

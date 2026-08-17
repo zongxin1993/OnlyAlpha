@@ -80,6 +80,37 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages
 
+  web:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/onlyalpha-web/package-lock.json
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: npm ci
+        working-directory: apps/onlyalpha-web
+      - name: web-static
+        run: uv run python scripts/web_suite.py static
+      - name: web-unit
+        run: uv run python scripts/web_suite.py unit
+      - name: web-build
+        run: uv run python scripts/web_suite.py build
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/onlyalpha-web
+      - name: web-e2e
+        run: uv run python scripts/web_suite.py e2e
+
   lanes:
     needs: subject
     runs-on: ubuntu-latest
@@ -223,13 +254,13 @@ jobs:
           ref: ${{ needs.subject.outputs.sha }}
       - uses: github/codeql-action/init@v4
         with:
-          languages: python
+          languages: python,javascript-typescript
           queries: security-extended
       - uses: github/codeql-action/analyze@v4
 
   verdict:
     if: always()
-    needs: [subject, static, build, lanes, coverage, semgrep, dependency-audit, codeql]
+    needs: [subject, static, build, web, lanes, coverage, semgrep, dependency-audit, codeql]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -240,6 +271,7 @@ jobs:
           SUBJECT_RESULT: ${{ needs.subject.result }}
           STATIC_RESULT: ${{ needs.static.result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          WEB_RESULT: ${{ needs.web.result }}
           LANES_RESULT: ${{ needs.lanes.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
@@ -253,6 +285,7 @@ jobs:
             --gate "subject=$SUBJECT_RESULT" \
             --gate "static=$STATIC_RESULT" \
             --gate "build=$BUILD_RESULT" \
+            --gate "web=$WEB_RESULT" \
             --gate "lanes=$LANES_RESULT" \
             --gate "coverage=$COVERAGE_RESULT" \
             --gate "semgrep=$SEMGREP_RESULT" \

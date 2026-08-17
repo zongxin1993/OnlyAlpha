@@ -159,8 +159,11 @@ Artifact 与 final verified load 顺序编排既有 authority，并使用 verifi
 Runtime checkpoint 或 workload semantic fingerprint。P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result
 精确选择的 Statistics rows、可脱离全部上游 Store 自验证的 immutable Research Artifact。P7.10 已在 Artifact 之上实现无状态、
 transport-neutral Query Model/Service，并由独立 `onlyalpha-api` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
-Statistics 或 Research authority，Query Result 只是 ephemeral projection。Research YAML/CLI、Web workflow、Scheduler、数据库控制面
-与完整 mixed Runtime lifecycle 尚未实现。
+Statistics 或 Research authority，Query Result 只是 ephemeral projection。P7.12 将 HTTP transport 独立升级为 schema v2，以 canonical
+decimal string 表达纳秒和 cursor，并建立 `apps/onlyalpha-web` browser consumer：OpenAPI generated type + Zod admission 后映射为
+`bigint`/exact Decimal text，URL 拥有 selection，TanStack Query 只拥有 disposable cache，Lightweight Charts 只消费显式 lossy projection。
+Web 仅调用 same-origin read-only API，不读取 Artifact path/Parquet/Store，不访问或控制 Research Runtime。Research YAML/CLI、Scheduler、
+数据库控制面、Trading/Live Web control 与完整 mixed Runtime lifecycle 尚未实现。
 
 ## 5. Trading Runtime
 
@@ -500,8 +503,9 @@ Projection Ready Committed Fact
 
 Collector 是只读消费者，不从 Broker、EventBus 或最终 Manager snapshot 反推交易历史。Result/Artifact 必须稳定序列化、保持 Cluster/Runtime scope、使用 canonical Decimal/Enum/Timestamp，并通过 manifest、relative path 与 fingerprint 表达 provenance。
 
-Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。目标 Research Artifact 与 Trading
-Result 是不同 DTO/语义；Web 的数据读取只能通过 Query/API 消费 immutable result/artifact/observation。
+Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Runtime，停止后不得继续增长。Research Artifact 与 Trading Result
+是不同 DTO/语义；P7.12 Research Web 的数据读取只通过 HTTP v2 Query/API 消费 immutable Artifact projection。Exact nanosecond 使用
+`bigint`，Decimal 使用 string；chart seconds/number 是可失败、不可反向传播的 presentation projection。
 
 目标 Web 同时是 authenticated control client：生命周期和 LIVE Manual/Liquidation 请求经 Application/API → OnlyEngine → target
 Runtime Command boundary，必须具有 authorization、stable request identity、idempotency 和 audit。Web 不访问 Manager、Broker SDK
@@ -587,7 +591,8 @@ Recovery         : Checkpoint / Restart / Forward Recovery
 当前未完成项：
 
 - `RESEARCH`：formal finite Runtime 已实现；从 exact verified Dataset Snapshot 编排 Job/Sweep/Statistics/Result/Artifact，提供
-  programmatic Engine entry 与 deterministic re-entry；Research YAML/CLI、Web 和 mixed heterogeneous lifecycle 尚未实现；
+  programmatic Engine entry 与 deterministic re-entry；read-only Research Web 已实现，Research YAML/CLI、Web execution control 和
+  mixed heterogeneous lifecycle 尚未实现；
 - `LIVE`：目标 Runtime，Factory unsupported，durable outbound Broker command、同步/对账与长期恢复尚未实现；
 - `SIM`：当前认证不覆盖 Real Broker、长期生产运维、24h soak 或 broad MiniQMT compatibility matrix。
 

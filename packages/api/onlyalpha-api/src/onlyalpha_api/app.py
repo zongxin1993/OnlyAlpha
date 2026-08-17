@@ -7,7 +7,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from onlyalpha.research.query import (
-    RESEARCH_QUERY_SCHEMA_VERSION,
     OnlyResearchArtifactReader,
     OnlyResearchQueryError,
     OnlyResearchQueryService,
@@ -15,11 +14,11 @@ from onlyalpha.research.query import (
 
 from .research.errors import research_error_response
 from .research.routes import create_research_router
-from .research.schema import ResearchErrorDto
+from .research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
 
 
 def create_app(reader: OnlyResearchArtifactReader) -> FastAPI:
-    app = FastAPI(title="OnlyAlpha Research Read API", version=str(RESEARCH_QUERY_SCHEMA_VERSION))
+    app = FastAPI(title="OnlyAlpha Research Read API", version=str(RESEARCH_API_SCHEMA_VERSION))
     service = OnlyResearchQueryService(reader)
 
     @app.exception_handler(OnlyResearchQueryError)

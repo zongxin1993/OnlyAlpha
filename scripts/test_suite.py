@@ -50,6 +50,10 @@ class OnlyTestLane(StrEnum):
 
 class OnlyReleaseCheck(StrEnum):
     STATIC = "release-static"
+    WEB_STATIC = "web-static"
+    WEB_UNIT = "web-unit"
+    WEB_BUILD = "web-build"
+    WEB_E2E = "web-e2e"
     BUILD = "build"
 
 
@@ -303,6 +307,14 @@ RELEASE_LANES = (
 def release_check_commands(check: OnlyReleaseCheck) -> tuple[tuple[str, ...], ...]:
     if check is OnlyReleaseCheck.STATIC:
         return RELEASE_STATIC_COMMANDS
+    if check is OnlyReleaseCheck.WEB_STATIC:
+        return (("uv", "run", "python", "scripts/web_suite.py", "static"),)
+    if check is OnlyReleaseCheck.WEB_UNIT:
+        return (("uv", "run", "python", "scripts/web_suite.py", "unit"),)
+    if check is OnlyReleaseCheck.WEB_BUILD:
+        return (("uv", "run", "python", "scripts/web_suite.py", "build"),)
+    if check is OnlyReleaseCheck.WEB_E2E:
+        return (("uv", "run", "python", "scripts/web_suite.py", "e2e"),)
     return (BUILD_COMMAND,)
 
 
@@ -316,6 +328,16 @@ def release(args: argparse.Namespace) -> int:
         code = run(list(command))
         if code:
             return code
+    for check in (
+        OnlyReleaseCheck.WEB_STATIC,
+        OnlyReleaseCheck.WEB_UNIT,
+        OnlyReleaseCheck.WEB_BUILD,
+        OnlyReleaseCheck.WEB_E2E,
+    ):
+        for command in release_check_commands(check):
+            code = run(list(command))
+            if code:
+                return code
     for lane in RELEASE_LANES:
         code = execute(lane, args)
         if code:

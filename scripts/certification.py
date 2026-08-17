@@ -6,7 +6,9 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-REQUIRED_GATES = frozenset({"subject", "static", "build", "lanes", "coverage", "semgrep", "dependency-audit", "codeql"})
+REQUIRED_GATES = frozenset(
+    {"subject", "static", "build", "web", "lanes", "coverage", "semgrep", "dependency-audit", "codeql"}
+)
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 

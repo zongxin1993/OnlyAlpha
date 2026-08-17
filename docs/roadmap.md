@@ -24,10 +24,10 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P7
 Milestone State: IN_PROGRESS
-Current Increment: P7.11 — VERIFIED LOCALLY
-Latest Verified Increment: P7.11
+Current Increment: P7.12 — VERIFIED LOCALLY
+Latest Verified Increment: P7.12
 P7 Final Certification: NOT COMPLETE
-Next Semantic Direction: verify P7.11 closure, then Research Web consumption/visualization remains open
+Next Semantic Direction: P7 Final Closure / exact Final-SHA Certification
 ```
 
 `VERIFIED` 表示 increment 所要求的 targeted/affected verification 已完成；`CERTIFIED` 只表示 exact immutable SHA 的正式
@@ -410,6 +410,8 @@ pointer 或任何 durable authority。
 Manifest/Parquet，也不访问 Dataset、Calculation、Statistics Result 或 Research Result Store。`research-query` canonical lane、
 architecture firewall、consumer-aware impact propagation、workspace build/version graph 已建立。
 
+该 P7.10 HTTP v1 表示后来由 ADR 0087 / P7.12 的 Web-safe HTTP v2 supersede；Query Core semantic/version 未改变，历史事实不重写。
+
 本 increment 的本地 Task Gate evidence 记录在 P7.10 report；P7 仍为 `IN_PROGRESS`，Final Certification 未完成。Web UI、
 Optimizer、新 Statistics/Analytics、Artifact catalog/search、Web 与 Live Runtime activation 仍未实现。
 
@@ -427,6 +429,24 @@ executor/store；所有 durable authority 继续存于共享 content-addressed `
 
 `research-runtime` canonical lane 已加入 PR/main/release/final-certification 与 line/branch coverage 门禁。P7.11 不实现 Research YAML/CLI、
 Web、Scheduler、数据库控制面、完整异构 Runtime lifecycle 或 LIVE；P7 milestone 仍为 `IN_PROGRESS`。
+
+### P7.12 — Research Web Consumption & Visualization Boundary（VERIFIED locally）
+
+P7.12 保持 Query Core schema v1 的 Python `int`/`Decimal` semantic 不变，将 HTTP transport 独立升级为 schema v2。三个 product route
+只存在于 `/api/v2`；response event time/cursor 与 request from/to/after 均为 canonical decimal string，Decimal 继续为 fixed decimal
+string。FastAPI deterministic OpenAPI、generated TypeScript 与 strict Zod admission 形成跨语言 contract，Web exact time 映射为
+`bigint`，全程不经过 JavaScript `Number`。
+
+`apps/onlyalpha-web` 使用 Node 24、React 19、Vite、React Router、TanStack Query、Zod 与 Lightweight Charts。URL 是 exact Result/
+Statistics selection authority，TanStack cache 只可丢弃且不持久化；页面支持 fingerprint admission、Artifact Summary、Statistics
+Catalog/Detail、manual cursor pagination、exact table 与 line chart。Chart projection 只允许 Decimal→finite number、ns→seconds；NULL
+成为 gap，秒级 collision/unsafe time/non-finite value 显式 `CHART_PROJECTION_ERROR`，exact table 始终保留。
+
+Web 只请求 same-origin `/api/v2`，不访问 Artifact filesystem/Parquet、任何 execution Store 或 Research Runtime mutable state。真实
+Playwright E2E 在上游 Store unavailable 后通过 portable Artifact + FastAPI + built Web 完成 product flow。Web static/unit/build/E2E
+已进入 impact-aware verifier、Layered Quality 与 Final-SHA mandatory matrix；Web-only future change 止于 API boundary。本 increment 不
+实现 Catalog/latest/search、新 Statistics、Runtime control、Trading/SIM/LIVE Web、authentication 或 deployment orchestration。P7
+仍为 `IN_PROGRESS`，Final Certification 仍为 `NOT COMPLETE`。
 
 P7 实现 Research，不实现“Vectorized Backtest”：
 

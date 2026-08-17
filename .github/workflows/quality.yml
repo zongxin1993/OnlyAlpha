@@ -142,6 +142,34 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages
 
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/onlyalpha-web/package-lock.json
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: npm ci
+        working-directory: apps/onlyalpha-web
+      - name: web-static
+        run: uv run python scripts/web_suite.py static
+      - name: web-unit
+        run: uv run python scripts/web_suite.py unit
+      - name: web-build
+        run: uv run python scripts/web_suite.py build
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/onlyalpha-web
+      - name: web-e2e
+        run: uv run python scripts/web_suite.py e2e
+
   semgrep:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -209,7 +237,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build]
+    needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -221,4 +249,5 @@ jobs:
           PR_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_RESULT: ${{ needs.main-lanes.result }}
           BUILD_RESULT: ${{ needs.build.result }}
-        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$BUILD_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+          WEB_RESULT: ${{ needs.web.result }}
+        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

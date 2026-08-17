@@ -189,7 +189,8 @@ LIVE
 
 `RESEARCH` 已由 P7.11 激活为 programmatic finite Runtime：从 exact verified Dataset Snapshot 编排既有 Job/Sweep/Statistics/Result/Artifact
 authority，并以 deterministic re-entry 恢复；它不创建 Trading Cluster、Account、Broker、Market Product、Trading Kernel 或 Runtime
-checkpoint。Research YAML/CLI、Web 与 mixed heterogeneous lifecycle 仍未实现。`SIM` 已有 enum、配置、Factory、realtime Virtual Broker
+checkpoint。P7.12 已实现只消费 portable Artifact-derived HTTP v2 的 read-only Research Web；Research YAML/CLI、Runtime Web control 与
+mixed heterogeneous lifecycle 仍未实现。`SIM` 已有 enum、配置、Factory、realtime Virtual Broker
 durable path 与 streaming recovery，但不得扩写为已具备 Real Broker 或长期 production operations。Standalone `SHADOW` 不是 unsupported
 target Factory，而是已删除的历史产品 spelling。`LIVE` 生产工作流仍未完成。
 
@@ -493,8 +494,10 @@ Research Query/API 的唯一 upstream read boundary 是 portable Research Artifa
 `load_verified(exact_research_result_fingerprint)`，并进行 exact lookup、projection、半开时间范围过滤、稳定排序和 cursor 分页；
 不得读取 physical Artifact layout、访问任何 execution Store、重算 Statistics、持久化 Query Result、建立 Catalog/latest/search/cache。
 Query Result 是 ephemeral deterministic projection，不是 authority。HTTP transport 位于独立 `onlyalpha-api` workspace package，Core
-不得依赖 FastAPI/Pydantic/Uvicorn；Decimal 必须编码为无损字符串，event time 必须保留 exact nanosecond integer，corrupt 不得映射为
-missing/empty/rebuild。Research Runtime 不得使用 Query/API 作为 execution infrastructure；Live Runtime Factory 与 Web UI 仍未实现。
+不得依赖 FastAPI/Pydantic/Uvicorn；Query Core 保持 Decimal/int，HTTP v2 必须把 Decimal、event nanosecond 与 cursor 编码为 canonical
+string。Web admission 后 exact time 使用 `bigint`、Decimal 使用 string；chart number/seconds 只是显式可失败 projection，不得成为
+authority。corrupt 不得映射为 missing/empty/rebuild。Research Runtime 不得使用 Query/API/Web 作为 execution infrastructure；Live
+Runtime Factory 与 Trading/Live Web control 仍未实现。
 
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
