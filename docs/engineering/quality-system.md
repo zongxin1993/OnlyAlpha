@@ -65,6 +65,12 @@ propagation、fresh-process/hash-seed determinism、JobExecutor-only sequential 
 Research/Trading firewall。`research-sweep --coverage` 独立统计 `onlyalpha.research.sweep`，要求至少 90% line 与 85% branch，并进入 PR、
 master、release 与未来 P7 Final-SHA Certification mandatory gates。
 
+Research Specification 使用 `python scripts/test_suite.py research-specification` 作为 canonical compiler lane；它覆盖 strict
+schema/serialization/request identity、exact type/backend admission、candidate/Statistics lineage、Specification architecture boundary，以及
+manual P7 Workload 与 Specification-resolved Workload 的完整 Runtime semantic equivalence。`research-specification --coverage` 只统计
+`onlyalpha.research.specification`，要求 100% line 与 100% branch；Sweep Materializer 继续由 `research-sweep` coverage 拥有。该 lane 进入
+PR、master、release 与 Final-SHA Certification mandatory gates。
+
 Finite Research Runtime 使用 `python scripts/test_suite.py research-runtime` 作为 canonical product-orchestration lane；它覆盖 Runtime
 product/capability boundary、完整 workload closure、Research-only Engine lifecycle、Dataset→Job/Sweep→Statistics→Result→Artifact 产品链、
 fresh-process deterministic re-entry、corruption fail-closed 与 Trading authority firewall。`research-runtime --coverage` 对新 Runtime product
@@ -866,7 +872,7 @@ incident closure、高风险架构 baseline freeze 或长周期 milestone 中间
 
 普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
 
-Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-runtime`、`research-sweep`、`research-factor`、`research-job`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
+Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-specification`、`research-runtime`、`research-sweep`、`research-factor`、`research-job`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
 
 Streaming/async certification test 必须等待正式 state/revision/continuity evidence；bounded timeout 只能是统一、可解释的
 deadlock watchdog。watchdog failure 必须输出 immutable diagnostics，至少覆盖 phase/revision、recovery generation/stage/plan、

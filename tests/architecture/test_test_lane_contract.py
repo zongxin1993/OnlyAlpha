@@ -160,3 +160,17 @@ def test_research_runtime_lane_owns_product_orchestration_and_strict_coverage() 
     assert '"research-runtime-coverage"' in source
     assert "Research Runtime branch coverage must be at least 90%" in source
     assert "Research Runtime line coverage must be at least 95%" in source
+
+
+def test_research_specification_lane_owns_compiler_architecture_equivalence_and_full_coverage() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_SPECIFICATION]
+    assert lane.paths == (
+        "tests/research/specification",
+        "tests/architecture/test_research_specification_boundaries.py",
+        "tests/runtime/research/test_product.py::test_specification_resolved_and_manual_workloads_have_full_runtime_equivalence",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/specification"' in source
+    assert '"research-specification-coverage"' in source
+    assert "Research Specification branch coverage must be 100%" in source
+    assert "Research Specification line coverage must be 100%" in source

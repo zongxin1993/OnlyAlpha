@@ -36,6 +36,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
 
     assert first.as_json() == second.as_json()
     assert set(first.impact.lanes) == {
+        OnlyTestLane.RESEARCH_SPECIFICATION,
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.RESEARCH_FACTOR,
         OnlyTestLane.RESEARCH_EVALUATION,
@@ -71,6 +72,66 @@ def test_research_result_change_is_scoped_to_its_lane_and_static_targets() -> No
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/result",)
     assert OnlyTestLane.CORE_FULL not in plan.impact.lanes
     assert OnlyTestLane.RESEARCH_EVALUATION not in plan.impact.lanes
+
+
+def test_research_specification_change_is_component_scoped_without_unrelated_evidence() -> None:
+    plan = _plan("src/onlyalpha/research/specification/model.py")
+
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_SPECIFICATION,)
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/specification",)
+    assert not set(verify.CORE_RECOVERY).intersection(plan.impact.lanes)
+    assert not set(verify.WEB_CHECKS).intersection(plan.impact.checks)
+
+
+def test_research_specification_architecture_gate_is_component_scoped() -> None:
+    plan = _plan("tests/architecture/test_research_specification_boundaries.py")
+
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_SPECIFICATION,)
+    assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
+
+
+def test_research_workload_change_reaches_compiler_and_runtime_consumers() -> None:
+    plan = _plan("src/onlyalpha/research/workload.py")
+
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_RUNTIME,
+    )
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == (
+        "src/onlyalpha/research/specification",
+        "src/onlyalpha/research/workload.py",
+        "src/onlyalpha/runtime/research",
+    )
+
+
+def test_specification_upstream_semantics_propagate_without_downstream_reverse_coupling() -> None:
+    sweep = _plan("src/onlyalpha/research/sweep/materialization.py")
+    calculation = _plan("src/onlyalpha/calculation/registry.py")
+    dataset_identity = _plan("src/onlyalpha/research/dataset/manifest.py")
+    dataset_store = _plan("src/onlyalpha/research/dataset/store.py")
+    evaluation_contract = _plan("src/onlyalpha/research/evaluation/plan.py")
+    evaluation_store = _plan("src/onlyalpha/research/evaluation/result_store.py")
+    result_plan = _plan("src/onlyalpha/research/result/plan.py")
+    artifact_store = _plan("src/onlyalpha/research/artifact/store.py")
+
+    assert {
+        OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_SWEEP,
+        OnlyTestLane.RESEARCH_JOB,
+        OnlyTestLane.RESEARCH_RUNTIME,
+    }.issubset(sweep.impact.lanes)
+    assert OnlyTestLane.RESEARCH_SPECIFICATION in calculation.impact.lanes
+    assert OnlyTestLane.RESEARCH_SPECIFICATION in dataset_identity.impact.lanes
+    assert OnlyTestLane.RESEARCH_SPECIFICATION not in dataset_store.impact.lanes
+    assert OnlyTestLane.RESEARCH_SPECIFICATION in evaluation_contract.impact.lanes
+    assert OnlyTestLane.RESEARCH_SPECIFICATION not in evaluation_store.impact.lanes
+    assert OnlyTestLane.RESEARCH_SPECIFICATION in result_plan.impact.lanes
+    assert OnlyTestLane.RESEARCH_SPECIFICATION not in artifact_store.impact.lanes
 
 
 def test_statistics_authority_change_propagates_to_research_result_consumer() -> None:
@@ -201,6 +262,7 @@ def test_specific_test_change_uses_component_lane() -> None:
     plan = _plan("tests/research/job/test_orchestration.py")
 
     assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_SPECIFICATION,
         OnlyTestLane.RESEARCH_RUNTIME,
         OnlyTestLane.RESEARCH_SWEEP,
         OnlyTestLane.RESEARCH_JOB,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import get_type_hints
+
 import pytest
 
 from onlyalpha.research import (
@@ -7,14 +9,22 @@ from onlyalpha.research import (
     OnlyResearchSeriesSelector,
     OnlyResearchSpecification,
     OnlyResearchSpecificationError,
+    OnlyResearchSpecificationResolution,
     OnlyResearchSpecificationResolver,
     OnlyResearchStatisticsSpec,
     OnlyResearchSweepParameterDimension,
     OnlyResearchSweepParameterTarget,
+    OnlyResearchWorkloadPlan,
 )
 from tests.research.evaluation.support import target_graph
 from tests.research.factor.support import factor_graph
 from tests.research.specification.support import registry, specification
+
+
+def test_resolution_workload_type_is_exact_application_contract() -> None:
+    hints = get_type_hints(OnlyResearchSpecificationResolution)
+
+    assert hints["workload"] is OnlyResearchWorkloadPlan
 
 
 def _swept(

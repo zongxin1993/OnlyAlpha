@@ -26,7 +26,7 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.0 — VERIFIED locally** — Research Specification & Resolution Boundary |
+| Current increment | **P8.0.1 — ENGINEERING CLOSED locally** — Research Specification verification integration |
 | Next semantic direction | P8.1 — Research Run Authority & PostgreSQL Operational Store |
 | License | MIT |
 
@@ -314,6 +314,9 @@ P8.0 已建立 strict `OnlyResearchSpecification` V1、canonical request fingerp
 Direct/Sweep 共享 Graph Template Materializer、symbolic Feature/Target selector、singleton-only Statistics broadcast，以及到现有
 `OnlyResearchWorkloadPlan` 的 deterministic resolution。Candidate lineage 保留 runtime-neutral Graph identity；Dataset-bound Research
 Calculation identity 不承担未来 promotion identity。该 increment 已通过本地 affected/FULL_LOCAL verification，但不构成 P8 certification。
+P8.0.1 进一步把 Resolver 输出收紧为 exact `OnlyResearchWorkloadPlan`，并建立 `research-specification` canonical lane、
+100% line/branch coverage、impact-aware transitive verification、普通 CI 与 Final-SHA mandatory evidence；它不改变任何 P8.0 semantic
+identity，也不进入 P8.1 operational control scope。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 
@@ -427,6 +430,7 @@ uv run python scripts/test_suite.py research-calculation
 uv run python scripts/test_suite.py research-factor
 uv run python scripts/test_suite.py research-job
 uv run python scripts/test_suite.py research-sweep
+uv run python scripts/test_suite.py research-specification
 uv run python scripts/test_suite.py research-runtime
 uv run python scripts/test_suite.py research-query
 uv run python scripts/test_suite.py research-artifact

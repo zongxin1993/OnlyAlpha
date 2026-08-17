@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.0 — VERIFIED LOCALLY
+Current Increment: P8.0.1 — ENGINEERING CLOSED LOCALLY
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -176,6 +176,12 @@ PostgreSQL 只能回答“这个任务现在处于什么 operational 状态”�
 admission、唯一 Graph Template Materializer、symbolic series resolution、`BROADCAST_SINGLETON` Statistics expansion、自动 Result
 composition 与 candidate lineage，并保持最终执行合同为现有 `OnlyResearchWorkloadPlan`。本状态是本地 increment evidence，不是 P8
 Final-SHA certification。
+
+P8.0.1 已完成该 semantic boundary 的工程闭环：`OnlyResearchSpecificationResolution.workload` 是 exact
+`OnlyResearchWorkloadPlan`；`research-specification` canonical lane 独立拥有 schema/identity/resolution/lineage/architecture 与完整 Runtime
+equivalence evidence；Specification package 具有 100% line/branch coverage；impact resolver 精确传播 Workload、Sweep、Calculation、Dataset
+identity、Evaluation contract 与 Result Plan 变化，同时不从 Query、Artifact physical store 或 Statistics physical store 反向传播。该 lane
+已进入 release、普通 CI 与 Final-SHA mandatory matrix。P8.0.1 不改变 P8.0 identity，也不实现 P8.1。
 
 ### 目标
 

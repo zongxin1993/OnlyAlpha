@@ -216,6 +216,24 @@ IMPACT_RULES = (
         "finite Research Runtime orchestrates existing immutable Research authorities",
     ),
     VerificationImpactRule(
+        "research-specification",
+        ("src/onlyalpha/research/specification/", "tests/research/specification/"),
+        ("tests/architecture/test_research_specification_boundaries.py",),
+        (OnlyTestLane.RESEARCH_SPECIFICATION,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Specification owns portable request admission and deterministic workload compilation",
+    ),
+    VerificationImpactRule(
+        "research-workload",
+        (),
+        ("src/onlyalpha/research/workload.py",),
+        (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUNTIME),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "the Runtime-independent WorkloadPlan is shared by Specification compilation and Research Runtime",
+    ),
+    VerificationImpactRule(
         "research-query",
         (
             "src/onlyalpha/research/query/",
@@ -252,6 +270,15 @@ IMPACT_RULES = (
         "Research Result owns deterministic composition and immutable output authority",
     ),
     VerificationImpactRule(
+        "research-result-plan-specification-contract",
+        (),
+        ("src/onlyalpha/research/result/plan.py",),
+        (OnlyTestLane.RESEARCH_SPECIFICATION,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Result Plan composition is emitted directly by Specification resolution",
+    ),
+    VerificationImpactRule(
         "research-evaluation",
         (
             "src/onlyalpha/research/evaluation/",
@@ -271,10 +298,28 @@ IMPACT_RULES = (
         "evaluation owns Target, Statistics identity, alignment, and immutable result verification",
     ),
     VerificationImpactRule(
+        "research-evaluation-specification-contract",
+        (),
+        (
+            "src/onlyalpha/research/evaluation/definition.py",
+            "src/onlyalpha/research/evaluation/plan.py",
+            "src/onlyalpha/research/evaluation/reference.py",
+        ),
+        (OnlyTestLane.RESEARCH_SPECIFICATION,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Statistics definition, plan, and series-reference semantics are direct Specification outputs",
+    ),
+    VerificationImpactRule(
         "research-sweep",
         ("src/onlyalpha/research/sweep/", "tests/research/sweep/"),
         ("tests/architecture/test_research_sweep_boundaries.py",),
-        (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_SWEEP, OnlyTestLane.RESEARCH_JOB),
+        (
+            OnlyTestLane.RESEARCH_SPECIFICATION,
+            OnlyTestLane.RESEARCH_RUNTIME,
+            OnlyTestLane.RESEARCH_SWEEP,
+            OnlyTestLane.RESEARCH_JOB,
+        ),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Sweep composition delegates execution to immutable Research Jobs",
@@ -306,6 +351,18 @@ IMPACT_RULES = (
         "package metadata requires version synchronization and a targeted root package build",
     ),
     VerificationImpactRule(
+        "research-dataset-specification-contract",
+        (),
+        (
+            "src/onlyalpha/research/dataset/strict.py",
+            "src/onlyalpha/research/dataset/manifest.py",
+        ),
+        (OnlyTestLane.RESEARCH_SPECIFICATION,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Dataset Snapshot fingerprint admission and identity are direct Specification contracts",
+    ),
+    VerificationImpactRule(
         "research-dataset",
         ("src/onlyalpha/research/dataset/", "tests/research/dataset/"),
         ("src/onlyalpha/research/dataset.py",),
@@ -318,7 +375,7 @@ IMPACT_RULES = (
         "research-calculation",
         ("src/onlyalpha/research/calculation/", "tests/research/calculation/"),
         (),
-        RESEARCH_CHAIN,
+        (OnlyTestLane.RESEARCH_SPECIFICATION, *RESEARCH_CHAIN),
         STATIC,
         VerificationEscalation.COMPONENT,
         "research calculation is upstream of factor execution and job orchestration",
@@ -328,6 +385,7 @@ IMPACT_RULES = (
         ("tests/research/factor/", "packages/factor/onlyalpha-plugin-factors/"),
         (),
         (
+            OnlyTestLane.RESEARCH_SPECIFICATION,
             OnlyTestLane.RESEARCH_RUNTIME,
             OnlyTestLane.RESEARCH_FACTOR,
             OnlyTestLane.RESEARCH_JOB,
@@ -341,7 +399,12 @@ IMPACT_RULES = (
         "research-job",
         ("src/onlyalpha/research/job/", "tests/research/job/"),
         (),
-        (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_JOB, OnlyTestLane.RESEARCH_SWEEP),
+        (
+            OnlyTestLane.RESEARCH_SPECIFICATION,
+            OnlyTestLane.RESEARCH_RUNTIME,
+            OnlyTestLane.RESEARCH_JOB,
+            OnlyTestLane.RESEARCH_SWEEP,
+        ),
         STATIC,
         VerificationEscalation.COMPONENT,
         "research job changes are covered by the canonical job application lane",
@@ -350,7 +413,12 @@ IMPACT_RULES = (
         "calculation-foundation",
         ("src/onlyalpha/calculation/", "tests/calculation/", "packages/indicator/onlyalpha-plugin-indicators/"),
         (),
-        (OnlyTestLane.CALCULATION, *RESEARCH_CHAIN, OnlyTestLane.CORE_FULL),
+        (
+            OnlyTestLane.RESEARCH_SPECIFICATION,
+            OnlyTestLane.CALCULATION,
+            *RESEARCH_CHAIN,
+            OnlyTestLane.CORE_FULL,
+        ),
         STATIC,
         VerificationEscalation.BROAD,
         "calculation definitions and official backends cross research and trading consumers",
@@ -427,6 +495,7 @@ IMPACT_RULES = (
         VerificationEscalation.FULL_LOCAL,
         "shared fixtures, support, and architecture gates can affect every canonical lane",
         (
+            "tests/architecture/test_research_specification_boundaries.py",
             "tests/architecture/test_research_result_boundaries.py",
             "tests/architecture/test_research_query_boundaries.py",
         ),
@@ -513,6 +582,12 @@ def _static_plan(
     rules = set(rule_names)
     typed_roots = {
         "research-runtime": ("src/onlyalpha/runtime/research", "src/onlyalpha/runtime/product.py"),
+        "research-specification": ("src/onlyalpha/research/specification",),
+        "research-workload": (
+            "src/onlyalpha/research/specification",
+            "src/onlyalpha/research/workload.py",
+            "src/onlyalpha/runtime/research",
+        ),
         "research-artifact": ("src/onlyalpha/research/artifact",),
         "research-query": (
             "src/onlyalpha/research/query",

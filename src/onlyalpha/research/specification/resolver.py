@@ -61,7 +61,7 @@ class OnlyResearchStatisticsLineage:
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSpecificationResolution:
     specification_fingerprint: str
-    workload: object
+    workload: OnlyResearchWorkloadPlan
     candidates: tuple[OnlyResearchCandidateLineage, ...]
     statistics: tuple[OnlyResearchStatisticsLineage, ...]
 
