@@ -175,6 +175,8 @@ WEB_CHECKS = (
 )
 FULL_CHECKS = tuple(OnlyReleaseCheck)
 RESEARCH_CHAIN = (
+    OnlyTestLane.RESEARCH_RUN,
+    OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_CALCULATION,
     OnlyTestLane.RESEARCH_FACTOR,
@@ -188,6 +190,32 @@ RESEARCH_CHAIN = (
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
+    VerificationImpactRule(
+        "research-run",
+        ("src/onlyalpha/research/run/", "tests/research/run/"),
+        ("src/onlyalpha/research/__init__.py", "tests/architecture/test_research_run_boundaries.py"),
+        (OnlyTestLane.RESEARCH_RUN, OnlyTestLane.RESEARCH_POSTGRES),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Run owns durable operational identity, admission evidence and transition semantics",
+    ),
+    VerificationImpactRule(
+        "research-postgres",
+        (
+            "src/onlyalpha/persistence/postgres/",
+            "tests/research/postgres/",
+            "database/postgres/migrations/",
+        ),
+        (
+            "src/onlyalpha/persistence/__init__.py",
+            "scripts/database.py",
+            "tests/architecture/test_postgres_operational_authority.py",
+        ),
+        (OnlyTestLane.RESEARCH_POSTGRES,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "PostgreSQL adapter, migration history and operator tooling own the Research operational store",
+    ),
     VerificationImpactRule(
         "research-web",
         ("apps/onlyalpha-web/",),
@@ -330,11 +358,13 @@ IMPACT_RULES = (
         (
             "scripts/test_suite.py",
             "scripts/certification.py",
+            "scripts/dependency_audit.py",
             "scripts/verify.py",
             "scripts/web_suite.py",
             "tests/conftest.py",
             "tests/architecture/test_test_lane_contract.py",
             "tests/architecture/test_certification_contract.py",
+            "tests/architecture/test_dependency_audit_contract.py",
         ),
         RELEASE_LANES,
         FULL_CHECKS,
@@ -496,6 +526,8 @@ IMPACT_RULES = (
         "shared fixtures, support, and architecture gates can affect every canonical lane",
         (
             "tests/architecture/test_research_specification_boundaries.py",
+            "tests/architecture/test_research_run_boundaries.py",
+            "tests/architecture/test_postgres_operational_authority.py",
             "tests/architecture/test_research_result_boundaries.py",
             "tests/architecture/test_research_query_boundaries.py",
         ),
@@ -583,6 +615,8 @@ def _static_plan(
     typed_roots = {
         "research-runtime": ("src/onlyalpha/runtime/research", "src/onlyalpha/runtime/product.py"),
         "research-specification": ("src/onlyalpha/research/specification",),
+        "research-run": ("src/onlyalpha/research/run",),
+        "research-postgres": ("src/onlyalpha/persistence/postgres",),
         "research-workload": (
             "src/onlyalpha/research/specification",
             "src/onlyalpha/research/workload.py",

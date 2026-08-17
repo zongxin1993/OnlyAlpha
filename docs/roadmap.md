@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.0.1 — ENGINEERING CLOSED LOCALLY
+Current Increment: P8.1 — IMPLEMENTED / VERIFIED LOCALLY
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.1 — Research Run Authority & PostgreSQL Operational Store
+Next Semantic Direction: P8.2 — Research Scheduler / Worker / Attempt Authority
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -219,6 +219,13 @@ User Intent
 ---
 
 ## P8.1 — Research Run Authority & PostgreSQL Operational Store
+
+状态：**IMPLEMENTED / VERIFIED LOCALLY**。P8.1 已完成独立 Run identity、`QUEUED/RUNNING/CANCEL_REQUESTED` 与三个 immutable
+terminal outcomes、revision/CAS、structured failure、canonical Specification payload/fingerprint reload verification、Dataset
+verified admission、admission resolution fingerprint、最小 Store Port 与 programmatic admission service。PostgreSQL 16.10 的最小
+operational schema、checksummed forward-only migration ledger、compatibility-only startup boundary、显式 operator tooling、真实 CAS
+竞争、fresh-process reload 和 backup/isolated restore-test 已通过独立 `research-run` / `research-postgres` lanes。Scheduler、Worker、
+Attempt persistence、lease、retry、HTTP 和 Web 仍属于后续 increment；本状态不声明 P8 DONE 或 CERTIFIED。
 
 ### 目标
 

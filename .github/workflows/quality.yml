@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-specification, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-specification, research-run, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -98,6 +98,8 @@ jobs:
         run: uv run python scripts/test_suite.py research-runtime --coverage
       - name: Research Specification branch coverage
         run: uv run python scripts/test_suite.py research-specification --coverage
+      - name: Research Run branch coverage
+        run: uv run python scripts/test_suite.py research-run --coverage
       - name: Research Job branch coverage
         run: uv run python scripts/test_suite.py research-job --coverage
       - name: Research Sweep branch coverage
@@ -117,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-specification, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-specification, research-run, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -143,6 +145,35 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv build --all-packages
+
+  research-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16.10
+        env:
+          POSTGRES_USER: onlyalpha
+          POSTGRES_PASSWORD: onlyalpha_test
+          POSTGRES_DB: onlyalpha_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U onlyalpha -d onlyalpha_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ONLYALPHA_TEST_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: uv run python scripts/test_suite.py research-postgres --coverage
 
   web:
     runs-on: ubuntu-latest
@@ -206,13 +237,14 @@ jobs:
       - name: Prepare dependency audit evidence directory
         run: mkdir -p test-results/security
       - id: osv-scan
-        name: Scan authoritative uv.lock with OSV-Scanner 2.5.0
+        name: Scan authoritative Python and Web locks with OSV-Scanner 2.5.0
         uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
         with:
           scan-args: |-
             --format=json
             --output-file=test-results/security/osv-results.json
             --lockfile=uv.lock
+            --lockfile=apps/onlyalpha-web/package-lock.json
       - name: Build fail-closed dependency audit evidence
         if: always()
         env:
@@ -222,6 +254,7 @@ jobs:
           python scripts/dependency_audit.py
           --subject-sha "$GITHUB_SHA"
           --lockfile uv.lock
+          --lockfile apps/onlyalpha-web/package-lock.json
           --scanner OSV-Scanner
           --scanner-version "2.5.0"
           --scan-time "$SCAN_TIME"
@@ -239,7 +272,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build, web]
+    needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, research-postgres, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -250,6 +283,7 @@ jobs:
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           PR_RESULT: ${{ needs.pr-lanes.result }}
           MAIN_RESULT: ${{ needs.main-lanes.result }}
+          POSTGRES_RESULT: ${{ needs.research-postgres.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

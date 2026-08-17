@@ -21,6 +21,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _lock_authority(path: Path) -> str:
+    if path.name == "uv.lock":
+        return "uv.lock"
+    if path.name == "package-lock.json" and path.parent.name == "onlyalpha-web":
+        return "apps/onlyalpha-web/package-lock.json"
+    return path.as_posix()
+
+
 def _scan_time(value: str) -> str:
     normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
     parsed = datetime.fromisoformat(normalized)
@@ -101,7 +109,8 @@ def _findings(payload: Mapping[str, object]) -> tuple[dict[str, object], ...]:
 def build_dependency_audit_evidence(
     *,
     subject_sha: str,
-    lockfile: Path,
+    lockfile: Path | None = None,
+    lockfiles: tuple[Path, ...] | None = None,
     scanner: str,
     scanner_version: str,
     scan_time: str,
@@ -112,8 +121,15 @@ def build_dependency_audit_evidence(
 ) -> dict[str, object]:
     if _FULL_SHA.fullmatch(subject_sha) is None:
         raise ValueError("subject_sha must be a lowercase 40-character commit SHA")
-    if lockfile.name != "uv.lock" or not lockfile.is_file():
-        raise ValueError("dependency audit authority must be an existing uv.lock")
+    authorities = lockfiles if lockfiles is not None else (() if lockfile is None else (lockfile,))
+    expected = {"uv.lock", "apps/onlyalpha-web/package-lock.json"}
+    normalized = {_lock_authority(path) for path in authorities}
+    if not authorities or any(not path.is_file() for path in authorities):
+        raise ValueError("dependency audit authorities must be existing lockfiles")
+    if len(authorities) == 1 and normalized != {"uv.lock"}:
+        raise ValueError("single-lock compatibility mode requires uv.lock")
+    if len(authorities) > 1 and normalized != expected:
+        raise ValueError("dependency audit requires the exact Python and Web authoritative locks")
     if not scanner or not scanner_version:
         raise ValueError("scanner identity and version are required")
 
@@ -136,11 +152,11 @@ def build_dependency_audit_evidence(
     else:
         status = "SCAN_INFRASTRUCTURE_FAILURE"
 
-    return {
+    evidence = {
         "schema_version": 1,
         "subject_sha": subject_sha,
-        "audited_authority": "uv.lock",
-        "uv_lock_sha256": _sha256(lockfile),
+        "audited_authorities": sorted(normalized),
+        "lock_sha256": {_lock_authority(path): _sha256(path) for path in authorities},
         "scanner": scanner,
         "scanner_version": scanner_version,
         "scan_time": _scan_time(scan_time),
@@ -153,12 +169,16 @@ def build_dependency_audit_evidence(
         "approved_exceptions": [],
         "result_error": result_error,
     }
+    if len(authorities) == 1:
+        evidence["audited_authority"] = "uv.lock"
+        evidence["uv_lock_sha256"] = _sha256(authorities[0])
+    return evidence
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--subject-sha", required=True)
-    parser.add_argument("--lockfile", type=Path, required=True)
+    parser.add_argument("--lockfile", type=Path, required=True, action="append")
     parser.add_argument("--scanner", required=True)
     parser.add_argument("--scanner-version", required=True)
     parser.add_argument("--scan-time", required=True)
@@ -170,7 +190,7 @@ def main() -> int:
     args = parser.parse_args()
     evidence = build_dependency_audit_evidence(
         subject_sha=args.subject_sha,
-        lockfile=args.lockfile,
+        lockfiles=tuple(args.lockfile),
         scanner=args.scanner,
         scanner_version=args.scanner_version,
         scan_time=args.scan_time,

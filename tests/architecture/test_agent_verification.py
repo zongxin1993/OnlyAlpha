@@ -37,6 +37,8 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
     assert first.as_json() == second.as_json()
     assert set(first.impact.lanes) == {
         OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_RUN,
+        OnlyTestLane.RESEARCH_POSTGRES,
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.RESEARCH_FACTOR,
         OnlyTestLane.RESEARCH_EVALUATION,
@@ -83,6 +85,17 @@ def test_research_specification_change_is_component_scoped_without_unrelated_evi
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/specification",)
     assert not set(verify.CORE_RECOVERY).intersection(plan.impact.lanes)
     assert not set(verify.WEB_CHECKS).intersection(plan.impact.checks)
+
+
+def test_research_run_and_postgres_changes_select_exact_authority_consumers() -> None:
+    run = _plan("src/onlyalpha/research/run/model.py")
+    postgres = _plan("database/postgres/migrations/0001_research_run_operational_authority.sql")
+    assert run.impact.lanes == (OnlyTestLane.RESEARCH_RUN, OnlyTestLane.RESEARCH_POSTGRES)
+    assert postgres.impact.lanes == (OnlyTestLane.RESEARCH_POSTGRES,)
+    assert run.impact.static_plan is not None
+    assert "src/onlyalpha/research/run" in run.impact.static_plan.mypy_targets
+    assert postgres.impact.static_plan is not None
+    assert "src/onlyalpha/persistence/postgres" in postgres.impact.static_plan.mypy_targets
 
 
 def test_research_specification_architecture_gate_is_component_scoped() -> None:

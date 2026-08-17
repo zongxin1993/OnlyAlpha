@@ -174,3 +174,16 @@ def test_research_specification_lane_owns_compiler_architecture_equivalence_and_
     assert '"research-specification-coverage"' in source
     assert "Research Specification branch coverage must be 100%" in source
     assert "Research Specification line coverage must be 100%" in source
+
+
+def test_research_run_and_postgres_lanes_separate_pure_domain_from_real_database() -> None:
+    run = LANES[OnlyTestLane.RESEARCH_RUN]
+    postgres = LANES[OnlyTestLane.RESEARCH_POSTGRES]
+    source = Path("scripts/test_suite.py").read_text()
+    assert run.expression == "not external"
+    assert "tests/research/run" in run.paths
+    assert postgres.expression == "postgres or architecture"
+    assert postgres.workers == "0"
+    assert "tests/research/postgres" in postgres.paths
+    assert "Research Run branch coverage must be 100%" in source
+    assert "Research Run line coverage must be 100%" in source

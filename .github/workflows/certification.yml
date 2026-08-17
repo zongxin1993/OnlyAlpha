@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-specification, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [research-specification, research-run, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -172,6 +172,8 @@ jobs:
         run: uv run python scripts/test_suite.py research-runtime --coverage
       - name: Mandatory Research Specification branch coverage
         run: uv run python scripts/test_suite.py research-specification --coverage
+      - name: Mandatory Research Run branch coverage
+        run: uv run python scripts/test_suite.py research-run --coverage
       - name: Mandatory Research Job branch coverage
         run: uv run python scripts/test_suite.py research-job --coverage
       - name: Mandatory Research Sweep branch coverage
@@ -200,6 +202,38 @@ jobs:
       - run: semgrep scan --config semgrep/onlyalpha.yml --test semgrep/onlyalpha.py
       - run: semgrep scan --config semgrep/onlyalpha.yml --error src packages
 
+  research-postgres:
+    needs: subject
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16.10
+        env:
+          POSTGRES_USER: onlyalpha
+          POSTGRES_PASSWORD: onlyalpha_test
+          POSTGRES_DB: onlyalpha_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U onlyalpha -d onlyalpha_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ONLYALPHA_TEST_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.subject.outputs.sha }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: uv run python scripts/test_suite.py research-postgres --coverage
+
   dependency-audit:
     needs: subject
     runs-on: ubuntu-latest
@@ -214,13 +248,14 @@ jobs:
       - name: Prepare dependency audit evidence directory
         run: mkdir -p test-results/security
       - id: osv-scan
-        name: Scan authoritative uv.lock with OSV-Scanner 2.5.0
+        name: Scan authoritative Python and Web locks with OSV-Scanner 2.5.0
         uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
         with:
           scan-args: |-
             --format=json
             --output-file=test-results/security/osv-results.json
             --lockfile=uv.lock
+            --lockfile=apps/onlyalpha-web/package-lock.json
       - name: Build fail-closed dependency audit evidence
         if: always()
         env:
@@ -231,6 +266,7 @@ jobs:
           python scripts/dependency_audit.py
           --subject-sha "$AUDIT_SUBJECT_SHA"
           --lockfile uv.lock
+          --lockfile apps/onlyalpha-web/package-lock.json
           --scanner OSV-Scanner
           --scanner-version "2.5.0"
           --scan-time "$SCAN_TIME"
@@ -262,7 +298,7 @@ jobs:
 
   verdict:
     if: always()
-    needs: [subject, static, build, web, lanes, coverage, semgrep, dependency-audit, codeql]
+    needs: [subject, static, build, web, lanes, research-postgres, coverage, semgrep, dependency-audit, codeql]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -275,6 +311,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
           LANES_RESULT: ${{ needs.lanes.result }}
+          POSTGRES_RESULT: ${{ needs.research-postgres.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
@@ -289,6 +326,7 @@ jobs:
             --gate "build=$BUILD_RESULT" \
             --gate "web=$WEB_RESULT" \
             --gate "lanes=$LANES_RESULT" \
+            --gate "research-postgres=$POSTGRES_RESULT" \
             --gate "coverage=$COVERAGE_RESULT" \
             --gate "semgrep=$SEMGREP_RESULT" \
             --gate "dependency-audit=$DEPENDENCY_AUDIT_RESULT" \

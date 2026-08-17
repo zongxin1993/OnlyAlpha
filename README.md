@@ -26,8 +26,8 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.0.1 — ENGINEERING CLOSED locally** — Research Specification verification integration |
-| Next semantic direction | P8.1 — Research Run Authority & PostgreSQL Operational Store |
+| Current increment | **P8.1 — IMPLEMENTED / VERIFIED locally** — Research Run Authority & PostgreSQL Operational Store |
+| Next semantic direction | P8.2 — Research Scheduler / Worker / Attempt Authority |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -317,6 +317,12 @@ Calculation identity 不承担未来 promotion identity。该 increment 已通�
 P8.0.1 进一步把 Resolver 输出收紧为 exact `OnlyResearchWorkloadPlan`，并建立 `research-specification` canonical lane、
 100% line/branch coverage、impact-aware transitive verification、普通 CI 与 Final-SHA mandatory evidence；它不改变任何 P8.0 semantic
 identity，也不进入 P8.1 operational control scope。
+
+P8.1 已建立 opaque UUID4 `OnlyResearchRunId`、集中式 Run 状态机、revision/CAS、Dataset verified admission、canonical
+Specification durable evidence 与 admission resolution drift guard。PostgreSQL 16.10 只拥有 Run operational state 和现有
+Result/Artifact exact SHA references；checksummed forward-only migration、startup compatibility-only、显式
+`status/plan/migrate/backup/restore-test` 运维入口以及真实 PostgreSQL 并发/重启/恢复验证已进入独立 canonical lanes。P8.1 不执行
+QUEUED Run，也不包含 Scheduler、Worker、Attempt persistence、HTTP 或 Web。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

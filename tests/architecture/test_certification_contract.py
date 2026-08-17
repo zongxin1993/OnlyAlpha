@@ -84,6 +84,12 @@ def test_quality_and_certification_require_research_authority_lanes_and_coverage
     certification = Path(".github/workflows/certification.yml").read_text()
     assert "research-specification" in quality and "research-specification --coverage" in quality
     assert "research-specification" in certification and "research-specification --coverage" in certification
+    assert "research-run" in quality and "research-run --coverage" in quality
+    assert "research-run" in certification and "research-run --coverage" in certification
+    for workflow in (quality, certification):
+        assert "image: postgres:16.10" in workflow
+        assert "ONLYALPHA_TEST_POSTGRES_DSN" in workflow
+        assert "research-postgres --coverage" in workflow
     assert "research-dataset" in quality and "research-dataset --coverage" in quality
     assert "research-dataset" in certification and "research-dataset --coverage" in certification
     assert "research-job" in quality and "research-job --coverage" in quality
@@ -120,17 +126,25 @@ def test_task_impact_resolver_cannot_trim_certification_mandatory_matrix() -> No
     assert 'authority": "LOCAL_DEVELOPMENT_VERIFICATION_ONLY' in verify_source
 
 
-def test_quality_and_certification_require_exact_uv_lock_dependency_audit() -> None:
+def test_quality_and_certification_require_every_authoritative_lock_dependency_audit() -> None:
     quality = Path(".github/workflows/quality.yml").read_text()
     certification = Path(".github/workflows/certification.yml").read_text()
     for workflow in (quality, certification):
         assert "dependency-audit:" in workflow
         assert "--lockfile=uv.lock" in workflow
+        assert "--lockfile=apps/onlyalpha-web/package-lock.json" in workflow
         assert 'scanner-version "2.5.0"' in workflow
         assert "continue-on-error" not in workflow
-    assert "needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, build, web]" in quality
+    assert (
+        "needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, research-postgres, build, web]"
+        in quality
+    )
     assert '"$DEPENDENCY_AUDIT_RESULT" = success' in quality
-    assert "needs: [subject, static, build, web, lanes, coverage, semgrep, dependency-audit, codeql]" in certification
+    assert (
+        "needs: [subject, static, build, web, lanes, research-postgres, coverage, semgrep, dependency-audit, codeql]"
+        in certification
+    )
+    assert '--gate "research-postgres=$POSTGRES_RESULT"' in certification
     assert '--gate "dependency-audit=$DEPENDENCY_AUDIT_RESULT"' in certification
     assert '--gate "web=$WEB_RESULT"' in certification
 
@@ -162,8 +176,8 @@ def test_readme_and_roadmap_expose_one_truthful_current_increment() -> None:
     roadmap = Path("docs/roadmap.md").read_text()
     assert roadmap.count("Current Milestone: P8") == 1
     assert roadmap.count("Milestone State: IN_PROGRESS") == 1
-    assert roadmap.count("Current Increment: P8.0.1 — ENGINEERING CLOSED LOCALLY") == 1
+    assert roadmap.count("Current Increment: P8.1 — IMPLEMENTED / VERIFIED LOCALLY") == 1
     assert roadmap.count("P7 Final Certification Verdict: ACCEPTED") == 1
     assert "## 当前阶段：P6" not in roadmap
     assert "| P7 | **DONE / CERTIFIED** — Vectorized Research Runtime |" in readme
-    assert "| Current increment | **P8.0.1 — ENGINEERING CLOSED locally**" in readme
+    assert "| Current increment | **P8.1 — IMPLEMENTED / VERIFIED locally**" in readme

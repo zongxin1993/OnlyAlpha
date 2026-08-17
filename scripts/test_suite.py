@@ -33,6 +33,8 @@ class OnlyTestLane(StrEnum):
     RESEARCH_ARTIFACT = "research-artifact"
     RESEARCH_QUERY = "research-query"
     RESEARCH_SPECIFICATION = "research-specification"
+    RESEARCH_RUN = "research-run"
+    RESEARCH_POSTGRES = "research-postgres"
     RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
@@ -152,6 +154,19 @@ LANES = {
         "not external",
         "2",
         "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_RUN: Lane(
+        ("tests/research/run", "tests/architecture/test_research_run_boundaries.py"),
+        "not external",
+        "2",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_POSTGRES: Lane(
+        ("tests/research/postgres", "tests/architecture/test_postgres_operational_authority.py"),
+        "postgres or architecture",
+        "0",
+        "no",
+        40,
     ),
     OnlyTestLane.RESEARCH_RUNTIME: Lane(
         (
@@ -297,6 +312,8 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
     OnlyTestLane.RESEARCH_SPECIFICATION,
+    OnlyTestLane.RESEARCH_RUN,
+    OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_QUERY,
     OnlyTestLane.RESEARCH_ARTIFACT,
@@ -396,6 +413,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     if args.coverage:
         coverage_sources = {
             OnlyTestLane.RESEARCH_SPECIFICATION: ("src/onlyalpha/research/specification",),
+            OnlyTestLane.RESEARCH_RUN: ("src/onlyalpha/research/run",),
+            OnlyTestLane.RESEARCH_POSTGRES: ("src/onlyalpha/persistence/postgres",),
             OnlyTestLane.RESEARCH_RUNTIME: (
                 "src/onlyalpha/runtime/research",
                 "onlyalpha.runtime.product",
@@ -425,6 +444,10 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         coverage_output = (
             "research-specification-coverage"
             if name is OnlyTestLane.RESEARCH_SPECIFICATION
+            else "research-run-coverage"
+            if name is OnlyTestLane.RESEARCH_RUN
+            else "research-postgres-coverage"
+            if name is OnlyTestLane.RESEARCH_POSTGRES
             else "research-runtime-coverage"
             if name is OnlyTestLane.RESEARCH_RUNTIME
             else "research-query-coverage"
@@ -456,7 +479,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name is OnlyTestLane.RESEARCH_SPECIFICATION else 95 if name in (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name in (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUN) else 95 if name in (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
             ]
         )
         workers = "0"
@@ -481,6 +504,10 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "research-specification-coverage.json"
                 if name is OnlyTestLane.RESEARCH_SPECIFICATION
+                else "research-run-coverage.json"
+                if name is OnlyTestLane.RESEARCH_RUN
+                else "research-postgres-coverage.json"
+                if name is OnlyTestLane.RESEARCH_POSTGRES
                 else "research-runtime-coverage.json"
                 if name is OnlyTestLane.RESEARCH_RUNTIME
                 else "research-query-coverage.json"
@@ -516,6 +543,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 code = 1
             if name is OnlyTestLane.RESEARCH_SPECIFICATION and line_rate < 100:
                 print("Research Specification line coverage must be 100%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_RUN and branch_rate < 100:
+                print("Research Run branch coverage must be 100%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_RUN and line_rate < 100:
+                print("Research Run line coverage must be 100%", file=sys.stderr)
                 code = 1
             if name is OnlyTestLane.RESEARCH_DATASET and branch_rate < 70:
                 print("Research Dataset branch coverage must be at least 70%", file=sys.stderr)
