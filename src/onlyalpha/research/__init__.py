@@ -7,7 +7,9 @@ from onlyalpha.research.evaluation import *  # noqa: F403
 from onlyalpha.research.job import *  # noqa: F403
 from onlyalpha.research.query import *  # noqa: F403
 from onlyalpha.research.result import *  # noqa: F403
+from onlyalpha.research.specification import *  # noqa: F403
 from onlyalpha.research.sweep import *  # noqa: F403
+from onlyalpha.research.workload import OnlyResearchWorkloadPlan  # noqa: F401
 
 __all__ = [
     name

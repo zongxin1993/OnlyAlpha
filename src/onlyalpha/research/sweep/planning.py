@@ -8,12 +8,11 @@ from itertools import product
 from types import MappingProxyType
 
 from onlyalpha.calculation.definition import (
-    OnlyCalculationReference,
     OnlyCalculationScalar,
     OnlyParameterDefinition,
     only_calculation_scalar_sort_key,
 )
-from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.job import OnlyResearchJobPlan
 
@@ -23,6 +22,7 @@ from .definition import (
     OnlyResearchSweepParameterTarget,
 )
 from .errors import OnlyResearchSweepError
+from .materialization import OnlyResearchGraphTemplateMaterializer
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +63,7 @@ class OnlyResearchSweepPlanner:
         if max_cells is not None and (isinstance(max_cells, bool) or max_cells <= 0):
             raise ValueError("max_cells must be a positive operational limit")
         self._registry = calculation_registry
+        self._materializer = OnlyResearchGraphTemplateMaterializer(calculation_registry)
         self._max_cells = max_cells
 
     def plan(self, definition: OnlyResearchSweepDefinition) -> OnlyResearchSweepPlan:
@@ -83,7 +84,9 @@ class OnlyResearchSweepPlanner:
                 OnlyResearchSweepParameterValue(target, value)
                 for (target, _), value in zip(normalized, values, strict=True)
             )
-            graph = self._materialize(definition, assignment)
+            graph = self._materializer.materialize(
+                definition.graph_template, {item.target: item.value for item in assignment}
+            ).graph
             job_plan = OnlyResearchJobPlan(definition.dataset_snapshot_fingerprint, graph)
             existing = fingerprints.get(job_plan.calculation_fingerprint)
             if existing is not None:
@@ -136,41 +139,6 @@ class OnlyResearchSweepPlanner:
             normalized.append(value)
         normalized.sort(key=lambda value: _parameter_sort_key(parameter, value))
         return dimension.target, tuple(normalized)
-
-    def _materialize(
-        self,
-        definition: OnlyResearchSweepDefinition,
-        assignment: tuple[OnlyResearchSweepParameterValue, ...],
-    ) -> OnlyCalculationGraphDefinition:
-        assigned = {item.target: item.value for item in assignment}
-        materialized: dict[str, OnlyCalculationNodeDefinition] = {}
-        try:
-            for template_node in definition.graph_template.ordered_nodes:
-                parameters = dict(template_node.parameters)
-                for target, value in assigned.items():
-                    if target.template_node_id == template_node.template_node_id:
-                        parameters[target.parameter_name] = value
-                bindings: dict[str, OnlyCalculationReference] = {}
-                for binding in template_node.input_bindings:
-                    reference = binding.reference
-                    if reference.template_node_id is None:
-                        bindings[binding.input_name] = OnlyCalculationReference(
-                            None, reference.output_name, reference.source
-                        )
-                    else:
-                        upstream = materialized[reference.template_node_id]
-                        bindings[binding.input_name] = OnlyCalculationReference(
-                            upstream.fingerprint, reference.output_name
-                        )
-                resolved = self._registry.rematerialize_definition(template_node.type_reference, parameters, bindings)
-                materialized[template_node.template_node_id] = OnlyCalculationNodeDefinition(
-                    resolved, template_node.alias
-                )
-            return OnlyCalculationGraphDefinition(tuple(materialized.values()))
-        except OnlyResearchSweepError:
-            raise
-        except (KeyError, TypeError, ValueError) as exc:
-            raise OnlyResearchSweepError("SWEEP_MATERIALIZATION_FAILED", str(exc)) from exc
 
 
 def _semantic_scalar_equal(left: OnlyCalculationScalar, right: OnlyCalculationScalar) -> bool:

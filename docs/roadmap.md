@@ -21,13 +21,13 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 ```text
 Current Milestone: P8
-Milestone State: PLANNED / READY TO START
-Current Increment: P8.0 — PLANNED
+Milestone State: IN_PROGRESS
+Current Increment: P8.0 — VERIFIED LOCALLY
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.0 — Research Specification & Resolution Boundary
+Next Semantic Direction: P8.1 — Research Run Authority & PostgreSQL Operational Store
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -171,6 +171,11 @@ PostgreSQL 只能回答“这个任务现在处于什么 operational 状态”�
 ---
 
 ## P8.0 — Research Specification & Resolution Boundary
+
+状态：**VERIFIED LOCALLY**。P8.0 已实现 strict Specification V1、canonical request identity、exact Registry/RESEARCH backend
+admission、唯一 Graph Template Materializer、symbolic series resolution、`BROADCAST_SINGLETON` Statistics expansion、自动 Result
+composition 与 candidate lineage，并保持最终执行合同为现有 `OnlyResearchWorkloadPlan`。本状态是本地 increment evidence，不是 P8
+Final-SHA certification。
 
 ### 目标
 

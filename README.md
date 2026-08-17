@@ -26,8 +26,8 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.0 — PLANNED** |
-| Next semantic direction | Research Specification & Resolution Boundary |
+| Current increment | **P8.0 — VERIFIED locally** — Research Specification & Resolution Boundary |
+| Next semantic direction | P8.1 — Research Run Authority & PostgreSQL Operational Store |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -309,6 +309,11 @@ Immutable Research Stores
 ```
 
 PostgreSQL 不保存第二份 Research semantic result。
+
+P8.0 已建立 strict `OnlyResearchSpecification` V1、canonical request fingerprint、exact type/RESEARCH-backend admission、
+Direct/Sweep 共享 Graph Template Materializer、symbolic Feature/Target selector、singleton-only Statistics broadcast，以及到现有
+`OnlyResearchWorkloadPlan` 的 deterministic resolution。Candidate lineage 保留 runtime-neutral Graph identity；Dataset-bound Research
+Calculation identity 不承担未来 promotion identity。该 increment 已通过本地 affected/FULL_LOCAL verification，但不构成 P8 certification。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

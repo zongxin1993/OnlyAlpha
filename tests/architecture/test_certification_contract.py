@@ -158,10 +158,10 @@ def test_asv_builds_exactly_the_benchmarked_root_distribution() -> None:
 def test_readme_and_roadmap_expose_one_truthful_current_increment() -> None:
     readme = Path("README.md").read_text()
     roadmap = Path("docs/roadmap.md").read_text()
-    assert roadmap.count("Current Milestone: P7") == 1
+    assert roadmap.count("Current Milestone: P8") == 1
     assert roadmap.count("Milestone State: IN_PROGRESS") == 1
-    assert roadmap.count("Current Increment: P7.12 — VERIFIED LOCALLY") == 1
-    assert roadmap.count("P7 Final Certification: NOT COMPLETE") == 1
+    assert roadmap.count("Current Increment: P8.0 — VERIFIED LOCALLY") == 1
+    assert roadmap.count("P7 Final Certification Verdict: ACCEPTED") == 1
     assert "## 当前阶段：P6" not in roadmap
-    assert "P7 milestone status | **IN_PROGRESS**" in readme
-    assert "Current increment | **P7.12 — VERIFIED locally**" in readme
+    assert "| P7 | **DONE / CERTIFIED** — Vectorized Research Runtime |" in readme
+    assert "| Current increment | **P8.0 — VERIFIED locally**" in readme

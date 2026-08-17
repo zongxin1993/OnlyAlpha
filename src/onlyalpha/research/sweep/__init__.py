@@ -9,6 +9,7 @@ from .definition import (
 )
 from .errors import OnlyResearchSweepError
 from .executor import OnlyResearchSweepExecutor
+from .materialization import OnlyResearchGraphMaterialization, OnlyResearchGraphTemplateMaterializer
 from .outcome import OnlyResearchSweepCellOutcome, OnlyResearchSweepOutcome
 from .planning import (
     OnlyResearchSweepCell,

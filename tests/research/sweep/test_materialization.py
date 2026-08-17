@@ -286,3 +286,14 @@ def test_distinct_assignments_with_same_materialized_calculation_fail_closed() -
         OnlyResearchSweepPlanner(local).plan(sweep)
     assert duplicate.value.code == "SWEEP_DUPLICATE_CELL"
     assert duplicate.value.ordinal == 1
+
+
+def test_materializer_rejects_invalid_constructor_template_and_resolution() -> None:
+    from onlyalpha.research import OnlyResearchGraphTemplateMaterializer
+
+    with pytest.raises(TypeError):
+        OnlyResearchGraphTemplateMaterializer(object())  # type: ignore[arg-type]
+    materializer = OnlyResearchGraphTemplateMaterializer(registry())
+    with pytest.raises(OnlyResearchSweepError) as invalid:
+        materializer.materialize(object())  # type: ignore[arg-type]
+    assert invalid.value.code == "SWEEP_TEMPLATE_INVALID"

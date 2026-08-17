@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.core.errors import OnlyLifecycleError
+from onlyalpha.research import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.research import OnlyResearchRuntimeState
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
+from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import sweep_only_workload_case, workload_case
 
 
@@ -113,3 +115,32 @@ def test_sweep_only_workload_preserves_sweep_execution_outcome(tmp_path: Path) -
     assert all(item.total_cells == 1 and item.cells[0].ordinal == 0 for item in result.sweep_outcomes)
     assert result.to_dict()["sweep_outcomes"][0]["executed_count"] == 1  # type: ignore[index]
     engine.stop()
+
+
+def test_specification_resolved_and_manual_workloads_have_full_runtime_equivalence(tmp_path: Path) -> None:
+    manual_engine, manual_workload = workload_case(tmp_path)
+    manual_id = manual_engine.add_research_workload(manual_workload)
+    manual_engine.initialize()
+    manual_engine.start()
+    manual = manual_engine.run_runtime(manual_id)
+    manual_engine.stop()
+
+    resolved_engine, repeated = workload_case(tmp_path)
+    resolved = OnlyResearchSpecificationResolver(registry()).resolve(
+        specification(repeated.dataset_snapshot_fingerprint)
+    )
+    resolved_id = resolved_engine.add_research_workload(resolved.workload)
+    resolved_engine.initialize()
+    resolved_engine.start()
+    result = resolved_engine.run_runtime(resolved_id)
+    resolved_engine.stop()
+
+    assert [item.calculation_fingerprint for item in result.direct_job_outcomes] == [
+        item.calculation_fingerprint for item in manual.direct_job_outcomes
+    ]
+    assert [item.statistics_fingerprint for item in result.statistics_outcomes] == [
+        item.statistics_fingerprint for item in manual.statistics_outcomes
+    ]
+    assert result.research_result_fingerprint == manual.research_result_fingerprint
+    assert result.artifact_content_fingerprint == manual.artifact_content_fingerprint
+    assert result.determinism_fingerprint == manual.determinism_fingerprint
