@@ -1,195 +1,53 @@
 # OnlyAlpha
 
-**OnlyAlpha** 是一个面向个人与小型团队的模块化量化交易工程，核心目标是在保持工程结构清晰、运行结果确定、状态可恢复的前提下，为 **Research、Backtest、Sim、Live** 四种 Runtime 提供统一的量化基础设施。
+**OnlyAlpha** 是一个面向个人与小型团队的模块化量化交易工程，目标是在保持工程结构清晰、运行结果确定、状态可恢复的前提下，为 **Research、Backtest、Sim、Live** 四种 Runtime 提供统一的量化基础设施。
 
-OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定义所有产品共享的 canonical 基础语言；A 股、港股、美股、
-加密货币及后续市场通过 versioned Market Product、DataSource 与 Broker 插件接入。Core 和 Trading Kernel 不根据市场名称分支，
-也不为具体市场复制 Engine、Runtime 或 Manager。
+OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定义跨市场 canonical 基础语言；具体市场通过 versioned Market Product、DataSource 与 Broker 插件接入。Core 与 Trading Kernel 不根据市场名称复制 Engine、Runtime 或经济 Manager。
 
-OnlyAlpha 不把回测、实时模拟和实盘设计成三套独立交易系统。
-
-其核心设计原则是：
+核心原则：
 
 > **Research 为研究效率服务；Backtest、Sim、Live 为交易语义一致性服务。**
 
-Backtest、Sim 和 Live 应尽可能复用相同的 Strategy、Market Rule、Risk、Order、Execution、Fee、Position、Account、Settlement 与 Durable Transaction Kernel，仅在 **Clock、MarketData Driver、Broker Adapter 和 Lifecycle Driver** 等外部驱动层存在差异。
+> **Correctness > Architecture Consistency > Verifiability > Recoverability > Maintainability > Performance > Automation.**
 
-## 当前版本
+---
+
+## 当前状态
 
 | 项目 | 状态 |
 |---|---|
 | Version | `0.7.12` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
-| Architecture | 模块化单体 |
-| Primary runtime | Backtest |
-| CN A-share durable contract | `CN_A_SHARE_DURABLE_BACKTEST_V1` / `"1"` — **CERTIFIED** finite product |
-| P6 status | **DONE / CERTIFIED** — exact Final-SHA remote certification completed |
-| P7 milestone status | **IN_PROGRESS** — P7 Final-SHA Certification is required at P7 Final Closure before P8 |
-| Current increment | **P7.12 — VERIFIED locally** — Research Web Consumption & Visualization Boundary |
-| P7.5.2 increment | **VERIFIED** — same-milestone increments do not require standalone Final-SHA Certification |
-| P7.6 increment | **VERIFIED locally** — deterministic finite Sweep composition; standalone certification not required |
-| P7.6.1 increment | **VERIFIED** — Factor-owned resolver contract coverage closure; standalone certification not required |
-| P7.6.2 increment | **VERIFIED** — exact merged subject passed Layered Quality, CodeQL, Final-SHA and Nightly Heavy Quality |
-| Next semantic direction | P7 Final Closure / exact Final-SHA Certification |
+| Architecture | Modular Monolith |
+| Primary trading runtime | Backtest |
+| P6 | **DONE / CERTIFIED** |
+| P7 | **DONE / CERTIFIED** — Vectorized Research Runtime |
+| P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
+| P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
+| Current milestone | **P8 — Research Control Plane & Web-native Execution** |
+| Current increment | **P8.0 — PLANNED** |
+| Next semantic direction | Research Specification & Resolution Boundary |
 | License | MIT |
 
+P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
+
+P8 之后的 milestone **当前不预先编号或冻结**。P8 完成并取得 exact Final-SHA `ACCEPTED` 后，再基于当时 Repository truth 重新规划。
+
 ---
 
-## Calculation Definition Authority
+## Runtime 模型
 
-Indicator 与 Factor 的正式身份由 Core 中 immutable、Runtime-independent 的 Calculation Definition 表达：
+OnlyAlpha 唯一允许的目标 Runtime vocabulary：
 
 ```text
-type_id + semantic_version + resolved parameters + input bindings
-+ output/warmup/missing/timestamp/numeric semantics
-→ canonical JSON → SHA-256 fingerprint
+RESEARCH
+BACKTEST
+SIM
+LIVE
 ```
 
-human alias、Python class path、文件路径、进程/时间和 Runtime identity 不进入 semantic fingerprint。Core 只拥有
-Definition、Graph 和 Registry contract；现有 9 个 concrete trading Indicator backend 位于
-`onlyalpha-plugin-indicators`，通过 `onlyalpha.calculations` entry point 确定性注册。P7.2 已为当前正式支持的 Indicator
-semantic versions 提供 exact RESEARCH backend；P7.5 已在官方 Factor plugin 中提供 RESEARCH-only Momentum TIME_SERIES Factor
-与 Cross-Section Percentile Scorer，并继续复用 Calculation Definition / Graph / Result / Job authority。
-
-P7.0.1 已冻结 Definition schema v2 / Graph schema v1 的 exact/fail-closed reader、完整 DAG port compatibility（type/nullability/dimensions/
-semantic type/unit）、backend-neutral Registry 与 Trading resolver、显式 `type_id@semantic_version` reference，以及官方
-Indicator 插件自有 characterization/coverage。旧 built-in token 只通过固定映射解析到 `@1`，不会选择 latest。当前
-Factor config 也显式携带 exact reference，并在 implementation load 后验证一致；Python class path 只负责定位代码，不是
-semantic identity。P7.0 当时尚未实现 Research backend；该能力已由下述 P7.2 完成。Calculation Result Store 已由 P7.3
-实现；P7.11 已在不改变这些 semantic identities 的前提下激活 finite Research Runtime。
-
-P7.1 建立 Historical Closed Bar Dataset v1：resolved Definition、exact Decimal/precision-preserving columnar schema、provider-independent
-canonical content identity、immutable content-addressed Parquet Snapshot Store、strict materialization 与独立 provenance。Historical Cache
-仍只是 acquisition optimization。
-
-P7.2 建立 verified columnar Dataset admission、exact RESEARCH backend resolver、显式 Dataset source binding、按 instrument 隔离且按
-canonical DAG 顺序执行的 batch executor、Research Calculation fingerprint 与 ephemeral canonical output。官方 EMA、SMA、RSI、
-Bollinger、Rolling Return、Rolling Volatility、ZScore、MACD `@1` 以及完整声明 high/low/close 的 ATR `@2` 已有独立 Decimal
-RESEARCH backend，并通过逐观察点 Trading↔Research characterization；输入不完整的 ATR `@1` 保持原 fingerprint 且不注册
-RESEARCH backend。
-
-P7.3 将完整 P7.2 execution 按 `(node_fingerprint, instrument_id)` 形成 canonical logical partitions，建立与 Parquet bytes
-分离的 Result Content fingerprint 和 Calculation Result fingerprint，并以 `calculation_fingerprint` 为唯一 durable key 写入
-immutable Parquet Store。Store 在 admission、staging read-back、atomic publication 和正式 load 时验证 Dataset/Graph linkage、
-完整 partition set、timestamp/output schema、logical values、semantic hash 与 byte SHA-256；相同结果重复提交幂等，不同结果以
-`DETERMINISTIC_RESULT_CONFLICT` fail closed，corrupt authority 不覆盖、不修复、不 fallback。
-
-P7.4 建立 immutable resolved Job Plan 与单一 `OnlyResearchJobExecutor`：Plan 只引用 exact Dataset Snapshot 和 canonical
-Calculation Graph，不增加重复 Job/Plan fingerprint；orchestrator 只以 `load_verified()` 判定复用，且仅 `RESULT_NOT_FOUND`
-进入 P7.2 execution 与 P7.3 immutable commit。成功 Outcome 显式区分 `EXECUTED/REUSED`，两条路径保持相同 Calculation/Result
-identity；corrupt/invalid authority、Dataset verification、calculation、commit 与 deterministic conflict 均保留 phase/code 并
-fail closed。P7.5 进一步冻结 Feature、raw Factor Value、`[0,1]` Factor Score 与 TIME_SERIES/CROSS_SECTION execution semantics，
-P7.6 已增加 backend-neutral Definition re-materialization、serializable Graph Template、template-local node/dependency reference、finite
-explicit parameter dimensions、typed canonical Cartesian planning 与 sequential JobExecutor-only execution。每个 Cell 继续使用 existing
-`calculation_fingerprint`，重复/部分重入通过 verified Result `REUSED/EXECUTED` 收敛，不创建 Sweep/Trial Store 或 fingerprint。
-P7.7 在同一 Calculation semantic model 中增加非 Factor 的 `TARGET` kind，并由官方 Target plugin 提供 RESEARCH-only
-`onlyalpha.target.forward_return@1`。Feature Graph 与 Target Graph 独立，Target V1 只依赖 Dataset source；Graph construction
-禁止 Evaluation 输出反向进入 Indicator/Factor，也禁止 Target 依赖 Calculation node。Forward Return 使用 exact bar offset、保留原
-observation axis、future tail 为 NULL，并继续复用 Calculation Result Store 与 Job verified reuse。
-
-独立 Research Evaluation Plane 按 exact Feature/Target series reference 和相同 Dataset Snapshot 做 pairwise alignment，以 Decimal
-显式计算 IC / AVERAGE-tie Rank IC，并将 sample count、合法退化 status 与 nullable value 写入 immutable Statistics Result Store。
-Statistics identity、Result Content identity 与 Statistics Result identity 分层；staged verified publication、idempotent reuse、deterministic
-conflict 和 corruption fail-closed 均已闭环。P7.8 在其上建立 composition-only Research Result：Plan/Content/Result identity 分层，
-verified-load exact Statistics Result references，单一 Dataset Snapshot 约束，以及 staged/atomic immutable JSON Store。它不复制
-Statistics rows，EXECUTED/REUSED 与物理路径不进入 semantic identity。P7.9 从 verified Research Result 的精确成员确定 immutable
-Research Artifact，复制 canonical Statistics rows 到自包含 Parquet/Manifest 包；发布后无需上游 Store 即可重证 Statistics、Research
-Result 与 Artifact identity，但 Artifact 不成为新的 semantic authority。P7.10 在其上建立 transport-neutral Query Model、确定性
-Query Service 与独立 `onlyalpha-api` FastAPI package；消费者只使用 exact identity 与 `load_verified()`。P7.12 将 HTTP transport 独立
-升级到 schema v2，Decimal、事件纳秒和 cursor 均以 canonical string 传输，并建立 same-origin `onlyalpha-web`：Zod admission 后 exact
-time 为 `bigint`、Decimal 为 string，URL 拥有 selection，chart 只消费可失败的 lossy projection。P7.11 已激活 programmatic finite
-Research Runtime；Research YAML/CLI、Scheduler、Optimizer、Trading/Live Web control 仍未实现。
-
-P7 quality gate 按粒度执行：同一 P7 milestone 内的 implementation increment 以 targeted/affected verification 达到 `VERIFIED` 后
-即可继续；只有 P7 Final Closure 或显式高风险 certification checkpoint 才执行完整 exact-SHA Final-SHA Certification。P7 → P8
-仍必须由 Final-SHA artifact 给出 `ACCEPTED`，development evidence 不得冒充 certification。
-
-P7.6.2 已关闭验证基础设施自身的完整性：Nightly performance 使用 fresh-runner 自举、同一 runner 的 parent/candidate ASV
-comparison 与持久 evidence；root `uv.lock` 由固定版本 OSV-Scanner fail-closed 审计，并成为 Layered Quality 与 Final-SHA
-Certification mandatory gate。merged subject `b3a4a0da76b35646a1da28a3f72861cb7a23178a` 的 Layered Quality、CodeQL、
-Final-SHA Certification 与 Nightly exhaustive/formal/mutation/performance 均通过，因此该 increment 为 `VERIFIED`；这不等于 P7
-milestone 已 `CERTIFIED`。
-
----
-
-# 1. 工程定位
-
-OnlyAlpha 不是单文件策略回测工具，也不是以高频交易为目标的超低延迟系统。
-
-工程主要面向：
-
-* 分钟级及以上周期的量化策略；
-* 历史数据研究与参数探索；
-* 确定性事件驱动回测；
-* 实时虚拟交易；
-* 真实 Broker 实盘交易；
-* 多市场、多资产类别扩展；
-* 数据、指标、因子和研究结果的长期沉淀；
-* Web 投研与结果展示；
-* 可恢复、可审计的长期运行环境。
-
-工程当前采用 **模块化单体（Modular Monolith）**，优先解决领域边界、状态权威、确定性和可恢复性，而不是过早拆分微服务。
-
----
-
-# 2. 核心设计目标
-
-OnlyAlpha 的长期目标包括：
-
-1. **统一 Engine**
-
-   * 一个 `OnlyEngine` 作为产品级唯一运行入口；
-   * 一个 Engine 可以管理多个 Runtime；
-   * 一个 Engine 的目标形态可以同时运行 Research、Backtest、Sim、Live，且各 Runtime 生命周期独立；
-   * Trading Runtime 内可以承载多个相互隔离的 Cluster；
-   * Research Runtime 承载 Research Job / Plan，不被强制包装成交易 Cluster。
-
-2. **四种明确的 Runtime**
-
-   * Research
-   * Backtest
-   * Sim
-   * Live
-
-3. **交易语义一致**
-
-   * Backtest、Sim、Live 共用正式交易内核；
-   * Strategy 不根据 Runtime 编写不同交易逻辑；
-   * Runtime 差异尽量限制在 Driver 层。
-
-4. **确定性**
-
-   * 相同输入、相同 Authority Version、相同 Broker Facts 应产生相同经济历史和结果；
-   * Backtest 与 Recovery 必须具有可重复结果。
-
-5. **单一状态权威**
-
-   * 每个状态域只有一个写入 Authority；
-   * 不允许 Strategy、Broker Adapter 或多个 Manager 同时维护同一份业务真值。
-
-6. **Durable Trading**
-
-   * 关键经济事实先 Durable Commit，再更新 Projection；
-   * Crash 后通过 Forward Recovery 恢复，而不是跨 Manager 回滚。
-
-7. **市场中立**
-
-   * Execution Kernel 不根据市场名称做业务分支；
-   * 市场差异通过 Reference、Market Rule、Fee、Settlement 等 Authority 表达。
-   * 当前一个 Trading Runtime 只绑定一个 Account、一个 Market Product 和一个 Currency；
-   * 多市场由一个 Engine 下多个隔离 Runtime 组合，跨市场汇总只读。
-
-8. **Fail Closed**
-
-   * 无法证明合法性、兼容性、Authority 或状态一致性时拒绝继续；
-   * 不使用静默 fallback 修复未知状态。
-
----
-
-# 3. Runtime 模型
-
-OnlyAlpha 的目标产品架构只保留四种 Runtime。这里定义长期语义，不代表当前源码已经全部实现：
+目标产品架构：
 
 ```text
 OnlyEngine
@@ -205,10 +63,33 @@ OnlyEngine
     └── Manual workload(s)
 ```
 
-四类 Runtime 的 target lifecycle 相互独立。有限 Research/Backtest 完成不停止 Sim/Live；Web/Application 通过 Engine 控制目标
-Runtime，不直接访问 Runtime Manager。当前源码尚未实现四类 Runtime 在一个 Engine 中的完整异构同时组合。
+正式原则：
 
-当前 Trading 产品采用：
+```text
+Research optimizes research efficiency.
+
+Backtest / Sim / Live
+share one trading semantic core.
+
+Runtime Type
+!=
+Execution Permission.
+```
+
+历史 `PAPER` 与 standalone `SHADOW` 已从 active product vocabulary 删除，不保留 alias、deprecated spelling 或 compatibility wrapper。
+
+---
+
+## 当前 Runtime 产品边界
+
+| Runtime | 当前事实 |
+|---|---|
+| `BACKTEST` | 已实现，是 primary trading Runtime；event-driven + Virtual Broker + Full Trading Kernel |
+| `SIM` | 已实现 realtime Virtual Broker normal path、continuity/gap/reconnect、checkpoint 与 new-process recovery |
+| `RESEARCH` | 已实现 finite programmatic Engine product、immutable Result/Artifact、read-only Query/API 与 Research Web |
+| `LIVE` | Factory unsupported；真实 Broker outbound durability、同步、reconciliation、长期恢复尚未实现 |
+
+当前 Trading 产品继续遵守：
 
 ```text
 One Trading Runtime
@@ -217,1860 +98,387 @@ One Trading Runtime
 = One Account currency
 ```
 
-因此多市场平台通过同一 Engine 下多个单市场、单币种 Runtime 组合。多币种账户、FX valuation、跨市场资金共享和组合保证金
-不是当前隐含能力。
+多市场通过一个 Engine 下多个隔离 Runtime 组合；跨市场 Result/Analytics/Artifact/Web 聚合只读，不成为资金、仓位、订单或风险 authority。
 
-## 3.1 Research
+---
 
-Research 面向高速历史研究，不承担正式交易执行语义。
+## P7 已完成的 Research 产品链
+
+P7 已建立完整 Research semantic/read vertical slice：
 
 ```text
-Historical Data
+Historical Dataset Snapshot
       ↓
-Research Dataset
+Vectorized Calculation
       ↓
-Vectorized Indicator
-      ↓
-Factor / Feature
+Factor / Feature / Score
       ↓
 Parameter Sweep
       ↓
-Statistics
+Target / Statistics
       ↓
 Research Result
       ↓
-Web Visualization
+Research Artifact
+      ↓
+Query / HTTP API
+      ↓
+Research Web
 ```
 
-主要特征：
+### Calculation Identity
 
-* 使用历史数据；
-* 支持向量化计算；
-* 面向 K 线、指标、因子、特征和参数研究；
-* 支持批量参数搜索；
-* 当前支持 IC、Rank IC 与 Forward Return；分组收益等扩展统计仍未实现；
-* Research Result composition authority、portable Research Artifact、只读 Query/API 与 exact Research Web vertical slice 已实现；
-* 面向 Web、Notebook、CLI 等研究界面；
-* 不要求经过完整 Order / Broker / Transaction Kernel。
-
-Research 的目标是：
-
-> **快速发现值得进一步验证的策略、因子和参数。**
-
-Research Runtime 只拥有 research execution、dataset、calculation、Research Result 和 Artifact state。它不会仅为结构对称而创建正式 Order、Position、Account、Broker、Reservation 或 Trading Transaction authority；Research Job 也不伪装成 Trading Cluster。
-
----
-
-## 3.2 Backtest
-
-Backtest 使用历史数据，但采用完整事件驱动交易链。
+Indicator、Factor 与 Target 的正式身份来自 immutable、Runtime-independent Calculation Definition：
 
 ```text
-Historical Data
-      ↓
-Historical Replay
-      ↓
-Backtest Clock
-      ↓
-MarketData Pipeline
-      ↓
-Indicator / Factor
-      ↓
-Strategy
-      ↓
-Market Rule
-      ↓
-Risk
-      ↓
-Order
-      ↓
-Virtual Broker
-      ↓
-Accepted / Trade / Terminal
-      ↓
-Durable Transaction
-      ↓
-Account / Position / Fee / Settlement
+type_id + semantic_version + resolved parameters + input bindings
++ output/warmup/missing/timestamp/numeric semantics
+→ canonical representation
+→ SHA-256 fingerprint
 ```
 
-Backtest 的主要目标不是获得最高计算吞吐，而是：
+Research 与 Trading backend 可以使用不同执行模型，但必须共享同一 Calculation semantic identity。Research backend 不得消费 Definition 未声明的 semantic input，也不得 fallback 到 Trading backend。
 
-> **尽可能复现 Sim / Live 的交易运行语义。**
+### Immutable Research Authorities
 
-因此正式 Backtest 不使用向量化方式替代：
-
-* Order；
-* Risk；
-* Reservation；
-* Broker lifecycle；
-* Partial Fill；
-* Fee；
-* Position；
-* Settlement；
-* Durable Transaction。
-
-Research 负责快速筛选，Backtest 负责精确交易验证。
-
----
-
-## 3.3 Sim
-
-Sim 使用实时市场数据，但所有订单只进入本地 Virtual Broker。
+P7 建立并保持分离的 durable authorities：
 
 ```text
-Realtime Market Data
-        ↓
-Live Clock
-        ↓
-MarketData Pipeline
-        ↓
-Indicator / Factor
-        ↓
-Strategy
-        ↓
-Market Rule
-        ↓
-Risk
-        ↓
-Order
-        ↓
-Virtual Broker
-        ↓
-Accepted / Trade / Terminal
-        ↓
-Durable Transaction
-        ↓
-Virtual Account / Position
-        ↓
-PnL / Analytics
+Dataset Snapshot
+Calculation Result
+Statistics Result
+Research Result
+Research Artifact
 ```
 
-Sim：
+其中：
 
-* 使用实时行情；
-* 不向真实 Broker 发送订单；
-* 使用本地虚拟账户；
-* 使用本地 Virtual Broker；
-* 产生完整模拟 Accepted / Fill / Cancel / Reject / Expire；
-* 使用正式 Position、Account、Fee、Settlement 和 Transaction Kernel；
-* 用于在真实时间环境中验证策略行为。
+- Dataset Snapshot 是 Research 输入 authority；
+- Calculation Result 是 exact Calculation 输出 authority；
+- Statistics Result 是统计 rows semantic authority；
+- Research Result 是 exact Statistics composition authority；
+- Research Artifact 是 portable immutable materialized read view，不是第二 semantic authority。
 
-Sim 是 Backtest 与 Live 之间的重要验证层。
+这些 authority 使用 content-addressed Parquet/JSON/Manifest、stable fingerprint、verified load、atomic publication、idempotent reuse、deterministic conflict 和 corruption fail-closed。
 
----
+### Finite Research Runtime
 
-## 3.4 Live
-
-Live 使用实时行情和真实 Broker。
+正式 programmatic product path：
 
 ```text
-Realtime Market Data
-        ↓
-Live Clock
-        ↓
-MarketData Pipeline
-        ↓
-Indicator / Factor
-        ↓
-Strategy
-        ↓
-Market Rule
-        ↓
-Risk
-        ↓
-Order
-        ↓
-Durable Broker Command
-        ↓
-Real Broker
-        ↓
-Broker Facts
-        ↓
-Durable Execution Kernel
-        ↓
-Local Canonical Trading State
-        ↓
-Broker Reconciliation
+OnlyEngine
+→ add_research_workload(...)
+→ validate / initialize / start
+→ run_runtime(runtime_id)
+→ stop / close
 ```
 
-Live 与 Sim 应尽可能共用全部交易核心。
+`OnlyResearchRuntime` 编排既有 Dataset、Job、Sweep、Statistics、Result 与 Artifact authority，不创建 Trading Cluster、Account、Position、Order、Broker、Reservation 或 durable Trading Transaction authority。
 
-Live 特有职责主要包括：
+### Research Query/API/Web
 
-* 首次 Open 前的 immutable、versioned genesis import；
-* Cash、Position/cost basis、Open Order、Pending Settlement evidence verification；
-* Durable Broker outbound command；
-* Broker idempotency；
-* Broker ACK / Reject / Unknown；
-* Account / Order / Trade / Position synchronization；
-* reconnect；
-* reconciliation；
-* Web lifecycle control 与只属于 LIVE 的 Manual workload；
-* 单 Runtime / 全 Live Runtime durable liquidation；
-* long-running recovery；
-* 生产运维。
+Research consumer plane：
 
-Broker 历史成交和历史资金流水只作为 evidence attachments 保存，不伪造为本地历史交易；Broker Snapshot 不覆盖 committed
-local history。上述内容均是目标合同，当前 LIVE Factory 仍 unsupported。
+```text
+Research Artifact
+→ read-only Query Service
+→ onlyalpha-api
+→ HTTP v2
+→ onlyalpha-web
+```
+
+HTTP transport 中 Decimal、event nanosecond 与 cursor 使用 canonical string；Web runtime admission 后 exact nanosecond 使用 `bigint`、Decimal 保持 string。Chart 中的 `number/seconds` 只是显式可失败的 presentation projection，不能反向成为 Research truth。
+
+Web 只消费 exact Artifact identity，不读取 Artifact filesystem/Parquet、不访问 Dataset/Calculation/Statistics/Result execution Store，也不控制 Research Runtime mutable state。
 
 ---
 
-# 4. Backtest / Sim / Live 一致性原则
+## Trading Semantic Core
 
-三种 Runtime 不要求 Driver 代码完全相同。
+Backtest、Sim、目标 Live 共用正式 Trading Kernel。允许的差异主要位于：
 
-它们必须保证的是：
+```text
+Clock Driver
+MarketData Driver
+Broker Adapter
+Lifecycle Driver
+```
 
-> **Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。**
-
-允许不同：
-
-| 能力     | Backtest      | Sim          | Live         |
-| ------ | ------------- | ------------ | ------------ |
-| 数据     | Historical    | Realtime     | Realtime     |
-| Clock  | BacktestClock | LiveClock    | LiveClock    |
-| Broker | Virtual       | Virtual      | Real         |
-| 生命周期   | Finite        | Long-running | Long-running |
-
-必须尽量相同：
+进入 Trading Semantic Plane 后，共享：
 
 ```text
 Strategy
 Market Rule
 Risk
-Order
 Reservation
-Execution Support
-Execution Processor
+Order
+Execution
 Fee
 Position
 Allocation
 Account
 Strategy Ledger
 Settlement
-Transaction
+Durable Transaction
 Recovery semantics
 ```
 
-理想目标：
+固定不变量：
 
 ```text
-Same Normalized Market Events
-+
-Same Strategy
-+
-Same Broker Facts
-        ↓
+One Domain
+→ One Write Authority
 
-Backtest / Sim / Live
-        ↓
+Planner Calculates
+→ Projection Installs
 
-Same Economic Result
+Commit Fact First
+→ Project State Second
+
+Historical Fact Immutable
+→ Forward Recovery Only
+
+Market Identity Is Evidence
+→ Not Execution Permission
+
+Unsupported / Ambiguous
+→ Fail Closed
 ```
 
-未来应建立正式的 **Runtime Trading Semantic Conformance** 测试证明这一性质。
-
-`Runtime Type != Execution Permission`：Runtime type 可以参与 Driver 选择、Runtime identity、planning/grouping 和生命周期组合，但不能成为经济能力、市场合法性或 Execution Support authority。Strategy 与 Trading Kernel 不得按 Runtime type 改变交易语义。
-
----
-
-# 5. Engine / Runtime / Cluster 关系
-
-长期顶层关系：
-
-```text
-OnlyEngine
-├── Research Runtime
-│   ├── Research Job A
-│   └── Research Job B
-├── Backtest Runtime
-│   ├── Cluster A
-│   └── Cluster B
-├── Sim Runtime
-│   └── Cluster C
-└── Live Runtime
-    └── Cluster D
-```
-
-职责：
-
-## OnlyEngine
-
-负责：
-
-* 产品级生命周期；
-* 当前 Trading product 的 Cluster Definition；
-* Runtime Planning；
-* Runtime grouping；
-* Runtime Session；
-* Cluster Session；
-* 基础设施引用；
-* Runtime 创建、启动、停止和关闭；
-* Result / Artifact 聚合。
-
-Engine 不直接拥有交易状态。
+Broker Gateway 是外部命令/事实适配边界，不是本地 Account、Position 或 Order authority。SDK callback 不得直接修改 Runtime Manager。
 
 ---
 
-## Trading Runtime
+## 当前有限认证产品
 
-Trading Runtime（Backtest / Sim / Live）是 mutable trading authorities 的所有者。
-
-每个 Trading Runtime 独占：
-
-* Order Manager；
-* Position Manager；
-* Allocation Manager；
-* Account Manager；
-* Strategy Ledger Manager；
-* Reservation Manager；
-* Risk Manager；
-* Settlement Manager；
-* Execution Processor；
-* Runtime Transaction Store；
-* Applied Projection Ledger；
-* Transaction Coordinator / Outbox；
-* Broker inbound queue；
-* MarketData processing state。
-
----
-
-## Research Runtime
-
-Research Runtime 拥有 research execution、dataset、calculation、result 与 artifact state。它不承担 formal Trading Kernel，也不为共享父类或形式统一创建没有业务意义的 Trading Manager。
-
-当前源码的公共 Runtime 基类仍是 trading-shaped，Research Factory 也尚未实现；这是后续源码迁移边界，不是目标 Research ownership。
-
----
-
-## Cluster
-
-Cluster 是 Trading Runtime 的策略隔离 workload，不是 Research Job。
-
-```text
-Cluster
-├── one Strategy
-├── zero-or-more Factors
-└── Indicators
-```
-
-Cluster：
-
-* 不拥有 Runtime Manager；
-* 不维护账户完整副本；
-* 不能直接修改 Position / Account；
-* 通过受限 Context 读取 immutable Snapshot；
-* 通过正式 Order API 请求交易。
-
----
-
-# 6. Strategy / Factor / Indicator 边界
-
-## Indicator
-
-Indicator：
-
-* 只负责底层滚动计算；
-* 不产生交易副作用；
-* 不拥有 Position 或 Account；
-* 输入确定时输出应确定。
-
----
-
-## Factor
-
-Factor：
-
-* 可以组合多个 Indicator；
-* 负责特征、评分或信号计算；
-* 不拥有交易权限；
-* 不直接创建 Order。
-
----
-
-## Strategy
-
-Strategy：
-
-* 读取 Market Data；
-* 读取 Factor Snapshot；
-* 读取账户、持仓等受限 Snapshot；
-* 生成 Order Intent；
-* 不直接修改交易 Authority。
-
-固定关系：
-
-```text
-Market Data
-    ↓
-Indicator
-    ↓
-Factor
-    ↓
-Strategy
-    ↓
-Order Intent
-```
-
----
-
-# 7. 状态权威原则
-
-OnlyAlpha 采用：
-
-> **One Domain → One Write Authority**
-
-主要状态域：
-
-```text
-Runtime Transaction History
-    → Transaction Store
-
-Projection Progress
-    → Applied Projection Ledger
-
-Order
-    → Order Authority
-
-Position
-    → Position Authority
-
-Cluster Position Attribution
-    → Allocation Authority
-
-Account
-    → Account Authority
-
-Strategy Virtual Capital
-    → Strategy Ledger Authority
-
-Risk
-    → Risk Authority
-
-Risk Reservation
-    → Risk Reservation Authority
-
-Cash Reservation
-    → Cash Reservation Authority
-
-Position Reservation
-    → Position Reservation Authority
-
-Settlement
-    → Settlement Authority
-
-Market Fee / Broker Fee Application
-    → Fee Authorities / Ledgers
-```
-
-这些 mutable trading authorities 由各自的 Trading Runtime 独占。Research Runtime 不为结构对称创建它们。
-
-禁止：
-
-```text
-Strategy 自己维护完整账户
-
-Broker Gateway 持有本地 Position Manager
-
-两个 Manager 同时拥有一个 balance
-
-Projection Target 修改其它 Domain
-
-Recovery 重新创造已经 Commit 的历史事实
-```
-
----
-
-# 8. Account 与 Strategy Ledger
-
-Account 和 Strategy Ledger 是两个不同 Authority。
-
-```text
-Runtime
-├── Account
-└── Strategy Ledger
-```
-
-## Account
-
-Account 表示：
-
-* Runtime 账户级经济状态；
-* Cash；
-* Position；
-* Fees；
-* Margin；
-* Equity；
-* Broker reconciliation basis。
-
-## Strategy Ledger
-
-Strategy Ledger 表示：
-
-* Cluster 的虚拟资金；
-* Cluster reserved cash；
-* Cluster position attribution；
-* Cluster realized/unrealized PnL；
-* Cluster equity。
-
-两者：
-
-```text
-不共享 mutable state
-```
-
-但必须维护正式经济一致性。
-
----
-
-# 9. Position 与 Allocation
-
-OnlyAlpha 将账户级持仓和 Cluster 归因分离：
-
-```text
-Account Position
-       ↓
-Position Authority
-
-Cluster Ownership
-       ↓
-Allocation Authority
-```
-
-例如：
-
-```text
-Account:
-AAPL = 1000
-
-Cluster A:
-600
-
-Cluster B:
-400
-```
-
-则：
-
-```text
-Position = 1000
-Allocation A = 600
-Allocation B = 400
-```
-
-这使 Multi-Cluster 可以共享 Account，同时保持策略归因独立。
-
----
-
-# 10. Market Authority
-
-OnlyAlpha 不允许 Execution Kernel 直接判断：
-
-```text
-A-share
-Futures
-Crypto
-US Equity
-...
-```
-
-市场差异应该通过：
-
-```text
-Market Product Binding
-Reference Authority
-Compiled Market Rules
-Fee Authority
-Settlement Instruction
-```
-
-进入正式 Runtime。
-
-目标链：
-
-```text
-Market Product Factory
-      ↓
-Resolved Binding
-      ↓
-Reference Authority + Policy Compiler + Market Fee Pack
-      ↓
-Compiled Market Rules
-      ↓
-Runtime
-```
-
-最终：
-
-```text
-Execution Core
-```
-
-只消费已经规范化的经济 Instruction。
-
-P5.3 已完成 Generic 与 CN A-share Trading Runtime one-shot cutover：`onlyalpha-market-generic-t0-cash` 与 `onlyalpha-market-cn-ashare` 通过 `onlyalpha.market_products` discovery 各自提供 plugin-owned Reference Authority、pure Policy Compiler 和 Market Fee Pack；Core 不 import 或硬注册 concrete package。IR 只包含 instrument/session/price/quantity/position/short/settlement/margin economics，不包含 matching、slippage 或 simulation liquidity。Runtime composition resolve exactly once，Environment/Persistence/Recovery 使用 effective composition identity，旧 Profile/A-share production authority 已删除。
-
----
-
-# 11. Reference Authority
-
-Reference 与行情不是同一概念。
-
-例如：
-
-```text
-previous_close
-tick_size
-lot_size
-board
-ST status
-suspension
-instrument lifecycle
-```
-
-属于 Reference Authority。
-
-不能默认：
-
-```text
-Market Bar
-→ 推导全部 Reference
-```
-
-Reference 应：
-
-* 版本化；
-* 带 effective range；
-* 可 fingerprint；
-* 可追踪数据来源；
-* 被 Product / Transaction proof 引用。
-
----
-
-# 12. Market Rule
-
-Market Rule 回答：
-
-> **当前市场状态下，这笔订单是否合法？**
-
-典型规则包括：
-
-* Trading Session；
-* Suspension；
-* Supported Order Type；
-* Side / Position Effect；
-* Price Tick；
-* Price Limit；
-* Quantity Increment；
-* Lot；
-* Sellable Position；
-* Available Cash；
-* Margin；
-* Settlement Schedule。
-
-Market Rule 与 Execution Support 是两个 Authority。
-
-```text
-Market Rule
-    → 是否允许交易
-
-Execution Support
-    → Kernel 是否实现这个 economic shape
-```
-
-二者不得混合。
-
----
-
-# 13. Execution Support Authority
-
-Execution Support 不根据市场名字判断能力。
-
-它基于规范化经济语义：
-
-```text
-Operation Kind
-
-Account Type
-
-Order Type
-
-Side
-
-Offset
-
-Position Side
-
-Position Effect
-
-Position Mode
-
-Margin
-
-Account/Ledger Parity
-
-Reservation Shape
-```
-
-然后返回：
-
-```text
-DURABLE_...
-或
-UNSUPPORTED
-```
-
-如果 Kernel 没有正式支持某个经济 shape：
-
-> **Fail Closed。**
-
-不能 fallback 到 direct Manager mutation。
-
----
-
-# 14. Broker Boundary
-
-Broker 是外部事实来源，不是本地状态权威。
-
-Broker Gateway：
-
-* 不持有 Runtime Manager；
-* 不直接修改 Account；
-* 不直接修改 Position；
-* 只负责发送命令、接收外部事实并标准化。
-
-Inbound 方向：
-
-```text
-Broker
-    ↓
-Normalized Broker Update
-    ↓
-Runtime Inbound Queue
-    ↓
-Execution Processor
-```
-
----
-
-# 15. Durable Trading Kernel
-
-正式经济生命周期使用：
-
-```text
-Broker Fact
-      ↓
-Immutable Planning Context
-      ↓
-Pure Planner
-      ↓
-Prepared Runtime Transaction
-      ↓
-Transaction Store Commit
-      ↓
-Runtime Sequence Gate
-      ↓
-Ordered Projection
-      ↓
-Projection Ready
-      ↓
-Durable Outbox
-```
-
-核心原则：
-
-> **Commit Fact First, Project State Second.**
-
-Transaction Store 是 durable operation authority。
-
-Manager snapshot 是当前状态 Projection，而不是历史交易事实本身。
-
----
-
-# 16. Projection 规则
-
-Projection 必须：
-
-```text
-One Projection Component
-        ↓
-One Mutable Authority
-```
-
-Projection Target 只负责：
-
-1. 读取当前状态；
-2. 验证 expected version/hash；
-3. 安装 Planner 已经计算完成的 after-state；
-4. 验证 result hash。
-
-Projection Target 不允许：
-
-* 重新计算经济规则；
-* 调用跨 Authority orchestration；
-* 修改另一个 Manager；
-* 隐式 reserve/release/consume；
-* 创建新的业务事实。
-
----
-
-# 17. Forward Recovery
-
-OnlyAlpha 不使用跨 Manager rollback 恢复交易状态。
-
-Recovery 模型：
-
-```text
-Committed Transaction
-        ↓
-检查 Projection progress
-        ↓
-找到第一个未完成 Projection
-        ↓
-继续向前安装
-        ↓
-Projection Ready
-```
-
-原则：
-
-> **Historical Fact Immutable.**
-
-已经 Durable Commit 的：
-
-* Accepted；
-* Trade；
-* Terminal；
-* Settlement；
-* Fee Correction；
-
-不能因为 Crash 被重新定义。
-
-Recovery 只允许：
-
-```text
-Forward Recovery
-```
-
----
-
-# 18. Broker Lifecycle
-
-规范化 Broker 生命周期至少包含：
-
-```text
-ACCEPTED
-TRADE
-CANCELLED
-REJECTED
-EXPIRED
-```
-
-正式支持的 economic shape 必须全部走 Durable Transaction。
-
-例如：
-
-```text
-Broker ACCEPTED
-    ↓
-ORDER_ACCEPTED Transaction
-
-Broker TRADE
-    ↓
-TRADE_FILL Transaction
-
-Broker CANCELLED / REJECTED / EXPIRED
-    ↓
-ORDER_TERMINAL Transaction
-```
-
-不允许 direct multi-manager mutation fallback。
-
----
-
-# 19. Partial / Multi-Fill
-
-一个 Order 可以有：
-
-```text
-Fill #1
-Fill #2
-Fill #3
-...
-```
-
-每个 Fill：
-
-* 是独立 immutable Fact；
-* 独立 Durable Commit；
-* 消耗剩余 Reservation；
-* 增量修改 Position / Allocation；
-* 增量计算 Fee；
-* 不修改历史 Fill。
-
-例如：
-
-```text
-Order 1000
-
-Fill 300
-Fill 400
-Fill 300
-```
-
-必须得到：
-
-```text
-Order filled:
-300 → 700 → 1000
-
-Remaining:
-700 → 300 → 0
-```
-
-而不是等待最终 Fill 后一次性修改状态。
-
----
-
-# 20. Terminal 语义
-
-Partial Fill 后：
-
-```text
-Cancel / Reject / Expire
-```
-
-只能释放：
-
-```text
-remaining authority
-```
-
-不能 rollback 已成交部分。
-
-例如：
-
-```text
-BUY 1000
-Fill 300
-Cancel 700
-```
-
-最终：
-
-```text
-300 Position
-保留
-
-700 Reservation
-释放
-```
-
-这是整个交易内核的重要不变量。
-
----
-
-# 21. Fee Authority
-
-交易费用分为两个独立 Authority：
-
-```text
-Market Fee Pack
-+
-Broker Fee Contract
-```
-
-Market Fee 负责：
-
-* Stamp Duty；
-* Transfer Fee；
-* Exchange-specific fee；
-* Market rule based fee。
-
-Broker Fee Contract 负责：
-
-* Commission；
-* Minimum Commission；
-* Broker-specific charging rules。
-
-二者不合并成一个市场专用 Fee Calculator。
-
-完整链：
-
-```text
-Market Fee Pack
-        +
-Broker Fee Contract
-        ↓
-Order Binding
-        ↓
-Policy Resolution Proof
-        ↓
-Fee Assessment
-        ↓
-Order Fee Accrual
-        ↓
-Fee Application Ledger
-```
-
----
-
-# 22. Fee Reconciliation
-
-本地 Fee Application 与外部 Broker Evidence 分离。
-
-如果真实 Broker 返回：
-
-```text
-actual fee
-```
-
-与本地历史应用不一致：
-
-不能修改历史 Fee Fact。
-
-正确模型：
-
-```text
-Historical Fee
-      ↓
-Broker Evidence
-      ↓
-Reconciliation
-      ↓
-FEE_RECONCILIATION
-Durable Operation
-```
-
-所有差额以新 Fact 表达。
-
----
-
-# 23. Settlement
-
-Settlement 是独立 Authority。
-
-交易成交后，资产和资金何时变为：
-
-```text
-Trade Available
-Withdrawable
-Sellable
-```
-
-由 Market Rule 产生的 Settlement Instruction 决定。
-
-例如 T+1：
-
-```text
-Day D BUY
-    ↓
-Position exists
-but unsettled
-    ↓
-Day D+1
-SETTLEMENT_MATURITY
-    ↓
-sellable
-```
-
-不能在 Execution 中：
-
-```text
-if A-share:
-    T+1
-```
-
----
-
-# 24. MarketData
-
-MarketData 与 Broker Execution 完全分离。
-
-统一数据模型：
-
-```text
-Provider
-    ↓
-Normalized Bar / Tick
-    ↓
-Envelope Metadata
-    ↓
-MarketData Queue
-    ↓
-Processor
-    ↓
-Runtime Consumers
-```
-
-Realtime 与 Historical 应尽量使用相同 Domain Bar / Tick。
-
----
-
-# 25. Historical 与 Realtime
-
-Historical：
-
-```text
-Historical Provider
-      ↓
-Replay Service
-      ↓
-Backtest Clock
-```
-
-Realtime：
-
-```text
-Realtime Provider
-      ↓
-Inbound Queue
-      ↓
-Live Clock
-```
-
-只有 Historical Replay 可以主动推进 Backtest Clock。
-
-外部 Provider 不能直接修改 Runtime 时间。
-
----
-
-# 26. DataSource Plugin
-
-DataSource 通过标准 Plugin API 接入。
-
-Provider 可以实现：
-
-```text
-Historical Bars
-Historical Ticks
-
-Live Bars
-Live Ticks
-
-Reference Data
-```
-
-长期支持：
-
-```text
-Multiple Providers
-Coverage Routing
-Failover
-Historical Recording
-Realtime Recording
-```
-
-但 Runtime 不应直接依赖具体 SDK。
-
----
-
-# 27. Broker Plugin
-
-Broker Plugin 负责：
-
-```text
-Order submission
-Cancel request
-Broker query
-Inbound update normalization
-```
-
-核心代码只能依赖：
-
-```text
-Broker Port / Plugin API
-```
-
-不能：
-
-```text
-import xtquant
-```
-
-到 Trading Core。
-
-Virtual Broker 同样作为 Broker Plugin 使用，而不是 Core 特殊分支。
-
----
-
-# 28. Virtual Broker
-
-Virtual Broker 用于：
-
-```text
-Backtest
-Sim
-```
-
-负责：
-
-* deterministic matching；
-* whole fill；
-* partial fill；
-* multi-fill；
-* liquidity；
-* slippage；
-* Accepted；
-* Reject；
-* Cancel；
-* Expire；
-* checkpointable execution state。
-
-Backtest 和 Sim 应尽可能共用 Virtual Broker 核心语义。
-
----
-
-# 29. Determinism
-
-OnlyAlpha 将确定性视为产品能力。
-
-同一：
-
-```text
-Configuration
-Dataset
-Reference
-Market Rule Version
-Fee Authority
-Broker Simulation
-```
-
-必须产生相同：
-
-```text
-Transaction Identity
-
-Broker Fact Identity
-
-Economic State
-
-Result Fingerprint
-
-Artifact Fingerprint
-```
-
-任何进入 Runtime Identity 的 Authority 必须具有稳定 canonical representation。
-
-未知 canonical type 应：
-
-```text
-Fail Closed
-```
-
-不能依赖不稳定的对象字符串表示。
-
----
-
-# 30. Persistence
-
-Persistence 是 Runtime 基础设施，不是经济语义 Authority。
-
-目标：
-
-```text
-Memory
-SQLite
-Future Storage
-```
-
-在同一经济输入下产生一致结果。
-
-持久化至少覆盖：
-
-* Runtime transaction；
-* Projection progress；
-* Broker execution state；
-* Position；
-* Account；
-* Ledger；
-* Settlement；
-* Reservation；
-* Recovery checkpoint；
-* deterministic cursor。
-
----
-
-# 31. Checkpoint / Restart
-
-Long-running 与复杂 Backtest Runtime 必须支持：
-
-```text
-Checkpoint
-    ↓
-Process Exit
-    ↓
-New Process / New Engine
-    ↓
-Restore
-    ↓
-Forward Recovery
-    ↓
-Continue
-```
-
-禁止把：
-
-```text
-同一个 Python Runtime Object
-```
-
-重新拿回来称为 Recovery。
-
-真正 Recovery 必须能够由新 Runtime 实例完成。
-
----
-
-# 32. Result / Analytics / Artifact
-
-业务 Runtime 结束后：
-
-```text
-Runtime
-    ↓
-Canonical Result
-    ↓
-Analytics
-    ↓
-Artifact
-    ↓
-Report / Web
-```
-
-Collector 只能读取正式 Query/Audit。
-
-Collector：
-
-* 不执行 Command；
-* 不修改 Manager；
-* 不访问 Broker 重新构造历史；
-* 不拼接 mutable final state 假装逐笔交易历史。
-
----
-
-# 33. Research Artifact 与 Web
-
-Research Runtime 应生成面向分析的标准结果：
-
-```text
-Research Result
-├── Dataset Metadata
-├── Instrument
-├── Time Range
-├── K-Line Series
-├── Indicator Series
-├── Factor Series
-├── Feature Series
-├── Signal Series
-├── Forward Return
-├── Parameter Grid
-├── Statistics
-└── Fingerprint
-```
-
-Web：
-
-```text
-Research Artifact
-        ↓
-Query / API
-        ↓
-Browser
-```
-
-Web 不直接访问 Runtime Manager。
-
-当前 P7.12 只实现 Research read consumer：浏览器只通过 `/api/v2` 读取 exact Artifact Summary、Statistics Catalog 与 paginated Series，
-不访问 Artifact filesystem、Parquet、execution Store 或 Runtime state。下面的 authenticated lifecycle/manual control 仍是目标合同，
-不属于当前 Web 产品能力。
-
-目标 Web 也是 authenticated control client：
-
-```text
-Web
-→ Application / API
-→ OnlyEngine
-→ Target Runtime Command
-```
-
-Web 可以独立控制 Runtime lifecycle，并且只在 LIVE 中提交人工交易。LIVE `MANUAL` workload 与 Strategy Cluster 并列，拥有
-独立 Allocation/Ledger 和 operator audit，但不伪装成 Strategy；所有人工订单仍经过 Market Rule、Risk、Reservation、Order、
-Real Broker、Durable Transaction 与 Ordered Projection。Backtest、Sim、Research 不接受产品级交互式人工订单。
-
-目标 LIVE 还支持单 Runtime 和全部 Live Runtime 清仓。全量清仓由 Engine parent request 编排 Runtime-local durable child request；
-清仓后未经授权人工复位不得重新开仓。默认价格层级为对手一价、显式支持的市价执行和显式斩仓价，具体时间、重报、滑点和
-斩仓算法必须在实现时由 versioned policy 与 Broker/Market capability 冻结。
-
----
-
-# 34. 推荐研究工作流
-
-```text
-Historical Data
-      ↓
-Research
-      ↓
-Vectorized Parameter Search
-      ↓
-Web Analysis
-      ↓
-Candidate Parameters
-      ↓
-Backtest
-      ↓
-Full Trading Validation
-      ↓
-Sim
-      ↓
-Realtime Validation
-      ↓
-Live
-```
-
-即：
-
-```text
-Research
-    快速筛选
-
-Backtest
-    精确验证
-
-Sim
-    实时验证
-
-Live
-    真实执行
-```
-
-这是产品能力关系和推荐验证路径，不是要求所有策略依次经过每个 Runtime 的强制发布状态机。
-
----
-
-# 35. 时间模型
-
-绝对时间统一使用：
-
-```text
-UTC
-```
-
-市场语义由：
-
-```text
-Venue
-TimeZone
-TradingCalendar
-TradingDay
-TradingSession
-```
-
-解释。
-
-原则：
-
-```text
-Storage
-Domain
-Runtime Facts
-Transaction
-    → UTC
-
-Market presentation
-    → Market TimeZone
-
-User display
-    → User Local Time
-```
-
-Domain 不依赖 UI 时区。
-
----
-
-# 36. 公共 API 边界
-
-外部使用者应通过稳定入口：
-
-```text
-OnlyEngine
-Config Models
-Domain Models
-Strategy / Factor / Indicator interfaces
-Plugin API
-Result DTO
-```
-
-内部实现包括：
-
-```text
-Runtime Planner
-Runtime Assembly Plan
-Assembler
-Session
-Infrastructure Registry
-Manager
-Execution Processor
-Transaction Coordinator internals
-```
-
-不作为外部兼容 API。
-
-Alpha 阶段：
-
-> **架构正确性优先于旧接口兼容性。**
-
-无职责旧接口直接删除，不保留 deprecated alias 或 compatibility wrapper。
-
----
-
-# 37. 扩展规则
-
-## 新增 Strategy
-
-增加：
-
-```text
-Strategy / Factor / Indicator plugin
-```
-
-不修改 Runtime Core。
-
----
-
-## 新增 Data Provider
-
-实现：
-
-```text
-DataSource Plugin API
-```
-
-不修改 Strategy。
-
----
-
-## 新增 Broker
-
-实现：
-
-```text
-Broker Plugin API
-```
-
-不修改 Execution Core。
-
----
-
-## 新增市场
-
-增加：
-
-```text
-Market Product Composition
-Reference Authority
-Market Rule Compiler
-Fee Authority
-```
-
-不修改：
-
-```text
-Engine
-Strategy Framework
-Execution Kernel
-Transaction Kernel
-```
-
----
-
-## 新增资产类别
-
-增加：
-
-```text
-Instrument type
-Market semantics
-Valuation
-Risk semantics
-Execution capability
-```
-
-不能通过全局 `if FUTURES` 扩散实现。
-
----
-
-# 38. 明确禁止的架构模式
-
-OnlyAlpha 不接受以下长期模式：
-
-```text
-if market == CN_A_SHARE in Execution
-
-if runtime == LIVE in Strategy
-
-AshareTradePlanner
-
-SimOrderManager
-
-BacktestPositionManager
-
-LiveAccountManager
-
-Strategy 自己维护账户副本
-
-Broker 直接写 Position
-
-Projection Target 修改多个 Authority
-
-Recovery rollback 多个 Manager
-
-未知经济 shape 走 direct fallback
-
-Test-only production compatibility API
-
-legacy / old / deprecated wrapper 长期保留
-```
-
----
-
-# 39. Runtime Vocabulary
-
-目标 Runtime 只保留：
-
-```text
-RESEARCH
-BACKTEST
-SIM
-LIVE
-```
-
-不保留：
-
-```text
-PAPER
-SHADOW Runtime
-```
-
-历史 `PAPER` 与 standalone `SHADOW` 产品路径已删除；配置、Factory、公共导出均不接受旧 spelling，也没有 alias、wrapper 或自动迁移。
-
----
-
-# 40. Finite 与 Streaming Runtime
-
-目标 Runtime 生命周期进一步分成两个族：
-
-## Finite
-
-```text
-RESEARCH
-BACKTEST
-```
-
-典型：
-
-```text
-engine.run()
-```
-
-存在明确结束条件。
-
-当前 `OnlyEngine.run()` 仍只支持有限 `BACKTEST`；Research Job 的正式产品入口尚未实现，不能由上述目标生命周期推断为可用。
-
----
-
-## Streaming
-
-```text
-SIM
-LIVE
-```
-
-典型：
-
-```text
-engine.initialize()
-engine.start()
-engine.wait()
-engine.stop()
-engine.close()
-```
-
-需要处理：
-
-* reconnect；
-* gap recovery；
-* watermark；
-* checkpoint；
-* restart；
-* long-running operation。
-
----
-
-# 41. Current Runtime State
-
-| Runtime | 当前事实 | 后续处理 |
-|---|---|---|
-| `BACKTEST` | 已实现，是当前 primary Runtime | 保留 event-driven + Virtual Broker + full Trading Kernel |
-| `SIM` | 已实现 realtime Virtual Broker、continuity、checkpoint 与 restart | 保持 shared Trading Kernel 与 durable recovery contract |
-| `RESEARCH` | finite programmatic Engine product + read-only Research Web 已实现 | Research YAML/CLI、execution control 与 mixed heterogeneous lifecycle 尚未实现 |
-| `LIVE` | Factory unsupported | P8/P9 补齐 Broker durability、同步、恢复和运维 |
-
-SIM 的 product identity 只参与 composition、planning 与 lifecycle；Strategy Context 和 Trading Semantic Plane 不读取 Runtime mode。SIM 永不连接 Real Broker，长期生产运维与 broad MiniQMT compatibility matrix 仍不在当前认证范围。
-
-## 当前 Alpha 产品能力
-
-OnlyAlpha 当前处于 **Alpha** 阶段。
-
-当前重点不是扩大功能数量，而是持续收紧：
-
-```text
-Authority
-Determinism
-Runtime Boundary
-Market Neutrality
-Recovery
-Product Conformance
-```
-
-已经建立的核心能力包括：
-
-* 模块化单体架构；
-* Engine / Runtime / Cluster 生命周期；
-* Strategy / Factor / Indicator 分层；
-* Trading Runtime-owned authority；
-* Market Rule；
-* Risk；
-* Order / Reservation；
-* Position / Allocation；
-* Account / Strategy Ledger；
-* Market Fee / Broker Fee；
-* Durable Accepted / Trade / Terminal；
-* Partial / Multi-Fill；
-* Settlement；
-* Prepared Transaction；
-* Ordered Projection；
-* Forward Recovery；
-* Memory / SQLite；
-* Checkpoint / Restart；
-* Result / Analytics / Artifact；
-* Plugin DataSource / Broker；
-* CN A-share 有限 Durable Backtest Product Conformance。
-
----
-
-# 42. 当前认证产品
-
-当前已经认证的有限产品合同：
+当前已经认证的有限 A 股 Backtest 合同：
 
 ```text
 CN_A_SHARE_DURABLE_BACKTEST_V1
 ```
 
-覆盖有限的普通中国 A 股 Cash-Long Backtest surface。
+它覆盖有限普通中国 A 股 Cash-Long Backtest surface，并不意味着：
 
-认证不意味着：
+- 完整 A 股市场范围已支持；
+- ETF / Convertible Bond / BSE 已支持；
+- Margin / Short 已支持；
+- Sim 已达到长期生产运行；
+- Live 已可用于真实资金。
 
-```text
-完整 A 股市场范围已稳定
-
-所有中国股票规则已支持
-
-ETF / Convertible Bond / BSE 已支持
-
-Margin / Short 已支持
-
-Sim 已生产完成
-
-Live 已生产完成
-```
-
-产品认证范围必须等于实际 Conformance 范围。
-
-只有一个市场的 Research、Backtest、Sim、Live 四种正式产品全部通过唯一入口和产品认证闭环后，才能声明“OnlyAlpha 正式支持
-该市场”。因此 `CN_A_SHARE_DURABLE_BACKTEST_V1` 是正式、已认证的有限 A 股 Backtest 产品，但当前不能据此声明平台已经
-正式支持完整 A 股市场。
+只有某市场的 Research、Backtest、Sim、Live 四种正式产品纵切面均通过正式入口、恢复/确定性和产品认证后，才能声明 OnlyAlpha 正式支持整个市场。
 
 ---
 
-# 43. 当前主要工程演进方向
+## P8 — Research Control Plane & Web-native Execution
 
-后续阶段按同一 taxonomy 迁移：
+P8 不继续扩张 Research 算法面，核心目标是把 P7 的 programmatic Research 变成可长期使用的 Web-native Research product：
 
 ```text
-P5  Market Product Composition Authority Neutralization
-
-P6  Sim Streaming Runtime Closure
-    Virtual Broker + Full Trading Kernel
-    + gap/reconnect/checkpoint/restart
-    + legacy product removal and taxonomy closure
-
-P7  Vectorized Research Runtime
-    + Research Artifact
-    + Web Research Boundary
-
-P8  Durable Broker Outbound Command
-    + Broker Synchronization / Reconciliation
-
-P9  Live Runtime Foundation
-
-P10 Multi-Market Product Expansion
-    per-market Research + Backtest + Sim + Live closure
+Browser
+→ Research Specification
+→ Command API
+→ Research Run
+→ PostgreSQL Operational Store
+→ Scheduler / Worker
+→ OnlyEngine / OnlyResearchRuntime
+→ Existing immutable Research authorities
+→ Existing Query API
+→ Web Result Viewer
 ```
 
-详细迁移范围和非目标见 [Roadmap](docs/roadmap.md)。
+P8 分为：
+
+```text
+P8.0  Research Specification & Resolution Boundary
+P8.1  Research Run Authority & PostgreSQL Operational Store
+P8.2  Research Scheduler, Worker & Recovery
+P8.3  Research Command API
+P8.4  Research Studio Web
+P8.5  Operational Hardening & Database Recovery
+P8.6  P8 Product Closure & Final Certification
+```
+
+P8 的关键边界：
+
+```text
+PostgreSQL
+→ mutable Operational / Control State
+
+Immutable Research Stores
+→ Dataset / Calculation / Statistics / Result / Artifact semantic facts
+```
+
+PostgreSQL 不保存第二份 Research semantic result。
+
+Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
+
+完整范围、非目标和退出条件见 [`docs/roadmap.md`](docs/roadmap.md)。
 
 ---
 
-# 44. 项目原则总结
+## P8 Database Constitution
 
-OnlyAlpha 长期坚持以下规则：
+P8 引入 PostgreSQL 时必须坚持：
+
+1. Domain First, Schema Second；
+2. PostgreSQL 只拥有 Operational State；
+3. Migration History 是 Schema Authority；
+4. 已发布 Migration immutable；
+5. Production Forward Migration Only；
+6. Application startup never auto-migrates；
+7. No manual production DDL；
+8. Schema change requires a real durable-domain requirement；
+9. Backup 必须进行 restore verification；
+10. Database change 是 architecture event，不是普通 UI/API change。
+
+数据库的目标维护状态应当是：**结构很少变化、事实持续增长、迁移显式发生、恢复定期验证。**
+
+---
+
+## Storage Boundary
+
+OnlyAlpha 长期不采用“一种数据库装所有东西”的模型。
+
+当前/目标职责分离：
 
 ```text
-One Engine
+Raw Provider Evidence
+→ Raw Archive / file storage
 
-Multiple Runtime
+Historical / large time-series facts
+→ future analytical store such as ClickHouse
 
-Trading Runtime
-→ Multiple Isolated Cluster
+Immutable Research semantic facts
+→ content-addressed Parquet / JSON / Manifest
 
-Research Runtime
-→ Research Job / Plan
-
-One Domain
-→ One Write Authority
-
-Planner Calculates
-Projection Installs
-
-Commit Fact First
-Project State Second
-
-Historical Fact Immutable
-
-Forward Recovery Only
-
-Market Identity Is Evidence
-Not Execution Permission
-
-Research Optimizes Speed
-
-Backtest Optimizes Trading Fidelity
-
-Backtest / Sim / Live
-Share Trading Semantics
-
-Runtime Difference
-Belongs to Driver Layer
-
-Runtime Type
-Is Not Execution Permission
-
-Unsupported
-→ Fail Closed
-
-No Obsolete Compatibility Layer
+Operational mutable state
+→ PostgreSQL in P8
 ```
 
-最终目标不是构造一个拥有最多功能的量化框架，而是构造一个：
+存储选择由 Authority 性质、可变性和访问模式决定，而不是仅按“看起来是不是时间序列”决定。
 
-> **行为可解释、状态有唯一真值、交易历史可审计、故障后可恢复、回测与实时交易语义一致，并能够持续扩展到不同市场和运行环境的量化交易工程。**
+OnlyAlpha 自己计算得到的 exact Indicator/Factor Result 首先仍属于 immutable Calculation Result authority；未来即使为分析性能 materialize 到 ClickHouse，也只能作为可重建 projection/cache，不能成为第二 semantic truth。
+
+---
+
+## 工程质量体系
+
+OnlyAlpha 只有三种正式质量层级：
+
+```text
+Task Gate
+Phase Gate
+Certification Gate
+```
+
+普通任务先冻结：
+
+```text
+TASK_BASE_SHA
+Goal
+Modification Scope
+Impact Scope
+Required Behavior
+Expected Acceptance Tests
+Expansion Triggers
+Out of Scope
+```
+
+Task Gate 运行最小但充分的 impact-aware verification；`core-full --coverage`、repository-wide coverage、全部 canonical lanes 和 Final-SHA Certification 不属于每个普通小节的默认验收。
+
+完整 Major Milestone 的顺序：
+
+```text
+Task Complete x N
+→ Phase Gate
+→ Phase Complete
+→ Freeze Final SHA
+→ Final-SHA Certification
+→ ACCEPTED
+→ DONE / CERTIFIED
+```
+
+质量制度见：
+
+- [`docs/engineering/quality-system.md`](docs/engineering/quality-system.md)
+- [`docs/engineering/quality-toolchain.md`](docs/engineering/quality-toolchain.md)
+- [`docs/engineering/task-gate-template.md`](docs/engineering/task-gate-template.md)
+
+---
+
+## 常用开发入口
+
+安装 Python workspace：
+
+```bash
+uv sync --frozen --all-packages --all-groups
+```
+
+常用 canonical lanes：
+
+```bash
+uv run python scripts/test_suite.py calculation
+uv run python scripts/test_suite.py research-calculation
+uv run python scripts/test_suite.py research-factor
+uv run python scripts/test_suite.py research-job
+uv run python scripts/test_suite.py research-sweep
+uv run python scripts/test_suite.py research-runtime
+uv run python scripts/test_suite.py research-query
+uv run python scripts/test_suite.py research-artifact
+uv run python scripts/test_suite.py recovery
+uv run python scripts/test_suite.py sim-recovery
+uv run python scripts/test_suite.py ashare
+uv run python scripts/test_suite.py core-full
+```
+
+Impact-aware Task Gate：
+
+```bash
+uv run python scripts/verify.py plan --base <TASK_BASE_SHA>
+uv run python scripts/verify.py agent --base <TASK_BASE_SHA>
+```
+
+Research Web：
+
+```bash
+cd apps/onlyalpha-web
+npm ci
+npm run dev
+```
+
+Research API：
+
+```bash
+uv run onlyalpha-api --artifact-root <USER_DATA_ROOT>/research/artifacts
+```
+
+P7.12 Web 是 read-only Result Viewer；Web-native Research submission/control 属于当前 P8。
+
+---
+
+## 文档导航
+
+- [Current Architecture](docs/architecture.md)
+- [Roadmap](docs/roadmap.md)
+- [P7 Final Certification Closure](docs/reports/p7_final_certification.md)
+- [Engineering Quality System](docs/engineering/quality-system.md)
+- [Engineering Quality Toolchain](docs/engineering/quality-toolchain.md)
+- [ADR](docs/adr/)
+- [Reports](docs/reports/)
+
+---
+
+## 最终原则
+
+OnlyAlpha 不以功能数量衡量工程质量，而以这些问题衡量：
+
+```text
+同一输入是否产生同一结果？
+每个事实是否有唯一来源？
+每个状态是否有唯一所有者？
+失败是否进入已知状态？
+恢复是否保持语义等价？
+产品声明是否有真实认证证据？
+```
+
+最终目标是构造一个行为可解释、状态有唯一真值、历史可审计、故障后可恢复，并能够长期扩展到不同市场和 Runtime 的量化交易工程。
