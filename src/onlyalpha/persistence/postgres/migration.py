@@ -32,6 +32,7 @@ class OnlyPostgresSchemaVerdict(StrEnum):
     BEHIND = "BEHIND"
     AHEAD = "AHEAD"
     CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"
+    HISTORY_DIVERGED = "HISTORY_DIVERGED"
     LEDGER_MISSING = "LEDGER_MISSING"
 
 
@@ -89,19 +90,30 @@ class OnlyPostgresMigrationAuthority:
                     cursor.execute(
                         "SELECT migration_id, checksum_sha256 FROM onlyalpha_schema_migration ORDER BY migration_id"
                     )
-                    applied = {str(row["migration_id"]): str(row["checksum_sha256"]) for row in cursor.fetchall()}
+                    applied = tuple(
+                        (str(row["migration_id"]), str(row["checksum_sha256"])) for row in cursor.fetchall()
+                    )
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("PostgreSQL schema status unavailable") from exc
         repository = {item.migration_id: item.checksum_sha256 for item in self._migrations}
-        unknown = sorted(set(applied) - set(repository))
+        applied_ids = tuple(item[0] for item in applied)
+        applied_checksums = dict(applied)
+        unknown = sorted(set(applied_ids) - set(repository))
         if unknown:
             return self._status(OnlyPostgresSchemaVerdict.AHEAD, applied, f"unknown database migrations: {unknown}")
-        mismatched = sorted(key for key in applied if applied[key] != repository[key])
+        mismatched = sorted(key for key in applied_ids if applied_checksums[key] != repository[key])
         if mismatched:
             return self._status(
                 OnlyPostgresSchemaVerdict.CHECKSUM_MISMATCH, applied, f"migration checksum mismatch: {mismatched}"
             )
-        pending = tuple(key for key in repository if key not in applied)
+        repository_ids = tuple(repository)
+        if applied_ids != repository_ids[: len(applied_ids)]:
+            return self._status(
+                OnlyPostgresSchemaVerdict.HISTORY_DIVERGED,
+                applied,
+                f"database migration history is not an exact repository prefix: {list(applied_ids)}",
+            )
+        pending = repository_ids[len(applied_ids) :]
         if pending:
             return self._status(OnlyPostgresSchemaVerdict.BEHIND, applied, f"pending migrations: {list(pending)}")
         return self._status(OnlyPostgresSchemaVerdict.COMPATIBLE, applied, "schema is compatible")
@@ -117,8 +129,8 @@ class OnlyPostgresMigrationAuthority:
             if status.verdict is OnlyPostgresSchemaVerdict.COMPATIBLE:
                 return ()
             raise OnlyPostgresMigrationIntegrityError(status.detail)
-        pending = set(status.pending_migrations)
-        return tuple(item for item in self._migrations if item.migration_id in pending)
+        applied_count = len(status.applied_migrations)
+        return self._migrations[applied_count:]
 
     def migrate(self) -> tuple[str, ...]:
         try:
@@ -145,14 +157,14 @@ class OnlyPostgresMigrationAuthority:
             raise OnlyPostgresMigrationIntegrityError("PostgreSQL migration transaction failed") from exc
 
     def _status(
-        self, verdict: OnlyPostgresSchemaVerdict, applied: dict[str, str], detail: str
+        self, verdict: OnlyPostgresSchemaVerdict, applied: tuple[tuple[str, str], ...], detail: str
     ) -> OnlyPostgresSchemaStatus:
         repository = tuple(item.migration_id for item in self._migrations)
         return OnlyPostgresSchemaStatus(
             verdict,
             repository,
-            tuple(sorted(applied)),
-            tuple(item for item in repository if item not in applied),
+            tuple(item[0] for item in applied),
+            repository[len(applied) :] if tuple(item[0] for item in applied) == repository[: len(applied)] else (),
             detail,
         )
 

@@ -9,7 +9,8 @@ pytestmark = pytest.mark.architecture
 
 
 def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -> None:
-    sql = Path("database/postgres/migrations/0001_research_run_operational_authority.sql").read_text()
+    migrations = tuple(sorted(Path("database/postgres/migrations").glob("*.sql")))
+    sql = "\n".join(path.read_text() for path in migrations)
     tables = re.findall(r"CREATE TABLE ([a-z_]+)", sql)
     assert tables == ["onlyalpha_schema_migration", "research_run"]
     for forbidden in (
@@ -26,6 +27,26 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
     ):
         assert forbidden not in sql
     assert "UNIQUE(specification_fingerprint)" not in sql
+
+
+def test_published_migration_0001_bytes_are_immutable() -> None:
+    import hashlib
+
+    payload = Path("database/postgres/migrations/0001_research_run_operational_authority.sql").read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == "3e7d6564dc83a062ea2954f7eb23255065c39b3f6398115cde3e2719954062b0"
+
+
+def test_forward_hardening_migration_mirrors_domain_fact_boundaries() -> None:
+    sql = Path("database/postgres/migrations/0002_research_run_authority_hardening.sql").read_text()
+    for constraint in (
+        "research_run_time_order",
+        "research_run_running_has_no_cancel_request",
+        "research_run_execution_required",
+        "research_run_cancelled_lifecycle",
+        "research_run_artifact_requires_result",
+    ):
+        assert f"ADD CONSTRAINT {constraint}" in sql
+    assert "UPDATE research_run" not in sql
 
 
 def test_application_startup_cannot_migrate_or_repair_postgres() -> None:

@@ -227,6 +227,12 @@ operational schema、checksummed forward-only migration ledger、compatibility-o
 竞争、fresh-process reload 和 backup/isolated restore-test 已通过独立 `research-run` / `research-postgres` lanes。Scheduler、Worker、
 Attempt persistence、lease、retry、HTTP 和 Web 仍属于后续 increment；本状态不声明 P8 DONE 或 CERTIFIED。
 
+P8.1 authority hardening closure 已进一步冻结 migration ledger 必须是 Repository canonical history 的 exact ordered prefix；合法
+`BEHIND` 只规划该 prefix 后的 ordered suffix，known hole/reorder/prepend 统一以 `HISTORY_DIVERGED` fail closed。新的 forward-only
+`0002_research_run_authority_hardening` 在不修改 `0001` bytes、不修复历史数据的前提下，使 PostgreSQL 与 Domain 同时拒绝
+ResearchRun 时间倒序、state/timestamp 矛盾以及 Artifact reference 缺失 Result reference。P8.1 仍只是 P8 increment，下一语义方向
+保持 P8.2。
+
 ### 目标
 
 建立“用户已经提交了一个 Research”这一 durable operational fact，并正式引入 PostgreSQL 作为 Research Control Plane 的事务型状态 authority。

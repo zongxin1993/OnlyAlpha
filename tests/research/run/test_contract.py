@@ -118,6 +118,59 @@ def test_failed_run_preserves_semantic_facts_committed_before_artifact_failure()
     assert failed.failure == failure
 
 
+def test_lifecycle_time_order_and_reference_consistency_fail_closed() -> None:
+    running = _queued().transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=2))
+    requested = running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=4))
+    completed = requested.transition(
+        OnlyResearchRunState.COMPLETED,
+        at=NOW + timedelta(seconds=6),
+        research_result_fingerprint=RESULT,
+        artifact_content_fingerprint=ARTIFACT,
+    )
+    invalid = (
+        (requested, {"cancel_requested_at": NOW + timedelta(seconds=1)}, "precedes started_at"),
+        (completed, {"finished_at": NOW + timedelta(seconds=1)}, "precedes started_at"),
+        (completed, {"finished_at": NOW + timedelta(seconds=3)}, "precedes cancel_requested_at"),
+        (running, {"cancel_requested_at": NOW + timedelta(seconds=3)}, "RUNNING cannot"),
+        (running, {"artifact_content_fingerprint": ARTIFACT}, "requires Research Result"),
+    )
+    for run, changes, message in invalid:
+        with pytest.raises(OnlyResearchRunIntegrityError, match=message):
+            replace(run, **changes)
+
+
+def test_cancelled_lifecycle_allows_only_direct_queued_or_requested_running_shape() -> None:
+    direct = _queued().transition(OnlyResearchRunState.CANCELLED, at=NOW + timedelta(seconds=1))
+    running = _queued().transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
+    requested = running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2))
+    after_start = requested.transition(OnlyResearchRunState.CANCELLED, at=NOW + timedelta(seconds=3))
+
+    assert direct.started_at is None and direct.cancel_requested_at is None
+    assert after_start.started_at is not None and after_start.cancel_requested_at is not None
+    with pytest.raises(OnlyResearchRunIntegrityError, match="direct from QUEUED"):
+        replace(direct, started_at=NOW)
+
+
+def test_completed_and_failed_require_started_execution_fact() -> None:
+    queued = _queued()
+    failure = OnlyResearchRunFailure(OnlyResearchRunFailurePhase.EXECUTION, "EXECUTION_FAILED", "detail")
+    with pytest.raises(OnlyResearchRunIntegrityError, match="COMPLETED requires started execution"):
+        replace(
+            queued,
+            state=OnlyResearchRunState.COMPLETED,
+            finished_at=NOW + timedelta(seconds=1),
+            research_result_fingerprint=RESULT,
+            artifact_content_fingerprint=ARTIFACT,
+        )
+    with pytest.raises(OnlyResearchRunIntegrityError, match="FAILED requires started execution"):
+        replace(
+            queued,
+            state=OnlyResearchRunState.FAILED,
+            finished_at=NOW + timedelta(seconds=1),
+            failure=failure,
+        )
+
+
 class _RunStore:
     def __init__(self) -> None:
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
@@ -230,7 +283,7 @@ def test_run_row_integrity_rejects_invalid_identity_revision_time_and_linkage(ch
     ],
 )
 def test_queued_run_rejects_every_later_lifecycle_fact(changes: dict[str, object]) -> None:
-    with pytest.raises(OnlyResearchRunIntegrityError, match="later lifecycle"):
+    with pytest.raises(OnlyResearchRunIntegrityError):
         replace(_queued(), **changes)
 
 

@@ -35,6 +35,14 @@ from tests.research.specification.support import registry, specification
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 NOW = datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC)
+M1 = "0001_research_run_operational_authority"
+M2 = "0002_research_run_authority_hardening"
+
+
+def _copy_migrations(target: Path, *migration_ids: str) -> None:
+    for migration_id in migration_ids:
+        source = DEFAULT_MIGRATION_ROOT / f"{migration_id}.sql"
+        (target / source.name).write_bytes(source.read_bytes())
 
 
 def _queued(run_id: str) -> OnlyResearchRun:
@@ -53,11 +61,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == ("0001_research_run_operational_authority",)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == ("0001_research_run_operational_authority",)
+    assert authority.migrate() == (M1, M2)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -78,26 +86,107 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
-def test_migration_checksum_tamper_and_unknown_database_history_fail_closed(postgres_dsn: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("tampered_id", [M1, M2])
+def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    migration = next(DEFAULT_MIGRATION_ROOT.glob("0001_*.sql"))
-    copied = tmp_path / migration.name
-    copied.write_bytes(migration.read_bytes() + b"\n-- tampered\n")
+    _copy_migrations(tmp_path, M1, M2)
+    copied = tmp_path / f"{tampered_id}.sql"
+    copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
     assert tampered.status().verdict is OnlyPostgresSchemaVerdict.CHECKSUM_MISMATCH
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         tampered.plan()
 
+
+def test_unknown_database_history_is_ahead(postgres_dsn: str) -> None:
+    authority = OnlyPostgresMigrationAuthority(postgres_dsn)
+    authority.migrate()
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("INSERT INTO onlyalpha_schema_migration VALUES (%s, %s)", ("9999_unknown", "f" * 64))
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.AHEAD
 
 
+def test_existing_m1_database_plans_and_applies_exact_m2_suffix(postgres_dsn: str, tmp_path: Path) -> None:
+    _copy_migrations(tmp_path, M1)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1,)
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000020"))
+
+    authority = OnlyPostgresMigrationAuthority(postgres_dsn)
+    assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
+    assert tuple(item.migration_id for item in authority.plan()) == (M2,)
+    assert authority.migrate() == (M2,)
+    assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+
+
+def test_invalid_existing_m1_fact_blocks_m2_without_repair(postgres_dsn: str, tmp_path: Path) -> None:
+    _copy_migrations(tmp_path, M1)
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000021"))
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run SET state = 'RUNNING', started_at = %s, cancel_requested_at = %s WHERE run_id = %s",
+            (NOW + timedelta(seconds=1), NOW + timedelta(seconds=2), run.run_id.value),
+        )
+
+    with pytest.raises(OnlyPostgresMigrationIntegrityError):
+        OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute(
+            "SELECT migration_id FROM onlyalpha_schema_migration ORDER BY migration_id"
+        ).fetchall() == [(M1,)]
+        assert connection.execute(
+            "SELECT state, started_at, cancel_requested_at FROM research_run WHERE run_id = %s", (run.run_id.value,)
+        ).fetchone() == ("RUNNING", NOW + timedelta(seconds=1), NOW + timedelta(seconds=2))
+
+
+def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_dsn: str) -> None:
+    authority = OnlyPostgresMigrationAuthority(postgres_dsn)
+    authority.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
+    before = authority.status()
+    assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
+    assert before.applied_migrations == (M2,)
+    assert before.pending_migrations == ()
+    with pytest.raises(OnlyPostgresMigrationIntegrityError):
+        authority.plan()
+    with pytest.raises(OnlyPostgresMigrationIntegrityError):
+        authority.migrate()
+    with pytest.raises(OnlyPostgresSchemaIncompatibleError):
+        authority.assert_compatible()
+    assert authority.status() == before
+
+
+def test_known_history_hole_diverges(postgres_dsn: str, tmp_path: Path) -> None:
+    _copy_migrations(tmp_path, M1, M2)
+    (tmp_path / "0003_known.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    authority = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
+    authority.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M2,))
+    assert authority.status().verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
+
+
+def test_repository_prepend_before_applied_history_diverges(postgres_dsn: str, tmp_path: Path) -> None:
+    m1_root = tmp_path / "m1"
+    changed_root = tmp_path / "changed"
+    m1_root.mkdir()
+    changed_root.mkdir()
+    _copy_migrations(m1_root, M1)
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=m1_root).migrate()
+    (changed_root / "0000_illegal_prepend.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    _copy_migrations(changed_root, M1)
+    assert (
+        OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=changed_root).status().verdict
+        is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
+    )
+
+
 def test_failed_migration_rolls_back_schema_and_ledger_atomically(postgres_dsn: str, tmp_path: Path) -> None:
-    migration = next(DEFAULT_MIGRATION_ROOT.glob("0001_*.sql"))
-    (tmp_path / migration.name).write_bytes(migration.read_bytes())
-    (tmp_path / "0002_intentional_failure.sql").write_text(
+    _copy_migrations(tmp_path, M1, M2)
+    (tmp_path / "0003_intentional_failure.sql").write_text(
         "CREATE TABLE must_rollback (value INTEGER); SELECT 1 / 0;\n", encoding="utf-8"
     )
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
@@ -117,7 +206,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), ("0001_research_run_operational_authority",)]
+    assert sorted(outcomes) == [(), (M1, M2)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
@@ -197,6 +286,54 @@ def test_database_constraints_reject_invalid_state_and_incomplete_completion(pos
         )
     with psycopg.connect(postgres_dsn) as connection, pytest.raises(psycopg.errors.CheckViolation):
         connection.execute("UPDATE research_run SET state = 'RUNNING' WHERE run_id = %s", (run.run_id.value,))
+
+
+@pytest.mark.parametrize(
+    ("assignments", "parameters"),
+    [
+        (
+            "state = 'COMPLETED', finished_at = %s, research_result_fingerprint = %s, "
+            "artifact_content_fingerprint = %s",
+            (NOW + timedelta(seconds=2), "b" * 64, "c" * 64),
+        ),
+        (
+            "state = 'FAILED', finished_at = %s, failure_phase = 'EXECUTION', "
+            "failure_code = 'FAILED', failure_detail = 'detail'",
+            (NOW + timedelta(seconds=2),),
+        ),
+        (
+            "state = 'RUNNING', started_at = %s, cancel_requested_at = %s",
+            (NOW + timedelta(seconds=1), NOW + timedelta(seconds=2)),
+        ),
+        (
+            "state = 'CANCEL_REQUESTED', started_at = %s, cancel_requested_at = %s",
+            (NOW + timedelta(seconds=2), NOW + timedelta(seconds=1)),
+        ),
+        (
+            "state = 'COMPLETED', started_at = %s, finished_at = %s, research_result_fingerprint = %s, "
+            "artifact_content_fingerprint = %s",
+            (NOW + timedelta(seconds=2), NOW + timedelta(seconds=1), "b" * 64, "c" * 64),
+        ),
+        (
+            "state = 'CANCELLED', started_at = %s, cancel_requested_at = %s, finished_at = %s",
+            (NOW + timedelta(seconds=1), NOW + timedelta(seconds=3), NOW + timedelta(seconds=2)),
+        ),
+        (
+            "state = 'RUNNING', started_at = %s, artifact_content_fingerprint = %s",
+            (NOW + timedelta(seconds=1), "c" * 64),
+        ),
+    ],
+)
+def test_hardened_database_constraints_reject_impossible_operational_facts(
+    postgres_dsn: str, assignments: str, parameters: tuple[object, ...]
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000022"))
+    with psycopg.connect(postgres_dsn) as connection, pytest.raises(psycopg.errors.CheckViolation):
+        connection.execute(
+            f"UPDATE research_run SET {assignments} WHERE run_id = %s",  # noqa: S608 - fixed test-owned SQL fragments
+            (*parameters, run.run_id.value),
+        )
 
 
 def test_admission_commit_restart_reload_and_reresolution_are_exact(postgres_dsn: str) -> None:

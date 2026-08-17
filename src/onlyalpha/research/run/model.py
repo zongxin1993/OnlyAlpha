@@ -133,10 +133,23 @@ class OnlyResearchRun:
                     _utc(value, name)
             if self.started_at is not None and self.started_at < self.queued_at:
                 raise ValueError("started_at precedes queued_at")
-            if self.cancel_requested_at is not None and self.cancel_requested_at < self.queued_at:
-                raise ValueError("cancel_requested_at precedes queued_at")
+            if self.cancel_requested_at is not None:
+                if self.started_at is None:
+                    raise ValueError("cancel_requested_at requires started_at")
+                if self.cancel_requested_at < self.started_at:
+                    raise ValueError("cancel_requested_at precedes started_at")
             if self.finished_at is not None and self.finished_at < self.queued_at:
                 raise ValueError("finished_at precedes queued_at")
+            if self.finished_at is not None and self.started_at is not None and self.finished_at < self.started_at:
+                raise ValueError("finished_at precedes started_at")
+            if (
+                self.finished_at is not None
+                and self.cancel_requested_at is not None
+                and self.finished_at < self.cancel_requested_at
+            ):
+                raise ValueError("finished_at precedes cancel_requested_at")
+            if self.artifact_content_fingerprint is not None and self.research_result_fingerprint is None:
+                raise ValueError("Artifact reference requires Research Result reference")
             if self.state is self.state.QUEUED and any(
                 value is not None
                 for value in (
@@ -151,18 +164,24 @@ class OnlyResearchRun:
                 raise ValueError("QUEUED Run contains later lifecycle facts")
             if self.state in {self.state.RUNNING, self.state.CANCEL_REQUESTED} and self.started_at is None:
                 raise ValueError("active Run requires started_at")
+            if self.state is self.state.RUNNING and self.cancel_requested_at is not None:
+                raise ValueError("RUNNING cannot contain a cancellation request")
             if self.state is self.state.CANCEL_REQUESTED and self.cancel_requested_at is None:
                 raise ValueError("CANCEL_REQUESTED requires cancel_requested_at")
             if self.state.terminal != (self.finished_at is not None):
                 raise ValueError("terminal Run and finished_at must agree")
             if self.state is self.state.COMPLETED and (
-                self.research_result_fingerprint is None or self.artifact_content_fingerprint is None
+                self.started_at is None
+                or self.research_result_fingerprint is None
+                or self.artifact_content_fingerprint is None
             ):
-                raise ValueError("COMPLETED requires exact Result and Artifact references")
-            if self.state is self.state.FAILED and self.failure is None:
-                raise ValueError("FAILED requires structured failure")
+                raise ValueError("COMPLETED requires started execution and exact Result and Artifact references")
+            if self.state is self.state.FAILED and (self.started_at is None or self.failure is None):
+                raise ValueError("FAILED requires started execution and structured failure")
             if self.state is not self.state.FAILED and self.failure is not None:
                 raise ValueError("failure is only valid for FAILED")
+            if self.state is self.state.CANCELLED and ((self.started_at is None) != (self.cancel_requested_at is None)):
+                raise ValueError("CANCELLED must be direct from QUEUED or follow a cancellation request")
         except ValueError as exc:
             raise OnlyResearchRunIntegrityError(str(exc)) from exc
 
