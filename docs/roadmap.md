@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.2 — IMPLEMENTED / VERIFIED LOCALLY
+Current Increment: P8.2 — IMPLEMENTED / VERIFIED LOCALLY — Cancellation / Recovery Convergence CLOSED
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -315,13 +315,19 @@ scripts/database.py restore-test
 
 ## P8.2 — Research Scheduler, Worker & Recovery
 
-状态：**IMPLEMENTED / VERIFIED LOCALLY**。P8.2 已建立独立 Attempt/Worker UUID4 identity、`ACTIVE/SUCCEEDED/FAILED/EXPIRED/CANCELLED`
+状态：**IMPLEMENTED / VERIFIED LOCALLY — CANCELLATION / RECOVERY CONVERGENCE CLOSED**。P8.2 已建立独立 Attempt/Worker UUID4 identity、`ACTIVE/SUCCEEDED/FAILED/EXPIRED/CANCELLED`
 Attempt history、one-ACTIVE PostgreSQL constraint、`queued_at/run_id` deterministic transactional claim、PostgreSQL
 `clock_timestamp()` lease authority、周期 heartbeat、expiry/new-Attempt recovery、exact Attempt/Worker fencing、bounded retry、cooperative
 cancellation 与 graceful stop。Worker 重新验证 Dataset 和 admission evidence，并只经 `OnlyEngine → OnlyResearchRuntime` 执行；真实
 PostgreSQL 16.10 已证明并发 claim、lease/fencing、M1/M2→M3 与 Artifact-commit crash deterministic re-entry。独立
 `research-execution` lane 与 `research-postgres` lane 已进入 impact/CI/certification matrix。本状态不包含 P8.3 HTTP command、Web 或 P8
 Final-SHA certification。
+
+P8.2 correctness closure 进一步冻结 semantic-fact-first cancellation recovery：expired Attempt 不再由 PostgreSQL 直接把
+`CANCEL_REQUESTED` 终结为 `CANCELLED`。无 ACTIVE Attempt 后，Application reconciliation 只读 verified-load resolved exact Research
+Result + Artifact；完整证据收敛 `COMPLETED`，absent/partial 收敛 `CANCELLED` 且不继续 semantic work，corrupt authority 收敛 fail-closed
+`FAILED`。终态使用 exact revision/state + no-ACTIVE transaction，max-attempts 与 stale Worker 均不能覆盖该事实。P8.2 已具备进入 P8.3
+Research Command API 的本地语义前提，但 P8 整体仍为 `IN_PROGRESS`，未声明 P8 DONE/CERTIFIED。
 
 ### 目标
 

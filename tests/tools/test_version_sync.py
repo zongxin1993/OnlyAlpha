@@ -264,8 +264,12 @@ def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_pat
     assert fixture["project"]["version"] == "7.9"
     assert list(fixture["project"]["dependencies"]) == ["onlyalpha==0.3.8"]
     assert (root / "README.md").read_text(encoding="utf-8") == "| Version | `0.3.8` |\n"
-    assert '"version": "0.3.8"' in (root / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
-    assert '"version": "0.3.8"' in (root / "apps/onlyalpha-web/package-lock.json").read_text(encoding="utf-8")
+    web_package = (root / "apps/onlyalpha-web/package.json").read_text(encoding="utf-8")
+    web_lock = (root / "apps/onlyalpha-web/package-lock.json").read_text(encoding="utf-8")
+    assert '\n    "version": "0.3.8"' in web_package
+    assert '\n    "version": "0.3.8"' in web_lock
+    assert '\n  "version": "0.3.8"' not in web_package
+    assert '\n  "version": "0.3.8"' not in web_lock
 
 
 def test_set_versions_locks_then_checks_complete_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

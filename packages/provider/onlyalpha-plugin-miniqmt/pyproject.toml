@@ -1,13 +1,13 @@
 [project]
 name = "onlyalpha-plugin-miniqmt"
-version = "0.7.12"
+version = "0.8.2"
 description = "MiniQMT market data and broker adapters for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 
 dependencies = [
-    "onlyalpha==0.7.12",
-    "onlyalpha-market-cn-ashare==0.7.12",
+    "onlyalpha==0.8.2",
+    "onlyalpha-market-cn-ashare==0.8.2",
     "xtquant>=250516.1.1; sys_platform == 'win32'",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]

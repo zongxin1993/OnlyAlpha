@@ -395,7 +395,7 @@ def rewrite_workspace(
     for path, document in documents:
         write_document(path, document)
     for path, document in web_documents:
-        path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(document, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
     readme_path.write_text(updated_readme, encoding="utf-8")
 
 

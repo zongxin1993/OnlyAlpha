@@ -16,7 +16,7 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.7.12` |
+| Version | `0.8.2` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |

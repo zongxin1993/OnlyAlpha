@@ -42,6 +42,13 @@ def test_published_migration_0002_bytes_are_immutable() -> None:
     assert hashlib.sha256(payload).hexdigest() == "05dd03d41d1418046e705b98e00c51a0041f9acd07122ca0331d9f786980bd6a"
 
 
+def test_published_migration_0003_bytes_are_immutable() -> None:
+    import hashlib
+
+    payload = Path("database/postgres/migrations/0003_research_run_attempt_authority.sql").read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == "b5c9cbb93a3fea8231a9b9ab4f76b2e0b5cd2abede475aa41eb913cdd98fa19d"
+
+
 def test_forward_hardening_migration_mirrors_domain_fact_boundaries() -> None:
     sql = Path("database/postgres/migrations/0002_research_run_authority_hardening.sql").read_text()
     for constraint in (

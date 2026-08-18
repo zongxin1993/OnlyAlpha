@@ -22,6 +22,10 @@ from onlyalpha.research.execution.model import (
     OnlyResearchWorkerInstanceId,
 )
 from onlyalpha.research.execution.policy import OnlyResearchRetryDecision
+from onlyalpha.research.execution.reconciliation import (
+    OnlyResearchSemanticCompletionInspection,
+    OnlyResearchSemanticCompletionStatus,
+)
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunFailure,
@@ -206,7 +210,9 @@ class OnlyPostgresResearchExecutionStore:
                 )
                 _update_attempt(connection, expired)
                 if run.state is OnlyResearchRunState.CANCEL_REQUESTED:
-                    _update_run(connection, run, run.transition(OnlyResearchRunState.CANCELLED, at=run_finished_at))
+                    # Expiry proves only loss of Attempt ownership.  Semantic completion
+                    # must be inspected by the application reconciliation boundary.
+                    pass
                 elif attempt.attempt_number >= max_attempts:
                     exhausted = OnlyResearchRunFailure(
                         OnlyResearchRunFailurePhase.OPERATIONAL,
@@ -225,6 +231,82 @@ class OnlyPostgresResearchExecutionStore:
             raise
         except psycopg.Error as exc:
             raise OnlyResearchExecutionStoreUnavailableError("Lease expiry transaction failed") from exc
+
+    def load_cancellation_recovery_candidate(self) -> OnlyResearchRun | None:
+        """Load one operationally eligible candidate without inspecting semantic Stores."""
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    """
+                    SELECT r.* FROM research_run AS r
+                    WHERE r.state = 'CANCEL_REQUESTED'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM research_run_attempt AS active
+                          WHERE active.run_id = r.run_id AND active.state = 'ACTIVE'
+                      )
+                    ORDER BY r.cancel_requested_at ASC, r.run_id ASC
+                    LIMIT 1
+                    """
+                ).fetchone()
+        except psycopg.Error as exc:
+            raise OnlyResearchExecutionStoreUnavailableError("Cancellation recovery candidate load failed") from exc
+        return None if row is None else OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], row))
+
+    def reconcile_cancellation(
+        self,
+        *,
+        expected: OnlyResearchRun,
+        run_finished_at: datetime,
+        inspection: OnlyResearchSemanticCompletionInspection,
+    ) -> OnlyResearchRun:
+        """Atomically project a read-only semantic inspection into Run authority."""
+        if expected.state is not OnlyResearchRunState.CANCEL_REQUESTED:
+            raise OnlyResearchExecutionOwnershipLostError("Cancellation reconciliation requires CANCEL_REQUESTED")
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT * FROM research_run WHERE run_id = %s FOR UPDATE",
+                    (expected.run_id.value,),
+                ).fetchone()
+                if row is None:
+                    raise OnlyResearchExecutionOwnershipLostError("Cancellation recovery Run no longer exists")
+                current = OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], row))
+                if current.state is not OnlyResearchRunState.CANCEL_REQUESTED or current.revision != expected.revision:
+                    raise OnlyResearchExecutionOwnershipLostError(
+                        "Cancellation recovery Run changed before terminal projection"
+                    )
+                active = connection.execute(
+                    "SELECT 1 FROM research_run_attempt WHERE run_id = %s AND state = 'ACTIVE' LIMIT 1",
+                    (current.run_id.value,),
+                ).fetchone()
+                if active is not None:
+                    raise OnlyResearchExecutionOwnershipLostError(
+                        "Cancellation recovery cannot fence an ACTIVE Attempt"
+                    )
+                if inspection.status is OnlyResearchSemanticCompletionStatus.COMPLETE:
+                    assert inspection.research_result_fingerprint is not None
+                    assert inspection.artifact_content_fingerprint is not None
+                    transitioned = current.transition(
+                        OnlyResearchRunState.COMPLETED,
+                        at=run_finished_at,
+                        research_result_fingerprint=inspection.research_result_fingerprint,
+                        artifact_content_fingerprint=inspection.artifact_content_fingerprint,
+                    )
+                elif inspection.status is OnlyResearchSemanticCompletionStatus.ABSENT:
+                    transitioned = current.transition(OnlyResearchRunState.CANCELLED, at=run_finished_at)
+                else:
+                    assert inspection.failure is not None
+                    transitioned = current.transition(
+                        OnlyResearchRunState.FAILED,
+                        at=run_finished_at,
+                        failure=inspection.failure,
+                    )
+                _update_run(connection, current, transitioned)
+                return transitioned
+        except OnlyResearchExecutionOwnershipLostError:
+            raise
+        except psycopg.Error as exc:
+            raise OnlyResearchExecutionStoreUnavailableError("Cancellation reconciliation transaction failed") from exc
 
     def complete(
         self,

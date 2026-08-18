@@ -121,6 +121,12 @@ class _ExecutionStore:
     def expire_next(self, **kwargs: object) -> None:
         return None
 
+    def load_cancellation_recovery_candidate(self) -> None:
+        return None
+
+    def reconcile_cancellation(self, **kwargs: object) -> OnlyResearchRun:
+        raise AssertionError(f"unexpected reconciliation: {kwargs}")
+
 
 class _RuntimeExecutor:
     def __init__(self, result: OnlyResearchRuntimeResult | None = None, error: Exception | None = None) -> None:
@@ -324,16 +330,27 @@ class _ServiceWorker:
         return OnlyResearchWorkerOutcomeKind.COMPLETED, claim
 
 
+class _Reconciler:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def reconcile_once(self) -> None:
+        self.calls += 1
+
+
 def test_worker_service_has_finite_entry_and_shutdown_stops_new_claims(tmp_path: Path) -> None:
     _, _, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
     scheduler = _Scheduler(claim)
+    reconciler = _Reconciler()
     service = OnlyResearchWorkerService(
         scheduler=scheduler,  # type: ignore[arg-type]
         worker=_ServiceWorker(),  # type: ignore[arg-type]
+        cancellation_reconciler=reconciler,  # type: ignore[arg-type]
         polling_interval=timedelta(milliseconds=1),
     )
     assert service.run_once() == (OnlyResearchWorkerOutcomeKind.COMPLETED, claim)
     assert scheduler.expired == 1
+    assert reconciler.calls == 1
     service.stop()
     assert service.run_once() is None
     service.run_forever()
@@ -341,5 +358,6 @@ def test_worker_service_has_finite_entry_and_shutdown_stops_new_claims(tmp_path:
         OnlyResearchWorkerService(
             scheduler=scheduler,  # type: ignore[arg-type]
             worker=_ServiceWorker(),  # type: ignore[arg-type]
+            cancellation_reconciler=reconciler,  # type: ignore[arg-type]
             polling_interval=timedelta(0),
         )

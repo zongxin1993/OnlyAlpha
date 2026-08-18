@@ -223,6 +223,12 @@ Task Complete 表示当前修改已经获得足够的局部工程证据。
 
 Task Complete 不表示整个 Repository 已经完成 Phase Certification。
 
+正式编号 Task / Increment 的 closure 还必须完成 release version alignment。默认映射为 `Pn.m -> 0.n.m`，例如
+`P8.2 -> 0.8.2`、`P8.3 -> 0.8.3`、`P8.4 -> 0.8.4`；属于同一 Increment 的 correctness closure 仍使用该 Increment
+版本，不创建四段版本。无法直接映射时，Task Gate 必须预先声明明确映射。版本更新必须在 correctness、targeted tests 和文档完成后，
+通过 `uv run python scripts/version_sync.py set <version>` 执行，并以 `uv run python scripts/version_sync.py check` 验证完整 release
+graph；不得人工逐文件同步版本。
+
 普通 Task Gate 默认不要求：
 
 - repository-wide pytest；

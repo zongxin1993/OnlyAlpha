@@ -14,6 +14,7 @@ from .model import (
     OnlyResearchWorkerInstanceId,
 )
 from .policy import OnlyResearchRetryDecision
+from .reconciliation import OnlyResearchSemanticCompletionInspection
 
 
 class OnlyResearchExecutionStore(Protocol):
@@ -43,6 +44,16 @@ class OnlyResearchExecutionStore(Protocol):
         max_attempts: int,
         run_finished_at: datetime,
     ) -> OnlyResearchRunAttempt | None: ...
+
+    def load_cancellation_recovery_candidate(self) -> OnlyResearchRun | None: ...
+
+    def reconcile_cancellation(
+        self,
+        *,
+        expected: OnlyResearchRun,
+        run_finished_at: datetime,
+        inspection: OnlyResearchSemanticCompletionInspection,
+    ) -> OnlyResearchRun: ...
 
     def complete(
         self,

@@ -74,6 +74,14 @@ rolled back.
 Shutdown stops new claims and drains current work while heartbeats continue. Forced process loss simply stops heartbeats and follows the
 same expiry/reclaim path; no PAUSED/STOPPING Run state exists.
 
+For `CANCEL_REQUESTED`, lease expiry proves only that the Attempt lost authority; it does not prove the Research outcome. Expiry leaves
+the Run pending with no ACTIVE Attempt. An application reconciliation boundary deterministically resolves the stored Specification,
+compares admission evidence, and performs a non-mutating verified load of the exact Research Result Plan and the Artifact keyed by that
+Result. PostgreSQL and Scheduler remain semantics-blind. The authoritative inspection is the cancellation-recovery linearization point:
+if both exact authorities are present and verified, completion wins; if full completion is absent, cancellation wins without producing
+missing semantic work; corrupt or conflicting authority fails the Run closed. PostgreSQL then commits the decision with exact Run
+revision/state and no-ACTIVE preconditions. This creates no Attempt and is independent of execution retry budget.
+
 ## Decision: semantic re-entry and finalization order
 
 Worker reloads the exact Run, verified-loads its Dataset, deterministically resolves its canonical Specification, compares current
@@ -93,8 +101,13 @@ immutable semantic commits
 An Artifact-commit/process-crash window therefore leaves Run RUNNING; after expiry a new Attempt verified-reuses the exact Artifact and
 completes operational finalization.
 
+The preceding new-Attempt path applies to non-cancelled `RUNNING` recovery. For `CANCEL_REQUESTED`, reconciliation never claims an
+execution Attempt: it only inspects already committed immutable facts and atomically projects `COMPLETED`, `CANCELLED`, or fail-closed
+`FAILED`. Once that projection commits, stale Workers remain fenced from every operational finalization; later immutable idempotent writes
+cannot rewrite the terminal Run.
+
 ## Consequences
 
 PostgreSQL migration `0003_research_run_attempt_authority` adds only Attempt, ownership, lease, heartbeat and failure-history facts plus
-minimal constraints/indexes. Published `0001` and `0002` remain byte-immutable. There is no Worker registry, in-memory durable queue,
+minimal constraints/indexes. Published `0001`, `0002` and `0003` remain byte-immutable. There is no Worker registry, in-memory durable queue,
 semantic progress table, mutable Research checkpoint, Redis/Kafka/Celery, HTTP command or Web control in this increment.

@@ -1,11 +1,11 @@
 [project]
 name = "onlyalpha-api"
-version = "0.7.12"
+version = "0.8.2"
 description = "Read-only Research Query HTTP API for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "onlyalpha==0.7.12",
+    "onlyalpha==0.8.2",
     "fastapi>=0.116,<1",
     "pydantic>=2.11,<3",
     "uvicorn>=0.35,<1",

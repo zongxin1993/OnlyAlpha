@@ -166,7 +166,10 @@ Web 仅调用 same-origin read-only API，不读取 Artifact path/Parquet/Store�
 PostgreSQL operational Scheduler/Worker：Run 是总体 intent/outcome，Attempt 是 lease-governed execution ownership/history；claim、heartbeat、
 expiry 与 finalization 均为短事务并使用 exact Attempt/Worker fencing。Worker 重新 verified-load Dataset、复核 admission evidence，随后只经
 `OnlyEngine → OnlyResearchRuntime` 执行。恢复不保存 semantic progress，而由新 Attempt 对既有 immutable authorities deterministic re-entry
-与 verified reuse。Research YAML/CLI、HTTP command、Trading/Live Web control 与完整 mixed Runtime lifecycle 尚未实现。
+与 verified reuse。`CANCEL_REQUESTED` 的 expired/no-ACTIVE recovery 不创建新 Attempt：Application reconciliation 从 resolved exact
+Result Plan 对 Result + Artifact 做 non-mutating verified inspection，complete/absent/corrupt 分别原子投影为
+`COMPLETED/CANCELLED/FAILED`；Scheduler 与 PostgreSQL adapter 保持 semantics-blind。Research YAML/CLI、HTTP command、Trading/Live Web
+control 与完整 mixed Runtime lifecycle 尚未实现。
 
 ## 5. Trading Runtime
 

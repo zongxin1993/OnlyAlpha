@@ -511,6 +511,13 @@ admission evidence，并只通过 `OnlyEngine -> OnlyResearchRuntime` 执行。R
 Factor/node/progress checkpoint、第二套 Research Result truth 或 in-memory durable queue。Heartbeat/数据库不可用意味着 ownership
 uncertain，Worker 不得继续 operational finalization。HTTP command/Web control 仍不属于该执行协议。
 
+Cancellation recovery 必须遵守 semantic-fact-first：lease expiry 只证明 Attempt ownership 丢失，不能自行把
+`CANCEL_REQUESTED` 投影为 `CANCELLED`。无 ACTIVE Attempt 后，Application reconciliation 必须从 canonical Specification resolution
+推导 exact Research Result Plan，并通过 read-only `load_verified()` 同时证明 exact Research Result 与 exact Artifact。完整证据在
+authoritative inspection point 已存在则投影 `COMPLETED`；完整证据 absent 则投影 `CANCELLED`；corrupt/conflicting authority 必须
+`FAILED` fail closed。该终态通过 PostgreSQL exact revision/state + no-ACTIVE transaction 原子提交；不得创建新 Attempt、继续缺失的
+semantic work、让 Scheduler/PostgreSQL adapter 读取 semantic Store，或让 retry budget 覆盖已完成事实。
+
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
 identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。
@@ -1804,6 +1811,14 @@ version sync 与 build 同样必须 impact-aware。
 Certification；只有真实 Impact Scope、verification infrastructure 自改或当前 Gate 类型明确要求时才执行。验收语义唯一权威是
 `docs/engineering/quality-system.md`，工具执行方式以 `docs/engineering/quality-toolchain.md` 为准；
 `docs/engineering/task-gate-template.md` 只用于记录，不建立第二份质量政策。
+
+### 26.6 Task / Increment Release Version Alignment
+
+每个正式编号 Task / Increment 完成时，工程 release version 必须与任务编号对齐：`P8.2 -> 0.8.2`、`P8.3 -> 0.8.3`、
+`P8.4 -> 0.8.4`。属于某个正式 Increment 的 correctness/engineering closure 继续使用该 Increment 的三段版本，例如
+`P8.2 Cancellation / Recovery Convergence Closure -> 0.8.2`，不得创建 `0.8.2.1` 等四段版本。若未来 Task 编号不能直接映射
+标准三段 release version，必须在该 Task Gate 明确冻结映射，不得自行猜测。版本只能通过
+`uv run python scripts/version_sync.py set <version>` 同步完整 release graph，并以 `version_sync.py check` 验证。
 
 ---
 

@@ -17,18 +17,25 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
 )
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
+from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
 from onlyalpha.research.execution import (
     OnlyEngineResearchRuntimeExecutor,
+    OnlyResearchCancellationRecoveryReconciler,
     OnlyResearchExecutionOwnershipLostError,
     OnlyResearchExecutionPolicy,
     OnlyResearchRetryDecision,
     OnlyResearchRunAttemptId,
     OnlyResearchRunAttemptState,
+    OnlyResearchSemanticCompletionInspection,
+    OnlyResearchSemanticCompletionStatus,
+    OnlyResearchVerifiedSemanticCompletionProbe,
     OnlyResearchWorker,
     OnlyResearchWorkerInstanceId,
     OnlyResearchWorkerOutcomeKind,
 )
+from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunFailure,
@@ -77,6 +84,41 @@ def _claim(
         max_attempts=max_attempts,
         run_started_at=NOW + timedelta(seconds=1),
     )
+
+
+def _reconciler(
+    postgres_dsn: str,
+    root: Path,
+    *,
+    now: datetime = NOW + timedelta(minutes=4),
+) -> OnlyResearchCancellationRecoveryReconciler:
+    layout = OnlyUserDataLayout(root)
+    dataset = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    calculation = OnlyParquetResearchCalculationResultStore(layout.research_calculation_result_root, dataset)
+    statistics = OnlyParquetResearchStatisticsResultStore(layout.research_statistics_result_root, calculation)
+    result = OnlyJsonResearchResultStore(layout.research_result_root, statistics)
+    artifact = OnlyParquetResearchArtifactStore(layout.research_artifact_root)
+    return OnlyResearchCancellationRecoveryReconciler(
+        execution_store=OnlyPostgresResearchExecutionStore(postgres_dsn),
+        resolver=OnlyResearchSpecificationResolver(registry()),
+        completion_probe=OnlyResearchVerifiedSemanticCompletionProbe(result, artifact),
+        now_utc=lambda: now,
+    )
+
+
+def _queued_workload(root: Path, run_id: int):
+    _, workload = workload_case(root)
+    resolver = OnlyResearchSpecificationResolver(registry())
+    spec = specification(workload.dataset_snapshot_fingerprint)
+    resolution = resolver.resolve(spec)
+    queued = OnlyResearchRun.queued(
+        run_id=OnlyResearchRunId(f"00000000-0000-4000-8000-{run_id:012d}"),
+        specification=spec,
+        canonical_specification_payload=only_canonical_json(spec.to_dict()),
+        admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
+        queued_at=NOW,
+    )
+    return queued, resolution
 
 
 def test_existing_m1_m2_database_plans_exact_m3_and_preserves_run(postgres_dsn: str, tmp_path: Path) -> None:
@@ -424,7 +466,7 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
     } == committed_result
 
 
-def test_expired_cancel_requested_attempt_converges_run_to_cancelled(postgres_dsn: str) -> None:
+def test_expired_cancel_requested_attempt_waits_for_semantic_reconciliation(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)
     run_store.create_queued(_queued(322))
@@ -442,4 +484,190 @@ def test_expired_cancel_requested_attempt_converges_run_to_cancelled(postgres_ds
             (claim.attempt.attempt_id.value,),
         )
     assert store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=1)) is not None
-    assert run_store.load(claim.attempt.run_id).state is OnlyResearchRunState.CANCELLED
+    assert run_store.load(claim.attempt.run_id).state is OnlyResearchRunState.CANCEL_REQUESTED
+
+
+def test_cancel_crash_after_semantic_commit_reconciles_completed_on_last_attempt(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    queued, resolution = _queued_workload(tmp_path, 323)
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(queued)
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = _claim(store, WORKER_1, 82, max_attempts=1)
+    assert claim is not None and claim.attempt.attempt_number == 1
+    semantic = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    assert semantic.status.value == "COMPLETED"
+    running = run_store.load(queued.run_id)
+    requested = run_store.commit_transition(
+        running,
+        running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2)),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run_attempt SET lease_expires_at = last_heartbeat_at WHERE attempt_id = %s",
+            (claim.attempt.attempt_id.value,),
+        )
+    restarted = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    expired = restarted.expire_next(max_attempts=1, run_finished_at=NOW + timedelta(minutes=3))
+    assert expired is not None and expired.state is OnlyResearchRunAttemptState.EXPIRED
+
+    completed = _reconciler(postgres_dsn, tmp_path).reconcile_once()
+    assert completed is not None and completed.state is OnlyResearchRunState.COMPLETED
+    assert completed.cancel_requested_at == requested.cancel_requested_at
+    assert completed.research_result_fingerprint == semantic.research_result_fingerprint
+    assert completed.artifact_content_fingerprint == semantic.artifact_content_fingerprint
+    assert (
+        restarted.claim_next(
+            worker_instance_id=WORKER_2,
+            attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000083"),
+            lease_duration=timedelta(minutes=2),
+            max_attempts=1,
+            run_started_at=NOW + timedelta(minutes=5),
+        )
+        is None
+    )
+    with pytest.raises(OnlyResearchExecutionOwnershipLostError):
+        store.complete(
+            claim=claim,
+            run_finished_at=NOW + timedelta(minutes=6),
+            research_result_fingerprint=semantic.research_result_fingerprint,
+            artifact_content_fingerprint=semantic.artifact_content_fingerprint,
+        )
+
+
+def test_cancel_crash_without_complete_semantics_reconciles_cancelled(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(_queued(324))
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = _claim(store, WORKER_1, 84)
+    assert claim is not None
+    running = run_store.load(claim.attempt.run_id)
+    run_store.commit_transition(
+        running,
+        running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2)),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run_attempt SET lease_expires_at = last_heartbeat_at WHERE attempt_id = %s",
+            (claim.attempt.attempt_id.value,),
+        )
+    store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=1))
+    cancelled = _reconciler(postgres_dsn, tmp_path).reconcile_once()
+    assert cancelled is not None and cancelled.state is OnlyResearchRunState.CANCELLED
+    assert cancelled.research_result_fingerprint is None
+    assert cancelled.artifact_content_fingerprint is None
+
+
+def test_partial_result_is_preserved_but_does_not_force_artifact_work(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    queued, resolution = _queued_workload(tmp_path, 325)
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(queued)
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = _claim(store, WORKER_1, 85)
+    assert claim is not None
+
+    def crash_after_result(self: object, candidate: object) -> object:
+        del self, candidate
+        raise RuntimeError("simulated process loss after Result commit")
+
+    monkeypatch.setattr(OnlyParquetResearchArtifactStore, "commit", crash_after_result)
+    failed = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    assert failed.status.value == "FAILED"
+    result_root = OnlyUserDataLayout(tmp_path).research_result_root
+    committed = {path.relative_to(result_root): path.read_bytes() for path in result_root.rglob("*") if path.is_file()}
+    assert committed
+    monkeypatch.undo()
+    running = run_store.load(queued.run_id)
+    run_store.commit_transition(
+        running,
+        running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2)),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run_attempt SET lease_expires_at = last_heartbeat_at WHERE attempt_id = %s",
+            (claim.attempt.attempt_id.value,),
+        )
+    store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=1))
+    cancelled = _reconciler(postgres_dsn, tmp_path).reconcile_once()
+    assert cancelled is not None and cancelled.state is OnlyResearchRunState.CANCELLED
+    assert {
+        path.relative_to(result_root): path.read_bytes() for path in result_root.rglob("*") if path.is_file()
+    } == committed
+    assert not OnlyUserDataLayout(tmp_path).research_artifact_root.exists()
+
+
+def test_corrupt_artifact_fails_closed_during_cancellation_recovery(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    queued, resolution = _queued_workload(tmp_path, 326)
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(queued)
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = _claim(store, WORKER_1, 86)
+    assert claim is not None
+    semantic = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    assert semantic.status.value == "COMPLETED"
+    artifact_root = OnlyUserDataLayout(tmp_path).research_artifact_root
+    manifest = next(artifact_root.rglob("artifact_manifest.json"))
+    payload = manifest.read_bytes()
+    manifest.write_bytes(b"[" + payload[1:])
+    running = run_store.load(queued.run_id)
+    run_store.commit_transition(
+        running,
+        running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2)),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run_attempt SET lease_expires_at = last_heartbeat_at WHERE attempt_id = %s",
+            (claim.attempt.attempt_id.value,),
+        )
+    store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=1))
+    failed = _reconciler(postgres_dsn, tmp_path).reconcile_once()
+    assert failed is not None and failed.state is OnlyResearchRunState.FAILED
+    assert failed.failure is not None
+    assert failed.failure.code == "CANCELLATION_RECOVERY_ARTIFACT_VERIFICATION_FAILED"
+
+
+def test_concurrent_cancellation_reconciliation_has_one_terminal_cas_winner(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(_queued(327))
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = _claim(store, WORKER_1, 87)
+    assert claim is not None
+    running = run_store.load(claim.attempt.run_id)
+    requested = run_store.commit_transition(
+        running,
+        running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2)),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run_attempt SET lease_expires_at = last_heartbeat_at WHERE attempt_id = %s",
+            (claim.attempt.attempt_id.value,),
+        )
+    store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=1))
+    inspection = OnlyResearchSemanticCompletionInspection(OnlyResearchSemanticCompletionStatus.ABSENT)
+    barrier = Barrier(2)
+
+    def reconcile() -> object:
+        actor = OnlyPostgresResearchExecutionStore(postgres_dsn)
+        barrier.wait()
+        try:
+            return actor.reconcile_cancellation(
+                expected=requested,
+                run_finished_at=NOW + timedelta(minutes=2),
+                inspection=inspection,
+            )
+        except OnlyResearchExecutionOwnershipLostError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = tuple(item.result() for item in (executor.submit(reconcile), executor.submit(reconcile)))
+    assert sum(isinstance(item, OnlyResearchRun) for item in outcomes) == 1
+    assert sum(isinstance(item, OnlyResearchExecutionOwnershipLostError) for item in outcomes) == 1
+    assert run_store.load(requested.run_id).state is OnlyResearchRunState.CANCELLED

@@ -39,6 +39,7 @@ from .errors import (
 )
 from .model import OnlyResearchExecutionClaim, OnlyResearchWorkerInstanceId
 from .policy import OnlyResearchExecutionPolicy
+from .reconciliation import OnlyResearchCancellationRecoveryReconciler
 from .scheduler import OnlyResearchScheduler
 from .store import OnlyResearchExecutionStore
 
@@ -290,12 +291,14 @@ class OnlyResearchWorkerService:
         *,
         scheduler: OnlyResearchScheduler,
         worker: OnlyResearchWorker,
+        cancellation_reconciler: OnlyResearchCancellationRecoveryReconciler,
         polling_interval: timedelta = timedelta(seconds=1),
     ) -> None:
         if polling_interval <= timedelta(0):
             raise ValueError("polling_interval must be positive")
         self._scheduler = scheduler
         self._worker = worker
+        self._cancellation_reconciler = cancellation_reconciler
         self._polling_interval = polling_interval
         self._stop = Event()
 
@@ -303,6 +306,7 @@ class OnlyResearchWorkerService:
         if self._stop.is_set():
             return None
         self._scheduler.expire_once()
+        self._cancellation_reconciler.reconcile_once()
         claim = self._scheduler.claim_once(self._worker.worker_instance_id)
         return None if claim is None else self._worker.execute_claim(claim)
 
