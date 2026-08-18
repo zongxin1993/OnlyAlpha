@@ -13,6 +13,31 @@
 - Rule: Sim 使用 Realtime、Virtual Broker 和完整 Trading Kernel，绝不能向 Real Broker 提交订单。
 - Rule: 旧 Runtime spelling 与实现不保留 alias、deprecated spelling 或 wrapper。
 
+## Target Strategy Product
+
+以下规则描述长期 Strategy Product 目标，不表示当前代码已经存在 `StrategyRevision` 类型；实现时必须通过 ADR 与迁移把现行 `OnlyStrategy` / Cluster execution surface 收敛到同一策略语义，而不能形成第二套策略 authority。
+
+- Rule: Research Run 表示一次研究执行，未来 immutable Strategy Revision 表示被批准进入 Trading verification 的策略语义；二者不得复用 identity。
+- Rule: 同一个 Strategy Revision 在 Backtest、Sim、Live 中必须保持完全相同的策略语义，不得出现 Runtime-specific strategy code branch。
+- Rule: Universe 与 Decision Mode 必须正交；单票可以默认 Time-Series，多票/全市场可以默认 Cross-Sectional，但股票数量不能永久决定策略类型。
+- Rule: 用户友好的 Instrument/Universe selection 必须在 Research execution 前解析为 exact immutable Dataset Snapshot；动态数据库查询不能直接成为正式 Research 输入。
+- Rule: Indicator 是无交易副作用 Calculation，并通过 stable named Feature 暴露可被研究、可视化和决策引用的结果。
+- Rule: Factor 必须提供稳定 Snapshot/Score；第一阶段策略消费优先使用明确 primary score，不允许 Web/Agent 临时重算一个未注册的新 score truth。
+- Rule: Eligibility / Filter 可以复用 Calculation infrastructure，但其 semantic role 与普通 Entry/Exit predicate 必须分离。
+- Rule: 第一阶段 Strategy Decision 优先使用有限、结构化、canonical 的 `AND/OR/NOT + comparison` Expression，而不是把核心策略语义隐藏在任意脚本 callback 中。
+- Rule: Entry / Exit Decision Expression 必须稳定序列化、fingerprint、测试和确定性重放；Web builder 与 LLM Agent 必须生成同一 canonical representation。
+- Rule: Strategy semantic output 首先是 Signal / Candidate / Rank，不直接等同于资金规模、账户仓位或 Broker execution permission。
+- Rule: Strategy Revision、Portfolio Profile、Execution Profile、Runtime Permission 必须保持独立 authority/contract。
+- Rule: Backtest 也必须显式绑定 Portfolio/Execution Profile；Live 不得成为第一个才定义仓位语义的 Runtime。
+- Rule: Research Candidate 只有经过显式 Freeze 才能形成 immutable Strategy Revision；Strategy Revision 一旦冻结不可修改，任何代码、参数、Feature、Factor、Eligibility 或 Decision 变化都必须产生新 Revision。
+- Rule: Strategy Revision 必须保存足够的 exact code/type/version、resolved parameters、decision semantics 与 origin Research evidence，以支持未来验证和审计；不能用可变“当前策略”覆盖历史版本。
+- Rule: Research → Backtest → Sim → Live Promotion 是 evidence-driven forward process；历史 Research/Backtest/Sim evidence 不得被后续 Runtime 改写。
+- Rule: Strategy Revision 存在或 Backtest/Sim evidence 通过都不自动授予 Live execution permission；真实资金权限必须显式授权并继续经过 Market Rule、Risk、Reservation、Broker 与 Durable Transaction authority。
+- Rule: Web 是 Strategy/Research control + presentation client，不是 Calculation、Strategy、Trading 或 permission authority。
+- Rule: LLM / Agent 可以作为 Author / Operator Client 创建或修改草稿、选择参数和提交受控命令，但必须经过与人工相同的 Code Admission、determinism、identity、evidence、promotion 与 authorization gate。
+- Rule: LLM / Agent 生成的代码不得直接载入 Live，不得修改 immutable Strategy Revision，不得伪造 evidence，也不得使用自然语言 fuzzy/latest resolution 绕过 exact version contract。
+- Rule: 当前 `OnlyStrategy` / Cluster callback 是现行 Trading implementation surface，不自动等价于未来 Strategy Revision；未来迁移必须避免现行 callback strategy 与新的 structured strategy 长期并存为两个 semantic truth。
+
 ## Product-style Demo
 
 - Rule: OnlyAlpha 的正式 Demo 必须使用与实际产品相同的固定接口。

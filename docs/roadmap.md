@@ -2,7 +2,7 @@
 
 本文件只描述当前实现迁移到下一目标阶段的阶段边界、退出条件与非目标。当前事实以源码、正式测试、未被替代的 ADR 和产品认证为准；历史实现细节保存在 `docs/adr/`、`docs/reports/` 与 Git history，不在 Roadmap 中重复维护任务流水账。
 
-Runtime taxonomy 继续由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 冻结，多市场/异构 Runtime 拓扑由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 冻结，Live genesis/manual/liquidation 目标合同由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 冻结。
+Runtime taxonomy 继续由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 冻结，多市场/异构 Runtime 拓扑由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 冻结，Live genesis/manual/liquidation 目标合同由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 冻结。长期 Strategy Product 语义、Research → Backtest → Sim → Live Promotion 与 Web/LLM Agent 参考目标见 [Target Strategy Product Architecture](strategy_product_architecture.md)；该目标存在不等于已经冻结 P8 之后的 milestone。
 
 ## 目标 Runtime taxonomy
 
@@ -126,12 +126,14 @@ P7 回答：
 
 P8 回答：
 
-> 用户如何不再手工执行本地 Python，而是通过 Web 提交一个 Research，由服务器可靠、持久、可恢复地执行，并在完成后自动消费现有 immutable Research Result / Artifact？
+> 用户如何不再手工执行本地 Python，而是通过 Web 选择研究对象、组合已注册的 Indicator / Feature / Factor、配置研究条件，提交一个 Research，由服务器可靠、持久、可恢复地执行，并在完成后查看 exact Result / Artifact 与科学可视化？
 
-P8 不建立第二套 Research Semantic Plane。P8 新增的是 Operational Control Plane：
+P8 不建立第二套 Research Semantic Plane。P8 新增的是 Operational Control Plane 与 Web-native Research product surface：
 
 ```text
 Browser
+   ↓
+Universe / Research Definition
    ↓
 Research Studio
    ↓
@@ -153,7 +155,7 @@ Existing Dataset / Calculation / Statistics / Result / Artifact Authorities
    ↓
 Existing Read-only Query API
    ↓
-Web Result Viewer
+Scientific Research Viewer
 ```
 
 固定原则：
@@ -164,6 +166,10 @@ Research Run / Scheduler State
 
 Research Semantic Result
 → Existing Immutable Authorities
+
+Web selection / charts
+→ client-side control and presentation
+→ never semantic authority
 ```
 
 PostgreSQL 只能回答“这个任务现在处于什么 operational 状态”，不能成为 Dataset、Calculation Result、Statistics Result、Research Result 或 Artifact 的第二真值。
@@ -405,13 +411,15 @@ Command API
 → operational Run control plane
 ```
 
+P8.3 应为 P8.4 的 `Runs` 产品面提供稳定 operational read projection；如果实现 Run List，需要 deterministic ordering/pagination，但不得把 Research Result content 搬进 Command API。
+
 ---
 
 ## P8.4 — Research Studio Web
 
 ### 目标
 
-把 P7.12 的 Research Result Viewer 升级为可以日常使用的 Web-native Research 产品。
+把 P7.12 的 Research Result Viewer 升级为可以日常使用的 Web-native Research 产品。P8.4 的退出面不是“让用户粘贴一个 Dataset SHA”，而是让用户在浏览器中完成从研究对象选择到结果科学分析的完整闭环，同时所有选择最终仍解析为 exact immutable Research identity。
 
 第一版产品结构：
 
@@ -426,14 +434,20 @@ Research
 
 至少支持：
 
-- exact Dataset Snapshot selection/reference；
-- Feature / Factor definition；
-- parameters；
+- 单票、股票池或全市场 Universe selection；
+- Universe / 时间范围等用户选择解析为 exact Dataset Snapshot selection/reference；
+- 已注册 Indicator / Factor definition selection；
+- Indicator / Factor parameters 与 finite Sweep；
+- Indicator named Feature selection；
+- Factor primary Score 的选择/展示；
+- 市值、价格、流动性等 Eligibility / Filter 条件的研究表达；
+- 第一阶段有限 `AND / OR / NOT + comparison` 的 Entry / Exit Decision/Signal research expression；
 - Target；
 - Statistics；
-- finite Sweep；
-- specification preview/validation；
+- exact Research Specification preview/validation；
 - Run submission。
+
+P8 可以复用统一 Calculation infrastructure 表达 Filter，但 Web/Domain 必须区分 `Eligibility` 与普通 Entry/Exit predicate 的 semantic role。单票可以默认 time-series、多票/全市场可以默认 cross-sectional，但 Universe 与 mathematical Decision Mode 不得在长期 Domain 中硬绑定。
 
 ### Runs
 
@@ -450,17 +464,36 @@ CANCELLED
 
 用户关闭浏览器后，服务器运行不受影响。
 
-### Completed Run
+### Completed Run / Scientific Research Viewer
 
-完成后只记录/返回 exact `research_result_fingerprint` / Artifact reference，并复用 P7.12 既有：
+完成后只记录/返回 exact `research_result_fingerprint` / Artifact reference，并复用/扩展 P7.12 immutable read plane。Research 结果至少应能够表达并展示：
 
 ```text
 Artifact Overview
 Statistics Catalog
 Statistics Series
-Chart
 Exact Table
+Historical K-line
+Indicator / selected Feature overlay or panel
+Factor Score panel
+ENTRY / EXIT signal markers
+Cross-sectional IC / Rank IC
+Distribution / Scatter / Quantile / Heatmap / Candidate comparison
 ```
+
+具体图表必须由当前 Result/Artifact 能证明的数据驱动；浏览器不得重新计算新的 Factor、Statistics 或 Signal semantic truth。图表中的 lossy number/time conversion 仍只是 presentation projection。
+
+### P8.4 不做的 Strategy Product 能力
+
+P8.4 不要求完整实现：
+
+- embedded IDE 的 production Code Admission；
+- LLM Agent 自动生成并注册代码；
+- immutable Strategy Revision authority；
+- Research → Backtest Promotion；
+- Backtest / Sim / Live Web productization。
+
+这些是长期 Strategy Product 参考方向，不应为了“Web 看起来完整”而未经 Domain/ADR 设计提前塞进 P8。
 
 浏览器仍然只是 Control + Presentation client，不承担 Research calculation authority。
 
@@ -504,7 +537,10 @@ V1 优先单机模块化单体，不提前引入 Kubernetes、distributed schedu
 ```text
 Start PostgreSQL
 → Start API / Scheduler / Worker
-→ Browser creates Research Specification
+→ Browser selects Universe / exact Dataset
+→ Browser selects registered Indicator / Feature / Factor / parameters
+→ Browser defines limited Eligibility / Decision / Signal research expression
+→ Browser creates exact Research Specification
 → Submit
 → durable QUEUED Run
 → Worker claim / RUNNING
@@ -512,7 +548,8 @@ Start PostgreSQL
 → Research Result committed
 → Artifact materialized
 → Run COMPLETED with exact result reference
-→ Web opens existing Result Viewer
+→ Web opens Scientific Research Viewer
+→ inspect K-line + Feature/Factor/Signal and Statistics relationship
 → restart API/Worker and verify durable state
 → simulate worker failure and verify recovery/re-entry
 ```
@@ -556,6 +593,10 @@ P8 不实现：
 - Provider reconciliation platform；
 - Optimizer / automatic best-parameter authority；
 - 新 Statistics 类型作为 P8 主任务；
+- immutable Strategy Revision / formal Strategy Promotion authority；
+- Research → Backtest → Sim → Live Promotion workflow；
+- Web embedded IDE production Code Admission；
+- LLM Agent 自动生成并注册可交易代码；
 - Backtest Web productization；
 - Sim Web control；
 - Live Runtime / real-money control；
@@ -571,12 +612,16 @@ P8 不实现：
 
 P8 只有在以下条件同时满足时才能完结：
 
+- 用户可以用正式 Web UI 选择单票、股票池或全市场 Research Universe，并解析为 exact Dataset Snapshot；
+- 用户可以选择已注册 Indicator / Factor、设置参数/Sweep、选择 named Feature，并表达有限 Eligibility / Decision / Signal research intent；
 - 用户可以用正式 Web UI 创建并提交 versioned Research Specification；
 - submission 在返回成功前已经 durable commit；
 - PostgreSQL 是唯一 Research Run operational write authority；
 - Scheduler/Worker 支持 claim、lease、attempt、crash/restart recovery 与 cancellation；
 - Worker 只通过 OnlyEngine/OnlyResearchRuntime 执行现有 Research semantic chain；
 - Run COMPLETED 只引用 exact existing Research Result / Artifact，不复制结果真值；
+- 完成的 Research 可以在 Web 中查看 K-line、selected Feature、Factor Score、Signal/买卖点与 Statistics 的关系，并支持必要的 cross-sectional scientific analysis；
+- 所有 Web chart / table 仍只是 exact Artifact-backed presentation projection；
 - 关闭/刷新浏览器不影响服务器执行；
 - API/Worker/PostgreSQL restart 后运行状态可恢复；
 - 数据库 migration/backup/restore procedure 可验证；
@@ -592,7 +637,49 @@ P8 只有在以下条件同时满足时才能完结：
 
 旧 Roadmap 中预先规划的 `P9 Live Runtime Foundation`、`P10 Multi-Market Product Expansion` 与“后续候选”列表已经撤销，不再作为工程任务承诺。P8 完成并取得 exact Final-SHA `ACCEPTED` 后，再重新阅读当时的 Repository、产品需求、运行经验与未解决风险，从第一性原理决定下一阶段。
 
-目标 Live、多市场、Historical Data Platform 等长期架构方向可以继续存在于已接受 ADR/Architecture contract 中，但“目标架构存在”不等价于“已经冻结为下一个 milestone”。
+### 长期 Strategy Product 参考方向
+
+在不冻结 milestone 编号的前提下，OnlyAlpha 已明确一个长期产品方向：Research 中验证过的候选策略应能通过显式 Freeze 形成 immutable Strategy Revision，并以同一策略语义自然进入 Backtest、Sim、Live。
+
+```text
+Draft Indicator / Factor / Decision
+        ↓
+Research
+        ↓
+Research Result / Artifact Evidence
+        ↓
+Freeze immutable Strategy Revision
+        ↓
+Backtest + Historical Evaluation Profile
+        ↓
+Promotion Evidence
+        ↓
+Sim + Realtime Simulated Profile
+        ↓
+Promotion Evidence
+        ↓
+Live + Explicit Deployment Permission
+```
+
+长期必须保持：
+
+```text
+Research Run != Strategy Revision
+
+Strategy Revision
+!= Portfolio Profile
+!= Execution Profile
+!= Runtime Permission
+
+Same Strategy Revision
+→ Backtest / Sim / Live
+```
+
+目标 Web 可以进一步提供 embedded IDE、Strategy Freeze/Promotion、Backtest/Sim/Live control；LLM / Agent 可以生成 Indicator/Factor/Decision 草稿、选择参数并操作受控 Research/Promotion workflow，但只能作为 Author / Operator Client，必须经过与人工相同的 Code Admission、determinism、identity、evidence 与 authorization gate，绝不能直接成为策略、结果或 Live permission authority。
+
+详细参考架构见 [`docs/strategy_product_architecture.md`](strategy_product_architecture.md)。
+
+目标 Live、多市场、Historical Data Platform 等长期架构方向也可以继续存在于已接受 ADR/Architecture contract 中，但“目标架构存在”不等价于“已经冻结为下一个 milestone”。
 
 ---
 
@@ -605,6 +692,9 @@ P8 只有在以下条件同时满足时才能完结：
 - Backtest/Sim/Live 共享一个 trading semantic core；
 - Runtime Type 不是 Execution Permission；
 - 不创建 Runtime-specific duplicate economic authority；
+- 长期 Strategy Promotion 必须执行同一个 immutable Strategy Revision，不允许 Backtest/Sim/Live 复制策略语义；
+- Strategy Revision、Portfolio Profile、Execution Profile、Runtime Permission 必须保持分离；
+- LLM / Agent 只能作为 Author / Operator Client，不能成为 semantic/evidence/permission authority；
 - Research Control Plane 不创建第二 Research Semantic Authority；
 - PostgreSQL 只拥有 Operational State；
 - Immutable Result/Artifact 继续保持 content-addressed authority；
