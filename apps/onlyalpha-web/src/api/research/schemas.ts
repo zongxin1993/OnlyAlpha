@@ -93,6 +93,73 @@ export const researchErrorSchema = z.strictObject({
     detail: z.string().min(1)
 }) satisfies z.ZodType<Dto<"ResearchErrorDto">>;
 
+const uuid4 = z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+const timestamp = z.iso.datetime({ offset: true });
+const runState = z.enum([
+    "QUEUED",
+    "RUNNING",
+    "CANCEL_REQUESTED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED"
+]);
+const runFailureSchema = z.strictObject({
+    phase: z.string().min(1),
+    code: z.string().min(1),
+    detail: z.string().min(1)
+});
+const runSummaryShape = {
+    schema_version: z.literal(2),
+    run_id: uuid4,
+    revision: z.string().regex(/^(?:0|[1-9][0-9]*)$/),
+    state: runState,
+    specification_schema_version: positive,
+    specification_fingerprint: sha256,
+    admission_resolution_fingerprint: sha256,
+    queued_at: timestamp,
+    started_at: timestamp.nullable(),
+    cancel_requested_at: timestamp.nullable(),
+    finished_at: timestamp.nullable(),
+    result_ref: sha256.nullable(),
+    artifact_ref: sha256.nullable(),
+    failure: runFailureSchema.nullable()
+} as const;
+
+export const researchRunSummarySchema = z.strictObject(runSummaryShape) satisfies z.ZodType<
+    Dto<"ResearchRunSummaryDto">
+>;
+
+export const researchRunSchema = z.strictObject({
+    ...runSummaryShape,
+    specification: z.record(z.string(), z.unknown())
+}) satisfies z.ZodType<Dto<"ResearchRunDto">>;
+
+export const researchRunPageSchema = z.strictObject({
+    schema_version: z.literal(2),
+    runs: z.array(researchRunSummarySchema),
+    has_more: z.boolean(),
+    next_cursor: z.string().min(1).nullable()
+}) satisfies z.ZodType<Dto<"ResearchRunPageDto">>;
+
+export const researchRunSubmissionSchema = z.strictObject({
+    submission_disposition: z.enum(["CREATED", "REUSED"]),
+    run: researchRunSchema
+}) satisfies z.ZodType<Dto<"SubmitResearchRunResponse">>;
+
+export const researchRunErrorSchema = z.strictObject({
+    error: z.strictObject({
+        phase: z.string().min(1),
+        code: z.string().min(1),
+        detail: z.string().min(1)
+    })
+}) satisfies z.ZodType<Dto<"ResearchRunErrorEnvelopeDto">>;
+
 export type ArtifactSummaryTransport = z.infer<typeof artifactSummarySchema>;
 export type StatisticsCatalogTransport = z.infer<typeof statisticsCatalogSchema>;
 export type StatisticSeriesPageTransport = z.infer<typeof statisticSeriesPageSchema>;
+export type ResearchRunTransport = z.infer<typeof researchRunSchema>;
+export type ResearchRunSummaryTransport = z.infer<typeof researchRunSummarySchema>;
+export type ResearchRunPageTransport = z.infer<typeof researchRunPageSchema>;
+export type ResearchRunSubmissionTransport = z.infer<typeof researchRunSubmissionSchema>;

@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.2 — IMPLEMENTED / VERIFIED LOCALLY — Cancellation / Recovery Convergence CLOSED
+Current Increment: P8.3 — IMPLEMENTED / VERIFIED LOCALLY — Research Command API
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.3 — Research Command API
+Next Semantic Direction: P8.4 — Research Studio Web
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -379,21 +379,27 @@ P8 Scheduler 不重新发明 Research semantic checkpoint。P7 的 Dataset/Calcu
 
 ## P8.3 — Research Command API
 
+状态：**IMPLEMENTED / VERIFIED LOCALLY**。P8.3 已完成 UUID4 Idempotency Key、canonical command fingerprint、Run + submission
+mapping PostgreSQL 原子提交、replay fast path、exact Run read projection、deterministic keyset pagination、取消 CAS 竞争重解释、
+稳定 HTTP DTO/error、full/portable 双 App composition、OpenAPI/Web client contract 与 `research-command` canonical lane。Command API
+不创建 Attempt、不启动 Worker/Engine、不读取 Artifact content；P8 仍为 `IN_PROGRESS`，下一语义方向是 P8.4。
+
 ### 目标
 
 建立正式 write/control HTTP boundary，使外部 Application/Web 可以安全提交、查询和取消 Research Run。
 
 P7 read-only Query API 继续保持 Artifact-backed consumer boundary；P8 Command API 是独立 operational boundary。
 
-概念接口：
+正式接口：
 
 ```text
-POST   Research Run
-GET    Research Run status
-POST   Research Run cancellation request
+POST   /api/v2/research/runs
+GET    /api/v2/research/runs/{run_id}
+GET    /api/v2/research/runs
+POST   /api/v2/research/runs/{run_id}/cancellation
 ```
 
-具体 URL/version 在实现阶段由 API ADR 冻结。
+URL、幂等、分页与取消竞争由 ADR 0091 冻结。
 
 ### 必须保持
 

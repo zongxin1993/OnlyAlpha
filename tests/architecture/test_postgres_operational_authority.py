@@ -12,7 +12,12 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
     migrations = tuple(sorted(Path("database/postgres/migrations").glob("*.sql")))
     sql = "\n".join(path.read_text() for path in migrations)
     tables = re.findall(r"CREATE TABLE ([a-z_]+)", sql)
-    assert tables == ["onlyalpha_schema_migration", "research_run", "research_run_attempt"]
+    assert tables == [
+        "onlyalpha_schema_migration",
+        "research_run",
+        "research_run_attempt",
+        "research_run_submission",
+    ]
     for forbidden in (
         "dataset_row",
         "calculation_row",
@@ -68,6 +73,17 @@ def test_attempt_migration_contains_only_operational_ownership_facts() -> None:
     assert "UNIQUE (run_id, attempt_number)" in sql
     assert "clock_timestamp" not in sql
     for forbidden in ("dataset", "calculation", "statistics", "result_content", "artifact_content"):
+        assert forbidden not in sql
+
+
+def test_command_migration_contains_only_submission_identity_and_read_index() -> None:
+    sql = Path("database/postgres/migrations/0004_research_run_submission_and_read_projection.sql").read_text()
+    assert "submission_key UUID PRIMARY KEY" in sql
+    assert "command_fingerprint" in sql
+    assert "run_id UUID NOT NULL UNIQUE REFERENCES research_run(run_id)" in sql
+    assert "research_run_recent_order" in sql
+    assert "queued_at DESC, run_id DESC" in sql
+    for forbidden in ("attempt", "lease", "dataset", "statistics", "result_content", "artifact_content BYTEA"):
         assert forbidden not in sql
 
 

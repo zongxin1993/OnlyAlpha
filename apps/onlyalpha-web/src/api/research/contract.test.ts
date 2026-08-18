@@ -2,17 +2,26 @@ import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import {
     parseResearchResultFingerprint,
+    parseResearchRunId,
+    parseResearchSubmissionKey,
     parseStatisticsFingerprint
 } from "../../domain/research/identity";
 import { parseUnixNanoseconds } from "../../domain/research/time";
 import { FetchResearchApiClient } from "./client";
 import { errorMessage, ResearchWebError } from "./errors";
-import { mapStatisticSeriesPage } from "./mapper";
+import { mapResearchRun, mapStatisticSeriesPage } from "./mapper";
 import { researchQueryKeys } from "./queryKeys";
-import { artifactSummarySchema, researchErrorSchema, statisticSeriesPageSchema } from "./schemas";
+import {
+    artifactSummarySchema,
+    researchErrorSchema,
+    researchRunSchema,
+    statisticSeriesPageSchema
+} from "./schemas";
 
 const result = parseResearchResultFingerprint("a".repeat(64));
 const statistics = parseStatisticsFingerprint("b".repeat(64));
+const runId = parseResearchRunId("00000000-0000-4000-8000-000000000501");
+const submissionKey = parseResearchSubmissionKey("00000000-0000-4000-8000-000000000502");
 const point = {
     ts_event_ns: "1780000000000000123",
     statistic_value: "0.123400",
@@ -73,6 +82,29 @@ const descriptor = {
     }
 };
 const server = setupServer();
+const run = {
+    schema_version: 2 as const,
+    run_id: runId,
+    revision: "9007199254740993",
+    state: "QUEUED" as const,
+    specification_schema_version: 1,
+    specification_fingerprint: "7".repeat(64),
+    admission_resolution_fingerprint: "8".repeat(64),
+    specification: { schema_version: 1 },
+    queued_at: "2026-08-18T01:02:03Z",
+    started_at: null,
+    cancel_requested_at: null,
+    finished_at: null,
+    result_ref: null,
+    artifact_ref: null,
+    failure: null
+};
+
+const runSummary = (() => {
+    const { specification, ...summaryValue } = run;
+    void specification;
+    return summaryValue;
+})();
 
 beforeAll(() => {
     server.listen({ onUnhandledRequest: "error" });
@@ -146,6 +178,82 @@ describe("Research API admission", () => {
             limit: 1
         });
         expect(response.nextAfterTsEventNs?.toString()).toBe("1780000000000000123");
+    });
+
+    it("submits with an idempotency key and preserves exact Run revision", async () => {
+        server.use(
+            http.post("*/api/v2/research/runs", async ({ request }) => {
+                expect(request.headers.get("Idempotency-Key")).toBe(submissionKey);
+                expect(await request.json()).toEqual({ specification: run.specification });
+                return HttpResponse.json(
+                    { submission_disposition: "CREATED", run },
+                    { status: 202 }
+                );
+            })
+        );
+        const submitted = await new FetchResearchApiClient().submitRun(
+            run.specification,
+            submissionKey
+        );
+        expect(submitted.run.runId).toBe(runId);
+        expect(submitted.run.revision).toBe(9_007_199_254_740_993n);
+        expect(mapResearchRun(researchRunSchema.parse(run)).revision).toBe(9_007_199_254_740_993n);
+        expect(researchQueryKeys.run(runId)).toEqual(["research", "run", runId]);
+        expect(researchQueryKeys.runs()).toEqual(["research", "runs"]);
+    });
+
+    it("gets, pages and cancels Runs through strict contracts", async () => {
+        server.use(
+            http.get(`*/api/v2/research/runs/${runId}`, () => HttpResponse.json(run)),
+            http.get("*/api/v2/research/runs", ({ request }) => {
+                expect(new URL(request.url).searchParams.get("cursor")).toBe("cursor-v1");
+                return HttpResponse.json({
+                    schema_version: 2,
+                    runs: [runSummary],
+                    has_more: false,
+                    next_cursor: null
+                });
+            }),
+            http.post(`*/api/v2/research/runs/${runId}/cancellation`, () =>
+                HttpResponse.json({
+                    ...run,
+                    revision: "9007199254740994",
+                    state: "CANCELLED",
+                    finished_at: "2026-08-18T01:02:04Z"
+                })
+            )
+        );
+        const client = new FetchResearchApiClient();
+        expect((await client.getRun(runId)).runId).toBe(runId);
+        expect((await client.listRuns(50, "cursor-v1")).nextCursor).toBeNull();
+        expect((await client.cancelRun(runId)).state).toBe("CANCELLED");
+    });
+
+    it("decodes stable Run errors and rejects noncanonical Run identity", async () => {
+        server.use(
+            http.get(`*/api/v2/research/runs/${runId}`, () =>
+                HttpResponse.json(
+                    {
+                        error: {
+                            phase: "QUERY",
+                            code: "RESEARCH_RUN_NOT_FOUND",
+                            detail: "missing"
+                        }
+                    },
+                    { status: 404 }
+                )
+            )
+        );
+        await expect(new FetchResearchApiClient().getRun(runId)).rejects.toMatchObject({
+            code: "RESEARCH_RUN_NOT_FOUND",
+            status: 404
+        });
+        expect(() => parseResearchRunId("BAD")).toThrow("canonical UUID4");
+        expect(
+            mapStatisticSeriesPage(
+                statisticSeriesPageSchema.parse({ ...page, next_after_ts_event_ns: null })
+            ).nextAfterTsEventNs
+        ).toBeNull();
     });
 
     it("admits and maps summary and catalog operations", async () => {

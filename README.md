@@ -30,7 +30,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.8.2` |
+| Version | `0.8.3` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |
@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.2 — IMPLEMENTED / VERIFIED locally** — Research Scheduler, Worker & Recovery |
-| Next semantic direction | P8.3 — Research Command API |
+| Current increment | **P8.3 — IMPLEMENTED / VERIFIED locally** — Research Command API |
+| Next semantic direction | P8.4 — Research Studio Web |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -383,6 +383,11 @@ P8.2 已建立独立 UUID4 Attempt/Worker identity、PostgreSQL transactional de
 时由新 Attempt deterministic re-entry/verified reuse 后收敛。PostgreSQL 仍不保存 Research semantic progress 或 Result content；P8.2
 不包含 HTTP/Web control。
 
+P8.3 已建立 transport-neutral Research Command/Application boundary、UUID4 `Idempotency-Key`、同事务 Run + submission mapping、
+`queued_at DESC, run_id DESC` keyset pagination 与有界 cancellation CAS re-interpretation。完整 `/api/v2/research/runs` API 只在
+PostgreSQL durable commit 后返回 accepted Run；portable `onlyalpha-artifact-api` 继续只依赖 Artifact Reader。OpenAPI、Web generated
+contract/Zod admission 与 exact `bigint` revision 已同步，但没有新增 P8.4 页面、Worker 启动或 Artifact content response。
+
 P8.4 的目标 Research Studio 应让用户从 Web 选择单票/股票池/全市场 Universe、选择已注册 Indicator/Factor 与参数、选择 named Feature、配置 Eligibility 与有限 Decision/Signal research expression，并查看 K-line、Feature、Factor Score、Signal/买卖点和 cross-sectional statistics 的科学可视化。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
@@ -525,10 +530,11 @@ npm run dev
 Research API：
 
 ```bash
-uv run onlyalpha-api --artifact-root <USER_DATA_ROOT>/research/artifacts
+ONLYALPHA_POSTGRES_DSN='postgresql://...' uv run onlyalpha-api --user-data-root <USER_DATA_ROOT>
+uv run onlyalpha-artifact-api --artifact-root <USER_DATA_ROOT>/research/artifacts
 ```
 
-P7.12 Web 是 read-only Result Viewer；Web-native Research submission/control 属于当前 P8。
+P7.12 Web 仍是 read-only Result Viewer；P8.3 只增加稳定 client contract，P8.4 才实现 submission/control 页面。
 
 ---
 

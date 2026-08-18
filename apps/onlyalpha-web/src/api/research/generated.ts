@@ -55,6 +55,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_v2_research_runs_get"];
+        put?: never;
+        /** Submit Run */
+        post: operations["submit_run_api_v2_research_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_v2_research_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/runs/{run_id}/cancellation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Run */
+        post: operations["cancel_run_api_v2_research_runs__run_id__cancellation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -64,6 +116,7 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        JsonValue: unknown;
         /** ResearchArtifactSummaryDto */
         ResearchArtifactSummaryDto: {
             /** Artifact Content Fingerprint */
@@ -118,6 +171,115 @@ export interface components {
             representation: string;
             /** Rounding */
             rounding: string;
+        };
+        /** ResearchRunDto */
+        ResearchRunDto: {
+            /** Admission Resolution Fingerprint */
+            admission_resolution_fingerprint: string;
+            /** Artifact Ref */
+            artifact_ref: string | null;
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            failure: components["schemas"]["ResearchRunFailureDto"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Queued At */
+            queued_at: string;
+            /** Result Ref */
+            result_ref: string | null;
+            /** Revision */
+            revision: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+            /** Specification */
+            specification: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Specification Fingerprint */
+            specification_fingerprint: string;
+            /** Specification Schema Version */
+            specification_schema_version: number;
+            /** Started At */
+            started_at: string | null;
+            /** State */
+            state: string;
+        };
+        /** ResearchRunErrorDto */
+        ResearchRunErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Phase */
+            phase: string;
+        };
+        /** ResearchRunErrorEnvelopeDto */
+        ResearchRunErrorEnvelopeDto: {
+            error: components["schemas"]["ResearchRunErrorDto"];
+        };
+        /** ResearchRunFailureDto */
+        ResearchRunFailureDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Phase */
+            phase: string;
+        };
+        /** ResearchRunPageDto */
+        ResearchRunPageDto: {
+            /** Has More */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Runs */
+            runs: components["schemas"]["ResearchRunSummaryDto"][];
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+        };
+        /** ResearchRunSummaryDto */
+        ResearchRunSummaryDto: {
+            /** Admission Resolution Fingerprint */
+            admission_resolution_fingerprint: string;
+            /** Artifact Ref */
+            artifact_ref: string | null;
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            failure: components["schemas"]["ResearchRunFailureDto"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Queued At */
+            queued_at: string;
+            /** Result Ref */
+            result_ref: string | null;
+            /** Revision */
+            revision: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+            /** Specification Fingerprint */
+            specification_fingerprint: string;
+            /** Specification Schema Version */
+            specification_schema_version: number;
+            /** Started At */
+            started_at: string | null;
+            /** State */
+            state: string;
         };
         /** ResearchSeriesReferenceDto */
         ResearchSeriesReferenceDto: {
@@ -202,6 +364,19 @@ export interface components {
             /** Statistics Result Schema Version */
             statistics_result_schema_version: number;
             target: components["schemas"]["ResearchSeriesReferenceDto"];
+        };
+        /** SubmitResearchRunRequest */
+        SubmitResearchRunRequest: {
+            /** Specification */
+            specification: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /** SubmitResearchRunResponse */
+        SubmitResearchRunResponse: {
+            run: components["schemas"]["ResearchRunDto"];
+            /** Submission Disposition */
+            submission_disposition: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -401,6 +576,315 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    list_runs_api_v2_research_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunPageDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    submit_run_api_v2_research_runs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitResearchRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResearchRunResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    get_run_api_v2_research_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    cancel_run_api_v2_research_runs__run_id__cancellation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
                 };
             };
         };

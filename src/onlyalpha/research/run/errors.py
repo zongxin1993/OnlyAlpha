@@ -10,6 +10,12 @@ class OnlyResearchRunError(RuntimeError):
 class OnlyResearchRunAdmissionError(OnlyResearchRunError):
     code = "RESEARCH_RUN_ADMISSION_FAILED"
 
+    def __init__(self, detail: str, *, code: str | None = None) -> None:
+        super().__init__(detail)
+        self.phase = "ADMISSION"
+        self.code = code or type(self).code
+        self.detail = detail
+
 
 class OnlyResearchRunNotFoundError(OnlyResearchRunError):
     code = "RESEARCH_RUN_NOT_FOUND"

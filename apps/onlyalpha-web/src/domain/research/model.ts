@@ -1,5 +1,5 @@
 import type { DecimalText } from "./decimal";
-import type { ResearchResultFingerprint, StatisticsFingerprint } from "./identity";
+import type { ResearchResultFingerprint, ResearchRunId, StatisticsFingerprint } from "./identity";
 import type { UnixNanoseconds } from "./time";
 
 export interface ResearchArtifactSummary {
@@ -66,4 +66,44 @@ export interface ResearchStatisticSeriesPage {
     readonly points: readonly ResearchStatisticPoint[];
     readonly hasMore: boolean;
     readonly nextAfterTsEventNs: UnixNanoseconds | null;
+}
+
+export type ResearchRunState =
+    "QUEUED" | "RUNNING" | "CANCEL_REQUESTED" | "COMPLETED" | "FAILED" | "CANCELLED";
+
+export interface ResearchRunFailure {
+    readonly phase: string;
+    readonly code: string;
+    readonly detail: string;
+}
+
+export interface ResearchRunSummary {
+    readonly runId: ResearchRunId;
+    readonly revision: bigint;
+    readonly state: ResearchRunState;
+    readonly specificationSchemaVersion: number;
+    readonly specificationFingerprint: string;
+    readonly admissionResolutionFingerprint: string;
+    readonly queuedAt: string;
+    readonly startedAt: string | null;
+    readonly cancelRequestedAt: string | null;
+    readonly finishedAt: string | null;
+    readonly resultRef: string | null;
+    readonly artifactRef: string | null;
+    readonly failure: ResearchRunFailure | null;
+}
+
+export interface ResearchRun extends ResearchRunSummary {
+    readonly specification: Readonly<Record<string, unknown>>;
+}
+
+export interface ResearchRunPage {
+    readonly runs: readonly ResearchRunSummary[];
+    readonly hasMore: boolean;
+    readonly nextCursor: string | null;
+}
+
+export interface ResearchRunSubmission {
+    readonly disposition: "CREATED" | "REUSED";
+    readonly run: ResearchRun;
 }

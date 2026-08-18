@@ -9,6 +9,8 @@ from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
 from .materializer import OnlyResearchDatasetMaterializer
 from .parquet_store import (
     OnlyParquetResearchDatasetSnapshotStore,
+    OnlyResearchDatasetCorruptError,
+    OnlyResearchDatasetNotFoundError,
     OnlyResearchDatasetStoreError,
 )
 from .plan import OnlyResearchDatasetMaterializationPlan
@@ -20,9 +22,11 @@ __all__ = [
     "OnlyParquetResearchDatasetSnapshotStore",
     "OnlyResearchBarDatasetSchema",
     "OnlyResearchDatasetDefinition",
+    "OnlyResearchDatasetCorruptError",
     "OnlyResearchDatasetError",
     "OnlyResearchDatasetMaterializationPlan",
     "OnlyResearchDatasetMaterializer",
+    "OnlyResearchDatasetNotFoundError",
     "OnlyResearchDatasetProvenance",
     "OnlyResearchDatasetQualityPolicy",
     "OnlyResearchDatasetSnapshot",

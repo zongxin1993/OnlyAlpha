@@ -1,11 +1,11 @@
 [project]
 name = "onlyalpha-api"
-version = "0.8.2"
-description = "Read-only Research Query HTTP API for OnlyAlpha"
+version = "0.8.3"
+description = "Research Command and portable Artifact Query HTTP APIs for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "onlyalpha==0.8.2",
+    "onlyalpha==0.8.3",
     "fastapi>=0.116,<1",
     "pydantic>=2.11,<3",
     "uvicorn>=0.35,<1",
@@ -20,6 +20,7 @@ dev = [
 
 [project.scripts]
 onlyalpha-api = "onlyalpha_api.main:main"
+onlyalpha-artifact-api = "onlyalpha_api.artifact_main:main"
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]

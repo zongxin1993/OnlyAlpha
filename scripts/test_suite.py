@@ -32,6 +32,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_RESULT = "research-result"
     RESEARCH_ARTIFACT = "research-artifact"
     RESEARCH_QUERY = "research-query"
+    RESEARCH_COMMAND = "research-command"
     RESEARCH_SPECIFICATION = "research-specification"
     RESEARCH_RUN = "research-run"
     RESEARCH_EXECUTION = "research-execution"
@@ -140,6 +141,16 @@ LANES = {
         (
             "tests/research/query",
             "tests/architecture/test_research_query_boundaries.py",
+            "packages/api/onlyalpha-api/tests",
+        ),
+        "not external",
+        "2",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_COMMAND: Lane(
+        (
+            "tests/research/command",
+            "tests/architecture/test_research_command_boundaries.py",
             "packages/api/onlyalpha-api/tests",
         ),
         "not external",
@@ -323,6 +334,7 @@ BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
     OnlyTestLane.RESEARCH_SPECIFICATION,
     OnlyTestLane.RESEARCH_RUN,
+    OnlyTestLane.RESEARCH_COMMAND,
     OnlyTestLane.RESEARCH_EXECUTION,
     OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
@@ -431,8 +443,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "src/onlyalpha/runtime/research",
                 "onlyalpha.runtime.product",
             ),
-            OnlyTestLane.RESEARCH_QUERY: (
-                "src/onlyalpha/research/query",
+            OnlyTestLane.RESEARCH_QUERY: ("src/onlyalpha/research/query",),
+            OnlyTestLane.RESEARCH_COMMAND: (
+                "src/onlyalpha/research/command",
                 "packages/api/onlyalpha-api/src/onlyalpha_api",
             ),
             OnlyTestLane.RESEARCH_ARTIFACT: ("src/onlyalpha/research/artifact",),
@@ -466,6 +479,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             if name is OnlyTestLane.RESEARCH_RUNTIME
             else "research-query-coverage"
             if name is OnlyTestLane.RESEARCH_QUERY
+            else "research-command-coverage"
+            if name is OnlyTestLane.RESEARCH_COMMAND
             else "research-artifact-coverage"
             if name is OnlyTestLane.RESEARCH_ARTIFACT
             else "research-result-coverage"
@@ -493,7 +508,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name in (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUN) else 95 if name in (OnlyTestLane.RESEARCH_EXECUTION, OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name in (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUN) else 95 if name in (OnlyTestLane.RESEARCH_EXECUTION, OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name in (OnlyTestLane.RESEARCH_COMMAND, OnlyTestLane.RESEARCH_SWEEP) else 82}",
             ]
         )
         workers = "0"
@@ -528,6 +543,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 if name is OnlyTestLane.RESEARCH_RUNTIME
                 else "research-query-coverage.json"
                 if name is OnlyTestLane.RESEARCH_QUERY
+                else "research-command-coverage.json"
+                if name is OnlyTestLane.RESEARCH_COMMAND
                 else "research-artifact-coverage.json"
                 if name is OnlyTestLane.RESEARCH_ARTIFACT
                 else "research-result-coverage.json"
@@ -601,6 +618,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 code = 1
             if name is OnlyTestLane.RESEARCH_QUERY and line_rate < 95:
                 print("Research Query line coverage must be at least 95%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_COMMAND and branch_rate < 85:
+                print("Research Command branch coverage must be at least 85%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_COMMAND and line_rate < 90:
+                print("Research Command line coverage must be at least 90%", file=sys.stderr)
                 code = 1
             if name is OnlyTestLane.RESEARCH_RUNTIME and branch_rate < 90:
                 print("Research Runtime branch coverage must be at least 90%", file=sys.stderr)

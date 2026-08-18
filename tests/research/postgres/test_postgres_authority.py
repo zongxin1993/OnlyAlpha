@@ -17,6 +17,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerdict,
 )
+from onlyalpha.research.command import OnlyResearchRunPageCursor, OnlyResearchSubmissionKey
 from onlyalpha.research.execution import (
     OnlyResearchRunAttemptId,
     OnlyResearchWorkerInstanceId,
@@ -44,6 +45,7 @@ NOW = datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC)
 M1 = "0001_research_run_operational_authority"
 M2 = "0002_research_run_authority_hardening"
 M3 = "0003_research_run_attempt_authority"
+M4 = "0004_research_run_submission_and_read_projection"
 
 
 def _copy_migrations(target: Path, *migration_ids: str) -> None:
@@ -68,11 +70,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3)
+    assert authority.migrate() == (M1, M2, M3, M4)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -93,11 +95,11 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3)
+    _copy_migrations(tmp_path, M1, M2, M3, M4)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -121,8 +123,8 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3)
-    assert authority.migrate() == (M2, M3)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4)
+    assert authority.migrate() == (M2, M3, M4)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -155,7 +157,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3)
+    assert before.applied_migrations == (M2, M3, M4)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -213,7 +215,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
@@ -235,6 +237,87 @@ def test_create_reload_same_spec_multiple_runs_and_canonical_integrity(postgres_
         )
     with pytest.raises(OnlyResearchRunIntegrityError):
         store.load(first.run_id)
+
+
+def test_submission_transaction_is_atomic_concurrent_and_restart_safe(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000401")
+    command_fingerprint = "d" * 64
+    barrier = Barrier(2)
+
+    def submit(run_id: str):  # type: ignore[no-untyped-def]
+        barrier.wait()
+        return OnlyPostgresResearchRunStore(postgres_dsn).create_queued_submission(
+            _queued(run_id), key, command_fingerprint
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = tuple(
+            item.result()
+            for item in (
+                executor.submit(submit, "00000000-0000-4000-8000-000000000411"),
+                executor.submit(submit, "00000000-0000-4000-8000-000000000412"),
+            )
+        )
+
+    assert outcomes[0] == outcomes[1]
+    restarted = OnlyPostgresResearchRunStore(postgres_dsn)
+    assert restarted.find_submission(key) == outcomes[0]
+    assert restarted.load(outcomes[0].run_id).state is OnlyResearchRunState.QUEUED
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_run_submission").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (1,)
+
+
+def test_submission_identity_does_not_deduplicate_specification(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    first = store.create_queued_submission(
+        _queued("00000000-0000-4000-8000-000000000421"),
+        OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000401"),
+        "d" * 64,
+    )
+    second = store.create_queued_submission(
+        _queued("00000000-0000-4000-8000-000000000422"),
+        OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000402"),
+        "d" * 64,
+    )
+    assert first.run_id != second.run_id
+    assert store.load(first.run_id).specification_fingerprint == store.load(second.run_id).specification_fingerprint
+
+
+def test_submission_and_recent_read_adapter_reject_invalid_calls_without_partial_facts(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000403")
+    assert store.find_submission(key) is None
+    with pytest.raises(ValueError, match="positive"):
+        store.list_recent(limit=0)
+
+    queued = store.create_queued(_queued("00000000-0000-4000-8000-000000000423"))
+    running = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
+    with pytest.raises(OnlyResearchRunStateConflictError, match="revision-zero"):
+        store.create_queued_submission(running, key, "d" * 64)
+    with pytest.raises(OnlyResearchRunIntegrityError, match="identity already exists"):
+        store.create_queued_submission(queued, key, "d" * 64)
+    assert store.find_submission(key) is None
+
+
+def test_recent_keyset_order_is_stable_and_new_rows_do_not_duplicate_existing_cursor(
+    postgres_dsn: str,
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    for value in range(431, 436):
+        store.create_queued(_queued(f"00000000-0000-4000-8000-{value:012d}"))
+    first = store.list_recent(limit=3)
+    assert [item.run_id.value for item in first] == sorted([item.run_id.value for item in first], reverse=True)
+    cursor = OnlyResearchRunPageCursor(first[-1].queued_at, first[-1].run_id)
+    inserted = _queued("00000000-0000-4000-8000-000000000499")
+    store.create_queued(inserted)
+    second = store.list_recent(limit=3, after=cursor)
+    assert inserted not in second
+    assert not set(item.run_id for item in first) & set(item.run_id for item in second)
 
 
 def test_two_independent_connections_cannot_lose_same_revision_update(postgres_dsn: str) -> None:

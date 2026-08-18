@@ -1,9 +1,9 @@
-# Research Query/API V2
+# Research HTTP APIs V2
 
-The only supported address is an exact lower-case Research Result SHA256. Configure the server explicitly:
+The portable Artifact API only supports an exact lower-case Research Result SHA256. Configure it explicitly:
 
 ```bash
-onlyalpha-api --artifact-root /absolute/path/to/research-artifacts
+onlyalpha-artifact-api --artifact-root /absolute/path/to/research-artifacts
 ```
 
 It binds `127.0.0.1:8000` by default and exposes:
@@ -25,3 +25,15 @@ strict Zod admission before mapping timestamps to `bigint`. There are no v1 prod
 The API is read-only and exact-addressed. It has no catalog/search/latest endpoint, mutation, raw Parquet download, query cache,
 semantic recomputation, authentication, Trading endpoint, or Runtime control. The read-only Research Web consumer uses only these
 same-origin endpoints and never reads Artifact filesystem layout or execution Stores.
+
+The full local control API uses `onlyalpha-api --user-data-root /absolute/user-data`, reads the PostgreSQL DSN only from
+`ONLYALPHA_POSTGRES_DSN`, checks schema compatibility without migrating, and adds:
+
+- `POST /api/v2/research/runs` with required canonical UUID4 `Idempotency-Key` (`202` + `Location`);
+- `GET /api/v2/research/runs/{run_id}`;
+- `GET /api/v2/research/runs?limit=&cursor=` using a versioned keyset cursor;
+- `POST /api/v2/research/runs/{run_id}/cancellation`.
+
+Run responses contain operational facts and exact Result/Artifact references, not their content or Attempt history. Command errors use
+`{error:{phase,code,detail}}`. The full API does not start Scheduler, Worker, Runtime or Engine and defaults to `127.0.0.1` without
+permissive CORS.

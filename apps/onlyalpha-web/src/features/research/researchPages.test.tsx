@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import type { ResearchApiClient, StatisticSeriesRequest } from "../../api/research/client";
+import type { ResearchArtifactApiClient, StatisticSeriesRequest } from "../../api/research/client";
 import { ResearchWebError } from "../../api/research/errors";
 import { AppProviders } from "../../app/providers";
 import { parseDecimalText } from "../../domain/research/decimal";
@@ -74,7 +74,7 @@ const catalog: ResearchStatisticsCatalog = {
     ]
 };
 
-class SuccessClient implements ResearchApiClient {
+class SuccessClient implements ResearchArtifactApiClient {
     getArtifactSummary() {
         return Promise.resolve(summary);
     }
@@ -103,7 +103,7 @@ class SuccessClient implements ResearchApiClient {
 function renderRoute(
     path: string,
     element: React.ReactNode,
-    client: ResearchApiClient = new SuccessClient()
+    client: ResearchArtifactApiClient = new SuccessClient()
 ) {
     const router = createMemoryRouter(
         [

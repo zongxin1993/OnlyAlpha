@@ -4,10 +4,12 @@ import argparse
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
-from onlyalpha_api import create_app
+from onlyalpha_api import create_research_app
 
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
+from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/research-api/v2/openapi.json"
@@ -19,7 +21,12 @@ class _ContractReader:
 
 
 def rendered_contract() -> str:
-    return json.dumps(create_app(_ContractReader()).openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    app = create_research_app(
+        _ContractReader(),
+        cast(OnlyResearchCommandService, object()),
+        cast(OnlyResearchRunQueryService, object()),
+    )
+    return json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

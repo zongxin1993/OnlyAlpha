@@ -151,6 +151,20 @@ def test_research_query_lane_owns_core_api_architecture_and_strict_coverage() ->
     assert "Research Query line coverage must be at least 95%" in source
 
 
+def test_research_command_lane_owns_application_http_and_architecture_contract() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_COMMAND]
+    assert lane.paths == (
+        "tests/research/command",
+        "tests/architecture/test_research_command_boundaries.py",
+        "packages/api/onlyalpha-api/tests",
+    )
+    source = Path("scripts/test_suite.py").read_text()
+    assert '"src/onlyalpha/research/command"' in source
+    assert '"research-command-coverage"' in source
+    assert "Research Command branch coverage must be at least 85%" in source
+    assert "Research Command line coverage must be at least 90%" in source
+
+
 def test_research_runtime_lane_owns_product_orchestration_and_strict_coverage() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_RUNTIME]
     assert "tests/runtime/research" in lane.paths

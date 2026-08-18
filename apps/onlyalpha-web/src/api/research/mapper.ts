@@ -1,10 +1,15 @@
 import { parseDecimalText } from "../../domain/research/decimal";
 import {
     parseResearchResultFingerprint,
+    parseResearchRunId,
     parseStatisticsFingerprint
 } from "../../domain/research/identity";
 import type {
     ResearchArtifactSummary,
+    ResearchRun,
+    ResearchRunPage,
+    ResearchRunSubmission,
+    ResearchRunSummary,
     ResearchStatisticSeriesPage,
     ResearchStatisticsCatalog,
     ResearchStatisticsDescriptor
@@ -12,6 +17,10 @@ import type {
 import { parseUnixNanoseconds } from "../../domain/research/time";
 import type {
     ArtifactSummaryTransport,
+    ResearchRunPageTransport,
+    ResearchRunSubmissionTransport,
+    ResearchRunSummaryTransport,
+    ResearchRunTransport,
     StatisticSeriesPageTransport,
     StatisticsCatalogTransport
 } from "./schemas";
@@ -88,4 +97,38 @@ export const mapStatisticSeriesPage = (
         value.next_after_ts_event_ns === null
             ? null
             : parseUnixNanoseconds(value.next_after_ts_event_ns)
+});
+
+export const mapResearchRunSummary = (value: ResearchRunSummaryTransport): ResearchRunSummary => ({
+    runId: parseResearchRunId(value.run_id),
+    revision: BigInt(value.revision),
+    state: value.state,
+    specificationSchemaVersion: value.specification_schema_version,
+    specificationFingerprint: value.specification_fingerprint,
+    admissionResolutionFingerprint: value.admission_resolution_fingerprint,
+    queuedAt: value.queued_at,
+    startedAt: value.started_at,
+    cancelRequestedAt: value.cancel_requested_at,
+    finishedAt: value.finished_at,
+    resultRef: value.result_ref,
+    artifactRef: value.artifact_ref,
+    failure: value.failure
+});
+
+export const mapResearchRun = (value: ResearchRunTransport): ResearchRun => ({
+    ...mapResearchRunSummary(value),
+    specification: value.specification
+});
+
+export const mapResearchRunPage = (value: ResearchRunPageTransport): ResearchRunPage => ({
+    runs: value.runs.map(mapResearchRunSummary),
+    hasMore: value.has_more,
+    nextCursor: value.next_cursor
+});
+
+export const mapResearchRunSubmission = (
+    value: ResearchRunSubmissionTransport
+): ResearchRunSubmission => ({
+    disposition: value.submission_disposition,
+    run: mapResearchRun(value.run)
 });

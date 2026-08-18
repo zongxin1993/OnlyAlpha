@@ -12,6 +12,11 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.command.model import (
+    OnlyResearchRunPageCursor,
+    OnlyResearchSubmissionKey,
+    OnlyResearchSubmissionRecord,
+)
 from onlyalpha.research.run.errors import (
     OnlyResearchRunIntegrityError,
     OnlyResearchRunNotFoundError,
@@ -77,6 +82,77 @@ class OnlyPostgresResearchRunStore:
         if row is None:
             raise OnlyResearchRunNotFoundError(str(run_id))
         return self._decode(cast(Mapping[str, object], row))
+
+    def find_submission(self, submission_key: OnlyResearchSubmissionKey) -> OnlyResearchSubmissionRecord | None:
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT submission_key, command_fingerprint, run_id "
+                    "FROM research_run_submission WHERE submission_key = %s",
+                    (submission_key.value,),
+                ).fetchone()
+        except psycopg.Error as exc:
+            raise OnlyResearchRunStoreUnavailableError("Research submission load failed") from exc
+        if row is None:
+            return None
+        try:
+            return OnlyResearchSubmissionRecord(
+                OnlyResearchSubmissionKey(str(row["submission_key"])),
+                str(row["command_fingerprint"]),
+                OnlyResearchRunId(str(row["run_id"])),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OnlyResearchRunIntegrityError(
+                "PostgreSQL Research submission row failed strict verification"
+            ) from exc
+
+    def create_queued_submission(
+        self,
+        run: OnlyResearchRun,
+        submission_key: OnlyResearchSubmissionKey,
+        command_fingerprint: str,
+    ) -> OnlyResearchSubmissionRecord:
+        if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:
+            raise OnlyResearchRunStateConflictError("submission requires revision-zero QUEUED Run")
+        record = OnlyResearchSubmissionRecord(submission_key, command_fingerprint, run.run_id)
+        run_query = sql.SQL("INSERT INTO research_run ({}) VALUES ({})").format(
+            sql.SQL(", ").join(map(sql.Identifier, _COLUMNS)),
+            sql.SQL(", ").join(sql.Placeholder() for _ in _COLUMNS),
+        )
+        try:
+            with psycopg.connect(self._dsn) as connection:
+                connection.execute(run_query, self._values(run))
+                connection.execute(
+                    "INSERT INTO research_run_submission (submission_key, command_fingerprint, run_id) "
+                    "VALUES (%s, %s, %s)",
+                    (submission_key.value, command_fingerprint, run.run_id.value),
+                )
+            return record
+        except psycopg.errors.UniqueViolation as exc:
+            existing = self.find_submission(submission_key)
+            if existing is None:
+                raise OnlyResearchRunIntegrityError("Research Run or submission identity already exists") from exc
+            return existing
+        except psycopg.Error as exc:
+            raise OnlyResearchRunStoreUnavailableError("Research submission transaction failed") from exc
+
+    def list_recent(self, *, limit: int, after: OnlyResearchRunPageCursor | None = None) -> tuple[OnlyResearchRun, ...]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("Research Run list limit must be positive")
+        query = "SELECT * FROM research_run"
+        parameters: tuple[object, ...]
+        if after is None:
+            parameters = (limit,)
+        else:
+            query += " WHERE (queued_at, run_id) < (%s, %s)"
+            parameters = (after.queued_at, after.run_id.value, limit)
+        query += " ORDER BY queued_at DESC, run_id DESC LIMIT %s"
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                rows = connection.execute(query, parameters).fetchall()
+        except psycopg.Error as exc:
+            raise OnlyResearchRunStoreUnavailableError("Research Run list failed") from exc
+        return tuple(self._decode(cast(Mapping[str, object], row)) for row in rows)
 
     def commit_transition(self, previous: OnlyResearchRun, transitioned: OnlyResearchRun) -> OnlyResearchRun:
         if not transitioned.is_exact_successor_of(previous):

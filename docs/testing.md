@@ -1,5 +1,9 @@
 # 测试规范
 
+P8.3 使用 `uv run python scripts/test_suite.py research-command` 验证 submission/idempotency/cancellation/read projection、HTTP 与
+architecture boundary；`research-postgres` 串行使用真实 PostgreSQL 验证 migration、唯一约束竞争、CAS、重启与 backup/restore。
+OpenAPI/TypeScript drift 继续由 Web static gate 验证。
+
 ## 正式测试分层与统一入口
 
 测试层级为 `unit`、`contract`、`architecture`、`integration`、`scenario`，每个测试必须恰好属于一个层级。

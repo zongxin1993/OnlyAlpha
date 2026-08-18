@@ -38,7 +38,7 @@ def _optional_integer(value: str | None) -> int | None:
     return int(value)
 
 
-def create_research_router(service: OnlyResearchQueryService) -> APIRouter:
+def create_artifact_router(service: OnlyResearchQueryService) -> APIRouter:
     router = APIRouter(prefix="/api/v2/research/artifacts", tags=["research"])
 
     @router.get(

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research.dataset import OnlyResearchDatasetCorruptError, OnlyResearchDatasetNotFoundError
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunAdmissionError,
@@ -18,7 +19,11 @@ from onlyalpha.research.run import (
     OnlyResearchRunStateConflictError,
     only_research_admission_resolution_fingerprint,
 )
-from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.research.specification import (
+    OnlyResearchSpecificationError,
+    OnlyResearchSpecificationPhase,
+    OnlyResearchSpecificationResolver,
+)
 from tests.research.specification.support import registry, specification
 
 NOW = datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC)
@@ -353,6 +358,49 @@ def test_admission_preserves_stable_admission_error_without_durable_write() -> N
     )
     with pytest.raises(OnlyResearchRunAdmissionError, match="stable"):
         service.submit(specification())
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    (
+        (OnlyResearchDatasetNotFoundError("missing"), "RESEARCH_DATASET_NOT_FOUND"),
+        (OnlyResearchDatasetCorruptError("corrupt"), "RESEARCH_DATASET_CORRUPT"),
+    ),
+)
+def test_admission_preserves_typed_dataset_failure(error: Exception, code: str) -> None:
+    class _TypedFailureDataset(_DatasetStore):
+        def load_verified_table(self, fingerprint: str) -> object:
+            raise error
+
+    service = OnlyResearchRunAdmissionService(
+        resolver=OnlyResearchSpecificationResolver(registry()),
+        dataset_store=_TypedFailureDataset(),  # type: ignore[arg-type]
+        run_store=_RunStore(),  # type: ignore[arg-type]
+        now_utc=lambda: NOW,
+    )
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.submit(specification())
+    assert caught.value.code == code
+
+
+def test_admission_preserves_typed_specification_resolution_failure() -> None:
+    class _FailingResolver:
+        def resolve(self, _specification):  # type: ignore[no-untyped-def]
+            raise OnlyResearchSpecificationError(
+                OnlyResearchSpecificationPhase.TYPE_RESOLUTION,
+                "RESEARCH_SPEC_TYPE_UNKNOWN",
+                "unknown",
+            )
+
+    service = OnlyResearchRunAdmissionService(
+        resolver=_FailingResolver(),  # type: ignore[arg-type]
+        dataset_store=_DatasetStore(),  # type: ignore[arg-type]
+        run_store=_RunStore(),  # type: ignore[arg-type]
+        now_utc=lambda: NOW,
+    )
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.submit(specification())
+    assert caught.value.code == "RESEARCH_SPEC_TYPE_UNKNOWN"
 
 
 def test_utc_offset_other_than_zero_is_rejected() -> None:

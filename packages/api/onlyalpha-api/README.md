@@ -1,12 +1,16 @@
 # onlyalpha-api
 
-Read-only HTTP transport for the versioned OnlyAlpha Research Query contract. The server consumes one explicitly configured
-portable Research Artifact root and exposes exact-identity GET endpoints only.
+HTTP transport for two deliberately separate Research boundaries:
 
-The product contract is `/api/v2/research/artifacts/...`. Query Core remains schema version 1; HTTP independently uses schema version
-2. Decimal values, event nanoseconds, and pagination cursors are JSON strings so browser consumers never pass exact values through
-JavaScript `Number`. Request `from_ts_event_ns`, `to_ts_event_ns`, and `after_ts_event_ns` parameters are canonical decimal strings.
+- `onlyalpha-api --user-data-root ...`: full local Research API. It reads `ONLYALPHA_POSTGRES_DSN`, checks migration compatibility,
+  exposes durable Run submit/get/list/cancellation plus Artifact GET routes, and binds loopback by default.
+- `onlyalpha-artifact-api --artifact-root ...`: portable Artifact Query API. It needs no PostgreSQL and exposes only exact-identity
+  Artifact GET routes.
 
-The deterministic machine contract is generated from FastAPI at `contracts/research-api/v2/openapi.json`; run
-`uv run python scripts/export_research_openapi.py write|check`. The API remains GET-only and depends only on the portable Artifact
-reader boundary. It does not enable CORS wildcard, read execution Stores, or expose Runtime control.
+Run submission requires a canonical UUID4 `Idempotency-Key`; `202 Accepted` is returned only after PostgreSQL commits the Run and
+submission mapping. Run list pagination is deterministic keyset pagination. The API never starts a Worker/Engine, changes Attempt/lease
+facts, returns Result/Artifact content, enables wildcard CORS, or performs database migration.
+
+The deterministic contract is generated at `contracts/research-api/v2/openapi.json` with
+`uv run python scripts/export_research_openapi.py write|check`. Browser transport types are generated from that file and admitted through
+strict Zod schemas before exact integers are converted to `bigint`.

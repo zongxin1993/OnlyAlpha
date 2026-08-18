@@ -48,6 +48,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
         OnlyTestLane.RESEARCH_RESULT,
         OnlyTestLane.RESEARCH_ARTIFACT,
         OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_COMMAND,
         OnlyTestLane.RESEARCH_RUNTIME,
     }
 
@@ -97,10 +98,12 @@ def test_research_run_and_postgres_changes_select_exact_authority_consumers() ->
     postgres = _plan("database/postgres/migrations/0001_research_run_operational_authority.sql")
     assert run.impact.lanes == (
         OnlyTestLane.RESEARCH_RUN,
+        OnlyTestLane.RESEARCH_COMMAND,
         OnlyTestLane.RESEARCH_EXECUTION,
         OnlyTestLane.RESEARCH_POSTGRES,
     )
     assert postgres.impact.lanes == (
+        OnlyTestLane.RESEARCH_COMMAND,
         OnlyTestLane.RESEARCH_EXECUTION,
         OnlyTestLane.RESEARCH_POSTGRES,
     )
@@ -224,7 +227,11 @@ def test_research_query_and_api_changes_use_consumer_lane_and_targeted_api_build
         "tests/research/query/test_service.py",
     )
 
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_ARTIFACT)
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_COMMAND,
+        OnlyTestLane.RESEARCH_QUERY,
+        OnlyTestLane.RESEARCH_ARTIFACT,
+    )
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == (

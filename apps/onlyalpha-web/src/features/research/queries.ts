@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import type { ResearchApiClient } from "../../api/research/client";
+import type { ResearchArtifactApiClient } from "../../api/research/client";
 import { researchQueryKeys } from "../../api/research/queryKeys";
 import type {
     ResearchResultFingerprint,
@@ -7,14 +7,20 @@ import type {
 } from "../../domain/research/identity";
 import type { UnixNanoseconds } from "../../domain/research/time";
 
-export const artifactOptions = (client: ResearchApiClient, result: ResearchResultFingerprint) =>
+export const artifactOptions = (
+    client: ResearchArtifactApiClient,
+    result: ResearchResultFingerprint
+) =>
     queryOptions({
         queryKey: researchQueryKeys.artifact(result),
         queryFn: ({ signal }) => client.getArtifactSummary(result, signal),
         staleTime: Infinity
     });
 
-export const catalogOptions = (client: ResearchApiClient, result: ResearchResultFingerprint) =>
+export const catalogOptions = (
+    client: ResearchArtifactApiClient,
+    result: ResearchResultFingerprint
+) =>
     queryOptions({
         queryKey: researchQueryKeys.statistics(result),
         queryFn: ({ signal }) => client.getStatisticsCatalog(result, signal),
@@ -22,7 +28,7 @@ export const catalogOptions = (client: ResearchApiClient, result: ResearchResult
     });
 
 export const seriesOptions = (
-    client: ResearchApiClient,
+    client: ResearchArtifactApiClient,
     result: ResearchResultFingerprint,
     statistics: StatisticsFingerprint,
     limit = 2

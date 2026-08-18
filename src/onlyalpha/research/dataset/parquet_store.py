@@ -28,6 +28,14 @@ class OnlyResearchDatasetStoreError(RuntimeError):
     pass
 
 
+class OnlyResearchDatasetNotFoundError(OnlyResearchDatasetStoreError):
+    code = "DATASET_SNAPSHOT_NOT_FOUND"
+
+
+class OnlyResearchDatasetCorruptError(OnlyResearchDatasetStoreError):
+    code = "DATASET_SNAPSHOT_CORRUPT"
+
+
 class OnlyParquetResearchDatasetSnapshotStore:
     def __init__(self, root: Path, *, compression: str = "zstd", row_group_size: int | None = None) -> None:
         self._root = root
@@ -107,14 +115,14 @@ class OnlyParquetResearchDatasetSnapshotStore:
     def load(self, snapshot_fingerprint: str) -> OnlyResearchDatasetSnapshot:
         target = self._target(snapshot_fingerprint)
         if not target.is_dir():
-            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_NOT_FOUND")
+            raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         try:
             payload = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("manifest must be an object")
             return OnlyResearchDatasetSnapshot.from_dict(payload)
         except Exception as exc:
-            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_CORRUPT: manifest") from exc
+            raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT: manifest") from exc
 
     def load_bars(self, snapshot_fingerprint: str) -> tuple[OnlyBar, ...]:
         snapshot = self.load(snapshot_fingerprint)
@@ -142,7 +150,7 @@ class OnlyParquetResearchDatasetSnapshotStore:
         self, root: Path, expected_fingerprint: str
     ) -> tuple[OnlyResearchDatasetVerification, OnlyResearchDatasetSnapshot, pa.Table]:
         if not root.is_dir():
-            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_NOT_FOUND")
+            raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         try:
             payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
@@ -190,11 +198,11 @@ class OnlyParquetResearchDatasetSnapshotStore:
         except OnlyResearchDatasetStoreError:
             raise
         except Exception as exc:
-            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_CORRUPT") from exc
+            raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT") from exc
 
     def _target(self, fingerprint: str) -> Path:
         if len(fingerprint) != 64 or any(item not in "0123456789abcdef" for item in fingerprint):
-            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_NOT_FOUND")
+            raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         return self._root / "sha256" / fingerprint[:2] / fingerprint
 
 

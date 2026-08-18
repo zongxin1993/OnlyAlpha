@@ -6,7 +6,12 @@ from collections.abc import Callable
 from datetime import datetime
 
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
+from onlyalpha.research.dataset import (
+    OnlyResearchDatasetCorruptError,
+    OnlyResearchDatasetNotFoundError,
+    OnlyResearchDatasetSnapshotStore,
+)
+from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
@@ -33,6 +38,11 @@ class OnlyResearchRunAdmissionService:
         self._run_id_factory = run_id_factory
 
     def submit(self, specification: OnlyResearchSpecification) -> OnlyResearchRun:
+        return self._run_store.create_queued(self.prepare(specification))
+
+    def prepare(self, specification: OnlyResearchSpecification) -> OnlyResearchRun:
+        """Prepare a QUEUED Run without making a durable acknowledgement."""
+
         try:
             strict = OnlyResearchSpecification.from_dict(specification.to_dict())
             resolution = self._resolver.resolve(strict)
@@ -44,11 +54,21 @@ class OnlyResearchRunAdmissionService:
                 admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
                 queued_at=self._now_utc(),
             )
+        except OnlyResearchRunAdmissionError:
+            raise
+        except OnlyResearchSpecificationError as exc:
+            raise OnlyResearchRunAdmissionError(exc.detail, code=exc.code) from exc
+        except OnlyResearchDatasetNotFoundError as exc:
+            raise OnlyResearchRunAdmissionError(
+                "Research Dataset Snapshot was not found", code="RESEARCH_DATASET_NOT_FOUND"
+            ) from exc
+        except OnlyResearchDatasetCorruptError as exc:
+            raise OnlyResearchRunAdmissionError(
+                "Research Dataset Snapshot verification failed", code="RESEARCH_DATASET_CORRUPT"
+            ) from exc
         except Exception as exc:
-            if isinstance(exc, OnlyResearchRunAdmissionError):
-                raise
             raise OnlyResearchRunAdmissionError(f"admission failed: {type(exc).__name__}") from exc
-        return self._run_store.create_queued(run)
+        return run
 
     def verify_resolution(self, run: OnlyResearchRun) -> None:
         current = only_research_admission_resolution_fingerprint(self._resolver.resolve(run.specification))

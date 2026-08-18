@@ -176,6 +176,7 @@ WEB_CHECKS = (
 FULL_CHECKS = tuple(OnlyReleaseCheck)
 RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_RUN,
+    OnlyTestLane.RESEARCH_COMMAND,
     OnlyTestLane.RESEARCH_EXECUTION,
     OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
@@ -197,12 +198,26 @@ IMPACT_RULES = (
         ("src/onlyalpha/research/__init__.py", "tests/architecture/test_research_run_boundaries.py"),
         (
             OnlyTestLane.RESEARCH_RUN,
+            OnlyTestLane.RESEARCH_COMMAND,
             OnlyTestLane.RESEARCH_EXECUTION,
             OnlyTestLane.RESEARCH_POSTGRES,
         ),
         STATIC,
         VerificationEscalation.COMPONENT,
         "Research Run owns durable operational identity, admission evidence and transition semantics",
+    ),
+    VerificationImpactRule(
+        "research-command",
+        ("src/onlyalpha/research/command/", "tests/research/command/"),
+        ("tests/architecture/test_research_command_boundaries.py",),
+        (
+            OnlyTestLane.RESEARCH_COMMAND,
+            OnlyTestLane.RESEARCH_RUN,
+            OnlyTestLane.RESEARCH_POSTGRES,
+        ),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Command owns submission idempotency, cancellation interpretation and operational reads",
     ),
     VerificationImpactRule(
         "research-execution",
@@ -225,7 +240,7 @@ IMPACT_RULES = (
             "scripts/database.py",
             "tests/architecture/test_postgres_operational_authority.py",
         ),
-        (OnlyTestLane.RESEARCH_EXECUTION, OnlyTestLane.RESEARCH_POSTGRES),
+        (OnlyTestLane.RESEARCH_COMMAND, OnlyTestLane.RESEARCH_EXECUTION, OnlyTestLane.RESEARCH_POSTGRES),
         STATIC,
         VerificationEscalation.COMPONENT,
         "PostgreSQL adapter, migration history and operator tooling own the Research operational store",
@@ -243,7 +258,7 @@ IMPACT_RULES = (
         "research-api-web-contract",
         ("packages/api/onlyalpha-api/", "contracts/research-api/v2/"),
         ("scripts/export_research_openapi.py",),
-        (),
+        (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_COMMAND),
         WEB_CHECKS,
         VerificationEscalation.COMPONENT,
         "HTTP transport changes require generated contract and browser-consumer verification",

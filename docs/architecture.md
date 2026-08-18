@@ -168,8 +168,10 @@ expiry 与 finalization 均为短事务并使用 exact Attempt/Worker fencing。
 `OnlyEngine → OnlyResearchRuntime` 执行。恢复不保存 semantic progress，而由新 Attempt 对既有 immutable authorities deterministic re-entry
 与 verified reuse。`CANCEL_REQUESTED` 的 expired/no-ACTIVE recovery 不创建新 Attempt：Application reconciliation 从 resolved exact
 Result Plan 对 Result + Artifact 做 non-mutating verified inspection，complete/absent/corrupt 分别原子投影为
-`COMPLETED/CANCELLED/FAILED`；Scheduler 与 PostgreSQL adapter 保持 semantics-blind。Research YAML/CLI、HTTP command、Trading/Live Web
-control 与完整 mixed Runtime lifecycle 尚未实现。
+`COMPLETED/CANCELLED/FAILED`；Scheduler 与 PostgreSQL adapter 保持 semantics-blind。P8.3 已在独立 Command/Application boundary 上
+增加 UUID4 submission retry identity、PostgreSQL Run+submission 原子提交、Run exact read/keyset projection 与 cancellation CAS，并由
+full Research API 组合独立 Artifact/Run Router；portable Artifact API 仍不依赖 PostgreSQL。Research YAML、P8.4 Studio 页面、
+Trading/Live Web control 与完整 mixed Runtime lifecycle 尚未实现。
 
 ## 5. Trading Runtime
 

@@ -139,3 +139,10 @@ Manifest 的审计时间和绝对路径不进入内容指纹。Parquet 保存标
 MiniQMT 负责供应商字段验证、symbol/exchange 映射和 Asia/Shanghai→UTC 解释；核心不导入 MiniQMT。
 
 Manifest 分开记录 `resolved_ranges` 与 `observed_ranges`。前者表示供应商成功确认的完整查询区间，允许包含周末、节假日、停牌或合法空区间，并作为 Cache 完整性判定依据；后者仅表示实际 Bar 的 Session 区间，不得代替 resolved coverage。Tushare 等插件只返回这两类通用语义，不在核心引入供应商 SDK、代码映射或复权字符串。
+
+## 9. Research Operational PostgreSQL
+
+P8 operational PostgreSQL 通过 checksummed forward-only migration 管理 `research_run`、`research_run_attempt` 与
+`research_run_submission`。0004 的 submission 表只保存 UUID4 retry key、canonical command fingerprint 与唯一 Run FK；Run recent
+index 只服务 `(queued_at DESC, run_id DESC)` read projection。数据库仍不保存 Dataset/Calculation/Statistics/Result/Artifact content，
+应用启动只检查 schema compatibility，不自动迁移。

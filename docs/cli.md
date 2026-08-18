@@ -31,3 +31,14 @@ authorities；未提交的 transport queue、partial live Bar、线程和 socket
 
 工作区职责见 `workspace_structure.md`：CLI 属于 OnlyAlpha 核心，官方 Cluster 配置属于 `OnlyAlpha-plugins`，官方示例只在
 `OnlyAlpha-examples` 组织和调用这些配置。
+
+Research HTTP server 使用独立 workspace console entry：
+
+```bash
+ONLYALPHA_POSTGRES_DSN='postgresql://...' onlyalpha-api --user-data-root /absolute/user-data
+onlyalpha-artifact-api --artifact-root /absolute/research-artifacts
+```
+
+前者启动本地 full Research API，并只做 PostgreSQL schema compatibility check；后者是无需 PostgreSQL 的 portable Artifact
+GET API。二者默认绑定 `127.0.0.1`，都不启动 Scheduler/Worker，也不自动执行 migration。DSN 只能通过环境变量注入，不通过命令行
+明文参数传递。
