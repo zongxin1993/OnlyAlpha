@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.1 — IMPLEMENTED / VERIFIED LOCALLY
+Current Increment: P8.2 — IMPLEMENTED / VERIFIED LOCALLY
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.2 — Research Scheduler / Worker / Attempt Authority
+Next Semantic Direction: P8.3 — Research Command API
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -314,6 +314,14 @@ scripts/database.py restore-test
 ---
 
 ## P8.2 — Research Scheduler, Worker & Recovery
+
+状态：**IMPLEMENTED / VERIFIED LOCALLY**。P8.2 已建立独立 Attempt/Worker UUID4 identity、`ACTIVE/SUCCEEDED/FAILED/EXPIRED/CANCELLED`
+Attempt history、one-ACTIVE PostgreSQL constraint、`queued_at/run_id` deterministic transactional claim、PostgreSQL
+`clock_timestamp()` lease authority、周期 heartbeat、expiry/new-Attempt recovery、exact Attempt/Worker fencing、bounded retry、cooperative
+cancellation 与 graceful stop。Worker 重新验证 Dataset 和 admission evidence，并只经 `OnlyEngine → OnlyResearchRuntime` 执行；真实
+PostgreSQL 16.10 已证明并发 claim、lease/fencing、M1/M2→M3 与 Artifact-commit crash deterministic re-entry。独立
+`research-execution` lane 与 `research-postgres` lane 已进入 impact/CI/certification matrix。本状态不包含 P8.3 HTTP command、Web 或 P8
+Final-SHA certification。
 
 ### 目标
 

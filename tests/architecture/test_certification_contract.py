@@ -86,6 +86,8 @@ def test_quality_and_certification_require_research_authority_lanes_and_coverage
     assert "research-specification" in certification and "research-specification --coverage" in certification
     assert "research-run" in quality and "research-run --coverage" in quality
     assert "research-run" in certification and "research-run --coverage" in certification
+    assert "research-execution" in quality and "research-execution --coverage" in quality
+    assert "research-execution" in certification and "research-execution --coverage" in certification
     for workflow in (quality, certification):
         assert "image: postgres:16.10" in workflow
         assert "ONLYALPHA_TEST_POSTGRES_DSN" in workflow
@@ -176,8 +178,8 @@ def test_readme_and_roadmap_expose_one_truthful_current_increment() -> None:
     roadmap = Path("docs/roadmap.md").read_text()
     assert roadmap.count("Current Milestone: P8") == 1
     assert roadmap.count("Milestone State: IN_PROGRESS") == 1
-    assert roadmap.count("Current Increment: P8.1 — IMPLEMENTED / VERIFIED LOCALLY") == 1
+    assert roadmap.count("Current Increment: P8.2 — IMPLEMENTED / VERIFIED LOCALLY") == 1
     assert roadmap.count("P7 Final Certification Verdict: ACCEPTED") == 1
     assert "## 当前阶段：P6" not in roadmap
     assert "| P7 | **DONE / CERTIFIED** — Vectorized Research Runtime |" in readme
-    assert "| Current increment | **P8.1 — IMPLEMENTED / VERIFIED locally**" in readme
+    assert "| Current increment | **P8.2 — IMPLEMENTED / VERIFIED locally**" in readme

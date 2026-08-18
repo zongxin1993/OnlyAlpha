@@ -34,6 +34,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_QUERY = "research-query"
     RESEARCH_SPECIFICATION = "research-specification"
     RESEARCH_RUN = "research-run"
+    RESEARCH_EXECUTION = "research-execution"
     RESEARCH_POSTGRES = "research-postgres"
     RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
@@ -157,6 +158,15 @@ LANES = {
     ),
     OnlyTestLane.RESEARCH_RUN: Lane(
         ("tests/research/run", "tests/architecture/test_research_run_boundaries.py"),
+        "not external",
+        "2",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_EXECUTION: Lane(
+        (
+            "tests/research/execution",
+            "tests/architecture/test_research_execution_boundaries.py",
+        ),
         "not external",
         "2",
         "worksteal",
@@ -313,6 +323,7 @@ BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
     OnlyTestLane.RESEARCH_SPECIFICATION,
     OnlyTestLane.RESEARCH_RUN,
+    OnlyTestLane.RESEARCH_EXECUTION,
     OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_QUERY,
@@ -414,6 +425,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         coverage_sources = {
             OnlyTestLane.RESEARCH_SPECIFICATION: ("src/onlyalpha/research/specification",),
             OnlyTestLane.RESEARCH_RUN: ("src/onlyalpha/research/run",),
+            OnlyTestLane.RESEARCH_EXECUTION: ("src/onlyalpha/research/execution",),
             OnlyTestLane.RESEARCH_POSTGRES: ("src/onlyalpha/persistence/postgres",),
             OnlyTestLane.RESEARCH_RUNTIME: (
                 "src/onlyalpha/runtime/research",
@@ -446,6 +458,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             if name is OnlyTestLane.RESEARCH_SPECIFICATION
             else "research-run-coverage"
             if name is OnlyTestLane.RESEARCH_RUN
+            else "research-execution-coverage"
+            if name is OnlyTestLane.RESEARCH_EXECUTION
             else "research-postgres-coverage"
             if name is OnlyTestLane.RESEARCH_POSTGRES
             else "research-runtime-coverage"
@@ -479,7 +493,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 "--cov-report=",
                 f"--cov-report=json:test-results/coverage/{coverage_output}.json",
                 f"--cov-report=xml:test-results/coverage/{coverage_output}.xml",
-                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name in (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUN) else 95 if name in (OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
+                f"--cov-fail-under={100 if name is OnlyTestLane.RESEARCH_FACTOR else 100 if name in (OnlyTestLane.RESEARCH_SPECIFICATION, OnlyTestLane.RESEARCH_RUN) else 95 if name in (OnlyTestLane.RESEARCH_EXECUTION, OnlyTestLane.RESEARCH_RUNTIME, OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_EVALUATION, OnlyTestLane.RESEARCH_RESULT, OnlyTestLane.RESEARCH_ARTIFACT) else 90 if name is OnlyTestLane.RESEARCH_SWEEP else 82}",
             ]
         )
         workers = "0"
@@ -506,6 +520,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 if name is OnlyTestLane.RESEARCH_SPECIFICATION
                 else "research-run-coverage.json"
                 if name is OnlyTestLane.RESEARCH_RUN
+                else "research-execution-coverage.json"
+                if name is OnlyTestLane.RESEARCH_EXECUTION
                 else "research-postgres-coverage.json"
                 if name is OnlyTestLane.RESEARCH_POSTGRES
                 else "research-runtime-coverage.json"
@@ -549,6 +565,12 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
                 code = 1
             if name is OnlyTestLane.RESEARCH_RUN and line_rate < 100:
                 print("Research Run line coverage must be 100%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_EXECUTION and branch_rate < 85:
+                print("Research Execution branch coverage must be at least 85%", file=sys.stderr)
+                code = 1
+            if name is OnlyTestLane.RESEARCH_EXECUTION and line_rate < 95:
+                print("Research Execution line coverage must be at least 95%", file=sys.stderr)
                 code = 1
             if name is OnlyTestLane.RESEARCH_DATASET and branch_rate < 70:
                 print("Research Dataset branch coverage must be at least 70%", file=sys.stderr)

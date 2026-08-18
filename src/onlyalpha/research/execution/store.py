@@ -1,0 +1,73 @@
+"""Business-transaction Port for Research execution ownership."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from typing import Protocol
+
+from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunFailure
+
+from .model import (
+    OnlyResearchExecutionClaim,
+    OnlyResearchRunAttempt,
+    OnlyResearchRunAttemptId,
+    OnlyResearchWorkerInstanceId,
+)
+from .policy import OnlyResearchRetryDecision
+
+
+class OnlyResearchExecutionStore(Protocol):
+    def load_attempt(self, attempt_id: OnlyResearchRunAttemptId) -> OnlyResearchRunAttempt: ...
+
+    def claim_next(
+        self,
+        *,
+        worker_instance_id: OnlyResearchWorkerInstanceId,
+        attempt_id: OnlyResearchRunAttemptId,
+        lease_duration: timedelta,
+        max_attempts: int,
+        run_started_at: datetime,
+    ) -> OnlyResearchExecutionClaim | None: ...
+
+    def heartbeat(
+        self,
+        *,
+        attempt_id: OnlyResearchRunAttemptId,
+        worker_instance_id: OnlyResearchWorkerInstanceId,
+        lease_duration: timedelta,
+    ) -> OnlyResearchRunAttempt: ...
+
+    def expire_next(
+        self,
+        *,
+        max_attempts: int,
+        run_finished_at: datetime,
+    ) -> OnlyResearchRunAttempt | None: ...
+
+    def complete(
+        self,
+        *,
+        claim: OnlyResearchExecutionClaim,
+        run_finished_at: datetime,
+        research_result_fingerprint: str,
+        artifact_content_fingerprint: str,
+    ) -> OnlyResearchRun: ...
+
+    def fail(
+        self,
+        *,
+        claim: OnlyResearchExecutionClaim,
+        run_finished_at: datetime,
+        failure: OnlyResearchRunFailure,
+        retry_decision: OnlyResearchRetryDecision,
+    ) -> OnlyResearchRun: ...
+
+    def cancel(
+        self,
+        *,
+        claim: OnlyResearchExecutionClaim,
+        run_finished_at: datetime,
+    ) -> OnlyResearchRun: ...
+
+
+__all__ = ["OnlyResearchExecutionStore"]

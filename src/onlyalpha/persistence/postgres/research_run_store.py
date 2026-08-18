@@ -81,6 +81,16 @@ class OnlyPostgresResearchRunStore:
     def commit_transition(self, previous: OnlyResearchRun, transitioned: OnlyResearchRun) -> OnlyResearchRun:
         if not transitioned.is_exact_successor_of(previous):
             raise OnlyResearchRunStateConflictError("Store accepts only an exact Domain-validated successor")
+        allowed_command = (
+            previous.state is OnlyResearchRunState.QUEUED and transitioned.state is OnlyResearchRunState.CANCELLED
+        ) or (
+            previous.state is OnlyResearchRunState.RUNNING
+            and transitioned.state is OnlyResearchRunState.CANCEL_REQUESTED
+        )
+        if not allowed_command:
+            raise OnlyResearchRunStateConflictError(
+                "Claim and execution outcomes require the fenced Research Execution Store"
+            )
         assignments = tuple(name for name in _COLUMNS if name != "run_id")
         query = sql.SQL("UPDATE research_run SET {} WHERE run_id = %s AND revision = %s AND state = %s").format(
             sql.SQL(", ").join(

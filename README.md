@@ -26,8 +26,8 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.1 — IMPLEMENTED / VERIFIED locally** — Research Run Authority & PostgreSQL Operational Store |
-| Next semantic direction | P8.2 — Research Scheduler / Worker / Attempt Authority |
+| Current increment | **P8.2 — IMPLEMENTED / VERIFIED locally** — Research Scheduler, Worker & Recovery |
+| Next semantic direction | P8.3 — Research Command API |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -323,6 +323,12 @@ Specification durable evidence 与 admission resolution drift guard。PostgreSQL
 Result/Artifact exact SHA references；checksummed forward-only migration、startup compatibility-only、显式
 `status/plan/migrate/backup/restore-test` 运维入口以及真实 PostgreSQL 并发/重启/恢复验证已进入独立 canonical lanes。P8.1 不执行
 QUEUED Run，也不包含 Scheduler、Worker、Attempt persistence、HTTP 或 Web。
+
+P8.2 已建立独立 UUID4 Attempt/Worker identity、PostgreSQL transactional deterministic claim、server-clock lease/heartbeat、one-ACTIVE
+约束与 exact Attempt/Worker fencing。Scheduler 只协调 operational facts；Worker 重新 verified-load Dataset、复核 admission evidence，
+并只经 `OnlyEngine → OnlyResearchRuntime` 执行。失败重试有界，过期 Attempt 不复活，Artifact 已提交但 operational finalization 未完成
+时由新 Attempt deterministic re-entry/verified reuse 后收敛。PostgreSQL 仍不保存 Research semantic progress 或 Result content；P8.2
+不包含 HTTP/Web control。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

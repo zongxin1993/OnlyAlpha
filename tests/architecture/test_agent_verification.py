@@ -38,6 +38,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
     assert set(first.impact.lanes) == {
         OnlyTestLane.RESEARCH_SPECIFICATION,
         OnlyTestLane.RESEARCH_RUN,
+        OnlyTestLane.RESEARCH_EXECUTION,
         OnlyTestLane.RESEARCH_POSTGRES,
         OnlyTestLane.RESEARCH_CALCULATION,
         OnlyTestLane.RESEARCH_FACTOR,
@@ -80,7 +81,11 @@ def test_research_specification_change_is_component_scoped_without_unrelated_evi
     plan = _plan("src/onlyalpha/research/specification/model.py")
 
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_SPECIFICATION,)
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_RUN,
+        OnlyTestLane.RESEARCH_EXECUTION,
+    )
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/specification",)
     assert not set(verify.CORE_RECOVERY).intersection(plan.impact.lanes)
@@ -90,19 +95,40 @@ def test_research_specification_change_is_component_scoped_without_unrelated_evi
 def test_research_run_and_postgres_changes_select_exact_authority_consumers() -> None:
     run = _plan("src/onlyalpha/research/run/model.py")
     postgres = _plan("database/postgres/migrations/0001_research_run_operational_authority.sql")
-    assert run.impact.lanes == (OnlyTestLane.RESEARCH_RUN, OnlyTestLane.RESEARCH_POSTGRES)
-    assert postgres.impact.lanes == (OnlyTestLane.RESEARCH_POSTGRES,)
+    assert run.impact.lanes == (
+        OnlyTestLane.RESEARCH_RUN,
+        OnlyTestLane.RESEARCH_EXECUTION,
+        OnlyTestLane.RESEARCH_POSTGRES,
+    )
+    assert postgres.impact.lanes == (
+        OnlyTestLane.RESEARCH_EXECUTION,
+        OnlyTestLane.RESEARCH_POSTGRES,
+    )
     assert run.impact.static_plan is not None
     assert "src/onlyalpha/research/run" in run.impact.static_plan.mypy_targets
     assert postgres.impact.static_plan is not None
     assert "src/onlyalpha/persistence/postgres" in postgres.impact.static_plan.mypy_targets
 
 
+def test_research_execution_changes_select_application_and_real_postgres_proofs() -> None:
+    plan = _plan("src/onlyalpha/research/execution/worker.py")
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_EXECUTION,
+        OnlyTestLane.RESEARCH_POSTGRES,
+    )
+    assert plan.impact.static_plan is not None
+    assert "src/onlyalpha/research/execution" in plan.impact.static_plan.mypy_targets
+
+
 def test_research_specification_architecture_gate_is_component_scoped() -> None:
     plan = _plan("tests/architecture/test_research_specification_boundaries.py")
 
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
-    assert plan.impact.lanes == (OnlyTestLane.RESEARCH_SPECIFICATION,)
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_RUN,
+        OnlyTestLane.RESEARCH_EXECUTION,
+    )
     assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
 
 
@@ -112,6 +138,7 @@ def test_research_workload_change_reaches_compiler_and_runtime_consumers() -> No
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.lanes == (
         OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_EXECUTION,
         OnlyTestLane.RESEARCH_RUNTIME,
     )
     assert plan.impact.static_plan is not None

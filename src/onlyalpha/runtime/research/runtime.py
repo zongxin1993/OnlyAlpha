@@ -22,6 +22,11 @@ from onlyalpha.research.sweep.executor import OnlyResearchSweepExecutor
 from onlyalpha.research.sweep.outcome import OnlyResearchSweepOutcome
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 
+from .control import (
+    OnlyResearchRuntimeBoundary,
+    OnlyResearchRuntimeControlSignal,
+    OnlyResearchRuntimeExecutionControl,
+)
 from .environment import OnlyResearchRuntimeEnvironmentIdentity
 from .errors import OnlyResearchRuntimeError, OnlyResearchRuntimePhase
 from .plan import OnlyResearchWorkloadPlan
@@ -84,19 +89,21 @@ class OnlyResearchRuntime:
             raise OnlyLifecycleError(f"Research Runtime cannot start from {self.state}")
         self.state = OnlyResearchRuntimeState.RUNNING
 
-    def run(self) -> OnlyResearchRuntimeResult:
+    def run(self, control: OnlyResearchRuntimeExecutionControl | None = None) -> OnlyResearchRuntimeResult:
         if self.state is not OnlyResearchRuntimeState.RUNNING:
             raise OnlyLifecycleError(f"Research Runtime cannot run from {self.state}")
         direct: tuple[OnlyResearchJobOutcome, ...] = ()
         sweeps: tuple[OnlyResearchSweepOutcome, ...] = ()
         statistics: tuple[OnlyResearchStatisticsOutcome, ...] = ()
         try:
+            self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_DATASET_VERIFICATION)
             self._invoke(
                 OnlyResearchRuntimePhase.DATASET_VERIFICATION,
                 lambda: self._dataset_store.load_verified_table(self.workload.dataset_snapshot_fingerprint),
             )
             direct_values: list[OnlyResearchJobOutcome] = []
             for job_plan in self.workload.direct_jobs:
+                self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_DIRECT_JOB)
                 try:
                     direct_values.append(self._job_executor.execute(job_plan))
                 except Exception as exc:
@@ -104,6 +111,7 @@ class OnlyResearchRuntime:
             direct = tuple(direct_values)
             sweep_values: list[OnlyResearchSweepOutcome] = []
             for sweep_plan in self.workload.sweeps:
+                self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_SWEEP)
                 try:
                     sweep_values.append(self._sweep_executor.execute(sweep_plan))
                 except Exception as exc:
@@ -111,12 +119,15 @@ class OnlyResearchRuntime:
             sweeps = tuple(sweep_values)
             statistics_values: list[OnlyResearchStatisticsOutcome] = []
             for statistics_plan in self.workload.statistics_plans:
+                self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_STATISTICS)
                 try:
                     statistics_values.append(self._statistics_executor.execute(statistics_plan))
                 except Exception as exc:
                     raise self._error(OnlyResearchRuntimePhase.STATISTICS_EXECUTION, exc) from exc
             statistics = tuple(statistics_values)
+            self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_RESULT_COMMIT)
             result_outcome = self._result(direct, sweeps, statistics)
+            self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_ARTIFACT_COMMIT)
             candidate = self._invoke(
                 OnlyResearchRuntimePhase.ARTIFACT_MATERIALIZATION,
                 lambda: self._artifact_materializer.materialize(result_outcome.research_result_plan_fingerprint),
@@ -158,6 +169,9 @@ class OnlyResearchRuntime:
                 artifact_outcome.artifact_content_fingerprint,
                 determinism,
             )
+        except OnlyResearchRuntimeControlSignal:
+            self.state = OnlyResearchRuntimeState.FAILED
+            raise
         except OnlyResearchRuntimeError as exc:
             self.state = OnlyResearchRuntimeState.FAILED
             return OnlyResearchRuntimeResult(
@@ -204,6 +218,11 @@ class OnlyResearchRuntime:
             return operation()
         except Exception as exc:
             raise self._error(phase, exc) from exc
+
+    @staticmethod
+    def _checkpoint(control: OnlyResearchRuntimeExecutionControl | None, boundary: OnlyResearchRuntimeBoundary) -> None:
+        if control is not None:
+            control.checkpoint(boundary)
 
     @staticmethod
     def _error(phase: OnlyResearchRuntimePhase, exc: Exception) -> OnlyResearchRuntimeError:

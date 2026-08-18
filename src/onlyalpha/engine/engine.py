@@ -47,7 +47,13 @@ from onlyalpha.runtime.product import (
     OnlyPluginResourceSnapshotRuntime,
     OnlyRuntimeProduct,
 )
-from onlyalpha.runtime.research import OnlyResearchRuntimePlan, OnlyResearchWorkloadPlan, only_research_runtime_plan
+from onlyalpha.runtime.research import (
+    OnlyResearchRuntime,
+    OnlyResearchRuntimeExecutionControl,
+    OnlyResearchRuntimePlan,
+    OnlyResearchWorkloadPlan,
+    only_research_runtime_plan,
+)
 from onlyalpha.runtime.result import OnlyRuntimeResult
 from onlyalpha.runtime.runtime import OnlyRuntime
 from onlyalpha.storage.base import OnlyStorage
@@ -387,7 +393,12 @@ class OnlyEngine:
             remaining = None if deadline is None or budget is None else min(budget, max(0.0, deadline - monotonic()))
             wait(remaining)
 
-    def run_runtime(self, runtime_id: OnlyRuntimeId | str) -> OnlyRuntimeResult:
+    def run_runtime(
+        self,
+        runtime_id: OnlyRuntimeId | str,
+        *,
+        research_control: OnlyResearchRuntimeExecutionControl | None = None,
+    ) -> OnlyRuntimeResult:
         if self.state is not OnlyEngineState.RUNNING:
             raise OnlyLifecycleError("engine can only run a finite Runtime while RUNNING")
         try:
@@ -396,7 +407,12 @@ class OnlyEngine:
             raise OnlyLifecycleError(f"RUNTIME_NOT_FOUND: {runtime_id}") from exc
         if not isinstance(session.runtime, OnlyFiniteRuntime):
             raise OnlyLifecycleError(f"RUNTIME_NOT_FINITE: {runtime_id}")
-        result = session.runtime.run()
+        if research_control is None:
+            result = session.runtime.run()
+        elif isinstance(session.runtime, OnlyResearchRuntime):
+            result = session.runtime.run(research_control)
+        else:
+            raise OnlyLifecycleError("EXECUTION_CONTROL_REQUIRES_RESEARCH_RUNTIME")
         session.state = "FAILED" if str(result.status) == "FAILED" else "COMPLETED"
         return result
 

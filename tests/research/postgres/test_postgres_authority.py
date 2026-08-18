@@ -13,8 +13,13 @@ from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerdict,
+)
+from onlyalpha.research.execution import (
+    OnlyResearchRunAttemptId,
+    OnlyResearchWorkerInstanceId,
 )
 from onlyalpha.research.run import (
     OnlyPostgresMigrationIntegrityError,
@@ -26,6 +31,7 @@ from onlyalpha.research.run import (
     OnlyResearchRunIntegrityError,
     OnlyResearchRunRevisionConflictError,
     OnlyResearchRunState,
+    OnlyResearchRunStateConflictError,
     only_research_admission_resolution_fingerprint,
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
@@ -37,6 +43,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.require
 NOW = datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC)
 M1 = "0001_research_run_operational_authority"
 M2 = "0002_research_run_authority_hardening"
+M3 = "0003_research_run_attempt_authority"
 
 
 def _copy_migrations(target: Path, *migration_ids: str) -> None:
@@ -61,11 +68,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == (M1, M2)
+    assert authority.migrate() == (M1, M2, M3)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -86,11 +93,11 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2)
+    _copy_migrations(tmp_path, M1, M2, M3)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -107,15 +114,15 @@ def test_unknown_database_history_is_ahead(postgres_dsn: str) -> None:
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.AHEAD
 
 
-def test_existing_m1_database_plans_and_applies_exact_m2_suffix(postgres_dsn: str, tmp_path: Path) -> None:
+def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_dsn: str, tmp_path: Path) -> None:
     _copy_migrations(tmp_path, M1)
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1,)
     run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000020"))
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2,)
-    assert authority.migrate() == (M2,)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3)
+    assert authority.migrate() == (M2, M3)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -148,7 +155,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2,)
+    assert before.applied_migrations == (M2, M3)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -206,7 +213,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2)]
+    assert sorted(outcomes) == [(), (M1, M2, M3)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
@@ -235,17 +242,19 @@ def test_two_independent_connections_cannot_lose_same_revision_update(postgres_d
     first_store = OnlyPostgresResearchRunStore(postgres_dsn)
     second_store = OnlyPostgresResearchRunStore(postgres_dsn)
     queued = first_store.create_queued(_queued("00000000-0000-4000-8000-000000000013"))
-    running = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
-    first_store.commit_transition(queued, running)
+    claim = OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
+        worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000091"),
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000092"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=1),
+    )
+    assert claim is not None
+    running = first_store.load(queued.run_id)
     first_actor = first_store.load(running.run_id)
     second_actor = second_store.load(running.run_id)
     cancelled = first_actor.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=2))
-    completed = second_actor.transition(
-        OnlyResearchRunState.COMPLETED,
-        at=NOW + timedelta(seconds=2),
-        research_result_fingerprint="b" * 64,
-        artifact_content_fingerprint="c" * 64,
-    )
+    competing_cancel = second_actor.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=3))
 
     barrier = Barrier(2)
 
@@ -261,12 +270,35 @@ def test_two_independent_connections_cannot_lose_same_revision_update(postgres_d
             item.result()
             for item in (
                 executor.submit(commit, first_store, first_actor, cancelled),
-                executor.submit(commit, second_store, second_actor, completed),
+                executor.submit(commit, second_store, second_actor, competing_cancel),
             )
         )
     assert sum(isinstance(item, OnlyResearchRunRevisionConflictError) for item in outcomes) == 1
     assert sum(isinstance(item, OnlyResearchRun) for item in outcomes) == 1
-    assert first_store.load(running.run_id) in (cancelled, completed)
+    assert first_store.load(running.run_id) in (cancelled, competing_cancel)
+
+
+def test_general_run_store_cannot_bypass_attempt_fencing(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(_queued("00000000-0000-4000-8000-000000000023"))
+    claim = OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
+        worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000093"),
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8000-000000000094"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=1),
+    )
+    assert claim is not None
+    running = run_store.load(claim.attempt.run_id)
+    completed = running.transition(
+        OnlyResearchRunState.COMPLETED,
+        at=NOW + timedelta(seconds=2),
+        research_result_fingerprint="b" * 64,
+        artifact_content_fingerprint="c" * 64,
+    )
+    with pytest.raises(OnlyResearchRunStateConflictError, match="fenced Research Execution Store"):
+        run_store.commit_transition(running, completed)
 
 
 def test_database_constraints_reject_invalid_state_and_incomplete_completion(postgres_dsn: str) -> None:

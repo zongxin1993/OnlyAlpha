@@ -12,7 +12,7 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
     migrations = tuple(sorted(Path("database/postgres/migrations").glob("*.sql")))
     sql = "\n".join(path.read_text() for path in migrations)
     tables = re.findall(r"CREATE TABLE ([a-z_]+)", sql)
-    assert tables == ["onlyalpha_schema_migration", "research_run"]
+    assert tables == ["onlyalpha_schema_migration", "research_run", "research_run_attempt"]
     for forbidden in (
         "dataset_row",
         "calculation_row",
@@ -20,10 +20,9 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "statistics_row",
         "research_result_content",
         "artifact_content BYTEA",
-        "research_run_attempt",
-        "worker",
-        "lease",
-        "heartbeat",
+        "semantic_checkpoint",
+        "partial_result",
+        "calculation_progress",
     ):
         assert forbidden not in sql
     assert "UNIQUE(specification_fingerprint)" not in sql
@@ -34,6 +33,13 @@ def test_published_migration_0001_bytes_are_immutable() -> None:
 
     payload = Path("database/postgres/migrations/0001_research_run_operational_authority.sql").read_bytes()
     assert hashlib.sha256(payload).hexdigest() == "3e7d6564dc83a062ea2954f7eb23255065c39b3f6398115cde3e2719954062b0"
+
+
+def test_published_migration_0002_bytes_are_immutable() -> None:
+    import hashlib
+
+    payload = Path("database/postgres/migrations/0002_research_run_authority_hardening.sql").read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == "05dd03d41d1418046e705b98e00c51a0041f9acd07122ca0331d9f786980bd6a"
 
 
 def test_forward_hardening_migration_mirrors_domain_fact_boundaries() -> None:
@@ -47,6 +53,15 @@ def test_forward_hardening_migration_mirrors_domain_fact_boundaries() -> None:
     ):
         assert f"ADD CONSTRAINT {constraint}" in sql
     assert "UPDATE research_run" not in sql
+
+
+def test_attempt_migration_contains_only_operational_ownership_facts() -> None:
+    sql = Path("database/postgres/migrations/0003_research_run_attempt_authority.sql").read_text()
+    assert "research_run_attempt_one_active" in sql
+    assert "UNIQUE (run_id, attempt_number)" in sql
+    assert "clock_timestamp" not in sql
+    for forbidden in ("dataset", "calculation", "statistics", "result_content", "artifact_content"):
+        assert forbidden not in sql
 
 
 def test_application_startup_cannot_migrate_or_repair_postgres() -> None:

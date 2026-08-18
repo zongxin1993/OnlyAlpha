@@ -162,8 +162,11 @@ transport-neutral Query Model/Service，并由独立 `onlyalpha-api` package 提
 Statistics 或 Research authority，Query Result 只是 ephemeral projection。P7.12 将 HTTP transport 独立升级为 schema v2，以 canonical
 decimal string 表达纳秒和 cursor，并建立 `apps/onlyalpha-web` browser consumer：OpenAPI generated type + Zod admission 后映射为
 `bigint`/exact Decimal text，URL 拥有 selection，TanStack Query 只拥有 disposable cache，Lightweight Charts 只消费显式 lossy projection。
-Web 仅调用 same-origin read-only API，不读取 Artifact path/Parquet/Store，不访问或控制 Research Runtime。Research YAML/CLI、Scheduler、
-数据库控制面、Trading/Live Web control 与完整 mixed Runtime lifecycle 尚未实现。
+Web 仅调用 same-origin read-only API，不读取 Artifact path/Parquet/Store，不访问或控制 Research Runtime。P8.2 已在 Runtime 外建立
+PostgreSQL operational Scheduler/Worker：Run 是总体 intent/outcome，Attempt 是 lease-governed execution ownership/history；claim、heartbeat、
+expiry 与 finalization 均为短事务并使用 exact Attempt/Worker fencing。Worker 重新 verified-load Dataset、复核 admission evidence，随后只经
+`OnlyEngine → OnlyResearchRuntime` 执行。恢复不保存 semantic progress，而由新 Attempt 对既有 immutable authorities deterministic re-entry
+与 verified reuse。Research YAML/CLI、HTTP command、Trading/Live Web control 与完整 mixed Runtime lifecycle 尚未实现。
 
 ## 5. Trading Runtime
 

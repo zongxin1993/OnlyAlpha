@@ -459,6 +459,7 @@ uv run python scripts/test_suite.py research-factor --coverage
 uv run python scripts/test_suite.py research-job --coverage
 uv run python scripts/test_suite.py research-sweep --coverage
 uv run python scripts/test_suite.py research-specification --coverage
+uv run python scripts/test_suite.py research-execution --coverage
 uv run python scripts/test_suite.py research-dataset --coverage
 ```
 
@@ -888,6 +889,7 @@ uv run python scripts/test_suite.py research-job
 uv run python scripts/test_suite.py research-factor
 uv run python scripts/test_suite.py research-sweep
 uv run python scripts/test_suite.py research-specification
+uv run python scripts/test_suite.py research-execution
 uv run python scripts/test_suite.py recovery
 uv run python scripts/test_suite.py sim-recovery
 ```
@@ -902,6 +904,7 @@ uv run python scripts/test_suite.py research-factor --coverage
 uv run python scripts/test_suite.py research-job --coverage
 uv run python scripts/test_suite.py research-sweep --coverage
 uv run python scripts/test_suite.py research-specification --coverage
+uv run python scripts/test_suite.py research-execution --coverage
 uv run python scripts/test_suite.py research-dataset --coverage
 ```
 

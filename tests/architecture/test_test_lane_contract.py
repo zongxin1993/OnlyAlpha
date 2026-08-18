@@ -187,3 +187,17 @@ def test_research_run_and_postgres_lanes_separate_pure_domain_from_real_database
     assert "tests/research/postgres" in postgres.paths
     assert "Research Run branch coverage must be 100%" in source
     assert "Research Run line coverage must be 100%" in source
+
+
+def test_research_execution_lane_owns_attempt_scheduler_worker_and_architecture() -> None:
+    lane = LANES[OnlyTestLane.RESEARCH_EXECUTION]
+    source = Path("scripts/test_suite.py").read_text()
+    assert lane.paths == (
+        "tests/research/execution",
+        "tests/architecture/test_research_execution_boundaries.py",
+    )
+    assert lane.expression == "not external"
+    assert '"src/onlyalpha/research/execution"' in source
+    assert '"research-execution-coverage"' in source
+    assert "Research Execution branch coverage must be at least 85%" in source
+    assert "Research Execution line coverage must be at least 95%" in source

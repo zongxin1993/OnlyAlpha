@@ -499,6 +499,18 @@ string。Web admission 后 exact time 使用 `bigint`、Decimal 使用 string；
 authority。corrupt 不得映射为 missing/empty/rebuild。Research Runtime 不得使用 Query/API/Web 作为 execution infrastructure；Live
 Runtime Factory 与 Trading/Live Web control 仍未实现。
 
+Research Execution Control Plane 的 durable operational authority 是 PostgreSQL `ResearchRun + ResearchRunAttempt`。Run 表达长期 intent
+与总体 outcome；Attempt 表达一次 execution ownership/history，二者 identity 不得合并。每个 Run 最多一个 ACTIVE Attempt；claim 必须在
+同一短事务内锁定 Run、创建 Attempt，并在首次 claim 时完成 `QUEUED -> RUNNING`。Lease 只使用 PostgreSQL server clock，heartbeat、
+expiry 和所有 finalization 必须验证 exact Attempt ID、Worker Instance ID、ACTIVE state 与未过期 lease；过期 Attempt 永不复活，只能创建
+新 Attempt。Retry 有界且只发生在 Attempt 层，Run 在 retry/recovery window 保持 RUNNING，terminal Run 不得重开。
+
+Scheduler 只协调 eligible Run、expiry、claim 与 dispatch；Worker 必须重新 verified-load Dataset、重新解析 canonical Specification、比较
+admission evidence，并只通过 `OnlyEngine -> OnlyResearchRuntime` 执行。Result/Artifact verified commit 必须先于 fenced PostgreSQL
+`Attempt SUCCEEDED + Run COMPLETED`。Recovery 只采用 immutable semantic authority 的 deterministic re-entry/reuse，不得建立 mutable
+Factor/node/progress checkpoint、第二套 Research Result truth 或 in-memory durable queue。Heartbeat/数据库不可用意味着 ownership
+uncertain，Worker 不得继续 operational finalization。HTTP command/Web control 仍不属于该执行协议。
+
 当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
 Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
 identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。
