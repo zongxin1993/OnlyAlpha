@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
-from onlyalpha_api import create_research_app
+from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_research_app
 from onlyalpha_api.research.run_errors import run_error_response
 
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactStoreError
@@ -164,6 +164,23 @@ def test_run_http_validation_and_errors_are_stable() -> None:
         assert response.status_code == status
         assert response.json()["error"]["code"] == code
         assert set(response.json()["error"]) == {"phase", "code", "detail"}
+
+
+def test_full_app_preserves_artifact_validation_error_contract() -> None:
+    _, _, client = _client()
+    series = f"/api/v2/research/artifacts/{'a' * 64}/statistics/{'b' * 64}/series"
+
+    for response in (
+        client.get(series, params={"limit": "bad"}),
+        client.get(series, params={"from_ts_event_ns": "01"}),
+    ):
+        assert response.status_code == 400
+        assert response.json() == {
+            "schema_version": RESEARCH_API_SCHEMA_VERSION,
+            "code": "INVALID_QUERY",
+            "detail": "HTTP request validation failed",
+        }
+        assert "error" not in response.json()
 
 
 def test_full_route_methods_are_narrow_and_artifact_routes_remain_get_only() -> None:

@@ -35,5 +35,6 @@ The full local control API uses `onlyalpha-api --user-data-root /absolute/user-d
 - `POST /api/v2/research/runs/{run_id}/cancellation`.
 
 Run responses contain operational facts and exact Result/Artifact references, not their content or Attempt history. Command errors use
-`{error:{phase,code,detail}}`. The full API does not start Scheduler, Worker, Runtime or Engine and defaults to `127.0.0.1` without
-permissive CORS.
+`{error:{phase,code,detail}}`. Artifact routes retain their independent `{schema_version,code,detail}` query error contract when they
+are composed into the full API; sharing one FastAPI process does not merge the two transport error planes. The full API does not start
+Scheduler, Worker, Runtime or Engine and defaults to `127.0.0.1` without permissive CORS.
