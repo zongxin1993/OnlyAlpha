@@ -10,6 +10,20 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 
 > **Correctness > Architecture Consistency > Verifiability > Recoverability > Maintainability > Performance > Automation.**
 
+长期策略产品目标：
+
+```text
+Human / LLM Agent
+→ Research Draft / Experiment
+→ Research Evidence
+→ Freeze immutable Strategy Revision
+→ Backtest
+→ Sim
+→ Live
+```
+
+OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一个 immutable Strategy Revision 在 Backtest、Sim、Live 中保持同一策略语义；Runtime 只改变数据时态、Portfolio/Execution Profile、Broker、Lifecycle 与 Execution Permission。Research Run 不是 Strategy Revision，Strategy Revision 也不包含资金规模或真实执行权限。详细目标见 [`docs/strategy_product_architecture.md`](docs/strategy_product_architecture.md)。
+
 ---
 
 ## 当前状态
@@ -32,7 +46,7 @@ OnlyAlpha 的长期产品身份是多市场量化平台。`onlyalpha.domain` 定
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
 
-P8 之后的 milestone **当前不预先编号或冻结**。P8 完成并取得 exact Final-SHA `ACCEPTED` 后，再基于当时 Repository truth 重新规划。
+P8 之后的 milestone **当前不预先编号或冻结**。P8 完成并取得 exact Final-SHA `ACCEPTED` 后，再基于当时 Repository truth 重新规划。Strategy Revision、Research → Backtest → Sim → Live Promotion、Web embedded IDE 与 LLM Agent strategy authoring 是长期目标方向，不因为本文记录而自动成为下一个 milestone。
 
 ---
 
@@ -193,6 +207,44 @@ Web 只消费 exact Artifact identity，不读取 Artifact filesystem/Parquet、
 
 ---
 
+## 长期 Strategy Product 模型
+
+Research 可以是单票、股票池或全市场；Universe 与 Decision Mode 是两个独立语义。产品可以默认“单票 → time-series、多票 → cross-sectional”，但 Domain 不把股票数量硬编码成策略类型。
+
+目标策略链：
+
+```text
+Universe
+→ Eligibility
+→ Indicator → Named Feature
+→ Factor → Score
+→ Ranking / Selection
+→ Entry / Exit Decision Expression
+→ Signal
+```
+
+第一阶段 Decision Expression 优先使用有限、结构化、可序列化的 `AND / OR / NOT + comparison`，而不是把最终买卖规则隐藏在任意 Python callback 中。Indicator 可以输出多个 named Feature，Factor 提供稳定 primary score；市值、价格、流动性等 Filter 可以复用 Calculation infrastructure，但在策略语义中属于独立 Eligibility role。
+
+Research 中选定的候选只有经过显式 Freeze 才成为 immutable Strategy Revision。Strategy Revision 固定 exact code/version、parameters、selected features、Factor/Eligibility/Decision semantics 与 origin Research evidence；修改任何策略语义都产生新 Revision。
+
+Trading 组合保持：
+
+```text
+Strategy Revision
++
+Portfolio Profile
++
+Execution Profile
++
+Runtime-specific Data/Broker/Lifecycle
++
+Explicit Execution Permission
+```
+
+所以仓位、账户资金和 Live deployment permission 不是 Strategy Revision 本身。Backtest、Sim、Live 目标上执行同一 Strategy Revision，禁止为 Runtime 差异复制 Strategy semantic truth。
+
+---
+
 ## Trading Semantic Core
 
 Backtest、Sim、目标 Live 共用正式 Trading Kernel。允许的差异主要位于：
@@ -271,10 +323,11 @@ CN_A_SHARE_DURABLE_BACKTEST_V1
 
 ## P8 — Research Control Plane & Web-native Execution
 
-P8 不继续扩张 Research 算法面，核心目标是把 P7 的 programmatic Research 变成可长期使用的 Web-native Research product：
+P8 的核心目标是把 P7 的 programmatic Research 变成可长期使用的 Web-native Research product，并为未来 Strategy Freeze/Promotion 留下无损、结构化的研究输入与证据边界：
 
 ```text
 Browser
+→ Universe / Research Definition
 → Research Specification
 → Command API
 → Research Run
@@ -283,7 +336,7 @@ Browser
 → OnlyEngine / OnlyResearchRuntime
 → Existing immutable Research authorities
 → Existing Query API
-→ Web Result Viewer
+→ Scientific Research Viewer
 ```
 
 P8 分为：
@@ -330,9 +383,11 @@ P8.2 已建立独立 UUID4 Attempt/Worker identity、PostgreSQL transactional de
 时由新 Attempt deterministic re-entry/verified reuse 后收敛。PostgreSQL 仍不保存 Research semantic progress 或 Result content；P8.2
 不包含 HTTP/Web control。
 
+P8.4 的目标 Research Studio 应让用户从 Web 选择单票/股票池/全市场 Universe、选择已注册 Indicator/Factor 与参数、选择 named Feature、配置 Eligibility 与有限 Decision/Signal research expression，并查看 K-line、Feature、Factor Score、Signal/买卖点和 cross-sectional statistics 的科学可视化。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
+
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 
-完整范围、非目标和退出条件见 [`docs/roadmap.md`](docs/roadmap.md)。
+完整范围、非目标和退出条件见 [`docs/roadmap.md`](docs/roadmap.md)。长期 Strategy Product 参考架构见 [`docs/strategy_product_architecture.md`](docs/strategy_product_architecture.md)。
 
 ---
 
@@ -480,6 +535,7 @@ P7.12 Web 是 read-only Result Viewer；Web-native Research submission/control �
 ## 文档导航
 
 - [Current Architecture](docs/architecture.md)
+- [Target Strategy Product Architecture](docs/strategy_product_architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [P7 Final Certification Closure](docs/reports/p7_final_certification.md)
 - [Engineering Quality System](docs/engineering/quality-system.md)
@@ -497,9 +553,10 @@ OnlyAlpha 不以功能数量衡量工程质量，而以这些问题衡量：
 同一输入是否产生同一结果？
 每个事实是否有唯一来源？
 每个状态是否有唯一所有者？
+同一个 Strategy Revision 是否跨 Backtest / Sim / Live 保持同一语义？
 失败是否进入已知状态？
 恢复是否保持语义等价？
 产品声明是否有真实认证证据？
 ```
 
-最终目标是构造一个行为可解释、状态有唯一真值、历史可审计、故障后可恢复，并能够长期扩展到不同市场和 Runtime 的量化交易工程。
+最终目标是构造一个行为可解释、状态有唯一真值、历史可审计、故障后可恢复，并能够让 Research Evidence 冻结成 immutable Strategy Revision、再自然晋升到 Backtest、Sim、Live 的多市场量化交易工程。LLM / Agent 可以成为策略作者和受控操作客户端，但不能成为 semantic、evidence 或 execution permission authority。
