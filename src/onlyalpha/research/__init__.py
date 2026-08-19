@@ -3,6 +3,7 @@
 from onlyalpha.research.artifact import *  # noqa: F403
 from onlyalpha.research.calculation import *  # noqa: F403
 from onlyalpha.research.dataset import *  # noqa: F403
+from onlyalpha.research.definition import *  # noqa: F403
 from onlyalpha.research.evaluation import *  # noqa: F403
 from onlyalpha.research.job import *  # noqa: F403
 from onlyalpha.research.query import *  # noqa: F403

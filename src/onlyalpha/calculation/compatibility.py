@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from onlyalpha.calculation.definition import OnlyInputDefinition, OnlyOutputDefinition
+from onlyalpha.calculation.definition import (
+    PREDICATE_OPERAND_SEMANTIC_TYPE,
+    OnlyInputDefinition,
+    OnlyOutputDefinition,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,8 +27,11 @@ def only_calculation_output_compatibility(
         return OnlyCalculationCompatibility(False, "nullability")
     if output.dimensions != target.dimensions:
         return OnlyCalculationCompatibility(False, "dimensions")
-    if output.semantic_type != target.semantic_type:
+    # P8.4 internal Predicate primitives preserve the exact data type while
+    # intentionally accepting any published/source series semantic role. The
+    # wildcard is input-only and cannot weaken ordinary Calculation ports.
+    if target.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and output.semantic_type != target.semantic_type:
         return OnlyCalculationCompatibility(False, "semantic_type")
-    if output.unit != target.unit:
+    if target.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and output.unit != target.unit:
         return OnlyCalculationCompatibility(False, "unit")
     return OnlyCalculationCompatibility(True)

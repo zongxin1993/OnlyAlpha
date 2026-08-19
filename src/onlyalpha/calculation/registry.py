@@ -103,7 +103,11 @@ class OnlyCalculationRegistry:
 
         return cast(
             tuple[MappingProxyType[str, object], ...],
-            tuple(definition.descriptor() for definition in self.type_definitions()),
+            tuple(
+                definition.descriptor()
+                for definition in self.type_definitions()
+                if definition.kind is not OnlyCalculationKind.PREDICATE
+            ),
         )
 
     def resolve(

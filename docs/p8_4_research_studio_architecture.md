@@ -1,8 +1,13 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4 Target Design / Implementation Baseline**
+> Status: **P8.4.0 Foundation Implemented / Verified Locally; later P8.4 increments remain Target Design**
 >
 > This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
+
+P8.4.0 repository fact: `onlyalpha.research.definition` now owns the strict Definition V1 contract and deterministic resolution into the existing
+Specification/Workload path. Boolean lowering uses a narrow internal `OnlyCalculationKind.PREDICATE` with RESEARCH-only registrations, the existing
+Calculation Registry/Graph/Executor/Result authority, and explicit Eligibility/Entry/Exit terminals. No Predicate Runtime, Predicate Store, Web/API,
+Artifact evidence expansion, or Trading backend was introduced. “Verified locally” is an increment-level affected-test statement, not P8 certification.
 
 ## 1. P8.4 objective
 

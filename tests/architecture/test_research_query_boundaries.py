@@ -85,7 +85,7 @@ def test_only_server_composition_root_constructs_concrete_artifact_store() -> No
     for path in api_root.rglob("*.py"):
         if "OnlyParquetResearchArtifactStore" in path.read_text(encoding="utf-8"):
             consumers.append(path.relative_to(api_root).as_posix())
-    assert consumers == ["artifact_main.py", "main.py"]
+    assert sorted(consumers) == ["artifact_main.py", "main.py"]
 
 
 def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() -> None:

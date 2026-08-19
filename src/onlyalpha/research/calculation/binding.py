@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from onlyalpha.calculation import OnlyCalculationDataType, OnlyInputDefinition
+from onlyalpha.calculation import PREDICATE_OPERAND_SEMANTIC_TYPE, OnlyCalculationDataType, OnlyInputDefinition
 from onlyalpha.research.dataset.schema import OnlyResearchBarDatasetSchema
 
 from .errors import OnlyResearchCalculationError
@@ -60,8 +60,11 @@ def only_bind_research_dataset_source(
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} nullability")
     if expected.dimensions != ("TIME",):
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} dimensions")
-    if expected.semantic_type not in contract.semantic_roles:
+    if (
+        expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE
+        and expected.semantic_type not in contract.semantic_roles
+    ):
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} semantic_type")
-    if expected.unit is not None:
+    if expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and expected.unit is not None:
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} unit")
     return table.column(contract.column)

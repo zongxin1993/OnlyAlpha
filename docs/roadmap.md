@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.3 — IMPLEMENTED / VERIFIED LOCALLY — Research Command API
+Current Increment: P8.4.0 — IMPLEMENTED / VERIFIED LOCALLY — Research Definition & Decision Graph Foundation
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.4 — Research Studio Web
+Next Semantic Direction: P8.4.1 — Discovery & Resolution API
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -428,6 +428,12 @@ P8.3 应为 P8.4 的 `Runs` 产品面提供稳定 operational read projection；
 ---
 
 ## P8.4 — Research Studio Web
+
+P8.4.0 已在 Core programmatic boundary 实现并完成本地 affected verification：严格、canonical、authoring-channel-neutral
+的 `OnlyResearchDefinition` 可解析 Universe intent、现有 Dataset Definition 与 verified Snapshot，组合全局有限 Candidate
+Space，将 typed Eligibility/Entry/Exit AST lowering 为 existing Calculation Graph，并继续生成现有
+`OnlyResearchSpecification -> OnlyResearchWorkloadPlan`。该实现只增加 RESEARCH internal `PREDICATE` Calculation backend，未增加
+Predicate Runtime/Store，也不代表 P8.4 Web、API、Scientific Result Evidence 或整个 P8 已完成/认证。
 
 ### 目标
 

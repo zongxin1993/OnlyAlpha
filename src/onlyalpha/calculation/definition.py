@@ -19,6 +19,7 @@ class OnlyCalculationKind(StrEnum):
     INDICATOR = "INDICATOR"
     FACTOR = "FACTOR"
     TARGET = "TARGET"
+    PREDICATE = "PREDICATE"
 
 
 class OnlyCalculationBackendKind(StrEnum):
@@ -75,6 +76,7 @@ class OnlyFactorScoreDirection(StrEnum):
 FACTOR_VALUE_SEMANTIC_TYPE = "FACTOR_VALUE"
 FACTOR_SCORE_SEMANTIC_TYPE = "FACTOR_SCORE"
 TARGET_VALUE_SEMANTIC_TYPE = "TARGET_VALUE"
+PREDICATE_OPERAND_SEMANTIC_TYPE = "PREDICATE_OPERAND"
 
 
 def only_calculation_execution_shape(
@@ -85,6 +87,8 @@ def only_calculation_execution_shape(
     if definition.kind is OnlyCalculationKind.INDICATOR:
         return OnlyFactorKind.TIME_SERIES
     if definition.kind is OnlyCalculationKind.TARGET:
+        return OnlyFactorKind.TIME_SERIES
+    if definition.kind is OnlyCalculationKind.PREDICATE:
         return OnlyFactorKind.TIME_SERIES
     if definition.factor_kind is None:  # defensive for non-canonical objects
         raise ValueError("Factor calculation requires an execution shape")

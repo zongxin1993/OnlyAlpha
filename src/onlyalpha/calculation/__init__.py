@@ -16,5 +16,7 @@ from onlyalpha.calculation.registry import (
 )
 
 __all__ = [
-    name for name in globals() if name.startswith(("Only", "only_", "FACTOR_VALUE_", "FACTOR_SCORE_", "TARGET_VALUE_"))
+    name
+    for name in globals()
+    if name.startswith(("Only", "only_", "FACTOR_VALUE_", "FACTOR_SCORE_", "TARGET_VALUE_", "PREDICATE_"))
 ]
