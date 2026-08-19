@@ -438,9 +438,10 @@ Predicate Runtime/Store，也不代表 P8.4 Web、API、Scientific Result Eviden
 P8.4.0.1 已收敛 Definition 语义合同：`definition_fingerprint` 只表示 canonical authoring contract，Resolution 另行持有基于
 verified Dataset Snapshot 与 authoritative normalized semantics 的 `resolved_definition_fingerprint`；Candidate identity 不再混入
 raw authoring representation。Predicate V1 冻结 nullable three-valued comparison/AND/OR/NOT 与 terminal NULL-preserving 语义，
-series comparison 使用既有 data type/dimensions/unit evidence fail closed。Definition lowering 已由独立构造的 Exact Specification
-与 Workload 等价测试证明，并进入正式 `research-definition` verification/CI lane。该 closure 不新增执行 authority，也不升级 P8
-认证状态。
+series comparison 使用既有 data type/dimensions/unit evidence fail closed。Dataset input 只接受 canonical `bar.<field>` source；
+诊断在 authoring AST 原始顺序上完成，canonical AST 只用于 identity 与 Graph lowering。Definition lowering 已由独立构造的 Exact
+Specification 与 Workload 等价测试证明，并进入正式 `research-definition` verification/CI lane。该 closure 不新增执行 authority，
+也不升级 P8 认证状态。
 
 ### 目标
 

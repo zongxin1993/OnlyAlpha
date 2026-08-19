@@ -6,6 +6,7 @@ import pyarrow as pa
 import pytest
 from onlyalpha_plugin_indicators.registration import TYPES, resolve_definition
 
+import onlyalpha.research.calculation.binding as research_binding
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationBackendRegistration,
@@ -88,6 +89,28 @@ def test_dataset_source_binding_fails_closed_on_contract_mismatch() -> None:
         only_bind_research_dataset_source("bar.close", expected, missing, RESEARCH_BAR_DATASET_SCHEMA_V1)
     with pytest.raises(OnlyResearchCalculationError, match="nullability"):
         only_bind_research_dataset_source("bar.quote_volume", expected, table, RESEARCH_BAR_DATASET_SCHEMA_V1)
+
+
+def test_dataset_source_binding_uses_authoritative_unit_contract(monkeypatch) -> None:
+    contract = research_binding.only_research_dataset_source_contract("bar.close")
+    assert contract is not None
+    monkeypatch.setitem(research_binding._SOURCES, "bar.close", replace(contract, unit="USD"))
+    table = only_bars_to_table(bars())
+
+    result = only_bind_research_dataset_source(
+        "bar.close",
+        OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL, unit="USD"),
+        table,
+        RESEARCH_BAR_DATASET_SCHEMA_V1,
+    )
+    assert result.equals(table.column("close"))
+    with pytest.raises(OnlyResearchCalculationError, match="unit"):
+        only_bind_research_dataset_source(
+            "bar.close",
+            OnlyInputDefinition("value", OnlyCalculationDataType.DECIMAL, unit="EUR"),
+            table,
+            RESEARCH_BAR_DATASET_SCHEMA_V1,
+        )
 
 
 @pytest.mark.parametrize(

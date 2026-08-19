@@ -36,6 +36,7 @@ from onlyalpha.research import (
     OnlyResearchFixedParameter,
     OnlyResearchGraphTemplate,
     OnlyResearchGraphTemplateNode,
+    OnlyResearchOr,
     OnlyResearchSeriesSelector,
     OnlyResearchSpecification,
     OnlyResearchSpecificationResolver,
@@ -47,10 +48,12 @@ from onlyalpha.research import (
     OnlyResearchTemplateReference,
     OnlyResearchTypedLiteral,
     OnlyResearchVariableRef,
+    only_canonicalize_research_expression,
     only_register_research_predicate_primitives,
     only_research_expression_fingerprint,
     only_research_predicate_type_reference,
 )
+from onlyalpha.research.definition.resolver import _ExpressionLowerer
 from tests.research.calculation.support import bars, snapshot
 from tests.research.definition.support import definition
 from tests.research.definition.test_resolution import _case, _Datasets
@@ -115,6 +118,109 @@ def test_resolved_identity_changes_for_semantics_and_exact_dataset_snapshot(tmp_
         resolver.resolve(base).resolved_definition_fingerprint
         != alternate.resolve(base).resolved_definition_fingerprint
     )
+
+
+def test_dataset_calculation_sources_require_canonical_spelling(tmp_path) -> None:
+    committed, _, _, resolver = _case(tmp_path)
+    base = definition(committed.definition)
+
+    first = resolver.resolve(base)
+    second = resolver.resolve(base)
+    assert first.resolved_definition_fingerprint == second.resolved_definition_fingerprint
+
+    target = base.targets[0]
+    aliased_inputs = tuple(
+        replace(item, source="close") if item.input_name == "entry_price" else item for item in target.input_bindings
+    )
+    invalid = replace(base, targets=(replace(target, input_bindings=aliased_inputs),))
+    with pytest.raises(OnlyResearchDefinitionError) as error:
+        resolver.resolve(invalid)
+    assert (error.value.code, error.value.path) == (
+        "RESEARCH_DEFINITION_DATASET_FIELD_UNKNOWN",
+        "targets[forward_return_1].input_bindings[entry_price].source",
+    )
+
+
+def test_commutative_identity_preserves_authoring_structure_and_exact_workload(tmp_path) -> None:
+    committed, _, _, resolver = _case(tmp_path)
+    base = definition(committed.definition)
+    assert isinstance(base.signals.entry, OnlyResearchAnd)
+    reversed_entry = OnlyResearchAnd(tuple(reversed(base.signals.entry.operands)))
+    reversed_definition = replace(base, signals=replace(base.signals, entry=reversed_entry))
+
+    assert base.signals.entry.operands != reversed_definition.signals.entry.operands
+    assert base.to_dict()["signals"] != reversed_definition.to_dict()["signals"]
+    assert base.definition_fingerprint == reversed_definition.definition_fingerprint
+
+    first = resolver.resolve(base)
+    second = resolver.resolve(reversed_definition)
+    assert first.resolved_definition_fingerprint == second.resolved_definition_fingerprint
+    assert first.decision_graph_template == second.decision_graph_template
+    assert first.specification_fingerprint == second.specification_fingerprint
+    assert first.workload == second.workload
+
+
+def test_diagnostics_validate_authoring_order_before_canonical_lowering(tmp_path) -> None:
+    committed, _, _, resolver = _case(tmp_path)
+    base = definition(committed.definition)
+    valid = OnlyResearchComparison(
+        OnlyResearchComparisonOperator.LT,
+        OnlyResearchVariableRef("rsi", "value"),
+        OnlyResearchTypedLiteral(OnlyCalculationDataType.DECIMAL, Decimal("30")),
+    )
+    invalid = OnlyResearchComparison(
+        OnlyResearchComparisonOperator.GT,
+        OnlyResearchVariableRef("returns_long", "value"),
+        OnlyResearchTypedLiteral(OnlyCalculationDataType.STRING, "bad"),
+    )
+    authored = OnlyResearchAnd((valid, invalid))
+    canonical = only_canonicalize_research_expression(authored)
+    assert isinstance(canonical, OnlyResearchAnd)
+    assert canonical.operands == (invalid, valid)
+
+    with pytest.raises(OnlyResearchDefinitionError) as error:
+        resolver.resolve(replace(base, signals=replace(base.signals, entry=authored)))
+    assert (error.value.code, error.value.path) == (
+        "RESEARCH_DEFINITION_COMPARISON_TYPE_INVALID",
+        "signals.entry.operands[1].right",
+    )
+
+
+def test_nested_diagnostic_path_preserves_submitted_operand_positions(tmp_path) -> None:
+    committed, _, _, resolver = _case(tmp_path)
+    base = definition(committed.definition)
+    valid = OnlyResearchComparison(
+        OnlyResearchComparisonOperator.GT,
+        OnlyResearchDatasetFieldRef("close"),
+        OnlyResearchTypedLiteral(OnlyCalculationDataType.DECIMAL, Decimal("1")),
+    )
+    invalid = OnlyResearchComparison(
+        OnlyResearchComparisonOperator.GT,
+        OnlyResearchVariableRef("returns_long", "value"),
+        OnlyResearchTypedLiteral(OnlyCalculationDataType.STRING, "bad"),
+    )
+    authored = OnlyResearchAnd((valid, OnlyResearchOr((valid, invalid))))
+
+    with pytest.raises(OnlyResearchDefinitionError) as error:
+        resolver.resolve(replace(base, signals=replace(base.signals, entry=authored)))
+    assert (error.value.code, error.value.path) == (
+        "RESEARCH_DEFINITION_COMPARISON_TYPE_INVALID",
+        "signals.entry.operands[1].operands[1].right",
+    )
+
+
+def test_failed_expression_validation_has_no_graph_side_effects() -> None:
+    nodes = {}
+    lowerer = _ExpressionLowerer({}, nodes)
+    invalid = OnlyResearchComparison(
+        OnlyResearchComparisonOperator.GT,
+        OnlyResearchDatasetFieldRef("close"),
+        OnlyResearchTypedLiteral(OnlyCalculationDataType.STRING, "bad"),
+    )
+
+    with pytest.raises(OnlyResearchDefinitionError):
+        lowerer.lower_terminal("entry_signal", invalid, "signals.entry")
+    assert nodes == {}
 
 
 @pytest.mark.parametrize(

@@ -176,8 +176,23 @@ class OnlyResearchDefinitionResolver:
                 "schema_version": definition.schema_version,
                 "dataset_snapshot_fingerprint": verified.snapshot.snapshot_fingerprint,
                 "calculations": [item.semantic_dict() for item in normalized],
-                "eligibility": None if definition.eligibility is None else definition.eligibility.to_dict(),
-                "signals": definition.signals.to_dict(),
+                "eligibility": (
+                    None
+                    if definition.eligibility is None
+                    else only_canonicalize_research_expression(definition.eligibility).to_dict()
+                ),
+                "signals": {
+                    "entry": (
+                        None
+                        if definition.signals.entry is None
+                        else only_canonicalize_research_expression(definition.signals.entry).to_dict()
+                    ),
+                    "exit": (
+                        None
+                        if definition.signals.exit is None
+                        else only_canonicalize_research_expression(definition.signals.exit).to_dict()
+                    ),
+                },
                 "targets": [item.semantic_dict() for item in targets],
                 "statistics": [item.to_dict() for item in definition.statistics],
             }
@@ -433,7 +448,7 @@ class OnlyResearchDefinitionResolver:
                 for name, binding in instance.parameters.items()
             }
             bindings = tuple(
-                self._template_input(item, variables, f"calculations.{instance.instance_key}.input_bindings")
+                self._template_input(item, variables, f"calculations[{instance.instance_key}].input_bindings")
                 for item in instance.input_bindings
             )
             nodes[instance.instance_key] = OnlyResearchGraphTemplateNode(
@@ -448,7 +463,7 @@ class OnlyResearchDefinitionResolver:
             if isinstance(binding, OnlyResearchFixedParameter)
         }
         bindings = tuple(
-            self._template_input(item, {}, f"targets.{instance.instance_key}.input_bindings", target=True)
+            self._template_input(item, {}, f"targets[{instance.instance_key}].input_bindings", target=True)
             for item in instance.input_bindings
         )
         return OnlyResearchGraphTemplateNode(instance.instance_key, instance.type_reference, parameters, bindings)
@@ -462,27 +477,30 @@ class OnlyResearchDefinitionResolver:
         target: bool = False,
     ) -> OnlyResearchTemplateInputBinding:
         source = item.source
+        source_path = f"{path}[{item.input_name}].source"
         if isinstance(source, str):
-            field = source.removeprefix("bar.")
-            if only_research_dataset_source_contract(f"bar.{field}") is None:
+            if only_research_dataset_source_contract(source) is None:
                 self._fail(
-                    OnlyResearchDefinitionPhase.CALCULATION, "RESEARCH_DEFINITION_DATASET_FIELD_UNKNOWN", path, source
+                    OnlyResearchDefinitionPhase.CALCULATION,
+                    "RESEARCH_DEFINITION_DATASET_FIELD_UNKNOWN",
+                    source_path,
+                    source,
                 )
             return OnlyResearchTemplateInputBinding(
-                item.input_name, OnlyResearchTemplateReference(None, item.input_name, f"bar.{field}")
+                item.input_name, OnlyResearchTemplateReference(None, item.input_name, source)
             )
         if target:
             self._fail(
                 OnlyResearchDefinitionPhase.TARGET,
                 "RESEARCH_DEFINITION_TARGET_DEPENDENCY_INVALID",
-                path,
+                source_path,
                 "Target V1 may consume only Dataset sources",
             )
         if source not in variables:
             self._fail(
                 OnlyResearchDefinitionPhase.CALCULATION,
                 "RESEARCH_DEFINITION_VARIABLE_UNPUBLISHED",
-                path,
+                source_path,
                 f"{source.instance_key}.{source.output_name}",
             )
         return OnlyResearchTemplateInputBinding(
@@ -578,6 +596,7 @@ class _ExpressionLowerer:
         self.nodes = nodes
 
     def lower_terminal(self, role: str, expression: OnlyResearchBooleanExpression, path: str) -> None:
+        self._validate(expression, path)
         canonical = only_canonicalize_research_expression(expression)
         root = self._lower(canonical, path)
         node_id = f"{role}_terminal"
@@ -587,6 +606,15 @@ class _ExpressionLowerer:
             {},
             (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference(root, "value")),),
         )
+
+    def _validate(self, expression: OnlyResearchBooleanExpression, path: str) -> None:
+        if isinstance(expression, OnlyResearchComparison):
+            self._admit_comparison(expression, path)
+        elif isinstance(expression, OnlyResearchNot):
+            self._validate(expression.operand, f"{path}.operand")
+        else:
+            for index, item in enumerate(expression.operands):
+                self._validate(item, f"{path}.operands[{index}]")
 
     def _lower(self, expression: OnlyResearchBooleanExpression, path: str) -> str:
         node_id = f"predicate_{only_research_expression_fingerprint(expression)}"
@@ -625,6 +653,33 @@ class _ExpressionLowerer:
         return node_id
 
     def _comparison(self, node_id: str, expression: OnlyResearchComparison, path: str) -> OnlyResearchGraphTemplateNode:
+        left_type, left_literal, right_literal = self._admit_comparison(expression, path)
+        operator = {"==": "eq", "!=": "ne", "<": "lt", "<=": "le", ">": "gt", ">=": "ge"}[expression.operator.value]
+        if not left_literal and not right_literal:
+            return OnlyResearchGraphTemplateNode(
+                node_id,
+                only_research_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.refs"),
+                {},
+                (self._operand_binding("left", expression.left), self._operand_binding("right", expression.right)),
+            )
+        if isinstance(expression.left, OnlyResearchTypedLiteral):
+            literal = expression.left
+            reference = expression.right
+        elif isinstance(expression.right, OnlyResearchTypedLiteral):
+            literal = expression.right
+            reference = expression.left
+        else:  # guarded by admission
+            raise TypeError("comparison literal is missing")
+        return OnlyResearchGraphTemplateNode(
+            node_id,
+            only_research_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.literal"),
+            {"literal": literal.value, "literal_left": left_literal},
+            (self._operand_binding("left", reference),),
+        )
+
+    def _admit_comparison(
+        self, expression: OnlyResearchComparison, path: str
+    ) -> tuple[OnlyCalculationDataType, bool, bool]:
         left_type, left_dimensions, left_unit = self._operand_contract(expression.left, f"{path}.left")
         right_type, right_dimensions, right_unit = self._operand_contract(expression.right, f"{path}.right")
         if left_type is not right_type:
@@ -670,28 +725,7 @@ class _ExpressionLowerer:
                 path,
                 "literal-to-literal comparison is not an observation expression",
             )
-        operator = {"==": "eq", "!=": "ne", "<": "lt", "<=": "le", ">": "gt", ">=": "ge"}[expression.operator.value]
-        if not left_literal and not right_literal:
-            return OnlyResearchGraphTemplateNode(
-                node_id,
-                only_research_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.refs"),
-                {},
-                (self._operand_binding("left", expression.left), self._operand_binding("right", expression.right)),
-            )
-        if isinstance(expression.left, OnlyResearchTypedLiteral):
-            literal = expression.left
-            reference = expression.right
-        elif isinstance(expression.right, OnlyResearchTypedLiteral):
-            literal = expression.right
-            reference = expression.left
-        else:  # guarded above
-            raise TypeError("comparison literal is missing")
-        return OnlyResearchGraphTemplateNode(
-            node_id,
-            only_research_predicate_type_reference(f"compare.{operator}.{left_type.value.lower()}.literal"),
-            {"literal": literal.value, "literal_left": left_literal},
-            (self._operand_binding("left", reference),),
-        )
+        return left_type, left_literal, right_literal
 
     def _operand_contract(
         self, operand: OnlyResearchOperand, path: str

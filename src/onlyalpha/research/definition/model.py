@@ -254,12 +254,6 @@ class OnlyResearchSignals:
     entry: OnlyResearchBooleanExpression | None = None
     exit: OnlyResearchBooleanExpression | None = None
 
-    def __post_init__(self) -> None:
-        if self.entry is not None:
-            object.__setattr__(self, "entry", only_canonicalize_research_expression(self.entry))
-        if self.exit is not None:
-            object.__setattr__(self, "exit", only_canonicalize_research_expression(self.exit))
-
     def to_dict(self) -> Mapping[str, object]:
         return {
             "entry": None if self.entry is None else self.entry.to_dict(),
@@ -300,8 +294,6 @@ class OnlyResearchDefinition:
         keys = tuple(item.instance_key for item in (*self.calculations, *self.targets))
         if len(keys) != len(set(keys)):
             raise ValueError("Research Definition contains duplicate instance_key")
-        if self.eligibility is not None:
-            object.__setattr__(self, "eligibility", only_canonicalize_research_expression(self.eligibility))
         object.__setattr__(self, "calculations", tuple(sorted(self.calculations, key=lambda item: item.instance_key)))
         object.__setattr__(self, "targets", tuple(sorted(self.targets, key=lambda item: item.instance_key)))
         object.__setattr__(self, "statistics", tuple(sorted(self.statistics, key=lambda item: str(item.to_dict()))))
@@ -312,8 +304,11 @@ class OnlyResearchDefinition:
             "schema_version": self.schema_version,
             "dataset": self.dataset.to_dict(),
             "calculations": [item.semantic_dict() for item in self.calculations],
-            "eligibility": None if self.eligibility is None else self.eligibility.to_dict(),
-            "signals": self.signals.to_dict(),
+            "eligibility": _canonical_expression_dict(self.eligibility),
+            "signals": {
+                "entry": _canonical_expression_dict(self.signals.entry),
+                "exit": _canonical_expression_dict(self.signals.exit),
+            },
             "targets": [item.semantic_dict() for item in self.targets],
             "statistics": [item.to_dict() for item in self.statistics],
         }
@@ -325,6 +320,8 @@ class OnlyResearchDefinition:
     def to_dict(self) -> Mapping[str, object]:
         payload = dict(self.semantic_payload())
         payload["calculations"] = [item.to_dict() for item in self.calculations]
+        payload["eligibility"] = None if self.eligibility is None else self.eligibility.to_dict()
+        payload["signals"] = self.signals.to_dict()
         payload["targets"] = [item.to_dict() for item in self.targets]
         payload["display_metadata"] = self.display_metadata
         return cast(
@@ -371,6 +368,12 @@ class OnlyResearchDefinition:
             version,
             _mapping(payload["display_metadata"]),
         )
+
+
+def _canonical_expression_dict(expression: OnlyResearchBooleanExpression | None) -> Mapping[str, object] | None:
+    if expression is None:
+        return None
+    return only_canonicalize_research_expression(expression).to_dict()
 
 
 def _calculation(payload: Mapping[str, object]) -> OnlyResearchCalculationInstance:

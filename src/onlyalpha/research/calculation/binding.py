@@ -83,7 +83,7 @@ def only_bind_research_dataset_source(
         and expected.semantic_type not in contract.semantic_roles
     ):
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} semantic_type")
-    if expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and expected.unit is not None:
+    if expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and expected.unit != contract.unit:
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} unit")
     return table.column(contract.column)
 

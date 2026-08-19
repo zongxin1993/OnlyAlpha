@@ -82,6 +82,8 @@ def test_subject_identity_must_be_full_immutable_sha() -> None:
 def test_quality_and_certification_require_research_authority_lanes_and_coverage() -> None:
     quality = Path(".github/workflows/quality.yml").read_text()
     certification = Path(".github/workflows/certification.yml").read_text()
+    assert "research-definition" in quality and "research-definition --coverage" in quality
+    assert "research-definition" in certification and "research-definition --coverage" in certification
     assert "research-specification" in quality and "research-specification --coverage" in quality
     assert "research-specification" in certification and "research-specification --coverage" in certification
     assert "research-run" in quality and "research-run --coverage" in quality

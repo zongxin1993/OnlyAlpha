@@ -12,8 +12,9 @@ Artifact evidence expansion, or Trading backend was introduced. “Verified loca
 P8.4.0.1 repository fact: authoring identity and resolved semantic identity are explicit and separate. Resolution fingerprints the exact verified
 Dataset Snapshot plus normalized Calculation/Target parameters, canonical predicates, and Statistics intent; Candidate identity binds that resolved
 context. Predicate comparisons admit existing data type/dimensions/unit evidence and preserve NULL through comparisons, Kleene AND/OR/NOT, and all
-three semantic terminals. Formal Definition paths survive recursive lowering, an independently authored Exact Specification proves workload
-equivalence, and `research-definition` is a first-class impact-aware local/CI verification lane. No new identity framework, Dataset authority,
+three semantic terminals. Dataset inputs admit only canonical `bar.<field>` sources, while authoring-order validation produces exact recursive paths
+before canonical Graph lowering. An independently authored Exact Specification proves workload equivalence, and `research-definition` is a
+first-class impact-aware local/CI verification lane. No new identity framework, Dataset authority,
 Predicate Runtime/Store, Web/API contract, Artifact authority, or Trading backend was added.
 
 ## 1. P8.4 objective
