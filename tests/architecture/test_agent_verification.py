@@ -36,6 +36,7 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
 
     assert first.as_json() == second.as_json()
     assert set(first.impact.lanes) == {
+        OnlyTestLane.RESEARCH_DEFINITION,
         OnlyTestLane.RESEARCH_SPECIFICATION,
         OnlyTestLane.RESEARCH_RUN,
         OnlyTestLane.RESEARCH_EXECUTION,
@@ -51,6 +52,22 @@ def test_input_order_is_deterministic_and_rules_union_monotonically() -> None:
         OnlyTestLane.RESEARCH_COMMAND,
         OnlyTestLane.RESEARCH_RUNTIME,
     }
+
+
+def test_research_definition_change_selects_exact_semantic_consumers() -> None:
+    plan = _plan("src/onlyalpha/research/definition/resolver.py")
+
+    assert plan.impact.escalation is VerificationEscalation.COMPONENT
+    assert plan.impact.lanes == (
+        OnlyTestLane.RESEARCH_DEFINITION,
+        OnlyTestLane.RESEARCH_SPECIFICATION,
+        OnlyTestLane.RESEARCH_SWEEP,
+        OnlyTestLane.RESEARCH_CALCULATION,
+    )
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.mypy_targets == ("src/onlyalpha/research/definition",)
+    assert not set(verify.CORE_RECOVERY).intersection(plan.impact.lanes)
+    assert not set(verify.WEB_CHECKS).intersection(plan.impact.checks)
 
 
 def test_unknown_production_path_fails_closed_to_full_local() -> None:

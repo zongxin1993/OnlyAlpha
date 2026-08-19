@@ -13,31 +13,49 @@ from .errors import OnlyResearchCalculationError
 
 
 @dataclass(frozen=True, slots=True)
-class _SourceContract:
+class OnlyResearchDatasetSourceContract:
     column: str
     data_type: OnlyCalculationDataType
     semantic_roles: frozenset[str]
+    dimensions: tuple[str, ...] = ("TIME",)
+    unit: str | None = None
 
 
 _SOURCES = {
-    "bar.open": _SourceContract("open", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})),
-    "bar.high": _SourceContract("high", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})),
-    "bar.low": _SourceContract("low", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})),
-    "bar.close": _SourceContract("close", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})),
-    "bar.volume": _SourceContract("volume", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})),
-    "bar.quote_volume": _SourceContract(
+    "bar.open": OnlyResearchDatasetSourceContract(
+        "open", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    ),
+    "bar.high": OnlyResearchDatasetSourceContract(
+        "high", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    ),
+    "bar.low": OnlyResearchDatasetSourceContract(
+        "low", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    ),
+    "bar.close": OnlyResearchDatasetSourceContract(
+        "close", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "PRICE"})
+    ),
+    "bar.volume": OnlyResearchDatasetSourceContract(
+        "volume", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})
+    ),
+    "bar.quote_volume": OnlyResearchDatasetSourceContract(
         "quote_volume", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})
     ),
-    "bar.turnover_amount": _SourceContract(
+    "bar.turnover_amount": OnlyResearchDatasetSourceContract(
         "turnover_amount", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "MONEY"})
     ),
-    "bar.trade_count": _SourceContract(
+    "bar.trade_count": OnlyResearchDatasetSourceContract(
         "trade_count", OnlyCalculationDataType.INTEGER, frozenset({"NUMERIC_SERIES", "COUNT"})
     ),
-    "bar.open_interest": _SourceContract(
+    "bar.open_interest": OnlyResearchDatasetSourceContract(
         "open_interest", OnlyCalculationDataType.DECIMAL, frozenset({"NUMERIC_SERIES", "QUANTITY"})
     ),
 }
+
+
+def only_research_dataset_source_contract(source: str) -> OnlyResearchDatasetSourceContract | None:
+    """Return the single read-only semantic contract used by admission and execution."""
+
+    return _SOURCES.get(source)
 
 
 def only_bind_research_dataset_source(
@@ -46,7 +64,7 @@ def only_bind_research_dataset_source(
     table: pa.Table,
     schema: OnlyResearchBarDatasetSchema,
 ) -> pa.ChunkedArray:
-    contract = _SOURCES.get(source)
+    contract = only_research_dataset_source_contract(source)
     if contract is None:
         raise OnlyResearchCalculationError("RESEARCH_SOURCE_UNSUPPORTED", source)
     field = schema.arrow_schema.field(contract.column)
@@ -58,7 +76,7 @@ def only_bind_research_dataset_source(
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} data_type")
     if field.nullable and not expected.nullable:
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} nullability")
-    if expected.dimensions != ("TIME",):
+    if expected.dimensions != contract.dimensions:
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} dimensions")
     if (
         expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE
@@ -68,3 +86,10 @@ def only_bind_research_dataset_source(
     if expected.semantic_type != PREDICATE_OPERAND_SEMANTIC_TYPE and expected.unit is not None:
         raise OnlyResearchCalculationError("RESEARCH_INPUT_INCOMPATIBLE", f"{source} unit")
     return table.column(contract.column)
+
+
+__all__ = [
+    "OnlyResearchDatasetSourceContract",
+    "only_bind_research_dataset_source",
+    "only_research_dataset_source_contract",
+]

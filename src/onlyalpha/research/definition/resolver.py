@@ -20,6 +20,7 @@ from onlyalpha.calculation import (
 )
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.research.calculation.binding import only_research_dataset_source_contract
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition
 from onlyalpha.research.specification.model import (
     OnlyResearchCalculationSpec,
@@ -68,17 +69,6 @@ from .ports import OnlyResearchDefinitionDatasetResolver, OnlyResearchUniverseRe
 from .primitives import only_register_research_predicate_primitives, only_research_predicate_type_reference
 
 DEFAULT_RESEARCH_DEFINITION_MAX_CANDIDATES = 256
-_DATASET_TYPES = {
-    "open": OnlyCalculationDataType.DECIMAL,
-    "high": OnlyCalculationDataType.DECIMAL,
-    "low": OnlyCalculationDataType.DECIMAL,
-    "close": OnlyCalculationDataType.DECIMAL,
-    "volume": OnlyCalculationDataType.DECIMAL,
-    "quote_volume": OnlyCalculationDataType.DECIMAL,
-    "turnover_amount": OnlyCalculationDataType.DECIMAL,
-    "trade_count": OnlyCalculationDataType.INTEGER,
-    "open_interest": OnlyCalculationDataType.DECIMAL,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +95,8 @@ class OnlyResearchPublishedVariableLineage:
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchDefinitionResolution:
-    definition_fingerprint: str
+    authoring_definition_fingerprint: str
+    resolved_definition_fingerprint: str
     dataset_definition: OnlyResearchDatasetDefinition
     dataset_snapshot_fingerprint: str
     resolved_calculations: tuple[OnlyResearchCalculationInstance, ...]
@@ -180,22 +171,34 @@ class OnlyResearchDefinitionResolver:
                     f"global Candidate Space has {candidate_count} candidates; limit is {self._max_candidates}",
                 )
 
+        resolved_definition_fingerprint = only_canonical_fingerprint(
+            {
+                "schema_version": definition.schema_version,
+                "dataset_snapshot_fingerprint": verified.snapshot.snapshot_fingerprint,
+                "calculations": [item.semantic_dict() for item in normalized],
+                "eligibility": None if definition.eligibility is None else definition.eligibility.to_dict(),
+                "signals": definition.signals.to_dict(),
+                "targets": [item.semantic_dict() for item in targets],
+                "statistics": [item.to_dict() for item in definition.statistics],
+            }
+        )
+
         builder = _ExpressionLowerer(variables, graph_nodes)
-        for role, expression in (
-            ("eligibility", definition.eligibility),
-            ("entry_signal", definition.signals.entry),
-            ("exit_signal", definition.signals.exit),
+        for role, path, expression in (
+            ("eligibility", "eligibility", definition.eligibility),
+            ("entry_signal", "signals.entry", definition.signals.entry),
+            ("exit_signal", "signals.exit", definition.signals.exit),
         ):
             if expression is not None:
                 try:
-                    builder.lower_terminal(role, expression)
+                    builder.lower_terminal(role, expression, path)
                 except OnlyResearchDefinitionError:
                     raise
                 except Exception as exc:
                     self._fail(
                         OnlyResearchDefinitionPhase.EXPRESSION,
                         "RESEARCH_DEFINITION_EXPRESSION_INVALID",
-                        f"signals.{role}",
+                        path,
                         str(exc),
                         exc,
                     )
@@ -233,8 +236,7 @@ class OnlyResearchDefinitionResolver:
                 only_canonical_fingerprint(
                     {
                         "schema_version": 1,
-                        "definition_fingerprint": definition.definition_fingerprint,
-                        "dataset_snapshot_fingerprint": verified.snapshot.snapshot_fingerprint,
+                        "resolved_definition_fingerprint": resolved_definition_fingerprint,
                         "assignment": lineage.assignment,
                         "calculation_fingerprint": lineage.calculation_fingerprint,
                     }
@@ -251,6 +253,7 @@ class OnlyResearchDefinitionResolver:
         )
         return OnlyResearchDefinitionResolution(
             definition.definition_fingerprint,
+            resolved_definition_fingerprint,
             dataset_definition,
             verified.snapshot.snapshot_fingerprint,
             normalized,
@@ -461,7 +464,7 @@ class OnlyResearchDefinitionResolver:
         source = item.source
         if isinstance(source, str):
             field = source.removeprefix("bar.")
-            if field not in _DATASET_TYPES:
+            if only_research_dataset_source_contract(f"bar.{field}") is None:
                 self._fail(
                     OnlyResearchDefinitionPhase.CALCULATION, "RESEARCH_DEFINITION_DATASET_FIELD_UNKNOWN", path, source
                 )
@@ -574,9 +577,9 @@ class _ExpressionLowerer:
         self.variables = variables
         self.nodes = nodes
 
-    def lower_terminal(self, role: str, expression: OnlyResearchBooleanExpression) -> None:
+    def lower_terminal(self, role: str, expression: OnlyResearchBooleanExpression, path: str) -> None:
         canonical = only_canonicalize_research_expression(expression)
-        root = self._lower(canonical)
+        root = self._lower(canonical, path)
         node_id = f"{role}_terminal"
         self.nodes[node_id] = OnlyResearchGraphTemplateNode(
             node_id,
@@ -585,14 +588,14 @@ class _ExpressionLowerer:
             (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference(root, "value")),),
         )
 
-    def _lower(self, expression: OnlyResearchBooleanExpression) -> str:
+    def _lower(self, expression: OnlyResearchBooleanExpression, path: str) -> str:
         node_id = f"predicate_{only_research_expression_fingerprint(expression)}"
         if node_id in self.nodes:
             return node_id
         if isinstance(expression, OnlyResearchComparison):
-            node = self._comparison(node_id, expression)
+            node = self._comparison(node_id, expression, path)
         elif isinstance(expression, OnlyResearchNot):
-            child = self._lower(expression.operand)
+            child = self._lower(expression.operand, f"{path}.operand")
             node = OnlyResearchGraphTemplateNode(
                 node_id,
                 only_research_predicate_type_reference("boolean.not"),
@@ -600,7 +603,9 @@ class _ExpressionLowerer:
                 (OnlyResearchTemplateInputBinding("value", OnlyResearchTemplateReference(child, "value")),),
             )
         else:
-            children = [self._lower(item) for item in expression.operands]
+            children = [
+                self._lower(item, f"{path}.operands[{index}]") for index, item in enumerate(expression.operands)
+            ]
             current = children[0]
             name = "and" if isinstance(expression, OnlyResearchAnd) else "or"
             for ordinal, child in enumerate(children[1:], start=1):
@@ -619,14 +624,14 @@ class _ExpressionLowerer:
         self.nodes[node_id] = node
         return node_id
 
-    def _comparison(self, node_id: str, expression: OnlyResearchComparison) -> OnlyResearchGraphTemplateNode:
-        left_type = self._operand_type(expression.left)
-        right_type = self._operand_type(expression.right)
+    def _comparison(self, node_id: str, expression: OnlyResearchComparison, path: str) -> OnlyResearchGraphTemplateNode:
+        left_type, left_dimensions, left_unit = self._operand_contract(expression.left, f"{path}.left")
+        right_type, right_dimensions, right_unit = self._operand_contract(expression.right, f"{path}.right")
         if left_type is not right_type:
             raise OnlyResearchDefinitionError(
                 OnlyResearchDefinitionPhase.EXPRESSION,
                 "RESEARCH_DEFINITION_COMPARISON_TYPE_INVALID",
-                "expression",
+                f"{path}.right",
                 f"{left_type.value} cannot compare with {right_type.value}",
             )
         if left_type in {
@@ -636,18 +641,33 @@ class _ExpressionLowerer:
             raise OnlyResearchDefinitionError(
                 OnlyResearchDefinitionPhase.EXPRESSION,
                 "RESEARCH_DEFINITION_COMPARISON_TYPE_INVALID",
-                "expression",
+                f"{path}.right",
                 f"{left_type.value} supports only == and !=",
             )
         left_literal, right_literal = (
             isinstance(expression.left, OnlyResearchTypedLiteral),
             isinstance(expression.right, OnlyResearchTypedLiteral),
         )
+        if not left_literal and not right_literal:
+            reason = (
+                "dimensions"
+                if left_dimensions != right_dimensions
+                else "unit"
+                if left_unit is not None and right_unit is not None and left_unit != right_unit
+                else None
+            )
+            if reason is not None:
+                raise OnlyResearchDefinitionError(
+                    OnlyResearchDefinitionPhase.EXPRESSION,
+                    "RESEARCH_DEFINITION_COMPARISON_INCOMPATIBLE",
+                    f"{path}.right",
+                    f"series {reason} are incompatible",
+                )
         if left_literal and right_literal:
             raise OnlyResearchDefinitionError(
                 OnlyResearchDefinitionPhase.EXPRESSION,
                 "RESEARCH_DEFINITION_COMPARISON_INVALID",
-                "expression",
+                path,
                 "literal-to-literal comparison is not an observation expression",
             )
         operator = {"==": "eq", "!=": "ne", "<": "lt", "<=": "le", ">": "gt", ">=": "ge"}[expression.operator.value]
@@ -673,28 +693,30 @@ class _ExpressionLowerer:
             (self._operand_binding("left", reference),),
         )
 
-    def _operand_type(self, operand: OnlyResearchOperand) -> OnlyCalculationDataType:
+    def _operand_contract(
+        self, operand: OnlyResearchOperand, path: str
+    ) -> tuple[OnlyCalculationDataType, tuple[str, ...] | None, str | None]:
         if isinstance(operand, OnlyResearchTypedLiteral):
-            return operand.data_type
+            return operand.data_type, None, None
         if isinstance(operand, OnlyResearchDatasetFieldRef):
-            try:
-                return _DATASET_TYPES[operand.field_name]
-            except KeyError as exc:
+            contract = only_research_dataset_source_contract(f"bar.{operand.field_name}")
+            if contract is None:
                 raise OnlyResearchDefinitionError(
                     OnlyResearchDefinitionPhase.EXPRESSION,
                     "RESEARCH_DEFINITION_DATASET_FIELD_UNKNOWN",
-                    "expression",
+                    path,
                     operand.field_name,
-                ) from exc
+                )
+            return contract.data_type, contract.dimensions, contract.unit
         output = self.variables.get(operand)
         if output is None:
             raise OnlyResearchDefinitionError(
                 OnlyResearchDefinitionPhase.EXPRESSION,
                 "RESEARCH_DEFINITION_VARIABLE_UNPUBLISHED",
-                "expression",
+                path,
                 f"{operand.instance_key}.{operand.output_name}",
             )
-        return output.data_type
+        return output.data_type, output.dimensions, output.unit
 
     def _operand_binding(self, name: str, operand: OnlyResearchOperand) -> OnlyResearchTemplateInputBinding:
         if isinstance(operand, OnlyResearchDatasetFieldRef):

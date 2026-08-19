@@ -181,6 +181,7 @@ RESEARCH_CHAIN = (
     OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_CALCULATION,
+    OnlyTestLane.RESEARCH_DEFINITION,
     OnlyTestLane.RESEARCH_FACTOR,
     OnlyTestLane.RESEARCH_EVALUATION,
     OnlyTestLane.RESEARCH_JOB,
@@ -192,6 +193,20 @@ RESEARCH_CHAIN = (
 CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM_RECOVERY)
 
 IMPACT_RULES = (
+    VerificationImpactRule(
+        "research-definition",
+        ("src/onlyalpha/research/definition/", "tests/research/definition/"),
+        ("tests/architecture/test_research_definition_boundaries.py",),
+        (
+            OnlyTestLane.RESEARCH_DEFINITION,
+            OnlyTestLane.RESEARCH_SPECIFICATION,
+            OnlyTestLane.RESEARCH_SWEEP,
+            OnlyTestLane.RESEARCH_CALCULATION,
+        ),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Research Definition owns normalized authoring intent and deterministic exact Specification lowering",
+    ),
     VerificationImpactRule(
         "research-run",
         ("src/onlyalpha/research/run/", "tests/research/run/"),
@@ -650,6 +665,7 @@ def _static_plan(
     )
     rules = set(rule_names)
     typed_roots = {
+        "research-definition": ("src/onlyalpha/research/definition",),
         "research-runtime": ("src/onlyalpha/runtime/research", "src/onlyalpha/runtime/product.py"),
         "research-specification": ("src/onlyalpha/research/specification",),
         "research-run": ("src/onlyalpha/research/run",),

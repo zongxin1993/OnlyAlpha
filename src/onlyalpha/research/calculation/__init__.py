@@ -2,7 +2,11 @@
 # ruff: noqa: F401
 
 from .backend import OnlyResearchCalculationBackend, OnlyResearchCalculationBackendResolver
-from .binding import only_bind_research_dataset_source
+from .binding import (
+    OnlyResearchDatasetSourceContract,
+    only_bind_research_dataset_source,
+    only_research_dataset_source_contract,
+)
 from .errors import OnlyResearchCalculationError, OnlyResearchCalculationResultStoreError
 from .execution import (
     OnlyResearchCalculationExecution,

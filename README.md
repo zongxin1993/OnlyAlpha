@@ -40,7 +40,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.0 — IMPLEMENTED / VERIFIED locally** — Research Definition & Decision Graph Foundation |
+| Current increment | **P8.4.0.1 — IMPLEMENTED / VERIFIED locally** — Research Definition Semantic Identity & Verification Closure |
 | Next semantic direction | P8.4.1 — Discovery & Resolution API |
 | License | MIT |
 

@@ -26,6 +26,7 @@ WORKSPACE_TESTS = (
 
 class OnlyTestLane(StrEnum):
     CALCULATION = "calculation"
+    RESEARCH_DEFINITION = "research-definition"
     RESEARCH_CALCULATION = "research-calculation"
     RESEARCH_FACTOR = "research-factor"
     RESEARCH_EVALUATION = "research-evaluation"
@@ -82,6 +83,15 @@ LANES = {
         ),
         "not external",
         "4",
+        "worksteal",
+    ),
+    OnlyTestLane.RESEARCH_DEFINITION: Lane(
+        (
+            "tests/research/definition",
+            "tests/architecture/test_research_definition_boundaries.py",
+        ),
+        "not external",
+        "2",
         "worksteal",
     ),
     OnlyTestLane.RESEARCH_CALCULATION: Lane(
@@ -332,6 +342,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.RESEARCH_DEFINITION,
     OnlyTestLane.RESEARCH_SPECIFICATION,
     OnlyTestLane.RESEARCH_RUN,
     OnlyTestLane.RESEARCH_COMMAND,
@@ -435,6 +446,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     ]
     if args.coverage:
         coverage_sources = {
+            OnlyTestLane.RESEARCH_DEFINITION: ("src/onlyalpha/research/definition",),
             OnlyTestLane.RESEARCH_SPECIFICATION: ("src/onlyalpha/research/specification",),
             OnlyTestLane.RESEARCH_RUN: ("src/onlyalpha/research/run",),
             OnlyTestLane.RESEARCH_EXECUTION: ("src/onlyalpha/research/execution",),
@@ -467,7 +479,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (
-            "research-specification-coverage"
+            "research-definition-coverage"
+            if name is OnlyTestLane.RESEARCH_DEFINITION
+            else "research-specification-coverage"
             if name is OnlyTestLane.RESEARCH_SPECIFICATION
             else "research-run-coverage"
             if name is OnlyTestLane.RESEARCH_RUN
@@ -533,6 +547,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             / (
                 "research-specification-coverage.json"
                 if name is OnlyTestLane.RESEARCH_SPECIFICATION
+                else "research-definition-coverage.json"
+                if name is OnlyTestLane.RESEARCH_DEFINITION
                 else "research-run-coverage.json"
                 if name is OnlyTestLane.RESEARCH_RUN
                 else "research-execution-coverage.json"
