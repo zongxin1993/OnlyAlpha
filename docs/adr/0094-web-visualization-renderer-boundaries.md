@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-19
 - Related: ADR 0092, 0093; P8.4 Research Studio Web
+- Supersedes: the statement in `docs/web-product-architecture.md` §13 that the exact chart library is freely adaptable without an ADR. Renderer replacement now requires explicit architecture review because the three renderer families and their ownership boundaries are intentionally frozen here.
 
 ## Context
 
