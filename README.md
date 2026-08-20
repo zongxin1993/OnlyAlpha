@@ -40,7 +40,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.1 — IMPLEMENTED / VERIFIED locally** — Discovery & Resolution API |
+| Current increment | **P8.4.1.1 — IMPLEMENTED / VERIFIED locally** — Public Authoring & Universe Authority Closure |
 | Next semantic direction | P8.4.2 — Scientific Result Evidence |
 | License | MIT |
 
@@ -394,6 +394,10 @@ P8.4.1 已把 Calculation Registry、Dataset source contract、registered Univer
 Catalog 暴露，并增加 `POST /api/v2/research/definitions/resolve`。该 endpoint 严格执行
 `HTTP DTO → OnlyResearchDefinition → OnlyResearchDefinitionResolver`，返回 exact Dataset/Candidate/Specification evidence；其中
 `exact_specification` 原样复用 P8.3 Run submission transport。它不创建 Run、不执行 Runtime，也不保存 Definition/Resolution。
+
+P8.4.1.1 已关闭 Public Authoring 与 Universe authority 边界：Research API 的 registered Universe Discovery 与 Definition Resolution
+只能复用同一实例；没有 registered authority 时只公开 explicit Universe capability。Definition authoring transport 只接受
+`INDICATOR / FACTOR / TARGET`，internal `PREDICATE` 仍由既有 Calculation Registry 与 exact Graph 语义拥有。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

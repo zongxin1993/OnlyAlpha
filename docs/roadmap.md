@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.1 — IMPLEMENTED / VERIFIED LOCALLY — Discovery & Resolution API
+Current Increment: P8.4.1.1 — IMPLEMENTED / VERIFIED LOCALLY — Public Authoring & Universe Authority Closure
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -449,6 +449,11 @@ fingerprints、exact Dataset、bounded Candidate Space、published variables 与
 `exact_specification`。Command、Artifact、Definition、Discovery 的 route/error ownership 已显式分离，OpenAPI 与 TypeScript
 transport/client 已同步。该 increment 不增加 Definition/Resolution Store、Run authority、Runtime 或 React Builder；P8 保持
 `IN_PROGRESS`。
+
+P8.4.1.1 已关闭两个公共边界缺口：API composition 从 Definition Resolver 使用的同一 registered Universe authority 投影 Discovery，
+且无该 authority 时不再宣称 `REGISTERED_POOL / REGISTERED_UNIVERSE`；Research Definition HTTP/OpenAPI/Web authoring vocabulary
+收紧为 `INDICATOR / FACTOR / TARGET`，而 Eligibility/Entry/Exit 的 internal `PREDICATE` lowering、exact Specification 与 P8.3 Run
+submission semantics 保持不变。该 closure 不新增 Universe/Calculation authority，也不改变 P8 `IN_PROGRESS` 状态。
 
 ### 目标
 

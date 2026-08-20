@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition, OnlyVerifiedResearchDataset
 
@@ -30,6 +30,7 @@ class OnlyResearchUniverseResolver(Protocol):
     def resolve(self, selection: OnlyResearchUniverseSelection) -> tuple[str, ...]: ...
 
 
+@runtime_checkable
 class OnlyResearchUniverseCatalog(Protocol):
     def list_registered(self) -> tuple[OnlyResearchRegisteredUniverse, ...]: ...
 

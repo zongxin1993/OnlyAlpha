@@ -43,7 +43,7 @@ class ResearchScalarDto(_StrictDto):
 
 
 class ResearchCalculationTypeReferenceDto(_StrictDto):
-    kind: OnlyCalculationKind
+    kind: Literal["INDICATOR", "FACTOR", "TARGET"]
     type_id: str
     semantic_version: str
 
@@ -95,7 +95,9 @@ class ResearchCalculationCatalogItemDto(_StrictDto):
         return cls(
             kind=value.kind.value,
             type_reference=ResearchCalculationTypeReferenceDto(
-                kind=value.kind, type_id=value.type_id, semantic_version=value.semantic_version
+                kind=cast(Literal["INDICATOR", "FACTOR", "TARGET"], value.kind.value),
+                type_id=value.type_id,
+                semantic_version=value.semantic_version,
             ),
             parameters=tuple(
                 ResearchParameterDefinitionDto(

@@ -129,6 +129,12 @@ class OnlyResearchDefinitionResolver:
         self._max_candidates = max_candidates
         only_register_research_predicate_primitives(calculation_registry)
 
+    @property
+    def universe_resolver(self) -> OnlyResearchUniverseResolver | None:
+        """Expose the exact registered-Universe authority used by resolution."""
+
+        return self._universes
+
     def resolve(self, definition: OnlyResearchDefinition) -> OnlyResearchDefinitionResolution:
         if not isinstance(definition, OnlyResearchDefinition):
             self._fail(

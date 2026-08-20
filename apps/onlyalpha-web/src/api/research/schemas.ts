@@ -161,7 +161,7 @@ const researchScalarSchema = z.strictObject({
     value: z.union([z.boolean(), z.number().int(), z.string(), z.null()])
 });
 const calculationTypeReferenceSchema = z.strictObject({
-    kind: z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]),
+    kind: z.enum(["INDICATOR", "FACTOR", "TARGET"]),
     type_id: z.string().min(1),
     semantic_version: z.string().min(1)
 });

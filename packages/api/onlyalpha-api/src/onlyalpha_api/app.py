@@ -103,8 +103,10 @@ def create_research_app(
     run_query_service: OnlyResearchRunQueryService,
     calculation_registry: OnlyCalculationRegistry,
     definition_resolver: OnlyResearchDefinitionResolver,
-    universe_catalog: OnlyResearchUniverseCatalog | None = None,
 ) -> FastAPI:
+    universe_authority = definition_resolver.universe_resolver
+    if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
+        raise TypeError("Research API registered Universe authority must support both resolution and discovery")
     app = create_artifact_query_app(reader)
     app.title = "OnlyAlpha Research API"
 
@@ -135,7 +137,7 @@ def create_research_app(
 
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
     app.include_router(create_run_router(command_service, run_query_service))
-    app.include_router(create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_catalog)))
+    app.include_router(create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)))
     app.include_router(create_definition_router(ResearchDefinitionApiService(definition_resolver)))
     return app
 

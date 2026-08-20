@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from typing import cast
 
+import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_api import create_research_app
 from onlyalpha_api.research.definition_schema import ResearchDefinitionRequestDto
-from onlyalpha_api.research.discovery import ResearchDiscoveryService
 from onlyalpha_api.research.run_schema import SubmitResearchRunRequest
 
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
@@ -37,17 +38,22 @@ class _Universes:
 
     def resolve(self, selection: OnlyResearchUniverseSelection) -> tuple[str, ...]:
         return {
-            "z.pool": ("Z.XNAS",),
-            "a.universe": ("A.XNAS",),
+            "z.pool": ("B.XNAS", "A.XNAS"),
+            "a.universe": ("A.XNAS", "B.XNAS"),
         }[selection.registered_id or ""]
 
 
-def _case(tmp_path):  # type: ignore[no-untyped-def]
+class _ResolverOnlyUniverses:
+    def resolve(self, selection: OnlyResearchUniverseSelection) -> tuple[str, ...]:
+        return ("A.XNAS", "B.XNAS")
+
+
+def _case(tmp_path, universe_authority=None):  # type: ignore[no-untyped-def]
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "datasets")
     candidate, partitions = snapshot()
     committed = store.commit(candidate, partitions)
     calculations = evaluation_registry()
-    resolver = OnlyResearchDefinitionResolver(calculations, store)
+    resolver = OnlyResearchDefinitionResolver(calculations, store, universe_resolver=universe_authority)
     app = create_research_app(
         cast(OnlyResearchArtifactReader, _Unused()),
         cast(OnlyResearchCommandService, _Unused()),
@@ -95,17 +101,34 @@ def test_discovery_projects_authorities_in_stable_order_and_hides_predicates(tmp
     statistics = client.get("/api/v2/research/catalog/statistics").json()["statistics"]
     assert [item["statistic_type"] for item in statistics] == ["IC", "RANK_IC"]
     assert all(item["variable_semantic_roles"] == ["FACTOR_SCORE", "FACTOR_VALUE"] for item in statistics)
-    assert client.get("/api/v2/research/catalog/universes").json()["registered_universes"] == []
+    universes = client.get("/api/v2/research/catalog/universes").json()
+    assert universes["selection_kinds"] == ["SINGLE_INSTRUMENT", "EXPLICIT_INSTRUMENT_SET"]
+    assert universes["registered_universes"] == []
 
 
-def test_universe_discovery_uses_the_same_registered_authority_as_resolution() -> None:
+def test_universe_discovery_uses_the_same_registered_authority_as_resolution(tmp_path) -> None:
     authority = _Universes()
-    service = ResearchDiscoveryService(evaluation_registry(), authority)
-    discovered = service.universes().registered_universes
-    assert [item.registered_id for item in discovered] == ["z.pool", "a.universe"]
-    for item in discovered:
-        selection = OnlyResearchUniverseSelection(item.kind, registered_id=item.registered_id)
-        assert authority.resolve(selection)
+    committed, _, _, client = _case(tmp_path, authority)
+    catalog = client.get("/api/v2/research/catalog/universes").json()
+    assert catalog["selection_kinds"] == [
+        "SINGLE_INSTRUMENT",
+        "EXPLICIT_INSTRUMENT_SET",
+        "REGISTERED_POOL",
+        "REGISTERED_UNIVERSE",
+    ]
+    assert [item["registered_id"] for item in catalog["registered_universes"]] == ["z.pool", "a.universe"]
+
+    source = definition(committed.definition)
+    registered = OnlyResearchUniverseSelection(OnlyResearchUniverseKind.REGISTERED_POOL, registered_id="z.pool")
+    payload = replace(source, dataset=replace(source.dataset, universe=registered)).to_dict()
+    response = client.post("/api/v2/research/definitions/resolve", json=dict(payload))
+    assert response.status_code == 200
+    assert response.json()["resolved_dataset_definition"]["instruments"] == ["A.XNAS", "B.XNAS"]
+
+
+def test_research_api_rejects_resolution_only_registered_universe_authority(tmp_path) -> None:
+    with pytest.raises(TypeError, match="must support both resolution and discovery"):
+        _case(tmp_path, _ResolverOnlyUniverses())
 
 
 def test_definition_dto_preserves_authoring_expression_order(tmp_path) -> None:
@@ -118,6 +141,26 @@ def test_definition_dto_preserves_authoring_expression_order(tmp_path) -> None:
         item.left.to_dict()
         for item in source.signals.entry.operands  # type: ignore[union-attr]
     ]
+
+
+def test_definition_authoring_schema_excludes_internal_predicate(tmp_path) -> None:
+    _, _, _, client = _case(tmp_path)
+    schema = client.app.openapi()["components"]["schemas"]["ResearchCalculationTypeReferenceDto"]
+    assert schema["properties"]["kind"]["enum"] == ["INDICATOR", "FACTOR", "TARGET"]
+
+
+def test_definition_transport_rejects_authored_predicate(tmp_path) -> None:
+    committed, _, _, client = _case(tmp_path)
+    payload = deepcopy(dict(definition(committed.definition).to_dict()))
+    payload["calculations"][0]["type_reference"]["kind"] = "PREDICATE"
+    response = client.post("/api/v2/research/definitions/resolve", json=payload)
+    assert response.status_code == 400
+    assert response.json()["error"] == {
+        "phase": "SCHEMA",
+        "code": "RESEARCH_DEFINITION_REQUEST_INVALID",
+        "path": "calculations[0].type_reference.kind",
+        "detail": "HTTP request validation failed",
+    }
 
 
 def test_resolve_projects_domain_truth_and_exact_specification_is_run_input(tmp_path) -> None:
@@ -140,6 +183,7 @@ def test_resolve_projects_domain_truth_and_exact_specification_is_run_input(tmp_
     ]
     assert OnlyResearchSpecification.from_dict(body["exact_specification"]) == expected.specification
     assert SubmitResearchRunRequest.model_validate({"specification": body["exact_specification"]})
+    assert "PREDICATE" in str(body["exact_specification"])
     assert "workload" not in body and "node_fingerprints" not in str(body)
 
 

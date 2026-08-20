@@ -223,11 +223,6 @@ export interface components {
          */
         OnlyCalculationDataType: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
         /**
-         * OnlyCalculationKind
-         * @enum {string}
-         */
-        OnlyCalculationKind: "INDICATOR" | "FACTOR" | "TARGET" | "PREDICATE";
-        /**
          * OnlyPriceType
          * @enum {string}
          */
@@ -360,7 +355,11 @@ export interface components {
         };
         /** ResearchCalculationTypeReferenceDto */
         ResearchCalculationTypeReferenceDto: {
-            kind: components["schemas"]["OnlyCalculationKind"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "INDICATOR" | "FACTOR" | "TARGET";
             /** Semantic Version */
             semantic_version: string;
             /** Type Id */

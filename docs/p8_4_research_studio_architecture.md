@@ -1,6 +1,6 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4.1 Discovery & Resolution API Implemented / Verified Locally; later P8.4 increments remain Target Design**
+> Status: **P8.4.1.1 Public Authoring & Universe Authority Closure Implemented / Verified Locally; later P8.4 increments remain Target Design**
 >
 > This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
 
@@ -24,6 +24,11 @@ the Statistics capability shared with Definition admission. The resolve route pe
 `OnlyResearchDefinitionResolver`; its `exact_specification` is the unchanged P8.3 Run specification transport. Route metadata now owns Command,
 Artifact, Definition and Discovery validation errors explicitly. No semantic registry, Definition/Resolution persistence, Run creation, Runtime
 execution, or React Builder was introduced.
+
+P8.4.1.1 repository fact: registered Universe Discovery and Definition Resolution in the full Research API now derive from the same injected
+authority; without one, only explicit Universe kinds are advertised. Public Definition type references admit only
+`INDICATOR / FACTOR / TARGET`, while internal Predicate primitives remain available in the existing Calculation Registry and exact graph. The
+closure changes no Definition identity, exact Specification semantics, Run submission transport, or semantic authority.
 
 ## 1. P8.4 objective
 

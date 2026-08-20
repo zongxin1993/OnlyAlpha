@@ -22,6 +22,11 @@ class _ContractReader:
         raise RuntimeError(f"OpenAPI generation must not load Artifact {research_result_fingerprint}")
 
 
+class _ContractDatasetResolver:
+    def resolve_verified(self, definition: object) -> object:
+        raise RuntimeError(f"OpenAPI generation must not resolve Dataset {definition}")
+
+
 def rendered_contract() -> str:
     calculations = OnlyCalculationRegistry()
     app = create_research_app(
@@ -29,7 +34,7 @@ def rendered_contract() -> str:
         cast(OnlyResearchCommandService, object()),
         cast(OnlyResearchRunQueryService, object()),
         calculations,
-        cast(OnlyResearchDefinitionResolver, object()),
+        OnlyResearchDefinitionResolver(calculations, _ContractDatasetResolver()),  # type: ignore[arg-type]
     )
     return json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 

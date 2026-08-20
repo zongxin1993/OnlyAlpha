@@ -52,16 +52,6 @@
         "title": "OnlyCalculationDataType",
         "type": "string"
       },
-      "OnlyCalculationKind": {
-        "enum": [
-          "INDICATOR",
-          "FACTOR",
-          "TARGET",
-          "PREDICATE"
-        ],
-        "title": "OnlyCalculationKind",
-        "type": "string"
-      },
       "OnlyPriceType": {
         "enum": [
           "LAST",
@@ -424,7 +414,13 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "$ref": "#/components/schemas/OnlyCalculationKind"
+            "enum": [
+              "INDICATOR",
+              "FACTOR",
+              "TARGET"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "semantic_version": {
             "title": "Semantic Version",

@@ -66,8 +66,18 @@ class ResearchDiscoveryService:
 
     def universes(self) -> ResearchUniverseDiscovery:
         registered = () if self._universes is None else self._universes.list_registered()
+        registered_kinds = {item.kind for item in registered}
         return ResearchUniverseDiscovery(
-            tuple(OnlyResearchUniverseKind),
+            tuple(
+                kind
+                for kind in OnlyResearchUniverseKind
+                if kind
+                in {
+                    OnlyResearchUniverseKind.SINGLE_INSTRUMENT,
+                    OnlyResearchUniverseKind.EXPLICIT_INSTRUMENT_SET,
+                    *registered_kinds,
+                }
+            ),
             tuple(sorted(registered, key=lambda item: (item.kind.value, item.registered_id))),
         )
 
