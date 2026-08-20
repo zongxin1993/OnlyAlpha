@@ -14,6 +14,7 @@ from onlyalpha.research.command import (
     OnlyResearchSubmissionKey,
     OnlyResearchSubmissionRecord,
 )
+from onlyalpha.research.definition import OnlyResearchDefinitionResolver
 from onlyalpha.research.run import (
     OnlyPostgresSchemaIncompatibleError,
     OnlyResearchRun,
@@ -100,7 +101,20 @@ def _client():  # type: ignore[no-untyped-def]
     )
     command = OnlyResearchCommandService(admission=admission, store=store, now_utc=lambda: NOW)  # type: ignore[arg-type]
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
-    return dataset, store, TestClient(create_research_app(_Reader(), command, query))  # type: ignore[arg-type]
+    calculations = registry()
+    return (
+        dataset,
+        store,
+        TestClient(  # type: ignore[arg-type]
+            create_research_app(
+                _Reader(),
+                command,
+                query,
+                calculations,
+                OnlyResearchDefinitionResolver(calculations, dataset),
+            )
+        ),
+    )
 
 
 def test_submit_replay_get_list_and_cancel_contract() -> None:

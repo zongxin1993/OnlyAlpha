@@ -5,22 +5,35 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.command.errors import OnlyResearchCommandError
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
+from onlyalpha.research.definition.errors import OnlyResearchDefinitionError
+from onlyalpha.research.definition.ports import OnlyResearchUniverseCatalog
+from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 from onlyalpha.research.run.errors import OnlyResearchRunError
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 
+from .research.definition_errors import definition_error_response
+from .research.definition_routes import (
+    DEFINITION_ROUTE_TAG,
+    DISCOVERY_ROUTE_TAG,
+    create_definition_router,
+    create_discovery_router,
+)
+from .research.definition_schema import ResearchDefinitionErrorDto, ResearchDefinitionErrorEnvelopeDto
+from .research.definition_service import ResearchDefinitionApiService
+from .research.discovery import ResearchDiscoveryService
 from .research.errors import research_error_response
-from .research.routes import create_artifact_router
+from .research.routes import ARTIFACT_ROUTE_TAG, create_artifact_router
 from .research.run_errors import run_error_response
-from .research.run_routes import create_run_router
+from .research.run_routes import RUN_ROUTE_TAG, create_run_router
 from .research.run_schema import ResearchRunErrorDto, ResearchRunErrorEnvelopeDto
 from .research.schema import RESEARCH_API_SCHEMA_VERSION, ResearchErrorDto
-
-_RESEARCH_RUN_PATH = "/api/v2/research/runs"
 
 
 def _artifact_validation_error_response() -> JSONResponse:
@@ -37,9 +50,34 @@ def _run_validation_error_response() -> JSONResponse:
     return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
 
 
-def _is_research_run_request(request: Request) -> bool:
-    path = request.url.path
-    return path == _RESEARCH_RUN_PATH or path.startswith(f"{_RESEARCH_RUN_PATH}/")
+def _definition_validation_error_response(error: RequestValidationError) -> JSONResponse:
+    location = error.errors()[0].get("loc", ()) if error.errors() else ()
+    parts = tuple(item for item in location if item != "body")
+    path = "$"
+    for item in parts:
+        path += f"[{item}]" if isinstance(item, int) else f".{item}"
+    if path.startswith("$."):
+        path = path[2:]
+    body = ResearchDefinitionErrorEnvelopeDto(
+        error=ResearchDefinitionErrorDto(
+            phase="SCHEMA",
+            code="RESEARCH_DEFINITION_REQUEST_INVALID",
+            path=path,
+            detail="HTTP request validation failed",
+        )
+    )
+    return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
+
+
+def _request_route_tag(request: Request) -> str | None:
+    route = request.scope.get("route")
+    if not isinstance(route, APIRoute):
+        return None
+    tags = tuple(route.tags)
+    known = tuple(
+        tag for tag in tags if tag in {RUN_ROUTE_TAG, ARTIFACT_ROUTE_TAG, DEFINITION_ROUTE_TAG, DISCOVERY_ROUTE_TAG}
+    )
+    return known[0] if len(known) == 1 else None
 
 
 def create_artifact_query_app(reader: OnlyResearchArtifactReader) -> FastAPI:
@@ -63,6 +101,9 @@ def create_research_app(
     reader: OnlyResearchArtifactReader,
     command_service: OnlyResearchCommandService,
     run_query_service: OnlyResearchRunQueryService,
+    calculation_registry: OnlyCalculationRegistry,
+    definition_resolver: OnlyResearchDefinitionResolver,
+    universe_catalog: OnlyResearchUniverseCatalog | None = None,
 ) -> FastAPI:
     app = create_artifact_query_app(reader)
     app.title = "OnlyAlpha Research API"
@@ -74,13 +115,28 @@ def create_research_app(
     for error_type in (OnlyResearchCommandError, OnlyResearchRunError, OnlyResearchSpecificationError):
         app.add_exception_handler(error_type, command_error_handler)
 
-    async def command_validation_error_handler(request: Request, _error: Exception) -> JSONResponse:
-        if _is_research_run_request(request):
-            return _run_validation_error_response()
-        return _artifact_validation_error_response()
+    async def definition_domain_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        assert isinstance(error, OnlyResearchDefinitionError)
+        status, body = definition_error_response(error)
+        return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
-    app.add_exception_handler(RequestValidationError, command_validation_error_handler)
+    app.add_exception_handler(OnlyResearchDefinitionError, definition_domain_error_handler)
+
+    async def request_validation_error_handler(request: Request, error: Exception) -> JSONResponse:
+        assert isinstance(error, RequestValidationError)
+        family = _request_route_tag(request)
+        if family == RUN_ROUTE_TAG:
+            return _run_validation_error_response()
+        if family == ARTIFACT_ROUTE_TAG:
+            return _artifact_validation_error_response()
+        if family == DEFINITION_ROUTE_TAG:
+            return _definition_validation_error_response(error)
+        return JSONResponse(status_code=400, content={"detail": "HTTP request validation failed"})
+
+    app.add_exception_handler(RequestValidationError, request_validation_error_handler)
     app.include_router(create_run_router(command_service, run_query_service))
+    app.include_router(create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_catalog)))
+    app.include_router(create_definition_router(ResearchDefinitionApiService(definition_resolver)))
     return app
 
 

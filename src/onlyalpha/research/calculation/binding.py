@@ -58,6 +58,12 @@ def only_research_dataset_source_contract(source: str) -> OnlyResearchDatasetSou
     return _SOURCES.get(source)
 
 
+def only_research_dataset_source_contracts() -> tuple[tuple[str, OnlyResearchDatasetSourceContract], ...]:
+    """Enumerate the canonical source contracts in stable source order."""
+
+    return tuple((source, _SOURCES[source]) for source in sorted(_SOURCES))
+
+
 def only_bind_research_dataset_source(
     source: str,
     expected: OnlyInputDefinition,
@@ -92,4 +98,5 @@ __all__ = [
     "OnlyResearchDatasetSourceContract",
     "only_bind_research_dataset_source",
     "only_research_dataset_source_contract",
+    "only_research_dataset_source_contracts",
 ]

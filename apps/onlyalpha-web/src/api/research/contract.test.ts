@@ -13,10 +13,13 @@ import { mapResearchRun, mapStatisticSeriesPage } from "./mapper";
 import { researchQueryKeys } from "./queryKeys";
 import {
     artifactSummarySchema,
+    researchCalculationCatalogSchema,
+    researchDefinitionResolutionSchema,
     researchErrorSchema,
     researchRunSchema,
     statisticSeriesPageSchema
 } from "./schemas";
+import type { ResearchDefinitionTransport } from "./schemas";
 
 const result = parseResearchResultFingerprint("a".repeat(64));
 const statistics = parseStatisticsFingerprint("b".repeat(64));
@@ -117,6 +120,66 @@ afterAll(() => {
 });
 
 describe("Research API admission", () => {
+    it("discovers capabilities and sends Definition transport unchanged", async () => {
+        const authored = { schema_version: 1 } as unknown as ResearchDefinitionTransport;
+        const resolution = {
+            schema_version: 2 as const,
+            authoring_definition_fingerprint: "1".repeat(64),
+            resolved_definition_fingerprint: "2".repeat(64),
+            dataset_snapshot_fingerprint: "3".repeat(64),
+            specification_fingerprint: "4".repeat(64),
+            resolved_dataset_definition: { schema_version: 1 },
+            instrument_count: 2,
+            candidate_count: 1,
+            candidates: [
+                {
+                    ordinal: 0,
+                    candidate_fingerprint: "5".repeat(64),
+                    assignment: {},
+                    calculation_fingerprint: "6".repeat(64),
+                    graph_fingerprint: "7".repeat(64)
+                }
+            ],
+            published_variables: [],
+            exact_specification: { schema_version: 1 },
+            diagnostics: []
+        };
+        server.use(
+            http.get("*/api/v2/research/catalog/calculations", () =>
+                HttpResponse.json({ schema_version: 2, calculations: [] })
+            ),
+            http.get("*/api/v2/research/catalog/universes", () =>
+                HttpResponse.json({
+                    schema_version: 2,
+                    selection_kinds: ["SINGLE_INSTRUMENT"],
+                    registered_universes: []
+                })
+            ),
+            http.get("*/api/v2/research/catalog/statistics", () =>
+                HttpResponse.json({ schema_version: 2, statistics: [] })
+            ),
+            http.get("*/api/v2/research/catalog/dataset-fields", () =>
+                HttpResponse.json({ schema_version: 2, dataset_fields: [] })
+            ),
+            http.post("*/api/v2/research/definitions/resolve", async ({ request }) => {
+                expect(await request.json()).toEqual(authored);
+                return HttpResponse.json(resolution);
+            })
+        );
+        const client = new FetchResearchApiClient();
+        expect((await client.getCalculationCatalog()).calculations).toEqual([]);
+        expect((await client.getUniverseCatalog()).registered_universes).toEqual([]);
+        expect((await client.getStatisticsCapabilityCatalog()).statistics).toEqual([]);
+        expect((await client.getDatasetFieldCatalog()).dataset_fields).toEqual([]);
+        expect((await client.resolveDefinition(authored)).exact_specification).toEqual({
+            schema_version: 1
+        });
+        expect(researchCalculationCatalogSchema.safeParse({ calculations: [] }).success).toBe(
+            false
+        );
+        expect(researchDefinitionResolutionSchema.parse(resolution).candidate_count).toBe(1);
+    });
+
     it("maps exact time and Decimal without Number conversion", () => {
         const mapped = mapStatisticSeriesPage(statisticSeriesPageSchema.parse(page));
         expect(mapped.points[0]?.tsEventNs).toBe(1_780_000_000_000_000_123n);

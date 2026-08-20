@@ -25,13 +25,27 @@ import {
 } from "./mapper";
 import {
     artifactSummarySchema,
+    researchCalculationCatalogSchema,
+    researchDatasetFieldCatalogSchema,
+    researchDefinitionErrorSchema,
+    researchDefinitionResolutionSchema,
     researchErrorSchema,
     researchRunErrorSchema,
     researchRunPageSchema,
     researchRunSchema,
     researchRunSubmissionSchema,
+    researchStatisticsCapabilityCatalogSchema,
+    researchUniverseCatalogSchema,
     statisticSeriesPageSchema,
     statisticsCatalogSchema
+} from "./schemas";
+import type {
+    ResearchCalculationCatalogTransport,
+    ResearchDatasetFieldCatalogTransport,
+    ResearchDefinitionResolutionTransport,
+    ResearchDefinitionTransport,
+    ResearchStatisticsCapabilityCatalogTransport,
+    ResearchUniverseCatalogTransport
 } from "./schemas";
 
 export interface StatisticSeriesRequest {
@@ -69,7 +83,28 @@ export interface ResearchArtifactApiClient {
     ): Promise<ResearchStatisticSeriesPage>;
 }
 
-export interface ResearchApiClient extends ResearchRunApiClient, ResearchArtifactApiClient {}
+export interface ResearchDiscoveryApiClient {
+    getCalculationCatalog(signal?: AbortSignal): Promise<ResearchCalculationCatalogTransport>;
+    getUniverseCatalog(signal?: AbortSignal): Promise<ResearchUniverseCatalogTransport>;
+    getStatisticsCapabilityCatalog(
+        signal?: AbortSignal
+    ): Promise<ResearchStatisticsCapabilityCatalogTransport>;
+    getDatasetFieldCatalog(signal?: AbortSignal): Promise<ResearchDatasetFieldCatalogTransport>;
+}
+
+export interface ResearchDefinitionApiClient {
+    resolveDefinition(
+        definition: ResearchDefinitionTransport,
+        signal?: AbortSignal
+    ): Promise<ResearchDefinitionResolutionTransport>;
+}
+
+export interface ResearchApiClient
+    extends
+        ResearchRunApiClient,
+        ResearchArtifactApiClient,
+        ResearchDiscoveryApiClient,
+        ResearchDefinitionApiClient {}
 
 async function decode(response: Response): Promise<unknown> {
     try {
@@ -97,6 +132,15 @@ async function request(url: string, init: RequestInit, signal?: AbortSignal): Pr
     }
     const body = await decode(response);
     if (!response.ok) {
+        const definitionFailure = researchDefinitionErrorSchema.safeParse(body);
+        if (definitionFailure.success) {
+            const error = definitionFailure.data.error;
+            throw new ResearchWebError(
+                error.code as `RESEARCH_${string}`,
+                error.detail,
+                response.status
+            );
+        }
         const runFailure = researchRunErrorSchema.safeParse(body);
         if (runFailure.success) {
             const error = runFailure.data.error;
@@ -130,6 +174,52 @@ const base = (id: ResearchResultFingerprint): string =>
     `/api/v2/research/artifacts/${encodeURIComponent(id)}`;
 
 export class FetchResearchApiClient implements ResearchApiClient {
+    async getCalculationCatalog(signal?: AbortSignal) {
+        return admitted(
+            researchCalculationCatalogSchema,
+            await request("/api/v2/research/catalog/calculations", { method: "GET" }, signal)
+        );
+    }
+
+    async getUniverseCatalog(signal?: AbortSignal) {
+        return admitted(
+            researchUniverseCatalogSchema,
+            await request("/api/v2/research/catalog/universes", { method: "GET" }, signal)
+        );
+    }
+
+    async getStatisticsCapabilityCatalog(signal?: AbortSignal) {
+        return admitted(
+            researchStatisticsCapabilityCatalogSchema,
+            await request("/api/v2/research/catalog/statistics", { method: "GET" }, signal)
+        );
+    }
+
+    async getDatasetFieldCatalog(signal?: AbortSignal) {
+        return admitted(
+            researchDatasetFieldCatalogSchema,
+            await request("/api/v2/research/catalog/dataset-fields", { method: "GET" }, signal)
+        );
+    }
+
+    async resolveDefinition(definition: ResearchDefinitionTransport, signal?: AbortSignal) {
+        return admitted(
+            researchDefinitionResolutionSchema,
+            await request(
+                "/api/v2/research/definitions/resolve",
+                {
+                    method: "POST",
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(definition)
+                },
+                signal
+            )
+        );
+    }
+
     async submitRun(
         specification: Readonly<Record<string, unknown>>,
         submissionKey: ResearchSubmissionKey,

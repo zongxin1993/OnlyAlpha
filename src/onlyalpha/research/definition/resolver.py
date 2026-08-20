@@ -8,8 +8,6 @@ from types import MappingProxyType
 from typing import NoReturn
 
 from onlyalpha.calculation import (
-    FACTOR_SCORE_SEMANTIC_TYPE,
-    FACTOR_VALUE_SEMANTIC_TYPE,
     OnlyCalculationBackendKind,
     OnlyCalculationDataType,
     OnlyCalculationKind,
@@ -22,6 +20,7 @@ from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.calculation.binding import only_research_dataset_source_contract
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition
+from onlyalpha.research.evaluation.capability import only_research_statistics_capability
 from onlyalpha.research.specification.model import (
     OnlyResearchCalculationSpec,
     OnlyResearchSeriesSelector,
@@ -539,10 +538,11 @@ class OnlyResearchDefinitionResolver:
             instance = next(
                 item for item in definition.calculations if item.instance_key == request.variable.instance_key
             )
-            if instance.type_reference.kind is not OnlyCalculationKind.FACTOR or output.semantic_type not in {
-                FACTOR_VALUE_SEMANTIC_TYPE,
-                FACTOR_SCORE_SEMANTIC_TYPE,
-            }:
+            capability = only_research_statistics_capability(request.definition.method)
+            if (
+                instance.type_reference.kind not in capability.variable_kinds
+                or output.semantic_type not in capability.variable_semantic_types
+            ):
                 self._fail(
                     OnlyResearchDefinitionPhase.STATISTICS,
                     "RESEARCH_DEFINITION_STATISTICS_INCOMPATIBLE",
@@ -560,12 +560,20 @@ class OnlyResearchDefinitionResolver:
                     request.target_instance_key,
                 )
             output_name = target.published_outputs[0]
-            if OnlyResearchVariableRef(target.instance_key, output_name) not in target_variables:
+            target_output = target_variables.get(OnlyResearchVariableRef(target.instance_key, output_name))
+            if target_output is None:
                 self._fail(
                     OnlyResearchDefinitionPhase.STATISTICS,
                     "RESEARCH_DEFINITION_STATISTICS_TARGET_UNKNOWN",
                     f"statistics[{index}]",
                     output_name,
+                )
+            if target_output.semantic_type not in capability.target_semantic_types:
+                self._fail(
+                    OnlyResearchDefinitionPhase.STATISTICS,
+                    "RESEARCH_DEFINITION_STATISTICS_INCOMPATIBLE",
+                    f"statistics[{index}]",
+                    "current Statistics capability requires Target Value",
                 )
             result.append(
                 OnlyResearchStatisticsSpec(

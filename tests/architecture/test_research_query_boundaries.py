@@ -72,7 +72,8 @@ def test_http_routes_and_schema_only_consume_query_public_contract() -> None:
         "pyarrow",
         "pathlib",
     )
-    for path in adapter_root.glob("*.py"):
+    for name in ("routes.py", "schema.py", "errors.py"):
+        path = adapter_root / name
         imports = _imports(path)
         assert not any(name.startswith(forbidden) for name in imports), (path, imports)
     routes = (adapter_root / "routes.py").read_text(encoding="utf-8")

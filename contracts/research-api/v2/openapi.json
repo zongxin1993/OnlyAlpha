@@ -15,6 +15,155 @@
         "type": "object"
       },
       "JsonValue": {},
+      "OnlyAdjustmentType": {
+        "enum": [
+          "RAW",
+          "FORWARD",
+          "BACKWARD"
+        ],
+        "title": "OnlyAdjustmentType",
+        "type": "string"
+      },
+      "OnlyAggregationSource": {
+        "enum": [
+          "EXTERNAL",
+          "INTERNAL"
+        ],
+        "title": "OnlyAggregationSource",
+        "type": "string"
+      },
+      "OnlyBarAggregation": {
+        "enum": [
+          "TIME",
+          "TICK",
+          "VOLUME",
+          "VALUE"
+        ],
+        "title": "OnlyBarAggregation",
+        "type": "string"
+      },
+      "OnlyCalculationDataType": {
+        "enum": [
+          "DECIMAL",
+          "INTEGER",
+          "BOOLEAN",
+          "STRING"
+        ],
+        "title": "OnlyCalculationDataType",
+        "type": "string"
+      },
+      "OnlyCalculationKind": {
+        "enum": [
+          "INDICATOR",
+          "FACTOR",
+          "TARGET",
+          "PREDICATE"
+        ],
+        "title": "OnlyCalculationKind",
+        "type": "string"
+      },
+      "OnlyPriceType": {
+        "enum": [
+          "LAST",
+          "BID",
+          "ASK",
+          "MID",
+          "MARK"
+        ],
+        "title": "OnlyPriceType",
+        "type": "string"
+      },
+      "OnlyResearchPairingPolicy": {
+        "enum": [
+          "PAIRWISE_COMPLETE"
+        ],
+        "title": "OnlyResearchPairingPolicy",
+        "type": "string"
+      },
+      "OnlyResearchRankTieMethod": {
+        "enum": [
+          "AVERAGE"
+        ],
+        "title": "OnlyResearchRankTieMethod",
+        "type": "string"
+      },
+      "OnlyResearchStatisticsMethod": {
+        "enum": [
+          "IC",
+          "RANK_IC"
+        ],
+        "title": "OnlyResearchStatisticsMethod",
+        "type": "string"
+      },
+      "OnlyResearchUniverseKind": {
+        "enum": [
+          "SINGLE_INSTRUMENT",
+          "EXPLICIT_INSTRUMENT_SET",
+          "REGISTERED_POOL",
+          "REGISTERED_UNIVERSE"
+        ],
+        "title": "OnlyResearchUniverseKind",
+        "type": "string"
+      },
+      "OnlyResearchUniversePolicy": {
+        "enum": [
+          "OBSERVED_PAIRWISE"
+        ],
+        "title": "OnlyResearchUniversePolicy",
+        "type": "string"
+      },
+      "OnlyResearchWeighting": {
+        "enum": [
+          "EQUAL"
+        ],
+        "title": "OnlyResearchWeighting",
+        "type": "string"
+      },
+      "ResearchAndDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "AND",
+            "title": "Kind",
+            "type": "string"
+          },
+          "operands": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/components/schemas/ResearchAndDto",
+                  "COMPARISON": "#/components/schemas/ResearchComparisonDto",
+                  "NOT": "#/components/schemas/ResearchNotDto",
+                  "OR": "#/components/schemas/ResearchOrDto"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ResearchComparisonDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchNotDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchAndDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchOrDto"
+                }
+              ]
+            },
+            "title": "Operands",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "operands"
+        ],
+        "title": "ResearchAndDto",
+        "type": "object"
+      },
       "ResearchArtifactSummaryDto": {
         "additionalProperties": false,
         "properties": {
@@ -85,6 +234,683 @@
         "title": "ResearchArtifactSummaryDto",
         "type": "object"
       },
+      "ResearchBarSpecificationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "aggregation": {
+            "$ref": "#/components/schemas/OnlyBarAggregation"
+          },
+          "price_type": {
+            "$ref": "#/components/schemas/OnlyPriceType"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step",
+          "aggregation",
+          "price_type"
+        ],
+        "title": "ResearchBarSpecificationDto",
+        "type": "object"
+      },
+      "ResearchCalculationCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "calculations": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCalculationCatalogItemDto"
+            },
+            "title": "Calculations",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calculations"
+        ],
+        "title": "ResearchCalculationCatalogDto",
+        "type": "object"
+      },
+      "ResearchCalculationCatalogItemDto": {
+        "additionalProperties": false,
+        "properties": {
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchInputDefinitionDto"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchOutputDefinitionDto"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
+          "parameter_sweep_allowed": {
+            "title": "Parameter Sweep Allowed",
+            "type": "boolean"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchParameterDefinitionDto"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "type_reference": {
+            "$ref": "#/components/schemas/ResearchCalculationTypeReferenceDto"
+          }
+        },
+        "required": [
+          "kind",
+          "type_reference",
+          "parameters",
+          "inputs",
+          "outputs",
+          "parameter_sweep_allowed"
+        ],
+        "title": "ResearchCalculationCatalogItemDto",
+        "type": "object"
+      },
+      "ResearchCalculationInputDto": {
+        "additionalProperties": false,
+        "properties": {
+          "input_name": {
+            "title": "Input Name",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchVariableRefDto"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "input_name",
+          "source"
+        ],
+        "title": "ResearchCalculationInputDto",
+        "type": "object"
+      },
+      "ResearchCalculationInstanceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "input_bindings": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCalculationInputDto"
+            },
+            "title": "Input Bindings",
+            "type": "array"
+          },
+          "instance_key": {
+            "title": "Instance Key",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "discriminator": {
+                "mapping": {
+                  "FIXED": "#/components/schemas/ResearchFixedParameterDto",
+                  "SWEEP": "#/components/schemas/ResearchSweepParameterDto"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ResearchFixedParameterDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchSweepParameterDto"
+                }
+              ]
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "primary_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Output"
+          },
+          "published_outputs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Published Outputs",
+            "type": "array"
+          },
+          "type_reference": {
+            "$ref": "#/components/schemas/ResearchCalculationTypeReferenceDto"
+          }
+        },
+        "required": [
+          "instance_key",
+          "type_reference",
+          "parameters",
+          "published_outputs",
+          "input_bindings",
+          "primary_output"
+        ],
+        "title": "ResearchCalculationInstanceDto",
+        "type": "object"
+      },
+      "ResearchCalculationTypeReferenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/OnlyCalculationKind"
+          },
+          "semantic_version": {
+            "title": "Semantic Version",
+            "type": "string"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "type_id",
+          "semantic_version"
+        ],
+        "title": "ResearchCalculationTypeReferenceDto",
+        "type": "object"
+      },
+      "ResearchComparisonDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "COMPARISON",
+            "title": "Kind",
+            "type": "string"
+          },
+          "left": {
+            "discriminator": {
+              "mapping": {
+                "DATASET_FIELD": "#/components/schemas/ResearchDatasetFieldRefDto",
+                "LITERAL": "#/components/schemas/ResearchTypedLiteralDto",
+                "VARIABLE": "#/components/schemas/ResearchVariableRefDto"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResearchDatasetFieldRefDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchVariableRefDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchTypedLiteralDto"
+              }
+            ],
+            "title": "Left"
+          },
+          "operator": {
+            "enum": [
+              "==",
+              "!=",
+              "<",
+              "<=",
+              ">",
+              ">="
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "right": {
+            "discriminator": {
+              "mapping": {
+                "DATASET_FIELD": "#/components/schemas/ResearchDatasetFieldRefDto",
+                "LITERAL": "#/components/schemas/ResearchTypedLiteralDto",
+                "VARIABLE": "#/components/schemas/ResearchVariableRefDto"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResearchDatasetFieldRefDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchVariableRefDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchTypedLiteralDto"
+              }
+            ],
+            "title": "Right"
+          }
+        },
+        "required": [
+          "kind",
+          "operator",
+          "left",
+          "right"
+        ],
+        "title": "ResearchComparisonDto",
+        "type": "object"
+      },
+      "ResearchDatasetFieldCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchDatasetFieldDto"
+            },
+            "title": "Dataset Fields",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_fields"
+        ],
+        "title": "ResearchDatasetFieldCatalogDto",
+        "type": "object"
+      },
+      "ResearchDatasetFieldDto": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "title": "Data Type",
+            "type": "string"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "field_name": {
+            "title": "Field Name",
+            "type": "string"
+          },
+          "semantic_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Semantic Roles",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "source",
+          "field_name",
+          "data_type",
+          "semantic_roles",
+          "dimensions",
+          "unit"
+        ],
+        "title": "ResearchDatasetFieldDto",
+        "type": "object"
+      },
+      "ResearchDatasetFieldRefDto": {
+        "additionalProperties": false,
+        "properties": {
+          "field_name": {
+            "title": "Field Name",
+            "type": "string"
+          },
+          "kind": {
+            "const": "DATASET_FIELD",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "field_name"
+        ],
+        "title": "ResearchDatasetFieldRefDto",
+        "type": "object"
+      },
+      "ResearchDatasetSelectionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "adjustment_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adjustment Reference"
+          },
+          "adjustment_type": {
+            "$ref": "#/components/schemas/OnlyAdjustmentType"
+          },
+          "aggregation_source": {
+            "$ref": "#/components/schemas/OnlyAggregationSource"
+          },
+          "bar_specification": {
+            "$ref": "#/components/schemas/ResearchBarSpecificationDto"
+          },
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          },
+          "universe": {
+            "$ref": "#/components/schemas/ResearchUniverseSelectionDto"
+          }
+        },
+        "required": [
+          "universe",
+          "bar_specification",
+          "aggregation_source",
+          "start",
+          "end",
+          "adjustment_type",
+          "adjustment_reference"
+        ],
+        "title": "ResearchDatasetSelectionDto",
+        "type": "object"
+      },
+      "ResearchDefinitionCandidateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ResearchScalarDto"
+            },
+            "title": "Assignment",
+            "type": "object"
+          },
+          "calculation_fingerprint": {
+            "title": "Calculation Fingerprint",
+            "type": "string"
+          },
+          "candidate_fingerprint": {
+            "title": "Candidate Fingerprint",
+            "type": "string"
+          },
+          "graph_fingerprint": {
+            "title": "Graph Fingerprint",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal",
+          "candidate_fingerprint",
+          "assignment",
+          "calculation_fingerprint",
+          "graph_fingerprint"
+        ],
+        "title": "ResearchDefinitionCandidateDto",
+        "type": "object"
+      },
+      "ResearchDefinitionErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "code",
+          "path",
+          "detail"
+        ],
+        "title": "ResearchDefinitionErrorDto",
+        "type": "object"
+      },
+      "ResearchDefinitionErrorEnvelopeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ResearchDefinitionErrorDto"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ResearchDefinitionErrorEnvelopeDto",
+        "type": "object"
+      },
+      "ResearchDefinitionRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "calculations": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCalculationInstanceDto"
+            },
+            "title": "Calculations",
+            "type": "array"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/ResearchDatasetSelectionDto"
+          },
+          "display_metadata": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Display Metadata",
+            "type": "object"
+          },
+          "eligibility": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/ResearchAndDto",
+                    "COMPARISON": "#/components/schemas/ResearchComparisonDto",
+                    "NOT": "#/components/schemas/ResearchNotDto",
+                    "OR": "#/components/schemas/ResearchOrDto"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ResearchComparisonDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchNotDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchAndDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchOrDto"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligibility"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "signals": {
+            "$ref": "#/components/schemas/ResearchSignalsDto"
+          },
+          "statistics": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchStatisticsRequestDto"
+            },
+            "title": "Statistics",
+            "type": "array"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCalculationInstanceDto"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "dataset",
+          "calculations",
+          "eligibility",
+          "signals",
+          "targets",
+          "statistics",
+          "display_metadata"
+        ],
+        "title": "ResearchDefinitionRequestDto",
+        "type": "object"
+      },
+      "ResearchDefinitionResolutionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "authoring_definition_fingerprint": {
+            "title": "Authoring Definition Fingerprint",
+            "type": "string"
+          },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchDefinitionCandidateDto"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "dataset_snapshot_fingerprint": {
+            "title": "Dataset Snapshot Fingerprint",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "exact_specification": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Exact Specification",
+            "type": "object"
+          },
+          "instrument_count": {
+            "title": "Instrument Count",
+            "type": "integer"
+          },
+          "published_variables": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchPublishedVariableDto"
+            },
+            "title": "Published Variables",
+            "type": "array"
+          },
+          "resolved_dataset_definition": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Resolved Dataset Definition",
+            "type": "object"
+          },
+          "resolved_definition_fingerprint": {
+            "title": "Resolved Definition Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "specification_fingerprint": {
+            "title": "Specification Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authoring_definition_fingerprint",
+          "resolved_definition_fingerprint",
+          "dataset_snapshot_fingerprint",
+          "specification_fingerprint",
+          "resolved_dataset_definition",
+          "instrument_count",
+          "candidate_count",
+          "candidates",
+          "published_variables",
+          "exact_specification",
+          "diagnostics"
+        ],
+        "title": "ResearchDefinitionResolutionDto",
+        "type": "object"
+      },
       "ResearchErrorDto": {
         "additionalProperties": false,
         "properties": {
@@ -108,6 +934,116 @@
           "detail"
         ],
         "title": "ResearchErrorDto",
+        "type": "object"
+      },
+      "ResearchFixedParameterDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "FIXED",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ResearchScalarDto"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "ResearchFixedParameterDto",
+        "type": "object"
+      },
+      "ResearchInputDefinitionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "title": "Data Type",
+            "type": "string"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "semantic_type": {
+            "title": "Semantic Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "name",
+          "data_type",
+          "nullable",
+          "semantic_type",
+          "dimensions",
+          "unit"
+        ],
+        "title": "ResearchInputDefinitionDto",
+        "type": "object"
+      },
+      "ResearchNotDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "NOT",
+            "title": "Kind",
+            "type": "string"
+          },
+          "operand": {
+            "discriminator": {
+              "mapping": {
+                "AND": "#/components/schemas/ResearchAndDto",
+                "COMPARISON": "#/components/schemas/ResearchComparisonDto",
+                "NOT": "#/components/schemas/ResearchNotDto",
+                "OR": "#/components/schemas/ResearchOrDto"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResearchComparisonDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchNotDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchAndDto"
+              },
+              {
+                "$ref": "#/components/schemas/ResearchOrDto"
+              }
+            ],
+            "title": "Operand"
+          }
+        },
+        "required": [
+          "kind",
+          "operand"
+        ],
+        "title": "ResearchNotDto",
         "type": "object"
       },
       "ResearchNumericDefinitionDto": {
@@ -137,6 +1073,219 @@
           "rounding"
         ],
         "title": "ResearchNumericDefinitionDto",
+        "type": "object"
+      },
+      "ResearchOrDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "OR",
+            "title": "Kind",
+            "type": "string"
+          },
+          "operands": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/components/schemas/ResearchAndDto",
+                  "COMPARISON": "#/components/schemas/ResearchComparisonDto",
+                  "NOT": "#/components/schemas/ResearchNotDto",
+                  "OR": "#/components/schemas/ResearchOrDto"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ResearchComparisonDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchNotDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchAndDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchOrDto"
+                }
+              ]
+            },
+            "title": "Operands",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "operands"
+        ],
+        "title": "ResearchOrDto",
+        "type": "object"
+      },
+      "ResearchOutputDefinitionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "title": "Data Type",
+            "type": "string"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "semantic_type": {
+            "title": "Semantic Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "name",
+          "data_type",
+          "nullable",
+          "semantic_type",
+          "dimensions",
+          "unit"
+        ],
+        "title": "ResearchOutputDefinitionDto",
+        "type": "object"
+      },
+      "ResearchParameterDefinitionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "$ref": "#/components/schemas/ResearchScalarDto"
+          },
+          "enum_values": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchScalarDto"
+            },
+            "title": "Enum Values",
+            "type": "array"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchScalarDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchScalarDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "uppercase": {
+            "title": "Uppercase",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required",
+          "default",
+          "minimum",
+          "maximum",
+          "enum_values",
+          "uppercase"
+        ],
+        "title": "ResearchParameterDefinitionDto",
+        "type": "object"
+      },
+      "ResearchPublishedVariableDto": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "title": "Data Type",
+            "type": "string"
+          },
+          "instance_key": {
+            "title": "Instance Key",
+            "type": "string"
+          },
+          "output_name": {
+            "title": "Output Name",
+            "type": "string"
+          },
+          "semantic_type": {
+            "title": "Semantic Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_key",
+          "output_name",
+          "data_type",
+          "semantic_type"
+        ],
+        "title": "ResearchPublishedVariableDto",
+        "type": "object"
+      },
+      "ResearchRegisteredUniverseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display_metadata": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Display Metadata",
+            "type": "object"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "registered_id": {
+            "title": "Registered Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registered_id",
+          "kind",
+          "display_metadata"
+        ],
+        "title": "ResearchRegisteredUniverseDto",
         "type": "object"
       },
       "ResearchRunDto": {
@@ -490,6 +1639,45 @@
         "title": "ResearchRunSummaryDto",
         "type": "object"
       },
+      "ResearchScalarDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": [
+              "NULL",
+              "BOOLEAN",
+              "INTEGER",
+              "DECIMAL",
+              "STRING"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ResearchScalarDto",
+        "type": "object"
+      },
       "ResearchSeriesReferenceDto": {
         "additionalProperties": false,
         "properties": {
@@ -512,6 +1700,83 @@
           "output_name"
         ],
         "title": "ResearchSeriesReferenceDto",
+        "type": "object"
+      },
+      "ResearchSignalsDto": {
+        "additionalProperties": false,
+        "properties": {
+          "entry": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/ResearchAndDto",
+                    "COMPARISON": "#/components/schemas/ResearchComparisonDto",
+                    "NOT": "#/components/schemas/ResearchNotDto",
+                    "OR": "#/components/schemas/ResearchOrDto"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ResearchComparisonDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchNotDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchAndDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchOrDto"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry"
+          },
+          "exit": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/ResearchAndDto",
+                    "COMPARISON": "#/components/schemas/ResearchComparisonDto",
+                    "NOT": "#/components/schemas/ResearchNotDto",
+                    "OR": "#/components/schemas/ResearchOrDto"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ResearchComparisonDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchNotDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchAndDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResearchOrDto"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit"
+          }
+        },
+        "required": [
+          "entry",
+          "exit"
+        ],
+        "title": "ResearchSignalsDto",
         "type": "object"
       },
       "ResearchStatisticPointDto": {
@@ -600,6 +1865,77 @@
         "title": "ResearchStatisticSeriesPageDto",
         "type": "object"
       },
+      "ResearchStatisticsCapabilityCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "statistics": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchStatisticsCapabilityDto"
+            },
+            "title": "Statistics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "statistics"
+        ],
+        "title": "ResearchStatisticsCapabilityCatalogDto",
+        "type": "object"
+      },
+      "ResearchStatisticsCapabilityDto": {
+        "additionalProperties": false,
+        "properties": {
+          "executable": {
+            "title": "Executable",
+            "type": "boolean"
+          },
+          "statistic_type": {
+            "title": "Statistic Type",
+            "type": "string"
+          },
+          "target_required": {
+            "title": "Target Required",
+            "type": "boolean"
+          },
+          "target_semantic_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Semantic Roles",
+            "type": "array"
+          },
+          "variable_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable Kinds",
+            "type": "array"
+          },
+          "variable_semantic_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable Semantic Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "statistic_type",
+          "variable_kinds",
+          "variable_semantic_roles",
+          "target_semantic_roles",
+          "target_required",
+          "executable"
+        ],
+        "title": "ResearchStatisticsCapabilityDto",
+        "type": "object"
+      },
       "ResearchStatisticsCatalogDto": {
         "additionalProperties": false,
         "properties": {
@@ -671,6 +2007,49 @@
         "title": "ResearchStatisticsDefinitionDto",
         "type": "object"
       },
+      "ResearchStatisticsDefinitionRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/OnlyResearchStatisticsMethod"
+          },
+          "minimum_observations": {
+            "title": "Minimum Observations",
+            "type": "integer"
+          },
+          "numeric": {
+            "$ref": "#/components/schemas/ResearchStatisticsNumericDto"
+          },
+          "pairing_policy": {
+            "$ref": "#/components/schemas/OnlyResearchPairingPolicy"
+          },
+          "rank_tie_method": {
+            "$ref": "#/components/schemas/OnlyResearchRankTieMethod"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "universe_policy": {
+            "$ref": "#/components/schemas/OnlyResearchUniversePolicy"
+          },
+          "weighting": {
+            "$ref": "#/components/schemas/OnlyResearchWeighting"
+          }
+        },
+        "required": [
+          "schema_version",
+          "method",
+          "minimum_observations",
+          "pairing_policy",
+          "universe_policy",
+          "rank_tie_method",
+          "weighting",
+          "numeric"
+        ],
+        "title": "ResearchStatisticsDefinitionRequestDto",
+        "type": "object"
+      },
       "ResearchStatisticsDescriptorDto": {
         "additionalProperties": false,
         "properties": {
@@ -715,6 +2094,192 @@
           "definition"
         ],
         "title": "ResearchStatisticsDescriptorDto",
+        "type": "object"
+      },
+      "ResearchStatisticsNumericDto": {
+        "additionalProperties": false,
+        "properties": {
+          "output_quantum": {
+            "title": "Output Quantum",
+            "type": "string"
+          },
+          "precision": {
+            "title": "Precision",
+            "type": "integer"
+          },
+          "representation": {
+            "title": "Representation",
+            "type": "string"
+          },
+          "rounding": {
+            "title": "Rounding",
+            "type": "string"
+          }
+        },
+        "required": [
+          "representation",
+          "precision",
+          "output_quantum",
+          "rounding"
+        ],
+        "title": "ResearchStatisticsNumericDto",
+        "type": "object"
+      },
+      "ResearchStatisticsRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/ResearchStatisticsDefinitionRequestDto"
+          },
+          "target_instance_key": {
+            "title": "Target Instance Key",
+            "type": "string"
+          },
+          "variable": {
+            "$ref": "#/components/schemas/ResearchVariableRefDto"
+          }
+        },
+        "required": [
+          "variable",
+          "target_instance_key",
+          "definition"
+        ],
+        "title": "ResearchStatisticsRequestDto",
+        "type": "object"
+      },
+      "ResearchSweepParameterDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "SWEEP",
+            "title": "Kind",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchScalarDto"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "values"
+        ],
+        "title": "ResearchSweepParameterDto",
+        "type": "object"
+      },
+      "ResearchTypedLiteralDto": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "$ref": "#/components/schemas/OnlyCalculationDataType"
+          },
+          "kind": {
+            "const": "LITERAL",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ResearchScalarDto"
+          }
+        },
+        "required": [
+          "kind",
+          "data_type",
+          "value"
+        ],
+        "title": "ResearchTypedLiteralDto",
+        "type": "object"
+      },
+      "ResearchUniverseCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "registered_universes": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchRegisteredUniverseDto"
+            },
+            "title": "Registered Universes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "selection_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selection Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "selection_kinds",
+          "registered_universes"
+        ],
+        "title": "ResearchUniverseCatalogDto",
+        "type": "object"
+      },
+      "ResearchUniverseSelectionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "instrument_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Instrument Ids",
+            "type": "array"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OnlyResearchUniverseKind"
+          },
+          "registered_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registered Id"
+          }
+        },
+        "required": [
+          "kind",
+          "instrument_ids",
+          "registered_id"
+        ],
+        "title": "ResearchUniverseSelectionDto",
+        "type": "object"
+      },
+      "ResearchVariableRefDto": {
+        "additionalProperties": false,
+        "properties": {
+          "instance_key": {
+            "title": "Instance Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "VARIABLE",
+            "title": "Kind",
+            "type": "string"
+          },
+          "output_name": {
+            "title": "Output Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "instance_key",
+          "output_name"
+        ],
+        "title": "ResearchVariableRefDto",
         "type": "object"
       },
       "SubmitResearchRunRequest": {
@@ -868,7 +2433,7 @@
         },
         "summary": "Artifact Summary",
         "tags": [
-          "research"
+          "research-artifacts"
         ]
       }
     },
@@ -940,7 +2505,7 @@
         },
         "summary": "Statistics Catalog",
         "tags": [
-          "research"
+          "research-artifacts"
         ]
       }
     },
@@ -1082,7 +2647,142 @@
         },
         "summary": "Statistic Series",
         "tags": [
-          "research"
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/catalog/calculations": {
+      "get": {
+        "operationId": "calculations_api_v2_research_catalog_calculations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchCalculationCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Calculations",
+        "tags": [
+          "research-discovery"
+        ]
+      }
+    },
+    "/api/v2/research/catalog/dataset-fields": {
+      "get": {
+        "operationId": "dataset_fields_api_v2_research_catalog_dataset_fields_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchDatasetFieldCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dataset Fields",
+        "tags": [
+          "research-discovery"
+        ]
+      }
+    },
+    "/api/v2/research/catalog/statistics": {
+      "get": {
+        "operationId": "statistics_api_v2_research_catalog_statistics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchStatisticsCapabilityCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Statistics",
+        "tags": [
+          "research-discovery"
+        ]
+      }
+    },
+    "/api/v2/research/catalog/universes": {
+      "get": {
+        "operationId": "universes_api_v2_research_catalog_universes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchUniverseCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Universes",
+        "tags": [
+          "research-discovery"
+        ]
+      }
+    },
+    "/api/v2/research/definitions/resolve": {
+      "post": {
+        "operationId": "resolve_definition_api_v2_research_definitions_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchDefinitionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchDefinitionResolutionDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchDefinitionErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Invalid Research Definition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Definition",
+        "tags": [
+          "research-definitions"
         ]
       }
     },

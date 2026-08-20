@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.0.1 — IMPLEMENTED / VERIFIED LOCALLY — Research Definition Semantic Identity & Verification Closure
+Current Increment: P8.4.1 — IMPLEMENTED / VERIFIED LOCALLY — Discovery & Resolution API
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.4.1 — Discovery & Resolution API
+Next Semantic Direction: P8.4.2 — Scientific Result Evidence
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -442,6 +442,13 @@ series comparison 使用既有 data type/dimensions/unit evidence fail closed。
 诊断在 authoring AST 原始顺序上完成，canonical AST 只用于 identity 与 Graph lowering。Definition lowering 已由独立构造的 Exact
 Specification 与 Workload 等价测试证明，并进入正式 `research-definition` verification/CI lane。该 closure 不新增执行 authority，
 也不升级 P8 认证状态。
+
+P8.4.1 已实现正式 Research Discovery/Definition HTTP contract：Calculation、Universe、Statistics、Dataset Field Catalog 均只投影
+现有 authority，internal PREDICATE 不公开；Definition transport 显式映射到现有 `OnlyResearchDefinitionResolver`，返回 authoritative
+fingerprints、exact Dataset、bounded Candidate Space、published variables 与可不经语义转换直接提交 P8.3 Run API 的
+`exact_specification`。Command、Artifact、Definition、Discovery 的 route/error ownership 已显式分离，OpenAPI 与 TypeScript
+transport/client 已同步。该 increment 不增加 Definition/Resolution Store、Run authority、Runtime 或 React Builder；P8 保持
+`IN_PROGRESS`。
 
 ### 目标
 

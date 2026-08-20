@@ -6,6 +6,11 @@ from .alignment import (
     OnlyResearchAlignedPair,
     only_align_research_series,
 )
+from .capability import (
+    OnlyResearchStatisticsCapability,
+    only_research_statistics_capabilities,
+    only_research_statistics_capability,
+)
 from .definition import (
     OnlyResearchPairingPolicy,
     OnlyResearchRankTieMethod,

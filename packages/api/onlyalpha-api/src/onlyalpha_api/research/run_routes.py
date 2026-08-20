@@ -24,6 +24,7 @@ from .run_schema import (
 _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     status: {"model": ResearchRunErrorEnvelopeDto} for status in (400, 404, 409, 500, 503)
 }
+RUN_ROUTE_TAG = "research-runs"
 IdempotencyKeyHeader = Annotated[str | None, Header(alias="Idempotency-Key")]
 
 
@@ -52,7 +53,7 @@ def _submission_key(value: str | None) -> OnlyResearchSubmissionKey:
 
 
 def create_run_router(command: OnlyResearchCommandService, query: OnlyResearchRunQueryService) -> APIRouter:
-    router = APIRouter(prefix="/api/v2/research/runs", tags=["research-runs"])
+    router = APIRouter(prefix="/api/v2/research/runs", tags=[RUN_ROUTE_TAG])
 
     @router.post("", status_code=202, response_model=SubmitResearchRunResponse, responses=_ERROR_RESPONSES)
     def submit_run(
@@ -84,4 +85,4 @@ def create_run_router(command: OnlyResearchCommandService, query: OnlyResearchRu
     return router
 
 
-__all__ = ["create_run_router"]
+__all__ = ["RUN_ROUTE_TAG", "create_run_router"]

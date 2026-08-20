@@ -6,6 +6,7 @@ from .binding import (
     OnlyResearchDatasetSourceContract,
     only_bind_research_dataset_source,
     only_research_dataset_source_contract,
+    only_research_dataset_source_contracts,
 )
 from .errors import OnlyResearchCalculationError, OnlyResearchCalculationResultStoreError
 from .execution import (

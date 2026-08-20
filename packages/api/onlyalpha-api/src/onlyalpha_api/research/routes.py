@@ -38,8 +38,11 @@ def _optional_integer(value: str | None) -> int | None:
     return int(value)
 
 
+ARTIFACT_ROUTE_TAG = "research-artifacts"
+
+
 def create_artifact_router(service: OnlyResearchQueryService) -> APIRouter:
-    router = APIRouter(prefix="/api/v2/research/artifacts", tags=["research"])
+    router = APIRouter(prefix="/api/v2/research/artifacts", tags=[ARTIFACT_ROUTE_TAG])
 
     @router.get(
         "/{research_result_fingerprint}",
@@ -81,3 +84,6 @@ def create_artifact_router(service: OnlyResearchQueryService) -> APIRouter:
         return ResearchStatisticSeriesPageDto.from_model(service.get_statistic_series(query))
 
     return router
+
+
+__all__ = ["ARTIFACT_ROUTE_TAG", "create_artifact_router"]

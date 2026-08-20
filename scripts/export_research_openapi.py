@@ -8,8 +8,10 @@ from typing import cast
 
 from onlyalpha_api import create_research_app
 
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
+from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/research-api/v2/openapi.json"
@@ -21,10 +23,13 @@ class _ContractReader:
 
 
 def rendered_contract() -> str:
+    calculations = OnlyCalculationRegistry()
     app = create_research_app(
         _ContractReader(),
         cast(OnlyResearchCommandService, object()),
         cast(OnlyResearchRunQueryService, object()),
+        calculations,
+        cast(OnlyResearchDefinitionResolver, object()),
     )
     return json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 

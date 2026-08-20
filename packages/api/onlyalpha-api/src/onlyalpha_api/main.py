@@ -25,6 +25,7 @@ from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
@@ -54,10 +55,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     OnlyPostgresMigrationAuthority(postgres.dsn).assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn)
-    resolver = OnlyResearchSpecificationResolver(_calculation_registry())
+    calculations = _calculation_registry()
+    dataset_store = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    resolver = OnlyResearchSpecificationResolver(calculations)
     admission = OnlyResearchRunAdmissionService(
         resolver=resolver,
-        dataset_store=OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root),
+        dataset_store=dataset_store,
         run_store=run_store,
         now_utc=only_system_utc_now,
     )
@@ -70,6 +73,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         OnlyParquetResearchArtifactStore(layout.research_artifact_root),
         command,
         OnlyResearchRunQueryService(run_store),
+        calculations,
+        OnlyResearchDefinitionResolver(calculations, dataset_store),
     )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

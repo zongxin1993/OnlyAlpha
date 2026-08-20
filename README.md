@@ -30,7 +30,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.8.3` |
+| Version | `0.8.4` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |
@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.0.1 — IMPLEMENTED / VERIFIED locally** — Research Definition Semantic Identity & Verification Closure |
-| Next semantic direction | P8.4.1 — Discovery & Resolution API |
+| Current increment | **P8.4.1 — IMPLEMENTED / VERIFIED locally** — Discovery & Resolution API |
+| Next semantic direction | P8.4.2 — Scientific Result Evidence |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -389,6 +389,11 @@ PostgreSQL durable commit 后返回 accepted Run；portable `onlyalpha-artifact-
 contract/Zod admission 与 exact `bigint` revision 已同步，但没有新增 P8.4 页面、Worker 启动或 Artifact content response。
 
 P8.4.0 已实现 programmatic Research Definition foundation：Universe/Data intent、registered Calculation Instance、全局有限 Sweep、typed Eligibility/Entry/Exit AST、internal RESEARCH Predicate lowering，以及现有 Specification/Workload 闭环。P8.4 后续 Research Studio 仍需让用户从 Web 选择这些语义并查看 K-line、Feature、Factor Score、Signal/买卖点和 cross-sectional statistics 的科学可视化。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
+
+P8.4.1 已把 Calculation Registry、Dataset source contract、registered Universe authority 与共享 Statistics capability 作为确定性只读
+Catalog 暴露，并增加 `POST /api/v2/research/definitions/resolve`。该 endpoint 严格执行
+`HTTP DTO → OnlyResearchDefinition → OnlyResearchDefinitionResolver`，返回 exact Dataset/Candidate/Specification evidence；其中
+`exact_specification` 原样复用 P8.3 Run submission transport。它不创建 Run、不执行 Runtime，也不保存 Definition/Resolution。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

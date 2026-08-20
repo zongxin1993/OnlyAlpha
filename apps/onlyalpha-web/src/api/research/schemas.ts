@@ -156,6 +156,127 @@ export const researchRunErrorSchema = z.strictObject({
     })
 }) satisfies z.ZodType<Dto<"ResearchRunErrorEnvelopeDto">>;
 
+const researchScalarSchema = z.strictObject({
+    type: z.enum(["NULL", "BOOLEAN", "INTEGER", "DECIMAL", "STRING"]),
+    value: z.union([z.boolean(), z.number().int(), z.string(), z.null()])
+});
+const calculationTypeReferenceSchema = z.strictObject({
+    kind: z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]),
+    type_id: z.string().min(1),
+    semantic_version: z.string().min(1)
+});
+const calculationPortSchema = z.strictObject({
+    name: z.string().min(1),
+    data_type: z.string().min(1),
+    nullable: z.boolean(),
+    semantic_type: z.string().min(1),
+    dimensions: z.array(z.string().min(1)),
+    unit: z.string().nullable()
+});
+const calculationParameterSchema = z.strictObject({
+    name: z.string().min(1),
+    type: z.string().min(1),
+    required: z.boolean(),
+    default: researchScalarSchema,
+    minimum: researchScalarSchema.nullable(),
+    maximum: researchScalarSchema.nullable(),
+    enum_values: z.array(researchScalarSchema),
+    uppercase: z.boolean()
+});
+
+export const researchCalculationCatalogSchema = z.strictObject({
+    schema_version: z.literal(2),
+    calculations: z.array(
+        z.strictObject({
+            kind: z.string().min(1),
+            type_reference: calculationTypeReferenceSchema,
+            parameters: z.array(calculationParameterSchema),
+            inputs: z.array(calculationPortSchema),
+            outputs: z.array(calculationPortSchema),
+            parameter_sweep_allowed: z.boolean()
+        })
+    )
+}) satisfies z.ZodType<Dto<"ResearchCalculationCatalogDto">>;
+
+export const researchDatasetFieldCatalogSchema = z.strictObject({
+    schema_version: z.literal(2),
+    dataset_fields: z.array(
+        z.strictObject({
+            source: z.string().min(1),
+            field_name: z.string().min(1),
+            data_type: z.string().min(1),
+            semantic_roles: z.array(z.string().min(1)),
+            dimensions: z.array(z.string().min(1)),
+            unit: z.string().nullable()
+        })
+    )
+}) satisfies z.ZodType<Dto<"ResearchDatasetFieldCatalogDto">>;
+
+export const researchUniverseCatalogSchema = z.strictObject({
+    schema_version: z.literal(2),
+    selection_kinds: z.array(z.string().min(1)),
+    registered_universes: z.array(
+        z.strictObject({
+            registered_id: z.string().min(1),
+            kind: z.string().min(1),
+            display_metadata: z.record(z.string(), z.unknown())
+        })
+    )
+}) satisfies z.ZodType<Dto<"ResearchUniverseCatalogDto">>;
+
+export const researchStatisticsCapabilityCatalogSchema = z.strictObject({
+    schema_version: z.literal(2),
+    statistics: z.array(
+        z.strictObject({
+            statistic_type: z.string().min(1),
+            variable_kinds: z.array(z.string().min(1)),
+            variable_semantic_roles: z.array(z.string().min(1)),
+            target_semantic_roles: z.array(z.string().min(1)),
+            target_required: z.boolean(),
+            executable: z.boolean()
+        })
+    )
+}) satisfies z.ZodType<Dto<"ResearchStatisticsCapabilityCatalogDto">>;
+
+const definitionCandidateSchema = z.strictObject({
+    ordinal: nonnegative,
+    candidate_fingerprint: sha256,
+    assignment: z.record(z.string(), researchScalarSchema),
+    calculation_fingerprint: sha256,
+    graph_fingerprint: sha256
+});
+
+export const researchDefinitionResolutionSchema = z.strictObject({
+    schema_version: z.literal(2),
+    authoring_definition_fingerprint: sha256,
+    resolved_definition_fingerprint: sha256,
+    dataset_snapshot_fingerprint: sha256,
+    specification_fingerprint: sha256,
+    resolved_dataset_definition: z.record(z.string(), z.unknown()),
+    instrument_count: positive,
+    candidate_count: positive,
+    candidates: z.array(definitionCandidateSchema),
+    published_variables: z.array(
+        z.strictObject({
+            instance_key: z.string().min(1),
+            output_name: z.string().min(1),
+            data_type: z.string().min(1),
+            semantic_type: z.string().min(1)
+        })
+    ),
+    exact_specification: z.record(z.string(), z.unknown()),
+    diagnostics: z.array(z.unknown())
+}) satisfies z.ZodType<Dto<"ResearchDefinitionResolutionDto">>;
+
+export const researchDefinitionErrorSchema = z.strictObject({
+    error: z.strictObject({
+        phase: z.string().min(1),
+        code: z.string().min(1),
+        path: z.string().min(1),
+        detail: z.string().min(1)
+    })
+}) satisfies z.ZodType<Dto<"ResearchDefinitionErrorEnvelopeDto">>;
+
 export type ArtifactSummaryTransport = z.infer<typeof artifactSummarySchema>;
 export type StatisticsCatalogTransport = z.infer<typeof statisticsCatalogSchema>;
 export type StatisticSeriesPageTransport = z.infer<typeof statisticSeriesPageSchema>;
@@ -163,3 +284,15 @@ export type ResearchRunTransport = z.infer<typeof researchRunSchema>;
 export type ResearchRunSummaryTransport = z.infer<typeof researchRunSummarySchema>;
 export type ResearchRunPageTransport = z.infer<typeof researchRunPageSchema>;
 export type ResearchRunSubmissionTransport = z.infer<typeof researchRunSubmissionSchema>;
+export type ResearchCalculationCatalogTransport = z.infer<typeof researchCalculationCatalogSchema>;
+export type ResearchDatasetFieldCatalogTransport = z.infer<
+    typeof researchDatasetFieldCatalogSchema
+>;
+export type ResearchUniverseCatalogTransport = z.infer<typeof researchUniverseCatalogSchema>;
+export type ResearchStatisticsCapabilityCatalogTransport = z.infer<
+    typeof researchStatisticsCapabilityCatalogSchema
+>;
+export type ResearchDefinitionResolutionTransport = z.infer<
+    typeof researchDefinitionResolutionSchema
+>;
+export type ResearchDefinitionTransport = Dto<"ResearchDefinitionRequestDto">;

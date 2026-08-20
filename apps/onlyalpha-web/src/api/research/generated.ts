@@ -55,6 +55,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/catalog/calculations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calculations */
+        get: operations["calculations_api_v2_research_catalog_calculations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/catalog/dataset-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dataset Fields */
+        get: operations["dataset_fields_api_v2_research_catalog_dataset_fields_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/catalog/statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Statistics */
+        get: operations["statistics_api_v2_research_catalog_statistics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/catalog/universes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Universes */
+        get: operations["universes_api_v2_research_catalog_universes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/definitions/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Definition */
+        post: operations["resolve_definition_api_v2_research_definitions_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/runs": {
         parameters: {
             query?: never;
@@ -117,6 +202,76 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         JsonValue: unknown;
+        /**
+         * OnlyAdjustmentType
+         * @enum {string}
+         */
+        OnlyAdjustmentType: "RAW" | "FORWARD" | "BACKWARD";
+        /**
+         * OnlyAggregationSource
+         * @enum {string}
+         */
+        OnlyAggregationSource: "EXTERNAL" | "INTERNAL";
+        /**
+         * OnlyBarAggregation
+         * @enum {string}
+         */
+        OnlyBarAggregation: "TIME" | "TICK" | "VOLUME" | "VALUE";
+        /**
+         * OnlyCalculationDataType
+         * @enum {string}
+         */
+        OnlyCalculationDataType: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
+        /**
+         * OnlyCalculationKind
+         * @enum {string}
+         */
+        OnlyCalculationKind: "INDICATOR" | "FACTOR" | "TARGET" | "PREDICATE";
+        /**
+         * OnlyPriceType
+         * @enum {string}
+         */
+        OnlyPriceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
+        /**
+         * OnlyResearchPairingPolicy
+         * @enum {string}
+         */
+        OnlyResearchPairingPolicy: "PAIRWISE_COMPLETE";
+        /**
+         * OnlyResearchRankTieMethod
+         * @enum {string}
+         */
+        OnlyResearchRankTieMethod: "AVERAGE";
+        /**
+         * OnlyResearchStatisticsMethod
+         * @enum {string}
+         */
+        OnlyResearchStatisticsMethod: "IC" | "RANK_IC";
+        /**
+         * OnlyResearchUniverseKind
+         * @enum {string}
+         */
+        OnlyResearchUniverseKind: "SINGLE_INSTRUMENT" | "EXPLICIT_INSTRUMENT_SET" | "REGISTERED_POOL" | "REGISTERED_UNIVERSE";
+        /**
+         * OnlyResearchUniversePolicy
+         * @enum {string}
+         */
+        OnlyResearchUniversePolicy: "OBSERVED_PAIRWISE";
+        /**
+         * OnlyResearchWeighting
+         * @enum {string}
+         */
+        OnlyResearchWeighting: "EQUAL";
+        /** ResearchAndDto */
+        ResearchAndDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "AND";
+            /** Operands */
+            operands: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"])[];
+        };
         /** ResearchArtifactSummaryDto */
         ResearchArtifactSummaryDto: {
             /** Artifact Content Fingerprint */
@@ -148,6 +303,219 @@ export interface components {
             /** Statistics Count */
             statistics_count: number;
         };
+        /** ResearchBarSpecificationDto */
+        ResearchBarSpecificationDto: {
+            aggregation: components["schemas"]["OnlyBarAggregation"];
+            price_type: components["schemas"]["OnlyPriceType"];
+            /** Step */
+            step: number;
+        };
+        /** ResearchCalculationCatalogDto */
+        ResearchCalculationCatalogDto: {
+            /** Calculations */
+            calculations: components["schemas"]["ResearchCalculationCatalogItemDto"][];
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+        };
+        /** ResearchCalculationCatalogItemDto */
+        ResearchCalculationCatalogItemDto: {
+            /** Inputs */
+            inputs: components["schemas"]["ResearchInputDefinitionDto"][];
+            /** Kind */
+            kind: string;
+            /** Outputs */
+            outputs: components["schemas"]["ResearchOutputDefinitionDto"][];
+            /** Parameter Sweep Allowed */
+            parameter_sweep_allowed: boolean;
+            /** Parameters */
+            parameters: components["schemas"]["ResearchParameterDefinitionDto"][];
+            type_reference: components["schemas"]["ResearchCalculationTypeReferenceDto"];
+        };
+        /** ResearchCalculationInputDto */
+        ResearchCalculationInputDto: {
+            /** Input Name */
+            input_name: string;
+            /** Source */
+            source: string | components["schemas"]["ResearchVariableRefDto"];
+        };
+        /** ResearchCalculationInstanceDto */
+        ResearchCalculationInstanceDto: {
+            /** Input Bindings */
+            input_bindings: components["schemas"]["ResearchCalculationInputDto"][];
+            /** Instance Key */
+            instance_key: string;
+            /** Parameters */
+            parameters: {
+                [key: string]: components["schemas"]["ResearchFixedParameterDto"] | components["schemas"]["ResearchSweepParameterDto"];
+            };
+            /** Primary Output */
+            primary_output: string | null;
+            /** Published Outputs */
+            published_outputs: string[];
+            type_reference: components["schemas"]["ResearchCalculationTypeReferenceDto"];
+        };
+        /** ResearchCalculationTypeReferenceDto */
+        ResearchCalculationTypeReferenceDto: {
+            kind: components["schemas"]["OnlyCalculationKind"];
+            /** Semantic Version */
+            semantic_version: string;
+            /** Type Id */
+            type_id: string;
+        };
+        /** ResearchComparisonDto */
+        ResearchComparisonDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "COMPARISON";
+            /** Left */
+            left: components["schemas"]["ResearchDatasetFieldRefDto"] | components["schemas"]["ResearchVariableRefDto"] | components["schemas"]["ResearchTypedLiteralDto"];
+            /**
+             * Operator
+             * @enum {string}
+             */
+            operator: "==" | "!=" | "<" | "<=" | ">" | ">=";
+            /** Right */
+            right: components["schemas"]["ResearchDatasetFieldRefDto"] | components["schemas"]["ResearchVariableRefDto"] | components["schemas"]["ResearchTypedLiteralDto"];
+        };
+        /** ResearchDatasetFieldCatalogDto */
+        ResearchDatasetFieldCatalogDto: {
+            /** Dataset Fields */
+            dataset_fields: components["schemas"]["ResearchDatasetFieldDto"][];
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+        };
+        /** ResearchDatasetFieldDto */
+        ResearchDatasetFieldDto: {
+            /** Data Type */
+            data_type: string;
+            /** Dimensions */
+            dimensions: string[];
+            /** Field Name */
+            field_name: string;
+            /** Semantic Roles */
+            semantic_roles: string[];
+            /** Source */
+            source: string;
+            /** Unit */
+            unit: string | null;
+        };
+        /** ResearchDatasetFieldRefDto */
+        ResearchDatasetFieldRefDto: {
+            /** Field Name */
+            field_name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "DATASET_FIELD";
+        };
+        /** ResearchDatasetSelectionDto */
+        ResearchDatasetSelectionDto: {
+            /** Adjustment Reference */
+            adjustment_reference: string | null;
+            adjustment_type: components["schemas"]["OnlyAdjustmentType"];
+            aggregation_source: components["schemas"]["OnlyAggregationSource"];
+            bar_specification: components["schemas"]["ResearchBarSpecificationDto"];
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+            universe: components["schemas"]["ResearchUniverseSelectionDto"];
+        };
+        /** ResearchDefinitionCandidateDto */
+        ResearchDefinitionCandidateDto: {
+            /** Assignment */
+            assignment: {
+                [key: string]: components["schemas"]["ResearchScalarDto"];
+            };
+            /** Calculation Fingerprint */
+            calculation_fingerprint: string;
+            /** Candidate Fingerprint */
+            candidate_fingerprint: string;
+            /** Graph Fingerprint */
+            graph_fingerprint: string;
+            /** Ordinal */
+            ordinal: number;
+        };
+        /** ResearchDefinitionErrorDto */
+        ResearchDefinitionErrorDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Path */
+            path: string;
+            /** Phase */
+            phase: string;
+        };
+        /** ResearchDefinitionErrorEnvelopeDto */
+        ResearchDefinitionErrorEnvelopeDto: {
+            error: components["schemas"]["ResearchDefinitionErrorDto"];
+        };
+        /** ResearchDefinitionRequestDto */
+        ResearchDefinitionRequestDto: {
+            /** Calculations */
+            calculations: components["schemas"]["ResearchCalculationInstanceDto"][];
+            dataset: components["schemas"]["ResearchDatasetSelectionDto"];
+            /** Display Metadata */
+            display_metadata: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Eligibility */
+            eligibility: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"]) | null;
+            /** Schema Version */
+            schema_version: number;
+            signals: components["schemas"]["ResearchSignalsDto"];
+            /** Statistics */
+            statistics: components["schemas"]["ResearchStatisticsRequestDto"][];
+            /** Targets */
+            targets: components["schemas"]["ResearchCalculationInstanceDto"][];
+        };
+        /** ResearchDefinitionResolutionDto */
+        ResearchDefinitionResolutionDto: {
+            /** Authoring Definition Fingerprint */
+            authoring_definition_fingerprint: string;
+            /** Candidate Count */
+            candidate_count: number;
+            /** Candidates */
+            candidates: components["schemas"]["ResearchDefinitionCandidateDto"][];
+            /** Dataset Snapshot Fingerprint */
+            dataset_snapshot_fingerprint: string;
+            /** Diagnostics */
+            diagnostics: components["schemas"]["JsonValue"][];
+            /** Exact Specification */
+            exact_specification: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Instrument Count */
+            instrument_count: number;
+            /** Published Variables */
+            published_variables: components["schemas"]["ResearchPublishedVariableDto"][];
+            /** Resolved Dataset Definition */
+            resolved_dataset_definition: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Resolved Definition Fingerprint */
+            resolved_definition_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+            /** Specification Fingerprint */
+            specification_fingerprint: string;
+        };
         /** ResearchErrorDto */
         ResearchErrorDto: {
             /** Code */
@@ -161,6 +529,40 @@ export interface components {
              */
             schema_version: 2;
         };
+        /** ResearchFixedParameterDto */
+        ResearchFixedParameterDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "FIXED";
+            value: components["schemas"]["ResearchScalarDto"];
+        };
+        /** ResearchInputDefinitionDto */
+        ResearchInputDefinitionDto: {
+            /** Data Type */
+            data_type: string;
+            /** Dimensions */
+            dimensions: string[];
+            /** Name */
+            name: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Semantic Type */
+            semantic_type: string;
+            /** Unit */
+            unit: string | null;
+        };
+        /** ResearchNotDto */
+        ResearchNotDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "NOT";
+            /** Operand */
+            operand: components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"];
+        };
         /** ResearchNumericDefinitionDto */
         ResearchNumericDefinitionDto: {
             /** Output Quantum */
@@ -171,6 +573,69 @@ export interface components {
             representation: string;
             /** Rounding */
             rounding: string;
+        };
+        /** ResearchOrDto */
+        ResearchOrDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "OR";
+            /** Operands */
+            operands: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"])[];
+        };
+        /** ResearchOutputDefinitionDto */
+        ResearchOutputDefinitionDto: {
+            /** Data Type */
+            data_type: string;
+            /** Dimensions */
+            dimensions: string[];
+            /** Name */
+            name: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Semantic Type */
+            semantic_type: string;
+            /** Unit */
+            unit: string | null;
+        };
+        /** ResearchParameterDefinitionDto */
+        ResearchParameterDefinitionDto: {
+            default: components["schemas"]["ResearchScalarDto"];
+            /** Enum Values */
+            enum_values: components["schemas"]["ResearchScalarDto"][];
+            maximum: components["schemas"]["ResearchScalarDto"] | null;
+            minimum: components["schemas"]["ResearchScalarDto"] | null;
+            /** Name */
+            name: string;
+            /** Required */
+            required: boolean;
+            /** Type */
+            type: string;
+            /** Uppercase */
+            uppercase: boolean;
+        };
+        /** ResearchPublishedVariableDto */
+        ResearchPublishedVariableDto: {
+            /** Data Type */
+            data_type: string;
+            /** Instance Key */
+            instance_key: string;
+            /** Output Name */
+            output_name: string;
+            /** Semantic Type */
+            semantic_type: string;
+        };
+        /** ResearchRegisteredUniverseDto */
+        ResearchRegisteredUniverseDto: {
+            /** Display Metadata */
+            display_metadata: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Kind */
+            kind: string;
+            /** Registered Id */
+            registered_id: string;
         };
         /** ResearchRunDto */
         ResearchRunDto: {
@@ -281,6 +746,16 @@ export interface components {
             /** State */
             state: string;
         };
+        /** ResearchScalarDto */
+        ResearchScalarDto: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "NULL" | "BOOLEAN" | "INTEGER" | "DECIMAL" | "STRING";
+            /** Value */
+            value: boolean | number | string | null;
+        };
         /** ResearchSeriesReferenceDto */
         ResearchSeriesReferenceDto: {
             /** Calculation Fingerprint */
@@ -289,6 +764,13 @@ export interface components {
             node_fingerprint: string;
             /** Output Name */
             output_name: string;
+        };
+        /** ResearchSignalsDto */
+        ResearchSignalsDto: {
+            /** Entry */
+            entry: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"]) | null;
+            /** Exit */
+            exit: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"]) | null;
         };
         /** ResearchStatisticPointDto */
         ResearchStatisticPointDto: {
@@ -320,6 +802,32 @@ export interface components {
             /** Statistics Fingerprint */
             statistics_fingerprint: string;
         };
+        /** ResearchStatisticsCapabilityCatalogDto */
+        ResearchStatisticsCapabilityCatalogDto: {
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+            /** Statistics */
+            statistics: components["schemas"]["ResearchStatisticsCapabilityDto"][];
+        };
+        /** ResearchStatisticsCapabilityDto */
+        ResearchStatisticsCapabilityDto: {
+            /** Executable */
+            executable: boolean;
+            /** Statistic Type */
+            statistic_type: string;
+            /** Target Required */
+            target_required: boolean;
+            /** Target Semantic Roles */
+            target_semantic_roles: string[];
+            /** Variable Kinds */
+            variable_kinds: string[];
+            /** Variable Semantic Roles */
+            variable_semantic_roles: string[];
+        };
         /** ResearchStatisticsCatalogDto */
         ResearchStatisticsCatalogDto: {
             /** Research Result Fingerprint */
@@ -349,6 +857,19 @@ export interface components {
             /** Weighting */
             weighting: string;
         };
+        /** ResearchStatisticsDefinitionRequestDto */
+        ResearchStatisticsDefinitionRequestDto: {
+            method: components["schemas"]["OnlyResearchStatisticsMethod"];
+            /** Minimum Observations */
+            minimum_observations: number;
+            numeric: components["schemas"]["ResearchStatisticsNumericDto"];
+            pairing_policy: components["schemas"]["OnlyResearchPairingPolicy"];
+            rank_tie_method: components["schemas"]["OnlyResearchRankTieMethod"];
+            /** Schema Version */
+            schema_version: number;
+            universe_policy: components["schemas"]["OnlyResearchUniversePolicy"];
+            weighting: components["schemas"]["OnlyResearchWeighting"];
+        };
         /** ResearchStatisticsDescriptorDto */
         ResearchStatisticsDescriptorDto: {
             definition: components["schemas"]["ResearchStatisticsDefinitionDto"];
@@ -364,6 +885,77 @@ export interface components {
             /** Statistics Result Schema Version */
             statistics_result_schema_version: number;
             target: components["schemas"]["ResearchSeriesReferenceDto"];
+        };
+        /** ResearchStatisticsNumericDto */
+        ResearchStatisticsNumericDto: {
+            /** Output Quantum */
+            output_quantum: string;
+            /** Precision */
+            precision: number;
+            /** Representation */
+            representation: string;
+            /** Rounding */
+            rounding: string;
+        };
+        /** ResearchStatisticsRequestDto */
+        ResearchStatisticsRequestDto: {
+            definition: components["schemas"]["ResearchStatisticsDefinitionRequestDto"];
+            /** Target Instance Key */
+            target_instance_key: string;
+            variable: components["schemas"]["ResearchVariableRefDto"];
+        };
+        /** ResearchSweepParameterDto */
+        ResearchSweepParameterDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "SWEEP";
+            /** Values */
+            values: components["schemas"]["ResearchScalarDto"][];
+        };
+        /** ResearchTypedLiteralDto */
+        ResearchTypedLiteralDto: {
+            data_type: components["schemas"]["OnlyCalculationDataType"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "LITERAL";
+            value: components["schemas"]["ResearchScalarDto"];
+        };
+        /** ResearchUniverseCatalogDto */
+        ResearchUniverseCatalogDto: {
+            /** Registered Universes */
+            registered_universes: components["schemas"]["ResearchRegisteredUniverseDto"][];
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+            /** Selection Kinds */
+            selection_kinds: string[];
+        };
+        /** ResearchUniverseSelectionDto */
+        ResearchUniverseSelectionDto: {
+            /** Instrument Ids */
+            instrument_ids: string[];
+            kind: components["schemas"]["OnlyResearchUniverseKind"];
+            /** Registered Id */
+            registered_id: string | null;
+        };
+        /** ResearchVariableRefDto */
+        ResearchVariableRefDto: {
+            /** Instance Key */
+            instance_key: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "VARIABLE";
+            /** Output Name */
+            output_name: string;
         };
         /** SubmitResearchRunRequest */
         SubmitResearchRunRequest: {
@@ -576,6 +1168,128 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    calculations_api_v2_research_catalog_calculations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchCalculationCatalogDto"];
+                };
+            };
+        };
+    };
+    dataset_fields_api_v2_research_catalog_dataset_fields_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchDatasetFieldCatalogDto"];
+                };
+            };
+        };
+    };
+    statistics_api_v2_research_catalog_statistics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchStatisticsCapabilityCatalogDto"];
+                };
+            };
+        };
+    };
+    universes_api_v2_research_catalog_universes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchUniverseCatalogDto"];
+                };
+            };
+        };
+    };
+    resolve_definition_api_v2_research_definitions_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchDefinitionRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchDefinitionResolutionDto"];
+                };
+            };
+            /** @description Invalid Research Definition */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchDefinitionErrorEnvelopeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

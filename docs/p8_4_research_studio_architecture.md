@@ -1,6 +1,6 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4.0.1 Semantic Closure Implemented / Verified Locally; later P8.4 increments remain Target Design**
+> Status: **P8.4.1 Discovery & Resolution API Implemented / Verified Locally; later P8.4 increments remain Target Design**
 >
 > This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
 
@@ -16,6 +16,14 @@ three semantic terminals. Dataset inputs admit only canonical `bar.<field>` sour
 before canonical Graph lowering. An independently authored Exact Specification proves workload equivalence, and `research-definition` is a
 first-class impact-aware local/CI verification lane. No new identity framework, Dataset authority,
 Predicate Runtime/Store, Web/API contract, Artifact authority, or Trading backend was added.
+
+P8.4.1 repository fact: the full Research API exposes deterministic read-only catalogs at
+`/api/v2/research/catalog/{calculations,universes,statistics,dataset-fields}` and authoritative Definition resolution at
+`/api/v2/research/definitions/resolve`. Catalogs project the existing Calculation Registry, Dataset source contracts, registered Universe port and
+the Statistics capability shared with Definition admission. The resolve route performs only strict transport mapping and calls the existing
+`OnlyResearchDefinitionResolver`; its `exact_specification` is the unchanged P8.3 Run specification transport. Route metadata now owns Command,
+Artifact, Definition and Discovery validation errors explicitly. No semantic registry, Definition/Resolution persistence, Run creation, Runtime
+execution, or React Builder was introduced.
 
 ## 1. P8.4 objective
 

@@ -15,6 +15,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from onlyalpha.domain.market import OnlyBar
 
 from .codec import only_bars_to_table, only_table_to_bars
+from .definition import OnlyResearchDatasetDefinition
 from .identity import only_canonical_bars, only_content_fingerprint, only_snapshot_fingerprint
 from .manifest import (
     OnlyResearchDatasetPartitionManifest,
@@ -137,6 +138,23 @@ class OnlyParquetResearchDatasetSnapshotStore:
 
         _, snapshot, table = self._read_verified(self._target(snapshot_fingerprint), snapshot_fingerprint)
         return OnlyVerifiedResearchDataset(snapshot, table)
+
+    def resolve_verified(self, definition: OnlyResearchDatasetDefinition) -> OnlyVerifiedResearchDataset:
+        """Resolve one exact Definition only when the immutable Store proves a unique Snapshot."""
+
+        roots = () if not (self._root / "sha256").is_dir() else tuple(sorted((self._root / "sha256").glob("*/*")))
+        matches: list[OnlyVerifiedResearchDataset] = []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            verified = self.load_verified_table(root.name)
+            if verified.snapshot.definition == definition:
+                matches.append(verified)
+        if not matches:
+            raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
+        if len(matches) != 1:
+            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_AMBIGUOUS")
+        return matches[0]
 
     def verify(self, snapshot_fingerprint: str) -> OnlyResearchDatasetVerification:
         verification, _, _ = self._read_verified(self._target(snapshot_fingerprint), snapshot_fingerprint)

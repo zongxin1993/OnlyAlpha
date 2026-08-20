@@ -1,9 +1,10 @@
 # onlyalpha-api
 
-HTTP transport for two deliberately separate Research boundaries:
+HTTP transport for deliberately separate Research boundaries:
 
 - `onlyalpha-api --user-data-root ...`: full local Research API. It reads `ONLYALPHA_POSTGRES_DSN`, checks migration compatibility,
-  exposes durable Run submit/get/list/cancellation plus Artifact GET routes, and binds loopback by default.
+  exposes read-only Discovery, authoritative Definition resolution, durable Run submit/get/list/cancellation plus Artifact GET routes, and binds
+  loopback by default.
 - `onlyalpha-artifact-api --artifact-root ...`: portable Artifact Query API. It needs no PostgreSQL and exposes only exact-identity
   Artifact GET routes.
 
@@ -14,3 +15,7 @@ facts, returns Result/Artifact content, enables wildcard CORS, or performs datab
 The deterministic contract is generated at `contracts/research-api/v2/openapi.json` with
 `uv run python scripts/export_research_openapi.py write|check`. Browser transport types are generated from that file and admitted through
 strict Zod schemas before exact integers are converted to `bigint`.
+
+Discovery endpoints are `GET /api/v2/research/catalog/calculations`, `/universes`, `/statistics`, and `/dataset-fields`.
+`POST /api/v2/research/definitions/resolve` maps the strict JSON contract to `OnlyResearchDefinitionResolver` and returns exact Dataset,
+Candidate, identity, published-variable and Specification evidence. It neither submits a Run nor persists a Definition/Resolution.

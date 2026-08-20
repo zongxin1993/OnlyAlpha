@@ -47,3 +47,31 @@ def test_internal_predicates_are_not_exposed_by_public_authoring_descriptors() -
     only_register_research_predicate_primitives(registry)
     assert registry.type_definitions()
     assert registry.descriptors() == ()
+
+
+def test_definition_http_is_projection_only_and_error_ownership_is_route_metadata() -> None:
+    api = Path("packages/api/onlyalpha-api/src/onlyalpha_api")
+    definition_source = "\n".join(
+        (api / "research" / name).read_text(encoding="utf-8")
+        for name in (
+            "definition_routes.py",
+            "definition_schema.py",
+            "definition_service.py",
+            "discovery.py",
+        )
+    )
+    for forbidden in (
+        "OnlyResearchCommandService",
+        "OnlyResearchScheduler",
+        "OnlyResearchWorkerService",
+        "OnlyResearchRunStore",
+        "OnlyEngine(",
+        "DefinitionStore",
+        "ResolutionStore",
+    ):
+        assert forbidden not in definition_source
+    discovery = (api / "research" / "discovery.py").read_text(encoding="utf-8")
+    assert "OnlyCalculationRegistry()" not in discovery
+    app = (api / "app.py").read_text(encoding="utf-8")
+    assert "request.url.path" not in app
+    assert "_RESEARCH_RUN_PATH" not in app
