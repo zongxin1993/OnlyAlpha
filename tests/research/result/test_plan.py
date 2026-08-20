@@ -80,3 +80,57 @@ def test_scientific_plan_rejects_duplicate_candidate_role_with_different_series(
 
     with pytest.raises(ValueError, match="Candidate and role"):
         OnlyResearchResultPlan((A,), 2, "a" * 64, (calculation,), (candidate,), (), signals)
+
+
+@pytest.mark.parametrize(
+    "second",
+    (
+        OnlyResearchResultCandidatePlan("d" * 64, "decision", (("period", 20),), B, "c" * 64, (A,)),
+        OnlyResearchResultCandidatePlan("d" * 64, "decision", (), "e" * 64, "c" * 64, (A,)),
+        OnlyResearchResultCandidatePlan("d" * 64, "decision", (), B, "e" * 64, (A,)),
+    ),
+)
+def test_scientific_plan_rejects_one_candidate_identity_for_different_members(second) -> None:  # type: ignore[no-untyped-def]
+    calculations = tuple(
+        sorted(
+            {
+                OnlyResearchResultCalculationPlan(B, "c" * 64),
+                OnlyResearchResultCalculationPlan("e" * 64, "c" * 64),
+            }
+        )
+    )
+    first = OnlyResearchResultCandidatePlan("d" * 64, "decision", (), B, "c" * 64, (A,))
+
+    with pytest.raises(ValueError, match="Candidate identities"):
+        OnlyResearchResultPlan((A,), 2, "a" * 64, calculations, tuple(sorted((first, second))))
+
+
+def test_scientific_plan_rejects_one_calculation_identity_for_different_members() -> None:
+    calculations = tuple(
+        sorted(
+            (
+                OnlyResearchResultCalculationPlan(B, "c" * 64),
+                OnlyResearchResultCalculationPlan(B, "d" * 64),
+            )
+        )
+    )
+
+    with pytest.raises(ValueError, match="Calculation identities"):
+        OnlyResearchResultPlan((A,), 2, "a" * 64, calculations)
+
+
+def test_candidate_statistics_membership_is_order_neutral_and_duplicate_closed() -> None:
+    calculation = OnlyResearchResultCalculationPlan("c" * 64, "d" * 64)
+    first = OnlyResearchResultCandidatePlan("e" * 64, "decision", (), "c" * 64, "d" * 64, (B, A))
+    second = OnlyResearchResultCandidatePlan("e" * 64, "decision", (), "c" * 64, "d" * 64, (A, B))
+
+    assert first == second
+    assert first.statistics_fingerprints == (A, B)
+    first_plan = OnlyResearchResultPlan((B, A), 2, "f" * 64, (calculation,), (first,))
+    second_plan = OnlyResearchResultPlan((A, B), 2, "f" * 64, (calculation,), (second,))
+    assert first_plan.to_dict() == second_plan.to_dict()
+    assert first_plan.fingerprint == second_plan.fingerprint
+    assert first_plan.fingerprint == "8d60326eda40ac5cccfc02a05097283474530bd8f6ea7f37e2fb20598dfd4143"
+
+    with pytest.raises(ValueError, match="duplicate"):
+        OnlyResearchResultCandidatePlan("e" * 64, "decision", (), "c" * 64, "d" * 64, (A, A))

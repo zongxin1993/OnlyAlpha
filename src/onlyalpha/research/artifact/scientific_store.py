@@ -18,6 +18,8 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.evaluation.result import OnlyResearchStatisticStatus
+from onlyalpha.research.result.plan import OnlyResearchResultPlan
+from onlyalpha.research.result.result import OnlyResearchResult
 
 from .errors import OnlyResearchArtifactStoreError
 from .model import OnlyResearchArtifactDisposition, OnlyResearchArtifactOutcome, OnlyResearchArtifactStatisticsRow
@@ -101,25 +103,23 @@ class OnlyParquetResearchScientificArtifactStore:
         return self._target(fingerprint).exists()
 
     def commit(self, candidate: OnlyResearchScientificArtifactCandidate) -> OnlyResearchArtifactOutcome:
-        if not isinstance(candidate, OnlyResearchScientificArtifactCandidate):
-            raise OnlyResearchArtifactStoreError("ARTIFACT_INVALID", "Scientific candidate is invalid")
-        target = self._target(candidate.result.manifest.research_result_fingerprint)
+        admitted, tables = self._admit(candidate)
+        target = self._target(admitted.result.manifest.research_result_fingerprint)
         if target.exists():
-            return self._reuse_existing(candidate, target)
+            return self._reuse_existing(admitted, target)
         target.parent.mkdir(parents=True, exist_ok=True)
         stage = target.parent / f".stage-{uuid.uuid4().hex}"
         stage.mkdir()
         try:
-            tables = _candidate_tables(candidate)
             sections = []
             for path in ("market.parquet", "signals.parquet", "statistics.parquet", "variables.parquet"):
                 pq.write_table(
                     tables[path], stage / path, compression=self._compression, row_group_size=self._row_group_size
                 )
             (stage / "graphs.json").write_text(
-                only_canonical_json([item.to_dict() for item in candidate.graphs]), encoding="utf-8"
+                only_canonical_json([item.to_dict() for item in admitted.graphs]), encoding="utf-8"
             )
-            logical = {item.relative_path: item for item in candidate.sections}
+            logical = {item.relative_path: item for item in admitted.sections}
             for path in sorted(logical):
                 schema = None if path == "graphs.json" else _schema_payload(tables[path].schema)
                 sections.append(
@@ -127,7 +127,7 @@ class OnlyParquetResearchScientificArtifactStore:
                         path, logical[path].row_count, logical[path].logical_fingerprint, _sha(stage / path), schema
                     )
                 )
-            manifest = candidate.result.manifest
+            manifest = admitted.result.manifest
             created = self._audit_timestamp()
             scientific = OnlyResearchScientificArtifactManifest(
                 manifest.plan,
@@ -137,9 +137,9 @@ class OnlyParquetResearchScientificArtifactStore:
                 manifest.dataset_snapshot_fingerprint,
                 manifest.calculation_results,
                 manifest.statistics_results,
-                candidate.statistics_catalog,
+                admitted.statistics_catalog,
                 tuple(sections),
-                candidate.artifact_content_fingerprint,
+                admitted.artifact_content_fingerprint,
                 created,
             )
             (stage / "artifact_manifest.json").write_text(only_canonical_json(scientific.to_dict()), encoding="utf-8")
@@ -154,7 +154,7 @@ class OnlyParquetResearchScientificArtifactStore:
             except OSError:
                 if not target.exists():
                     raise
-                return self._reuse_existing(candidate, target)
+                return self._reuse_existing(admitted, target)
             loaded = self.load_verified(manifest.research_result_fingerprint)
             return OnlyResearchArtifactOutcome(
                 OnlyResearchArtifactDisposition.EXECUTED,
@@ -170,6 +170,96 @@ class OnlyParquetResearchScientificArtifactStore:
 
     def load_verified(self, research_result_fingerprint: str) -> OnlyResearchScientificArtifact:
         return self._read_verified(self._target(research_result_fingerprint), research_result_fingerprint)
+
+    def _admit(
+        self, candidate: OnlyResearchScientificArtifactCandidate
+    ) -> tuple[OnlyResearchScientificArtifactCandidate, dict[str, pa.Table]]:
+        if not isinstance(candidate, OnlyResearchScientificArtifactCandidate):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_INVALID", "Scientific candidate is invalid")
+        try:
+            if not isinstance(candidate.result, OnlyResearchResult):
+                raise ValueError("Scientific candidate Research Result is invalid")
+            manifest = candidate.result.manifest
+            if manifest.schema_version != 2 or manifest.plan.schema_version != 2:
+                raise ValueError("Scientific candidate requires Research Result V2")
+            for name, values, expected in (
+                ("market", candidate.market_rows, OnlyResearchScientificMarketRow),
+                ("variables", candidate.variable_rows, OnlyResearchScientificVariableRow),
+                ("signals", candidate.signal_rows, OnlyResearchScientificSignalRow),
+                ("statistics", candidate.statistics_rows, OnlyResearchArtifactStatisticsRow),
+                ("graphs", candidate.graphs, OnlyResearchScientificGraph),
+                ("sections", candidate.sections, OnlyResearchScientificSection),
+            ):
+                if not isinstance(values, tuple) or any(not isinstance(item, expected) for item in values):
+                    raise ValueError(f"Scientific candidate {name} are invalid")
+            for values in (candidate.market_rows, candidate.signal_rows, candidate.statistics_rows, candidate.graphs):
+                if values != tuple(sorted(values)):
+                    raise ValueError("Scientific candidate rows are not canonical")
+            if candidate.variable_rows != tuple(sorted(candidate.variable_rows, key=_variable_key)):
+                raise ValueError("Scientific candidate rows are not canonical")
+
+            _verify_logical_keys(candidate.market_rows, candidate.variable_rows, candidate.signal_rows)
+            _verify_variable_scalars(candidate.variable_rows)
+            semantic = _semantic_sections(
+                candidate.market_rows,
+                candidate.variable_rows,
+                candidate.signal_rows,
+                candidate.statistics_rows,
+                candidate.graphs,
+            )
+            expected_sections = tuple(
+                (
+                    path,
+                    len(rows),
+                    only_research_scientific_section_fingerprint(path.split(".", 1)[0], rows),
+                )
+                for path, rows in semantic.items()
+            )
+            actual_sections = tuple(
+                (item.relative_path, item.row_count, item.logical_fingerprint) for item in candidate.sections
+            )
+            if actual_sections != expected_sections:
+                raise ValueError("Scientific candidate logical section mismatch")
+            expected_artifact = only_research_scientific_artifact_content_fingerprint(
+                manifest.research_result_fingerprint, candidate.sections
+            )
+            if expected_artifact != candidate.artifact_content_fingerprint:
+                raise ValueError("Scientific candidate Artifact identity mismatch")
+
+            result_references = tuple(
+                (item.statistics_fingerprint, item.statistics_result_fingerprint)
+                for item in manifest.statistics_results
+            )
+            catalog_references = tuple(
+                (item.statistics_fingerprint, item.statistics_result_fingerprint)
+                for item in candidate.statistics_catalog
+            )
+            if result_references != catalog_references:
+                raise ValueError("Scientific candidate Statistics catalog membership mismatch")
+            verify_statistics_groups(candidate.statistics_catalog, candidate.statistics_rows)
+            if tuple((item.calculation_fingerprint, item.graph.fingerprint) for item in candidate.graphs) != tuple(
+                (item.calculation_fingerprint, item.graph_fingerprint) for item in manifest.plan.calculations
+            ):
+                raise ValueError("Scientific candidate Graph membership mismatch")
+            _verify_variable_types(candidate.graphs, candidate.variable_rows)
+            if {
+                (item.candidate_fingerprint, item.calculation_fingerprint, item.node_fingerprint, item.output_name)
+                for item in candidate.variable_rows
+            } != {
+                (item.candidate_fingerprint, item.calculation_fingerprint, item.node_fingerprint, item.output_name)
+                for item in manifest.plan.published_series
+            }:
+                raise ValueError("Scientific candidate published membership mismatch")
+            if {(item.candidate_fingerprint, item.role) for item in candidate.signal_rows} != {
+                (item.candidate_fingerprint, item.role) for item in manifest.plan.signals
+            }:
+                raise ValueError("Scientific candidate Signal membership mismatch")
+            _verify_series_axes(manifest.plan, candidate.market_rows, candidate.variable_rows, candidate.signal_rows)
+            return candidate, _candidate_tables(candidate)
+        except OnlyResearchArtifactStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_INVALID", str(exc)) from exc
 
     def _reuse_existing(
         self, candidate: OnlyResearchScientificArtifactCandidate, target: Path
@@ -269,22 +359,7 @@ class OnlyParquetResearchScientificArtifactStore:
                 raise ValueError("Scientific Artifact rows are not canonical")
             _verify_logical_keys(market, variables, signals)
             _verify_variable_scalars(variables)
-            semantic: dict[str, list[dict[str, object]]] = {
-                "graphs.json": [item.to_dict() for item in graphs],
-                "market.parquet": [item.to_dict() for item in market],
-                "signals.parquet": [item.to_dict() for item in signals],
-                "statistics.parquet": [
-                    {
-                        "statistics_fingerprint": item.statistics_fingerprint,
-                        "ts_event_ns": item.ts_event_ns,
-                        "statistic_value": item.statistic_value,
-                        "sample_count": item.sample_count,
-                        "status": item.status.value,
-                    }
-                    for item in statistics
-                ],
-                "variables.parquet": [item.to_dict() for item in variables],
-            }
+            semantic = _semantic_sections(market, variables, signals, statistics, graphs)
             for path, rows in semantic.items():
                 name = path.split(".", 1)[0]
                 descriptor = descriptors[path]
@@ -310,7 +385,7 @@ class OnlyParquetResearchScientificArtifactStore:
                 (item.candidate_fingerprint, item.role) for item in manifest.plan.signals
             }:
                 raise ValueError("Scientific Artifact Signal membership mismatch")
-            _verify_series_axes(manifest, market, variables, signals)
+            _verify_series_axes(manifest.plan, market, variables, signals)
             if (
                 only_research_scientific_artifact_content_fingerprint(
                     manifest.research_result_fingerprint, manifest.sections
@@ -364,6 +439,42 @@ def _candidate_tables(candidate: OnlyResearchScientificArtifactCandidate) -> dic
             ],
             schema=_STATISTICS,
         ),
+    }
+
+
+def _variable_key(item: OnlyResearchScientificVariableRow) -> tuple[object, ...]:
+    return (
+        item.candidate_fingerprint or "",
+        item.calculation_fingerprint,
+        item.node_fingerprint,
+        item.output_name,
+        item.instrument_id,
+        item.ts_event_ns,
+    )
+
+
+def _semantic_sections(
+    market: tuple[OnlyResearchScientificMarketRow, ...],
+    variables: tuple[OnlyResearchScientificVariableRow, ...],
+    signals: tuple[OnlyResearchScientificSignalRow, ...],
+    statistics: tuple[OnlyResearchArtifactStatisticsRow, ...],
+    graphs: tuple[OnlyResearchScientificGraph, ...],
+) -> dict[str, list[dict[str, object]]]:
+    return {
+        "graphs.json": [item.to_dict() for item in graphs],
+        "market.parquet": [item.to_dict() for item in market],
+        "signals.parquet": [item.to_dict() for item in signals],
+        "statistics.parquet": [
+            {
+                "statistics_fingerprint": item.statistics_fingerprint,
+                "ts_event_ns": item.ts_event_ns,
+                "statistic_value": item.statistic_value,
+                "sample_count": item.sample_count,
+                "status": item.status.value,
+            }
+            for item in statistics
+        ],
+        "variables.parquet": [item.to_dict() for item in variables],
     }
 
 
@@ -453,7 +564,7 @@ def _verify_variable_types(
 
 
 def _verify_series_axes(
-    manifest: OnlyResearchScientificArtifactManifest,
+    plan: OnlyResearchResultPlan,
     market: tuple[OnlyResearchScientificMarketRow, ...],
     variables: tuple[OnlyResearchScientificVariableRow, ...],
     signals: tuple[OnlyResearchScientificSignalRow, ...],
@@ -482,7 +593,7 @@ def _verify_series_axes(
             item.output_name,
             instrument,
         )
-        for item in manifest.plan.published_series
+        for item in plan.published_series
         for instrument in instruments
     }
     if set(variable_axis) != expected_variable_keys or any(
@@ -496,9 +607,7 @@ def _verify_series_axes(
             (signal_row.candidate_fingerprint, signal_row.role, signal_row.instrument_id), []
         ).append(signal_row.ts_event_ns)
     expected_signal_keys = {
-        (item.candidate_fingerprint, item.role, instrument)
-        for item in manifest.plan.signals
-        for instrument in instruments
+        (item.candidate_fingerprint, item.role, instrument) for item in plan.signals for instrument in instruments
     }
     if set(signal_axis) != expected_signal_keys or any(
         tuple(axis) != canonical_market_axis[key[-1]] for key, axis in signal_axis.items()

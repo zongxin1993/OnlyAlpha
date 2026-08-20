@@ -64,6 +64,7 @@ class OnlyResearchResultCandidatePlan:
         _sha(self.calculation_fingerprint, "Calculation identity")
         _sha(self.graph_fingerprint, "Graph identity")
         _canonical_sha_tuple(self.statistics_fingerprints, "Candidate Statistics identities")
+        object.__setattr__(self, "statistics_fingerprints", tuple(sorted(self.statistics_fingerprints)))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -183,6 +184,12 @@ class OnlyResearchResultPlan:
             )
             if values != canonical or len(values) != len(set(values)):
                 raise ValueError(f"Research Result Plan {name} are not canonical and unique")
+        calculation_identity_keys = tuple(item.calculation_fingerprint for item in self.calculations)
+        if len(calculation_identity_keys) != len(set(calculation_identity_keys)):
+            raise ValueError("Scientific Result Plan Calculation identities are not unique")
+        candidate_identity_keys = tuple(item.candidate_fingerprint for item in self.candidates)
+        if len(candidate_identity_keys) != len(set(candidate_identity_keys)):
+            raise ValueError("Scientific Result Plan Candidate identities are not unique")
         calculation_ids = {item.calculation_fingerprint for item in self.calculations}
         if not calculation_ids:
             raise ValueError("Scientific Result Plan requires Calculation members")

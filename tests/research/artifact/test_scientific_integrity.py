@@ -49,6 +49,26 @@ def test_scientific_publication_race_loser_verifies_and_reuses_winner(tmp_path, 
     assert outcome.disposition is OnlyResearchArtifactDisposition.REUSED
 
 
+def test_scientific_publication_race_loser_rejects_different_winner(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    identity = candidate.result.manifest.research_result_fingerprint
+    winner_store = type(store)(tmp_path / "winner-artifacts", audit_time=lambda: candidate.result.manifest.created_at)
+    conflicting_candidate = _candidate_with_market_close(candidate)
+    assert winner_store.commit(conflicting_candidate).disposition is OnlyResearchArtifactDisposition.EXECUTED
+    winner = winner_store._target(identity)
+
+    def publish_different_winner_then_report_race(source, target):  # type: ignore[no-untyped-def]
+        shutil.copytree(winner, target)
+        raise OSError("different winner already published")
+
+    monkeypatch.setattr(
+        "onlyalpha.research.artifact.scientific_store.os.rename", publish_different_winner_then_report_race
+    )
+    with pytest.raises(OnlyResearchArtifactStoreError) as raised:
+        store.commit(candidate)
+    assert raised.value.code == "DETERMINISTIC_ARTIFACT_CONFLICT"
+
+
 def test_scientific_store_detects_duplicate_keys_axis_and_scalar_corruption(tmp_path) -> None:
     _, candidate, store = scientific_artifact_case(tmp_path)
     store.commit(candidate)
@@ -78,8 +98,13 @@ def test_scientific_store_file_manifest_and_conflict_matrix(tmp_path) -> None:
     first = store.commit(candidate)
     assert first.disposition is OnlyResearchArtifactDisposition.EXECUTED
     assert store.commit(candidate).disposition is OnlyResearchArtifactDisposition.REUSED
-    with pytest.raises(OnlyResearchArtifactStoreError) as conflict:
+    with pytest.raises(OnlyResearchArtifactStoreError) as invalid:
         store.commit(replace(candidate, artifact_content_fingerprint="e" * 64))
+    assert invalid.value.code == "ARTIFACT_INVALID"
+
+    conflicting_candidate = _candidate_with_market_close(candidate)
+    with pytest.raises(OnlyResearchArtifactStoreError) as conflict:
+        store.commit(conflicting_candidate)
     assert conflict.value.code == "DETERMINISTIC_ARTIFACT_CONFLICT"
 
     identity = candidate.result.manifest.research_result_fingerprint
@@ -118,7 +143,7 @@ def test_scientific_store_file_manifest_and_conflict_matrix(tmp_path) -> None:
                 payload["research_result_schema_version"] = 1
             manifest_path.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(OnlyResearchArtifactStoreError) as raised:
-            store.load_verified(identity)
+            store.commit(candidate)
         assert raised.value.code == "ARTIFACT_CORRUPT"
 
     for item in tuple(root.iterdir()):
@@ -136,6 +161,41 @@ def test_scientific_store_file_manifest_and_conflict_matrix(tmp_path) -> None:
     finally:
         root.unlink()
         moved.rename(root)
+
+
+@pytest.mark.parametrize("target_exists", (False, True))
+def test_scientific_store_rejects_malformed_candidate_before_target_resolution(tmp_path, target_exists: bool) -> None:
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    if target_exists:
+        assert store.commit(candidate).disposition is OnlyResearchArtifactDisposition.EXECUTED
+    malformed = replace(candidate, variable_rows=candidate.variable_rows[:-1])
+
+    with pytest.raises(OnlyResearchArtifactStoreError) as raised:
+        store.commit(malformed)
+
+    assert raised.value.code == "ARTIFACT_INVALID"
+
+
+def test_scientific_store_admission_closes_sections_catalog_graph_and_axis(tmp_path) -> None:
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    assert store.commit(candidate).disposition is OnlyResearchArtifactDisposition.EXECUTED
+
+    malformed = (
+        replace(candidate, sections=(replace(candidate.sections[0], row_count=999), *candidate.sections[1:])),
+        replace(candidate, statistics_catalog=candidate.statistics_catalog[1:]),
+        _refresh_candidate(
+            replace(
+                candidate,
+                graphs=(replace(candidate.graphs[0], calculation_fingerprint="e" * 64), *candidate.graphs[1:]),
+            )
+        ),
+        _refresh_candidate(replace(candidate, variable_rows=candidate.variable_rows[:-1])),
+    )
+
+    for invalid in malformed:
+        with pytest.raises(OnlyResearchArtifactStoreError) as raised:
+            store.commit(invalid)
+        assert raised.value.code == "ARTIFACT_INVALID"
 
 
 def test_scientific_semantic_identity_ignores_physical_encoding(tmp_path) -> None:
@@ -192,3 +252,44 @@ def _rewrite_semantically_consistent(root, path: str, table: pa.Table) -> None: 
         payload["research_result_fingerprint"], sections
     )
     manifest_path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+
+
+def _refresh_candidate(candidate):  # type: ignore[no-untyped-def]
+    rows = {
+        "graphs.json": [item.to_dict() for item in candidate.graphs],
+        "market.parquet": [item.to_dict() for item in candidate.market_rows],
+        "signals.parquet": [item.to_dict() for item in candidate.signal_rows],
+        "statistics.parquet": [
+            {
+                "statistics_fingerprint": item.statistics_fingerprint,
+                "ts_event_ns": item.ts_event_ns,
+                "statistic_value": item.statistic_value,
+                "sample_count": item.sample_count,
+                "status": item.status.value,
+            }
+            for item in candidate.statistics_rows
+        ],
+        "variables.parquet": [item.to_dict() for item in candidate.variable_rows],
+    }
+    sections = tuple(
+        replace(
+            item,
+            row_count=len(rows[item.relative_path]),
+            logical_fingerprint=only_research_scientific_section_fingerprint(
+                item.relative_path.split(".", 1)[0], rows[item.relative_path]
+            ),
+        )
+        for item in candidate.sections
+    )
+    return replace(
+        candidate,
+        sections=sections,
+        artifact_content_fingerprint=only_research_scientific_artifact_content_fingerprint(
+            candidate.result.manifest.research_result_fingerprint, sections
+        ),
+    )
+
+
+def _candidate_with_market_close(candidate):  # type: ignore[no-untyped-def]
+    market_rows = (replace(candidate.market_rows[0], close="999"), *candidate.market_rows[1:])
+    return _refresh_candidate(replace(candidate, market_rows=market_rows))
