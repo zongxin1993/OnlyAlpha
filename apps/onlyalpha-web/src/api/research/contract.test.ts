@@ -340,6 +340,143 @@ describe("Research API admission", () => {
         ).toBe("0.0001");
     });
 
+    it("admits artifact-only scientific catalogs, exact series and graph", async () => {
+        const candidate = "9".repeat(64);
+        const calculation = "8".repeat(64);
+        const node = "7".repeat(64);
+        const catalog = {
+            schema_version: 2,
+            research_result_fingerprint: result,
+            candidates: [
+                {
+                    candidate_fingerprint: candidate,
+                    candidate_calculation_id: "decision",
+                    assignment: { period: 14 },
+                    calculation_fingerprint: calculation,
+                    graph_fingerprint: "6".repeat(64),
+                    statistics_fingerprints: [statistics]
+                }
+            ]
+        };
+        const variables = {
+            schema_version: 2,
+            research_result_fingerprint: result,
+            series: [
+                {
+                    candidate_fingerprint: candidate,
+                    calculation_fingerprint: calculation,
+                    node_fingerprint: node,
+                    output_name: "value",
+                    value_kind: "DECIMAL"
+                }
+            ]
+        };
+        const marketPage = {
+            schema_version: 2,
+            research_result_fingerprint: result,
+            points: [
+                {
+                    instrument_id: "TEST",
+                    ts_event_ns: "1780000000000000123",
+                    open: "1.0",
+                    high: "2.0",
+                    low: "0.5",
+                    close: "1.5",
+                    volume: "10.0"
+                }
+            ],
+            has_more: false,
+            next_after_ts_event_ns: null
+        };
+        const variablePage = {
+            ...marketPage,
+            points: [
+                {
+                    instrument_id: "TEST",
+                    ts_event_ns: "1780000000000000123",
+                    value_kind: "DECIMAL",
+                    decimal_value: "0.123400",
+                    integer_value: null,
+                    boolean_value: null,
+                    string_value: null
+                }
+            ]
+        };
+        const signalPage = {
+            ...marketPage,
+            points: [
+                {
+                    instrument_id: "TEST",
+                    ts_event_ns: "1780000000000000123",
+                    value: null
+                }
+            ]
+        };
+        server.use(
+            http.get(`*/api/v2/research/artifacts/${result}/candidates`, () =>
+                HttpResponse.json(catalog)
+            ),
+            http.get(`*/api/v2/research/artifacts/${result}/variables`, () =>
+                HttpResponse.json(variables)
+            ),
+            http.get(`*/api/v2/research/artifacts/${result}/market/series`, () =>
+                HttpResponse.json(marketPage)
+            ),
+            http.get(
+                `*/api/v2/research/artifacts/${result}/variables/${calculation}/${node}/value/series`,
+                () => HttpResponse.json(variablePage)
+            ),
+            http.get(
+                `*/api/v2/research/artifacts/${result}/signals/${candidate}/ENTRY_SIGNAL/series`,
+                () => HttpResponse.json(signalPage)
+            ),
+            http.get(`*/api/v2/research/artifacts/${result}/candidates/${candidate}/graph`, () =>
+                HttpResponse.json({
+                    schema_version: 2,
+                    research_result_fingerprint: result,
+                    candidate_fingerprint: candidate,
+                    calculation_fingerprint: calculation,
+                    graph: { schema_version: 1 }
+                })
+            )
+        );
+        const client = new FetchResearchApiClient();
+        expect((await client.getCandidateCatalog(result)).candidates).toHaveLength(1);
+        expect((await client.getPublishedSeriesCatalog(result)).series).toHaveLength(1);
+        expect((await client.getMarketSeries(result, "TEST")).points).toHaveLength(1);
+        expect(
+            (
+                await client.getVariableSeries({
+                    researchResultFingerprint: result,
+                    instrumentId: "TEST",
+                    candidateFingerprint: candidate,
+                    calculationFingerprint: calculation,
+                    nodeFingerprint: node,
+                    outputName: "value"
+                })
+            ).points
+        ).toHaveLength(1);
+        expect(
+            (
+                await client.getSignalSeries({
+                    researchResultFingerprint: result,
+                    instrumentId: "TEST",
+                    candidateFingerprint: candidate,
+                    role: "ENTRY_SIGNAL"
+                })
+            ).points[0]
+        ).toMatchObject({ value: null });
+        expect((await client.getCandidateGraph(result, candidate)).graph).toEqual({
+            schema_version: 1
+        });
+        await expect(
+            client.getVariableSeries({ researchResultFingerprint: result, instrumentId: "TEST" })
+        ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
+        await expect(
+            client.getSignalSeries({ researchResultFingerprint: result, instrumentId: "TEST" })
+        ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
+    });
+
     it.each([
         [404, "RESEARCH_ARTIFACT_NOT_FOUND"],
         [500, "RESEARCH_ARTIFACT_CORRUPT"]

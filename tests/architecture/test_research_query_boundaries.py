@@ -80,11 +80,11 @@ def test_http_routes_and_schema_only_consume_query_public_contract() -> None:
     assert not any(token in routes for token in ("open(", "read_text", "read_bytes", "parquet", "manifest"))
 
 
-def test_only_server_composition_root_constructs_concrete_artifact_store() -> None:
+def test_only_server_composition_root_constructs_bounded_artifact_profile_reader() -> None:
     api_root = Path("packages/api/onlyalpha-api/src/onlyalpha_api")
     consumers = []
     for path in api_root.rglob("*.py"):
-        if "OnlyParquetResearchArtifactStore" in path.read_text(encoding="utf-8"):
+        if "OnlyResearchArtifactProfileReader" in path.read_text(encoding="utf-8"):
             consumers.append(path.relative_to(api_root).as_posix())
     assert sorted(consumers) == ["artifact_main.py", "main.py"]
 
@@ -106,9 +106,9 @@ def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() ->
     assert "load_verified" in source
 
 
-def test_product_api_has_exactly_three_get_routes_and_live_remains_unsupported() -> None:
+def test_product_api_has_bounded_get_only_routes_and_live_remains_unsupported() -> None:
     routes = (Path("packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py")).read_text(encoding="utf-8")
-    assert routes.count("@router.get(") == 3
+    assert routes.count("@router.get(") == 9
     assert not any(token in routes for token in ("@router.post", "@router.put", "@router.patch", "@router.delete"))
     live = OnlyLiveRuntimeFactory().create(None)
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"

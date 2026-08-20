@@ -9,7 +9,12 @@ from typing import TypeVar
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.research.artifact.materializer import OnlyResearchArtifactMaterializer
+from onlyalpha.research.artifact.materializer import OnlyResearchArtifactCandidate, OnlyResearchArtifactMaterializer
+from onlyalpha.research.artifact.scientific_materializer import (
+    OnlyResearchScientificArtifactCandidate,
+    OnlyResearchScientificArtifactMaterializer,
+)
+from onlyalpha.research.artifact.scientific_store import OnlyParquetResearchScientificArtifactStore
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.execution import OnlyResearchStatisticsExecutor
@@ -61,8 +66,8 @@ class OnlyResearchRuntime:
         statistics_executor: OnlyResearchStatisticsExecutor,
         result_assembler: OnlyResearchResultAssembler,
         result_store: OnlyJsonResearchResultStore,
-        artifact_materializer: OnlyResearchArtifactMaterializer,
-        artifact_store: OnlyParquetResearchArtifactStore,
+        artifact_materializer: OnlyResearchArtifactMaterializer | OnlyResearchScientificArtifactMaterializer,
+        artifact_store: OnlyParquetResearchArtifactStore | OnlyParquetResearchScientificArtifactStore,
     ) -> None:
         self.runtime_id = runtime_id
         self.environment = environment
@@ -132,10 +137,24 @@ class OnlyResearchRuntime:
                 OnlyResearchRuntimePhase.ARTIFACT_MATERIALIZATION,
                 lambda: self._artifact_materializer.materialize(result_outcome.research_result_plan_fingerprint),
             )
-            artifact_outcome = self._invoke(
-                OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
-                lambda: self._artifact_store.commit(candidate),
-            )
+            if isinstance(self._artifact_store, OnlyParquetResearchScientificArtifactStore):
+                if not isinstance(candidate, OnlyResearchScientificArtifactCandidate):
+                    raise ValueError("Scientific Artifact Store received an incompatible candidate")
+                scientific_store = self._artifact_store
+                scientific_candidate = candidate
+                artifact_outcome = self._invoke(
+                    OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
+                    lambda: scientific_store.commit(scientific_candidate),
+                )
+            else:
+                if not isinstance(candidate, OnlyResearchArtifactCandidate):
+                    raise ValueError("Statistics Artifact Store received an incompatible candidate")
+                statistics_store = self._artifact_store
+                statistics_candidate = candidate
+                artifact_outcome = self._invoke(
+                    OnlyResearchRuntimePhase.ARTIFACT_COMMIT,
+                    lambda: statistics_store.commit(statistics_candidate),
+                )
             research_result = self._invoke(
                 OnlyResearchRuntimePhase.FINAL_VERIFICATION,
                 lambda: self._result_store.load_verified(result_outcome.research_result_plan_fingerprint),

@@ -150,6 +150,20 @@ def test_product_api_is_get_only_and_openapi_is_versioned(tmp_path) -> None:
     assert schemas["ResearchStatisticPointDto"]["properties"]["ts_event_ns"]["type"] == "string"
     cursor = schemas["ResearchStatisticSeriesPageDto"]["properties"]["next_after_ts_event_ns"]
     assert cursor["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    for path in (
+        "/api/v2/research/artifacts/{research_result_fingerprint}/candidates",
+        "/api/v2/research/artifacts/{research_result_fingerprint}/variables",
+        "/api/v2/research/artifacts/{research_result_fingerprint}/market/series",
+        "/api/v2/research/artifacts/{research_result_fingerprint}/candidates/{candidate_fingerprint}/graph",
+    ):
+        assert path in paths
+
+
+def test_v1_scientific_query_fails_with_stable_explicit_error(tmp_path) -> None:
+    candidate, _, _, client = _client(tmp_path)
+    response = client.get(f"/api/v2/research/artifacts/{candidate.research_result_fingerprint}/candidates")
+    assert response.status_code == 409
+    assert response.json()["code"] == "SCIENTIFIC_EVIDENCE_NOT_AVAILABLE"
 
 
 def test_http_end_to_end_needs_only_the_portable_artifact(tmp_path) -> None:

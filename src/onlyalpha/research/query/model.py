@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
+
 from .request import only_research_query_sha256
 
 RESEARCH_QUERY_SCHEMA_VERSION = 1
@@ -29,6 +31,10 @@ class OnlyResearchArtifactSummary:
     statistics_count: int
     row_count: int
     created_at: datetime
+    candidate_count: int = 0
+    published_series_count: int = 0
+    signal_series_count: int = 0
+    market_row_count: int = 0
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -197,3 +203,83 @@ class OnlyResearchStatisticSeriesPage:
         expected_cursor = self.points[-1].ts_event_ns if self.has_more and self.points else None
         if self.next_after_ts_event_ns != expected_cursor:
             raise ValueError("next cursor does not match page state")
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class OnlyResearchCandidateDescriptor:
+    candidate_fingerprint: str
+    candidate_calculation_id: str
+    assignment: tuple[tuple[str, object], ...]
+    calculation_fingerprint: str
+    graph_fingerprint: str
+    statistics_fingerprints: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchCandidateCatalog:
+    research_result_fingerprint: str
+    candidates: tuple[OnlyResearchCandidateDescriptor, ...]
+    schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class OnlyResearchPublishedSeriesDescriptor:
+    candidate_fingerprint: str | None
+    calculation_fingerprint: str
+    node_fingerprint: str
+    output_name: str
+    value_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchPublishedSeriesCatalog:
+    research_result_fingerprint: str
+    series: tuple[OnlyResearchPublishedSeriesDescriptor, ...]
+    schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchMarketPoint:
+    instrument_id: str
+    ts_event_ns: int
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchVariablePoint:
+    instrument_id: str
+    ts_event_ns: int
+    value_kind: str
+    decimal_value: str | None
+    integer_value: str | None
+    boolean_value: bool | None
+    string_value: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchSignalPoint:
+    instrument_id: str
+    ts_event_ns: int
+    value: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchScientificSeriesPage:
+    research_result_fingerprint: str
+    points: tuple[OnlyResearchMarketPoint | OnlyResearchVariablePoint | OnlyResearchSignalPoint, ...]
+    has_more: bool
+    next_after_ts_event_ns: int | None
+    schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchCandidateGraph:
+    research_result_fingerprint: str
+    candidate_fingerprint: str
+    calculation_fingerprint: str
+    graph: OnlyCalculationGraphDefinition
+    schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION

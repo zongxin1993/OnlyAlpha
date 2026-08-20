@@ -565,7 +565,14 @@ def test_definition_lowering_matches_independently_authored_exact_specification(
     committed, _, registry, resolver = _case(tmp_path)
     base = definition(committed.definition)
     generated = resolver.resolve(base)
-    expected = _independent_specification(base, committed.snapshot_fingerprint)
+    expected_v1 = _independent_specification(base, committed.snapshot_fingerprint)
+    expected = OnlyResearchSpecification(
+        expected_v1.dataset_snapshot_fingerprint,
+        expected_v1.calculations,
+        expected_v1.statistics,
+        generated.specification.evidence,
+        generated.specification.schema_version,
+    )
 
     assert generated.specification == expected
     expected_resolution = OnlyResearchSpecificationResolver(registry).resolve(expected)

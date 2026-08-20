@@ -21,7 +21,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
 )
 from onlyalpha.plugin.discovery import only_discover_plugins
-from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
+from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
@@ -70,7 +70,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         now_utc=only_system_utc_now,
     )
     app = create_research_app(
-        OnlyParquetResearchArtifactStore(layout.research_artifact_root),
+        OnlyResearchArtifactProfileReader(layout.research_artifact_root),
         command,
         OnlyResearchRunQueryService(run_store),
         calculations,

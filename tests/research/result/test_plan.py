@@ -44,7 +44,7 @@ def test_plan_rejects_unknown_fields_and_schema_versions() -> None:
     with pytest.raises(ValueError, match="fields"):
         OnlyResearchResultPlan.from_dict({**payload, "title": "presentation must not enter identity"})
     with pytest.raises(ValueError, match="unsupported"):
-        OnlyResearchResultPlan.from_dict({**payload, "schema_version": 2})
+        OnlyResearchResultPlan.from_dict({**payload, "schema_version": 3})
 
 
 @pytest.mark.parametrize(

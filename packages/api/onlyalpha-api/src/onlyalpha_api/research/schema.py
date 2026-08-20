@@ -7,13 +7,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from onlyalpha.canonical import only_canonical_payload
 from onlyalpha.research.query import (
     OnlyResearchArtifactSummary,
+    OnlyResearchCandidateCatalog,
+    OnlyResearchCandidateGraph,
+    OnlyResearchMarketPoint,
+    OnlyResearchPublishedSeriesCatalog,
+    OnlyResearchScientificSeriesPage,
+    OnlyResearchSignalPoint,
     OnlyResearchStatisticPoint,
     OnlyResearchStatisticsCatalog,
     OnlyResearchStatisticsDefinitionDescriptor,
     OnlyResearchStatisticsDescriptor,
     OnlyResearchStatisticSeriesPage,
+    OnlyResearchVariablePoint,
 )
 
 RESEARCH_API_SCHEMA_VERSION: Literal[2] = 2
@@ -180,4 +188,158 @@ class ResearchStatisticSeriesPageDto(_ReadDto):
             next_after_ts_event_ns=(
                 None if value.next_after_ts_event_ns is None else str(value.next_after_ts_event_ns)
             ),
+        )
+
+
+class ResearchCandidateDto(_ReadDto):
+    candidate_fingerprint: str
+    candidate_calculation_id: str
+    assignment: dict[str, object]
+    calculation_fingerprint: str
+    graph_fingerprint: str
+    statistics_fingerprints: tuple[str, ...]
+
+
+class ResearchCandidateCatalogDto(_ReadDto):
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
+    research_result_fingerprint: str
+    candidates: tuple[ResearchCandidateDto, ...]
+
+    @classmethod
+    def from_model(cls, value: OnlyResearchCandidateCatalog) -> ResearchCandidateCatalogDto:
+        return cls(
+            research_result_fingerprint=value.research_result_fingerprint,
+            candidates=tuple(
+                ResearchCandidateDto(
+                    candidate_fingerprint=item.candidate_fingerprint,
+                    candidate_calculation_id=item.candidate_calculation_id,
+                    assignment=only_canonical_payload(dict(item.assignment)),  # type: ignore[arg-type]
+                    calculation_fingerprint=item.calculation_fingerprint,
+                    graph_fingerprint=item.graph_fingerprint,
+                    statistics_fingerprints=item.statistics_fingerprints,
+                )
+                for item in value.candidates
+            ),
+        )
+
+
+class ResearchPublishedSeriesDto(_ReadDto):
+    candidate_fingerprint: str | None
+    calculation_fingerprint: str
+    node_fingerprint: str
+    output_name: str
+    value_kind: str
+
+
+class ResearchPublishedSeriesCatalogDto(_ReadDto):
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
+    research_result_fingerprint: str
+    series: tuple[ResearchPublishedSeriesDto, ...]
+
+    @classmethod
+    def from_model(cls, value: OnlyResearchPublishedSeriesCatalog) -> ResearchPublishedSeriesCatalogDto:
+        return cls(
+            research_result_fingerprint=value.research_result_fingerprint,
+            series=tuple(
+                ResearchPublishedSeriesDto(
+                    candidate_fingerprint=item.candidate_fingerprint,
+                    calculation_fingerprint=item.calculation_fingerprint,
+                    node_fingerprint=item.node_fingerprint,
+                    output_name=item.output_name,
+                    value_kind=item.value_kind,
+                )
+                for item in value.series
+            ),
+        )
+
+
+class ResearchMarketPointDto(_ReadDto):
+    instrument_id: str
+    ts_event_ns: str
+    open: str
+    high: str
+    low: str
+    close: str
+    volume: str
+
+
+class ResearchVariablePointDto(_ReadDto):
+    instrument_id: str
+    ts_event_ns: str
+    value_kind: str
+    decimal_value: str | None
+    integer_value: str | None
+    boolean_value: bool | None
+    string_value: str | None
+
+
+class ResearchSignalPointDto(_ReadDto):
+    instrument_id: str
+    ts_event_ns: str
+    value: bool | None
+
+
+class ResearchScientificSeriesPageDto(_ReadDto):
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
+    research_result_fingerprint: str
+    points: tuple[ResearchMarketPointDto | ResearchVariablePointDto | ResearchSignalPointDto, ...]
+    has_more: bool
+    next_after_ts_event_ns: str | None
+
+    @classmethod
+    def from_model(cls, value: OnlyResearchScientificSeriesPage) -> ResearchScientificSeriesPageDto:
+        points: list[ResearchMarketPointDto | ResearchVariablePointDto | ResearchSignalPointDto] = []
+        for item in value.points:
+            if isinstance(item, OnlyResearchMarketPoint):
+                points.append(
+                    ResearchMarketPointDto(
+                        instrument_id=item.instrument_id,
+                        ts_event_ns=str(item.ts_event_ns),
+                        open=format(item.open, "f"),
+                        high=format(item.high, "f"),
+                        low=format(item.low, "f"),
+                        close=format(item.close, "f"),
+                        volume=format(item.volume, "f"),
+                    )
+                )
+            elif isinstance(item, OnlyResearchVariablePoint):
+                points.append(
+                    ResearchVariablePointDto(
+                        instrument_id=item.instrument_id,
+                        ts_event_ns=str(item.ts_event_ns),
+                        value_kind=item.value_kind,
+                        decimal_value=item.decimal_value,
+                        integer_value=item.integer_value,
+                        boolean_value=item.boolean_value,
+                        string_value=item.string_value,
+                    )
+                )
+            elif isinstance(item, OnlyResearchSignalPoint):
+                points.append(
+                    ResearchSignalPointDto(
+                        instrument_id=item.instrument_id, ts_event_ns=str(item.ts_event_ns), value=item.value
+                    )
+                )
+        return cls(
+            research_result_fingerprint=value.research_result_fingerprint,
+            points=tuple(points),
+            has_more=value.has_more,
+            next_after_ts_event_ns=None if value.next_after_ts_event_ns is None else str(value.next_after_ts_event_ns),
+        )
+
+
+class ResearchCandidateGraphDto(_ReadDto):
+    schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
+    research_result_fingerprint: str
+    candidate_fingerprint: str
+    calculation_fingerprint: str
+    graph: dict[str, object]
+
+    @classmethod
+    def from_model(cls, value: OnlyResearchCandidateGraph) -> ResearchCandidateGraphDto:
+        return cls(
+            research_result_fingerprint=value.research_result_fingerprint,
+            candidate_fingerprint=value.candidate_fingerprint,
+            calculation_fingerprint=value.calculation_fingerprint,
+            graph=dict(value.graph.to_dict()),
         )

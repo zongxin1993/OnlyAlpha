@@ -5,6 +5,9 @@ export type ResearchWebErrorCode =
     | "RESEARCH_ARTIFACT_NOT_FOUND"
     | "RESEARCH_ARTIFACT_CORRUPT"
     | "STATISTICS_NOT_FOUND"
+    | "SCIENTIFIC_EVIDENCE_NOT_AVAILABLE"
+    | "CANDIDATE_NOT_FOUND"
+    | "SERIES_NOT_FOUND"
     | `RESEARCH_${string}`
     | `POSTGRES_${string}`
     | "TRANSPORT_ERROR"

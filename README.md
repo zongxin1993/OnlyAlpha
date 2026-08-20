@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.1.1 — IMPLEMENTED / VERIFIED locally** — Public Authoring & Universe Authority Closure |
-| Next semantic direction | P8.4.2 — Scientific Result Evidence |
+| Current increment | **P8.4.2 — IMPLEMENTED / VERIFIED locally** — Scientific Result Evidence |
+| Next semantic direction | P8.4.3 — Research Studio & Runs Web |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -398,6 +398,10 @@ Catalog 暴露，并增加 `POST /api/v2/research/definitions/resolve`。该 end
 P8.4.1.1 已关闭 Public Authoring 与 Universe authority 边界：Research API 的 registered Universe Discovery 与 Definition Resolution
 只能复用同一实例；没有 registered authority 时只公开 explicit Universe capability。Definition authoring transport 只接受
 `INDICATOR / FACTOR / TARGET`，internal `PREDICATE` 仍由既有 Calculation Registry 与 exact Graph 语义拥有。
+
+P8.4.2 已把 publication membership 与 Candidate identity 穿过 Specification V2、Run canonical payload、fresh Worker、Runtime、Result V2、
+Scientific Artifact V2 和 Artifact-only Query/HTTP。Artifact 自包含 exact market、typed Published Variables、nullable Signals、Statistics 与
+canonical Graph；V1 contracts 保持可读，且未新增 Evidence/Candidate/Signal/Graph/Predicate Store 或 execution phase。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

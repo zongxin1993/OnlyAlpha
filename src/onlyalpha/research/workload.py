@@ -78,6 +78,14 @@ class OnlyResearchWorkloadPlan:
                 "RESEARCH_WORKLOAD_RESULT_STATISTICS_MISMATCH",
                 "Result Plan must reference exactly the supplied Statistics Plans",
             )
+        if self.result_plan.schema_version == 2:
+            if self.result_plan.dataset_snapshot_fingerprint != self.dataset_snapshot_fingerprint:
+                self._fail("RESEARCH_WORKLOAD_RESULT_DATASET_MISMATCH", "Result Plan Dataset must match workload")
+            if {item.calculation_fingerprint for item in self.result_plan.calculations} != closure:
+                self._fail(
+                    "RESEARCH_WORKLOAD_RESULT_CALCULATION_MISMATCH",
+                    "Result Plan must reference exactly the supplied Calculation Jobs",
+                )
 
     @staticmethod
     def _fail(code: str, detail: str) -> None:

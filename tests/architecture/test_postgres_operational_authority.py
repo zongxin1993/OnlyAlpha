@@ -87,6 +87,14 @@ def test_command_migration_contains_only_submission_identity_and_read_index() ->
         assert forbidden not in sql
 
 
+def test_specification_v2_migration_only_expands_existing_version_admission() -> None:
+    sql = Path("database/postgres/migrations/0005_research_specification_v2_admission.sql").read_text()
+    assert "specification_schema_version IN (1, 2)" in sql
+    assert "CREATE TABLE" not in sql
+    assert "ADD COLUMN" not in sql
+    assert "UPDATE research_run" not in sql
+
+
 def test_application_startup_cannot_migrate_or_repair_postgres() -> None:
     for root in (Path("src/onlyalpha/application"), Path("src/onlyalpha/engine"), Path("src/onlyalpha/runtime")):
         if root.exists():

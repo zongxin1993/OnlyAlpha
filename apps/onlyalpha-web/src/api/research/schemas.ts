@@ -80,6 +80,75 @@ export const statisticSeriesPageSchema = z.strictObject({
     next_after_ts_event_ns: integer.nullable()
 }) satisfies z.ZodType<Dto<"ResearchStatisticSeriesPageDto">>;
 
+export const researchCandidateCatalogSchema = z.strictObject({
+    schema_version: z.literal(2),
+    research_result_fingerprint: sha256,
+    candidates: z.array(
+        z.strictObject({
+            candidate_fingerprint: sha256,
+            candidate_calculation_id: z.string().min(1),
+            assignment: z.record(z.string(), z.unknown()),
+            calculation_fingerprint: sha256,
+            graph_fingerprint: sha256,
+            statistics_fingerprints: z.array(sha256)
+        })
+    )
+}) satisfies z.ZodType<Dto<"ResearchCandidateCatalogDto">>;
+
+export const researchPublishedSeriesCatalogSchema = z.strictObject({
+    schema_version: z.literal(2),
+    research_result_fingerprint: sha256,
+    series: z.array(
+        z.strictObject({
+            candidate_fingerprint: sha256.nullable(),
+            calculation_fingerprint: sha256,
+            node_fingerprint: sha256,
+            output_name: z.string().min(1),
+            value_kind: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"])
+        })
+    )
+}) satisfies z.ZodType<Dto<"ResearchPublishedSeriesCatalogDto">>;
+
+const marketPointSchema = z.strictObject({
+    instrument_id: z.string().min(1),
+    ts_event_ns: integer,
+    open: decimal,
+    high: decimal,
+    low: decimal,
+    close: decimal,
+    volume: decimal
+});
+const variablePointSchema = z.strictObject({
+    instrument_id: z.string().min(1),
+    ts_event_ns: integer,
+    value_kind: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]),
+    decimal_value: decimal.nullable(),
+    integer_value: integer.nullable(),
+    boolean_value: z.boolean().nullable(),
+    string_value: z.string().nullable()
+});
+const signalPointSchema = z.strictObject({
+    instrument_id: z.string().min(1),
+    ts_event_ns: integer,
+    value: z.boolean().nullable()
+});
+
+export const researchScientificSeriesPageSchema = z.strictObject({
+    schema_version: z.literal(2),
+    research_result_fingerprint: sha256,
+    points: z.array(z.union([marketPointSchema, variablePointSchema, signalPointSchema])),
+    has_more: z.boolean(),
+    next_after_ts_event_ns: integer.nullable()
+}) satisfies z.ZodType<Dto<"ResearchScientificSeriesPageDto">>;
+
+export const researchCandidateGraphSchema = z.strictObject({
+    schema_version: z.literal(2),
+    research_result_fingerprint: sha256,
+    candidate_fingerprint: sha256,
+    calculation_fingerprint: sha256,
+    graph: z.record(z.string(), z.unknown())
+}) satisfies z.ZodType<Dto<"ResearchCandidateGraphDto">>;
+
 export const researchErrorSchema = z.strictObject({
     schema_version: z.literal(2),
     code: z.enum([
@@ -88,7 +157,10 @@ export const researchErrorSchema = z.strictObject({
         "INVALID_PAGE_LIMIT",
         "RESEARCH_ARTIFACT_NOT_FOUND",
         "RESEARCH_ARTIFACT_CORRUPT",
-        "STATISTICS_NOT_FOUND"
+        "STATISTICS_NOT_FOUND",
+        "SCIENTIFIC_EVIDENCE_NOT_AVAILABLE",
+        "CANDIDATE_NOT_FOUND",
+        "SERIES_NOT_FOUND"
     ]),
     detail: z.string().min(1)
 }) satisfies z.ZodType<Dto<"ResearchErrorDto">>;
@@ -280,6 +352,14 @@ export const researchDefinitionErrorSchema = z.strictObject({
 export type ArtifactSummaryTransport = z.infer<typeof artifactSummarySchema>;
 export type StatisticsCatalogTransport = z.infer<typeof statisticsCatalogSchema>;
 export type StatisticSeriesPageTransport = z.infer<typeof statisticSeriesPageSchema>;
+export type ResearchCandidateCatalogTransport = z.infer<typeof researchCandidateCatalogSchema>;
+export type ResearchPublishedSeriesCatalogTransport = z.infer<
+    typeof researchPublishedSeriesCatalogSchema
+>;
+export type ResearchScientificSeriesPageTransport = z.infer<
+    typeof researchScientificSeriesPageSchema
+>;
+export type ResearchCandidateGraphTransport = z.infer<typeof researchCandidateGraphSchema>;
 export type ResearchRunTransport = z.infer<typeof researchRunSchema>;
 export type ResearchRunSummaryTransport = z.infer<typeof researchRunSummarySchema>;
 export type ResearchRunPageTransport = z.infer<typeof researchRunPageSchema>;

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
@@ -78,11 +81,59 @@ def test_global_candidates_role_terminals_and_existing_specification_equivalence
         result.dataset_snapshot_fingerprint,
         tuple(result.specification.calculations),
         tuple(result.specification.statistics),
+        result.specification.evidence,
+        result.specification.schema_version,
     )
     manual = OnlyResearchSpecificationResolver(registry).resolve(manual_exact_specification)
     assert result.specification == manual_exact_specification
     assert result.workload == manual.workload
     assert result.specification_fingerprint == manual.specification_fingerprint
+
+
+def test_specification_v2_publication_and_candidate_identity_survive_fresh_resolution(tmp_path) -> None:
+    committed, _, _, resolver = _case(tmp_path)
+    base = definition(committed.definition)
+    first = resolver.resolve(base)
+    rsi = next(item for item in base.calculations if item.instance_key == "rsi")
+    expanded = resolver.resolve(
+        replace(
+            base,
+            calculations=tuple(
+                replace(item, published_outputs=("value", "zone")) if item is rsi else item
+                for item in base.calculations
+            ),
+        )
+    )
+    assert [item.calculation_fingerprint for item in first.candidates] == [
+        item.calculation_fingerprint for item in expanded.candidates
+    ]
+    assert first.specification_fingerprint != expanded.specification_fingerprint
+    assert [item.candidate_fingerprint for item in first.candidates] != [
+        item.candidate_fingerprint for item in expanded.candidates
+    ]
+    serialized = json.loads(json.dumps(first.specification.to_dict()))
+    restored = OnlyResearchSpecification.from_dict(serialized)
+    fresh = OnlyResearchSpecificationResolver(evaluation_registry()).resolve(restored)
+    assert [item.candidate_fingerprint for item in fresh.candidates if item.candidate_fingerprint] == [
+        item.candidate_fingerprint for item in first.specification_resolution.candidates if item.candidate_fingerprint
+    ]
+    assert fresh.published_series == first.specification_resolution.published_series
+    assert fresh.signals == first.specification_resolution.signals
+    specification_path = tmp_path / "specification-v2.json"
+    specification_path.write_text(json.dumps(serialized), encoding="utf-8")
+    program = (
+        "import json,sys; from onlyalpha.research import OnlyResearchSpecification,OnlyResearchSpecificationResolver; "
+        "from tests.research.evaluation.support import evaluation_registry; "
+        "p=json.load(open(sys.argv[1],encoding='utf-8')); "
+        "r=OnlyResearchSpecificationResolver(evaluation_registry()).resolve(OnlyResearchSpecification.from_dict(p)); "
+        "print(json.dumps([x.candidate_fingerprint for x in r.candidates if x.candidate_fingerprint]))"
+    )
+    reconstructed = json.loads(
+        subprocess.check_output([sys.executable, "-c", program, str(specification_path)], text=True)
+    )
+    assert reconstructed == [
+        item.candidate_fingerprint for item in first.specification_resolution.candidates if item.candidate_fingerprint
+    ]
 
 
 def test_candidate_graph_executes_boolean_series_without_eligibility_rewriting_entry(tmp_path) -> None:

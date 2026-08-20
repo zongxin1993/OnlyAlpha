@@ -35,7 +35,14 @@ from onlyalpha.research.run import (
     OnlyResearchRunStateConflictError,
     only_research_admission_resolution_fingerprint,
 )
-from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.research.specification import (
+    RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
+    OnlyResearchScientificEvidenceSpec,
+    OnlyResearchSeriesSelector,
+    OnlyResearchSignalEvidenceSpec,
+    OnlyResearchSpecification,
+    OnlyResearchSpecificationResolver,
+)
 from scripts.database import _backup, _restore_test
 from scripts.database import main as database_main
 from tests.research.specification.support import registry, specification
@@ -46,6 +53,7 @@ M1 = "0001_research_run_operational_authority"
 M2 = "0002_research_run_authority_hardening"
 M3 = "0003_research_run_attempt_authority"
 M4 = "0004_research_run_submission_and_read_projection"
+M5 = "0005_research_specification_v2_admission"
 
 
 def _copy_migrations(target: Path, *migration_ids: str) -> None:
@@ -66,15 +74,45 @@ def _queued(run_id: str) -> OnlyResearchRun:
     )
 
 
+def _queued_v2(run_id: str) -> OnlyResearchRun:
+    v1 = specification()
+    spec = OnlyResearchSpecification(
+        v1.dataset_snapshot_fingerprint,
+        v1.calculations,
+        v1.statistics,
+        OnlyResearchScientificEvidenceSpec(
+            "feature",
+            (OnlyResearchSeriesSelector("feature", "momentum", "factor_value"),),
+            OnlyResearchSignalEvidenceSpec(),
+        ),
+        RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
+    )
+    resolution = OnlyResearchSpecificationResolver(registry()).resolve(spec)
+    return OnlyResearchRun.queued(
+        run_id=OnlyResearchRunId(run_id),
+        specification=spec,
+        canonical_specification_payload=only_canonical_json(spec.to_dict()),
+        admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
+        queued_at=NOW,
+    )
+
+
+def test_specification_v2_postgres_round_trip_is_canonical_exact(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    expected = _queued_v2("00000000-0000-4000-8000-000000000098")
+    assert store.load(store.create_queued(expected).run_id) == expected
+
+
 def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_dsn: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4)
+    assert authority.migrate() == (M1, M2, M3, M4, M5)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -95,11 +133,11 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4)
+    _copy_migrations(tmp_path, M1, M2, M3, M4, M5)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -123,8 +161,8 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4)
-    assert authority.migrate() == (M2, M3, M4)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5)
+    assert authority.migrate() == (M2, M3, M4, M5)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -157,7 +195,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4)
+    assert before.applied_migrations == (M2, M3, M4, M5)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -215,7 +253,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 

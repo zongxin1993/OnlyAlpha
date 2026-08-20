@@ -20,6 +20,11 @@ from onlyalpha.research.run import (
     only_research_admission_resolution_fingerprint,
 )
 from onlyalpha.research.specification import (
+    RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
+    OnlyResearchScientificEvidenceSpec,
+    OnlyResearchSeriesSelector,
+    OnlyResearchSignalEvidenceSpec,
+    OnlyResearchSpecification,
     OnlyResearchSpecificationError,
     OnlyResearchSpecificationPhase,
     OnlyResearchSpecificationResolver,
@@ -41,6 +46,36 @@ def _queued(run_id: str = "00000000-0000-4000-8000-000000000001") -> OnlyResearc
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=NOW,
     )
+
+
+def test_v2_scientific_membership_survives_exact_run_payload_round_trip() -> None:
+    v1 = specification()
+    v2 = OnlyResearchSpecification(
+        v1.dataset_snapshot_fingerprint,
+        v1.calculations,
+        v1.statistics,
+        OnlyResearchScientificEvidenceSpec(
+            "feature",
+            (OnlyResearchSeriesSelector("feature", "momentum", "factor_value"),),
+            OnlyResearchSignalEvidenceSpec(),
+        ),
+        RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
+    )
+    resolution = OnlyResearchSpecificationResolver(registry()).resolve(v2)
+    run = OnlyResearchRun.queued(
+        run_id=OnlyResearchRunId("00000000-0000-4000-8000-000000000099"),
+        specification=v2,
+        canonical_specification_payload=only_canonical_json(v2.to_dict()),
+        admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
+        queued_at=NOW,
+    )
+    restored = OnlyResearchSpecification.from_dict(run.specification.to_dict())
+    fresh = OnlyResearchSpecificationResolver(registry()).resolve(restored)
+    assert restored == v2
+    assert fresh.workload.result_plan == resolution.workload.result_plan
+    assert [item.candidate_fingerprint for item in fresh.candidates] == [
+        item.candidate_fingerprint for item in resolution.candidates
+    ]
 
 
 def test_run_identity_is_uuid4_and_independent_from_specification_identity() -> None:

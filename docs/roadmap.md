@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.1.1 — IMPLEMENTED / VERIFIED LOCALLY — Public Authoring & Universe Authority Closure
+Current Increment: P8.4.2 — IMPLEMENTED / VERIFIED LOCALLY — Scientific Result Evidence
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.4.2 — Scientific Result Evidence
+Next Semantic Direction: P8.4.3 — Research Studio & Runs Web
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -454,6 +454,12 @@ P8.4.1.1 已关闭两个公共边界缺口：API composition 从 Definition Reso
 且无该 authority 时不再宣称 `REGISTERED_POOL / REGISTERED_UNIVERSE`；Research Definition HTTP/OpenAPI/Web authoring vocabulary
 收紧为 `INDICATOR / FACTOR / TARGET`，而 Eligibility/Entry/Exit 的 internal `PREDICATE` lowering、exact Specification 与 P8.3 Run
 submission semantics 保持不变。该 closure 不新增 Universe/Calculation authority，也不改变 P8 `IN_PROGRESS` 状态。
+
+P8.4.2 已实现 exact scientific evidence chain：Definition 生成 Specification V2 publication membership，既有 Run/PostgreSQL canonical
+payload 可供 fresh Worker 重建同一 Candidate identity 与 internal Predicate workload；Result Plan/Research Result V2 引用 exact
+Calculation/Statistics authorities；`RESEARCH_SCIENTIFIC_V2` Artifact 自包含投影 market、typed variables、nullable signals、Statistics 与
+canonical Graph，并分离 logical/byte identity；Query/HTTP 只读 Artifact。V1 Specification/Result/Artifact 保持可读，V1 scientific query
+显式失败。该 increment 不新增 execution phase 或 Evidence/Candidate/Signal/Graph/Predicate Store；P8 仍为 `IN_PROGRESS`，下一步是 P8.4.3。
 
 ### 目标
 

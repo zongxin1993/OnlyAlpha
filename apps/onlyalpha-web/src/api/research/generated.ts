@@ -21,6 +21,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/artifacts/{research_result_fingerprint}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidate Catalog */
+        get: operations["candidate_catalog_api_v2_research_artifacts__research_result_fingerprint__candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/artifacts/{research_result_fingerprint}/candidates/{candidate_fingerprint}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidate Graph */
+        get: operations["candidate_graph_api_v2_research_artifacts__research_result_fingerprint__candidates__candidate_fingerprint__graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/artifacts/{research_result_fingerprint}/market/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Market Series */
+        get: operations["market_series_api_v2_research_artifacts__research_result_fingerprint__market_series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/artifacts/{research_result_fingerprint}/signals/{candidate_fingerprint}/{role}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Signal Series */
+        get: operations["signal_series_api_v2_research_artifacts__research_result_fingerprint__signals__candidate_fingerprint___role__series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/artifacts/{research_result_fingerprint}/statistics": {
         parameters: {
             query?: never;
@@ -47,6 +115,40 @@ export interface paths {
         };
         /** Statistic Series */
         get: operations["statistic_series_api_v2_research_artifacts__research_result_fingerprint__statistics__statistics_fingerprint__series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/artifacts/{research_result_fingerprint}/variables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Variable Catalog */
+        get: operations["variable_catalog_api_v2_research_artifacts__research_result_fingerprint__variables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/artifacts/{research_result_fingerprint}/variables/{calculation_fingerprint}/{node_fingerprint}/{output_name}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Variable Series */
+        get: operations["variable_series_api_v2_research_artifacts__research_result_fingerprint__variables__calculation_fingerprint___node_fingerprint___output_name__series_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -365,6 +467,55 @@ export interface components {
             /** Type Id */
             type_id: string;
         };
+        /** ResearchCandidateCatalogDto */
+        ResearchCandidateCatalogDto: {
+            /** Candidates */
+            candidates: components["schemas"]["ResearchCandidateDto"][];
+            /** Research Result Fingerprint */
+            research_result_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+        };
+        /** ResearchCandidateDto */
+        ResearchCandidateDto: {
+            /** Assignment */
+            assignment: {
+                [key: string]: unknown;
+            };
+            /** Calculation Fingerprint */
+            calculation_fingerprint: string;
+            /** Candidate Calculation Id */
+            candidate_calculation_id: string;
+            /** Candidate Fingerprint */
+            candidate_fingerprint: string;
+            /** Graph Fingerprint */
+            graph_fingerprint: string;
+            /** Statistics Fingerprints */
+            statistics_fingerprints: string[];
+        };
+        /** ResearchCandidateGraphDto */
+        ResearchCandidateGraphDto: {
+            /** Calculation Fingerprint */
+            calculation_fingerprint: string;
+            /** Candidate Fingerprint */
+            candidate_fingerprint: string;
+            /** Graph */
+            graph: {
+                [key: string]: unknown;
+            };
+            /** Research Result Fingerprint */
+            research_result_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+        };
         /** ResearchComparisonDto */
         ResearchComparisonDto: {
             /**
@@ -552,6 +703,23 @@ export interface components {
             /** Unit */
             unit: string | null;
         };
+        /** ResearchMarketPointDto */
+        ResearchMarketPointDto: {
+            /** Close */
+            close: string;
+            /** High */
+            high: string;
+            /** Instrument Id */
+            instrument_id: string;
+            /** Low */
+            low: string;
+            /** Open */
+            open: string;
+            /** Ts Event Ns */
+            ts_event_ns: string;
+            /** Volume */
+            volume: string;
+        };
         /** ResearchNotDto */
         ResearchNotDto: {
             /**
@@ -613,6 +781,32 @@ export interface components {
             type: string;
             /** Uppercase */
             uppercase: boolean;
+        };
+        /** ResearchPublishedSeriesCatalogDto */
+        ResearchPublishedSeriesCatalogDto: {
+            /** Research Result Fingerprint */
+            research_result_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+            /** Series */
+            series: components["schemas"]["ResearchPublishedSeriesDto"][];
+        };
+        /** ResearchPublishedSeriesDto */
+        ResearchPublishedSeriesDto: {
+            /** Calculation Fingerprint */
+            calculation_fingerprint: string;
+            /** Candidate Fingerprint */
+            candidate_fingerprint: string | null;
+            /** Node Fingerprint */
+            node_fingerprint: string;
+            /** Output Name */
+            output_name: string;
+            /** Value Kind */
+            value_kind: string;
         };
         /** ResearchPublishedVariableDto */
         ResearchPublishedVariableDto: {
@@ -755,6 +949,23 @@ export interface components {
             /** Value */
             value: boolean | number | string | null;
         };
+        /** ResearchScientificSeriesPageDto */
+        ResearchScientificSeriesPageDto: {
+            /** Has More */
+            has_more: boolean;
+            /** Next After Ts Event Ns */
+            next_after_ts_event_ns: string | null;
+            /** Points */
+            points: (components["schemas"]["ResearchMarketPointDto"] | components["schemas"]["ResearchVariablePointDto"] | components["schemas"]["ResearchSignalPointDto"])[];
+            /** Research Result Fingerprint */
+            research_result_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 2
+             * @constant
+             */
+            schema_version: 2;
+        };
         /** ResearchSeriesReferenceDto */
         ResearchSeriesReferenceDto: {
             /** Calculation Fingerprint */
@@ -763,6 +974,15 @@ export interface components {
             node_fingerprint: string;
             /** Output Name */
             output_name: string;
+        };
+        /** ResearchSignalPointDto */
+        ResearchSignalPointDto: {
+            /** Instrument Id */
+            instrument_id: string;
+            /** Ts Event Ns */
+            ts_event_ns: string;
+            /** Value */
+            value: boolean | null;
         };
         /** ResearchSignalsDto */
         ResearchSignalsDto: {
@@ -944,6 +1164,23 @@ export interface components {
             /** Registered Id */
             registered_id: string | null;
         };
+        /** ResearchVariablePointDto */
+        ResearchVariablePointDto: {
+            /** Boolean Value */
+            boolean_value: boolean | null;
+            /** Decimal Value */
+            decimal_value: string | null;
+            /** Instrument Id */
+            instrument_id: string;
+            /** Integer Value */
+            integer_value: string | null;
+            /** String Value */
+            string_value: string | null;
+            /** Ts Event Ns */
+            ts_event_ns: string;
+            /** Value Kind */
+            value_kind: string;
+        };
         /** ResearchVariableRefDto */
         ResearchVariableRefDto: {
             /** Instance Key */
@@ -1029,6 +1266,298 @@ export interface operations {
                     "application/json": components["schemas"]["ResearchErrorDto"];
                 };
             };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Research Artifact verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    candidate_catalog_api_v2_research_artifacts__research_result_fingerprint__candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                research_result_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchCandidateCatalogDto"];
+                };
+            };
+            /** @description Invalid Research query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Exact Artifact or Statistics identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Research Artifact verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    candidate_graph_api_v2_research_artifacts__research_result_fingerprint__candidates__candidate_fingerprint__graph_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                research_result_fingerprint: string;
+                candidate_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchCandidateGraphDto"];
+                };
+            };
+            /** @description Invalid Research query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Exact Artifact or Statistics identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Research Artifact verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    market_series_api_v2_research_artifacts__research_result_fingerprint__market_series_get: {
+        parameters: {
+            query: {
+                instrument_id: string;
+                from_ts_event_ns?: string | null;
+                to_ts_event_ns?: string | null;
+                after_ts_event_ns?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                research_result_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchScientificSeriesPageDto"];
+                };
+            };
+            /** @description Invalid Research query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Exact Artifact or Statistics identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Research Artifact verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    signal_series_api_v2_research_artifacts__research_result_fingerprint__signals__candidate_fingerprint___role__series_get: {
+        parameters: {
+            query: {
+                instrument_id: string;
+                from_ts_event_ns?: string | null;
+                to_ts_event_ns?: string | null;
+                after_ts_event_ns?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                research_result_fingerprint: string;
+                candidate_fingerprint: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchScientificSeriesPageDto"];
+                };
+            };
+            /** @description Invalid Research query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Exact Artifact or Statistics identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -1080,6 +1609,15 @@ export interface operations {
             };
             /** @description Exact Artifact or Statistics identity not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1144,6 +1682,159 @@ export interface operations {
             };
             /** @description Exact Artifact or Statistics identity not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Research Artifact verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    variable_catalog_api_v2_research_artifacts__research_result_fingerprint__variables_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                research_result_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchPublishedSeriesCatalogDto"];
+                };
+            };
+            /** @description Invalid Research query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Exact Artifact or Statistics identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Research Artifact verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+        };
+    };
+    variable_series_api_v2_research_artifacts__research_result_fingerprint__variables__calculation_fingerprint___node_fingerprint___output_name__series_get: {
+        parameters: {
+            query: {
+                instrument_id: string;
+                candidate_fingerprint?: string | null;
+                from_ts_event_ns?: string | null;
+                to_ts_event_ns?: string | null;
+                after_ts_event_ns?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                research_result_fingerprint: string;
+                calculation_fingerprint: string;
+                node_fingerprint: string;
+                output_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchScientificSeriesPageDto"];
+                };
+            };
+            /** @description Invalid Research query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Exact Artifact or Statistics identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchErrorDto"];
+                };
+            };
+            /** @description Scientific evidence is unavailable for this profile */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

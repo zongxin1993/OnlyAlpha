@@ -35,3 +35,17 @@ def test_graph_template_materialization_has_one_implementation() -> None:
     assert definitions == [
         (Path("src/onlyalpha/research/sweep/materialization.py"), "OnlyResearchGraphTemplateMaterializer")
     ]
+
+
+def test_scientific_evidence_introduces_no_parallel_authority_or_registry() -> None:
+    source = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha/research").rglob("*.py"))
+    forbidden = (
+        "ScientificEvidenceStore",
+        "CandidateStore",
+        "SignalStore",
+        "GraphStore",
+        "PredicateResultStore",
+        "PredicateRuntime",
+        "PredicateRegistry",
+    )
+    assert not any(name in source for name in forbidden)

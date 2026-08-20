@@ -439,6 +439,113 @@
         "title": "ResearchCalculationTypeReferenceDto",
         "type": "object"
       },
+      "ResearchCandidateCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCandidateDto"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "research_result_fingerprint": {
+            "title": "Research Result Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "research_result_fingerprint",
+          "candidates"
+        ],
+        "title": "ResearchCandidateCatalogDto",
+        "type": "object"
+      },
+      "ResearchCandidateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment": {
+            "additionalProperties": true,
+            "title": "Assignment",
+            "type": "object"
+          },
+          "calculation_fingerprint": {
+            "title": "Calculation Fingerprint",
+            "type": "string"
+          },
+          "candidate_calculation_id": {
+            "title": "Candidate Calculation Id",
+            "type": "string"
+          },
+          "candidate_fingerprint": {
+            "title": "Candidate Fingerprint",
+            "type": "string"
+          },
+          "graph_fingerprint": {
+            "title": "Graph Fingerprint",
+            "type": "string"
+          },
+          "statistics_fingerprints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statistics Fingerprints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidate_fingerprint",
+          "candidate_calculation_id",
+          "assignment",
+          "calculation_fingerprint",
+          "graph_fingerprint",
+          "statistics_fingerprints"
+        ],
+        "title": "ResearchCandidateDto",
+        "type": "object"
+      },
+      "ResearchCandidateGraphDto": {
+        "additionalProperties": false,
+        "properties": {
+          "calculation_fingerprint": {
+            "title": "Calculation Fingerprint",
+            "type": "string"
+          },
+          "candidate_fingerprint": {
+            "title": "Candidate Fingerprint",
+            "type": "string"
+          },
+          "graph": {
+            "additionalProperties": true,
+            "title": "Graph",
+            "type": "object"
+          },
+          "research_result_fingerprint": {
+            "title": "Research Result Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "research_result_fingerprint",
+          "candidate_fingerprint",
+          "calculation_fingerprint",
+          "graph"
+        ],
+        "title": "ResearchCandidateGraphDto",
+        "type": "object"
+      },
       "ResearchComparisonDto": {
         "additionalProperties": false,
         "properties": {
@@ -1000,6 +1107,50 @@
         "title": "ResearchInputDefinitionDto",
         "type": "object"
       },
+      "ResearchMarketPointDto": {
+        "additionalProperties": false,
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          },
+          "open": {
+            "title": "Open",
+            "type": "string"
+          },
+          "ts_event_ns": {
+            "title": "Ts Event Ns",
+            "type": "string"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "ts_event_ns",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ],
+        "title": "ResearchMarketPointDto",
+        "type": "object"
+      },
       "ResearchNotDto": {
         "additionalProperties": false,
         "properties": {
@@ -1226,6 +1377,75 @@
           "uppercase"
         ],
         "title": "ResearchParameterDefinitionDto",
+        "type": "object"
+      },
+      "ResearchPublishedSeriesCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "research_result_fingerprint": {
+            "title": "Research Result Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchPublishedSeriesDto"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "research_result_fingerprint",
+          "series"
+        ],
+        "title": "ResearchPublishedSeriesCatalogDto",
+        "type": "object"
+      },
+      "ResearchPublishedSeriesDto": {
+        "additionalProperties": false,
+        "properties": {
+          "calculation_fingerprint": {
+            "title": "Calculation Fingerprint",
+            "type": "string"
+          },
+          "candidate_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Fingerprint"
+          },
+          "node_fingerprint": {
+            "title": "Node Fingerprint",
+            "type": "string"
+          },
+          "output_name": {
+            "title": "Output Name",
+            "type": "string"
+          },
+          "value_kind": {
+            "title": "Value Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_fingerprint",
+          "calculation_fingerprint",
+          "node_fingerprint",
+          "output_name",
+          "value_kind"
+        ],
+        "title": "ResearchPublishedSeriesDto",
         "type": "object"
       },
       "ResearchPublishedVariableDto": {
@@ -1674,6 +1894,61 @@
         "title": "ResearchScalarDto",
         "type": "object"
       },
+      "ResearchScientificSeriesPageDto": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_after_ts_event_ns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Ts Event Ns"
+          },
+          "points": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ResearchMarketPointDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchVariablePointDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchSignalPointDto"
+                }
+              ]
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "research_result_fingerprint": {
+            "title": "Research Result Fingerprint",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 2,
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "research_result_fingerprint",
+          "points",
+          "has_more",
+          "next_after_ts_event_ns"
+        ],
+        "title": "ResearchScientificSeriesPageDto",
+        "type": "object"
+      },
       "ResearchSeriesReferenceDto": {
         "additionalProperties": false,
         "properties": {
@@ -1696,6 +1971,37 @@
           "output_name"
         ],
         "title": "ResearchSeriesReferenceDto",
+        "type": "object"
+      },
+      "ResearchSignalPointDto": {
+        "additionalProperties": false,
+        "properties": {
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "ts_event_ns": {
+            "title": "Ts Event Ns",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "ts_event_ns",
+          "value"
+        ],
+        "title": "ResearchSignalPointDto",
         "type": "object"
       },
       "ResearchSignalsDto": {
@@ -2253,6 +2559,78 @@
         "title": "ResearchUniverseSelectionDto",
         "type": "object"
       },
+      "ResearchVariablePointDto": {
+        "additionalProperties": false,
+        "properties": {
+          "boolean_value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boolean Value"
+          },
+          "decimal_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimal Value"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "integer_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integer Value"
+          },
+          "string_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "String Value"
+          },
+          "ts_event_ns": {
+            "title": "Ts Event Ns",
+            "type": "string"
+          },
+          "value_kind": {
+            "title": "Value Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "ts_event_ns",
+          "value_kind",
+          "decimal_value",
+          "integer_value",
+          "boolean_value",
+          "string_value"
+        ],
+        "title": "ResearchVariablePointDto",
+        "type": "object"
+      },
       "ResearchVariableRefDto": {
         "additionalProperties": false,
         "properties": {
@@ -2406,6 +2784,16 @@
             },
             "description": "Exact Artifact or Statistics identity not found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2428,6 +2816,501 @@
           }
         },
         "summary": "Artifact Summary",
+        "tags": [
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/artifacts/{research_result_fingerprint}/candidates": {
+      "get": {
+        "operationId": "candidate_catalog_api_v2_research_artifacts__research_result_fingerprint__candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "research_result_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Research Result Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchCandidateCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Invalid Research query"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Research Artifact verification failed"
+          }
+        },
+        "summary": "Candidate Catalog",
+        "tags": [
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/artifacts/{research_result_fingerprint}/candidates/{candidate_fingerprint}/graph": {
+      "get": {
+        "operationId": "candidate_graph_api_v2_research_artifacts__research_result_fingerprint__candidates__candidate_fingerprint__graph_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "research_result_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Research Result Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Candidate Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchCandidateGraphDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Invalid Research query"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Research Artifact verification failed"
+          }
+        },
+        "summary": "Candidate Graph",
+        "tags": [
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/artifacts/{research_result_fingerprint}/market/series": {
+      "get": {
+        "operationId": "market_series_api_v2_research_artifacts__research_result_fingerprint__market_series_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "research_result_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Research Result Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "title": "Instrument Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchScientificSeriesPageDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Invalid Research query"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Research Artifact verification failed"
+          }
+        },
+        "summary": "Market Series",
+        "tags": [
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/artifacts/{research_result_fingerprint}/signals/{candidate_fingerprint}/{role}/series": {
+      "get": {
+        "operationId": "signal_series_api_v2_research_artifacts__research_result_fingerprint__signals__candidate_fingerprint___role__series_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "research_result_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Research Result Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Candidate Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "title": "Instrument Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchScientificSeriesPageDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Invalid Research query"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Research Artifact verification failed"
+          }
+        },
+        "summary": "Signal Series",
         "tags": [
           "research-artifacts"
         ]
@@ -2477,6 +3360,16 @@
               }
             },
             "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
           },
           "422": {
             "content": {
@@ -2620,6 +3513,16 @@
             },
             "description": "Exact Artifact or Statistics identity not found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2642,6 +3545,283 @@
           }
         },
         "summary": "Statistic Series",
+        "tags": [
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/artifacts/{research_result_fingerprint}/variables": {
+      "get": {
+        "operationId": "variable_catalog_api_v2_research_artifacts__research_result_fingerprint__variables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "research_result_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Research Result Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchPublishedSeriesCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Invalid Research query"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Research Artifact verification failed"
+          }
+        },
+        "summary": "Variable Catalog",
+        "tags": [
+          "research-artifacts"
+        ]
+      }
+    },
+    "/api/v2/research/artifacts/{research_result_fingerprint}/variables/{calculation_fingerprint}/{node_fingerprint}/{output_name}/series": {
+      "get": {
+        "operationId": "variable_series_api_v2_research_artifacts__research_result_fingerprint__variables__calculation_fingerprint___node_fingerprint___output_name__series_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "research_result_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Research Result Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "calculation_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Calculation Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "node_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Node Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "output_name",
+            "required": true,
+            "schema": {
+              "title": "Output Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "title": "Instrument Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "candidate_fingerprint",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Candidate Fingerprint"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_ts_event_ns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(?:0|-?[1-9][0-9]*)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Ts Event Ns"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchScientificSeriesPageDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Invalid Research query"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Exact Artifact or Statistics identity not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Scientific evidence is unavailable for this profile"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchErrorDto"
+                }
+              }
+            },
+            "description": "Research Artifact verification failed"
+          }
+        },
+        "summary": "Variable Series",
         "tags": [
           "research-artifacts"
         ]

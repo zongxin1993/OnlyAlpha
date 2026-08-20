@@ -6,11 +6,14 @@ from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.research.artifact.materializer import OnlyResearchArtifactMaterializer
+from onlyalpha.research.artifact.scientific_materializer import OnlyResearchScientificArtifactMaterializer
+from onlyalpha.research.artifact.scientific_store import OnlyParquetResearchScientificArtifactStore
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.definition.primitives import only_register_research_predicate_primitives
 from onlyalpha.research.evaluation.execution import OnlyResearchStatisticsExecutor
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
 from onlyalpha.research.job import OnlyResearchJobExecutor
@@ -46,6 +49,7 @@ class OnlyResearchRuntimeFactory:
             dataset,
             audit_time=only_system_utc_now,
         )
+        only_register_research_predicate_primitives(request.components.calculations)
         calculation = OnlyResearchCalculationExecutor(
             dataset,
             OnlyResearchCalculationBackendResolver(request.components.calculations),
@@ -58,10 +62,24 @@ class OnlyResearchRuntimeFactory:
             audit_time=only_system_utc_now,
         )
         statistics = OnlyResearchStatisticsExecutor(calculation_store, statistics_store)
-        result_store = OnlyJsonResearchResultStore(layout.research_result_root, statistics_store)
-        assembler = OnlyResearchResultAssembler(statistics_store, audit_time=only_system_utc_now)
-        artifact = OnlyParquetResearchArtifactStore(layout.research_artifact_root, audit_time=only_system_utc_now)
-        materializer = OnlyResearchArtifactMaterializer(result_store, statistics_store)
+        result_store = OnlyJsonResearchResultStore(layout.research_result_root, statistics_store, calculation_store)
+        assembler = OnlyResearchResultAssembler(
+            statistics_store,
+            audit_time=only_system_utc_now,
+            calculation_result_store=calculation_store,
+        )
+        artifact: OnlyParquetResearchArtifactStore | OnlyParquetResearchScientificArtifactStore
+        materializer: OnlyResearchArtifactMaterializer | OnlyResearchScientificArtifactMaterializer
+        if request.plan.workload.result_plan.schema_version == 2:
+            artifact = OnlyParquetResearchScientificArtifactStore(
+                layout.research_artifact_root, audit_time=only_system_utc_now
+            )
+            materializer = OnlyResearchScientificArtifactMaterializer(
+                result_store, dataset, calculation_store, statistics_store
+            )
+        else:
+            artifact = OnlyParquetResearchArtifactStore(layout.research_artifact_root, audit_time=only_system_utc_now)
+            materializer = OnlyResearchArtifactMaterializer(result_store, statistics_store)
         runtime = OnlyResearchRuntime(
             OnlyRuntimeId(str(request.plan.runtime_id)),
             request.plan.environment,

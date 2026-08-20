@@ -4,7 +4,10 @@ import ast
 import inspect
 from pathlib import Path
 
-from onlyalpha.research.artifact import OnlyParquetResearchArtifactStore
+from onlyalpha.research.artifact import (
+    OnlyParquetResearchArtifactStore,
+    OnlyParquetResearchScientificArtifactStore,
+)
 from onlyalpha.runtime.live.factory import OnlyLiveRuntimeFactory
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 
@@ -48,10 +51,11 @@ def test_producer_authorities_do_not_reverse_depend_on_artifact() -> None:
 
 
 def test_portable_store_constructor_and_load_boundary_require_no_upstream_store() -> None:
-    constructor = inspect.signature(OnlyParquetResearchArtifactStore)
-    load = inspect.signature(OnlyParquetResearchArtifactStore.load_verified)
-    assert tuple(constructor.parameters) == ("root", "compression", "row_group_size", "audit_time")
-    assert tuple(load.parameters) == ("self", "research_result_fingerprint")
+    for store in (OnlyParquetResearchArtifactStore, OnlyParquetResearchScientificArtifactStore):
+        constructor = inspect.signature(store)
+        load = inspect.signature(store.load_verified)
+        assert tuple(constructor.parameters) == ("root", "compression", "row_group_size", "audit_time")
+        assert tuple(load.parameters) == ("self", "research_result_fingerprint")
 
 
 def test_artifact_defines_no_plan_result_or_trading_authority_and_live_remains_unsupported() -> None:
@@ -67,10 +71,15 @@ def test_artifact_defines_no_plan_result_or_trading_authority_and_live_remains_u
         "OnlyAccount",
         "OnlyOrder",
         "OnlyPosition",
+        "ScientificEvidenceStore",
+        "CandidateStore",
+        "SignalStore",
+        "GraphStore",
+        "PredicateResultStore",
     )
     assert not any(name in source for name in forbidden)
     assert "load_verified" in source
-    assert "artifact_manifest.json" in source and "statistics.parquet" in source
+    assert "artifact_manifest.json" in source and "statistics.parquet" in source and "graphs.json" in source
     live = OnlyLiveRuntimeFactory().create(None)
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"

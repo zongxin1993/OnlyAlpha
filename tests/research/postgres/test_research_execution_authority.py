@@ -55,6 +55,7 @@ M1 = "0001_research_run_operational_authority"
 M2 = "0002_research_run_authority_hardening"
 M3 = "0003_research_run_attempt_authority"
 M4 = "0004_research_run_submission_and_read_projection"
+M5 = "0005_research_specification_v2_admission"
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
 
@@ -131,8 +132,8 @@ def test_existing_m1_m2_database_plans_exact_forward_suffix_and_preserves_run(
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1, M2)
     run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(310))
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4)
-    assert authority.migrate() == (M3, M4)
+    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5)
+    assert authority.migrate() == (M3, M4, M5)
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
 

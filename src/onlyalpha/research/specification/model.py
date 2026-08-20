@@ -1,4 +1,4 @@
-"""Strict, portable and canonical Research Specification V1 document."""
+"""Strict, portable and canonical Research Specification V1/V2 document."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from onlyalpha.research.sweep.template import OnlyResearchGraphTemplate
 from .errors import OnlyResearchSpecificationError, OnlyResearchSpecificationPhase
 
 RESEARCH_SPECIFICATION_SCHEMA_VERSION = 1
+RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION = 2
 
 
 class OnlyResearchStatisticsExpansion(StrEnum):
@@ -70,6 +71,77 @@ class OnlyResearchSeriesSelector:
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchSeriesSelector:
         _exact(payload, {"calculation_id", "template_node_id", "output_name"}, "series selector")
         return cls(payload["calculation_id"], payload["template_node_id"], payload["output_name"])  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchSignalEvidenceSpec:
+    eligibility: OnlyResearchSeriesSelector | None = None
+    entry: OnlyResearchSeriesSelector | None = None
+    exit: OnlyResearchSeriesSelector | None = None
+
+    def __post_init__(self) -> None:
+        if any(
+            item is not None and not isinstance(item, OnlyResearchSeriesSelector)
+            for item in (self.eligibility, self.entry, self.exit)
+        ):
+            raise ValueError("signal evidence selectors are invalid")
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "eligibility": None if self.eligibility is None else self.eligibility.to_dict(),
+            "entry": None if self.entry is None else self.entry.to_dict(),
+            "exit": None if self.exit is None else self.exit.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchSignalEvidenceSpec:
+        _exact(payload, {"eligibility", "entry", "exit"}, "signal evidence")
+
+        def selector(name: str) -> OnlyResearchSeriesSelector | None:
+            value = payload[name]
+            return None if value is None else OnlyResearchSeriesSelector.from_dict(_mapping(value, name))
+
+        return cls(selector("eligibility"), selector("entry"), selector("exit"))
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchScientificEvidenceSpec:
+    candidate_calculation_id: str
+    published_series: tuple[OnlyResearchSeriesSelector, ...]
+    signals: OnlyResearchSignalEvidenceSpec = OnlyResearchSignalEvidenceSpec()
+
+    def __post_init__(self) -> None:
+        _identifier(self.candidate_calculation_id, "evidence candidate_calculation_id")
+        if (
+            not isinstance(self.published_series, tuple)
+            or not self.published_series
+            or any(not isinstance(item, OnlyResearchSeriesSelector) for item in self.published_series)
+        ):
+            raise ValueError("evidence published_series must be non-empty")
+        if len(self.published_series) != len(set(self.published_series)):
+            raise ValueError("evidence published_series must be unique")
+        if not isinstance(self.signals, OnlyResearchSignalEvidenceSpec):
+            raise ValueError("evidence signals are invalid")
+        object.__setattr__(self, "published_series", tuple(sorted(self.published_series)))
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "candidate_calculation_id": self.candidate_calculation_id,
+            "published_series": [item.to_dict() for item in self.published_series],
+            "signals": self.signals.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchScientificEvidenceSpec:
+        _exact(payload, {"candidate_calculation_id", "published_series", "signals"}, "scientific evidence")
+        published = payload["published_series"]
+        if not isinstance(published, list):
+            raise ValueError("evidence published_series must be an array")
+        return cls(
+            payload["candidate_calculation_id"],  # type: ignore[arg-type]
+            tuple(OnlyResearchSeriesSelector.from_dict(_mapping(item, "published selector")) for item in published),
+            OnlyResearchSignalEvidenceSpec.from_dict(_mapping(payload["signals"], "signals")),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,12 +239,22 @@ class OnlyResearchSpecification:
     dataset_snapshot_fingerprint: str
     calculations: tuple[OnlyResearchCalculationSpec, ...]
     statistics: tuple[OnlyResearchStatisticsSpec, ...]
+    evidence: OnlyResearchScientificEvidenceSpec | None = None
     schema_version: int = RESEARCH_SPECIFICATION_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         try:
-            if isinstance(self.schema_version, bool) or self.schema_version != RESEARCH_SPECIFICATION_SCHEMA_VERSION:
+            if isinstance(self.schema_version, bool) or self.schema_version not in {
+                RESEARCH_SPECIFICATION_SCHEMA_VERSION,
+                RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
+            }:
                 raise ValueError(f"unsupported Research Specification schema version: {self.schema_version!r}")
+            if self.schema_version == RESEARCH_SPECIFICATION_SCHEMA_VERSION and self.evidence is not None:
+                raise ValueError("Research Specification V1 cannot contain scientific evidence")
+            if self.schema_version == RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION and not isinstance(
+                self.evidence, OnlyResearchScientificEvidenceSpec
+            ):
+                raise ValueError("Research Specification V2 requires scientific evidence")
             require_sha256(
                 {"dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint},
                 "dataset_snapshot_fingerprint",
@@ -216,27 +298,30 @@ class OnlyResearchSpecification:
         return only_canonical_fingerprint(self.to_dict())
 
     def to_dict(self) -> Mapping[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+            "calculations": [item.to_dict() for item in self.calculations],
+            "statistics": [item.to_dict() for item in self.statistics],
+        }
+        if self.schema_version == RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION:
+            assert self.evidence is not None
+            payload["evidence"] = self.evidence.to_dict()
         return cast(
             Mapping[str, object],
-            only_canonical_payload(
-                {
-                    "schema_version": self.schema_version,
-                    "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
-                    "calculations": [item.to_dict() for item in self.calculations],
-                    "statistics": [item.to_dict() for item in self.statistics],
-                }
-            ),
+            only_canonical_payload(payload),
         )
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyResearchSpecification:
         try:
-            _exact(
-                payload,
-                {"schema_version", "dataset_snapshot_fingerprint", "calculations", "statistics"},
-                "Research Specification",
-            )
             version, dataset = payload["schema_version"], payload["dataset_snapshot_fingerprint"]
+            if isinstance(version, bool) or not isinstance(version, int):
+                raise ValueError("Research Specification fields are invalid")
+            expected = {"schema_version", "dataset_snapshot_fingerprint", "calculations", "statistics"}
+            if version == RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION:
+                expected.add("evidence")
+            _exact(payload, expected, "Research Specification")
             calculations, statistics = payload["calculations"], payload["statistics"]
             if (
                 isinstance(version, bool)
@@ -252,6 +337,11 @@ class OnlyResearchSpecification:
                     OnlyResearchCalculationSpec.from_dict(_mapping(item, "calculation spec")) for item in calculations
                 ),
                 tuple(OnlyResearchStatisticsSpec.from_dict(_mapping(item, "statistics spec")) for item in statistics),
+                (
+                    OnlyResearchScientificEvidenceSpec.from_dict(_mapping(payload["evidence"], "evidence"))
+                    if version == RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION
+                    else None
+                ),
                 version,
             )
         except OnlyResearchSpecificationError:

@@ -47,6 +47,10 @@ def test_research_result_defines_no_parallel_data_or_trading_authority() -> None
         "SweepOutcome",
         "data.parquet",
         "OnlyResearchStatisticRow",
+        "ScientificEvidenceStore",
+        "CandidateStore",
+        "SignalStore",
+        "GraphStore",
     )
     assert not any(name in source for name in forbidden)
     assert "load_verified" in source

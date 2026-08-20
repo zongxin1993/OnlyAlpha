@@ -1,16 +1,33 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from onlyalpha.core.errors import OnlyLifecycleError
-from onlyalpha.research import OnlyResearchSpecificationResolver
+from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.output import OnlyUserDataLayout
+from onlyalpha.research import (
+    OnlyParquetResearchDatasetSnapshotStore,
+    OnlyParquetResearchScientificArtifactStore,
+    OnlyResearchArtifactStoreError,
+    OnlyResearchDefinitionResolver,
+    OnlyResearchQueryService,
+    OnlyResearchScientificSeriesQuery,
+    OnlyResearchSpecificationResolver,
+    only_research_scientific_artifact_content_fingerprint,
+)
 from onlyalpha.runtime.research import OnlyResearchRuntimeState
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
+from tests.research.calculation.support import snapshot
+from tests.research.definition.support import definition
+from tests.research.evaluation.support import evaluation_registry
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import sweep_only_workload_case, workload_case
 
@@ -144,3 +161,104 @@ def test_specification_resolved_and_manual_workloads_have_full_runtime_equivalen
     assert result.research_result_fingerprint == manual.research_result_fingerprint
     assert result.artifact_content_fingerprint == manual.artifact_content_fingerprint
     assert result.determinism_fingerprint == manual.determinism_fingerprint
+
+
+def test_definition_v2_runs_in_fresh_runtime_and_publishes_self_contained_scientific_artifact(tmp_path: Path) -> None:
+    layout = OnlyUserDataLayout(tmp_path)
+    datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
+    candidate, partitions = snapshot()
+    committed = datasets.commit(candidate, partitions)
+
+    class Resolver:
+        def resolve_verified(self, expected):  # type: ignore[no-untyped-def]
+            value = datasets.load_verified_table(committed.snapshot_fingerprint)
+            if value.snapshot.definition != expected:
+                raise ValueError("Dataset mismatch")
+            return value
+
+    resolved = OnlyResearchDefinitionResolver(evaluation_registry(), Resolver()).resolve(
+        definition(committed.definition)
+    )
+    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("scientific-v2"), tmp_path))
+    runtime_id = engine.add_research_workload(resolved.workload)
+    engine.initialize()
+    engine.start()
+    outcome = engine.run_runtime(runtime_id)
+    engine.stop()
+    assert outcome.status is OnlyRuntimeResultStatus.COMPLETED
+    assert outcome.research_result_fingerprint is not None
+    store = OnlyParquetResearchScientificArtifactStore(layout.research_artifact_root)
+    artifact = store.load_verified(outcome.research_result_fingerprint)
+    assert artifact.manifest.profile == "RESEARCH_SCIENTIFIC_V2"
+    assert artifact.variable_rows and artifact.signal_rows and artifact.market_rows and artifact.graphs
+    assert any(row.value is None for row in artifact.signal_rows)
+    physically_distinct = tuple(replace(item, byte_sha256="f" * 64) for item in artifact.manifest.sections)
+    assert (
+        only_research_scientific_artifact_content_fingerprint(outcome.research_result_fingerprint, physically_distinct)
+        == artifact.manifest.artifact_content_fingerprint
+    )
+    artifact_root = (
+        layout.research_artifact_root
+        / "research-scientific-v2"
+        / "sha256"
+        / outcome.research_result_fingerprint[:2]
+        / outcome.research_result_fingerprint
+    )
+    variable_path = artifact_root / "variables.parquet"
+    original_variables = variable_path.read_bytes()
+    variable_path.write_bytes(b"corrupt")
+    with pytest.raises(OnlyResearchArtifactStoreError) as corrupt:
+        store.load_verified(outcome.research_result_fingerprint)
+    assert corrupt.value.code == "ARTIFACT_CORRUPT"
+    variable_path.write_bytes(original_variables)
+    extra = artifact_root / "unexpected"
+    extra.write_text("forbidden", encoding="utf-8")
+    with pytest.raises(OnlyResearchArtifactStoreError):
+        store.load_verified(outcome.research_result_fingerprint)
+    extra.unlink()
+    query = OnlyResearchQueryService(store)
+    candidates = query.list_candidates(outcome.research_result_fingerprint)
+    variables = query.list_published_series(outcome.research_result_fingerprint)
+    instrument = artifact.market_rows[0].instrument_id
+    market = query.get_market_series(
+        OnlyResearchScientificSeriesQuery(outcome.research_result_fingerprint, instrument_id=instrument, limit=2)
+    )
+    variable = variables.series[0]
+    variable_page = query.get_variable_series(
+        OnlyResearchScientificSeriesQuery(
+            outcome.research_result_fingerprint,
+            instrument_id=instrument,
+            candidate_fingerprint=variable.candidate_fingerprint,
+            calculation_fingerprint=variable.calculation_fingerprint,
+            node_fingerprint=variable.node_fingerprint,
+            output_name=variable.output_name,
+            limit=2,
+        )
+    )
+    null_signal = next(row for row in artifact.signal_rows if row.value is None and row.instrument_id == instrument)
+    signal = next(
+        item
+        for item in artifact.manifest.plan.signals
+        if item.candidate_fingerprint == null_signal.candidate_fingerprint and item.role == null_signal.role
+    )
+    signal_page = query.get_signal_series(
+        OnlyResearchScientificSeriesQuery(
+            outcome.research_result_fingerprint,
+            instrument_id=instrument,
+            candidate_fingerprint=signal.candidate_fingerprint,
+            role=signal.role,
+            limit=100,
+        )
+    )
+    graph = query.get_candidate_graph(
+        outcome.research_result_fingerprint, candidates.candidates[0].candidate_fingerprint
+    )
+    assert market.points and variable_page.points and signal_page.points
+    assert any(point.value is None for point in signal_page.points)
+    assert graph.graph.fingerprint == candidates.candidates[0].graph_fingerprint
+    shutil.rmtree(layout.research_dataset_root)
+    shutil.rmtree(layout.research_calculation_result_root)
+    shutil.rmtree(layout.research_statistics_result_root)
+    shutil.rmtree(layout.research_result_root)
+    assert store.load_verified(outcome.research_result_fingerprint).manifest == artifact.manifest
+    assert query.list_candidates(outcome.research_result_fingerprint) == candidates

@@ -1,6 +1,6 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4.1.1 Public Authoring & Universe Authority Closure Implemented / Verified Locally; later P8.4 increments remain Target Design**
+> Status: **P8.4.2 Scientific Result Evidence Implemented / Verified Locally; later P8.4 increments remain Target Design**
 >
 > This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
 
@@ -29,6 +29,13 @@ P8.4.1.1 repository fact: registered Universe Discovery and Definition Resolutio
 authority; without one, only explicit Universe kinds are advertised. Public Definition type references admit only
 `INDICATOR / FACTOR / TARGET`, while internal Predicate primitives remain available in the existing Calculation Registry and exact graph. The
 closure changes no Definition identity, exact Specification semantics, Run submission transport, or semantic authority.
+
+P8.4.2 repository fact: Specification V2 now carries explicit Candidate calculation, Published Series, and Eligibility/Entry/Exit evidence membership
+through the existing canonical Run payload. Candidate identity is reconstructible from persisted Specification alone. Result Plan/Result V2 own exact
+Dataset, Calculation/Graph, Candidate→Statistics, Published Series, Signal, and Statistics composition/reference linkage. Scientific Artifact V2 is a
+self-contained immutable projection containing exact market context, typed nullable variables, nullable signals, Statistics, and canonical Graphs;
+logical identity is separated from physical Parquet/JSON bytes. Query/HTTP expose Artifact-only scientific read models and return an explicit error for
+V1 Artifacts. No new execution phase or Evidence/Candidate/Signal/Graph/Predicate authority was introduced. See ADR 0095.
 
 ## 1. P8.4 objective
 

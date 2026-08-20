@@ -10,10 +10,34 @@ from .model import (
     OnlyResearchArtifactSummary as OnlyResearchArtifactSummary,
 )
 from .model import (
+    OnlyResearchCandidateCatalog as OnlyResearchCandidateCatalog,
+)
+from .model import (
+    OnlyResearchCandidateDescriptor as OnlyResearchCandidateDescriptor,
+)
+from .model import (
+    OnlyResearchCandidateGraph as OnlyResearchCandidateGraph,
+)
+from .model import (
+    OnlyResearchMarketPoint as OnlyResearchMarketPoint,
+)
+from .model import (
     OnlyResearchNumericDescriptor as OnlyResearchNumericDescriptor,
 )
 from .model import (
+    OnlyResearchPublishedSeriesCatalog as OnlyResearchPublishedSeriesCatalog,
+)
+from .model import (
+    OnlyResearchPublishedSeriesDescriptor as OnlyResearchPublishedSeriesDescriptor,
+)
+from .model import (
+    OnlyResearchScientificSeriesPage as OnlyResearchScientificSeriesPage,
+)
+from .model import (
     OnlyResearchSeriesReference as OnlyResearchSeriesReference,
+)
+from .model import (
+    OnlyResearchSignalPoint as OnlyResearchSignalPoint,
 )
 from .model import (
     OnlyResearchStatisticPoint as OnlyResearchStatisticPoint,
@@ -30,9 +54,13 @@ from .model import (
 from .model import (
     OnlyResearchStatisticSeriesPage as OnlyResearchStatisticSeriesPage,
 )
+from .model import (
+    OnlyResearchVariablePoint as OnlyResearchVariablePoint,
+)
 from .ports import OnlyResearchArtifactReader as OnlyResearchArtifactReader
 from .request import DEFAULT_PAGE_SIZE as DEFAULT_PAGE_SIZE
 from .request import MAX_PAGE_SIZE as MAX_PAGE_SIZE
+from .request import OnlyResearchScientificSeriesQuery as OnlyResearchScientificSeriesQuery
 from .request import OnlyResearchStatisticSeriesQuery as OnlyResearchStatisticSeriesQuery
 from .service import OnlyResearchQueryService as OnlyResearchQueryService
 

@@ -34,6 +34,7 @@ def test_strict_round_trip_and_identity_are_declaration_order_neutral() -> None:
     assert restored == original
     assert restored.specification_fingerprint == original.specification_fingerprint
     assert reordered.specification_fingerprint == original.specification_fingerprint
+    assert original.specification_fingerprint == "305323bea3a87e7d4fb864ac2915675858aa2a6529a4e82b1a230fd9e971cd80"
 
 
 @pytest.mark.parametrize("version", [0, 2, "1", True, None])

@@ -12,6 +12,9 @@ _STATUS = {
     OnlyResearchQueryErrorCode.INVALID_PAGE_LIMIT: 400,
     OnlyResearchQueryErrorCode.RESEARCH_ARTIFACT_NOT_FOUND: 404,
     OnlyResearchQueryErrorCode.STATISTICS_NOT_FOUND: 404,
+    OnlyResearchQueryErrorCode.CANDIDATE_NOT_FOUND: 404,
+    OnlyResearchQueryErrorCode.SERIES_NOT_FOUND: 404,
+    OnlyResearchQueryErrorCode.SCIENTIFIC_EVIDENCE_NOT_AVAILABLE: 409,
     OnlyResearchQueryErrorCode.RESEARCH_ARTIFACT_CORRUPT: 500,
 }
 

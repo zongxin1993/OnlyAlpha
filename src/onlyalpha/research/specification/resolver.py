@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import NoReturn
 
@@ -14,6 +14,7 @@ from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationKind,
     OnlyCalculationScalar,
+    OnlyOutputDefinition,
 )
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
@@ -23,7 +24,14 @@ from onlyalpha.research.evaluation.reference import (
     OnlyResearchTargetSeriesReference,
 )
 from onlyalpha.research.job import OnlyResearchJobPlan
-from onlyalpha.research.result.plan import OnlyResearchResultPlan
+from onlyalpha.research.result.identity import RESEARCH_RESULT_SCIENTIFIC_PLAN_SCHEMA_VERSION
+from onlyalpha.research.result.plan import (
+    OnlyResearchResultCalculationPlan,
+    OnlyResearchResultCandidatePlan,
+    OnlyResearchResultPlan,
+    OnlyResearchResultSeriesPlan,
+    OnlyResearchResultSignalPlan,
+)
 from onlyalpha.research.sweep.definition import OnlyResearchSweepDefinition
 from onlyalpha.research.sweep.errors import OnlyResearchSweepError
 from onlyalpha.research.sweep.materialization import OnlyResearchGraphTemplateMaterializer
@@ -34,7 +42,13 @@ from onlyalpha.research.sweep.planning import (
 from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
 from .errors import OnlyResearchSpecificationError, OnlyResearchSpecificationPhase
-from .model import OnlyResearchSeriesSelector, OnlyResearchSpecification, OnlyResearchStatisticsSpec
+from .identity import only_research_candidate_fingerprint
+from .model import (
+    OnlyResearchScientificEvidenceSpec,
+    OnlyResearchSeriesSelector,
+    OnlyResearchSpecification,
+    OnlyResearchStatisticsSpec,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +59,7 @@ class OnlyResearchCandidateLineage:
     graph_fingerprint: str
     calculation_fingerprint: str
     node_fingerprints: Mapping[str, str]
+    candidate_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "assignment", MappingProxyType(dict(sorted(self.assignment.items()))))
@@ -58,18 +73,42 @@ class OnlyResearchStatisticsLineage:
     target: OnlyResearchCandidateLineage
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class OnlyResearchPublishedSeriesLineage:
+    candidate_fingerprint: str | None
+    calculation_fingerprint: str
+    node_fingerprint: str
+    output_name: str
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class OnlyResearchSignalLineage:
+    role: str
+    candidate_fingerprint: str
+    calculation_fingerprint: str
+    node_fingerprint: str
+    output_name: str
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSpecificationResolution:
     specification_fingerprint: str
     workload: OnlyResearchWorkloadPlan
     candidates: tuple[OnlyResearchCandidateLineage, ...]
     statistics: tuple[OnlyResearchStatisticsLineage, ...]
+    published_series: tuple[OnlyResearchPublishedSeriesLineage, ...] = ()
+    signals: tuple[OnlyResearchSignalLineage, ...] = ()
 
 
 class OnlyResearchSpecificationResolver:
     def __init__(self, calculation_registry: OnlyCalculationRegistry, *, max_cells: int | None = None) -> None:
         if not isinstance(calculation_registry, OnlyCalculationRegistry):
             raise TypeError("Specification Resolver requires the Calculation Registry")
+        # Exact persisted Specifications containing internal Predicate nodes must
+        # be resolvable in a fresh process without Definition-Resolver side effects.
+        from onlyalpha.research.definition.primitives import only_register_research_predicate_primitives
+
+        only_register_research_predicate_primitives(calculation_registry)
         self._registry = calculation_registry
         self._materializer = OnlyResearchGraphTemplateMaterializer(calculation_registry)
         self._sweep_planner = OnlyResearchSweepPlanner(calculation_registry, max_cells=max_cells)
@@ -141,6 +180,32 @@ class OnlyResearchSpecificationResolver:
                     )
                 ]
 
+        published_series: tuple[OnlyResearchPublishedSeriesLineage, ...] = ()
+        signals: tuple[OnlyResearchSignalLineage, ...] = ()
+        if specification.evidence is not None:
+            scientific_evidence = specification.evidence
+            selected = candidates.get(scientific_evidence.candidate_calculation_id)
+            if selected is None:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_CANDIDATE_CALCULATION_UNKNOWN",
+                    f"unknown candidate_calculation_id: {scientific_evidence.candidate_calculation_id}",
+                )
+            candidates[scientific_evidence.candidate_calculation_id] = [
+                replace(
+                    item,
+                    candidate_fingerprint=only_research_candidate_fingerprint(
+                        specification.specification_fingerprint,
+                        scientific_evidence.candidate_calculation_id,
+                        item.assignment,
+                        item.calculation_fingerprint,
+                    ),
+                )
+                for item in selected
+            ]
+            published_series = self._resolve_published_series(candidates, scientific_evidence.published_series)
+            signals = self._resolve_signals(candidates, scientific_evidence)
+
         plans: list[OnlyResearchStatisticsPlan] = []
         statistics_lineage: list[OnlyResearchStatisticsLineage] = []
         for statistics_spec in specification.statistics:
@@ -161,9 +226,77 @@ class OnlyResearchSpecificationResolver:
                 "multiple Statistics Specifications resolve to the same Statistics identity",
             )
         try:
-            workload = OnlyResearchWorkloadPlan(
-                tuple(direct_jobs), tuple(sweeps), tuple(plans), OnlyResearchResultPlan(fingerprints)
-            )
+            result_plan = OnlyResearchResultPlan(fingerprints)
+            if specification.evidence is not None:
+                calculation_members = tuple(
+                    sorted(
+                        {
+                            OnlyResearchResultCalculationPlan(item.calculation_fingerprint, item.graph_fingerprint)
+                            for values in candidates.values()
+                            for item in values
+                        }
+                    )
+                )
+                candidate_members = []
+                for candidate in candidates[specification.evidence.candidate_calculation_id]:
+                    assert candidate.candidate_fingerprint is not None
+                    member_statistics = tuple(
+                        sorted(
+                            item.statistics_fingerprint
+                            for item in statistics_lineage
+                            if item.feature.calculation_fingerprint == candidate.calculation_fingerprint
+                            or item.target.calculation_fingerprint == candidate.calculation_fingerprint
+                        )
+                    )
+                    candidate_members.append(
+                        OnlyResearchResultCandidatePlan(
+                            candidate.candidate_fingerprint,
+                            candidate.calculation_id,
+                            tuple(candidate.assignment.items()),
+                            candidate.calculation_fingerprint,
+                            candidate.graph_fingerprint,
+                            member_statistics,
+                        )
+                    )
+                result_plan = OnlyResearchResultPlan(
+                    fingerprints,
+                    RESEARCH_RESULT_SCIENTIFIC_PLAN_SCHEMA_VERSION,
+                    specification.dataset_snapshot_fingerprint,
+                    calculation_members,
+                    tuple(sorted(candidate_members)),
+                    tuple(
+                        sorted(
+                            (
+                                OnlyResearchResultSeriesPlan(
+                                    item.candidate_fingerprint,
+                                    item.calculation_fingerprint,
+                                    item.node_fingerprint,
+                                    item.output_name,
+                                )
+                                for item in published_series
+                            ),
+                            key=lambda item: (
+                                item.candidate_fingerprint or "",
+                                item.calculation_fingerprint,
+                                item.node_fingerprint,
+                                item.output_name,
+                            ),
+                        )
+                    ),
+                    tuple(
+                        sorted(
+                            OnlyResearchResultSignalPlan(
+                                item.role,
+                                item.candidate_fingerprint,
+                                item.calculation_fingerprint,
+                                item.node_fingerprint,
+                                item.output_name,
+                            )
+                            for item in signals
+                        )
+                    ),
+                )
+            workload = OnlyResearchWorkloadPlan(tuple(direct_jobs), tuple(sweeps), tuple(plans), result_plan)
         except Exception as exc:
             self._fail(
                 OnlyResearchSpecificationPhase.WORKLOAD_VALIDATION,
@@ -177,7 +310,113 @@ class OnlyResearchSpecificationResolver:
             workload,
             ordered_candidates,
             tuple(statistics_lineage),
+            published_series,
+            signals,
         )
+
+    def _resolve_published_series(
+        self,
+        candidates: Mapping[str, list[OnlyResearchCandidateLineage]],
+        selectors: tuple[OnlyResearchSeriesSelector, ...],
+    ) -> tuple[OnlyResearchPublishedSeriesLineage, ...]:
+        result: list[OnlyResearchPublishedSeriesLineage] = []
+        for selector in selectors:
+            for candidate, node_fingerprint, _ in self._resolve_selector(candidates, selector):
+                result.append(
+                    OnlyResearchPublishedSeriesLineage(
+                        candidate.candidate_fingerprint,
+                        candidate.calculation_fingerprint,
+                        node_fingerprint,
+                        selector.output_name,
+                    )
+                )
+        canonical = tuple(
+            sorted(
+                result,
+                key=lambda item: (
+                    item.candidate_fingerprint or "",
+                    item.calculation_fingerprint,
+                    item.node_fingerprint,
+                    item.output_name,
+                ),
+            )
+        )
+        if len(canonical) != len(set(canonical)):
+            self._fail(
+                OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                "RESEARCH_SPEC_DUPLICATE_PUBLISHED_SERIES",
+                "published series resolve to duplicate exact members",
+            )
+        return canonical
+
+    def _resolve_signals(
+        self,
+        candidates: Mapping[str, list[OnlyResearchCandidateLineage]],
+        evidence: OnlyResearchScientificEvidenceSpec,
+    ) -> tuple[OnlyResearchSignalLineage, ...]:
+        result: list[OnlyResearchSignalLineage] = []
+        for role, selector in (
+            ("ELIGIBILITY", evidence.signals.eligibility),
+            ("ENTRY_SIGNAL", evidence.signals.entry),
+            ("EXIT_SIGNAL", evidence.signals.exit),
+        ):
+            if selector is None:
+                continue
+            if selector.calculation_id != evidence.candidate_calculation_id:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_SIGNAL_CANDIDATE_MISMATCH",
+                    f"{role} must reference candidate_calculation_id",
+                )
+            for candidate, node_fingerprint, output in self._resolve_selector(candidates, selector):
+                if candidate.candidate_fingerprint is None or output.semantic_type != role:
+                    self._fail(
+                        OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                        "RESEARCH_SPEC_SIGNAL_ROLE_MISMATCH",
+                        f"{selector.template_node_id}.{selector.output_name} is not {role}",
+                    )
+                result.append(
+                    OnlyResearchSignalLineage(
+                        role,
+                        candidate.candidate_fingerprint,
+                        candidate.calculation_fingerprint,
+                        node_fingerprint,
+                        selector.output_name,
+                    )
+                )
+        return tuple(sorted(result))
+
+    def _resolve_selector(
+        self,
+        candidates: Mapping[str, list[OnlyResearchCandidateLineage]],
+        selector: OnlyResearchSeriesSelector,
+    ) -> tuple[tuple[OnlyResearchCandidateLineage, str, OnlyOutputDefinition], ...]:
+        selected = candidates.get(selector.calculation_id)
+        if selected is None:
+            self._fail(
+                OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                "RESEARCH_SPEC_SERIES_REFERENCE_UNKNOWN",
+                f"unknown calculation_id: {selector.calculation_id}",
+            )
+        result: list[tuple[OnlyResearchCandidateLineage, str, OnlyOutputDefinition]] = []
+        for candidate in selected:
+            node_fingerprint = candidate.node_fingerprints.get(selector.template_node_id)
+            if node_fingerprint is None:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_SERIES_REFERENCE_UNKNOWN",
+                    f"unknown template_node_id: {selector.template_node_id}",
+                )
+            node = next(item for item in candidate.graph.nodes if item.fingerprint == node_fingerprint)
+            output = next((item for item in node.definition.outputs if item.name == selector.output_name), None)
+            if output is None:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_SERIES_REFERENCE_UNKNOWN",
+                    f"unknown output_name: {selector.output_name}",
+                )
+            result.append((candidate, node_fingerprint, output))
+        return tuple(result)
 
     def _admit_types(self, nodes: Iterable[object]) -> None:
         for node in nodes:

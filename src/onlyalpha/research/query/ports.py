@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from onlyalpha.research.artifact.model import OnlyResearchArtifact
+    from onlyalpha.research.artifact.scientific_model import OnlyResearchScientificArtifact
 
 
 class OnlyResearchArtifactReader(Protocol):
-    def load_verified(self, research_result_fingerprint: str) -> OnlyResearchArtifact: ...
+    def load_verified(
+        self, research_result_fingerprint: str
+    ) -> OnlyResearchArtifact | OnlyResearchScientificArtifact: ...

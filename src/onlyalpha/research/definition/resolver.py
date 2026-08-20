@@ -21,9 +21,13 @@ from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.calculation.binding import only_research_dataset_source_contract
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition
 from onlyalpha.research.evaluation.capability import only_research_statistics_capability
+from onlyalpha.research.specification.identity import only_research_candidate_fingerprint
 from onlyalpha.research.specification.model import (
+    RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
     OnlyResearchCalculationSpec,
+    OnlyResearchScientificEvidenceSpec,
     OnlyResearchSeriesSelector,
+    OnlyResearchSignalEvidenceSpec,
     OnlyResearchSpecification,
     OnlyResearchStatisticsSpec,
 )
@@ -229,10 +233,32 @@ class OnlyResearchDefinitionResolver:
             calculations.append(OnlyResearchCalculationSpec(f"target.{target.instance_key}", target_template))
 
         statistics = self._statistics(definition, variables, target_variables)
+        published_selectors = tuple(
+            OnlyResearchSeriesSelector("decision", instance.instance_key, output_name)
+            for instance in normalized
+            for output_name in instance.published_outputs
+        ) + tuple(
+            OnlyResearchSeriesSelector(f"target.{instance.instance_key}", instance.instance_key, output_name)
+            for instance in targets
+            for output_name in instance.published_outputs
+        )
+        signal_selectors = OnlyResearchSignalEvidenceSpec(
+            OnlyResearchSeriesSelector("decision", "eligibility_terminal", "value")
+            if definition.eligibility is not None
+            else None,
+            OnlyResearchSeriesSelector("decision", "entry_signal_terminal", "value")
+            if definition.signals.entry is not None
+            else None,
+            OnlyResearchSeriesSelector("decision", "exit_signal_terminal", "value")
+            if definition.signals.exit is not None
+            else None,
+        )
         specification = OnlyResearchSpecification(
             verified.snapshot.snapshot_fingerprint,
             tuple(calculations),
             statistics,
+            OnlyResearchScientificEvidenceSpec("decision", published_selectors, signal_selectors),
+            RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
         )
         try:
             specification_resolution = OnlyResearchSpecificationResolver(
@@ -253,13 +279,11 @@ class OnlyResearchDefinitionResolver:
             OnlyResearchDefinitionCandidate(
                 ordinal,
                 lineage.assignment,
-                only_canonical_fingerprint(
-                    {
-                        "schema_version": 1,
-                        "resolved_definition_fingerprint": resolved_definition_fingerprint,
-                        "assignment": lineage.assignment,
-                        "calculation_fingerprint": lineage.calculation_fingerprint,
-                    }
+                only_research_candidate_fingerprint(
+                    specification.specification_fingerprint,
+                    "decision",
+                    lineage.assignment,
+                    lineage.calculation_fingerprint,
                 ),
                 lineage.calculation_fingerprint,
                 lineage.graph_fingerprint,

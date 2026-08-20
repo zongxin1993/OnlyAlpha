@@ -54,3 +54,38 @@ class OnlyResearchStatisticSeriesQuery:
                 OnlyResearchQueryErrorCode.INVALID_PAGE_LIMIT,
                 f"limit must be an integer between 1 and {MAX_PAGE_SIZE}",
             )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyResearchScientificSeriesQuery:
+    research_result_fingerprint: str
+    instrument_id: str | None = None
+    candidate_fingerprint: str | None = None
+    calculation_fingerprint: str | None = None
+    node_fingerprint: str | None = None
+    output_name: str | None = None
+    role: str | None = None
+    from_ts_event_ns: int | None = None
+    to_ts_event_ns: int | None = None
+    after_ts_event_ns: int | None = None
+    limit: int = DEFAULT_PAGE_SIZE
+
+    def __post_init__(self) -> None:
+        only_research_query_sha256(self.research_result_fingerprint, "research_result_fingerprint")
+        for name in ("candidate_fingerprint", "calculation_fingerprint", "node_fingerprint"):
+            value = getattr(self, name)
+            if value is not None:
+                only_research_query_sha256(value, name)
+        start = _optional_timestamp(self.from_ts_event_ns, "from_ts_event_ns")
+        end = _optional_timestamp(self.to_ts_event_ns, "to_ts_event_ns")
+        _optional_timestamp(self.after_ts_event_ns, "after_ts_event_ns")
+        if start is not None and end is not None and start >= end:
+            raise OnlyResearchQueryError(
+                OnlyResearchQueryErrorCode.INVALID_TIME_RANGE,
+                "from_ts_event_ns must be less than to_ts_event_ns",
+            )
+        if isinstance(self.limit, bool) or not isinstance(self.limit, int) or not 1 <= self.limit <= MAX_PAGE_SIZE:
+            raise OnlyResearchQueryError(
+                OnlyResearchQueryErrorCode.INVALID_PAGE_LIMIT,
+                f"limit must be an integer between 1 and {MAX_PAGE_SIZE}",
+            )

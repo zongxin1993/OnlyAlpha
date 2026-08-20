@@ -26,6 +26,8 @@ import {
 import {
     artifactSummarySchema,
     researchCalculationCatalogSchema,
+    researchCandidateCatalogSchema,
+    researchCandidateGraphSchema,
     researchDatasetFieldCatalogSchema,
     researchDefinitionErrorSchema,
     researchDefinitionResolutionSchema,
@@ -35,16 +37,22 @@ import {
     researchRunSchema,
     researchRunSubmissionSchema,
     researchStatisticsCapabilityCatalogSchema,
+    researchPublishedSeriesCatalogSchema,
+    researchScientificSeriesPageSchema,
     researchUniverseCatalogSchema,
     statisticSeriesPageSchema,
     statisticsCatalogSchema
 } from "./schemas";
 import type {
     ResearchCalculationCatalogTransport,
+    ResearchCandidateCatalogTransport,
+    ResearchCandidateGraphTransport,
     ResearchDatasetFieldCatalogTransport,
     ResearchDefinitionResolutionTransport,
     ResearchDefinitionTransport,
     ResearchStatisticsCapabilityCatalogTransport,
+    ResearchPublishedSeriesCatalogTransport,
+    ResearchScientificSeriesPageTransport,
     ResearchUniverseCatalogTransport
 } from "./schemas";
 
@@ -55,6 +63,16 @@ export interface StatisticSeriesRequest {
     readonly toTsEventNs?: UnixNanoseconds;
     readonly afterTsEventNs?: UnixNanoseconds;
     readonly limit: number;
+}
+
+export interface ScientificSeriesRequest {
+    readonly researchResultFingerprint: ResearchResultFingerprint;
+    readonly instrumentId: string;
+    readonly candidateFingerprint?: string;
+    readonly calculationFingerprint?: string;
+    readonly nodeFingerprint?: string;
+    readonly outputName?: string;
+    readonly role?: string;
 }
 
 export interface ResearchRunApiClient {
@@ -83,6 +101,35 @@ export interface ResearchArtifactApiClient {
     ): Promise<ResearchStatisticSeriesPage>;
 }
 
+export interface ResearchScientificArtifactApiClient {
+    getCandidateCatalog(
+        id: ResearchResultFingerprint,
+        signal?: AbortSignal
+    ): Promise<ResearchCandidateCatalogTransport>;
+    getPublishedSeriesCatalog(
+        id: ResearchResultFingerprint,
+        signal?: AbortSignal
+    ): Promise<ResearchPublishedSeriesCatalogTransport>;
+    getMarketSeries(
+        id: ResearchResultFingerprint,
+        instrumentId: string,
+        signal?: AbortSignal
+    ): Promise<ResearchScientificSeriesPageTransport>;
+    getCandidateGraph(
+        id: ResearchResultFingerprint,
+        candidateFingerprint: string,
+        signal?: AbortSignal
+    ): Promise<ResearchCandidateGraphTransport>;
+    getVariableSeries(
+        request: ScientificSeriesRequest,
+        signal?: AbortSignal
+    ): Promise<ResearchScientificSeriesPageTransport>;
+    getSignalSeries(
+        request: ScientificSeriesRequest,
+        signal?: AbortSignal
+    ): Promise<ResearchScientificSeriesPageTransport>;
+}
+
 export interface ResearchDiscoveryApiClient {
     getCalculationCatalog(signal?: AbortSignal): Promise<ResearchCalculationCatalogTransport>;
     getUniverseCatalog(signal?: AbortSignal): Promise<ResearchUniverseCatalogTransport>;
@@ -103,6 +150,7 @@ export interface ResearchApiClient
     extends
         ResearchRunApiClient,
         ResearchArtifactApiClient,
+        ResearchScientificArtifactApiClient,
         ResearchDiscoveryApiClient,
         ResearchDefinitionApiClient {}
 
@@ -310,6 +358,79 @@ export class FetchResearchApiClient implements ResearchApiClient {
         const url = `${base(requestValue.researchResultFingerprint)}/statistics/${encodeURIComponent(requestValue.statisticsFingerprint)}/series?${query.toString()}`;
         return mapStatisticSeriesPage(
             admitted(statisticSeriesPageSchema, await request(url, { method: "GET" }, signal))
+        );
+    }
+
+    async getCandidateCatalog(id: ResearchResultFingerprint, signal?: AbortSignal) {
+        return admitted(
+            researchCandidateCatalogSchema,
+            await request(`${base(id)}/candidates`, { method: "GET" }, signal)
+        );
+    }
+
+    async getPublishedSeriesCatalog(id: ResearchResultFingerprint, signal?: AbortSignal) {
+        return admitted(
+            researchPublishedSeriesCatalogSchema,
+            await request(`${base(id)}/variables`, { method: "GET" }, signal)
+        );
+    }
+
+    async getMarketSeries(
+        id: ResearchResultFingerprint,
+        instrumentId: string,
+        signal?: AbortSignal
+    ) {
+        const query = new URLSearchParams({ instrument_id: instrumentId });
+        return admitted(
+            researchScientificSeriesPageSchema,
+            await request(
+                `${base(id)}/market/series?${query.toString()}`,
+                { method: "GET" },
+                signal
+            )
+        );
+    }
+
+    async getCandidateGraph(
+        id: ResearchResultFingerprint,
+        candidateFingerprint: string,
+        signal?: AbortSignal
+    ) {
+        return admitted(
+            researchCandidateGraphSchema,
+            await request(
+                `${base(id)}/candidates/${encodeURIComponent(candidateFingerprint)}/graph`,
+                { method: "GET" },
+                signal
+            )
+        );
+    }
+
+    async getVariableSeries(requestValue: ScientificSeriesRequest, signal?: AbortSignal) {
+        if (
+            requestValue.calculationFingerprint === undefined ||
+            requestValue.nodeFingerprint === undefined ||
+            requestValue.outputName === undefined
+        )
+            throw new ResearchWebError("CONTRACT_ERROR", "Exact Variable selector is required");
+        const query = new URLSearchParams({ instrument_id: requestValue.instrumentId });
+        if (requestValue.candidateFingerprint !== undefined)
+            query.set("candidate_fingerprint", requestValue.candidateFingerprint);
+        const path = `${base(requestValue.researchResultFingerprint)}/variables/${encodeURIComponent(requestValue.calculationFingerprint)}/${encodeURIComponent(requestValue.nodeFingerprint)}/${encodeURIComponent(requestValue.outputName)}/series?${query.toString()}`;
+        return admitted(
+            researchScientificSeriesPageSchema,
+            await request(path, { method: "GET" }, signal)
+        );
+    }
+
+    async getSignalSeries(requestValue: ScientificSeriesRequest, signal?: AbortSignal) {
+        if (requestValue.candidateFingerprint === undefined || requestValue.role === undefined)
+            throw new ResearchWebError("CONTRACT_ERROR", "Exact Signal selector is required");
+        const query = new URLSearchParams({ instrument_id: requestValue.instrumentId });
+        const path = `${base(requestValue.researchResultFingerprint)}/signals/${encodeURIComponent(requestValue.candidateFingerprint)}/${encodeURIComponent(requestValue.role)}/series?${query.toString()}`;
+        return admitted(
+            researchScientificSeriesPageSchema,
+            await request(path, { method: "GET" }, signal)
         );
     }
 }

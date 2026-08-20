@@ -25,7 +25,7 @@ class OnlyResearchRuntimeEnvironmentIdentity:
             tuple(sorted(item.calculation_fingerprint for item in workload.calculation_jobs)),
             tuple(sorted(item.statistics_fingerprint for item in workload.statistics_plans)),
             workload.result_plan.fingerprint,
-            "RESEARCH_STATISTICS_V1",
+            "RESEARCH_SCIENTIFIC_V2" if workload.result_plan.schema_version == 2 else "RESEARCH_STATISTICS_V1",
         )
 
     @property
