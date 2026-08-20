@@ -7,7 +7,9 @@ from decimal import Decimal
 import pytest
 
 from onlyalpha.research import (
+    OnlyResearchCandidateCatalog,
     OnlyResearchNumericDescriptor,
+    OnlyResearchPublishedSeriesCatalog,
     OnlyResearchQueryError,
     OnlyResearchQueryErrorCode,
     OnlyResearchSeriesReference,
@@ -156,3 +158,32 @@ def test_service_defensive_contract_rejects_wrong_request_and_missing_numeric_qu
     object.__setattr__(entry.plan.definition, "numeric", numeric_without_quantum)
     with pytest.raises(ValueError, match="output quantum"):
         _descriptor(entry)
+
+
+def test_scientific_catalogs_and_pages_are_strict(tmp_path) -> None:
+    from onlyalpha.research import OnlyResearchQueryService, OnlyResearchScientificSeriesQuery
+    from tests.research.artifact.support import scientific_artifact_case
+
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    store.commit(candidate)
+    service = OnlyResearchQueryService(store)
+    identity = candidate.result.manifest.research_result_fingerprint
+    candidates = service.list_candidates(identity)
+    series = service.list_published_series(identity)
+    instrument = store.load_verified(identity).market_rows[0].instrument_id
+    page = service.get_market_series(OnlyResearchScientificSeriesQuery(identity, instrument_id=instrument, limit=2))
+
+    assert isinstance(candidates, OnlyResearchCandidateCatalog)
+    assert isinstance(series, OnlyResearchPublishedSeriesCatalog)
+    with pytest.raises((ValueError, OnlyResearchQueryError)):
+        replace(candidates, research_result_fingerprint="bad")
+    with pytest.raises(ValueError):
+        replace(candidates, candidates=(candidates.candidates[0], candidates.candidates[0]))
+    with pytest.raises(ValueError):
+        replace(series, series=tuple(reversed(series.series)))
+    with pytest.raises(ValueError):
+        replace(page, points=(page.points[0], page.points[0]))
+    with pytest.raises(ValueError):
+        replace(page, has_more=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        replace(page, next_after_ts_event_ns=None if page.has_more else page.points[-1].ts_event_ns)

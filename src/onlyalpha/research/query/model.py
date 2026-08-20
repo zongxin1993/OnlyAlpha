@@ -214,12 +214,44 @@ class OnlyResearchCandidateDescriptor:
     graph_fingerprint: str
     statistics_fingerprints: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        for name in ("candidate_fingerprint", "calculation_fingerprint", "graph_fingerprint"):
+            only_research_query_sha256(getattr(self, name), name)
+        if not self.candidate_calculation_id:
+            raise ValueError("candidate_calculation_id is required")
+        if (
+            not isinstance(self.assignment, tuple)
+            or self.assignment != tuple(sorted(self.assignment))
+            or len(dict(self.assignment)) != len(self.assignment)
+        ):
+            raise ValueError("Candidate assignment must be canonical")
+        if (
+            not isinstance(self.statistics_fingerprints, tuple)
+            or self.statistics_fingerprints != tuple(sorted(self.statistics_fingerprints))
+            or len(set(self.statistics_fingerprints)) != len(self.statistics_fingerprints)
+        ):
+            raise ValueError("Candidate Statistics membership must be canonical")
+        for identity in self.statistics_fingerprints:
+            only_research_query_sha256(identity, "statistics_fingerprint")
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchCandidateCatalog:
     research_result_fingerprint: str
     candidates: tuple[OnlyResearchCandidateDescriptor, ...]
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        only_research_query_sha256(self.research_result_fingerprint, "research_result_fingerprint")
+        if self.schema_version != RESEARCH_QUERY_SCHEMA_VERSION:
+            raise ValueError("Research Query schema version is unsupported")
+        if (
+            not isinstance(self.candidates, tuple)
+            or any(not isinstance(item, OnlyResearchCandidateDescriptor) for item in self.candidates)
+            or self.candidates != tuple(sorted(self.candidates))
+            or len({item.candidate_fingerprint for item in self.candidates}) != len(self.candidates)
+        ):
+            raise ValueError("Candidate catalog must be canonical and unique")
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -230,12 +262,42 @@ class OnlyResearchPublishedSeriesDescriptor:
     output_name: str
     value_kind: str
 
+    def __post_init__(self) -> None:
+        if self.candidate_fingerprint is not None:
+            only_research_query_sha256(self.candidate_fingerprint, "candidate_fingerprint")
+        only_research_query_sha256(self.calculation_fingerprint, "calculation_fingerprint")
+        only_research_query_sha256(self.node_fingerprint, "node_fingerprint")
+        if not self.output_name or any(char.isspace() for char in self.output_name):
+            raise ValueError("output_name is invalid")
+        if self.value_kind not in {"DECIMAL", "INTEGER", "BOOLEAN", "STRING"}:
+            raise ValueError("value_kind is invalid")
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchPublishedSeriesCatalog:
     research_result_fingerprint: str
     series: tuple[OnlyResearchPublishedSeriesDescriptor, ...]
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        only_research_query_sha256(self.research_result_fingerprint, "research_result_fingerprint")
+        if self.schema_version != RESEARCH_QUERY_SCHEMA_VERSION:
+            raise ValueError("Research Query schema version is unsupported")
+        if not isinstance(self.series, tuple) or any(
+            not isinstance(item, OnlyResearchPublishedSeriesDescriptor) for item in self.series
+        ):
+            raise ValueError("Published Series catalog is invalid")
+        keys = tuple(
+            (
+                item.candidate_fingerprint or "",
+                item.calculation_fingerprint,
+                item.node_fingerprint,
+                item.output_name,
+            )
+            for item in self.series
+        )
+        if keys != tuple(sorted(keys)) or len(keys) != len(set(keys)):
+            raise ValueError("Published Series catalog must be canonical and unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +310,14 @@ class OnlyResearchMarketPoint:
     close: Decimal
     volume: Decimal
 
+    def __post_init__(self) -> None:
+        _scientific_point(self.instrument_id, self.ts_event_ns)
+        if any(not isinstance(value, Decimal) or not value.is_finite() for value in self.__dict_values()):
+            raise ValueError("Market values must be finite Decimals")
+
+    def __dict_values(self) -> tuple[Decimal, ...]:
+        return self.open, self.high, self.low, self.close, self.volume
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchVariablePoint:
@@ -259,12 +329,22 @@ class OnlyResearchVariablePoint:
     boolean_value: bool | None
     string_value: str | None
 
+    def __post_init__(self) -> None:
+        _scientific_point(self.instrument_id, self.ts_event_ns)
+        if self.value_kind not in {"DECIMAL", "INTEGER", "BOOLEAN", "STRING"}:
+            raise ValueError("value_kind is invalid")
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSignalPoint:
     instrument_id: str
     ts_event_ns: int
     value: bool | None
+
+    def __post_init__(self) -> None:
+        _scientific_point(self.instrument_id, self.ts_event_ns)
+        if self.value is not None and not isinstance(self.value, bool):
+            raise ValueError("Signal value must be nullable boolean")
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +355,22 @@ class OnlyResearchScientificSeriesPage:
     next_after_ts_event_ns: int | None
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
 
+    def __post_init__(self) -> None:
+        only_research_query_sha256(self.research_result_fingerprint, "research_result_fingerprint")
+        if self.schema_version != RESEARCH_QUERY_SCHEMA_VERSION:
+            raise ValueError("Research Query schema version is unsupported")
+        point_types = (OnlyResearchMarketPoint, OnlyResearchVariablePoint, OnlyResearchSignalPoint)
+        if not isinstance(self.points, tuple) or any(not isinstance(item, point_types) for item in self.points):
+            raise ValueError("points must be a tuple of Scientific points")
+        timestamps = tuple(item.ts_event_ns for item in self.points)
+        if timestamps != tuple(sorted(timestamps)) or len(timestamps) != len(set(timestamps)):
+            raise ValueError("points must be ordered with unique timestamps")
+        if not isinstance(self.has_more, bool):
+            raise ValueError("has_more must be a boolean")
+        expected_cursor = self.points[-1].ts_event_ns if self.has_more and self.points else None
+        if self.next_after_ts_event_ns != expected_cursor:
+            raise ValueError("next cursor does not match page state")
+
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchCandidateGraph:
@@ -283,3 +379,18 @@ class OnlyResearchCandidateGraph:
     calculation_fingerprint: str
     graph: OnlyCalculationGraphDefinition
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        for name in ("research_result_fingerprint", "candidate_fingerprint", "calculation_fingerprint"):
+            only_research_query_sha256(getattr(self, name), name)
+        if self.schema_version != RESEARCH_QUERY_SCHEMA_VERSION:
+            raise ValueError("Research Query schema version is unsupported")
+        if not isinstance(self.graph, OnlyCalculationGraphDefinition):
+            raise ValueError("graph is invalid")
+
+
+def _scientific_point(instrument_id: object, ts_event_ns: object) -> None:
+    if not isinstance(instrument_id, str) or not instrument_id:
+        raise ValueError("instrument_id is required")
+    if isinstance(ts_event_ns, bool) or not isinstance(ts_event_ns, int):
+        raise ValueError("ts_event_ns must be an integer")

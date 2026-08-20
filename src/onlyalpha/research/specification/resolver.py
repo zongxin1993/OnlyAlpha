@@ -18,6 +18,7 @@ from onlyalpha.calculation import (
 )
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
 from onlyalpha.research.evaluation.reference import (
     OnlyResearchFeatureSeriesReference,
@@ -106,8 +107,6 @@ class OnlyResearchSpecificationResolver:
             raise TypeError("Specification Resolver requires the Calculation Registry")
         # Exact persisted Specifications containing internal Predicate nodes must
         # be resolvable in a fresh process without Definition-Resolver side effects.
-        from onlyalpha.research.definition.primitives import only_register_research_predicate_primitives
-
         only_register_research_predicate_primitives(calculation_registry)
         self._registry = calculation_registry
         self._materializer = OnlyResearchGraphTemplateMaterializer(calculation_registry)

@@ -151,6 +151,7 @@ class OnlyJsonResearchResultStore:
         if schema_version == 2:
             if self._calculation_result_store is None:
                 raise ValueError("Scientific Research Result requires Calculation Result Store")
+            verified_calculations: dict[str, OnlyResearchCalculationResult] = {}
             for calculation_member, calculation_reference in zip(
                 manifest.plan.calculations, manifest.calculation_results, strict=True
             ):
@@ -170,12 +171,9 @@ class OnlyJsonResearchResultStore:
                 if calculation_manifest.calculation_graph_fingerprint != calculation_member.graph_fingerprint:
                     raise ValueError("Research Result Calculation Graph linkage mismatch")
                 actual_calculations.append(calculation_reference.to_dict())
-            calculations = {
-                item.calculation_fingerprint: self._calculation_result_store.load_verified(item.calculation_fingerprint)
-                for item in manifest.calculation_results
-            }
+                verified_calculations[calculation_reference.calculation_fingerprint] = calculation_upstream
             for member in manifest.plan.published_series:
-                graph = calculations[member.calculation_fingerprint].manifest.calculation_graph
+                graph = verified_calculations[member.calculation_fingerprint].manifest.calculation_graph
                 node = next((item for item in graph.nodes if item.fingerprint == member.node_fingerprint), None)
                 if node is None:
                     raise ValueError("Research Result scientific node linkage mismatch")
@@ -183,7 +181,7 @@ class OnlyJsonResearchResultStore:
                 if output is None:
                     raise ValueError("Research Result scientific output linkage mismatch")
             for signal_member in manifest.plan.signals:
-                graph = calculations[signal_member.calculation_fingerprint].manifest.calculation_graph
+                graph = verified_calculations[signal_member.calculation_fingerprint].manifest.calculation_graph
                 node = next((item for item in graph.nodes if item.fingerprint == signal_member.node_fingerprint), None)
                 if node is None:
                     raise ValueError("Research Result scientific node linkage mismatch")

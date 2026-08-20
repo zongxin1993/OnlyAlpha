@@ -95,6 +95,25 @@ def test_authoring_and_resolved_identity_are_distinct_and_normalization_stable(t
     assert reversed_sweeps.candidates == first.candidates
 
 
+def test_definition_projects_candidate_identity_and_all_published_scientific_variables(tmp_path) -> None:
+    committed, _, _, resolver = _case(tmp_path)
+    resolved = resolver.resolve(definition(committed.definition))
+
+    specification_candidates = {
+        item.calculation_fingerprint: item.candidate_fingerprint
+        for item in resolved.specification_resolution.candidates
+        if item.calculation_id == "decision"
+    }
+    assert {
+        item.calculation_fingerprint: item.candidate_fingerprint for item in resolved.candidates
+    } == specification_candidates
+    assert {(item.variable.instance_key, item.variable.output_name) for item in resolved.published_variables} == {
+        (selector.template_node_id, selector.output_name)
+        for selector in resolved.specification.evidence.published_series  # type: ignore[union-attr]
+    }
+    assert all("terminal" not in item.template_node_id for item in resolved.published_variables)
+
+
 def test_resolved_identity_changes_for_semantics_and_exact_dataset_snapshot(tmp_path) -> None:
     committed, store, registry, resolver = _case(tmp_path)
     base = definition(committed.definition)

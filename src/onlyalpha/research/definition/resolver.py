@@ -19,9 +19,12 @@ from onlyalpha.calculation import (
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.calculation.binding import only_research_dataset_source_contract
+from onlyalpha.research.calculation.predicate import (
+    only_register_research_predicate_primitives,
+    only_research_predicate_type_reference,
+)
 from onlyalpha.research.dataset import OnlyResearchDatasetDefinition
 from onlyalpha.research.evaluation.capability import only_research_statistics_capability
-from onlyalpha.research.specification.identity import only_research_candidate_fingerprint
 from onlyalpha.research.specification.model import (
     RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
     OnlyResearchCalculationSpec,
@@ -69,9 +72,14 @@ from .model import (
     OnlyResearchUniverseKind,
 )
 from .ports import OnlyResearchDefinitionDatasetResolver, OnlyResearchUniverseResolver
-from .primitives import only_register_research_predicate_primitives, only_research_predicate_type_reference
 
 DEFAULT_RESEARCH_DEFINITION_MAX_CANDIDATES = 256
+
+
+def _resolved_candidate_fingerprint(value: str | None) -> str:
+    if value is None:
+        raise ValueError("Specification Resolution omitted Candidate identity")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,12 +287,7 @@ class OnlyResearchDefinitionResolver:
             OnlyResearchDefinitionCandidate(
                 ordinal,
                 lineage.assignment,
-                only_research_candidate_fingerprint(
-                    specification.specification_fingerprint,
-                    "decision",
-                    lineage.assignment,
-                    lineage.calculation_fingerprint,
-                ),
+                _resolved_candidate_fingerprint(lineage.candidate_fingerprint),
                 lineage.calculation_fingerprint,
                 lineage.graph_fingerprint,
                 lineage.node_fingerprints,
@@ -293,7 +296,7 @@ class OnlyResearchDefinitionResolver:
         )
         published = tuple(
             OnlyResearchPublishedVariableLineage(ref, ref.instance_key, output.data_type, output.semantic_type)
-            for ref, output in sorted(variables.items(), key=lambda item: item[0])
+            for ref, output in sorted((*variables.items(), *target_variables.items()), key=lambda item: item[0])
         )
         return OnlyResearchDefinitionResolution(
             definition.definition_fingerprint,

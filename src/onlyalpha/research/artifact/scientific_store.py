@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -33,7 +35,7 @@ from .scientific_model import (
     only_research_scientific_artifact_content_fingerprint,
     only_research_scientific_section_fingerprint,
 )
-from .store import _verify_groups
+from .verification import verify_statistics_groups
 
 _MARKET = pa.schema(
     (
@@ -75,6 +77,8 @@ _STATISTICS = pa.schema(
         pa.field("status", pa.string(), False),
     )
 )
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_INTEGER = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 
 
 class OnlyParquetResearchScientificArtifactStore:
@@ -101,12 +105,7 @@ class OnlyParquetResearchScientificArtifactStore:
             raise OnlyResearchArtifactStoreError("ARTIFACT_INVALID", "Scientific candidate is invalid")
         target = self._target(candidate.result.manifest.research_result_fingerprint)
         if target.exists():
-            existing = self.load_verified(candidate.result.manifest.research_result_fingerprint)
-            if existing.manifest.artifact_content_fingerprint != candidate.artifact_content_fingerprint:
-                raise OnlyResearchArtifactStoreError("DETERMINISTIC_ARTIFACT_CONFLICT", target.name)
-            return OnlyResearchArtifactOutcome(
-                OnlyResearchArtifactDisposition.REUSED, target.name, candidate.artifact_content_fingerprint
-            )
+            return self._reuse_existing(candidate, target)
         target.parent.mkdir(parents=True, exist_ok=True)
         stage = target.parent / f".stage-{uuid.uuid4().hex}"
         stage.mkdir()
@@ -144,8 +143,18 @@ class OnlyParquetResearchScientificArtifactStore:
                 created,
             )
             (stage / "artifact_manifest.json").write_text(only_canonical_json(scientific.to_dict()), encoding="utf-8")
-            self._read_verified(stage, manifest.research_result_fingerprint)
-            os.rename(stage, target)
+            try:
+                self._read_verified(stage, manifest.research_result_fingerprint)
+            except OnlyResearchArtifactStoreError as exc:
+                raise OnlyResearchArtifactStoreError(
+                    "ARTIFACT_COMMIT_FAILED", "staged Scientific Artifact verification failed"
+                ) from exc
+            try:
+                os.rename(stage, target)
+            except OSError:
+                if not target.exists():
+                    raise
+                return self._reuse_existing(candidate, target)
             loaded = self.load_verified(manifest.research_result_fingerprint)
             return OnlyResearchArtifactOutcome(
                 OnlyResearchArtifactDisposition.EXECUTED,
@@ -161,6 +170,18 @@ class OnlyParquetResearchScientificArtifactStore:
 
     def load_verified(self, research_result_fingerprint: str) -> OnlyResearchScientificArtifact:
         return self._read_verified(self._target(research_result_fingerprint), research_result_fingerprint)
+
+    def _reuse_existing(
+        self, candidate: OnlyResearchScientificArtifactCandidate, target: Path
+    ) -> OnlyResearchArtifactOutcome:
+        existing = self.load_verified(candidate.result.manifest.research_result_fingerprint)
+        if existing.manifest.artifact_content_fingerprint != candidate.artifact_content_fingerprint:
+            raise OnlyResearchArtifactStoreError("DETERMINISTIC_ARTIFACT_CONFLICT", target.name)
+        return OnlyResearchArtifactOutcome(
+            OnlyResearchArtifactDisposition.REUSED,
+            candidate.result.manifest.research_result_fingerprint,
+            existing.manifest.artifact_content_fingerprint,
+        )
 
     def _read_verified(self, root: Path, expected: str) -> OnlyResearchScientificArtifact:
         if not root.is_dir():
@@ -182,6 +203,8 @@ class OnlyParquetResearchScientificArtifactStore:
             ):
                 raise ValueError("Scientific Artifact file set is invalid")
             payload = json.loads((root / "artifact_manifest.json").read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("Scientific Artifact manifest must be an object")
             manifest = OnlyResearchScientificArtifactManifest.from_dict(payload)
             if manifest.research_result_fingerprint != expected:
                 raise ValueError("Scientific Artifact path identity mismatch")
@@ -244,6 +267,8 @@ class OnlyParquetResearchScientificArtifactStore:
                 )
             ):
                 raise ValueError("Scientific Artifact rows are not canonical")
+            _verify_logical_keys(market, variables, signals)
+            _verify_variable_scalars(variables)
             semantic: dict[str, list[dict[str, object]]] = {
                 "graphs.json": [item.to_dict() for item in graphs],
                 "market.parquet": [item.to_dict() for item in market],
@@ -267,11 +292,12 @@ class OnlyParquetResearchScientificArtifactStore:
                     rows
                 ) or descriptor.logical_fingerprint != only_research_scientific_section_fingerprint(name, rows):
                     raise ValueError("Scientific Artifact logical section mismatch")
-            _verify_groups(manifest.statistics_catalog, statistics)
+            verify_statistics_groups(manifest.statistics_catalog, statistics)
             if tuple((item.calculation_fingerprint, item.graph.fingerprint) for item in graphs) != tuple(
                 (item.calculation_fingerprint, item.graph_fingerprint) for item in manifest.plan.calculations
             ):
                 raise ValueError("Scientific Artifact Graph membership mismatch")
+            _verify_variable_types(graphs, variables)
             if {
                 (item.candidate_fingerprint, item.calculation_fingerprint, item.node_fingerprint, item.output_name)
                 for item in variables
@@ -284,6 +310,7 @@ class OnlyParquetResearchScientificArtifactStore:
                 (item.candidate_fingerprint, item.role) for item in manifest.plan.signals
             }:
                 raise ValueError("Scientific Artifact Signal membership mismatch")
+            _verify_series_axes(manifest, market, variables, signals)
             if (
                 only_research_scientific_artifact_content_fingerprint(
                     manifest.research_result_fingerprint, manifest.sections
@@ -298,7 +325,7 @@ class OnlyParquetResearchScientificArtifactStore:
             raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", str(exc)) from exc
 
     def _target(self, fingerprint: str) -> Path:
-        if len(fingerprint) != 64:
+        if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
             raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", fingerprint)
         return (
             self._root
@@ -373,6 +400,110 @@ def _required_string(value: object) -> str:
 
 def _optional_string(value: object) -> str | None:
     return None if value is None else _required_string(value)
+
+
+def _verify_logical_keys(
+    market: tuple[OnlyResearchScientificMarketRow, ...],
+    variables: tuple[OnlyResearchScientificVariableRow, ...],
+    signals: tuple[OnlyResearchScientificSignalRow, ...],
+) -> None:
+    keys = (
+        tuple((item.instrument_id, item.ts_event_ns) for item in market),
+        tuple(
+            (
+                item.candidate_fingerprint,
+                item.calculation_fingerprint,
+                item.node_fingerprint,
+                item.output_name,
+                item.instrument_id,
+                item.ts_event_ns,
+            )
+            for item in variables
+        ),
+        tuple((item.candidate_fingerprint, item.role, item.instrument_id, item.ts_event_ns) for item in signals),
+    )
+    if any(len(values) != len(set(values)) for values in keys):
+        raise ValueError("Scientific Artifact logical primary key is not unique")
+
+
+def _verify_variable_scalars(variables: tuple[OnlyResearchScientificVariableRow, ...]) -> None:
+    for item in variables:
+        if item.integer_value is not None and _INTEGER.fullmatch(item.integer_value) is None:
+            raise ValueError("Scientific Artifact INTEGER value is not canonical")
+        if item.decimal_value is not None:
+            parsed = Decimal(item.decimal_value)
+            if not parsed.is_finite() or format(parsed, "f") != item.decimal_value:
+                raise ValueError("Scientific Artifact DECIMAL value is not canonical and finite")
+
+
+def _verify_variable_types(
+    graphs: tuple[OnlyResearchScientificGraph, ...],
+    variables: tuple[OnlyResearchScientificVariableRow, ...],
+) -> None:
+    expected: dict[tuple[str, str, str], str] = {}
+    for item in graphs:
+        for node in item.graph.nodes:
+            for output in node.definition.outputs:
+                expected[(item.calculation_fingerprint, node.fingerprint, output.name)] = output.data_type.value
+    if any(
+        item.value_kind.value != expected.get((item.calculation_fingerprint, item.node_fingerprint, item.output_name))
+        for item in variables
+    ):
+        raise ValueError("Scientific Artifact Variable value_kind linkage mismatch")
+
+
+def _verify_series_axes(
+    manifest: OnlyResearchScientificArtifactManifest,
+    market: tuple[OnlyResearchScientificMarketRow, ...],
+    variables: tuple[OnlyResearchScientificVariableRow, ...],
+    signals: tuple[OnlyResearchScientificSignalRow, ...],
+) -> None:
+    market_axis: dict[str, list[int]] = {}
+    for market_row in market:
+        market_axis.setdefault(market_row.instrument_id, []).append(market_row.ts_event_ns)
+    canonical_market_axis = {key: tuple(value) for key, value in market_axis.items()}
+    instruments = tuple(sorted(canonical_market_axis))
+
+    variable_axis: dict[tuple[str | None, str, str, str, str], list[int]] = {}
+    for variable_row in variables:
+        key = (
+            variable_row.candidate_fingerprint,
+            variable_row.calculation_fingerprint,
+            variable_row.node_fingerprint,
+            variable_row.output_name,
+            variable_row.instrument_id,
+        )
+        variable_axis.setdefault(key, []).append(variable_row.ts_event_ns)
+    expected_variable_keys = {
+        (
+            item.candidate_fingerprint,
+            item.calculation_fingerprint,
+            item.node_fingerprint,
+            item.output_name,
+            instrument,
+        )
+        for item in manifest.plan.published_series
+        for instrument in instruments
+    }
+    if set(variable_axis) != expected_variable_keys or any(
+        tuple(axis) != canonical_market_axis[key[4]] for key, axis in variable_axis.items()
+    ):
+        raise ValueError("Scientific Artifact Variable series axis mismatch")
+
+    signal_axis: dict[tuple[str, str, str], list[int]] = {}
+    for signal_row in signals:
+        signal_axis.setdefault(
+            (signal_row.candidate_fingerprint, signal_row.role, signal_row.instrument_id), []
+        ).append(signal_row.ts_event_ns)
+    expected_signal_keys = {
+        (item.candidate_fingerprint, item.role, instrument)
+        for item in manifest.plan.signals
+        for instrument in instruments
+    }
+    if set(signal_axis) != expected_signal_keys or any(
+        tuple(axis) != canonical_market_axis[key[-1]] for key, axis in signal_axis.items()
+    ):
+        raise ValueError("Scientific Artifact Signal series axis mismatch")
 
 
 def _schema_payload(schema: pa.Schema) -> tuple[dict[str, object], ...]:

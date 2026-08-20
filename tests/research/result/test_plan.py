@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from onlyalpha.research import OnlyResearchResultPlan, only_research_result_plan_fingerprint
+from onlyalpha.research import (
+    OnlyResearchResultCalculationPlan,
+    OnlyResearchResultCandidatePlan,
+    OnlyResearchResultPlan,
+    OnlyResearchResultSignalPlan,
+    only_research_result_plan_fingerprint,
+)
 
 A = "a" * 64
 B = "b" * 64
@@ -62,3 +68,15 @@ def test_plan_parser_rejects_non_exact_serialized_types(field: str, value: objec
 
     with pytest.raises(ValueError, match=match):
         OnlyResearchResultPlan.from_dict(payload)
+
+
+def test_scientific_plan_rejects_duplicate_candidate_role_with_different_series() -> None:
+    calculation = OnlyResearchResultCalculationPlan(B, "c" * 64)
+    candidate = OnlyResearchResultCandidatePlan("d" * 64, "decision", (), B, "c" * 64, (A,))
+    signals = (
+        OnlyResearchResultSignalPlan("ENTRY_SIGNAL", "d" * 64, B, "e" * 64, "first"),
+        OnlyResearchResultSignalPlan("ENTRY_SIGNAL", "d" * 64, B, "f" * 64, "second"),
+    )
+
+    with pytest.raises(ValueError, match="Candidate and role"):
+        OnlyResearchResultPlan((A,), 2, "a" * 64, (calculation,), (candidate,), (), signals)

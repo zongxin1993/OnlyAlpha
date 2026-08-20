@@ -15,6 +15,12 @@ from .execution import (
     OnlyResearchCalculationNodeOutput,
 )
 from .identity import only_research_calculation_fingerprint
+from .predicate import (
+    PREDICATE_SEMANTIC_VERSION,
+    PREDICATE_VALUE_SEMANTIC_TYPE,
+    only_register_research_predicate_primitives,
+    only_research_predicate_type_reference,
+)
 from .result import (
     OnlyResearchCalculationResult,
     OnlyResearchCalculationResultManifest,

@@ -14,6 +14,7 @@ def test_research_specification_is_core_only_and_has_no_operational_or_trading_d
         "onlyalpha.order",
         "onlyalpha.position",
         "onlyalpha.account",
+        "onlyalpha.research.definition",
     )
     for path in root.glob("*.py"):
         tree = ast.parse(path.read_text())
@@ -49,3 +50,12 @@ def test_scientific_evidence_introduces_no_parallel_authority_or_registry() -> N
         "PredicateRegistry",
     )
     assert not any(name in source for name in forbidden)
+
+
+def test_predicate_primitives_are_owned_by_research_calculation() -> None:
+    predicate = Path("src/onlyalpha/research/calculation/predicate.py")
+    assert predicate.is_file()
+    source = predicate.read_text(encoding="utf-8")
+    assert "only_register_research_predicate_primitives" in source
+    runtime = Path("src/onlyalpha/runtime/research/factory.py").read_text(encoding="utf-8")
+    assert "onlyalpha.research.definition.primitives" not in runtime

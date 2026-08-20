@@ -202,6 +202,9 @@ class OnlyResearchResultPlan:
             self.statistics_fingerprints
         ):
             raise ValueError("Candidate references an unknown Statistics member")
+        signal_keys = tuple((item.candidate_fingerprint, item.role) for item in self.signals)
+        if len(signal_keys) != len(set(signal_keys)):
+            raise ValueError("Scientific Result Plan Candidate and role identify more than one Signal series")
 
     @property
     def fingerprint(self) -> str:

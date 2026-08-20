@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.2 — IMPLEMENTED / VERIFIED LOCALLY — Scientific Result Evidence
+Current Increment: P8.4.2.1 — IMPLEMENTED / VERIFIED LOCALLY — Scientific Evidence Integrity & Determinism Closure
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -460,6 +460,13 @@ payload 可供 fresh Worker 重建同一 Candidate identity 与 internal Predica
 Calculation/Statistics authorities；`RESEARCH_SCIENTIFIC_V2` Artifact 自包含投影 market、typed variables、nullable signals、Statistics 与
 canonical Graph，并分离 logical/byte identity；Query/HTTP 只读 Artifact。V1 Specification/Result/Artifact 保持可读，V1 scientific query
 显式失败。该 increment 不新增 execution phase 或 Evidence/Candidate/Signal/Graph/Predicate Store；P8 仍为 `IN_PROGRESS`，下一步是 P8.4.3。
+
+P8.4.2.1 已收紧该 evidence chain 的完整性与确定性：Calculation 统一拥有 internal Predicate primitive，Specification/Runtime 不再
+依赖 Definition implementation；Definition 只投影 Specification 已构造的 Candidate identity，并统一发布 Indicator、Factor 与 Target
+变量；Result Plan 锁定 `(candidate_fingerprint, role)` Signal 唯一性。Scientific Artifact V2 现对 exact Statistics reference/catalog、
+Result schema V2、严格 SHA path、并发 immutable publication、逻辑主键、typed scalar canonical form 及 Variable/Signal 完整 market axis
+进行 self-contained fail-closed 验证；Query V2 catalog/page 只补 Artifact-only read-model invariant。所有既有 semantic identity 算法与 V1
+Specification/Result/Artifact/Query 保持不变；P8 仍为 `IN_PROGRESS`，下一步仍是 P8.4.3。
 
 ### 目标
 

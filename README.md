@@ -40,7 +40,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.2 — IMPLEMENTED / VERIFIED locally** — Scientific Result Evidence |
+| Current increment | **P8.4.2.1 — IMPLEMENTED / VERIFIED locally** — Scientific Evidence Integrity & Determinism Closure |
 | Next semantic direction | P8.4.3 — Research Studio & Runs Web |
 | License | MIT |
 
@@ -402,6 +402,10 @@ P8.4.1.1 已关闭 Public Authoring 与 Universe authority 边界：Research API
 P8.4.2 已把 publication membership 与 Candidate identity 穿过 Specification V2、Run canonical payload、fresh Worker、Runtime、Result V2、
 Scientific Artifact V2 和 Artifact-only Query/HTTP。Artifact 自包含 exact market、typed Published Variables、nullable Signals、Statistics 与
 canonical Graph；V1 contracts 保持可读，且未新增 Evidence/Candidate/Signal/Graph/Predicate Store 或 execution phase。
+
+P8.4.2.1 已关闭 Scientific Artifact 的并发发布、exact membership、logical key、typed scalar、完整 series axis 与 portable verified-load
+缺口，并把 internal Predicate implementation ownership 收敛到 Research Calculation。Candidate 与既有 Specification/Result/Artifact
+semantic identity 算法不变；V1 contracts 与 P8.3 exact Specification submission 保持兼容，P8 仍为 `IN_PROGRESS`。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

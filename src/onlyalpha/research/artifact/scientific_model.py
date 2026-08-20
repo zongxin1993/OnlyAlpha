@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -27,6 +28,7 @@ from .model import OnlyResearchArtifactStatisticsEntry, OnlyResearchArtifactStat
 RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE = "RESEARCH_SCIENTIFIC_V2"
 RESEARCH_SCIENTIFIC_ARTIFACT_SCHEMA_VERSION = 2
 _SHA = re.compile(r"^[0-9a-f]{64}$")
+_INTEGER = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 
 
 class OnlyResearchScientificValueKind(StrEnum):
@@ -45,6 +47,12 @@ class OnlyResearchScientificMarketRow:
     low: str
     close: str
     volume: str
+
+    def __post_init__(self) -> None:
+        _nonempty(self.instrument_id, "instrument_id")
+        _timestamp(self.ts_event_ns)
+        for value in (self.open, self.high, self.low, self.close, self.volume):
+            _canonical_decimal(value)
 
     def to_dict(self) -> dict[str, object]:
         return {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -65,6 +73,15 @@ class OnlyResearchScientificVariableRow:
     string_value: str | None = None
 
     def __post_init__(self) -> None:
+        if self.candidate_fingerprint is not None:
+            _sha(self.candidate_fingerprint)
+        _sha(self.calculation_fingerprint)
+        _sha(self.node_fingerprint)
+        _nonempty(self.output_name, "output_name")
+        _nonempty(self.instrument_id, "instrument_id")
+        _timestamp(self.ts_event_ns)
+        if not isinstance(self.value_kind, OnlyResearchScientificValueKind):
+            raise ValueError("Scientific Variable value_kind is invalid")
         populated = sum(
             item is not None for item in (self.decimal_value, self.integer_value, self.boolean_value, self.string_value)
         )
@@ -78,6 +95,14 @@ class OnlyResearchScientificVariableRow:
         }[self.value_kind]
         if populated == 1 and expected is None:
             raise ValueError("Scientific Variable value does not match value_kind")
+        if self.integer_value is not None and _INTEGER.fullmatch(self.integer_value) is None:
+            raise ValueError("Scientific Variable INTEGER value is not canonical")
+        if self.decimal_value is not None:
+            _canonical_decimal(self.decimal_value)
+        if self.boolean_value is not None and not isinstance(self.boolean_value, bool):
+            raise ValueError("Scientific Variable BOOLEAN value is invalid")
+        if self.string_value is not None and not isinstance(self.string_value, str):
+            raise ValueError("Scientific Variable STRING value is invalid")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -103,6 +128,15 @@ class OnlyResearchScientificSignalRow:
     ts_event_ns: int
     value: bool | None
 
+    def __post_init__(self) -> None:
+        _sha(self.candidate_fingerprint)
+        if self.role not in {"ELIGIBILITY", "ENTRY_SIGNAL", "EXIT_SIGNAL"}:
+            raise ValueError("Scientific Signal role is invalid")
+        _nonempty(self.instrument_id, "instrument_id")
+        _timestamp(self.ts_event_ns)
+        if self.value is not None and not isinstance(self.value, bool):
+            raise ValueError("Scientific Signal value is invalid")
+
     def to_dict(self) -> dict[str, object]:
         return {name: getattr(self, name) for name in self.__dataclass_fields__}
 
@@ -111,6 +145,11 @@ class OnlyResearchScientificSignalRow:
 class OnlyResearchScientificGraph:
     calculation_fingerprint: str
     graph: OnlyCalculationGraphDefinition
+
+    def __post_init__(self) -> None:
+        _sha(self.calculation_fingerprint)
+        if not isinstance(self.graph, OnlyCalculationGraphDefinition):
+            raise ValueError("Scientific Graph is invalid")
 
     def to_dict(self) -> dict[str, object]:
         return {"calculation_fingerprint": self.calculation_fingerprint, "graph": dict(self.graph.to_dict())}
@@ -174,6 +213,8 @@ class OnlyResearchScientificArtifactManifest:
     def __post_init__(self) -> None:
         if self.profile != RESEARCH_SCIENTIFIC_ARTIFACT_PROFILE or self.schema_version != 2:
             raise ValueError("Scientific Artifact profile/schema is unsupported")
+        if self.research_result_schema_version != 2:
+            raise ValueError("Scientific Artifact Research Result schema version mismatch")
         if self.plan.schema_version != 2 or self.plan.fingerprint != self.research_result_plan_fingerprint:
             raise ValueError("Scientific Artifact Result Plan linkage mismatch")
         if tuple(item.calculation_fingerprint for item in self.calculation_results) != tuple(
@@ -182,6 +223,21 @@ class OnlyResearchScientificArtifactManifest:
             raise ValueError("Scientific Artifact Calculation membership mismatch")
         if tuple(item.statistics_fingerprint for item in self.statistics_results) != self.plan.statistics_fingerprints:
             raise ValueError("Scientific Artifact Statistics membership mismatch")
+        if (
+            not isinstance(self.statistics_catalog, tuple)
+            or any(not isinstance(item, OnlyResearchArtifactStatisticsEntry) for item in self.statistics_catalog)
+            or self.statistics_catalog != tuple(sorted(self.statistics_catalog))
+            or len({item.statistics_fingerprint for item in self.statistics_catalog}) != len(self.statistics_catalog)
+        ):
+            raise ValueError("Scientific Artifact Statistics catalog is not canonical and unique")
+        result_references = tuple(
+            (item.statistics_fingerprint, item.statistics_result_fingerprint) for item in self.statistics_results
+        )
+        catalog_references = tuple(
+            (item.statistics_fingerprint, item.statistics_result_fingerprint) for item in self.statistics_catalog
+        )
+        if result_references != catalog_references:
+            raise ValueError("Scientific Artifact Statistics catalog membership mismatch")
         if self.dataset_snapshot_fingerprint != self.plan.dataset_snapshot_fingerprint:
             raise ValueError("Scientific Artifact Dataset linkage mismatch")
         content = only_research_result_content_fingerprint(
@@ -335,4 +391,25 @@ def _string(value: object) -> str:
 def _integer(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError("value must be a non-negative integer")
+    return value
+
+
+def _nonempty(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"Scientific Artifact {name} must be a non-empty string")
+    return value
+
+
+def _timestamp(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Scientific Artifact ts_event_ns must be an integer")
+    return value
+
+
+def _canonical_decimal(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Scientific Artifact DECIMAL value must be a string")
+    parsed = Decimal(value)
+    if not parsed.is_finite() or format(parsed, "f") != value:
+        raise ValueError("Scientific Artifact DECIMAL value is not canonical and finite")
     return value
