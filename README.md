@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.3.1 — IMPLEMENTED / VERIFIED locally** — Web Submission Determinism & Authoring Admission Closure |
-| Next semantic direction | P8.4.4 — Scientific Viewer & Graph Inspector Closure |
+| Current increment | **P8.4.4.1 — IMPLEMENTED / VERIFIED locally** — Scientific Read Contract & Viewer Determinism Closure |
+| Next semantic direction | P8.5 — Operational Hardening & Database Recovery |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -388,7 +388,7 @@ P8.3 已建立 transport-neutral Research Command/Application boundary、UUID4 `
 PostgreSQL durable commit 后返回 accepted Run；portable `onlyalpha-artifact-api` 继续只依赖 Artifact Reader。OpenAPI、Web generated
 contract/Zod admission 与 exact `bigint` revision 已同步，但没有新增 P8.4 页面、Worker 启动或 Artifact content response。
 
-P8.4.0 已实现 programmatic Research Definition foundation：Universe/Data intent、registered Calculation Instance、全局有限 Sweep、typed Eligibility/Entry/Exit AST、internal RESEARCH Predicate lowering，以及现有 Specification/Workload 闭环。P8.4.3 已让用户从 Web 选择并提交这些正式语义；K-line、Feature、Factor Score、Signal/买卖点、cross-sectional statistics 的完整科学可视化仍属于 P8.4.4。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
+P8.4.0 已实现 programmatic Research Definition foundation：Universe/Data intent、registered Calculation Instance、全局有限 Sweep、typed Eligibility/Entry/Exit AST、internal RESEARCH Predicate lowering，以及现有 Specification/Workload 闭环。P8.4.3 已让用户从 Web 选择并提交这些正式语义；P8.4.4 已通过 Artifact-only Query evidence 完成 K-line、Published Variable、Signal/买卖点、Statistics、Candidate comparison、Exact Data 与只读 Graph Inspector。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
 
 P8.4.1 已把 Calculation Registry、Dataset source contract、registered Universe authority 与共享 Statistics capability 作为确定性只读
 Catalog 暴露，并增加 `POST /api/v2/research/definitions/resolve`。该 endpoint 严格执行
@@ -411,13 +411,19 @@ P8.4.3 已实现 Web-native 日常 Research 控制闭环：持久 workstation sh
 transport、权威 Definition Resolution、edit revision + stale response fencing、exact Specification idempotent Run submission、Run
 list/detail/poll/cancel，以及 Completed Run → exact Result 跳转。Stage 0 同时关闭 non-candidate multi-lineage publication ambiguity 与
 generic PREDICATE publication 准入缺口；未改变 Definition/Specification/Candidate/Calculation/Result/Artifact identity，未新增 endpoint、
-PostgreSQL authority 或 Runtime path。P8 仍为 `IN_PROGRESS`；完整 Scientific Viewer/Graph Inspector 属于 P8.4.4。
+PostgreSQL authority 或 Runtime path。P8.4.4 已完成 Scientific Viewer/Graph Inspector；P8 仍为 `IN_PROGRESS`，下一方向为 P8.5 operational hardening。
 
 P8.4.3.1 关闭 Web submission 与 authoring admission 的剩余正确性缺口：pending submission intent 绑定 server Resolution 返回的
 `specification_fingerprint`，所有不确定失败均保留同一 Idempotency Key，只有权威成功响应才消费该 intent；同一 Specification 的显式
 Run Again 仍创建新 key/new Run。唯一 Draft → Definition transport 对 FIXED scalar、published output 与 Statistics method 全部 fail
 closed，并在 Builder 中显式暴露既有 Price Type 与 Adjustment Reference。该 closure 不改变任何 Research semantic identity 公式，
 不新增 endpoint、Store、Runtime、PostgreSQL schema 或 authority；P8 仍为 `IN_PROGRESS`。
+
+P8.4.4.1 将 Scientific read path 收敛为唯一的 `Query → Python DTO → OpenAPI → generated.ts → strict Zod` 链。Artifact summary、
+Candidate assignment type/Signal role 与 exact Graph linkage 全部来自 verified Artifact/Query evidence；Graph INTEGER 使用 canonical
+string transport，Decimal 与 nanosecond 精度边界保持不变。React Query key 覆盖 limit/range 等完整 selector，Candidate 图按 numeric
+coordinates 展示，Exact Graph 只投影 deterministic external-source presentation node，Signal marker 只按 closed role exact equality
+产生。该 closure 未改变任何 semantic identity、Store、Runtime、PostgreSQL schema 或 authority；P8 仍为 `IN_PROGRESS`。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 
@@ -565,7 +571,7 @@ uv run onlyalpha-artifact-api --artifact-root <USER_DATA_ROOT>/research/artifact
 
 Research Web 已支持 `New Research / Runs / Results`：浏览器只保存临时 Draft 和 presentation state，exact Specification 只来自最新权威
 Resolution；pending Run submission 在不确定重试间复用该 Resolution identity 对应的 Idempotency Key，Run state 只来自 PostgreSQL
-operational authority，Result 页面只消费 Artifact/Query evidence。P8.4.4 的高级科学可视化与 Graph Inspector 尚未实现。
+operational authority，Result 页面只消费 Artifact/Query evidence。P8.4.4 已完成 evidence-backed Scientific Workstation 与只读 Graph Inspector，且未让 Browser 成为第二 Research authority。
 
 ---
 

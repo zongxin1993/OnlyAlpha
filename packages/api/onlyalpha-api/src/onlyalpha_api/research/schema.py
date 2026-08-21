@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 from datetime import UTC
-from typing import Literal
+from typing import Annotated, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    StringConstraints,
+    model_validator,
+)
 
+from onlyalpha.calculation import OnlyCalculationScalar, only_calculation_scalar_to_dict
 from onlyalpha.canonical import only_canonical_payload
 from onlyalpha.research.query import (
     OnlyResearchArtifactSummary,
@@ -25,6 +35,9 @@ from onlyalpha.research.query import (
 )
 
 RESEARCH_API_SCHEMA_VERSION: Literal[2] = 2
+Sha256Dto = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+DecimalTextDto = Annotated[str, StringConstraints(pattern=r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")]
+IntegerTextDto = Annotated[str, StringConstraints(pattern=r"^-?(?:0|[1-9][0-9]*)$")]
 
 
 class _ReadDto(BaseModel):
@@ -49,6 +62,11 @@ class ResearchArtifactSummaryDto(_ReadDto):
     artifact_schema_version: int
     statistics_count: int
     row_count: int
+    candidate_count: int
+    published_series_count: int
+    signal_series_count: int
+    market_row_count: int
+    instrument_ids: tuple[str, ...]
     created_at: str
 
     @classmethod
@@ -65,6 +83,11 @@ class ResearchArtifactSummaryDto(_ReadDto):
             artifact_schema_version=value.artifact_schema_version,
             statistics_count=value.statistics_count,
             row_count=value.row_count,
+            candidate_count=value.candidate_count,
+            published_series_count=value.published_series_count,
+            signal_series_count=value.signal_series_count,
+            market_row_count=value.market_row_count,
+            instrument_ids=value.instrument_ids,
             created_at=created_at,
         )
 
@@ -192,12 +215,14 @@ class ResearchStatisticSeriesPageDto(_ReadDto):
 
 
 class ResearchCandidateDto(_ReadDto):
-    candidate_fingerprint: str
+    candidate_fingerprint: Sha256Dto
     candidate_calculation_id: str
-    assignment: dict[str, object]
-    calculation_fingerprint: str
-    graph_fingerprint: str
-    statistics_fingerprints: tuple[str, ...]
+    assignment: dict[str, StrictBool | StrictInt | StrictStr | None]
+    assignment_types: dict[str, Literal["NULL", "BOOLEAN", "INTEGER", "DECIMAL", "STRING"]]
+    calculation_fingerprint: Sha256Dto
+    graph_fingerprint: Sha256Dto
+    statistics_fingerprints: tuple[Sha256Dto, ...]
+    signal_roles: tuple[Literal["ELIGIBILITY", "ENTRY_SIGNAL", "EXIT_SIGNAL"], ...]
 
 
 class ResearchCandidateCatalogDto(_ReadDto):
@@ -214,9 +239,11 @@ class ResearchCandidateCatalogDto(_ReadDto):
                     candidate_fingerprint=item.candidate_fingerprint,
                     candidate_calculation_id=item.candidate_calculation_id,
                     assignment=only_canonical_payload(dict(item.assignment)),  # type: ignore[arg-type]
+                    assignment_types=dict(item.assignment_types),
                     calculation_fingerprint=item.calculation_fingerprint,
                     graph_fingerprint=item.graph_fingerprint,
                     statistics_fingerprints=item.statistics_fingerprints,
+                    signal_roles=item.signal_roles,
                 )
                 for item in value.candidates
             ),
@@ -328,12 +355,136 @@ class ResearchScientificSeriesPageDto(_ReadDto):
         )
 
 
+class ResearchGraphNullScalarDto(_ReadDto):
+    type: Literal["NULL"]
+    value: None
+
+
+class ResearchGraphBooleanScalarDto(_ReadDto):
+    type: Literal["BOOLEAN"]
+    value: StrictBool
+
+
+class ResearchGraphIntegerScalarDto(_ReadDto):
+    type: Literal["INTEGER"]
+    value: IntegerTextDto
+
+
+class ResearchGraphDecimalScalarDto(_ReadDto):
+    type: Literal["DECIMAL"]
+    value: DecimalTextDto
+
+
+class ResearchGraphStringScalarDto(_ReadDto):
+    type: Literal["STRING"]
+    value: StrictStr
+
+
+ResearchGraphScalarDto = Annotated[
+    ResearchGraphNullScalarDto
+    | ResearchGraphBooleanScalarDto
+    | ResearchGraphIntegerScalarDto
+    | ResearchGraphDecimalScalarDto
+    | ResearchGraphStringScalarDto,
+    Field(discriminator="type"),
+]
+
+
+class ResearchGraphPortDto(_ReadDto):
+    name: str
+    data_type: Literal["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]
+    nullable: bool
+    dimensions: tuple[str, ...]
+    semantic_type: str
+    unit: str | None
+
+
+class ResearchGraphReferenceDto(_ReadDto):
+    node_fingerprint: Sha256Dto | None
+    output_name: str
+    source: str | None
+
+    @model_validator(mode="after")
+    def validate_source(self) -> Self:
+        if (self.node_fingerprint is None) == (self.source is None):
+            raise ValueError("Graph input must select exactly one node or external source")
+        return self
+
+
+class ResearchGraphWarmupDto(_ReadDto):
+    minimum_observations: int
+    ready_condition: str
+    pre_ready_output: Literal["NULL", "PARTIAL"]
+    initialization: str
+
+
+class ResearchGraphNumericDto(_ReadDto):
+    representation: str
+    precision: int
+    output_quantum: DecimalTextDto | None
+    rounding: str
+
+
+class ResearchGraphDefinitionDto(_ReadDto):
+    schema_version: Literal[2]
+    kind: Literal["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]
+    type_id: str
+    semantic_version: str
+    parameters: dict[str, ResearchGraphScalarDto]
+    inputs: tuple[ResearchGraphPortDto, ...]
+    input_bindings: dict[str, ResearchGraphReferenceDto]
+    outputs: tuple[ResearchGraphPortDto, ...]
+    warmup: ResearchGraphWarmupDto
+    missing_values: Literal["FAIL", "SKIP", "PROPAGATE", "RESET"]
+    timestamp: Literal["BAR_OPEN", "BAR_CLOSE", "EVENT_TIME", "OBSERVATION_TIME", "AVAILABILITY_TIME"]
+    numeric: ResearchGraphNumericDto
+    factor_kind: Literal["TIME_SERIES", "CROSS_SECTION"] | None
+    extensions: dict[str, ResearchGraphScalarDto]
+
+    @model_validator(mode="after")
+    def validate_ports(self) -> Self:
+        input_names = tuple(item.name for item in self.inputs)
+        output_names = tuple(item.name for item in self.outputs)
+        if len(set(input_names)) != len(input_names) or len(set(output_names)) != len(output_names):
+            raise ValueError("Graph ports must be unique")
+        if set(input_names) != set(self.input_bindings):
+            raise ValueError("Graph input bindings must exactly match input ports")
+        if (self.kind == "FACTOR") != (self.factor_kind is not None):
+            raise ValueError("Graph factor_kind does not match calculation kind")
+        return self
+
+
+class ResearchGraphNodeDto(_ReadDto):
+    node_fingerprint: Sha256Dto
+    definition: ResearchGraphDefinitionDto
+    alias: str | None
+
+
+class ResearchCalculationGraphDto(_ReadDto):
+    schema_version: Literal[1]
+    nodes: tuple[ResearchGraphNodeDto, ...]
+
+    @model_validator(mode="after")
+    def validate_topology(self) -> Self:
+        identities = {node.node_fingerprint for node in self.nodes}
+        if len(identities) != len(self.nodes):
+            raise ValueError("Graph nodes must be unique")
+        if any(
+            reference.node_fingerprint is not None and reference.node_fingerprint not in identities
+            for node in self.nodes
+            for reference in node.definition.input_bindings.values()
+        ):
+            raise ValueError("Graph dependency is missing")
+        return self
+
+
 class ResearchCandidateGraphDto(_ReadDto):
     schema_version: Literal[2] = RESEARCH_API_SCHEMA_VERSION
-    research_result_fingerprint: str
-    candidate_fingerprint: str
-    calculation_fingerprint: str
-    graph: dict[str, object]
+    research_result_fingerprint: Sha256Dto
+    candidate_fingerprint: Sha256Dto
+    calculation_fingerprint: Sha256Dto
+    graph_fingerprint: Sha256Dto
+    graph: ResearchCalculationGraphDto
 
     @classmethod
     def from_model(cls, value: OnlyResearchCandidateGraph) -> ResearchCandidateGraphDto:
@@ -341,5 +492,35 @@ class ResearchCandidateGraphDto(_ReadDto):
             research_result_fingerprint=value.research_result_fingerprint,
             candidate_fingerprint=value.candidate_fingerprint,
             calculation_fingerprint=value.calculation_fingerprint,
-            graph=dict(value.graph.to_dict()),
+            graph_fingerprint=value.graph_fingerprint,
+            graph=ResearchCalculationGraphDto(
+                schema_version=cast(Literal[1], value.graph.schema_version),
+                nodes=tuple(
+                    ResearchGraphNodeDto(
+                        node_fingerprint=node.fingerprint,
+                        definition=ResearchGraphDefinitionDto.model_validate(
+                            {
+                                **node.definition.to_dict(),
+                                "parameters": {
+                                    name: _graph_scalar_transport(scalar)
+                                    for name, scalar in node.definition.parameters.items()
+                                },
+                                "extensions": {
+                                    name: _graph_scalar_transport(scalar)
+                                    for name, scalar in node.definition.extensions.items()
+                                },
+                            }
+                        ),
+                        alias=node.alias,
+                    )
+                    for node in value.graph.ordered_nodes
+                ),
+            ),
         )
+
+
+def _graph_scalar_transport(value: OnlyCalculationScalar) -> dict[str, object]:
+    payload = dict(only_calculation_scalar_to_dict(value))
+    if payload["type"] == "INTEGER":
+        payload["value"] = str(payload["value"])
+    return payload

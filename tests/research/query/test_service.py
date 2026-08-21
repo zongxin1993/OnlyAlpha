@@ -9,8 +9,11 @@ from onlyalpha.research import (
     RESEARCH_QUERY_SCHEMA_VERSION,
     OnlyResearchQueryError,
     OnlyResearchQueryErrorCode,
+    OnlyResearchQueryService,
+    OnlyResearchScientificSeriesQuery,
     OnlyResearchStatisticSeriesQuery,
 )
+from tests.research.artifact.support import scientific_artifact_case
 from tests.research.query.support import query_case
 
 
@@ -176,3 +179,90 @@ def test_query_is_portable_after_all_execution_roots_are_unavailable(tmp_path) -
     assert catalog.statistics
     assert series.points
     assert store.load_verified(candidate.research_result_fingerprint).rows
+
+
+def test_scientific_series_and_graph_enforce_exact_artifact_membership(tmp_path) -> None:
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    store.commit(candidate)
+    service = OnlyResearchQueryService(store)
+    identity = candidate.result.manifest.research_result_fingerprint
+    artifact = store.load_verified(identity)
+    instrument = artifact.market_rows[0].instrument_id
+    published = artifact.manifest.plan.published_series[0]
+    signal = artifact.manifest.plan.signals[0]
+
+    variable = service.get_variable_series(
+        OnlyResearchScientificSeriesQuery(
+            identity,
+            instrument_id=instrument,
+            candidate_fingerprint=published.candidate_fingerprint,
+            calculation_fingerprint=published.calculation_fingerprint,
+            node_fingerprint=published.node_fingerprint,
+            output_name=published.output_name,
+        )
+    )
+    signals = service.get_signal_series(
+        OnlyResearchScientificSeriesQuery(
+            identity,
+            instrument_id=instrument,
+            candidate_fingerprint=signal.candidate_fingerprint,
+            role=signal.role,
+        )
+    )
+    graph = service.get_candidate_graph(identity, artifact.manifest.plan.candidates[0].candidate_fingerprint)
+    assert variable.points
+    assert signals.points
+    assert graph.graph.fingerprint == artifact.manifest.plan.candidates[0].graph_fingerprint
+    assert graph.graph_fingerprint == graph.graph.fingerprint
+
+    invalid_queries = (
+        (service.get_market_series, OnlyResearchScientificSeriesQuery(identity)),
+        (service.get_variable_series, OnlyResearchScientificSeriesQuery(identity, instrument_id=instrument)),
+        (
+            service.get_variable_series,
+            OnlyResearchScientificSeriesQuery(
+                identity,
+                instrument_id=instrument,
+                candidate_fingerprint=published.candidate_fingerprint,
+                calculation_fingerprint="f" * 64,
+                node_fingerprint=published.node_fingerprint,
+                output_name=published.output_name,
+            ),
+        ),
+        (service.get_signal_series, OnlyResearchScientificSeriesQuery(identity, instrument_id=instrument)),
+        (
+            service.get_signal_series,
+            OnlyResearchScientificSeriesQuery(
+                identity,
+                instrument_id=instrument,
+                candidate_fingerprint=signal.candidate_fingerprint,
+                role="UNKNOWN",
+            ),
+        ),
+    )
+    for method, query in invalid_queries:
+        with pytest.raises(OnlyResearchQueryError):
+            method(query)
+    with pytest.raises(OnlyResearchQueryError) as missing:
+        service.get_candidate_graph(identity, "f" * 64)
+    assert missing.value.code is OnlyResearchQueryErrorCode.CANDIDATE_NOT_FOUND
+    with pytest.raises(OnlyResearchQueryError):
+        service.get_variable_series(object())  # type: ignore[arg-type]
+
+
+def test_candidate_graph_linkage_mismatch_fails_as_corrupt_artifact(tmp_path) -> None:
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    store.commit(candidate)
+    identity = candidate.result.manifest.research_result_fingerprint
+    artifact = store.load_verified(identity)
+    selected = artifact.manifest.plan.candidates[0]
+    object.__setattr__(selected, "graph_fingerprint", "f" * 64)
+
+    class Reader:
+        def load_verified(self, research_result_fingerprint: str):  # type: ignore[no-untyped-def]
+            assert research_result_fingerprint == identity
+            return artifact
+
+    with pytest.raises(OnlyResearchQueryError) as caught:
+        OnlyResearchQueryService(Reader()).get_candidate_graph(identity, selected.candidate_fingerprint)
+    assert caught.value.code is OnlyResearchQueryErrorCode.RESEARCH_ARTIFACT_CORRUPT

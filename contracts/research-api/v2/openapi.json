@@ -169,6 +169,10 @@
             "title": "Artifact Schema Version",
             "type": "integer"
           },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -176,6 +180,21 @@
           "dataset_snapshot_fingerprint": {
             "title": "Dataset Snapshot Fingerprint",
             "type": "string"
+          },
+          "instrument_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Instrument Ids",
+            "type": "array"
+          },
+          "market_row_count": {
+            "title": "Market Row Count",
+            "type": "integer"
+          },
+          "published_series_count": {
+            "title": "Published Series Count",
+            "type": "integer"
           },
           "research_result_content_fingerprint": {
             "title": "Research Result Content Fingerprint",
@@ -203,6 +222,10 @@
             "title": "Schema Version",
             "type": "integer"
           },
+          "signal_series_count": {
+            "title": "Signal Series Count",
+            "type": "integer"
+          },
           "statistics_count": {
             "title": "Statistics Count",
             "type": "integer"
@@ -219,6 +242,11 @@
           "artifact_schema_version",
           "statistics_count",
           "row_count",
+          "candidate_count",
+          "published_series_count",
+          "signal_series_count",
+          "market_row_count",
+          "instrument_ids",
           "created_at"
         ],
         "title": "ResearchArtifactSummaryDto",
@@ -314,6 +342,29 @@
           "parameter_sweep_allowed"
         ],
         "title": "ResearchCalculationCatalogItemDto",
+        "type": "object"
+      },
+      "ResearchCalculationGraphDto": {
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchGraphNodeDto"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "nodes"
+        ],
+        "title": "ResearchCalculationGraphDto",
         "type": "object"
       },
       "ResearchCalculationInputDto": {
@@ -471,11 +522,41 @@
         "additionalProperties": false,
         "properties": {
           "assignment": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "title": "Assignment",
             "type": "object"
           },
+          "assignment_types": {
+            "additionalProperties": {
+              "enum": [
+                "NULL",
+                "BOOLEAN",
+                "INTEGER",
+                "DECIMAL",
+                "STRING"
+              ],
+              "type": "string"
+            },
+            "title": "Assignment Types",
+            "type": "object"
+          },
           "calculation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Calculation Fingerprint",
             "type": "string"
           },
@@ -484,15 +565,30 @@
             "type": "string"
           },
           "candidate_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Candidate Fingerprint",
             "type": "string"
           },
           "graph_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Graph Fingerprint",
             "type": "string"
           },
+          "signal_roles": {
+            "items": {
+              "enum": [
+                "ELIGIBILITY",
+                "ENTRY_SIGNAL",
+                "EXIT_SIGNAL"
+              ],
+              "type": "string"
+            },
+            "title": "Signal Roles",
+            "type": "array"
+          },
           "statistics_fingerprints": {
             "items": {
+              "pattern": "^[0-9a-f]{64}$",
               "type": "string"
             },
             "title": "Statistics Fingerprints",
@@ -503,9 +599,11 @@
           "candidate_fingerprint",
           "candidate_calculation_id",
           "assignment",
+          "assignment_types",
           "calculation_fingerprint",
           "graph_fingerprint",
-          "statistics_fingerprints"
+          "statistics_fingerprints",
+          "signal_roles"
         ],
         "title": "ResearchCandidateDto",
         "type": "object"
@@ -514,19 +612,25 @@
         "additionalProperties": false,
         "properties": {
           "calculation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Calculation Fingerprint",
             "type": "string"
           },
           "candidate_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Candidate Fingerprint",
             "type": "string"
           },
           "graph": {
-            "additionalProperties": true,
-            "title": "Graph",
-            "type": "object"
+            "$ref": "#/components/schemas/ResearchCalculationGraphDto"
+          },
+          "graph_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Graph Fingerprint",
+            "type": "string"
           },
           "research_result_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Research Result Fingerprint",
             "type": "string"
           },
@@ -541,6 +645,7 @@
           "research_result_fingerprint",
           "candidate_fingerprint",
           "calculation_fingerprint",
+          "graph_fingerprint",
           "graph"
         ],
         "title": "ResearchCandidateGraphDto",
@@ -1056,6 +1161,478 @@
           "value"
         ],
         "title": "ResearchFixedParameterDto",
+        "type": "object"
+      },
+      "ResearchGraphBooleanScalarDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "BOOLEAN",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ResearchGraphBooleanScalarDto",
+        "type": "object"
+      },
+      "ResearchGraphDecimalScalarDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "DECIMAL",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ResearchGraphDecimalScalarDto",
+        "type": "object"
+      },
+      "ResearchGraphDefinitionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "extensions": {
+            "additionalProperties": {
+              "discriminator": {
+                "mapping": {
+                  "BOOLEAN": "#/components/schemas/ResearchGraphBooleanScalarDto",
+                  "DECIMAL": "#/components/schemas/ResearchGraphDecimalScalarDto",
+                  "INTEGER": "#/components/schemas/ResearchGraphIntegerScalarDto",
+                  "NULL": "#/components/schemas/ResearchGraphNullScalarDto",
+                  "STRING": "#/components/schemas/ResearchGraphStringScalarDto"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ResearchGraphNullScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphBooleanScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphIntegerScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphDecimalScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphStringScalarDto"
+                }
+              ]
+            },
+            "title": "Extensions",
+            "type": "object"
+          },
+          "factor_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TIME_SERIES",
+                  "CROSS_SECTION"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Kind"
+          },
+          "input_bindings": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ResearchGraphReferenceDto"
+            },
+            "title": "Input Bindings",
+            "type": "object"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchGraphPortDto"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "INDICATOR",
+              "FACTOR",
+              "TARGET",
+              "PREDICATE"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "missing_values": {
+            "enum": [
+              "FAIL",
+              "SKIP",
+              "PROPAGATE",
+              "RESET"
+            ],
+            "title": "Missing Values",
+            "type": "string"
+          },
+          "numeric": {
+            "$ref": "#/components/schemas/ResearchGraphNumericDto"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchGraphPortDto"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "discriminator": {
+                "mapping": {
+                  "BOOLEAN": "#/components/schemas/ResearchGraphBooleanScalarDto",
+                  "DECIMAL": "#/components/schemas/ResearchGraphDecimalScalarDto",
+                  "INTEGER": "#/components/schemas/ResearchGraphIntegerScalarDto",
+                  "NULL": "#/components/schemas/ResearchGraphNullScalarDto",
+                  "STRING": "#/components/schemas/ResearchGraphStringScalarDto"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ResearchGraphNullScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphBooleanScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphIntegerScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphDecimalScalarDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ResearchGraphStringScalarDto"
+                }
+              ]
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "semantic_version": {
+            "title": "Semantic Version",
+            "type": "string"
+          },
+          "timestamp": {
+            "enum": [
+              "BAR_OPEN",
+              "BAR_CLOSE",
+              "EVENT_TIME",
+              "OBSERVATION_TIME",
+              "AVAILABILITY_TIME"
+            ],
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          },
+          "warmup": {
+            "$ref": "#/components/schemas/ResearchGraphWarmupDto"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "type_id",
+          "semantic_version",
+          "parameters",
+          "inputs",
+          "input_bindings",
+          "outputs",
+          "warmup",
+          "missing_values",
+          "timestamp",
+          "numeric",
+          "factor_kind",
+          "extensions"
+        ],
+        "title": "ResearchGraphDefinitionDto",
+        "type": "object"
+      },
+      "ResearchGraphIntegerScalarDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "INTEGER",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "pattern": "^-?(?:0|[1-9][0-9]*)$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ResearchGraphIntegerScalarDto",
+        "type": "object"
+      },
+      "ResearchGraphNodeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/ResearchGraphDefinitionDto"
+          },
+          "node_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Node Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_fingerprint",
+          "definition",
+          "alias"
+        ],
+        "title": "ResearchGraphNodeDto",
+        "type": "object"
+      },
+      "ResearchGraphNullScalarDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "NULL",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "null"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ResearchGraphNullScalarDto",
+        "type": "object"
+      },
+      "ResearchGraphNumericDto": {
+        "additionalProperties": false,
+        "properties": {
+          "output_quantum": {
+            "anyOf": [
+              {
+                "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Quantum"
+          },
+          "precision": {
+            "title": "Precision",
+            "type": "integer"
+          },
+          "representation": {
+            "title": "Representation",
+            "type": "string"
+          },
+          "rounding": {
+            "title": "Rounding",
+            "type": "string"
+          }
+        },
+        "required": [
+          "representation",
+          "precision",
+          "output_quantum",
+          "rounding"
+        ],
+        "title": "ResearchGraphNumericDto",
+        "type": "object"
+      },
+      "ResearchGraphPortDto": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "enum": [
+              "DECIMAL",
+              "INTEGER",
+              "BOOLEAN",
+              "STRING"
+            ],
+            "title": "Data Type",
+            "type": "string"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "semantic_type": {
+            "title": "Semantic Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "name",
+          "data_type",
+          "nullable",
+          "dimensions",
+          "semantic_type",
+          "unit"
+        ],
+        "title": "ResearchGraphPortDto",
+        "type": "object"
+      },
+      "ResearchGraphReferenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "node_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Fingerprint"
+          },
+          "output_name": {
+            "title": "Output Name",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "node_fingerprint",
+          "output_name",
+          "source"
+        ],
+        "title": "ResearchGraphReferenceDto",
+        "type": "object"
+      },
+      "ResearchGraphStringScalarDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "STRING",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ResearchGraphStringScalarDto",
+        "type": "object"
+      },
+      "ResearchGraphWarmupDto": {
+        "additionalProperties": false,
+        "properties": {
+          "initialization": {
+            "title": "Initialization",
+            "type": "string"
+          },
+          "minimum_observations": {
+            "title": "Minimum Observations",
+            "type": "integer"
+          },
+          "pre_ready_output": {
+            "enum": [
+              "NULL",
+              "PARTIAL"
+            ],
+            "title": "Pre Ready Output",
+            "type": "string"
+          },
+          "ready_condition": {
+            "title": "Ready Condition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "minimum_observations",
+          "ready_condition",
+          "pre_ready_output",
+          "initialization"
+        ],
+        "title": "ResearchGraphWarmupDto",
         "type": "object"
       },
       "ResearchInputDefinitionDto": {

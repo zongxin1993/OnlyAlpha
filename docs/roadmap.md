@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.3.1 — IMPLEMENTED / VERIFIED LOCALLY — Web Submission Determinism & Authoring Admission Closure
+Current Increment: P8.4.4.1 — IMPLEMENTED / VERIFIED LOCALLY — Scientific Read Contract & Viewer Determinism Closure
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.4.4 — Scientific Viewer & Graph Inspector Closure
+Next Semantic Direction: P8.5 — Operational Hardening & Database Recovery
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -474,8 +474,8 @@ Resolution 独占 Dataset/Calculation/Candidate/Specification 语义；monotonic
 取消 PostgreSQL authority 的公开事实，Completed Run 精确导航到既有 Artifact/Query Result consumer。Stage 0 同时 fail closed
 non-candidate multi-lineage generic publication 与 internal PREDICATE generic publication，candidate publication、singleton global evidence
 及 Eligibility/Entry/Exit Signal evidence 保持合法。Former P8.4.2.3 publication admission concerns 因此在 P8.4.3 Stage 0 内闭环，不再
-作为独立最终 milestone。没有新增 endpoint、Schema、Store、Runtime 或 semantic identity formula；P8 仍为 `IN_PROGRESS`，下一步是
-P8.4.4。
+作为独立最终 milestone。没有新增 endpoint、Schema、Store、Runtime 或 semantic identity formula；P8 仍为 `IN_PROGRESS`，后续
+Viewer closure 由 P8.4.4 完成。
 
 P8.4.3.1 关闭 Web submission determinism 与 authoring admission 的剩余缺口。Browser pending submission intent 只绑定权威
 Resolution 返回的 `specification_fingerprint` 与一个 UUID4 Idempotency Key；transport、HTTP、decode/contract 等任意 thrown failure
@@ -483,7 +483,23 @@ Resolution 返回的 `specification_fingerprint` 与一个 UUID4 Idempotency Key
 的显式新 Run 仍使用新 key。唯一 Draft → Definition builder 现在对 FIXED 多值歧义、stale/unknown published output、空 output 与未知
 Statistics method 全部 fail closed；Web 同时补齐既有 `price_type` 与 `adjustment_reference` authoring controls。Definition、Dataset、
 Specification、Candidate、Calculation、Statistics、Result、Artifact 与 Run identity semantics 均未改变；未新增 endpoint、Store、
-Runtime、PostgreSQL schema 或 authority。P8 仍为 `IN_PROGRESS`，下一语义方向仍是 P8.4.4。
+Runtime、PostgreSQL schema 或 authority。该 closure 后续由 P8.4.4 完成 Scientific Viewer 与 Graph Inspector。
+
+P8.4.4 已完成 immutable Scientific Result/Artifact 的日常分析工作台。Artifact-only Query read contract 机械投影 canonical
+instrument、Candidate typed assignment/Signal membership 与 strict exact Calculation Graph；HTTP/OpenAPI/generated TypeScript/Zod admission
+对 Graph node、port、binding、typed scalar、fingerprint、schema 与 linkage fail closed。统一 Result selection 驱动 Market K-line/volume、
+Published Variable、Artifact Signal marker、IC/RankIC、Candidate table 与 1D/2D/3+ exact-time comparison、Semantic/Exact Graph Inspector 及
+Market/Variable/Signal/Statistics Exact Data。Lightweight Charts、ECharts 与 Graphviz 均位于 OnlyAlpha adapter 后，Decimal/nanosecond
+只在 renderer projection 边界有损转换；Browser 不计算 Signal/Statistics/Candidate score，不读取 Parquet，也未新增 Store、Runtime、
+PostgreSQL schema、semantic identity 或 authority。P8 保持 `IN_PROGRESS`，下一语义方向进入 P8.5。
+
+P8.4.4.1 关闭 Scientific Viewer 的读合同与展示确定性缺口。唯一 public chain 现在是
+`OnlyResearchQueryService → strict Python DTO → generated OpenAPI → generated.ts → strict Zod`；summary/candidate/graph 字段均由
+verified Artifact evidence 机械投影，Candidate/Calculation/Graph linkage 不一致按 corrupt fail closed。Graph INTEGER 以 canonical
+string 保留无界 Python `int`，React Query identity 包含所有 server selector，Candidate axes 使用 numeric coordinates，external
+Dataset source 只成为 deterministic presentation node，Signal role 使用 closed vocabulary 与 exact equality。未修改任何 Definition、
+Specification、Candidate、Calculation、Graph、Statistics、Result、Artifact 或 Run identity，未新增 Store、Service、Runtime、DB schema
+或 authority。P8.4.4 因此完成 affected Gate，但 P8 仍为 `IN_PROGRESS`，且未获得新的 Final-SHA certification。
 
 ### 目标
 

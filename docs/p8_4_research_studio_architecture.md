@@ -1,8 +1,8 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4.3.1 Web Submission Determinism & Authoring Admission Closure Implemented / Verified Locally; P8.4.4 remains Target Design**
+> Status: **P8.4.4.1 Scientific Read Contract & Viewer Determinism Closure Implemented / Verified Locally; P8 remains IN_PROGRESS**
 >
-> This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
+> This document records the implemented P8.4 architecture from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, ADR 0094, and ADR 0095. Increment-level local verification is not P8 Final-SHA certification.
 
 P8.4.0 repository fact: `onlyalpha.research.definition` now owns the strict Definition V1 contract and deterministic resolution into the existing
 Specification/Workload path. Boolean lowering uses a narrow internal `OnlyCalculationKind.PREDICATE` with RESEARCH-only registrations, the existing
@@ -53,6 +53,26 @@ while uncertain retry cannot silently create a second Run. The sole Draft → De
 closed on multi-value ambiguity, empty or stale published outputs, and unknown Statistics methods. The Builder intentionally exposes the existing
 `price_type` and `adjustment_reference` Dataset vocabulary. No Definition, Dataset, Specification, Candidate, Calculation, Statistics, Result,
 Artifact, or Run identity semantics changed, and no endpoint, Store, Runtime, PostgreSQL schema, or authority was added.
+
+P8.4.4 repository fact: the exact Result deep link now owns one presentation selection for Candidate, instrument, Published Series, Statistics,
+exact timestamp and Graph mode across Overview, Market, Statistics, Candidates, Graph and Exact Data tabs. Existing Scientific Artifact/Query
+authorities remain unchanged; the only Core/API additions are mechanical Artifact read projections for canonical instrument membership,
+Candidate assignment type/Signal membership, and a strict nested projection of the existing exact Calculation Graph with its existing node/graph
+fingerprints. HTTP/OpenAPI/generated TypeScript/strict Zod admission reject malformed schema, scalar, Decimal, timestamp, cursor, membership,
+binding and linkage evidence. Lightweight Charts renders admitted OHLC/volume/Published Variable/Artifact Signal evidence, ECharts renders existing
+Statistics and explicit exact-time Candidate slices, and Graphviz renders one selected Candidate's read-only Semantic/Exact graph behind
+OnlyAlpha-owned adapters. Exact tables retain nanosecond strings/bigint, Decimal strings, nullable Boolean, status and sample count. No browser
+Calculation, Predicate, Signal, Statistics or Candidate score engine, physical Artifact parser, DOT authority, Store, Runtime, PostgreSQL schema,
+semantic registry or identity formula was introduced.
+
+P8.4.4.1 repository fact: Scientific reads now have one generation chain only:
+`OnlyResearchQueryService → strict Python API DTO → committed generated OpenAPI → generated.ts → strict Zod admission`. Summary instrument
+membership/counts, Candidate scalar types/Signal roles, and Candidate/Calculation/Graph linkage are verified Artifact projections rather than
+Browser inference. Exact Graph DTOs preserve every Definition field and external source binding; unbounded INTEGER scalars use canonical string
+transport. Every server-affecting selector, including limit and bounded range, enters the React Query key. Candidate 1D/2D/3+ presentation consumes
+numeric coordinates without lexicographical ordering, external Dataset sources become deduplicated deterministic presentation-only nodes, and
+Signal markers use the closed `ELIGIBILITY/ENTRY_SIGNAL/EXIT_SIGNAL` vocabulary with exact equality. Presentation identities never enter Graph or
+Candidate fingerprints, persistence, or execution. No semantic identity, Store, Query Service, Runtime, PostgreSQL schema, or authority changed.
 
 ## 1. P8.4 objective
 
@@ -924,7 +944,9 @@ publication admission concerns were closed as this increment's Stage 0.
 
 ### P8.4.4 — Scientific Viewer & Graph Inspector Closure
 
-Implement evidence-backed Result tabs, Lightweight Charts financial workspace, ECharts scientific workspace, Candidate views, Exact Data, and Graphviz Semantic/Exact Graph Inspector.
+Implemented/verified locally: evidence-backed Result tabs, Lightweight Charts financial workspace, ECharts Statistics/Candidate workspace,
+Candidate table and dimensional comparison, paginated Exact Data, and Graphviz Semantic/Exact Graph Inspector. Browser state remains presentation-only,
+and every visible semantic fact is selected from exact Artifact/Query membership.
 
 ## 27. End-to-end semantic scenarios
 

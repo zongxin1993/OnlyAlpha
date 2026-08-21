@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Literal
 
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 
 from .request import only_research_query_sha256
 
 RESEARCH_QUERY_SCHEMA_VERSION = 1
+OnlyResearchAssignmentType = Literal["NULL", "BOOLEAN", "INTEGER", "DECIMAL", "STRING"]
+OnlyResearchSignalRole = Literal["ELIGIBILITY", "ENTRY_SIGNAL", "EXIT_SIGNAL"]
 
 
 def _positive_schema(value: object, name: str) -> None:
@@ -35,6 +38,7 @@ class OnlyResearchArtifactSummary:
     published_series_count: int = 0
     signal_series_count: int = 0
     market_row_count: int = 0
+    instrument_ids: tuple[str, ...] = ()
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -52,10 +56,24 @@ class OnlyResearchArtifactSummary:
         _positive_schema(self.artifact_schema_version, "artifact_schema_version")
         if not self.artifact_profile:
             raise ValueError("artifact_profile is required")
-        for name in ("statistics_count", "row_count"):
+        for name in (
+            "statistics_count",
+            "row_count",
+            "candidate_count",
+            "published_series_count",
+            "signal_series_count",
+            "market_row_count",
+        ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
+        if (
+            not isinstance(self.instrument_ids, tuple)
+            or self.instrument_ids != tuple(sorted(self.instrument_ids))
+            or len(set(self.instrument_ids)) != len(self.instrument_ids)
+            or any(not item for item in self.instrument_ids)
+        ):
+            raise ValueError("instrument_ids must be a canonical tuple")
         if (
             not isinstance(self.created_at, datetime)
             or self.created_at.tzinfo is None
@@ -210,9 +228,11 @@ class OnlyResearchCandidateDescriptor:
     candidate_fingerprint: str
     candidate_calculation_id: str
     assignment: tuple[tuple[str, object], ...]
+    assignment_types: tuple[tuple[str, OnlyResearchAssignmentType], ...]
     calculation_fingerprint: str
     graph_fingerprint: str
     statistics_fingerprints: tuple[str, ...]
+    signal_roles: tuple[OnlyResearchSignalRole, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("candidate_fingerprint", "calculation_fingerprint", "graph_fingerprint"):
@@ -223,8 +243,20 @@ class OnlyResearchCandidateDescriptor:
             not isinstance(self.assignment, tuple)
             or self.assignment != tuple(sorted(self.assignment))
             or len(dict(self.assignment)) != len(self.assignment)
+            or any(
+                not isinstance(name, str) or not name or any(char.isspace() for char in name)
+                for name, _ in self.assignment
+            )
         ):
             raise ValueError("Candidate assignment must be canonical")
+        expected_types = tuple((name, _calculation_scalar_type(value)) for name, value in self.assignment)
+        if (
+            not isinstance(self.assignment_types, tuple)
+            or self.assignment_types != tuple(sorted(self.assignment_types))
+            or len(dict(self.assignment_types)) != len(self.assignment_types)
+            or self.assignment_types != expected_types
+        ):
+            raise ValueError("Candidate assignment types must exactly match canonical assignment values")
         if (
             not isinstance(self.statistics_fingerprints, tuple)
             or self.statistics_fingerprints != tuple(sorted(self.statistics_fingerprints))
@@ -233,6 +265,13 @@ class OnlyResearchCandidateDescriptor:
             raise ValueError("Candidate Statistics membership must be canonical")
         for identity in self.statistics_fingerprints:
             only_research_query_sha256(identity, "statistics_fingerprint")
+        if (
+            not isinstance(self.signal_roles, tuple)
+            or self.signal_roles != tuple(sorted(self.signal_roles))
+            or len(set(self.signal_roles)) != len(self.signal_roles)
+            or any(item not in {"ELIGIBILITY", "ENTRY_SIGNAL", "EXIT_SIGNAL"} for item in self.signal_roles)
+        ):
+            raise ValueError("Candidate Signal membership must be canonical")
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,16 +416,24 @@ class OnlyResearchCandidateGraph:
     research_result_fingerprint: str
     candidate_fingerprint: str
     calculation_fingerprint: str
+    graph_fingerprint: str
     graph: OnlyCalculationGraphDefinition
     schema_version: int = RESEARCH_QUERY_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("research_result_fingerprint", "candidate_fingerprint", "calculation_fingerprint"):
+        for name in (
+            "research_result_fingerprint",
+            "candidate_fingerprint",
+            "calculation_fingerprint",
+            "graph_fingerprint",
+        ):
             only_research_query_sha256(getattr(self, name), name)
         if self.schema_version != RESEARCH_QUERY_SCHEMA_VERSION:
             raise ValueError("Research Query schema version is unsupported")
         if not isinstance(self.graph, OnlyCalculationGraphDefinition):
             raise ValueError("graph is invalid")
+        if self.graph_fingerprint != self.graph.fingerprint:
+            raise ValueError("Graph identity does not match exact Graph authority")
 
 
 def _scientific_point(instrument_id: object, ts_event_ns: object) -> None:
@@ -394,3 +441,17 @@ def _scientific_point(instrument_id: object, ts_event_ns: object) -> None:
         raise ValueError("instrument_id is required")
     if isinstance(ts_event_ns, bool) or not isinstance(ts_event_ns, int):
         raise ValueError("ts_event_ns must be an integer")
+
+
+def _calculation_scalar_type(value: object) -> OnlyResearchAssignmentType:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "BOOLEAN"
+    if isinstance(value, int):
+        return "INTEGER"
+    if isinstance(value, Decimal) and value.is_finite():
+        return "DECIMAL"
+    if isinstance(value, str):
+        return "STRING"
+    raise ValueError("Candidate assignment contains an invalid canonical scalar")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import cast
 
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactStoreError
 from onlyalpha.research.artifact.model import OnlyResearchArtifact, OnlyResearchArtifactStatisticsEntry
@@ -21,12 +22,14 @@ from .model import (
     OnlyResearchScientificSeriesPage,
     OnlyResearchSeriesReference,
     OnlyResearchSignalPoint,
+    OnlyResearchSignalRole,
     OnlyResearchStatisticPoint,
     OnlyResearchStatisticsCatalog,
     OnlyResearchStatisticsDefinitionDescriptor,
     OnlyResearchStatisticsDescriptor,
     OnlyResearchStatisticSeriesPage,
     OnlyResearchVariablePoint,
+    _calculation_scalar_type,
 )
 from .ports import OnlyResearchArtifactReader
 from .request import OnlyResearchScientificSeriesQuery, OnlyResearchStatisticSeriesQuery, only_research_query_sha256
@@ -56,6 +59,7 @@ class OnlyResearchQueryService:
                 len(manifest.plan.published_series),
                 len(manifest.plan.signals),
                 len(artifact.market_rows),
+                tuple(sorted({row.instrument_id for row in artifact.market_rows})),
             )
         statistics_manifest = artifact.manifest
         return OnlyResearchArtifactSummary(
@@ -128,9 +132,17 @@ class OnlyResearchQueryService:
                 item.candidate_fingerprint,
                 item.candidate_calculation_id,
                 item.assignment,
+                tuple((name, _calculation_scalar_type(value)) for name, value in item.assignment),
                 item.calculation_fingerprint,
                 item.graph_fingerprint,
                 item.statistics_fingerprints,
+                tuple(
+                    sorted(
+                        cast(OnlyResearchSignalRole, signal.role)
+                        for signal in artifact.manifest.plan.signals
+                        if signal.candidate_fingerprint == item.candidate_fingerprint
+                    )
+                ),
             )
             for item in artifact.manifest.plan.candidates
         )
@@ -252,11 +264,34 @@ class OnlyResearchQueryService:
             raise OnlyResearchQueryError(
                 OnlyResearchQueryErrorCode.CANDIDATE_NOT_FOUND, "Candidate is not an Artifact member"
             )
-        graph = next(
-            item.graph for item in artifact.graphs if item.calculation_fingerprint == candidate.calculation_fingerprint
+        calculation = next(
+            (
+                item
+                for item in artifact.manifest.plan.calculations
+                if item.calculation_fingerprint == candidate.calculation_fingerprint
+            ),
+            None,
         )
+        graph_entry = next(
+            (item for item in artifact.graphs if item.calculation_fingerprint == candidate.calculation_fingerprint),
+            None,
+        )
+        if (
+            calculation is None
+            or graph_entry is None
+            or calculation.graph_fingerprint != candidate.graph_fingerprint
+            or graph_entry.graph.fingerprint != candidate.graph_fingerprint
+        ):
+            raise OnlyResearchQueryError(
+                OnlyResearchQueryErrorCode.RESEARCH_ARTIFACT_CORRUPT,
+                "Candidate, Calculation and exact Graph linkage mismatch",
+            )
         return OnlyResearchCandidateGraph(
-            research_result_fingerprint, candidate_fingerprint, candidate.calculation_fingerprint, graph
+            research_result_fingerprint,
+            candidate_fingerprint,
+            candidate.calculation_fingerprint,
+            candidate.graph_fingerprint,
+            graph_entry.graph,
         )
 
     def _scientific(self, research_result_fingerprint: str) -> OnlyResearchScientificArtifact:

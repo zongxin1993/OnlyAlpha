@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from decimal import Decimal
+
+import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_artifact_query_app
+from onlyalpha_api.research.schema import ResearchCandidateGraphDto
+from pydantic import ValidationError
 
 from onlyalpha.research import MAX_PAGE_SIZE, RESEARCH_QUERY_SCHEMA_VERSION
+from tests.research.artifact.support import scientific_artifact_case
 from tests.research.query.support import query_case
 
 
@@ -31,6 +38,11 @@ def test_three_versioned_get_endpoints_return_exact_read_dtos(tmp_path) -> None:
         "artifact_schema_version": artifact.manifest.schema_version,
         "statistics_count": len(artifact.manifest.statistics_results),
         "row_count": len(artifact.rows),
+        "candidate_count": 0,
+        "published_series_count": 0,
+        "signal_series_count": 0,
+        "market_row_count": 0,
+        "instrument_ids": [],
         "created_at": "2026-08-16T00:00:00Z",
     }
 
@@ -164,6 +176,99 @@ def test_v1_scientific_query_fails_with_stable_explicit_error(tmp_path) -> None:
     response = client.get(f"/api/v2/research/artifacts/{candidate.research_result_fingerprint}/candidates")
     assert response.status_code == 409
     assert response.json()["code"] == "SCIENTIFIC_EVIDENCE_NOT_AVAILABLE"
+
+
+def test_candidate_graph_is_an_exact_strict_nested_read_projection(tmp_path) -> None:
+    _, candidate, store = scientific_artifact_case(tmp_path)
+    store.commit(candidate)
+    identity = candidate.result.manifest.research_result_fingerprint
+    artifact = store.load_verified(identity)
+    selected = artifact.manifest.plan.candidates[0]
+    client = TestClient(create_artifact_query_app(store))
+    base = f"/api/v2/research/artifacts/{identity}"
+    url = f"/api/v2/research/artifacts/{identity}/candidates/{selected.candidate_fingerprint}/graph"
+
+    summary = client.get(base).json()
+    assert summary["candidate_count"] == len(artifact.manifest.plan.candidates)
+    assert summary["published_series_count"] == len(artifact.manifest.plan.published_series)
+    assert summary["signal_series_count"] == len(artifact.manifest.plan.signals)
+    assert summary["market_row_count"] == len(artifact.market_rows)
+    assert summary["instrument_ids"] == sorted({row.instrument_id for row in artifact.market_rows})
+    catalog = client.get(f"{base}/candidates").json()
+    candidate_body = next(
+        item for item in catalog["candidates"] if item["candidate_fingerprint"] == selected.candidate_fingerprint
+    )
+    assert candidate_body["assignment_types"] == {
+        name: (
+            "NULL"
+            if value is None
+            else "BOOLEAN"
+            if isinstance(value, bool)
+            else "INTEGER"
+            if isinstance(value, int)
+            else "DECIMAL"
+            if isinstance(value, Decimal)
+            else "STRING"
+        )
+        for name, value in selected.assignment
+    }
+    assert candidate_body["signal_roles"] == sorted(
+        signal.role
+        for signal in artifact.manifest.plan.signals
+        if signal.candidate_fingerprint == selected.candidate_fingerprint
+    )
+
+    response = client.get(url)
+
+    assert response.status_code == 200
+    body = response.json()
+    exact_graph = next(
+        item.graph for item in artifact.graphs if item.calculation_fingerprint == selected.calculation_fingerprint
+    )
+    assert body["graph_fingerprint"] == selected.graph_fingerprint == exact_graph.fingerprint
+    assert [item["node_fingerprint"] for item in body["graph"]["nodes"]] == [
+        item.fingerprint for item in exact_graph.ordered_nodes
+    ]
+    definitions = [item["definition"] for item in body["graph"]["nodes"]]
+    assert any(item["kind"] == "PREDICATE" for item in definitions)
+    assert any(reference["source"] is not None for item in definitions for reference in item["input_bindings"].values())
+    scalar_types = {scalar["type"] for item in definitions for scalar in item["parameters"].values()}
+    assert {"DECIMAL", "INTEGER"} <= scalar_types
+    assert all(
+        isinstance(scalar["value"], str)
+        for item in definitions
+        for scalar in item["parameters"].values()
+        if scalar["type"] in {"DECIMAL", "INTEGER"}
+    )
+    assert any(output["nullable"] for item in definitions for output in item["outputs"])
+    graph_schema = client.app.openapi()["components"]["schemas"]["ResearchCalculationGraphDto"]
+    assert graph_schema["additionalProperties"] is False
+    assert set(graph_schema["required"]) == {"schema_version", "nodes"}
+
+    malformed = deepcopy(body)
+    malformed["unexpected"] = True
+    with pytest.raises(ValidationError):
+        ResearchCandidateGraphDto.model_validate(malformed)
+    malformed = deepcopy(body)
+    malformed["graph"]["schema_version"] = 2
+    with pytest.raises(ValidationError):
+        ResearchCandidateGraphDto.model_validate(malformed)
+    malformed = deepcopy(body)
+    malformed["graph"]["nodes"][0]["node_fingerprint"] = "BAD"
+    with pytest.raises(ValidationError):
+        ResearchCandidateGraphDto.model_validate(malformed)
+    malformed = deepcopy(body)
+    malformed["graph"]["nodes"][0]["definition"]["parameters"] = {"period": {"type": "INTEGER", "value": 14}}
+    with pytest.raises(ValidationError):
+        ResearchCandidateGraphDto.model_validate(malformed)
+    malformed = deepcopy(body)
+    malformed["graph"]["nodes"][0]["definition"]["input_bindings"]["price"] = {
+        "node_fingerprint": "f" * 64,
+        "output_name": "close",
+        "source": None,
+    }
+    with pytest.raises(ValidationError):
+        ResearchCandidateGraphDto.model_validate(malformed)
 
 
 def test_http_end_to_end_needs_only_the_portable_artifact(tmp_path) -> None:
