@@ -110,7 +110,11 @@ function SelectedGraphInspector({
                             <p className="eyebrow">Selected node</p>
                             <h3>{selected.label.split("\n")[0]}</h3>
                             <dl className="facts">
-                                <dt>Node fingerprint</dt>
+                                <dt>
+                                    {selected.presentationKind === "EXTERNAL_SOURCE"
+                                        ? "Presentation identity"
+                                        : "Node fingerprint"}
+                                </dt>
                                 <dd>{selected.id}</dd>
                                 <dt>Type</dt>
                                 <dd>
@@ -122,6 +126,15 @@ function SelectedGraphInspector({
                                 <dd>{selected.inputs.join(", ") || "None"}</dd>
                                 <dt>Outputs</dt>
                                 <dd>{selected.outputs.join(", ")}</dd>
+                                {selected.presentationKind === "EXTERNAL_SOURCE" ? (
+                                    <>
+                                        <dt>Authority boundary</dt>
+                                        <dd>
+                                            Presentation-only source node; never enters Graph
+                                            fingerprint or execution.
+                                        </dd>
+                                    </>
+                                ) : null}
                                 <dt>Parameters</dt>
                                 <dd>
                                     <pre>{JSON.stringify(selected.parameters, null, 2)}</pre>

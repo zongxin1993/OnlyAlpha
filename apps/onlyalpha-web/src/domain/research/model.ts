@@ -80,6 +80,7 @@ export interface ResearchStatisticSeriesPage {
 
 export type ResearchCandidateAssignmentValue = boolean | number | string | null;
 export type ResearchCandidateAssignmentType = "NULL" | "BOOLEAN" | "INTEGER" | "DECIMAL" | "STRING";
+export type ResearchSignalRole = "ELIGIBILITY" | "ENTRY_SIGNAL" | "EXIT_SIGNAL";
 
 export interface ResearchCandidate {
     readonly candidateFingerprint: Sha256Fingerprint;
@@ -89,7 +90,7 @@ export interface ResearchCandidate {
     readonly calculationFingerprint: Sha256Fingerprint;
     readonly graphFingerprint: Sha256Fingerprint;
     readonly statisticsFingerprints: readonly StatisticsFingerprint[];
-    readonly signalRoles: readonly string[];
+    readonly signalRoles: readonly ResearchSignalRole[];
 }
 
 export interface ResearchCandidateCatalog {
@@ -151,7 +152,7 @@ export interface ResearchScientificSeriesPage {
 export type ResearchGraphScalar =
     | { readonly type: "NULL"; readonly value: null }
     | { readonly type: "BOOLEAN"; readonly value: boolean }
-    | { readonly type: "INTEGER"; readonly value: number }
+    | { readonly type: "INTEGER"; readonly value: string }
     | { readonly type: "DECIMAL"; readonly value: DecimalText }
     | { readonly type: "STRING"; readonly value: string };
 

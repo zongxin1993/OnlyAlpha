@@ -103,7 +103,9 @@ function LoadedMarketEvidence({
     >["candidates"][number]["candidateFingerprint"];
     readonly instrumentId: string;
     readonly series: ResearchPublishedSeries | null;
-    readonly signalRoles: readonly string[];
+    readonly signalRoles: NonNullable<
+        ReturnType<typeof useResultWorkspace>["candidates"]
+    >["candidates"][number]["signalRoles"];
 }) {
     const { summary } = useResultWorkspace();
     const client = useResearchApi();
@@ -127,15 +129,15 @@ function LoadedMarketEvidence({
               )),
         enabled: series !== null
     });
-    const entryRole = signalRoles.find((role) => role.includes("ENTRY")) ?? null;
-    const exitRole = signalRoles.find((role) => role.includes("EXIT")) ?? null;
+    const entryRole = signalRoles.includes("ENTRY_SIGNAL") ? "ENTRY_SIGNAL" : null;
+    const exitRole = signalRoles.includes("EXIT_SIGNAL") ? "EXIT_SIGNAL" : null;
     const entry = useInfiniteQuery({
         ...signalSeriesOptions(
             client,
             summary.researchResultFingerprint,
             instrumentId,
             candidate,
-            entryRole ?? "DISABLED"
+            entryRole ?? "ELIGIBILITY"
         ),
         enabled: entryRole !== null
     });
@@ -145,7 +147,7 @@ function LoadedMarketEvidence({
             summary.researchResultFingerprint,
             instrumentId,
             candidate,
-            exitRole ?? "DISABLED"
+            exitRole ?? "ELIGIBILITY"
         ),
         enabled: exitRole !== null
     });
@@ -182,8 +184,8 @@ function LoadedMarketEvidence({
                   );
         const marketProjection = projectMarketEvidence(marketPoints);
         const variableProjection = projectVariableEvidence(variablePoints);
-        const entryProjection = projectSignalEvidence(entryRole ?? "ENTRY", entryPoints);
-        const exitProjection = projectSignalEvidence(exitRole ?? "EXIT", exitPoints);
+        const entryProjection = projectSignalEvidence(entryRole ?? "ENTRY_SIGNAL", entryPoints);
+        const exitProjection = projectSignalEvidence(exitRole ?? "EXIT_SIGNAL", exitPoints);
         return {
             marketPoints,
             variablePoints,
@@ -233,7 +235,8 @@ function LoadedMarketEvidence({
                     variable={variableProjection.value}
                     markers={[...entryProjection.value, ...exitProjection.value].sort(
                         (left, right) =>
-                            left.time - right.time || left.role.localeCompare(right.role)
+                            left.time - right.time ||
+                            (left.role < right.role ? -1 : left.role > right.role ? 1 : 0)
                     )}
                 />
             )}

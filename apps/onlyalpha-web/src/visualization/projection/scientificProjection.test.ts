@@ -2,7 +2,11 @@ import { parseDecimalText } from "../../domain/research/decimal";
 import { parseSha256Fingerprint, parseStatisticsFingerprint } from "../../domain/research/identity";
 import type { ResearchCandidate, ResearchStatisticPoint } from "../../domain/research/model";
 import { parseUnixNanoseconds } from "../../domain/research/time";
-import { commonExactTimestamps, projectCandidateSurface } from "./scientificProjection";
+import {
+    candidateAxis,
+    commonExactTimestamps,
+    projectCandidateSurface
+} from "./scientificProjection";
 
 const candidate = (fingerprint: string, window: number): ResearchCandidate => ({
     candidateFingerprint: parseSha256Fingerprint(fingerprint.repeat(64)),
@@ -39,3 +43,39 @@ it("uses one explicit common timestamp rather than inventing a Candidate aggrega
     expect(projected.ok && projected.surface.mode).toBe("ONE_DIMENSION");
     expect(projected.ok && projected.surface.points.map((item) => item.value)).toEqual([0.2, 0.3]);
 });
+
+it.each([
+    [
+        [20, 2, 10],
+        [2, 10, 20],
+        ["2", "10", "20"]
+    ],
+    [
+        ["10.25", "0.5", "2"],
+        [0.5, 2, 10.25],
+        ["0.5", "2", "10.25"]
+    ]
+] as const)(
+    "orders numeric Candidate coordinates without rewriting exact assignments",
+    (values, numeric, exact) => {
+        const candidates = values.map((value, index) => ({
+            ...candidate(String(index + 1), typeof value === "number" ? value : 0),
+            assignment: { window: value },
+            assignmentTypes: { window: typeof value === "number" ? "INTEGER" : "DECIMAL" } as const
+        }));
+        const timestamp = parseUnixNanoseconds("1000000000");
+        const evidence = new Map(
+            candidates.map((item) => [item.candidateFingerprint, [point(String(timestamp), "0.1")]])
+        );
+        const projected = projectCandidateSurface(candidates, evidence, timestamp);
+        expect(projected.ok).toBe(true);
+        if (!projected.ok) return;
+        expect(projected.surface.points.map((item) => item.numericCoordinates.window)).toEqual(
+            numeric
+        );
+        expect(projected.surface.points.map((item) => String(item.assignment.window))).toEqual(
+            exact
+        );
+        expect(candidateAxis(projected.surface, "window").map((item) => item.label)).toEqual(exact);
+    }
+);

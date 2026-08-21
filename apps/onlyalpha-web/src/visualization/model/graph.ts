@@ -3,6 +3,7 @@ import type { ResearchGraphScalar } from "../../domain/research/model";
 export interface GraphPresentationNode {
     readonly id: string;
     readonly label: string;
+    readonly presentationKind: "CALCULATION" | "EXTERNAL_SOURCE";
     readonly kind: string;
     readonly typeId: string;
     readonly semanticVersion: string;

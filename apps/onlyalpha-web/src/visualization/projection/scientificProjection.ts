@@ -108,5 +108,44 @@ export function projectCandidateSurface(
             status: point.status
         });
     }
+    points.sort((left, right) => {
+        for (const dimension of numeric) {
+            const leftCoordinate = left.numericCoordinates[dimension];
+            const rightCoordinate = right.numericCoordinates[dimension];
+            if (leftCoordinate === undefined || rightCoordinate === undefined)
+                throw new Error("Candidate numeric coordinate is incomplete");
+            const difference = leftCoordinate - rightCoordinate;
+            if (difference !== 0) return difference;
+        }
+        return left.candidateFingerprint < right.candidateFingerprint
+            ? -1
+            : left.candidateFingerprint > right.candidateFingerprint
+              ? 1
+              : 0;
+    });
     return { ok: true, surface: { dimensions, mode, exactTsEventNs, points } };
+}
+
+export function candidateAxis(
+    surface: CandidateSurface,
+    dimension: string
+): readonly { readonly coordinate: number; readonly label: string }[] {
+    const values = new Map<number, string>();
+    for (const point of surface.points) {
+        const coordinate = point.numericCoordinates[dimension];
+        if (coordinate === undefined) continue;
+        const label = String(point.assignment[dimension]);
+        const current = values.get(coordinate);
+        if (current !== undefined && current !== label)
+            throw new Error(
+                "Distinct exact assignments collide at one numeric renderer coordinate"
+            );
+        values.set(coordinate, label);
+    }
+    return [...values]
+        .sort(([left], [right]) => left - right)
+        .map(([coordinate, label]) => ({
+            coordinate,
+            label
+        }));
 }

@@ -15,15 +15,23 @@ export const researchQueryKeys = {
     candidates: (result: ResearchResultFingerprint) => ["research", "candidates", result] as const,
     publishedSeries: (result: ResearchResultFingerprint) =>
         ["research", "published-series", result] as const,
-    market: (result: ResearchResultFingerprint, instrumentId: string) =>
-        ["research", "market", result, instrumentId] as const,
+    market: (
+        result: ResearchResultFingerprint,
+        instrumentId: string,
+        limit: number,
+        from?: UnixNanoseconds,
+        to?: UnixNanoseconds
+    ) => ["research", "market", result, instrumentId, limit, text(from), text(to)] as const,
     variable: (
         result: ResearchResultFingerprint,
         candidate: string | null,
         calculation: string,
         node: string,
         output: string,
-        instrumentId: string
+        instrumentId: string,
+        limit: number,
+        from?: UnixNanoseconds,
+        to?: UnixNanoseconds
     ) =>
         [
             "research",
@@ -33,14 +41,31 @@ export const researchQueryKeys = {
             calculation,
             node,
             output,
-            instrumentId
+            instrumentId,
+            limit,
+            text(from),
+            text(to)
         ] as const,
     signal: (
         result: ResearchResultFingerprint,
         candidate: string,
         role: string,
-        instrumentId: string
-    ) => ["research", "signal", result, candidate, role, instrumentId] as const,
+        instrumentId: string,
+        limit: number,
+        from?: UnixNanoseconds,
+        to?: UnixNanoseconds
+    ) =>
+        [
+            "research",
+            "signal",
+            result,
+            candidate,
+            role,
+            instrumentId,
+            limit,
+            text(from),
+            text(to)
+        ] as const,
     graph: (result: ResearchResultFingerprint, candidate: string) =>
         ["research", "graph", result, candidate] as const,
     runs: () => ["research", "runs"] as const,
@@ -48,7 +73,8 @@ export const researchQueryKeys = {
     series: (
         result: ResearchResultFingerprint,
         statistics: StatisticsFingerprint,
+        limit: number,
         from?: UnixNanoseconds,
         to?: UnixNanoseconds
-    ) => ["research", "series", result, statistics, text(from), text(to)] as const
+    ) => ["research", "series", result, statistics, limit, text(from), text(to)] as const
 };

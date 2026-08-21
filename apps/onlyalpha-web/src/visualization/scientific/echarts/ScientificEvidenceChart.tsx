@@ -1,6 +1,7 @@
 import type { EChartsOption, EChartsType } from "echarts";
 import { useEffect, useRef, useState } from "react";
 import type { CandidateSurface, ScientificSeriesPoint } from "../../model/scientific";
+import { candidateAxis } from "../../projection/scientificProjection";
 
 type ScientificEvidence =
     | {
@@ -75,24 +76,24 @@ function optionFor(evidence: ScientificEvidence): EChartsOption {
     const { surface } = evidence;
     if (surface.mode === "TWO_DIMENSIONS") {
         const [x = "x", y = "y"] = surface.dimensions;
-        const xValues = [
-            ...new Set(surface.points.map((point) => String(point.assignment[x])))
-        ].sort();
-        const yValues = [
-            ...new Set(surface.points.map((point) => String(point.assignment[y])))
-        ].sort();
+        const xValues = candidateAxis(surface, x);
+        const yValues = candidateAxis(surface, y);
         return {
             animation: false,
             tooltip: { position: "top" },
-            xAxis: { type: "category", name: x, data: xValues },
-            yAxis: { type: "category", name: y, data: yValues },
+            xAxis: { type: "category", name: x, data: xValues.map((item) => item.label) },
+            yAxis: { type: "category", name: y, data: yValues.map((item) => item.label) },
             visualMap: { min: -1, max: 1, calculable: true, orient: "horizontal", left: "center" },
             series: [
                 {
                     type: "heatmap",
                     data: surface.points.map((point) => [
-                        xValues.indexOf(String(point.assignment[x])),
-                        yValues.indexOf(String(point.assignment[y])),
+                        xValues.findIndex(
+                            (item) => item.coordinate === point.numericCoordinates[x]
+                        ),
+                        yValues.findIndex(
+                            (item) => item.coordinate === point.numericCoordinates[y]
+                        ),
                         point.value
                     ])
                 }
@@ -127,13 +128,13 @@ function optionFor(evidence: ScientificEvidence): EChartsOption {
     return {
         animation: false,
         tooltip: { trigger: "item" },
-        xAxis: { type: "category", name: dimension },
+        xAxis: { type: "value", name: dimension, scale: true },
         yAxis: { type: "value", name: "Exact statistic", scale: true },
         series: [
             {
                 type: "scatter",
                 data: surface.points.map((point) => [
-                    String(point.assignment[dimension] ?? point.candidateFingerprint),
+                    point.numericCoordinates[dimension],
                     point.value
                 ])
             }

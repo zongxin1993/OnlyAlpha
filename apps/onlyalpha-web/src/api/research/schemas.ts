@@ -141,7 +141,7 @@ const researchCandidateSchema = z
         calculation_fingerprint: sha256,
         graph_fingerprint: sha256,
         statistics_fingerprints: z.array(sha256),
-        signal_roles: z.array(z.string().min(1))
+        signal_roles: z.array(z.enum(["ELIGIBILITY", "ENTRY_SIGNAL", "EXIT_SIGNAL"]))
     })
     .superRefine((value, context) => {
         const assignment = Object.keys(value.assignment).sort();
@@ -154,7 +154,7 @@ const researchCandidateSchema = z
             const valid =
                 (type === "NULL" && item === null) ||
                 (type === "BOOLEAN" && typeof item === "boolean") ||
-                (type === "INTEGER" && typeof item === "number" && Number.isInteger(item)) ||
+                (type === "INTEGER" && typeof item === "number" && Number.isSafeInteger(item)) ||
                 (type === "DECIMAL" &&
                     typeof item === "string" &&
                     decimal.safeParse(item).success) ||
@@ -286,7 +286,10 @@ export const researchScientificSeriesPageSchema = z
 const graphScalarSchema = z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("NULL"), value: z.null() }),
     z.strictObject({ type: z.literal("BOOLEAN"), value: z.boolean() }),
-    z.strictObject({ type: z.literal("INTEGER"), value: z.number().int() }),
+    z.strictObject({
+        type: z.literal("INTEGER"),
+        value: z.string().regex(/^-?(?:0|[1-9][0-9]*)$/)
+    }),
     z.strictObject({ type: z.literal("DECIMAL"), value: decimal }),
     z.strictObject({ type: z.literal("STRING"), value: z.string() })
 ]);

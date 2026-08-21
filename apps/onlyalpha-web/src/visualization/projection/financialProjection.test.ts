@@ -62,6 +62,10 @@ it("projects only authoritative true Signal evidence to markers and preserves nu
             shape: "arrowUp"
         }
     ]);
+    const exit = projectSignalEvidence("EXIT_SIGNAL", [signal("4000000000", true)]);
+    expect(exit.ok && exit.value[0]).toMatchObject({ position: "aboveBar", shape: "arrowDown" });
+    const eligibility = projectSignalEvidence("ELIGIBILITY", [signal("5000000000", true)]);
+    expect(eligibility.ok && eligibility.value).toEqual([]);
 });
 
 it("rejects non-numeric Variable evidence from numeric chart projection", () => {

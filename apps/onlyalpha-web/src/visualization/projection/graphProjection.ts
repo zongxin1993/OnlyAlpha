@@ -7,6 +7,9 @@ import type {
 
 export type GraphMode = "SEMANTIC" | "EXACT";
 
+const compareText = (left: string, right: string): number =>
+    left < right ? -1 : left > right ? 1 : 0;
+
 export function projectGraph(value: ResearchCandidateGraph, mode: GraphMode): GraphPresentation {
     const nodes: GraphPresentationNode[] = value.graph.nodes.map((node) => ({
         id: node.nodeFingerprint,
@@ -14,6 +17,7 @@ export function projectGraph(value: ResearchCandidateGraph, mode: GraphMode): Gr
             mode === "SEMANTIC"
                 ? `${node.alias ?? node.definition.typeId}\n${node.definition.kind}`
                 : `${node.alias ?? node.definition.typeId}\n${node.nodeFingerprint}`,
+        presentationKind: "CALCULATION",
         kind: node.definition.kind,
         typeId: node.definition.typeId,
         semanticVersion: node.definition.semanticVersion,
@@ -22,9 +26,10 @@ export function projectGraph(value: ResearchCandidateGraph, mode: GraphMode): Gr
         outputs: node.definition.outputs.map((port) => port.name)
     }));
     const edges: GraphPresentationEdge[] = [];
+    const externalSources = new Map<string, GraphPresentationNode>();
     for (const node of value.graph.nodes) {
         for (const [inputName, reference] of Object.entries(node.definition.inputBindings).sort(
-            ([left], [right]) => left.localeCompare(right)
+            ([left], [right]) => compareText(left, right)
         )) {
             if (reference.nodeFingerprint !== null)
                 edges.push({
@@ -32,12 +37,34 @@ export function projectGraph(value: ResearchCandidateGraph, mode: GraphMode): Gr
                     to: node.nodeFingerprint,
                     label: `${reference.outputName} → ${inputName}`
                 });
+            else if (reference.source !== null) {
+                const id = `external-source:${reference.source}`;
+                if (!externalSources.has(id))
+                    externalSources.set(id, {
+                        id,
+                        label: reference.source,
+                        presentationKind: "EXTERNAL_SOURCE",
+                        kind: "EXTERNAL_SOURCE",
+                        typeId: "external.dataset.source",
+                        semanticVersion: "presentation-only",
+                        parameters: {},
+                        inputs: [],
+                        outputs: [reference.source]
+                    });
+                edges.push({
+                    from: id,
+                    to: node.nodeFingerprint,
+                    label: `${reference.source} → ${inputName}`
+                });
+            }
         }
     }
+    nodes.push(...externalSources.values());
     return {
-        nodes: nodes.sort((left, right) => left.id.localeCompare(right.id)),
+        nodes: nodes.sort((left, right) => compareText(left.id, right.id)),
         edges: edges.sort((left, right) =>
-            `${left.from}:${left.to}:${left.label}`.localeCompare(
+            compareText(
+                `${left.from}:${left.to}:${left.label}`,
                 `${right.from}:${right.to}:${right.label}`
             )
         )

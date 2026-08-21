@@ -475,7 +475,7 @@ describe("Research API admission", () => {
                         type_id: "onlyalpha.indicator.rsi",
                         semantic_version: "1",
                         parameters: {
-                            period: { type: "INTEGER" as const, value: 14 },
+                            period: { type: "INTEGER" as const, value: "14" },
                             threshold: { type: "DECIMAL" as const, value: "30.0" },
                             enabled: { type: "BOOLEAN" as const, value: true },
                             label: { type: "STRING" as const, value: "entry" },
@@ -591,7 +591,7 @@ describe("Research API admission", () => {
             definition: {
                 typeId: "onlyalpha.indicator.rsi",
                 parameters: {
-                    period: { type: "INTEGER", value: 14 },
+                    period: { type: "INTEGER", value: "14" },
                     threshold: { type: "DECIMAL", value: "30.0" }
                 },
                 numeric: { outputQuantum: null },
@@ -643,6 +643,10 @@ describe("Research API admission", () => {
                         signal_roles: ["ENTRY_SIGNAL", "ENTRY_SIGNAL"]
                     }
                 ]
+            },
+            {
+                ...catalog,
+                candidates: [{ ...catalog.candidates[0], signal_roles: ["ENTRY_GUESSED"] }]
             },
             { ...catalog, candidates: [catalog.candidates[0], catalog.candidates[0]] }
         ])
@@ -751,7 +755,7 @@ describe("Research API admission", () => {
                             ...graph.nodes[0],
                             definition: {
                                 ...graph.nodes[0]?.definition,
-                                parameters: { period: { type: "INTEGER", value: "14" } }
+                                parameters: { period: { type: "INTEGER", value: 14 } }
                             }
                         }
                     ]
@@ -851,10 +855,47 @@ describe("Research API admission", () => {
             researchQueryKeys.series(
                 result,
                 statistics,
+                100,
                 parseUnixNanoseconds("1"),
                 parseUnixNanoseconds("2")
             )
-        ).toEqual(["research", "series", result, statistics, "1", "2"]);
+        ).toEqual(["research", "series", result, statistics, 100, "1", "2"]);
+        expect(researchQueryKeys.series(result, statistics, 100)).not.toEqual(
+            researchQueryKeys.series(result, statistics, 500)
+        );
+        expect(researchQueryKeys.market(result, "A", 100)).toEqual(
+            researchQueryKeys.market(result, "A", 100)
+        );
+        expect(researchQueryKeys.market(result, "A", 100)).not.toEqual(
+            researchQueryKeys.market(result, "A", 500)
+        );
+        expect(researchQueryKeys.market(result, "A", 100)).not.toEqual(
+            researchQueryKeys.market(result, "B", 100)
+        );
+        expect(
+            researchQueryKeys.signal(result, "e".repeat(64), "ENTRY_SIGNAL", "A", 100)
+        ).not.toEqual(researchQueryKeys.signal(result, "f".repeat(64), "ENTRY_SIGNAL", "A", 100));
+        expect(
+            researchQueryKeys.variable(
+                result,
+                "e".repeat(64),
+                "c".repeat(64),
+                "d".repeat(64),
+                "score",
+                "A",
+                100
+            )
+        ).not.toEqual(
+            researchQueryKeys.variable(
+                result,
+                "f".repeat(64),
+                "c".repeat(64),
+                "d".repeat(64),
+                "score",
+                "A",
+                100
+            )
+        );
         expect(researchQueryKeys.artifact(result)).toEqual(["research", "artifact", result]);
         expect(researchQueryKeys.statistics(result)).toEqual(["research", "statistics", result]);
     });

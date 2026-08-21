@@ -114,3 +114,41 @@ it("escapes DOT without treating it as graph truth", () => {
     expect(dot).toContain(`"${first}" -> "${second}"`);
     expect(dot).toContain('decision\\"node');
 });
+
+it("projects reused external sources once without mutating exact Graph authority", () => {
+    const source = { nodeFingerprint: null, outputName: "close", source: "bar.close" } as const;
+    const withSources: ResearchCandidateGraph = {
+        ...graph,
+        graph: {
+            ...graph.graph,
+            nodes: graph.graph.nodes.map((node) => ({
+                ...node,
+                definition: {
+                    ...node.definition,
+                    inputs: [
+                        ...node.definition.inputs,
+                        {
+                            name: "close",
+                            dataType: "DECIMAL" as const,
+                            nullable: false,
+                            dimensions: ["TIME"],
+                            semanticType: "MARKET_PRICE",
+                            unit: null
+                        }
+                    ],
+                    inputBindings: { ...node.definition.inputBindings, close: source }
+                }
+            }))
+        }
+    };
+    const before = JSON.stringify(withSources);
+    const projected = projectGraph(withSources, "EXACT");
+    expect(projected.nodes.filter((node) => node.presentationKind === "EXTERNAL_SOURCE")).toEqual([
+        expect.objectContaining({ id: "external-source:bar.close", label: "bar.close" })
+    ]);
+    expect(projected.edges.filter((edge) => edge.from === "external-source:bar.close")).toEqual([
+        { from: "external-source:bar.close", to: first, label: "bar.close → close" },
+        { from: "external-source:bar.close", to: second, label: "bar.close → close" }
+    ]);
+    expect(JSON.stringify(withSources)).toBe(before);
+});

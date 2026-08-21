@@ -277,7 +277,7 @@ function graphNode(nodeFingerprint: string) {
             kind: "INDICATOR",
             type_id: "onlyalpha.indicator.rsi",
             semantic_version: "1",
-            parameters: { period: { type: "INTEGER", value: 14 } },
+            parameters: { period: { type: "INTEGER", value: "14" } },
             inputs: [],
             input_bindings: {},
             outputs: [

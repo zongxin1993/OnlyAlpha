@@ -63,15 +63,22 @@ export const marketSeriesOptions = (
     client: Pick<ResearchApiClient, "getMarketSeries">,
     result: ResearchResultFingerprint,
     instrumentId: string,
-    limit = 500
+    limit = 500,
+    from?: UnixNanoseconds,
+    to?: UnixNanoseconds
 ) =>
     infiniteQueryOptions({
-        queryKey: researchQueryKeys.market(result, instrumentId),
+        queryKey: researchQueryKeys.market(result, instrumentId, limit, from, to),
         queryFn: ({ pageParam, signal }) =>
             client.getMarketSeries(
                 result,
                 instrumentId,
-                { limit, ...(pageParam === null ? {} : { afterTsEventNs: pageParam }) },
+                {
+                    limit,
+                    ...(from === undefined ? {} : { fromTsEventNs: from }),
+                    ...(to === undefined ? {} : { toTsEventNs: to }),
+                    ...(pageParam === null ? {} : { afterTsEventNs: pageParam })
+                },
                 signal
             ),
         ...scientificPage
@@ -82,7 +89,9 @@ export const variableSeriesOptions = (
     result: ResearchResultFingerprint,
     instrumentId: string,
     series: ResearchPublishedSeries,
-    limit = 500
+    limit = 500,
+    from?: UnixNanoseconds,
+    to?: UnixNanoseconds
 ) =>
     infiniteQueryOptions({
         queryKey: researchQueryKeys.variable(
@@ -91,7 +100,10 @@ export const variableSeriesOptions = (
             series.calculationFingerprint,
             series.nodeFingerprint,
             series.outputName,
-            instrumentId
+            instrumentId,
+            limit,
+            from,
+            to
         ),
         queryFn: ({ pageParam, signal }) =>
             client.getVariableSeries(
@@ -105,6 +117,8 @@ export const variableSeriesOptions = (
                     nodeFingerprint: series.nodeFingerprint,
                     outputName: series.outputName,
                     limit,
+                    ...(from === undefined ? {} : { fromTsEventNs: from }),
+                    ...(to === undefined ? {} : { toTsEventNs: to }),
                     ...(pageParam === null ? {} : { afterTsEventNs: pageParam })
                 },
                 signal
@@ -118,10 +132,12 @@ export const signalSeriesOptions = (
     instrumentId: string,
     candidate: Sha256Fingerprint,
     role: string,
-    limit = 500
+    limit = 500,
+    from?: UnixNanoseconds,
+    to?: UnixNanoseconds
 ) =>
     infiniteQueryOptions({
-        queryKey: researchQueryKeys.signal(result, candidate, role, instrumentId),
+        queryKey: researchQueryKeys.signal(result, candidate, role, instrumentId, limit, from, to),
         queryFn: ({ pageParam, signal }) =>
             client.getSignalSeries(
                 {
@@ -130,6 +146,8 @@ export const signalSeriesOptions = (
                     candidateFingerprint: candidate,
                     role,
                     limit,
+                    ...(from === undefined ? {} : { fromTsEventNs: from }),
+                    ...(to === undefined ? {} : { toTsEventNs: to }),
                     ...(pageParam === null ? {} : { afterTsEventNs: pageParam })
                 },
                 signal
@@ -152,16 +170,20 @@ export const seriesOptions = (
     client: ResearchArtifactApiClient,
     result: ResearchResultFingerprint,
     statistics: StatisticsFingerprint,
-    limit = 2
+    limit = 2,
+    from?: UnixNanoseconds,
+    to?: UnixNanoseconds
 ) =>
     infiniteQueryOptions({
-        queryKey: researchQueryKeys.series(result, statistics),
+        queryKey: researchQueryKeys.series(result, statistics, limit, from, to),
         queryFn: ({ pageParam, signal }) =>
             client.getStatisticSeries(
                 {
                     researchResultFingerprint: result,
                     statisticsFingerprint: statistics,
                     limit,
+                    ...(from === undefined ? {} : { fromTsEventNs: from }),
+                    ...(to === undefined ? {} : { toTsEventNs: to }),
                     ...(pageParam === null ? {} : { afterTsEventNs: pageParam })
                 },
                 signal

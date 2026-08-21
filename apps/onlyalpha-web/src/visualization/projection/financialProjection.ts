@@ -1,6 +1,7 @@
 import type {
     ResearchMarketPoint,
     ResearchSignalPoint,
+    ResearchSignalRole,
     ResearchVariablePoint
 } from "../../domain/research/model";
 import type {
@@ -106,7 +107,7 @@ export function projectVariableEvidence(
 }
 
 export function projectSignalEvidence(
-    role: string,
+    role: ResearchSignalRole,
     points: readonly ResearchSignalPoint[]
 ): FinancialProjection<readonly FinancialSignalMarker[]> {
     const markers: FinancialSignalMarker[] = [];
@@ -114,8 +115,8 @@ export function projectSignalEvidence(
     for (const point of points) {
         const projectedTime = projectFinancialTime(point.tsEventNs, previous);
         if (!projectedTime.ok) return projectedTime;
-        if (point.value === true) {
-            const entry = role.includes("ENTRY");
+        if (point.value === true && role !== "ELIGIBILITY") {
+            const entry = role === "ENTRY_SIGNAL";
             markers.push({
                 time: projectedTime.value.time,
                 role,

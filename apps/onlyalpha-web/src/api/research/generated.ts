@@ -519,7 +519,7 @@ export interface components {
             /** Graph Fingerprint */
             graph_fingerprint: string;
             /** Signal Roles */
-            signal_roles: string[];
+            signal_roles: ("ELIGIBILITY" | "ENTRY_SIGNAL" | "EXIT_SIGNAL")[];
             /** Statistics Fingerprints */
             statistics_fingerprints: string[];
         };
@@ -788,7 +788,7 @@ export interface components {
              */
             type: "INTEGER";
             /** Value */
-            value: number;
+            value: string;
         };
         /** ResearchGraphNodeDto */
         ResearchGraphNodeDto: {
