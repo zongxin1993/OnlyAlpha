@@ -4,6 +4,311 @@ const result = "c1c188880821de9790dfcc84a075c8bdd615f273c27f9fa75bcccc1e812d33cc
 const statistics = "a23de5e058ec65fe9251b525f10c9b4d8a4b7a4b62d478214a1f0a7c50eef411";
 const runId = "00000000-0000-4000-8000-000000000301";
 const exactSpecification = { schema_version: 2, exact: "authoritative-e2e-specification" };
+const candidateA = "1".repeat(64);
+const candidateB = "2".repeat(64);
+const calculationA = "3".repeat(64);
+const calculationB = "4".repeat(64);
+const nodeA = "5".repeat(64);
+const nodeB = "6".repeat(64);
+const graphA = "7".repeat(64);
+const graphB = "8".repeat(64);
+const statisticB = "9".repeat(64);
+
+async function mockScientificWorkstation(page: Page, multipleCandidates: boolean) {
+    const candidates = [
+        {
+            candidate_fingerprint: candidateA,
+            candidate_calculation_id: "decision",
+            assignment: { period: 14 },
+            assignment_types: { period: "INTEGER" },
+            calculation_fingerprint: calculationA,
+            graph_fingerprint: graphA,
+            statistics_fingerprints: [statistics],
+            signal_roles: ["ENTRY_SIGNAL", "EXIT_SIGNAL"]
+        },
+        ...(multipleCandidates
+            ? [
+                  {
+                      candidate_fingerprint: candidateB,
+                      candidate_calculation_id: "decision",
+                      assignment: { period: 28 },
+                      assignment_types: { period: "INTEGER" },
+                      calculation_fingerprint: calculationB,
+                      graph_fingerprint: graphB,
+                      statistics_fingerprints: [statisticB],
+                      signal_roles: ["ENTRY_SIGNAL", "EXIT_SIGNAL"]
+                  }
+              ]
+            : [])
+    ];
+    const descriptor = (fingerprint: string, calculation: string, node: string) => ({
+        statistics_fingerprint: fingerprint,
+        statistics_result_fingerprint: "a".repeat(64),
+        result_content_fingerprint: "b".repeat(64),
+        statistics_result_schema_version: 1,
+        row_count: 1,
+        feature: {
+            calculation_fingerprint: calculation,
+            node_fingerprint: node,
+            output_name: "rsi"
+        },
+        target: {
+            calculation_fingerprint: calculation,
+            node_fingerprint: node,
+            output_name: "forward_return"
+        },
+        definition: {
+            method: "IC",
+            minimum_observations: 2,
+            pairing_policy: "PAIRWISE_COMPLETE",
+            universe_policy: "EXACT",
+            rank_tie_method: "AVERAGE",
+            weighting: "EQUAL",
+            numeric: {
+                representation: "DECIMAL",
+                precision: 38,
+                output_quantum: "0.0001",
+                rounding: "ROUND_HALF_EVEN"
+            }
+        }
+    });
+    await page.route(`**/api/v2/research/artifacts/${result}`, async (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path !== `/api/v2/research/artifacts/${result}`) return route.fallback();
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_plan_fingerprint: "c".repeat(64),
+                research_result_content_fingerprint: "d".repeat(64),
+                research_result_fingerprint: result,
+                dataset_snapshot_fingerprint: "e".repeat(64),
+                artifact_content_fingerprint: "f".repeat(64),
+                research_result_schema_version: 2,
+                artifact_profile: "RESEARCH_SCIENTIFIC_V2",
+                artifact_schema_version: 2,
+                statistics_count: candidates.length,
+                row_count: candidates.length,
+                candidate_count: candidates.length,
+                published_series_count: candidates.length,
+                signal_series_count: candidates.length * 2,
+                market_row_count: 2,
+                instrument_ids: ["510300"],
+                created_at: "2026-08-21T00:00:00Z"
+            })
+        });
+    });
+    await page.route(`**/api/v2/research/artifacts/${result}/candidates`, (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                candidates
+            })
+        })
+    );
+    await page.route(`**/api/v2/research/artifacts/${result}/variables`, (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                series: candidates.map((candidate, index) => ({
+                    candidate_fingerprint: candidate.candidate_fingerprint,
+                    calculation_fingerprint: candidate.calculation_fingerprint,
+                    node_fingerprint: index === 0 ? nodeA : nodeB,
+                    output_name: "rsi",
+                    value_kind: "DECIMAL"
+                }))
+            })
+        })
+    );
+    await page.route(`**/api/v2/research/artifacts/${result}/statistics`, (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                statistics: [
+                    descriptor(statistics, calculationA, nodeA),
+                    ...(multipleCandidates ? [descriptor(statisticB, calculationB, nodeB)] : [])
+                ]
+            })
+        })
+    );
+    await page.route(
+        `**/api/v2/research/artifacts/${result}/statistics/*/series**`,
+        async (route) => {
+            const second = new URL(route.request().url()).pathname.includes(statisticB);
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                    schema_version: 2,
+                    research_result_fingerprint: result,
+                    statistics_fingerprint: second ? statisticB : statistics,
+                    points: [
+                        {
+                            ts_event_ns: "2000000000",
+                            statistic_value: second ? "0.2" : "0.1",
+                            sample_count: 300,
+                            status: "VALID"
+                        }
+                    ],
+                    has_more: false,
+                    next_after_ts_event_ns: null
+                })
+            });
+        }
+    );
+    await page.route(`**/api/v2/research/artifacts/${result}/market/series**`, (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                points: [
+                    {
+                        instrument_id: "510300",
+                        ts_event_ns: "1000000000",
+                        open: "10",
+                        high: "12",
+                        low: "9",
+                        close: "11",
+                        volume: "100"
+                    },
+                    {
+                        instrument_id: "510300",
+                        ts_event_ns: "2000000000",
+                        open: "11",
+                        high: "13",
+                        low: "10",
+                        close: "12",
+                        volume: "110"
+                    }
+                ],
+                has_more: false,
+                next_after_ts_event_ns: null
+            })
+        })
+    );
+    await page.route(`**/api/v2/research/artifacts/${result}/variables/*/*/rsi/series**`, (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                points: [
+                    {
+                        instrument_id: "510300",
+                        ts_event_ns: "1000000000",
+                        value_kind: "DECIMAL",
+                        decimal_value: "29.5",
+                        integer_value: null,
+                        boolean_value: null,
+                        string_value: null
+                    }
+                ],
+                has_more: false,
+                next_after_ts_event_ns: null
+            })
+        })
+    );
+    await page.route(
+        `**/api/v2/research/artifacts/${result}/signals/*/*/series**`,
+        async (route) => {
+            const entry = new URL(route.request().url()).pathname.includes("ENTRY_SIGNAL");
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                    schema_version: 2,
+                    research_result_fingerprint: result,
+                    points: [
+                        {
+                            instrument_id: "510300",
+                            ts_event_ns: "1000000000",
+                            value: entry ? true : null
+                        },
+                        { instrument_id: "510300", ts_event_ns: "2000000000", value: false }
+                    ],
+                    has_more: false,
+                    next_after_ts_event_ns: null
+                })
+            });
+        }
+    );
+    await page.route(`**/api/v2/research/artifacts/${result}/candidates/*/graph`, async (route) => {
+        const second = new URL(route.request().url()).pathname.includes(candidateB);
+        const candidate = second ? candidateB : candidateA;
+        const calculation = second ? calculationB : calculationA;
+        const node = second ? nodeB : nodeA;
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                candidate_fingerprint: candidate,
+                calculation_fingerprint: calculation,
+                graph_fingerprint: second ? graphB : graphA,
+                graph: {
+                    schema_version: 1,
+                    nodes: [graphNode(node)]
+                }
+            })
+        });
+    });
+}
+
+function graphNode(nodeFingerprint: string) {
+    return {
+        node_fingerprint: nodeFingerprint,
+        alias: "rsi",
+        definition: {
+            schema_version: 2,
+            kind: "INDICATOR",
+            type_id: "onlyalpha.indicator.rsi",
+            semantic_version: "1",
+            parameters: { period: { type: "INTEGER", value: 14 } },
+            inputs: [],
+            input_bindings: {},
+            outputs: [
+                {
+                    name: "rsi",
+                    data_type: "DECIMAL",
+                    nullable: true,
+                    dimensions: ["TIME"],
+                    semantic_type: "INDICATOR_VALUE",
+                    unit: null
+                }
+            ],
+            warmup: {
+                minimum_observations: 14,
+                ready_condition: "READY",
+                pre_ready_output: "NULL",
+                initialization: "WINDOW"
+            },
+            missing_values: "PROPAGATE",
+            timestamp: "EVENT_TIME",
+            numeric: {
+                representation: "DECIMAL",
+                precision: 38,
+                output_quantum: null,
+                rounding: "CONTEXT"
+            },
+            factor_kind: null,
+            extensions: {}
+        }
+    };
+}
 
 const catalogs = {
     calculations: {
@@ -157,18 +462,16 @@ test("portable Artifact to API v2 to browser exact vertical slice", async ({ pag
     await page.goto("/research/results");
     await page.getByLabel("Research Result fingerprint").fill(result);
     await page.getByRole("button", { name: "Open exact result" }).click();
-    await expect(page.getByRole("heading", { name: "Artifact overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Scientific Workstation" })).toBeVisible();
     await expect(page.getByText(result).first()).toBeVisible();
-    await page.getByRole("link", { name: new RegExp(statistics) }).click();
-    await expect(page).toHaveURL(`/research/results/${result}/statistics/${statistics}`);
+    await page.getByRole("tab", { name: "Statistics" }).click();
+    await expect(page.getByTestId("scientific-chart")).toBeVisible();
     await page.reload();
-    await expect(page).toHaveURL(`/research/results/${result}/statistics/${statistics}`);
-    await expect(page.getByTestId("research-chart")).toBeVisible();
+    await expect(page).toHaveURL(`/research/results/${result}`);
+    await page.getByRole("tab", { name: "Statistics" }).click();
+    await expect(page.getByTestId("scientific-chart")).toBeVisible();
     await expect(page.locator("table").filter({ hasText: "Raw ts_event_ns" })).toBeVisible();
     await expect(page.getByRole("cell", { name: /^176/ }).first()).toBeVisible();
-    await expect(page.getByText("2 loaded · more available")).toBeVisible();
-    await page.getByRole("button", { name: "Load more" }).click();
-    await expect(page.getByText("4 loaded · complete")).toBeVisible();
 });
 
 test("Research Definition resolve lifecycle invalidates stale evidence after edit", async ({
@@ -292,5 +595,37 @@ test("exact resolved Specification submits to durable Run and opens exact Result
     });
     await page.getByRole("link", { name: "Open exact Result" }).click();
     await expect(page).toHaveURL(`/research/results/${result}`);
-    await expect(page.getByRole("heading", { name: "Artifact overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Scientific Workstation" })).toBeVisible();
+});
+
+test("single-instrument Signal Research opens authoritative Market Exact Data and Graph", async ({
+    page
+}) => {
+    await mockScientificWorkstation(page, false);
+    await page.goto(`/research/results/${result}`);
+    await page.getByRole("tab", { name: "Market" }).click();
+    await expect(page.getByTestId("financial-chart")).toBeVisible();
+    await expect(page.getByText(/2 market · 1 variable · 4 signal rows loaded/)).toBeVisible();
+    await page.getByRole("tab", { name: "Exact Data" }).click();
+    await expect(page.getByRole("heading", { name: "Signal · ENTRY_SIGNAL" })).toBeVisible();
+    await expect(page.getByText("true", { exact: true })).toBeVisible();
+    await expect(page.getByText("NULL", { exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Graph" }).click();
+    await expect(page.getByTestId("graphviz-view")).toBeVisible();
+    await expect(page.getByText(graphA)).toBeAttached();
+});
+
+test("multi-Candidate sweep keeps comparison and exact Graph on one Candidate", async ({
+    page
+}) => {
+    await mockScientificWorkstation(page, true);
+    await page.goto(`/research/results/${result}`);
+    await page.getByRole("tab", { name: "Candidates" }).click();
+    await expect(page.getByTestId("scientific-chart")).toBeVisible();
+    await expect(page.getByText(/exact timestamp 2000000000/i)).toBeVisible();
+    const rows = page.getByRole("row");
+    await rows.nth(2).getByRole("button", { name: "Select" }).click();
+    await page.getByRole("tab", { name: "Graph" }).click();
+    await expect(page.getByTestId("graphviz-view")).toBeVisible();
+    await expect(page.getByText(graphB)).toBeAttached();
 });

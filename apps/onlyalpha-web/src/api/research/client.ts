@@ -6,9 +6,13 @@ import type {
 } from "../../domain/research/identity";
 import type {
     ResearchArtifactSummary,
+    ResearchCandidateCatalog,
+    ResearchCandidateGraph,
+    ResearchPublishedSeriesCatalog,
     ResearchRun,
     ResearchRunPage,
     ResearchRunSubmission,
+    ResearchScientificSeriesPage,
     ResearchStatisticSeriesPage,
     ResearchStatisticsCatalog
 } from "../../domain/research/model";
@@ -17,9 +21,13 @@ import { nanosecondsToRequestText } from "../../domain/research/time";
 import { ResearchWebError } from "./errors";
 import {
     mapArtifactSummary,
+    mapCandidateCatalog,
+    mapCandidateGraph,
+    mapPublishedSeriesCatalog,
     mapResearchRun,
     mapResearchRunPage,
     mapResearchRunSubmission,
+    mapScientificSeriesPage,
     mapStatisticSeriesPage,
     mapStatisticsCatalog
 } from "./mapper";
@@ -45,14 +53,10 @@ import {
 } from "./schemas";
 import type {
     ResearchCalculationCatalogTransport,
-    ResearchCandidateCatalogTransport,
-    ResearchCandidateGraphTransport,
     ResearchDatasetFieldCatalogTransport,
     ResearchDefinitionResolutionTransport,
     ResearchDefinitionTransport,
     ResearchStatisticsCapabilityCatalogTransport,
-    ResearchPublishedSeriesCatalogTransport,
-    ResearchScientificSeriesPageTransport,
     ResearchUniverseCatalogTransport
 } from "./schemas";
 
@@ -73,7 +77,16 @@ export interface ScientificSeriesRequest {
     readonly nodeFingerprint?: string;
     readonly outputName?: string;
     readonly role?: string;
+    readonly fromTsEventNs?: UnixNanoseconds;
+    readonly toTsEventNs?: UnixNanoseconds;
+    readonly afterTsEventNs?: UnixNanoseconds;
+    readonly limit?: number;
 }
+
+export type ScientificPageRequest = Pick<
+    ScientificSeriesRequest,
+    "fromTsEventNs" | "toTsEventNs" | "afterTsEventNs" | "limit"
+>;
 
 export interface ResearchRunApiClient {
     submitRun(
@@ -105,29 +118,30 @@ export interface ResearchScientificArtifactApiClient {
     getCandidateCatalog(
         id: ResearchResultFingerprint,
         signal?: AbortSignal
-    ): Promise<ResearchCandidateCatalogTransport>;
+    ): Promise<ResearchCandidateCatalog>;
     getPublishedSeriesCatalog(
         id: ResearchResultFingerprint,
         signal?: AbortSignal
-    ): Promise<ResearchPublishedSeriesCatalogTransport>;
+    ): Promise<ResearchPublishedSeriesCatalog>;
     getMarketSeries(
         id: ResearchResultFingerprint,
         instrumentId: string,
+        page?: ScientificPageRequest,
         signal?: AbortSignal
-    ): Promise<ResearchScientificSeriesPageTransport>;
+    ): Promise<ResearchScientificSeriesPage>;
     getCandidateGraph(
         id: ResearchResultFingerprint,
         candidateFingerprint: string,
         signal?: AbortSignal
-    ): Promise<ResearchCandidateGraphTransport>;
+    ): Promise<ResearchCandidateGraph>;
     getVariableSeries(
         request: ScientificSeriesRequest,
         signal?: AbortSignal
-    ): Promise<ResearchScientificSeriesPageTransport>;
+    ): Promise<ResearchScientificSeriesPage>;
     getSignalSeries(
         request: ScientificSeriesRequest,
         signal?: AbortSignal
-    ): Promise<ResearchScientificSeriesPageTransport>;
+    ): Promise<ResearchScientificSeriesPage>;
 }
 
 export interface ResearchDiscoveryApiClient {
@@ -365,31 +379,39 @@ export class FetchResearchApiClient implements ResearchApiClient {
     }
 
     async getCandidateCatalog(id: ResearchResultFingerprint, signal?: AbortSignal) {
-        return admitted(
-            researchCandidateCatalogSchema,
-            await request(`${base(id)}/candidates`, { method: "GET" }, signal)
+        return mapCandidateCatalog(
+            admitted(
+                researchCandidateCatalogSchema,
+                await request(`${base(id)}/candidates`, { method: "GET" }, signal)
+            )
         );
     }
 
     async getPublishedSeriesCatalog(id: ResearchResultFingerprint, signal?: AbortSignal) {
-        return admitted(
-            researchPublishedSeriesCatalogSchema,
-            await request(`${base(id)}/variables`, { method: "GET" }, signal)
+        return mapPublishedSeriesCatalog(
+            admitted(
+                researchPublishedSeriesCatalogSchema,
+                await request(`${base(id)}/variables`, { method: "GET" }, signal)
+            )
         );
     }
 
     async getMarketSeries(
         id: ResearchResultFingerprint,
         instrumentId: string,
+        page: ScientificPageRequest = {},
         signal?: AbortSignal
     ) {
         const query = new URLSearchParams({ instrument_id: instrumentId });
-        return admitted(
-            researchScientificSeriesPageSchema,
-            await request(
-                `${base(id)}/market/series?${query.toString()}`,
-                { method: "GET" },
-                signal
+        appendScientificPageQuery(query, page);
+        return mapScientificSeriesPage(
+            admitted(
+                researchScientificSeriesPageSchema,
+                await request(
+                    `${base(id)}/market/series?${query.toString()}`,
+                    { method: "GET" },
+                    signal
+                )
             )
         );
     }
@@ -399,12 +421,14 @@ export class FetchResearchApiClient implements ResearchApiClient {
         candidateFingerprint: string,
         signal?: AbortSignal
     ) {
-        return admitted(
-            researchCandidateGraphSchema,
-            await request(
-                `${base(id)}/candidates/${encodeURIComponent(candidateFingerprint)}/graph`,
-                { method: "GET" },
-                signal
+        return mapCandidateGraph(
+            admitted(
+                researchCandidateGraphSchema,
+                await request(
+                    `${base(id)}/candidates/${encodeURIComponent(candidateFingerprint)}/graph`,
+                    { method: "GET" },
+                    signal
+                )
             )
         );
     }
@@ -419,10 +443,13 @@ export class FetchResearchApiClient implements ResearchApiClient {
         const query = new URLSearchParams({ instrument_id: requestValue.instrumentId });
         if (requestValue.candidateFingerprint !== undefined)
             query.set("candidate_fingerprint", requestValue.candidateFingerprint);
+        appendScientificPageQuery(query, requestValue);
         const path = `${base(requestValue.researchResultFingerprint)}/variables/${encodeURIComponent(requestValue.calculationFingerprint)}/${encodeURIComponent(requestValue.nodeFingerprint)}/${encodeURIComponent(requestValue.outputName)}/series?${query.toString()}`;
-        return admitted(
-            researchScientificSeriesPageSchema,
-            await request(path, { method: "GET" }, signal)
+        return mapScientificSeriesPage(
+            admitted(
+                researchScientificSeriesPageSchema,
+                await request(path, { method: "GET" }, signal)
+            )
         );
     }
 
@@ -430,10 +457,24 @@ export class FetchResearchApiClient implements ResearchApiClient {
         if (requestValue.candidateFingerprint === undefined || requestValue.role === undefined)
             throw new ResearchWebError("CONTRACT_ERROR", "Exact Signal selector is required");
         const query = new URLSearchParams({ instrument_id: requestValue.instrumentId });
+        appendScientificPageQuery(query, requestValue);
         const path = `${base(requestValue.researchResultFingerprint)}/signals/${encodeURIComponent(requestValue.candidateFingerprint)}/${encodeURIComponent(requestValue.role)}/series?${query.toString()}`;
-        return admitted(
-            researchScientificSeriesPageSchema,
-            await request(path, { method: "GET" }, signal)
+        return mapScientificSeriesPage(
+            admitted(
+                researchScientificSeriesPageSchema,
+                await request(path, { method: "GET" }, signal)
+            )
         );
     }
+}
+
+function appendScientificPageQuery(query: URLSearchParams, value: ScientificPageRequest): void {
+    const optional = [
+        ["from_ts_event_ns", value.fromTsEventNs],
+        ["to_ts_event_ns", value.toTsEventNs],
+        ["after_ts_event_ns", value.afterTsEventNs]
+    ] as const;
+    for (const [name, exact] of optional)
+        if (exact !== undefined) query.set(name, nanosecondsToRequestText(exact));
+    if (value.limit !== undefined) query.set("limit", value.limit.toString(10));
 }

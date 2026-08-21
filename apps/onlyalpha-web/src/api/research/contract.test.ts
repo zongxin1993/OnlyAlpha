@@ -14,9 +14,13 @@ import { researchQueryKeys } from "./queryKeys";
 import {
     artifactSummarySchema,
     researchCalculationCatalogSchema,
+    researchCandidateCatalogSchema,
+    researchCandidateGraphSchema,
     researchDefinitionResolutionSchema,
     researchErrorSchema,
+    researchPublishedSeriesCatalogSchema,
     researchRunSchema,
+    researchScientificSeriesPageSchema,
     statisticSeriesPageSchema
 } from "./schemas";
 import type { ResearchDefinitionTransport } from "./schemas";
@@ -51,6 +55,11 @@ const summary = {
     artifact_schema_version: 1,
     statistics_count: 1,
     row_count: 1,
+    candidate_count: 0,
+    published_series_count: 0,
+    signal_series_count: 0,
+    market_row_count: 0,
+    instrument_ids: [],
     created_at: "2026-08-16T00:00:00Z"
 };
 const descriptor = {
@@ -218,6 +227,29 @@ describe("Research API admission", () => {
             researchErrorSchema.safeParse({ schema_version: 2, code: "OTHER", detail: "x" }).success
         ).toBe(false);
         expect(artifactSummarySchema.safeParse({}).success).toBe(false);
+        expect(
+            artifactSummarySchema.safeParse({ ...summary, instrument_ids: ["B", "A"] }).success
+        ).toBe(false);
+        expect(
+            statisticSeriesPageSchema.safeParse({
+                ...page,
+                points: [point, { ...point, ts_event_ns: "1780000000000000124" }],
+                has_more: false,
+                next_after_ts_event_ns: null
+            }).success
+        ).toBe(true);
+        for (const malformed of [
+            {
+                ...page,
+                points: [
+                    { ...point, ts_event_ns: "2" },
+                    { ...point, ts_event_ns: "1" }
+                ]
+            },
+            { ...page, points: [], has_more: true, next_after_ts_event_ns: null },
+            { ...page, has_more: false, next_after_ts_event_ns: point.ts_event_ns }
+        ])
+            expect(statisticSeriesPageSchema.safeParse(malformed).success).toBe(false);
     });
 
     it("sends an exact cursor and admits a successful page", async () => {
@@ -313,10 +345,8 @@ describe("Research API admission", () => {
         });
         expect(() => parseResearchRunId("BAD")).toThrow("canonical UUID4");
         expect(
-            mapStatisticSeriesPage(
-                statisticSeriesPageSchema.parse({ ...page, next_after_ts_event_ns: null })
-            ).nextAfterTsEventNs
-        ).toBeNull();
+            statisticSeriesPageSchema.safeParse({ ...page, next_after_ts_event_ns: null }).success
+        ).toBe(false);
     });
 
     it("admits and maps summary and catalog operations", async () => {
@@ -351,10 +381,24 @@ describe("Research API admission", () => {
                 {
                     candidate_fingerprint: candidate,
                     candidate_calculation_id: "decision",
-                    assignment: { period: 14 },
+                    assignment: {
+                        missing: null,
+                        enabled: true,
+                        period: 14,
+                        quantum: "0.1",
+                        label: "RSI"
+                    },
+                    assignment_types: {
+                        missing: "NULL",
+                        enabled: "BOOLEAN",
+                        period: "INTEGER",
+                        quantum: "DECIMAL",
+                        label: "STRING"
+                    },
                     calculation_fingerprint: calculation,
                     graph_fingerprint: "6".repeat(64),
-                    statistics_fingerprints: [statistics]
+                    statistics_fingerprints: [statistics],
+                    signal_roles: ["ENTRY_SIGNAL", "EXIT_SIGNAL"]
                 }
             ]
         };
@@ -367,6 +411,13 @@ describe("Research API admission", () => {
                     calculation_fingerprint: calculation,
                     node_fingerprint: node,
                     output_name: "value",
+                    value_kind: "DECIMAL"
+                },
+                {
+                    candidate_fingerprint: null,
+                    calculation_fingerprint: calculation,
+                    node_fingerprint: node,
+                    output_name: "global_value",
                     value_kind: "DECIMAL"
                 }
             ]
@@ -412,6 +463,71 @@ describe("Research API admission", () => {
                 }
             ]
         };
+        const graph = {
+            schema_version: 1 as const,
+            nodes: [
+                {
+                    node_fingerprint: node,
+                    alias: "rsi",
+                    definition: {
+                        schema_version: 2 as const,
+                        kind: "INDICATOR" as const,
+                        type_id: "onlyalpha.indicator.rsi",
+                        semantic_version: "1",
+                        parameters: {
+                            period: { type: "INTEGER" as const, value: 14 },
+                            threshold: { type: "DECIMAL" as const, value: "30.0" },
+                            enabled: { type: "BOOLEAN" as const, value: true },
+                            label: { type: "STRING" as const, value: "entry" },
+                            missing: { type: "NULL" as const, value: null }
+                        },
+                        inputs: [
+                            {
+                                name: "price",
+                                data_type: "DECIMAL" as const,
+                                nullable: false,
+                                dimensions: ["INSTRUMENT", "TIME"],
+                                semantic_type: "PRICE",
+                                unit: "PRICE"
+                            }
+                        ],
+                        input_bindings: {
+                            price: {
+                                node_fingerprint: null,
+                                output_name: "close",
+                                source: "bar.close"
+                            }
+                        },
+                        outputs: [
+                            {
+                                name: "value",
+                                data_type: "DECIMAL" as const,
+                                nullable: true,
+                                dimensions: ["INSTRUMENT", "TIME"],
+                                semantic_type: "INDICATOR_VALUE",
+                                unit: null
+                            }
+                        ],
+                        warmup: {
+                            minimum_observations: 14,
+                            ready_condition: "COUNT_GTE_MINIMUM",
+                            pre_ready_output: "NULL" as const,
+                            initialization: "FIRST_WINDOW"
+                        },
+                        missing_values: "PROPAGATE" as const,
+                        timestamp: "EVENT_TIME" as const,
+                        numeric: {
+                            representation: "DECIMAL",
+                            precision: 38,
+                            output_quantum: null,
+                            rounding: "ROUND_HALF_EVEN"
+                        },
+                        factor_kind: null,
+                        extensions: { note: { type: "STRING" as const, value: "exact" } }
+                    }
+                }
+            ]
+        };
         server.use(
             http.get(`*/api/v2/research/artifacts/${result}/candidates`, () =>
                 HttpResponse.json(catalog)
@@ -436,13 +552,14 @@ describe("Research API admission", () => {
                     research_result_fingerprint: result,
                     candidate_fingerprint: candidate,
                     calculation_fingerprint: calculation,
-                    graph: { schema_version: 1 }
+                    graph_fingerprint: "6".repeat(64),
+                    graph
                 })
             )
         );
         const client = new FetchResearchApiClient();
         expect((await client.getCandidateCatalog(result)).candidates).toHaveLength(1);
-        expect((await client.getPublishedSeriesCatalog(result)).series).toHaveLength(1);
+        expect((await client.getPublishedSeriesCatalog(result)).series).toHaveLength(2);
         expect((await client.getMarketSeries(result, "TEST")).points).toHaveLength(1);
         expect(
             (
@@ -466,9 +583,181 @@ describe("Research API admission", () => {
                 })
             ).points[0]
         ).toMatchObject({ value: null });
-        expect((await client.getCandidateGraph(result, candidate)).graph).toEqual({
-            schema_version: 1
+        const admittedGraph = await client.getCandidateGraph(result, candidate);
+        expect(admittedGraph.graph.schemaVersion).toBe(1);
+        expect(admittedGraph.graph.nodes[0]).toMatchObject({
+            nodeFingerprint: node,
+            alias: "rsi",
+            definition: {
+                typeId: "onlyalpha.indicator.rsi",
+                parameters: {
+                    period: { type: "INTEGER", value: 14 },
+                    threshold: { type: "DECIMAL", value: "30.0" }
+                },
+                numeric: { outputQuantum: null },
+                extensions: { note: { type: "STRING", value: "exact" } }
+            }
         });
+        expect(
+            researchCandidateGraphSchema.safeParse({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                candidate_fingerprint: candidate,
+                calculation_fingerprint: calculation,
+                graph_fingerprint: "6".repeat(64),
+                graph: { ...graph, unexpected: true }
+            }).success
+        ).toBe(false);
+        expect(researchCandidateCatalogSchema.parse(catalog).candidates[0]?.assignment).toEqual(
+            catalog.candidates[0]?.assignment
+        );
+        for (const malformed of [
+            {
+                ...catalog,
+                candidates: [{ ...catalog.candidates[0], assignment_types: { period: "INTEGER" } }]
+            },
+            {
+                ...catalog,
+                candidates: [
+                    {
+                        ...catalog.candidates[0],
+                        assignment: { period: "14" },
+                        assignment_types: { period: "INTEGER" }
+                    }
+                ]
+            },
+            {
+                ...catalog,
+                candidates: [
+                    {
+                        ...catalog.candidates[0],
+                        statistics_fingerprints: [statistics, statistics]
+                    }
+                ]
+            },
+            {
+                ...catalog,
+                candidates: [
+                    {
+                        ...catalog.candidates[0],
+                        signal_roles: ["ENTRY_SIGNAL", "ENTRY_SIGNAL"]
+                    }
+                ]
+            },
+            { ...catalog, candidates: [catalog.candidates[0], catalog.candidates[0]] }
+        ])
+            expect(researchCandidateCatalogSchema.safeParse(malformed).success).toBe(false);
+        expect(
+            researchPublishedSeriesCatalogSchema.safeParse({
+                ...variables,
+                series: [variables.series[0], variables.series[0]]
+            }).success
+        ).toBe(false);
+        expect(
+            researchScientificSeriesPageSchema.safeParse({
+                ...variablePage,
+                points: [
+                    {
+                        ...variablePage.points[0],
+                        boolean_value: true
+                    }
+                ]
+            }).success
+        ).toBe(false);
+        expect(
+            researchScientificSeriesPageSchema.safeParse({
+                ...marketPage,
+                points: [
+                    marketPage.points[0],
+                    { ...marketPage.points[0], ts_event_ns: "1780000000000000124" }
+                ],
+                has_more: true,
+                next_after_ts_event_ns: "1780000000000000124"
+            }).success
+        ).toBe(true);
+        for (const malformed of [
+            { ...marketPage, points: [], has_more: true, next_after_ts_event_ns: null },
+            {
+                ...marketPage,
+                points: [
+                    { ...marketPage.points[0], ts_event_ns: "1780000000000000124" },
+                    marketPage.points[0]
+                ]
+            },
+            { ...marketPage, next_after_ts_event_ns: "1780000000000000123" }
+        ])
+            expect(researchScientificSeriesPageSchema.safeParse(malformed).success).toBe(false);
+        const graphEnvelope = {
+            schema_version: 2,
+            research_result_fingerprint: result,
+            candidate_fingerprint: candidate,
+            calculation_fingerprint: calculation,
+            graph_fingerprint: "6".repeat(64)
+        };
+        expect(
+            researchCandidateGraphSchema.safeParse({
+                ...graphEnvelope,
+                graph: { ...graph, nodes: [graph.nodes[0], graph.nodes[0]] }
+            }).success
+        ).toBe(false);
+        expect(
+            researchCandidateGraphSchema.safeParse({
+                ...graphEnvelope,
+                graph: {
+                    ...graph,
+                    nodes: [
+                        {
+                            ...graph.nodes[0],
+                            definition: { ...graph.nodes[0]?.definition, input_bindings: {} }
+                        }
+                    ]
+                }
+            }).success
+        ).toBe(false);
+        expect(
+            researchCandidateGraphSchema.safeParse({
+                ...graphEnvelope,
+                graph: {
+                    ...graph,
+                    nodes: [
+                        {
+                            ...graph.nodes[0],
+                            definition: {
+                                ...graph.nodes[0]?.definition,
+                                input_bindings: {
+                                    price: {
+                                        node_fingerprint: "f".repeat(64),
+                                        output_name: "close",
+                                        source: null
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }).success
+        ).toBe(false);
+        expect(
+            researchCandidateGraphSchema.safeParse({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                candidate_fingerprint: candidate,
+                calculation_fingerprint: calculation,
+                graph_fingerprint: "6".repeat(64),
+                graph: {
+                    ...graph,
+                    nodes: [
+                        {
+                            ...graph.nodes[0],
+                            definition: {
+                                ...graph.nodes[0]?.definition,
+                                parameters: { period: { type: "INTEGER", value: "14" } }
+                            }
+                        }
+                    ]
+                }
+            }).success
+        ).toBe(false);
         await expect(
             client.getVariableSeries({ researchResultFingerprint: result, instrumentId: "TEST" })
         ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
@@ -518,6 +807,33 @@ describe("Research API admission", () => {
         await expect(new FetchResearchApiClient().getArtifactSummary(result)).rejects.toMatchObject(
             { code: "CONTRACT_ERROR", status: 404 }
         );
+    });
+
+    it("decodes strict Definition validation failures", async () => {
+        server.use(
+            http.post("*/api/v2/research/definitions/resolve", () =>
+                HttpResponse.json(
+                    {
+                        error: {
+                            phase: "ADMISSION",
+                            code: "RESEARCH_DEFINITION_INVALID",
+                            detail: "invalid exact definition",
+                            path: "calculations[0]"
+                        }
+                    },
+                    { status: 422 }
+                )
+            )
+        );
+        await expect(
+            new FetchResearchApiClient().resolveDefinition({
+                schema_version: 1
+            } as unknown as ResearchDefinitionTransport)
+        ).rejects.toMatchObject({
+            code: "RESEARCH_DEFINITION_INVALID",
+            phase: "ADMISSION",
+            path: "calculations[0]"
+        });
     });
 
     it("preserves AbortError instead of relabeling cancellation", async () => {

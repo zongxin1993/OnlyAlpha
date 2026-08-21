@@ -377,10 +377,18 @@ export interface components {
             artifact_profile: string;
             /** Artifact Schema Version */
             artifact_schema_version: number;
+            /** Candidate Count */
+            candidate_count: number;
             /** Created At */
             created_at: string;
             /** Dataset Snapshot Fingerprint */
             dataset_snapshot_fingerprint: string;
+            /** Instrument Ids */
+            instrument_ids: string[];
+            /** Market Row Count */
+            market_row_count: number;
+            /** Published Series Count */
+            published_series_count: number;
             /** Research Result Content Fingerprint */
             research_result_content_fingerprint: string;
             /** Research Result Fingerprint */
@@ -397,6 +405,8 @@ export interface components {
              * @constant
              */
             schema_version: 2;
+            /** Signal Series Count */
+            signal_series_count: number;
             /** Statistics Count */
             statistics_count: number;
         };
@@ -431,6 +441,16 @@ export interface components {
             /** Parameters */
             parameters: components["schemas"]["ResearchParameterDefinitionDto"][];
             type_reference: components["schemas"]["ResearchCalculationTypeReferenceDto"];
+        };
+        /** ResearchCalculationGraphDto */
+        ResearchCalculationGraphDto: {
+            /** Nodes */
+            nodes: components["schemas"]["ResearchGraphNodeDto"][];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
         };
         /** ResearchCalculationInputDto */
         ResearchCalculationInputDto: {
@@ -484,7 +504,11 @@ export interface components {
         ResearchCandidateDto: {
             /** Assignment */
             assignment: {
-                [key: string]: unknown;
+                [key: string]: boolean | number | string | null;
+            };
+            /** Assignment Types */
+            assignment_types: {
+                [key: string]: "NULL" | "BOOLEAN" | "INTEGER" | "DECIMAL" | "STRING";
             };
             /** Calculation Fingerprint */
             calculation_fingerprint: string;
@@ -494,6 +518,8 @@ export interface components {
             candidate_fingerprint: string;
             /** Graph Fingerprint */
             graph_fingerprint: string;
+            /** Signal Roles */
+            signal_roles: string[];
             /** Statistics Fingerprints */
             statistics_fingerprints: string[];
         };
@@ -503,10 +529,9 @@ export interface components {
             calculation_fingerprint: string;
             /** Candidate Fingerprint */
             candidate_fingerprint: string;
-            /** Graph */
-            graph: {
-                [key: string]: unknown;
-            };
+            graph: components["schemas"]["ResearchCalculationGraphDto"];
+            /** Graph Fingerprint */
+            graph_fingerprint: string;
             /** Research Result Fingerprint */
             research_result_fingerprint: string;
             /**
@@ -687,6 +712,163 @@ export interface components {
              */
             kind: "FIXED";
             value: components["schemas"]["ResearchScalarDto"];
+        };
+        /** ResearchGraphBooleanScalarDto */
+        ResearchGraphBooleanScalarDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "BOOLEAN";
+            /** Value */
+            value: boolean;
+        };
+        /** ResearchGraphDecimalScalarDto */
+        ResearchGraphDecimalScalarDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "DECIMAL";
+            /** Value */
+            value: string;
+        };
+        /** ResearchGraphDefinitionDto */
+        ResearchGraphDefinitionDto: {
+            /** Extensions */
+            extensions: {
+                [key: string]: components["schemas"]["ResearchGraphNullScalarDto"] | components["schemas"]["ResearchGraphBooleanScalarDto"] | components["schemas"]["ResearchGraphIntegerScalarDto"] | components["schemas"]["ResearchGraphDecimalScalarDto"] | components["schemas"]["ResearchGraphStringScalarDto"];
+            };
+            /** Factor Kind */
+            factor_kind: ("TIME_SERIES" | "CROSS_SECTION") | null;
+            /** Input Bindings */
+            input_bindings: {
+                [key: string]: components["schemas"]["ResearchGraphReferenceDto"];
+            };
+            /** Inputs */
+            inputs: components["schemas"]["ResearchGraphPortDto"][];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "INDICATOR" | "FACTOR" | "TARGET" | "PREDICATE";
+            /**
+             * Missing Values
+             * @enum {string}
+             */
+            missing_values: "FAIL" | "SKIP" | "PROPAGATE" | "RESET";
+            numeric: components["schemas"]["ResearchGraphNumericDto"];
+            /** Outputs */
+            outputs: components["schemas"]["ResearchGraphPortDto"][];
+            /** Parameters */
+            parameters: {
+                [key: string]: components["schemas"]["ResearchGraphNullScalarDto"] | components["schemas"]["ResearchGraphBooleanScalarDto"] | components["schemas"]["ResearchGraphIntegerScalarDto"] | components["schemas"]["ResearchGraphDecimalScalarDto"] | components["schemas"]["ResearchGraphStringScalarDto"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 2;
+            /** Semantic Version */
+            semantic_version: string;
+            /**
+             * Timestamp
+             * @enum {string}
+             */
+            timestamp: "BAR_OPEN" | "BAR_CLOSE" | "EVENT_TIME" | "OBSERVATION_TIME" | "AVAILABILITY_TIME";
+            /** Type Id */
+            type_id: string;
+            warmup: components["schemas"]["ResearchGraphWarmupDto"];
+        };
+        /** ResearchGraphIntegerScalarDto */
+        ResearchGraphIntegerScalarDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "INTEGER";
+            /** Value */
+            value: number;
+        };
+        /** ResearchGraphNodeDto */
+        ResearchGraphNodeDto: {
+            /** Alias */
+            alias: string | null;
+            definition: components["schemas"]["ResearchGraphDefinitionDto"];
+            /** Node Fingerprint */
+            node_fingerprint: string;
+        };
+        /** ResearchGraphNullScalarDto */
+        ResearchGraphNullScalarDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "NULL";
+            /** Value */
+            value: null;
+        };
+        /** ResearchGraphNumericDto */
+        ResearchGraphNumericDto: {
+            /** Output Quantum */
+            output_quantum: string | null;
+            /** Precision */
+            precision: number;
+            /** Representation */
+            representation: string;
+            /** Rounding */
+            rounding: string;
+        };
+        /** ResearchGraphPortDto */
+        ResearchGraphPortDto: {
+            /**
+             * Data Type
+             * @enum {string}
+             */
+            data_type: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
+            /** Dimensions */
+            dimensions: string[];
+            /** Name */
+            name: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Semantic Type */
+            semantic_type: string;
+            /** Unit */
+            unit: string | null;
+        };
+        /** ResearchGraphReferenceDto */
+        ResearchGraphReferenceDto: {
+            /** Node Fingerprint */
+            node_fingerprint: string | null;
+            /** Output Name */
+            output_name: string;
+            /** Source */
+            source: string | null;
+        };
+        /** ResearchGraphStringScalarDto */
+        ResearchGraphStringScalarDto: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "STRING";
+            /** Value */
+            value: string;
+        };
+        /** ResearchGraphWarmupDto */
+        ResearchGraphWarmupDto: {
+            /** Initialization */
+            initialization: string;
+            /** Minimum Observations */
+            minimum_observations: number;
+            /**
+             * Pre Ready Output
+             * @enum {string}
+             */
+            pre_ready_output: "NULL" | "PARTIAL";
+            /** Ready Condition */
+            ready_condition: string;
         };
         /** ResearchInputDefinitionDto */
         ResearchInputDefinitionDto: {

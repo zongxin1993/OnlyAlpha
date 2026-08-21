@@ -35,6 +35,11 @@ const summary: ResearchArtifactSummary = {
     artifactSchemaVersion: 1,
     statisticsCount: 1,
     rowCount: 2,
+    candidateCount: 0,
+    publishedSeriesCount: 0,
+    signalSeriesCount: 0,
+    marketRowCount: 0,
+    instrumentIds: [],
     createdAt: "2026-08-16T00:00:00Z"
 };
 const catalog: ResearchStatisticsCatalog = {

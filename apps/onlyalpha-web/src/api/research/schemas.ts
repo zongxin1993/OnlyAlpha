@@ -8,6 +8,11 @@ const decimal = z.string().regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/);
 const integer = z.string().regex(/^(?:0|-?[1-9][0-9]*)$/);
 const nonnegative = z.number().int().nonnegative();
 const positive = z.number().int().positive();
+const strictlyIncreasing = (values: readonly bigint[]): boolean =>
+    values.every((value, index) => {
+        const previous = values[index - 1];
+        return previous === undefined || value > previous;
+    });
 const calculationDataType = z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]);
 const calculationKind = z.enum(["INDICATOR", "FACTOR", "TARGET"]);
 const universeKind = z.enum([
@@ -51,20 +56,33 @@ export const statisticsDescriptorSchema = z.strictObject({
     definition: definitionSchema
 }) satisfies z.ZodType<Dto<"ResearchStatisticsDescriptorDto">>;
 
-export const artifactSummarySchema = z.strictObject({
-    schema_version: z.literal(2),
-    research_result_plan_fingerprint: sha256,
-    research_result_content_fingerprint: sha256,
-    research_result_fingerprint: sha256,
-    dataset_snapshot_fingerprint: sha256,
-    artifact_content_fingerprint: sha256,
-    research_result_schema_version: positive,
-    artifact_profile: z.string().min(1),
-    artifact_schema_version: positive,
-    statistics_count: nonnegative,
-    row_count: nonnegative,
-    created_at: z.iso.datetime({ offset: true })
-}) satisfies z.ZodType<Dto<"ResearchArtifactSummaryDto">>;
+export const artifactSummarySchema = z
+    .strictObject({
+        schema_version: z.literal(2),
+        research_result_plan_fingerprint: sha256,
+        research_result_content_fingerprint: sha256,
+        research_result_fingerprint: sha256,
+        dataset_snapshot_fingerprint: sha256,
+        artifact_content_fingerprint: sha256,
+        research_result_schema_version: positive,
+        artifact_profile: z.string().min(1),
+        artifact_schema_version: positive,
+        statistics_count: nonnegative,
+        row_count: nonnegative,
+        candidate_count: nonnegative,
+        published_series_count: nonnegative,
+        signal_series_count: nonnegative,
+        market_row_count: nonnegative,
+        instrument_ids: z.array(z.string().min(1)),
+        created_at: z.iso.datetime({ offset: true })
+    })
+    .superRefine((value, context) => {
+        if (
+            new Set(value.instrument_ids).size !== value.instrument_ids.length ||
+            value.instrument_ids.join("\0") !== [...value.instrument_ids].sort().join("\0")
+        )
+            context.addIssue({ code: "custom", message: "Instrument membership is not canonical" });
+    }) satisfies z.ZodType<Dto<"ResearchArtifactSummaryDto">>;
 
 export const statisticsCatalogSchema = z.strictObject({
     schema_version: z.literal(2),
@@ -79,43 +97,127 @@ export const statisticPointSchema = z.strictObject({
     status: z.string().min(1)
 }) satisfies z.ZodType<Dto<"ResearchStatisticPointDto">>;
 
-export const statisticSeriesPageSchema = z.strictObject({
-    schema_version: z.literal(2),
-    research_result_fingerprint: sha256,
-    statistics_fingerprint: sha256,
-    points: z.array(statisticPointSchema),
-    has_more: z.boolean(),
-    next_after_ts_event_ns: integer.nullable()
-}) satisfies z.ZodType<Dto<"ResearchStatisticSeriesPageDto">>;
+export const statisticSeriesPageSchema = z
+    .strictObject({
+        schema_version: z.literal(2),
+        research_result_fingerprint: sha256,
+        statistics_fingerprint: sha256,
+        points: z.array(statisticPointSchema),
+        has_more: z.boolean(),
+        next_after_ts_event_ns: integer.nullable()
+    })
+    .superRefine((value, context) => {
+        const timestamps = value.points.map((point) => BigInt(point.ts_event_ns));
+        if (!strictlyIncreasing(timestamps))
+            context.addIssue({
+                code: "custom",
+                message: "Statistics timestamps are not canonical"
+            });
+        const expected = value.has_more ? value.points.at(-1)?.ts_event_ns : undefined;
+        if (value.has_more && expected === undefined)
+            context.addIssue({
+                code: "custom",
+                message: "Statistics page cannot continue from empty evidence"
+            });
+        if (
+            (expected === undefined && value.next_after_ts_event_ns !== null) ||
+            (expected !== undefined && value.next_after_ts_event_ns !== expected)
+        )
+            context.addIssue({ code: "custom", message: "Statistics cursor mismatch" });
+    }) satisfies z.ZodType<Dto<"ResearchStatisticSeriesPageDto">>;
 
-export const researchCandidateCatalogSchema = z.strictObject({
-    schema_version: z.literal(2),
-    research_result_fingerprint: sha256,
-    candidates: z.array(
-        z.strictObject({
-            candidate_fingerprint: sha256,
-            candidate_calculation_id: z.string().min(1),
-            assignment: z.record(z.string(), z.unknown()),
-            calculation_fingerprint: sha256,
-            graph_fingerprint: sha256,
-            statistics_fingerprints: z.array(sha256)
-        })
-    )
-}) satisfies z.ZodType<Dto<"ResearchCandidateCatalogDto">>;
+const researchCandidateSchema = z
+    .strictObject({
+        candidate_fingerprint: sha256,
+        candidate_calculation_id: z.string().min(1),
+        assignment: z.record(
+            z.string(),
+            z.union([z.boolean(), z.number().int(), z.string(), z.null()])
+        ),
+        assignment_types: z.record(
+            z.string(),
+            z.enum(["NULL", "BOOLEAN", "INTEGER", "DECIMAL", "STRING"])
+        ),
+        calculation_fingerprint: sha256,
+        graph_fingerprint: sha256,
+        statistics_fingerprints: z.array(sha256),
+        signal_roles: z.array(z.string().min(1))
+    })
+    .superRefine((value, context) => {
+        const assignment = Object.keys(value.assignment).sort();
+        const types = Object.keys(value.assignment_types).sort();
+        if (assignment.join("\0") !== types.join("\0"))
+            context.addIssue({ code: "custom", message: "Candidate assignment types mismatch" });
+        for (const name of assignment) {
+            const item = value.assignment[name];
+            const type = value.assignment_types[name];
+            const valid =
+                (type === "NULL" && item === null) ||
+                (type === "BOOLEAN" && typeof item === "boolean") ||
+                (type === "INTEGER" && typeof item === "number" && Number.isInteger(item)) ||
+                (type === "DECIMAL" &&
+                    typeof item === "string" &&
+                    decimal.safeParse(item).success) ||
+                (type === "STRING" && typeof item === "string");
+            if (!valid)
+                context.addIssue({
+                    code: "custom",
+                    message: `Candidate assignment ${name} type mismatch`
+                });
+        }
+        if (new Set(value.statistics_fingerprints).size !== value.statistics_fingerprints.length)
+            context.addIssue({
+                code: "custom",
+                message: "Candidate Statistics membership is duplicated"
+            });
+        if (new Set(value.signal_roles).size !== value.signal_roles.length)
+            context.addIssue({
+                code: "custom",
+                message: "Candidate Signal membership is duplicated"
+            });
+    });
 
-export const researchPublishedSeriesCatalogSchema = z.strictObject({
-    schema_version: z.literal(2),
-    research_result_fingerprint: sha256,
-    series: z.array(
-        z.strictObject({
-            candidate_fingerprint: sha256.nullable(),
-            calculation_fingerprint: sha256,
-            node_fingerprint: sha256,
-            output_name: z.string().min(1),
-            value_kind: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"])
-        })
-    )
-}) satisfies z.ZodType<Dto<"ResearchPublishedSeriesCatalogDto">>;
+export const researchCandidateCatalogSchema = z
+    .strictObject({
+        schema_version: z.literal(2),
+        research_result_fingerprint: sha256,
+        candidates: z.array(researchCandidateSchema)
+    })
+    .superRefine((value, context) => {
+        const identities = value.candidates.map((candidate) => candidate.candidate_fingerprint);
+        if (new Set(identities).size !== identities.length)
+            context.addIssue({ code: "custom", message: "Candidate membership is duplicated" });
+    }) satisfies z.ZodType<Dto<"ResearchCandidateCatalogDto">>;
+
+export const researchPublishedSeriesCatalogSchema = z
+    .strictObject({
+        schema_version: z.literal(2),
+        research_result_fingerprint: sha256,
+        series: z.array(
+            z.strictObject({
+                candidate_fingerprint: sha256.nullable(),
+                calculation_fingerprint: sha256,
+                node_fingerprint: sha256,
+                output_name: z.string().min(1),
+                value_kind: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"])
+            })
+        )
+    })
+    .superRefine((value, context) => {
+        const keys = value.series.map((series) =>
+            [
+                series.candidate_fingerprint,
+                series.calculation_fingerprint,
+                series.node_fingerprint,
+                series.output_name
+            ].join(":")
+        );
+        if (new Set(keys).size !== keys.length)
+            context.addIssue({
+                code: "custom",
+                message: "Published Series membership is duplicated"
+            });
+    }) satisfies z.ZodType<Dto<"ResearchPublishedSeriesCatalogDto">>;
 
 const marketPointSchema = z.strictObject({
     instrument_id: z.string().min(1),
@@ -126,35 +228,153 @@ const marketPointSchema = z.strictObject({
     close: decimal,
     volume: decimal
 });
-const variablePointSchema = z.strictObject({
-    instrument_id: z.string().min(1),
-    ts_event_ns: integer,
-    value_kind: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]),
-    decimal_value: decimal.nullable(),
-    integer_value: integer.nullable(),
-    boolean_value: z.boolean().nullable(),
-    string_value: z.string().nullable()
-});
+const variablePointSchema = z
+    .strictObject({
+        instrument_id: z.string().min(1),
+        ts_event_ns: integer,
+        value_kind: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]),
+        decimal_value: decimal.nullable(),
+        integer_value: integer.nullable(),
+        boolean_value: z.boolean().nullable(),
+        string_value: z.string().nullable()
+    })
+    .superRefine((value, context) => {
+        const fields = {
+            DECIMAL: value.decimal_value,
+            INTEGER: value.integer_value,
+            BOOLEAN: value.boolean_value,
+            STRING: value.string_value
+        };
+        for (const [kind, field] of Object.entries(fields))
+            if (kind !== value.value_kind && field !== null)
+                context.addIssue({ code: "custom", message: "Variable value_kind mismatch" });
+    });
 const signalPointSchema = z.strictObject({
     instrument_id: z.string().min(1),
     ts_event_ns: integer,
     value: z.boolean().nullable()
 });
 
-export const researchScientificSeriesPageSchema = z.strictObject({
+export const researchScientificSeriesPageSchema = z
+    .strictObject({
+        schema_version: z.literal(2),
+        research_result_fingerprint: sha256,
+        points: z.array(z.union([marketPointSchema, variablePointSchema, signalPointSchema])),
+        has_more: z.boolean(),
+        next_after_ts_event_ns: integer.nullable()
+    })
+    .superRefine((value, context) => {
+        const timestamps = value.points.map((point) => BigInt(point.ts_event_ns));
+        if (!strictlyIncreasing(timestamps))
+            context.addIssue({
+                code: "custom",
+                message: "Scientific timestamps are not canonical"
+            });
+        const expected = value.has_more ? value.points.at(-1)?.ts_event_ns : undefined;
+        if (value.has_more && expected === undefined)
+            context.addIssue({
+                code: "custom",
+                message: "Scientific page cannot continue from empty evidence"
+            });
+        if (
+            (expected === undefined && value.next_after_ts_event_ns !== null) ||
+            (expected !== undefined && value.next_after_ts_event_ns !== expected)
+        )
+            context.addIssue({ code: "custom", message: "Scientific cursor mismatch" });
+    }) satisfies z.ZodType<Dto<"ResearchScientificSeriesPageDto">>;
+
+const graphScalarSchema = z.discriminatedUnion("type", [
+    z.strictObject({ type: z.literal("NULL"), value: z.null() }),
+    z.strictObject({ type: z.literal("BOOLEAN"), value: z.boolean() }),
+    z.strictObject({ type: z.literal("INTEGER"), value: z.number().int() }),
+    z.strictObject({ type: z.literal("DECIMAL"), value: decimal }),
+    z.strictObject({ type: z.literal("STRING"), value: z.string() })
+]);
+const graphPortSchema = z.strictObject({
+    name: z.string().min(1),
+    data_type: z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]),
+    nullable: z.boolean(),
+    dimensions: z.array(z.string().min(1)),
+    semantic_type: z.string().min(1),
+    unit: z.string().nullable()
+});
+const graphReferenceSchema = z
+    .strictObject({
+        node_fingerprint: sha256.nullable(),
+        output_name: z.string().min(1),
+        source: z.string().min(1).nullable()
+    })
+    .refine((value) => (value.node_fingerprint === null) !== (value.source === null), {
+        message: "Graph input must select exactly one node or external source"
+    });
+const graphDefinitionSchema = z.strictObject({
     schema_version: z.literal(2),
-    research_result_fingerprint: sha256,
-    points: z.array(z.union([marketPointSchema, variablePointSchema, signalPointSchema])),
-    has_more: z.boolean(),
-    next_after_ts_event_ns: integer.nullable()
-}) satisfies z.ZodType<Dto<"ResearchScientificSeriesPageDto">>;
+    kind: z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]),
+    type_id: z.string().min(1),
+    semantic_version: z.string().min(1),
+    parameters: z.record(z.string(), graphScalarSchema),
+    inputs: z.array(graphPortSchema),
+    input_bindings: z.record(z.string(), graphReferenceSchema),
+    outputs: z.array(graphPortSchema).min(1),
+    warmup: z.strictObject({
+        minimum_observations: positive,
+        ready_condition: z.string().min(1),
+        pre_ready_output: z.enum(["NULL", "PARTIAL"]),
+        initialization: z.string().min(1)
+    }),
+    missing_values: z.enum(["FAIL", "SKIP", "PROPAGATE", "RESET"]),
+    timestamp: z.enum([
+        "BAR_OPEN",
+        "BAR_CLOSE",
+        "EVENT_TIME",
+        "OBSERVATION_TIME",
+        "AVAILABILITY_TIME"
+    ]),
+    numeric: z.strictObject({
+        representation: z.string().min(1),
+        precision: positive,
+        output_quantum: decimal.nullable(),
+        rounding: z.string().min(1)
+    }),
+    factor_kind: z.enum(["TIME_SERIES", "CROSS_SECTION"]).nullable(),
+    extensions: z.record(z.string(), graphScalarSchema)
+});
+const calculationGraphSchema = z
+    .strictObject({
+        schema_version: z.literal(1),
+        nodes: z.array(
+            z.strictObject({
+                node_fingerprint: sha256,
+                definition: graphDefinitionSchema,
+                alias: z.string().nullable()
+            })
+        )
+    })
+    .superRefine((value, context) => {
+        const identities = new Set(value.nodes.map((node) => node.node_fingerprint));
+        if (identities.size !== value.nodes.length)
+            context.addIssue({ code: "custom", message: "Graph nodes are duplicated" });
+        for (const node of value.nodes) {
+            const inputs = node.definition.inputs.map((port) => port.name).sort();
+            const bindings = Object.keys(node.definition.input_bindings).sort();
+            if (inputs.join("\0") !== bindings.join("\0"))
+                context.addIssue({ code: "custom", message: "Graph input bindings mismatch" });
+            for (const reference of Object.values(node.definition.input_bindings))
+                if (
+                    reference.node_fingerprint !== null &&
+                    !identities.has(reference.node_fingerprint)
+                )
+                    context.addIssue({ code: "custom", message: "Graph dependency is missing" });
+        }
+    });
 
 export const researchCandidateGraphSchema = z.strictObject({
     schema_version: z.literal(2),
     research_result_fingerprint: sha256,
     candidate_fingerprint: sha256,
     calculation_fingerprint: sha256,
-    graph: z.record(z.string(), z.unknown())
+    graph_fingerprint: sha256,
+    graph: calculationGraphSchema
 }) satisfies z.ZodType<Dto<"ResearchCandidateGraphDto">>;
 
 export const researchErrorSchema = z.strictObject({

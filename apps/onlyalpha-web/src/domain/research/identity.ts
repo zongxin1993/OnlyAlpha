@@ -5,6 +5,7 @@ export type ResearchResultFingerprint = string & {
     readonly __researchResultFingerprint: unique symbol;
 };
 export type StatisticsFingerprint = string & { readonly __statisticsFingerprint: unique symbol };
+export type Sha256Fingerprint = string & { readonly __sha256Fingerprint: unique symbol };
 export type ResearchRunId = string & { readonly __researchRunId: unique symbol };
 export type ResearchSubmissionKey = string & { readonly __researchSubmissionKey: unique symbol };
 
@@ -19,6 +20,9 @@ export const parseResearchResultFingerprint = (value: string): ResearchResultFin
 
 export const parseStatisticsFingerprint = (value: string): StatisticsFingerprint =>
     parseSha256(value, "Statistics fingerprint") as StatisticsFingerprint;
+
+export const parseSha256Fingerprint = (value: string): Sha256Fingerprint =>
+    parseSha256(value, "Fingerprint") as Sha256Fingerprint;
 
 function parseUuid4(value: string, name: string): string {
     if (!UUID4.test(value)) throw new Error(`${name} must be an exact canonical UUID4`);

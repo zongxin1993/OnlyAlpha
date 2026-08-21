@@ -1,11 +1,11 @@
 import { Navigate, createBrowserRouter, type RouteObject } from "react-router-dom";
 import { CompatibilityResultRedirect, CompatibilityStatisticsRedirect } from "./RouteRedirects";
 import { WorkstationShell } from "./shell/WorkstationShell";
-import { ArtifactOverviewPage } from "../features/research/artifact/ArtifactOverviewPage";
 import { ResearchOpenPage } from "../features/research/open/ResearchOpenPage";
 import { ResearchRunPage } from "../features/research/runs/ResearchRunPage";
 import { ResearchRunsPage } from "../features/research/runs/ResearchRunsPage";
 import { ResearchStudioPage } from "../features/research/studio/ResearchStudioPage";
+import { ResultWorkspacePage } from "../features/research/results/ResultWorkspacePage";
 import { StatisticsDetailPage } from "../features/research/statistics/StatisticsDetailPage";
 
 export const researchRoutes: RouteObject[] = [
@@ -20,7 +20,7 @@ export const researchRoutes: RouteObject[] = [
             { path: "/research/results", element: <ResearchOpenPage /> },
             {
                 path: "/research/results/:researchResultFingerprint",
-                element: <ArtifactOverviewPage />
+                element: <ResultWorkspacePage />
             },
             {
                 path: "/research/results/:researchResultFingerprint/statistics/:statisticsFingerprint",
