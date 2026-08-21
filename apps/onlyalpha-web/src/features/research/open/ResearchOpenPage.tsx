@@ -12,7 +12,7 @@ export function ResearchOpenPage() {
         try {
             const fingerprint = parseResearchResultFingerprint(value);
             setError(null);
-            void navigate(`/research/${fingerprint}`);
+            void navigate(`/research/results/${fingerprint}`);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : "Invalid fingerprint");
         }

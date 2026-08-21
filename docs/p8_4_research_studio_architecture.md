@@ -1,6 +1,6 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4.2 Scientific Result Evidence Implemented / Verified Locally; later P8.4 increments remain Target Design**
+> Status: **P8.4.3 Research Studio & Runs Web Implemented / Verified Locally; P8.4.4 remains Target Design**
 >
 > This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
 
@@ -36,6 +36,15 @@ Dataset, Calculation/Graph, Candidate→Statistics, Published Series, Signal, an
 self-contained immutable projection containing exact market context, typed nullable variables, nullable signals, Statistics, and canonical Graphs;
 logical identity is separated from physical Parquet/JSON bytes. Query/HTTP expose Artifact-only scientific read models and return an explicit error for
 V1 Artifacts. No new execution phase or Evidence/Candidate/Signal/Graph/Predicate authority was introduced. See ADR 0095.
+
+P8.4.3 repository fact: the Web now owns the persistent Research shell and stable `New Research / Runs / Results` routes. A feature-local incomplete
+Draft has exactly one conversion boundary into the generated Definition transport; catalog-driven Calculation/Target/Statistics editing and the closed
+AND/OR/NOT/Comparison grammar do not calculate semantic fingerprints or Graphs. Server Resolution returns the only submit-authoritative exact
+Specification. Monotonic edit revision plus request abort/revision checks invalidate old evidence and fence stale responses. Run submission reuses one
+UUID4 Idempotency Key across uncertain retries, then navigates to durable Run list/detail pages whose polling and cancellation render only server facts;
+Completed Run links to the existing exact Artifact/Query Result consumer. Stage 0 rejects ambiguous non-candidate multi-lineage generic publication and
+generic internal PREDICATE publication while preserving candidate-relative publication, singleton global evidence, and Signal evidence. No identity
+formula, endpoint, PostgreSQL schema/authority, Runtime architecture, Result/Artifact schema, or new Store was introduced.
 
 ## 1. P8.4 objective
 
@@ -901,7 +910,9 @@ Extend Result/Artifact/Query evidence for market, published variables, signals, 
 
 ### P8.4.3 — Research Studio & Runs Web
 
-Implement persistent workstation shell, New Research Builder, Inspector, Validate/Run, Run list/detail/cancel, and durable refresh/reconnect behavior.
+Implemented/verified locally: persistent workstation shell, catalog-driven New Research Builder, authoritative Resolution Inspector, stale-response
+fencing, exact Specification submission, Run list/detail/poll/cancel, durable refresh/deep links, and exact Result bridge. Former P8.4.2.3 scientific
+publication admission concerns were closed as this increment's Stage 0.
 
 ### P8.4.4 — Scientific Viewer & Graph Inspector Closure
 

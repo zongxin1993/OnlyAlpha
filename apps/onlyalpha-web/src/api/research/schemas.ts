@@ -8,6 +8,14 @@ const decimal = z.string().regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/);
 const integer = z.string().regex(/^(?:0|-?[1-9][0-9]*)$/);
 const nonnegative = z.number().int().nonnegative();
 const positive = z.number().int().positive();
+const calculationDataType = z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]);
+const calculationKind = z.enum(["INDICATOR", "FACTOR", "TARGET"]);
+const universeKind = z.enum([
+    "SINGLE_INSTRUMENT",
+    "EXPLICIT_INSTRUMENT_SET",
+    "REGISTERED_POOL",
+    "REGISTERED_UNIVERSE"
+]);
 
 const referenceSchema = z.strictObject({
     calculation_fingerprint: sha256,
@@ -233,13 +241,13 @@ const researchScalarSchema = z.strictObject({
     value: z.union([z.boolean(), z.number().int(), z.string(), z.null()])
 });
 const calculationTypeReferenceSchema = z.strictObject({
-    kind: z.enum(["INDICATOR", "FACTOR", "TARGET"]),
+    kind: calculationKind,
     type_id: z.string().min(1),
     semantic_version: z.string().min(1)
 });
 const calculationPortSchema = z.strictObject({
     name: z.string().min(1),
-    data_type: z.string().min(1),
+    data_type: calculationDataType,
     nullable: z.boolean(),
     semantic_type: z.string().min(1),
     dimensions: z.array(z.string().min(1)),
@@ -247,7 +255,7 @@ const calculationPortSchema = z.strictObject({
 });
 const calculationParameterSchema = z.strictObject({
     name: z.string().min(1),
-    type: z.string().min(1),
+    type: calculationDataType,
     required: z.boolean(),
     default: researchScalarSchema,
     minimum: researchScalarSchema.nullable(),
@@ -260,7 +268,7 @@ export const researchCalculationCatalogSchema = z.strictObject({
     schema_version: z.literal(2),
     calculations: z.array(
         z.strictObject({
-            kind: z.string().min(1),
+            kind: calculationKind,
             type_reference: calculationTypeReferenceSchema,
             parameters: z.array(calculationParameterSchema),
             inputs: z.array(calculationPortSchema),
@@ -276,7 +284,7 @@ export const researchDatasetFieldCatalogSchema = z.strictObject({
         z.strictObject({
             source: z.string().min(1),
             field_name: z.string().min(1),
-            data_type: z.string().min(1),
+            data_type: calculationDataType,
             semantic_roles: z.array(z.string().min(1)),
             dimensions: z.array(z.string().min(1)),
             unit: z.string().nullable()
@@ -286,11 +294,11 @@ export const researchDatasetFieldCatalogSchema = z.strictObject({
 
 export const researchUniverseCatalogSchema = z.strictObject({
     schema_version: z.literal(2),
-    selection_kinds: z.array(z.string().min(1)),
+    selection_kinds: z.array(universeKind),
     registered_universes: z.array(
         z.strictObject({
             registered_id: z.string().min(1),
-            kind: z.string().min(1),
+            kind: universeKind,
             display_metadata: z.record(z.string(), z.unknown())
         })
     )
@@ -376,3 +384,11 @@ export type ResearchDefinitionResolutionTransport = z.infer<
     typeof researchDefinitionResolutionSchema
 >;
 export type ResearchDefinitionTransport = Dto<"ResearchDefinitionRequestDto">;
+export type ResearchCalculationCatalogItemTransport = Dto<"ResearchCalculationCatalogItemDto">;
+export type ResearchCalculationInstanceTransport = Dto<"ResearchCalculationInstanceDto">;
+export type ResearchScalarTransport = Dto<"ResearchScalarDto">;
+export type ResearchExpressionTransport =
+    | Dto<"ResearchComparisonDto">
+    | Dto<"ResearchNotDto">
+    | Dto<"ResearchAndDto">
+    | Dto<"ResearchOrDto">;

@@ -2,6 +2,12 @@
 
 This document describes the target Web product shape that P8.4 should implement and that later Backtest/Sim/Live Web surfaces should reuse where compatible. It complements [ADR 0092](adr/0092-web-scientific-workstation-and-browser-authority-boundary.md), which owns the durable architectural constraints. Exact pixels, component names, colors, and implementation details remain adaptable unless explicitly frozen by an ADR.
 
+Current implementation fact: P8.4.3 now provides the persistent shell, `New Research / Runs / Results` routing, structured catalog-driven Research
+Builder, authoritative Resolution Inspector, exact Specification Run submission, durable Run list/detail/poll/cancel, and Completed Run → exact Result
+bridge. The browser remains Control + Presentation only: it owns temporary incomplete Draft/revision state, while Definition resolution, Run facts and
+scientific evidence continue to come from their existing Domain/PostgreSQL/Artifact authorities. Advanced P8.4.4 scientific visualization and Graph
+Inspector surfaces remain target design.
+
 ## 1. Product role
 
 OnlyAlpha Web is a **Scientific Quant Workstation**.

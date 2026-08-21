@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { FetchResearchApiClient, type ResearchArtifactApiClient } from "../api/research/client";
+import { FetchResearchApiClient, type ResearchApiClient } from "../api/research/client";
 
-const ResearchApiContext = createContext<ResearchArtifactApiClient | null>(null);
+const ResearchApiContext = createContext<ResearchApiClient | null>(null);
 
-export function useResearchApi(): ResearchArtifactApiClient {
+export function useResearchApi(): ResearchApiClient {
     const client = useContext(ResearchApiContext);
     if (client === null) throw new Error("Research API provider is missing");
     return client;
@@ -15,7 +15,7 @@ export function AppProviders({
     client
 }: {
     readonly children: ReactNode;
-    readonly client?: ResearchArtifactApiClient;
+    readonly client?: ResearchApiClient;
 }) {
     const [queryClient] = useState(
         () =>
@@ -23,9 +23,7 @@ export function AppProviders({
                 defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } }
             })
     );
-    const [apiClient] = useState<ResearchArtifactApiClient>(
-        () => client ?? new FetchResearchApiClient()
-    );
+    const [apiClient] = useState<ResearchApiClient>(() => client ?? new FetchResearchApiClient());
     return (
         <ResearchApiContext value={apiClient}>
             <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

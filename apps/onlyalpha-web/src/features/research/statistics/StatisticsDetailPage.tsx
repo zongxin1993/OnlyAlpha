@@ -90,7 +90,7 @@ function ValidStatisticsDetailPage({
     return (
         <main className="page">
             <nav>
-                <Link to={`/research/${result}`}>← Artifact overview</Link>
+                <Link to={`/research/results/${result}`}>← Artifact overview</Link>
             </nav>
             <p className="eyebrow">Exact Statistics member</p>
             <h1>{descriptor.definition.method}</h1>

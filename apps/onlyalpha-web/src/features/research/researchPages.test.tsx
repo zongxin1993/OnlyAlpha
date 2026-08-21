@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import type { ResearchArtifactApiClient, StatisticSeriesRequest } from "../../api/research/client";
+import type { ResearchApiClient, StatisticSeriesRequest } from "../../api/research/client";
 import { ResearchWebError } from "../../api/research/errors";
 import { AppProviders } from "../../app/providers";
 import { parseDecimalText } from "../../domain/research/decimal";
@@ -74,7 +74,7 @@ const catalog: ResearchStatisticsCatalog = {
     ]
 };
 
-class SuccessClient implements ResearchArtifactApiClient {
+class SuccessClient implements ResearchApiClient {
     getArtifactSummary() {
         return Promise.resolve(summary);
     }
@@ -98,12 +98,57 @@ class SuccessClient implements ResearchArtifactApiClient {
             nextAfterTsEventNs: second ? null : parseUnixNanoseconds("1000000000")
         });
     }
+    submitRun() {
+        return Promise.reject(new Error("unused"));
+    }
+    getRun() {
+        return Promise.reject(new Error("unused"));
+    }
+    listRuns() {
+        return Promise.reject(new Error("unused"));
+    }
+    cancelRun() {
+        return Promise.reject(new Error("unused"));
+    }
+    getCandidateCatalog() {
+        return Promise.reject(new Error("unused"));
+    }
+    getPublishedSeriesCatalog() {
+        return Promise.reject(new Error("unused"));
+    }
+    getMarketSeries() {
+        return Promise.reject(new Error("unused"));
+    }
+    getCandidateGraph() {
+        return Promise.reject(new Error("unused"));
+    }
+    getVariableSeries() {
+        return Promise.reject(new Error("unused"));
+    }
+    getSignalSeries() {
+        return Promise.reject(new Error("unused"));
+    }
+    getCalculationCatalog() {
+        return Promise.reject(new Error("unused"));
+    }
+    getUniverseCatalog() {
+        return Promise.reject(new Error("unused"));
+    }
+    getStatisticsCapabilityCatalog() {
+        return Promise.reject(new Error("unused"));
+    }
+    getDatasetFieldCatalog() {
+        return Promise.reject(new Error("unused"));
+    }
+    resolveDefinition() {
+        return Promise.reject(new Error("unused"));
+    }
 }
 
 function renderRoute(
     path: string,
     element: React.ReactNode,
-    client: ResearchArtifactApiClient = new SuccessClient()
+    client: ResearchApiClient = new SuccessClient()
 ) {
     const router = createMemoryRouter(
         [
@@ -127,7 +172,10 @@ it("validates fingerprint locally and navigates by URL", async () => {
     const router = createMemoryRouter(
         [
             { path: "/research", element: <ResearchOpenPage /> },
-            { path: "/research/:researchResultFingerprint", element: <p>opened exact result</p> }
+            {
+                path: "/research/results/:researchResultFingerprint",
+                element: <p>opened exact result</p>
+            }
         ],
         { initialEntries: ["/research"] }
     );

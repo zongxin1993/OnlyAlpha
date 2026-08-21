@@ -320,7 +320,22 @@ class OnlyResearchSpecificationResolver:
     ) -> tuple[OnlyResearchPublishedSeriesLineage, ...]:
         result: list[OnlyResearchPublishedSeriesLineage] = []
         for selector in selectors:
-            for candidate, node_fingerprint, _ in self._resolve_selector(candidates, selector):
+            selected = self._resolve_selector(candidates, selector)
+            is_candidate_calculation = any(candidate.candidate_fingerprint is not None for candidate, _, _ in selected)
+            if not is_candidate_calculation and len(selected) != 1:
+                self._fail(
+                    OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                    "RESEARCH_SPEC_PUBLISHED_SERIES_AMBIGUOUS",
+                    (f"non-candidate calculation_id {selector.calculation_id!r} resolves to {len(selected)} lineages"),
+                )
+            for candidate, node_fingerprint, _ in selected:
+                node = next(item for item in candidate.graph.nodes if item.fingerprint == node_fingerprint)
+                if node.definition.kind is OnlyCalculationKind.PREDICATE:
+                    self._fail(
+                        OnlyResearchSpecificationPhase.SERIES_RESOLUTION,
+                        "RESEARCH_SPEC_PUBLISHED_SERIES_KIND_FORBIDDEN",
+                        "internal PREDICATE outputs cannot be published as generic scientific series",
+                    )
                 result.append(
                     OnlyResearchPublishedSeriesLineage(
                         candidate.candidate_fingerprint,

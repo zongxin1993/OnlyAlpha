@@ -17,7 +17,9 @@ export class ResearchWebError extends Error {
     constructor(
         readonly code: ResearchWebErrorCode,
         message: string,
-        readonly status?: number
+        readonly status?: number,
+        readonly phase?: string,
+        readonly path?: string
     ) {
         super(message);
         this.name = "ResearchWebError";

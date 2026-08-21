@@ -6,7 +6,9 @@ import pytest
 
 from onlyalpha.research import (
     OnlyResearchCalculationSpec,
+    OnlyResearchScientificEvidenceSpec,
     OnlyResearchSeriesSelector,
+    OnlyResearchSignalEvidenceSpec,
     OnlyResearchSpecification,
     OnlyResearchSpecificationError,
     OnlyResearchSpecificationResolution,
@@ -41,6 +43,25 @@ def _swept(
         for item in spec.calculations
     )
     return OnlyResearchSpecification(spec.dataset_snapshot_fingerprint, calculations, spec.statistics)
+
+
+def _with_evidence(
+    spec: OnlyResearchSpecification,
+    *,
+    candidate_calculation_id: str,
+    published_series: tuple[OnlyResearchSeriesSelector, ...],
+) -> OnlyResearchSpecification:
+    return OnlyResearchSpecification(
+        spec.dataset_snapshot_fingerprint,
+        spec.calculations,
+        spec.statistics,
+        OnlyResearchScientificEvidenceSpec(
+            candidate_calculation_id,
+            published_series,
+            OnlyResearchSignalEvidenceSpec(),
+        ),
+        2,
+    )
 
 
 def test_direct_resolution_reproduces_manual_p7_graph_job_statistics_and_result_identities() -> None:
@@ -80,6 +101,48 @@ def test_target_singleton_broadcast_and_many_to_many_ambiguity() -> None:
     with pytest.raises(OnlyResearchSpecificationError) as error:
         OnlyResearchSpecificationResolver(registry()).resolve(both)
     assert error.value.code == "RESEARCH_SPEC_STATISTICS_EXPANSION_AMBIGUOUS"
+
+
+def test_candidate_calculation_swept_publication_is_candidate_relative() -> None:
+    swept = _swept(specification(), "feature", "short", "period", (1, 3, 5))
+    resolved = OnlyResearchSpecificationResolver(registry()).resolve(
+        _with_evidence(
+            swept,
+            candidate_calculation_id="feature",
+            published_series=(OnlyResearchSeriesSelector("feature", "momentum", "factor_value"),),
+        )
+    )
+
+    assert len(resolved.published_series) == 3
+    assert all(item.candidate_fingerprint is not None for item in resolved.published_series)
+
+
+def test_non_candidate_singleton_publication_remains_global_evidence() -> None:
+    swept = _swept(specification(), "feature", "short", "period", (1, 3))
+    resolved = OnlyResearchSpecificationResolver(registry()).resolve(
+        _with_evidence(
+            swept,
+            candidate_calculation_id="feature",
+            published_series=(OnlyResearchSeriesSelector("target", "forward_return", "target_value"),),
+        )
+    )
+
+    assert len(resolved.published_series) == 1
+    assert resolved.published_series[0].candidate_fingerprint is None
+
+
+def test_non_candidate_multi_lineage_publication_fails_closed() -> None:
+    target_sweep = _swept(specification(), "target", "forward_return", "exit_offset", (1, 2))
+    with pytest.raises(OnlyResearchSpecificationError) as error:
+        OnlyResearchSpecificationResolver(registry()).resolve(
+            _with_evidence(
+                target_sweep,
+                candidate_calculation_id="feature",
+                published_series=(OnlyResearchSeriesSelector("target", "forward_return", "target_value"),),
+            )
+        )
+
+    assert error.value.code == "RESEARCH_SPEC_PUBLISHED_SERIES_AMBIGUOUS"
 
 
 @pytest.mark.parametrize(

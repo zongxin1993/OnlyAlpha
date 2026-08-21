@@ -186,7 +186,9 @@ async function request(url: string, init: RequestInit, signal?: AbortSignal): Pr
             throw new ResearchWebError(
                 error.code as `RESEARCH_${string}`,
                 error.detail,
-                response.status
+                response.status,
+                error.phase,
+                error.path
             );
         }
         const runFailure = researchRunErrorSchema.safeParse(body);
@@ -195,7 +197,8 @@ async function request(url: string, init: RequestInit, signal?: AbortSignal): Pr
             throw new ResearchWebError(
                 error.code as `RESEARCH_${string}`,
                 error.detail,
-                response.status
+                response.status,
+                error.phase
             );
         }
         const admitted = researchErrorSchema.safeParse(body);

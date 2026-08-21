@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.2.1 — IMPLEMENTED / VERIFIED locally** — Scientific Evidence Integrity & Determinism Closure |
-| Next semantic direction | P8.4.3 — Research Studio & Runs Web |
+| Current increment | **P8.4.3 — IMPLEMENTED / VERIFIED locally** — Research Studio & Runs Web |
+| Next semantic direction | P8.4.4 — Scientific Viewer & Graph Inspector Closure |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -388,7 +388,7 @@ P8.3 已建立 transport-neutral Research Command/Application boundary、UUID4 `
 PostgreSQL durable commit 后返回 accepted Run；portable `onlyalpha-artifact-api` 继续只依赖 Artifact Reader。OpenAPI、Web generated
 contract/Zod admission 与 exact `bigint` revision 已同步，但没有新增 P8.4 页面、Worker 启动或 Artifact content response。
 
-P8.4.0 已实现 programmatic Research Definition foundation：Universe/Data intent、registered Calculation Instance、全局有限 Sweep、typed Eligibility/Entry/Exit AST、internal RESEARCH Predicate lowering，以及现有 Specification/Workload 闭环。P8.4 后续 Research Studio 仍需让用户从 Web 选择这些语义并查看 K-line、Feature、Factor Score、Signal/买卖点和 cross-sectional statistics 的科学可视化。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
+P8.4.0 已实现 programmatic Research Definition foundation：Universe/Data intent、registered Calculation Instance、全局有限 Sweep、typed Eligibility/Entry/Exit AST、internal RESEARCH Predicate lowering，以及现有 Specification/Workload 闭环。P8.4.3 已让用户从 Web 选择并提交这些正式语义；K-line、Feature、Factor Score、Signal/买卖点、cross-sectional statistics 的完整科学可视化仍属于 P8.4.4。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
 
 P8.4.1 已把 Calculation Registry、Dataset source contract、registered Universe authority 与共享 Statistics capability 作为确定性只读
 Catalog 暴露，并增加 `POST /api/v2/research/definitions/resolve`。该 endpoint 严格执行
@@ -406,6 +406,12 @@ canonical Graph；V1 contracts 保持可读，且未新增 Evidence/Candidate/Si
 P8.4.2.1 已关闭 Scientific Artifact 的并发发布、exact membership、logical key、typed scalar、完整 series axis 与 portable verified-load
 缺口，并把 internal Predicate implementation ownership 收敛到 Research Calculation。Candidate 与既有 Specification/Result/Artifact
 semantic identity 算法不变；V1 contracts 与 P8.3 exact Specification submission 保持兼容，P8 仍为 `IN_PROGRESS`。
+
+P8.4.3 已实现 Web-native 日常 Research 控制闭环：持久 workstation shell、catalog-driven structured Builder、唯一 Draft → Definition
+transport、权威 Definition Resolution、edit revision + stale response fencing、exact Specification idempotent Run submission、Run
+list/detail/poll/cancel，以及 Completed Run → exact Result 跳转。Stage 0 同时关闭 non-candidate multi-lineage publication ambiguity 与
+generic PREDICATE publication 准入缺口；未改变 Definition/Specification/Candidate/Calculation/Result/Artifact identity，未新增 endpoint、
+PostgreSQL authority 或 Runtime path。P8 仍为 `IN_PROGRESS`；完整 Scientific Viewer/Graph Inspector 属于 P8.4.4。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 
@@ -551,7 +557,9 @@ ONLYALPHA_POSTGRES_DSN='postgresql://...' uv run onlyalpha-api --user-data-root 
 uv run onlyalpha-artifact-api --artifact-root <USER_DATA_ROOT>/research/artifacts
 ```
 
-P7.12 Web 仍是 read-only Result Viewer；P8.3 只增加稳定 client contract，P8.4.0 只增加 Definition/Decision Graph foundation，submission/control 页面属于后续 P8.4 Web increment。
+Research Web 已支持 `New Research / Runs / Results`：浏览器只保存临时 Draft 和 presentation state，exact Specification 只来自最新权威
+Resolution，Run state 只来自 PostgreSQL operational authority，Result 页面只消费 Artifact/Query evidence。P8.4.4 的高级科学可视化与
+Graph Inspector 尚未实现。
 
 ---
 

@@ -20,6 +20,7 @@ from onlyalpha.research import (
     OnlyResearchDefinitionResolver,
     OnlyResearchFixedParameter,
     OnlyResearchSpecification,
+    OnlyResearchSpecificationError,
     OnlyResearchSpecificationResolver,
     OnlyResearchSweepParameter,
     OnlyResearchTypedLiteral,
@@ -134,6 +135,29 @@ def test_specification_v2_publication_and_candidate_identity_survive_fresh_resol
     assert reconstructed == [
         item.candidate_fingerprint for item in first.specification_resolution.candidates if item.candidate_fingerprint
     ]
+
+
+def test_predicate_generic_publication_fails_while_signal_evidence_remains_admitted(tmp_path) -> None:
+    committed, _, registry, resolver = _case(tmp_path)
+    resolved = resolver.resolve(definition(committed.definition))
+    evidence = resolved.specification.evidence
+    assert evidence is not None
+    assert evidence.signals.eligibility is not None
+    assert evidence.signals.entry is not None
+    assert evidence.signals.exit is not None
+    assert {item.role for item in resolved.specification_resolution.signals} == {
+        "ELIGIBILITY",
+        "ENTRY_SIGNAL",
+        "EXIT_SIGNAL",
+    }
+
+    predicate_selector = evidence.signals.entry
+    invalid_evidence = replace(evidence, published_series=(*evidence.published_series, predicate_selector))
+    invalid = replace(resolved.specification, evidence=invalid_evidence)
+    with pytest.raises(OnlyResearchSpecificationError) as error:
+        OnlyResearchSpecificationResolver(registry).resolve(invalid)
+
+    assert error.value.code == "RESEARCH_SPEC_PUBLISHED_SERIES_KIND_FORBIDDEN"
 
 
 def test_candidate_graph_executes_boolean_series_without_eligibility_rewriting_entry(tmp_path) -> None:

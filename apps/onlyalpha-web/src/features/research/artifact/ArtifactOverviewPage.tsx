@@ -54,7 +54,7 @@ function ValidArtifactOverviewPage({
     return (
         <main className="page">
             <nav>
-                <Link to="/research">← Open another exact result</Link>
+                <Link to="/research/results">← Open another exact result</Link>
             </nav>
             <p className="eyebrow">Verified immutable Research Artifact</p>
             <h1>Artifact overview</h1>
@@ -85,7 +85,7 @@ function ValidArtifactOverviewPage({
                         {catalog.data.statistics.map((item) => (
                             <li key={item.statisticsFingerprint}>
                                 <Link
-                                    to={`/research/${result}/statistics/${item.statisticsFingerprint}`}
+                                    to={`/research/results/${result}/statistics/${item.statisticsFingerprint}`}
                                 >
                                     <strong>{item.definition.method}</strong>
                                     <code>{item.statisticsFingerprint}</code>
