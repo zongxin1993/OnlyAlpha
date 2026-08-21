@@ -82,6 +82,7 @@ export function projectCandidateSurface(
                   ? "MULTI_DIMENSION"
                   : "TABLE_ONLY";
     const points = [];
+    const coordinateLabels = new Map<string, Map<number, string>>();
     for (const candidate of candidates) {
         const point = (evidence.get(candidate.candidateFingerprint) ?? []).find(
             (item) => item.tsEventNs === exactTsEventNs
@@ -96,8 +97,18 @@ export function projectCandidateSurface(
         if (projected !== null && !projected.ok) return { ok: false, detail: projected.detail };
         const numericCoordinates: Record<string, number> = {};
         for (const dimension of numeric) {
-            const coordinate = projectFiniteDecimal(String(candidate.assignment[dimension]));
+            const exact = String(candidate.assignment[dimension]);
+            const coordinate = projectFiniteDecimal(exact);
             if (!coordinate.ok) return { ok: false, detail: coordinate.detail };
+            const labels = coordinateLabels.get(dimension) ?? new Map<number, string>();
+            const existing = labels.get(coordinate.value);
+            if (existing !== undefined && existing !== exact)
+                return {
+                    ok: false,
+                    detail: "Distinct exact assignments collide at one numeric renderer coordinate"
+                };
+            labels.set(coordinate.value, exact);
+            coordinateLabels.set(dimension, labels);
             numericCoordinates[dimension] = coordinate.value;
         }
         points.push({

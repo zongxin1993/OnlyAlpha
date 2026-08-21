@@ -79,3 +79,28 @@ it.each([
         expect(candidateAxis(projected.surface, "window").map((item) => item.label)).toEqual(exact);
     }
 );
+
+it.each([
+    ["ONE_DIMENSION", { window: "9007199254740992" }, { window: "9007199254740993" }],
+    [
+        "MULTI_DIMENSION",
+        { a: "9007199254740992", b: "1", c: "2" },
+        { a: "9007199254740993", b: "3", c: "4" }
+    ]
+] as const)("fails closed on lossy exact-coordinate collisions for %s", (_mode, left, right) => {
+    const candidates = [left, right].map((assignment, index) => ({
+        ...candidate(String(index + 1), 0),
+        assignment,
+        assignmentTypes: Object.fromEntries(
+            Object.keys(assignment).map((name): [string, "DECIMAL"] => [name, "DECIMAL"])
+        )
+    }));
+    const timestamp = parseUnixNanoseconds("1000000000");
+    const evidence = new Map(
+        candidates.map((item) => [item.candidateFingerprint, [point(String(timestamp), "0.1")]])
+    );
+    expect(projectCandidateSurface(candidates, evidence, timestamp)).toEqual({
+        ok: false,
+        detail: "Distinct exact assignments collide at one numeric renderer coordinate"
+    });
+});

@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
 from onlyalpha.persistence.postgres import (
+    ONLYALPHA_POSTGRES_CLIENT_MAJOR,
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
+    only_assert_supported_postgres_server,
 )
 from onlyalpha.research.run import OnlyResearchRunId
 
@@ -61,14 +68,77 @@ def _tool(name: str) -> str:
     return executable
 
 
-def _backup(dsn: str, destination: Path) -> None:
+def _tool_version(name: str) -> str:
+    completed = subprocess.run([_tool(name), "--version"], check=True, capture_output=True, text=True)
+    return completed.stdout.strip()
+
+
+def _tool_major(name: str) -> int:
+    version_text = _tool_version(name)
+    match = re.search(r"(?:PostgreSQL\)\s+|\b)([0-9]+)(?:\.[0-9]+)", version_text)
+    if match is None:
+        raise RuntimeError(f"POSTGRES_CLIENT_VERSION_INVALID: {name}")
+    return int(match.group(1))
+
+
+def _assert_client_major(name: str) -> str:
+    version_text = _tool_version(name)
+    if _tool_major(name) != ONLYALPHA_POSTGRES_CLIENT_MAJOR:
+        raise RuntimeError(f"POSTGRES_CLIENT_MAJOR_UNSUPPORTED: {name} must be major {ONLYALPHA_POSTGRES_CLIENT_MAJOR}")
+    return version_text
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _repository_sha() -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True, cwd=Path(__file__).parents[1]
+        )
+        return completed.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _metadata_path(backup: Path) -> Path:
+    return backup.with_name(f"{backup.name}.metadata.json")
+
+
+def _backup(dsn: str, destination: Path) -> Path:
     _authority(dsn).assert_compatible()
+    server = only_assert_supported_postgres_server(dsn)
+    dump_version = _assert_client_major("pg_dump")
     destination.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [_tool("pg_dump"), "--format=custom", "--file", str(destination)],
         env=_client_environment(dsn),
         check=True,
     )
+    authority = _authority(dsn)
+    metadata = {
+        "schema_version": 1,
+        "backup_sha256": _sha256(destination),
+        "created_at": datetime.now(UTC).isoformat(),
+        "repository_version": importlib.metadata.version("onlyalpha"),
+        "repository_sha": _repository_sha(),
+        "postgres_server_version": server.version,
+        "pg_dump_version": dump_version,
+        "migrations": [
+            {"migration_id": item.migration_id, "checksum_sha256": item.checksum_sha256}
+            for item in authority.migrations
+        ],
+    }
+    metadata_path = _metadata_path(destination)
+    temporary = metadata_path.with_name(f".{metadata_path.name}.tmp")
+    temporary.write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    os.replace(temporary, metadata_path)
+    return metadata_path
 
 
 def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | None) -> None:
@@ -85,6 +155,13 @@ def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | 
         count = result[0]
     if count != 0:
         raise RuntimeError("restore-test target must be empty")
+    only_assert_supported_postgres_server(source_dsn)
+    only_assert_supported_postgres_server(target_dsn)
+    _assert_client_major("pg_restore")
+    metadata_path = _metadata_path(backup)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict) or metadata.get("backup_sha256") != _sha256(backup):
+        raise RuntimeError("backup metadata checksum verification failed")
     subprocess.run(
         [_tool("pg_restore"), "--exit-on-error", "--dbname", str(target["dbname"]), str(backup)],
         env=_client_environment(target_dsn),
@@ -92,8 +169,19 @@ def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | 
     )
     _authority(target_dsn).assert_compatible()
     if run_id is not None:
-        OnlyPostgresResearchRunStore(target_dsn).load(OnlyResearchRunId(run_id))
+        selected = OnlyResearchRunId(run_id)
+        OnlyPostgresResearchRunStore(target_dsn).load(selected)
+        OnlyPostgresResearchOperationsStore(target_dsn).load_operational_snapshot(run_id=selected, limit=1)
     _authority(source_dsn).assert_compatible()
+
+
+def _validate(dsn: str, run_id: str | None) -> None:
+    _authority(dsn).assert_compatible()
+    only_assert_supported_postgres_server(dsn)
+    selected = None if run_id is None else OnlyResearchRunId(run_id)
+    snapshot = OnlyPostgresResearchOperationsStore(dsn).load_operational_snapshot(run_id=selected, limit=100)
+    if selected is not None and not snapshot.runs:
+        raise RuntimeError("selected Research Run does not exist")
 
 
 def main() -> int:
@@ -103,6 +191,8 @@ def main() -> int:
     commands.add_parser("status")
     commands.add_parser("plan")
     commands.add_parser("migrate")
+    validate = commands.add_parser("validate")
+    validate.add_argument("--run-id")
     backup = commands.add_parser("backup")
     backup.add_argument("destination", type=Path)
     restore = commands.add_parser("restore-test")
@@ -129,9 +219,13 @@ def main() -> int:
     if args.command == "migrate":
         print(json.dumps({"applied": authority.migrate()}, sort_keys=True))
         return 0
+    if args.command == "validate":
+        _validate(dsn, args.run_id)
+        print(json.dumps({"domain_validation": "VERIFIED"}, sort_keys=True))
+        return 0
     if args.command == "backup":
-        _backup(dsn, args.destination)
-        print(json.dumps({"backup": str(args.destination)}, sort_keys=True))
+        metadata = _backup(dsn, args.destination)
+        print(json.dumps({"backup": str(args.destination), "metadata": str(metadata)}, sort_keys=True))
         return 0
     if args.command == "restore-test":
         target = OnlyPostgresConfig.from_environment(args.target_dsn_env).dsn

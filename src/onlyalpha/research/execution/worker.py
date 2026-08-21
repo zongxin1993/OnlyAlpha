@@ -14,6 +14,8 @@ from typing import Protocol, cast
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
+from onlyalpha.research.operations.logging import only_log_research_operational_event
+from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
 from onlyalpha.research.run.evidence import only_research_admission_resolution_fingerprint
 from onlyalpha.research.run.model import (
     OnlyResearchRun,
@@ -68,6 +70,14 @@ class OnlyResearchRuntimeExecutor(Protocol):
         workload: OnlyResearchWorkloadPlan,
         control: OnlyResearchRuntimeExecutionControl,
     ) -> OnlyResearchRuntimeResult: ...
+
+
+class _PresenceReporter(Protocol):
+    def start(self) -> None: ...
+
+    def draining(self) -> None: ...
+
+    def stop(self) -> None: ...
 
 
 class OnlyEngineResearchRuntimeExecutor:
@@ -152,6 +162,15 @@ class _LeaseControl:
             )
         except (OnlyResearchExecutionOwnershipLostError, OnlyResearchExecutionStoreUnavailableError) as exc:
             self._lost = exc
+            only_log_research_operational_event(
+                _LOG,
+                logging.ERROR,
+                "research.attempt.heartbeat_failed",
+                run_id=str(self._claim.attempt.run_id),
+                attempt_id=str(self._claim.attempt.attempt_id),
+                worker_instance_id=str(self._claim.attempt.worker_instance_id),
+                failure_code="ATTEMPT_OWNERSHIP_LOST",
+            )
             raise OnlyResearchRuntimeOwnershipLost(type(exc).__name__) from exc
 
     def _raise_if_lost(self) -> None:
@@ -190,6 +209,15 @@ class OnlyResearchWorker:
     def execute_claim(self, claim: OnlyResearchExecutionClaim) -> OnlyResearchWorkerOutcome:
         if claim.attempt.worker_instance_id != self.worker_instance_id:
             raise OnlyResearchExecutionOwnershipLostError("Claim belongs to a different Worker instance")
+        only_log_research_operational_event(
+            _LOG,
+            logging.INFO,
+            "research.run.claimed",
+            run_id=str(claim.attempt.run_id),
+            attempt_id=str(claim.attempt.attempt_id),
+            worker_instance_id=str(self.worker_instance_id),
+            lease_expires_at=claim.attempt.lease_expires_at.isoformat(),
+        )
         control = _LeaseControl(
             claim=claim,
             store=self._execution_store,
@@ -293,6 +321,7 @@ class OnlyResearchWorkerService:
         worker: OnlyResearchWorker,
         cancellation_reconciler: OnlyResearchCancellationRecoveryReconciler,
         polling_interval: timedelta = timedelta(seconds=1),
+        presence_reporter: _PresenceReporter | None = None,
     ) -> None:
         if polling_interval <= timedelta(0):
             raise ValueError("polling_interval must be positive")
@@ -300,6 +329,7 @@ class OnlyResearchWorkerService:
         self._worker = worker
         self._cancellation_reconciler = cancellation_reconciler
         self._polling_interval = polling_interval
+        self._presence_reporter = presence_reporter
         self._stop = Event()
 
     def run_once(self) -> OnlyResearchWorkerOutcome | None:
@@ -311,14 +341,61 @@ class OnlyResearchWorkerService:
         return None if claim is None else self._worker.execute_claim(claim)
 
     def run_forever(self) -> None:
-        while not self._stop.is_set():
-            outcome = self.run_once()
-            if outcome is None:
-                self._stop.wait(self._polling_interval.total_seconds())
+        reporter = self._presence_reporter
+        if reporter is not None:
+            reporter.start()
+        only_log_research_operational_event(
+            _LOG,
+            logging.INFO,
+            "research.worker.ready",
+            worker_instance_id=str(self._worker.worker_instance_id),
+        )
+        try:
+            while not self._stop.is_set():
+                try:
+                    outcome = self.run_once()
+                except (OnlyResearchExecutionStoreUnavailableError, OnlyResearchRunStoreUnavailableError):
+                    only_log_research_operational_event(
+                        _LOG,
+                        logging.ERROR,
+                        "research.worker.database_unavailable",
+                        worker_instance_id=str(self._worker.worker_instance_id),
+                        failure_code="RESEARCH_EXECUTION_STORE_UNAVAILABLE",
+                    )
+                    outcome = None
+                if outcome is not None:
+                    only_log_research_operational_event(
+                        _LOG,
+                        logging.INFO,
+                        f"research.run.{outcome.kind.value.lower()}",
+                        run_id=str(outcome.claim.attempt.run_id),
+                        attempt_id=str(outcome.claim.attempt.attempt_id),
+                        worker_instance_id=str(self._worker.worker_instance_id),
+                        failure_code=None if outcome.failure is None else outcome.failure.code,
+                    )
+                else:
+                    self._stop.wait(self._polling_interval.total_seconds())
+        finally:
+            if reporter is not None:
+                reporter.stop()
+            only_log_research_operational_event(
+                _LOG,
+                logging.INFO,
+                "research.worker.stopped",
+                worker_instance_id=str(self._worker.worker_instance_id),
+            )
 
     def stop(self) -> None:
         """Stop new claims; an already executing claim drains with heartbeat ownership."""
         self._stop.set()
+        if self._presence_reporter is not None:
+            self._presence_reporter.draining()
+        only_log_research_operational_event(
+            _LOG,
+            logging.INFO,
+            "research.worker.draining",
+            worker_instance_id=str(self._worker.worker_instance_id),
+        )
 
 
 def _runtime_failure(result: OnlyResearchRuntimeResult) -> OnlyResearchRunFailure:

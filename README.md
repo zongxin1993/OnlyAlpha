@@ -30,7 +30,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.8.4` |
+| Version | `0.8.5` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |
@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.4.1 — IMPLEMENTED / VERIFIED locally** — Scientific Read Contract & Viewer Determinism Closure |
-| Next semantic direction | P8.5 — Operational Hardening & Database Recovery |
+| Current increment | **P8.5 — IMPLEMENTED / VERIFIED locally** — Operational Hardening & Database Recovery |
+| Next semantic direction | P8.6 — P8 Product Closure & Final Certification |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -424,6 +424,15 @@ Candidate assignment type/Signal role 与 exact Graph linkage 全部来自 verif
 string transport，Decimal 与 nanosecond 精度边界保持不变。React Query key 覆盖 limit/range 等完整 selector，Candidate 图按 numeric
 coordinates 展示，Exact Graph 只投影 deterministic external-source presentation node，Signal marker 只按 closed role exact equality
 产生。该 closure 未改变任何 semantic identity、Store、Runtime、PostgreSQL schema 或 authority；P8 仍为 `IN_PROGRESS`。
+
+P8.5 已把既有 Research operational primitives 组合为正式长期运行闭环：新增 `onlyalpha-research-worker` composition root、
+SIGINT/SIGTERM drain、API liveness/readiness、PostgreSQL server-clock Worker presence、纯只读 stuck diagnosis、deterministic Run/Attempt
+operator projection 与 stable structured events。Migration 0006 只保存最小 presence fact，不参与 Attempt ownership；schema 仍显式
+forward-only migration 且 startup 绝不迁移。数据库工具新增 same-major PostgreSQL 16 policy、custom-format backup metadata/SHA-256、
+isolated restore 后 schema + Run/Attempt domain load。真实 PostgreSQL 16.10、fresh Worker process、lease/fencing、Result/Artifact crash re-entry
+与 cancellation success-wins 均在 affected lane 验证；P8 仍为 `IN_PROGRESS`，下一方向是 P8.6 Product Closure 与 Final-SHA Certification。
+
+Research 服务启动、迁移、备份、恢复和常见故障处理见 [`docs/operations/research-service.md`](docs/operations/research-service.md)。
 
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 

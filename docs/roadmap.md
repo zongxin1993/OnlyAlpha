@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.4.1 — IMPLEMENTED / VERIFIED LOCALLY — Scientific Read Contract & Viewer Determinism Closure
+Current Increment: P8.5 — IMPLEMENTED / VERIFIED LOCALLY — Operational Hardening & Database Recovery
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.5 — Operational Hardening & Database Recovery
+Next Semantic Direction: P8.6 — P8 Product Closure & Final Certification
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -584,6 +584,19 @@ P8.4 不要求完整实现：
 ---
 
 ## P8.5 — Operational Hardening & Database Recovery
+
+状态：`IMPLEMENTED / VERIFIED LOCALLY`。P8 仍为 `IN_PROGRESS`，未获得新的 Final-SHA certification。
+
+正式 Research Worker executable 现只组合既有 Scheduler、fenced Worker、Cancellation Reconciler 与 `OnlyEngine ->
+OnlyResearchRuntime` execution path；SIGINT/SIGTERM 进入 drain，停止新 claim 并让 ACTIVE Attempt 保持 heartbeat 安全完成。API
+提供数据库无关 liveness 与 fail-closed readiness。Migration 0006 新增 PostgreSQL server-clock 的最小 Worker presence；它只服务
+diagnostics，不参与 claim、lease、retry 或 finalization。只读 diagnosis 不新增 `STUCK` Run state、不写 Run/Attempt，operator projection
+按明确 key 展示 Run 与 Attempt history。
+
+数据库仍执行 checksummed forward-only migration、advisory lock、transaction 与 startup compatibility-only。operator tooling 现冻结
+PostgreSQL server/client major 16，custom-format backup 生成 secret-free metadata 与 SHA-256，isolated restore 在 `pg_restore` 后验证
+schema、selected Run 和 ordered Attempt history。完整灾备仍要求 PostgreSQL operational backup 与 immutable `USER_DATA_ROOT` semantic
+backup 两者。运行手册见 `docs/operations/research-service.md`。
 
 ### 目标
 

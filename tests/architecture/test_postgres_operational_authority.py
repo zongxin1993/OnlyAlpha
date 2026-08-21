@@ -17,6 +17,7 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "research_run",
         "research_run_attempt",
         "research_run_submission",
+        "research_worker_presence",
     ]
     for forbidden in (
         "dataset_row",
@@ -52,6 +53,17 @@ def test_published_migration_0003_bytes_are_immutable() -> None:
 
     payload = Path("database/postgres/migrations/0003_research_run_attempt_authority.sql").read_bytes()
     assert hashlib.sha256(payload).hexdigest() == "b5c9cbb93a3fea8231a9b9ab4f76b2e0b5cd2abede475aa41eb913cdd98fa19d"
+
+
+def test_published_migration_0004_and_0005_bytes_are_immutable() -> None:
+    import hashlib
+
+    expected = {
+        "0004_research_run_submission_and_read_projection.sql": "ab7f9efc66e247659f8febde24a48eaaed98293285157d96affed1858d45af83",
+        "0005_research_specification_v2_admission.sql": "90c8e44943f552ece5e89babaf290775e61244ae6a37c7129b25f48f6e33a96f",
+    }
+    for name, checksum in expected.items():
+        assert hashlib.sha256((Path("database/postgres/migrations") / name).read_bytes()).hexdigest() == checksum
 
 
 def test_forward_hardening_migration_mirrors_domain_fact_boundaries() -> None:
@@ -93,6 +105,14 @@ def test_specification_v2_migration_only_expands_existing_version_admission() ->
     assert "CREATE TABLE" not in sql
     assert "ADD COLUMN" not in sql
     assert "UPDATE research_run" not in sql
+
+
+def test_worker_presence_migration_is_minimal_and_diagnostic_only() -> None:
+    sql = Path("database/postgres/migrations/0006_research_worker_presence.sql").read_text()
+    for required in ("worker_instance_id", "started_at", "last_seen_at", "service_version", "draining_since"):
+        assert required in sql
+    for forbidden in ("run_id", "attempt_id", "specification", "dataset", "result", "artifact", "ownership"):
+        assert forbidden not in sql
 
 
 def test_application_startup_cannot_migrate_or_repair_postgres() -> None:

@@ -19,6 +19,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
     OnlyPostgresResearchRunStore,
+    only_assert_supported_postgres_server,
 )
 from onlyalpha.plugin.discovery import only_discover_plugins
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
@@ -26,6 +27,7 @@ from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.operations.readiness import OnlyResearchRequiredRoot, OnlyResearchServiceReadinessProbe
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
@@ -52,8 +54,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
     postgres = OnlyPostgresConfig.from_environment()
+    only_assert_supported_postgres_server(postgres.dsn)
     OnlyPostgresMigrationAuthority(postgres.dsn).assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
+    for root in (layout.root, layout.research_dataset_root, layout.research_artifact_root):
+        root.mkdir(parents=True, exist_ok=True)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn)
     calculations = _calculation_registry()
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
@@ -75,6 +80,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         OnlyResearchRunQueryService(run_store),
         calculations,
         OnlyResearchDefinitionResolver(calculations, dataset_store),
+        OnlyResearchServiceReadinessProbe(
+            schema_status=lambda: OnlyPostgresMigrationAuthority(postgres.dsn).status(),
+            required_roots=(
+                OnlyResearchRequiredRoot("artifact_root", layout.research_artifact_root, False),
+                OnlyResearchRequiredRoot("dataset_root", layout.research_dataset_root, False),
+                OnlyResearchRequiredRoot("user_data_root", layout.root, False),
+            ),
+            registry_check=lambda: None,
+        ),
     )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

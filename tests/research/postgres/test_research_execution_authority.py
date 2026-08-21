@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -7,8 +8,10 @@ from threading import Barrier
 
 import psycopg
 import pytest
+from psycopg import sql
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
@@ -45,7 +48,8 @@ from onlyalpha.research.run import (
     only_research_admission_resolution_fingerprint,
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
-from onlyalpha.runtime.research import OnlyResearchRuntimeBoundary
+from onlyalpha.runtime.research import OnlyResearchRuntimeBoundary, OnlyResearchRuntimeResult
+from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from tests.research.specification.support import registry, specification
 from tests.runtime.research.support import workload_case
 
@@ -56,6 +60,7 @@ M2 = "0002_research_run_authority_hardening"
 M3 = "0003_research_run_attempt_authority"
 M4 = "0004_research_run_submission_and_read_projection"
 M5 = "0005_research_specification_v2_admission"
+M6 = "0006_research_worker_presence"
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
 
@@ -132,8 +137,8 @@ def test_existing_m1_m2_database_plans_exact_forward_suffix_and_preserves_run(
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1, M2)
     run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(310))
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5)
-    assert authority.migrate() == (M3, M4, M5)
+    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5, M6)
+    assert authority.migrate() == (M3, M4, M5, M6)
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
 
@@ -253,6 +258,86 @@ def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) ->
         artifact_content_fingerprint="c" * 64,
     )
     assert completed.state is OnlyResearchRunState.COMPLETED
+
+
+def test_real_postgres_outage_loses_worker_ownership_before_finalization_and_recovers_forward(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    queued, resolution = _queued_workload(tmp_path, 325)
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(queued)
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = store.claim_next(
+        worker_instance_id=WORKER_1,
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000090"),
+        lease_duration=timedelta(milliseconds=250),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=1),
+    )
+    assert claim is not None
+    admin_dsn = postgres_dsn.rsplit("/", 1)[0] + "/postgres"
+    database_name = postgres_dsn.rsplit("/", 1)[1]
+
+    class OutageRuntime:
+        def execute(self, workload: object, control: object) -> OnlyResearchRuntimeResult:
+            del workload, control
+            with psycopg.connect(admin_dsn, autocommit=True) as admin:
+                admin.execute(
+                    sql.SQL("ALTER DATABASE {} WITH ALLOW_CONNECTIONS false").format(sql.Identifier(database_name))
+                )
+                try:
+                    time.sleep(0.12)
+                finally:
+                    admin.execute(
+                        sql.SQL("ALTER DATABASE {} WITH ALLOW_CONNECTIONS true").format(sql.Identifier(database_name))
+                    )
+            return OnlyResearchRuntimeResult(
+                OnlyRuntimeId("research-outage"),
+                OnlyRuntimeResultStatus.COMPLETED,
+                "a" * 64,
+                research_result_plan_fingerprint=resolution.workload.result_plan.fingerprint,
+                research_result_fingerprint="b" * 64,
+                artifact_content_fingerprint="c" * 64,
+            )
+
+    worker = OnlyResearchWorker(
+        worker_instance_id=WORKER_1,
+        execution_store=store,
+        run_store=run_store,
+        resolver=OnlyResearchSpecificationResolver(registry()),
+        dataset_store=OnlyParquetResearchDatasetSnapshotStore(OnlyUserDataLayout(tmp_path).research_dataset_root),
+        runtime_executor=OutageRuntime(),
+        policy=OnlyResearchExecutionPolicy(
+            lease_duration=timedelta(milliseconds=250), heartbeat_interval=timedelta(milliseconds=30)
+        ),
+        now_utc=lambda: NOW + timedelta(minutes=1),
+    )
+    assert worker.execute_claim(claim).kind is OnlyResearchWorkerOutcomeKind.OWNERSHIP_LOST
+    assert run_store.load(queued.run_id).state is OnlyResearchRunState.RUNNING
+
+    deadline = time.monotonic() + 2
+    expired = None
+    while expired is None and time.monotonic() < deadline:
+        expired = store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=2))
+        if expired is None:
+            time.sleep(0.02)
+    assert expired is not None and expired.state is OnlyResearchRunAttemptState.EXPIRED
+    fresh = store.claim_next(
+        worker_instance_id=WORKER_2,
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000091"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(minutes=3),
+    )
+    assert fresh is not None and fresh.attempt.attempt_number == 2
+    with pytest.raises(OnlyResearchExecutionOwnershipLostError):
+        store.complete(
+            claim=claim,
+            run_finished_at=NOW + timedelta(minutes=4),
+            research_result_fingerprint="b" * 64,
+            artifact_content_fingerprint="c" * 64,
+        )
 
 
 def test_retry_is_attempt_local_bounded_and_terminal_run_never_reopens(postgres_dsn: str) -> None:

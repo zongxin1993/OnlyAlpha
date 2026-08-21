@@ -65,7 +65,10 @@ def test_scheduler_and_postgres_remain_semantics_blind_while_reconciliation_uses
 
 
 def test_attempt_migration_contains_no_research_semantic_content_columns() -> None:
-    migration = Path("database/postgres/migrations/0003_research_run_attempt_authority.sql").read_text().lower()
+    migration = "\n".join(
+        Path(f"database/postgres/migrations/{name}").read_text().lower()
+        for name in ("0003_research_run_attempt_authority.sql", "0006_research_worker_presence.sql")
+    )
     for forbidden in (
         "dataset_row",
         "calculation_value",
@@ -77,3 +80,31 @@ def test_attempt_migration_contains_no_research_semantic_content_columns() -> No
         "progress_percent",
     ):
         assert forbidden not in migration
+
+
+def test_operational_diagnostics_are_read_only_and_do_not_expand_run_state() -> None:
+    diagnostics = _source(Path("src/onlyalpha/research/operations"))
+    run_model = Path("src/onlyalpha/research/run/model.py").read_text()
+    for forbidden in ("commit_transition(", "claim_next(", "expire_next(", "reconcile_cancellation("):
+        assert forbidden not in diagnostics
+    for forbidden_state in ("STUCK", "LOST", "RECOVERING", "ZOMBIE"):
+        assert f'{forbidden_state} = "{forbidden_state}"' not in run_model
+
+
+def test_worker_presence_is_not_attempt_ownership_authority() -> None:
+    execution = Path("src/onlyalpha/persistence/postgres/research_execution_store.py").read_text()
+    assert "research_worker_presence" not in execution
+    migration = Path("database/postgres/migrations/0006_research_worker_presence.sql").read_text().lower()
+    for forbidden in ("specification", "dataset", "candidate", "result", "artifact", "strategy"):
+        assert forbidden not in migration
+
+
+def test_api_and_worker_startup_check_compatibility_without_migrating() -> None:
+    startup = "\n".join(
+        (
+            Path("packages/api/onlyalpha-api/src/onlyalpha_api/main.py").read_text(),
+            Path("src/onlyalpha/research/worker_main.py").read_text(),
+        )
+    )
+    assert startup.count("assert_compatible()") == 2
+    assert ".migrate(" not in startup

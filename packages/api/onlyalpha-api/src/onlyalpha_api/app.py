@@ -14,10 +14,12 @@ from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.definition.errors import OnlyResearchDefinitionError
 from onlyalpha.research.definition.ports import OnlyResearchUniverseCatalog
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.operations.readiness import OnlyResearchServiceReadinessProbe
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 from onlyalpha.research.run.errors import OnlyResearchRunError
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 
+from .health import create_health_router
 from .research.definition_errors import definition_error_response
 from .research.definition_routes import (
     DEFINITION_ROUTE_TAG,
@@ -103,6 +105,7 @@ def create_research_app(
     run_query_service: OnlyResearchRunQueryService,
     calculation_registry: OnlyCalculationRegistry,
     definition_resolver: OnlyResearchDefinitionResolver,
+    readiness_probe: OnlyResearchServiceReadinessProbe | None = None,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
@@ -139,6 +142,7 @@ def create_research_app(
     app.include_router(create_run_router(command_service, run_query_service))
     app.include_router(create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)))
     app.include_router(create_definition_router(ResearchDefinitionApiService(definition_resolver)))
+    app.include_router(create_health_router(readiness_probe))
     return app
 
 

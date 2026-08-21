@@ -1,27 +1,45 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
+from urllib.request import urlopen
 
 import psycopg
 import pytest
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.cli import main as onlyalpha_main
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
     OnlyPostgresResearchExecutionStore,
+    OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerdict,
 )
 from onlyalpha.research.command import OnlyResearchRunPageCursor, OnlyResearchSubmissionKey
 from onlyalpha.research.execution import (
+    OnlyResearchExecutionClaim,
+    OnlyResearchExecutionOwnershipLostError,
     OnlyResearchRunAttemptId,
     OnlyResearchWorkerInstanceId,
 )
+from onlyalpha.research.operations.diagnostics import (
+    OnlyResearchDiagnosticPolicy,
+    OnlyResearchOperationalDiagnosticService,
+)
+from onlyalpha.research.operations.model import OnlyResearchOperationalDiagnosisCode
 from onlyalpha.research.run import (
     OnlyPostgresMigrationIntegrityError,
     OnlyPostgresSchemaIncompatibleError,
@@ -43,7 +61,7 @@ from onlyalpha.research.specification import (
     OnlyResearchSpecification,
     OnlyResearchSpecificationResolver,
 )
-from scripts.database import _backup, _restore_test
+from scripts.database import _assert_client_major, _backup, _restore_test
 from scripts.database import main as database_main
 from tests.research.specification.support import registry, specification
 
@@ -54,6 +72,7 @@ M2 = "0002_research_run_authority_hardening"
 M3 = "0003_research_run_attempt_authority"
 M4 = "0004_research_run_submission_and_read_projection"
 M5 = "0005_research_specification_v2_admission"
+M6 = "0006_research_worker_presence"
 
 
 def _copy_migrations(target: Path, *migration_ids: str) -> None:
@@ -104,15 +123,79 @@ def test_specification_v2_postgres_round_trip_is_canonical_exact(postgres_dsn: s
     assert store.load(store.create_queued(expected).run_id) == expected
 
 
+def test_worker_presence_and_operational_history_use_server_time_and_remain_diagnostic_only(
+    postgres_dsn: str,
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000099"))
+    execution = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    worker = OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000099")
+    claim = execution.claim_next(
+        worker_instance_id=worker,
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000099"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=1),
+    )
+    assert claim is not None
+    operations = OnlyPostgresResearchOperationsStore(postgres_dsn)
+    announced = operations.announce_worker(worker, service_version="0.8.5")
+    assert announced.last_seen_at >= announced.started_at
+    heartbeat = operations.heartbeat_worker(worker)
+    assert heartbeat.last_seen_at >= announced.last_seen_at
+    draining = operations.mark_worker_draining(worker)
+    assert draining.draining_since is not None
+
+    snapshot = operations.load_operational_snapshot(run_id=queued.run_id, limit=1)
+    assert snapshot.runs[0].attempts == (execution.load_attempt(claim.attempt.attempt_id),)
+    diagnosis = OnlyResearchOperationalDiagnosticService(
+        OnlyResearchDiagnosticPolicy(worker_stale_after=timedelta(microseconds=1))
+    ).diagnose(snapshot)
+    assert diagnosis[0].code is OnlyResearchOperationalDiagnosisCode.HEALTHY
+    assert (
+        execution.heartbeat(
+            attempt_id=claim.attempt.attempt_id,
+            worker_instance_id=worker,
+            lease_duration=timedelta(minutes=2),
+        ).state.value
+        == "ACTIVE"
+    )
+
+
+def test_operator_cli_reads_deterministic_run_attempt_audit_without_secret(
+    postgres_dsn: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000097"))
+    execution = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = execution.claim_next(
+        worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000097"),
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000097"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=1),
+    )
+    assert claim is not None
+    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", postgres_dsn)
+    assert onlyalpha_main(["operations", "run", queued.run_id.value]) == 0
+    rendered = capsys.readouterr().out
+    payload = json.loads(rendered)
+    assert payload["runs"][0]["run_id"] == queued.run_id.value
+    assert payload["runs"][0]["attempts"][0]["attempt_number"] == 1
+    assert "postgresql://" not in rendered and "onlyalpha_test" not in rendered
+
+
 def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_dsn: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4, M5)
+    assert authority.migrate() == (M1, M2, M3, M4, M5, M6)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -133,11 +216,11 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4, M5)
+    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -161,8 +244,8 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5)
-    assert authority.migrate() == (M2, M3, M4, M5)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6)
+    assert authority.migrate() == (M2, M3, M4, M5, M6)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -195,7 +278,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4, M5)
+    assert before.applied_migrations == (M2, M3, M4, M5, M6)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -253,7 +336,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
@@ -528,7 +611,17 @@ def test_admission_commit_restart_reload_and_reresolution_are_exact(postgres_dsn
 def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(postgres_dsn: str, tmp_path: Path) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000016"))
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000016"))
+    claim = OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
+        worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000016"),
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000016"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(seconds=1),
+    )
+    assert claim is not None
+    run = run_store.load(queued.run_id)
     backup = tmp_path / "onlyalpha.dump"
     target_dsn = postgres_dsn.rsplit("/", 1)[0] + "/onlyalpha_restore_test"
     admin_dsn = postgres_dsn.rsplit("/", 1)[0] + "/postgres"
@@ -536,9 +629,19 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
         connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
         connection.execute("CREATE DATABASE onlyalpha_restore_test")
     try:
-        _backup(postgres_dsn, backup)
+        metadata_path = _backup(postgres_dsn, backup)
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
+        assert metadata["postgres_server_version"].startswith("16.")
+        assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 16.")
+        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M6
+        assert "onlyalpha_test" not in metadata_path.read_text(encoding="utf-8")
         _restore_test(postgres_dsn, target_dsn, backup, run.run_id.value)
         assert OnlyPostgresResearchRunStore(target_dsn).load(run.run_id) == run
+        target_snapshot = OnlyPostgresResearchOperationsStore(target_dsn).load_operational_snapshot(
+            run_id=run.run_id, limit=1
+        )
+        assert target_snapshot.runs[0].attempts == (claim.attempt,)
         assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -546,3 +649,165 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'onlyalpha_restore_test'"
             )
             connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
+
+
+def test_restore_rejects_source_target_and_nonempty_target(postgres_dsn: str, tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="isolated"):
+        _restore_test(postgres_dsn, postgres_dsn, tmp_path / "missing.dump", None)
+    target_dsn = postgres_dsn.rsplit("/", 1)[0] + "/onlyalpha_restore_test"
+    admin_dsn = postgres_dsn.rsplit("/", 1)[0] + "/postgres"
+    with psycopg.connect(admin_dsn, autocommit=True) as connection:
+        connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
+        connection.execute("CREATE DATABASE onlyalpha_restore_test")
+    try:
+        with psycopg.connect(target_dsn) as connection:
+            connection.execute("CREATE TABLE occupied (value INTEGER)")
+        with pytest.raises(RuntimeError, match="must be empty"):
+            _restore_test(postgres_dsn, target_dsn, tmp_path / "missing.dump", None)
+    finally:
+        with psycopg.connect(admin_dsn, autocommit=True) as connection:
+            connection.execute("DROP DATABASE IF EXISTS onlyalpha_restore_test")
+
+
+def test_database_client_major_policy_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("scripts.database._tool_version", lambda _name: "pg_dump (PostgreSQL) 18.6")
+    with pytest.raises(RuntimeError, match="POSTGRES_CLIENT_MAJOR_UNSUPPORTED"):
+        _assert_client_major("pg_dump")
+
+
+def test_worker_process_sigterm_marks_draining_and_exits_without_operational_failure(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    environment = os.environ.copy()
+    environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "onlyalpha.research.worker_main",
+            "--user-data-root",
+            str(tmp_path),
+            "--polling-seconds",
+            "0.05",
+        ],
+        cwd=Path(__file__).parents[3],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    operations = OnlyPostgresResearchOperationsStore(postgres_dsn)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if operations.load_operational_snapshot(limit=1).workers:
+            break
+        if process.poll() is not None:
+            break
+        time.sleep(0.05)
+    assert process.poll() is None
+    process.send_signal(signal.SIGTERM)
+    output, _ = process.communicate(timeout=10)
+    assert process.returncode == 0
+    snapshot = operations.load_operational_snapshot(limit=1)
+    assert len(snapshot.workers) == 1 and snapshot.workers[0].draining_since is not None
+    assert '"event":"research.worker.draining"' in output
+    assert '"event":"research.worker.stopped"' in output
+    assert "postgresql://" not in output and "onlyalpha_test" not in output
+
+
+def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000017"))
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    environment = os.environ.copy()
+    environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
+
+    def start() -> subprocess.Popen[str]:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "onlyalpha_api.main",
+                "--user-data-root",
+                str(tmp_path),
+                "--port",
+                str(port),
+            ],
+            cwd=Path(__file__).parents[3],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                with urlopen(f"http://127.0.0.1:{port}/health/live", timeout=0.2) as response:  # noqa: S310
+                    if response.status == 200:
+                        return process
+            except OSError:
+                if process.poll() is not None:
+                    break
+                time.sleep(0.05)
+        output, _ = process.communicate(timeout=2)
+        raise AssertionError(f"API did not become live: {output}")
+
+    for _ in range(2):
+        process = start()
+        with urlopen(f"http://127.0.0.1:{port}/api/v2/research/runs/{run.run_id}") as response:  # noqa: S310
+            body = json.loads(response.read())
+        assert body["run_id"] == run.run_id.value and body["state"] == "QUEUED"
+        process.send_signal(signal.SIGTERM)
+        output, _ = process.communicate(timeout=10)
+        assert process.returncode in {0, -signal.SIGTERM}
+        assert "postgresql://" not in output and "onlyalpha_test" not in output
+
+
+def test_worker_process_killed_after_claim_expires_to_fresh_attempt_and_is_fenced(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000018"))
+    old_worker = OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000018")
+    old_attempt = OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000018")
+    script = (
+        "import os,signal; from datetime import timedelta; "
+        "from onlyalpha.persistence.postgres import OnlyPostgresResearchExecutionStore; "
+        "from onlyalpha.research.execution.model import OnlyResearchWorkerInstanceId,OnlyResearchRunAttemptId; "
+        "s=OnlyPostgresResearchExecutionStore(os.environ['ONLYALPHA_POSTGRES_DSN']); "
+        f"c=s.claim_next(worker_instance_id=OnlyResearchWorkerInstanceId({old_worker.value!r}),"
+        f"attempt_id=OnlyResearchRunAttemptId({old_attempt.value!r}),lease_duration=timedelta(seconds=30),"
+        "max_attempts=3,run_started_at=__import__('datetime').datetime.now(__import__('datetime').UTC)); "
+        "assert c is not None; os.kill(os.getpid(),signal.SIGKILL)"
+    )
+    environment = os.environ.copy()
+    environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
+    process = subprocess.run(
+        [sys.executable, "-c", script], cwd=Path(__file__).parents[3], env=environment, check=False
+    )
+    assert process.returncode == -signal.SIGKILL
+    store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    stale_claim = OnlyResearchExecutionClaim(store.load_attempt(old_attempt))
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE research_run_attempt SET lease_expires_at = last_heartbeat_at WHERE attempt_id = %s",
+            (old_attempt.value,),
+        )
+    assert store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=1)) is not None
+    fresh = store.claim_next(
+        worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000019"),
+        attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000019"),
+        lease_duration=timedelta(minutes=2),
+        max_attempts=3,
+        run_started_at=NOW + timedelta(minutes=2),
+    )
+    assert fresh is not None and fresh.attempt.attempt_number == 2
+    with pytest.raises(OnlyResearchExecutionOwnershipLostError):
+        store.complete(
+            claim=stale_claim,
+            run_finished_at=NOW + timedelta(minutes=3),
+            research_result_fingerprint="b" * 64,
+            artifact_content_fingerprint="c" * 64,
+        )
+    assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id).state is OnlyResearchRunState.RUNNING
