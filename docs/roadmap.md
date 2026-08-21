@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.4.3 — IMPLEMENTED / VERIFIED LOCALLY — Research Studio & Runs Web
+Current Increment: P8.4.3.1 — IMPLEMENTED / VERIFIED LOCALLY — Web Submission Determinism & Authoring Admission Closure
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -476,6 +476,14 @@ non-candidate multi-lineage generic publication 与 internal PREDICATE generic p
 及 Eligibility/Entry/Exit Signal evidence 保持合法。Former P8.4.2.3 publication admission concerns 因此在 P8.4.3 Stage 0 内闭环，不再
 作为独立最终 milestone。没有新增 endpoint、Schema、Store、Runtime 或 semantic identity formula；P8 仍为 `IN_PROGRESS`，下一步是
 P8.4.4。
+
+P8.4.3.1 关闭 Web submission determinism 与 authoring admission 的剩余缺口。Browser pending submission intent 只绑定权威
+Resolution 返回的 `specification_fingerprint` 与一个 UUID4 Idempotency Key；transport、HTTP、decode/contract 等任意 thrown failure
+均不消费该 intent，只有合法权威成功响应才按 matching fingerprint 清除，因此重试不会产生第二个 durable Run，而同一 Specification
+的显式新 Run 仍使用新 key。唯一 Draft → Definition builder 现在对 FIXED 多值歧义、stale/unknown published output、空 output 与未知
+Statistics method 全部 fail closed；Web 同时补齐既有 `price_type` 与 `adjustment_reference` authoring controls。Definition、Dataset、
+Specification、Candidate、Calculation、Statistics、Result、Artifact 与 Run identity semantics 均未改变；未新增 endpoint、Store、
+Runtime、PostgreSQL schema 或 authority。P8 仍为 `IN_PROGRESS`，下一语义方向仍是 P8.4.4。
 
 ### 目标
 

@@ -40,7 +40,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.4.3 — IMPLEMENTED / VERIFIED locally** — Research Studio & Runs Web |
+| Current increment | **P8.4.3.1 — IMPLEMENTED / VERIFIED locally** — Web Submission Determinism & Authoring Admission Closure |
 | Next semantic direction | P8.4.4 — Scientific Viewer & Graph Inspector Closure |
 | License | MIT |
 
@@ -413,6 +413,12 @@ list/detail/poll/cancel，以及 Completed Run → exact Result 跳转。Stage 0
 generic PREDICATE publication 准入缺口；未改变 Definition/Specification/Candidate/Calculation/Result/Artifact identity，未新增 endpoint、
 PostgreSQL authority 或 Runtime path。P8 仍为 `IN_PROGRESS`；完整 Scientific Viewer/Graph Inspector 属于 P8.4.4。
 
+P8.4.3.1 关闭 Web submission 与 authoring admission 的剩余正确性缺口：pending submission intent 绑定 server Resolution 返回的
+`specification_fingerprint`，所有不确定失败均保留同一 Idempotency Key，只有权威成功响应才消费该 intent；同一 Specification 的显式
+Run Again 仍创建新 key/new Run。唯一 Draft → Definition transport 对 FIXED scalar、published output 与 Statistics method 全部 fail
+closed，并在 Builder 中显式暴露既有 Price Type 与 Adjustment Reference。该 closure 不改变任何 Research semantic identity 公式，
+不新增 endpoint、Store、Runtime、PostgreSQL schema 或 authority；P8 仍为 `IN_PROGRESS`。
+
 Historical/Time-Series 数据长期可以由 ClickHouse 等 analytical store 承担，但 Historical Data Platform **不是 P8 的硬前置条件**；当前 Roadmap 不为 P8 之后预先创建 P9/P10 任务。即使未来存在 ClickHouse，正式 Research 输入仍应通过 immutable Dataset Snapshot 冻结，而不是直接查询不断变化的数据库。
 
 完整范围、非目标和退出条件见 [`docs/roadmap.md`](docs/roadmap.md)。长期 Strategy Product 参考架构见 [`docs/strategy_product_architecture.md`](docs/strategy_product_architecture.md)。
@@ -558,8 +564,8 @@ uv run onlyalpha-artifact-api --artifact-root <USER_DATA_ROOT>/research/artifact
 ```
 
 Research Web 已支持 `New Research / Runs / Results`：浏览器只保存临时 Draft 和 presentation state，exact Specification 只来自最新权威
-Resolution，Run state 只来自 PostgreSQL operational authority，Result 页面只消费 Artifact/Query evidence。P8.4.4 的高级科学可视化与
-Graph Inspector 尚未实现。
+Resolution；pending Run submission 在不确定重试间复用该 Resolution identity 对应的 Idempotency Key，Run state 只来自 PostgreSQL
+operational authority，Result 页面只消费 Artifact/Query evidence。P8.4.4 的高级科学可视化与 Graph Inspector 尚未实现。
 
 ---
 

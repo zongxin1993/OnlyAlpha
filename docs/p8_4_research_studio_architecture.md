@@ -1,6 +1,6 @@
 # P8.4 Research Studio Architecture
 
-> Status: **P8.4.3 Research Studio & Runs Web Implemented / Verified Locally; P8.4.4 remains Target Design**
+> Status: **P8.4.3.1 Web Submission Determinism & Authoring Admission Closure Implemented / Verified Locally; P8.4.4 remains Target Design**
 >
 > This document refines the P8.4 direction from `docs/roadmap.md`, `docs/web-product-architecture.md`, ADR 0092, ADR 0093, and ADR 0094. It does not claim P8.4 is implemented. Exact class/file names may change during implementation, but authority boundaries, semantic roles, and exit conditions described here require explicit review to change.
 
@@ -45,6 +45,14 @@ UUID4 Idempotency Key across uncertain retries, then navigates to durable Run li
 Completed Run links to the existing exact Artifact/Query Result consumer. Stage 0 rejects ambiguous non-candidate multi-lineage generic publication and
 generic internal PREDICATE publication while preserving candidate-relative publication, singleton global evidence, and Signal evidence. No identity
 formula, endpoint, PostgreSQL schema/authority, Runtime architecture, Result/Artifact schema, or new Store was introduced.
+
+P8.4.3.1 repository fact: one unresolved browser submission intent is now bound to the authoritative Resolution-provided
+`specification_fingerprint` and one UUID4 Idempotency Key. Any thrown transport, HTTP, decode, or contract failure preserves that pending intent;
+only a valid authoritative Run response confirms the matching intent. An explicit later Run of the same Specification therefore receives a new key,
+while uncertain retry cannot silently create a second Run. The sole Draft → Definition transport parses FIXED input as one complete scalar and fails
+closed on multi-value ambiguity, empty or stale published outputs, and unknown Statistics methods. The Builder intentionally exposes the existing
+`price_type` and `adjustment_reference` Dataset vocabulary. No Definition, Dataset, Specification, Candidate, Calculation, Statistics, Result,
+Artifact, or Run identity semantics changed, and no endpoint, Store, Runtime, PostgreSQL schema, or authority was added.
 
 ## 1. P8.4 objective
 

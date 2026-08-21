@@ -186,6 +186,60 @@ test("Research Definition resolve lifecycle invalidates stale evidence after edi
     await expect(page.getByRole("button", { name: "Run" })).toBeDisabled();
 });
 
+test("uncertain Run submission retry preserves one Idempotency-Key", async ({ page }) => {
+    await mockStudioCatalogs(page);
+    const submissionKeys: string[] = [];
+    let attempts = 0;
+    await page.route("**/api/v2/research/runs", async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        attempts += 1;
+        const key = route.request().headers()["idempotency-key"];
+        submissionKeys.push(key);
+        if (attempts === 1) {
+            await route.fulfill({
+                status: 500,
+                contentType: "application/json",
+                body: JSON.stringify({ unexpected: "uncertain response" })
+            });
+            return;
+        }
+        await route.fulfill({
+            status: 202,
+            contentType: "application/json",
+            body: JSON.stringify({
+                submission_disposition: "CREATED",
+                run: {
+                    schema_version: 2,
+                    run_id: runId,
+                    revision: "0",
+                    state: "QUEUED",
+                    specification_schema_version: 2,
+                    specification_fingerprint: "d".repeat(64),
+                    admission_resolution_fingerprint: "e".repeat(64),
+                    queued_at: "2026-08-21T00:00:00Z",
+                    started_at: null,
+                    cancel_requested_at: null,
+                    finished_at: null,
+                    result_ref: null,
+                    artifact_ref: null,
+                    failure: null,
+                    specification: exactSpecification
+                }
+            })
+        });
+    });
+    await page.goto("/research/new");
+    await completeMinimalResearch(page);
+    await page.getByRole("button", { name: "Resolve" }).click();
+    await page.getByRole("button", { name: "Run" }).click();
+    await expect(page.getByRole("alert")).toContainText("CONTRACT_ERROR");
+    await page.getByRole("button", { name: "Run" }).click();
+    await expect(page).toHaveURL(`/research/runs/${runId}`);
+
+    expect(submissionKeys).toHaveLength(2);
+    expect(submissionKeys[1]).toBe(submissionKeys[0]);
+});
+
 test("exact resolved Specification submits to durable Run and opens exact Result", async ({
     page
 }) => {

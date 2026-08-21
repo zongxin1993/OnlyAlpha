@@ -135,8 +135,8 @@ function calculation(
                     `${path}.parameters.${definition.name}`,
                     "Parameter is missing"
                 );
-            const values = value.valuesText.split(",").map((entry) => entry.trim());
             if (value.mode === "SWEEP") {
+                const values = value.valuesText.split(",").map((entry) => entry.trim());
                 if (target || !item.parameter_sweep_allowed)
                     throw new ResearchDraftError(
                         `${path}.parameters.${definition.name}`,
@@ -167,7 +167,7 @@ function calculation(
                     kind: "FIXED" as const,
                     value: parseScalar(
                         value.scalarType,
-                        values[0] ?? "",
+                        value.valuesText,
                         `${path}.parameters.${definition.name}`
                     )
                 }
@@ -175,11 +175,17 @@ function calculation(
         },
         {}
     );
-    const published = draft.publishedOutputs.filter((name) =>
-        item.outputs.some((output) => output.name === name)
-    );
-    if (published.length === 0)
+    if (draft.publishedOutputs.length === 0)
         throw new ResearchDraftError(`${path}.published_outputs`, "Publish at least one output");
+    const unknownOutput = draft.publishedOutputs.find(
+        (name) => !item.outputs.some((output) => output.name === name)
+    );
+    if (unknownOutput !== undefined)
+        throw new ResearchDraftError(
+            `${path}.published_outputs`,
+            `Published output is unavailable: ${unknownOutput}`
+        );
+    const published = [...draft.publishedOutputs];
     return {
         instance_key: required(draft.instanceKey, `${path}.instance_key`),
         type_reference: item.type_reference,
@@ -279,6 +285,14 @@ export function buildResearchDefinitionTransport(
                     `${itemPath}.variable`,
                     "Statistics requires a published variable"
                 );
+            let method: "IC" | "RANK_IC";
+            if (item.method === "IC") method = "IC";
+            else if (item.method === "RANK_IC") method = "RANK_IC";
+            else
+                throw new ResearchDraftError(
+                    `${itemPath}.method`,
+                    "Statistics method is unsupported"
+                );
             return {
                 variable,
                 target_instance_key: required(
@@ -287,7 +301,7 @@ export function buildResearchDefinitionTransport(
                 ),
                 definition: {
                     schema_version: 1,
-                    method: item.method === "RANK_IC" ? "RANK_IC" : "IC",
+                    method,
                     minimum_observations: 2,
                     pairing_policy: "PAIRWISE_COMPLETE",
                     universe_policy: "OBSERVED_PAIRWISE",

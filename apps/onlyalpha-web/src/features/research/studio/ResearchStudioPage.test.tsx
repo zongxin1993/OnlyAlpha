@@ -4,9 +4,11 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import type { ResearchApiClient } from "../../../api/research/client";
 import type {
     ResearchCalculationCatalogTransport,
+    ResearchDefinitionTransport,
     ResearchDefinitionResolutionTransport
 } from "../../../api/research/schemas";
 import { AppProviders } from "../../../app/providers";
+import { ResearchWebError } from "../../../api/research/errors";
 import type { ResearchSubmissionKey } from "../../../domain/research/identity";
 import { researchClient } from "../../../test/researchClient";
 import { ResearchStudioPage } from "./ResearchStudioPage";
@@ -100,7 +102,7 @@ function deferred<T>() {
 }
 
 function renderStudio(
-    resolveDefinition: () => Promise<ResearchDefinitionResolutionTransport>,
+    resolveDefinition: ResearchApiClient["resolveDefinition"],
     submitRun: ResearchApiClient["submitRun"] = () => Promise.reject(new Error("hold navigation"))
 ) {
     const client = researchClient({
@@ -215,4 +217,58 @@ it("submits the exact Specification object returned by the latest Resolution", a
         expect(submit).toHaveBeenCalledTimes(1);
     });
     expect(submit.mock.calls[0]?.[0]).toBe(exactSpecification);
+});
+
+it.each([
+    ["transport", new ResearchWebError("TRANSPORT_ERROR", "network uncertainty")],
+    ["HTTP 500", new ResearchWebError("RESEARCH_INTERNAL", "server uncertainty", 500)],
+    ["malformed response", new ResearchWebError("CONTRACT_ERROR", "invalid response", 202)]
+])("reuses the same Idempotency-Key after %s submission failure", async (_label, error) => {
+    const submit = vi.fn(
+        (specification: Readonly<Record<string, unknown>>, key: ResearchSubmissionKey) => {
+            void specification;
+            void key;
+            return Promise.reject(error);
+        }
+    );
+    renderStudio(() => Promise.resolve(resolution), submit);
+    const user = await completeMinimalDraft();
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    await screen.findByText("RESOLVED");
+
+    await user.click(screen.getByRole("button", { name: "Run" }));
+    await waitFor(() => {
+        expect(submit).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "Run" }));
+    await waitFor(() => {
+        expect(submit).toHaveBeenCalledTimes(2);
+    });
+
+    expect(submit.mock.calls[1]?.[1]).toBe(submit.mock.calls[0]?.[1]);
+});
+
+it("authors the existing Dataset price and adjustment fields into Resolution input", async () => {
+    const resolveDefinition = vi.fn((definition: ResearchDefinitionTransport) => {
+        void definition;
+        return Promise.resolve(resolution);
+    });
+    renderStudio(resolveDefinition);
+    const user = await completeMinimalDraft();
+    await user.selectOptions(screen.getByLabelText("Price type"), "MARK");
+    await user.selectOptions(screen.getByLabelText("Adjustment type"), "FORWARD");
+    await user.type(screen.getByLabelText("Adjustment reference"), "2026-01-01");
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    await waitFor(() => {
+        expect(resolveDefinition).toHaveBeenCalledTimes(1);
+    });
+
+    expect(resolveDefinition.mock.calls[0]?.[0].dataset).toMatchObject({
+        bar_specification: { price_type: "MARK" },
+        adjustment_type: "FORWARD",
+        adjustment_reference: "2026-01-01"
+    });
 });

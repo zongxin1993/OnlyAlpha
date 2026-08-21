@@ -4,17 +4,24 @@ import {
 } from "../../../domain/research/identity";
 
 export class ResearchRunSubmissionIntent {
-    private pending: ResearchSubmissionKey | null = null;
+    private pending: {
+        readonly specificationFingerprint: string;
+        readonly submissionKey: ResearchSubmissionKey;
+    } | null = null;
 
     constructor(private readonly createUuid: () => string = () => crypto.randomUUID()) {}
 
-    current(): ResearchSubmissionKey {
-        this.pending ??= parseResearchSubmissionKey(this.createUuid());
-        return this.pending;
+    keyFor(specificationFingerprint: string): ResearchSubmissionKey {
+        if (this.pending?.specificationFingerprint === specificationFingerprint)
+            return this.pending.submissionKey;
+        const submissionKey = parseResearchSubmissionKey(this.createUuid());
+        this.pending = { specificationFingerprint, submissionKey };
+        return submissionKey;
     }
 
-    complete(): void {
-        this.pending = null;
+    confirm(specificationFingerprint: string): void {
+        if (this.pending?.specificationFingerprint === specificationFingerprint)
+            this.pending = null;
     }
 }
 

@@ -195,16 +195,16 @@ export function ResearchStudioPage() {
     const canRun = resolution.status === "RESOLVED" && resolution.revision === studio.revision;
     async function run() {
         if (!canRun) return;
+        const admittedResolution = resolution.value;
+        const specificationFingerprint = admittedResolution.specification_fingerprint;
         setSubmitting(true);
         setSubmissionError(null);
         try {
-            const key = submissionIntent.current.current();
-            const submitted = await client.submitRun(resolution.value.exact_specification, key);
-            submissionIntent.current.complete();
+            const key = submissionIntent.current.keyFor(specificationFingerprint);
+            const submitted = await client.submitRun(admittedResolution.exact_specification, key);
+            submissionIntent.current.confirm(specificationFingerprint);
             await navigate(`/research/runs/${submitted.run.runId}`);
         } catch (error) {
-            if (error instanceof ResearchWebError && error.status !== undefined)
-                submissionIntent.current.complete();
             setSubmissionError(errorMessage(error));
         } finally {
             setSubmitting(false);
@@ -384,7 +384,27 @@ export function ResearchStudioPage() {
                                 </select>
                             </label>
                             <label>
-                                Source
+                                Price type
+                                <select
+                                    value={studio.draft.dataset.priceType}
+                                    onChange={(event) => {
+                                        changeDraft((draft) => ({
+                                            ...draft,
+                                            dataset: {
+                                                ...draft.dataset,
+                                                priceType: event.target
+                                                    .value as ResearchDraft["dataset"]["priceType"]
+                                            }
+                                        }));
+                                    }}
+                                >
+                                    {["LAST", "BID", "ASK", "MID", "MARK"].map((value) => (
+                                        <option key={value}>{value}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label>
+                                Aggregation source
                                 <select
                                     value={studio.draft.dataset.aggregationSource}
                                     onChange={(event) => {
@@ -403,7 +423,7 @@ export function ResearchStudioPage() {
                                 </select>
                             </label>
                             <label>
-                                Adjustment
+                                Adjustment type
                                 <select
                                     value={studio.draft.dataset.adjustmentType}
                                     onChange={(event) => {
@@ -421,6 +441,23 @@ export function ResearchStudioPage() {
                                     <option>FORWARD</option>
                                     <option>BACKWARD</option>
                                 </select>
+                            </label>
+                            <label>
+                                Adjustment reference
+                                <input
+                                    type="text"
+                                    placeholder="optional exact reference"
+                                    value={studio.draft.dataset.adjustmentReference}
+                                    onChange={(event) => {
+                                        changeDraft((draft) => ({
+                                            ...draft,
+                                            dataset: {
+                                                ...draft.dataset,
+                                                adjustmentReference: event.target.value
+                                            }
+                                        }));
+                                    }}
+                                />
                             </label>
                         </div>
                     </section>

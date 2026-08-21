@@ -1,13 +1,38 @@
 import { ResearchRunSubmissionIntent, shouldAdmitResolution } from "./submissionIntent";
 import { calculationDraftFromCatalog } from "./researchDraft";
 
-it("reuses one idempotency key for uncertain retry and rotates after authoritative success", () => {
+const S1 = "a".repeat(64);
+const S2 = "b".repeat(64);
+
+it("reuses one idempotency key for the same pending authoritative Specification", () => {
+    const values = ["00000000-0000-4000-8000-000000000101"];
+    const intent = new ResearchRunSubmissionIntent(() => values.shift() ?? "");
+    const first = intent.keyFor(S1);
+    expect(intent.keyFor(S1)).toBe(first);
+});
+
+it("rotates after authoritative success so the same Specification can Run Again", () => {
     const values = ["00000000-0000-4000-8000-000000000101", "00000000-0000-4000-8000-000000000102"];
     const intent = new ResearchRunSubmissionIntent(() => values.shift() ?? "");
-    const first = intent.current();
-    expect(intent.current()).toBe(first);
-    intent.complete();
-    expect(intent.current()).not.toBe(first);
+    const first = intent.keyFor(S1);
+    intent.confirm(S1);
+    expect(intent.keyFor(S1)).not.toBe(first);
+});
+
+it("starts a new intent when the authoritative Specification changes", () => {
+    const values = ["00000000-0000-4000-8000-000000000101", "00000000-0000-4000-8000-000000000102"];
+    const intent = new ResearchRunSubmissionIntent(() => values.shift() ?? "");
+    const first = intent.keyFor(S1);
+    expect(intent.keyFor(S2)).not.toBe(first);
+});
+
+it("does not clear a newer pending intent when an older response is confirmed", () => {
+    const values = ["00000000-0000-4000-8000-000000000101", "00000000-0000-4000-8000-000000000102"];
+    const intent = new ResearchRunSubmissionIntent(() => values.shift() ?? "");
+    intent.keyFor(S1);
+    const second = intent.keyFor(S2);
+    intent.confirm(S1);
+    expect(intent.keyFor(S2)).toBe(second);
 });
 
 it("admits only the latest non-aborted authoritative Resolution response", () => {

@@ -202,6 +202,124 @@ it("builds the complete formal Definition transport without resolving semantics"
     expect(JSON.stringify(result)).not.toContain("fingerprint");
 });
 
+it("preserves the admitted Dataset price and adjustment authoring semantics", () => {
+    const draft = admittedDraft();
+    const result = buildResearchDefinitionTransport(
+        {
+            ...draft,
+            dataset: {
+                ...draft.dataset,
+                priceType: "MARK",
+                aggregationSource: "INTERNAL",
+                adjustmentType: "FORWARD",
+                adjustmentReference: " 2026-01-01 "
+            }
+        },
+        catalog
+    );
+    expect(result.dataset).toMatchObject({
+        bar_specification: { price_type: "MARK" },
+        aggregation_source: "INTERNAL",
+        adjustment_type: "FORWARD",
+        adjustment_reference: "2026-01-01"
+    });
+});
+
+it("parses a FIXED parameter as exactly one complete scalar", () => {
+    const draft = admittedDraft();
+    const target = draft.targets[0];
+    if (target === undefined) throw new Error("Target fixture is missing");
+    const result = buildResearchDefinitionTransport(
+        {
+            ...draft,
+            targets: [
+                {
+                    ...target,
+                    parameters: {
+                        offset: { mode: "FIXED", scalarType: "INTEGER", valuesText: " 7 " }
+                    }
+                }
+            ]
+        },
+        catalog
+    );
+    expect(result.targets[0]?.parameters.offset).toEqual({
+        kind: "FIXED",
+        value: { type: "INTEGER", value: 7 }
+    });
+});
+
+it("fails closed rather than truncating an ambiguous FIXED parameter", () => {
+    const draft = admittedDraft();
+    const target = draft.targets[0];
+    if (target === undefined) throw new Error("Target fixture is missing");
+    expect(() =>
+        buildResearchDefinitionTransport(
+            {
+                ...draft,
+                targets: [
+                    {
+                        ...target,
+                        parameters: {
+                            offset: {
+                                mode: "FIXED",
+                                scalarType: "INTEGER",
+                                valuesText: "7,14"
+                            }
+                        }
+                    }
+                ]
+            },
+            catalog
+        )
+    ).toThrow(ResearchDraftError);
+});
+
+it.each([
+    [[], "Publish at least one output"],
+    [["score", "stale_output"], "Published output is unavailable: stale_output"]
+] as const)("fails closed for invalid published outputs %j", (publishedOutputs, message) => {
+    const draft = admittedDraft();
+    const factor = draft.calculations[1];
+    if (factor === undefined) throw new Error("Factor fixture is missing");
+    expect(() =>
+        buildResearchDefinitionTransport(
+            {
+                ...draft,
+                calculations: draft.calculations.map((item) =>
+                    item.draftId === factor.draftId ? { ...item, publishedOutputs } : item
+                )
+            },
+            catalog
+        )
+    ).toThrow(message);
+});
+
+it.each(["IC", "RANK_IC"] as const)("maps admitted Statistics method %s exactly", (method) => {
+    const draft = admittedDraft();
+    const result = buildResearchDefinitionTransport(
+        {
+            ...draft,
+            statistics: draft.statistics.map((item) => ({ ...item, method }))
+        },
+        catalog
+    );
+    expect(result.statistics[0]?.definition.method).toBe(method);
+});
+
+it("fails closed for an unknown Statistics method", () => {
+    const draft = admittedDraft();
+    expect(() =>
+        buildResearchDefinitionTransport(
+            {
+                ...draft,
+                statistics: draft.statistics.map((item) => ({ ...item, method: "STALE_METHOD" }))
+            },
+            catalog
+        )
+    ).toThrow("Statistics method is unsupported");
+});
+
 it.each([
     ["SINGLE_INSTRUMENT", "A.XNAS", "", ["A.XNAS"], null],
     ["REGISTERED_POOL", "", "pool.alpha", [], "pool.alpha"],
