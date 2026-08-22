@@ -18,6 +18,7 @@ from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
@@ -67,8 +68,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     postgres = OnlyPostgresConfig.from_environment()
-    only_assert_supported_postgres_server(postgres.dsn)
-    migrations = OnlyPostgresMigrationAuthority(postgres.dsn)
+    operational_options = OnlyPostgresOperationalConnectionOptions()
+    operational_dsn = postgres.operational_dsn(operational_options)
+    only_assert_supported_postgres_server(operational_dsn)
+    migrations = OnlyPostgresMigrationAuthority(operational_dsn)
     migrations.assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
     required_paths = (
@@ -114,14 +117,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     research_results = OnlyJsonResearchResultStore(layout.research_result_root, statistics_results, calculation_results)
     artifact_reader = OnlyResearchArtifactProfileReader(layout.research_artifact_root)
     resolver = OnlyResearchSpecificationResolver(calculations)
-    run_store = OnlyPostgresResearchRunStore(postgres.dsn)
-    execution_store = OnlyPostgresResearchExecutionStore(postgres.dsn)
-    operations_store = OnlyPostgresResearchOperationsStore(postgres.dsn)
     policy = OnlyResearchExecutionPolicy(
         lease_duration=timedelta(seconds=args.lease_seconds),
         heartbeat_interval=timedelta(seconds=args.heartbeat_seconds),
         max_attempts=args.max_attempts,
     )
+    operational_options.assert_worker_compatible(
+        heartbeat_interval=policy.heartbeat_interval,
+        lease_duration=policy.lease_duration,
+    )
+    run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
+    execution_store = OnlyPostgresResearchExecutionStore(postgres.dsn, operational_options)
+    operations_store = OnlyPostgresResearchOperationsStore(postgres.dsn, operational_options)
     worker_id = OnlyResearchWorkerInstanceId.new()
     scheduler = OnlyResearchScheduler(store=execution_store, policy=policy, now_utc=only_system_utc_now)
     reconciler = OnlyResearchCancellationRecoveryReconciler(
@@ -170,7 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         service.stop()
     finally:
         stop_controller.restore()
-    return 0
+    return stop_controller.exit_code
 
 
 if __name__ == "__main__":  # pragma: no cover - console-script fallback

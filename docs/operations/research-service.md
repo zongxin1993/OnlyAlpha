@@ -28,9 +28,32 @@ API and Worker startup check schema compatibility and PostgreSQL major but never
 
 A Worker establishes one `OnlyEngineServices` plugin/component composition at process startup. Specification re-resolution and every Research Runtime execution in that process consume the same Calculation registry from those services. Each claimed Attempt still creates a fresh `OnlyEngine` and a fresh Research Runtime lifecycle; restarting the Worker is the only boundary that re-establishes process composition. This is a process-lifetime wiring invariant, not a new durable identity or store.
 
+## Operational PostgreSQL I/O bounds
+
+Runtime control-plane connections are derived from the one `ONLYALPHA_POSTGRES_DSN`; there is no Worker, heartbeat, or presence DSN.
+The repository applies a 5-second connect timeout, 5-second statement timeout, 2-second lock timeout, 5-second TCP user timeout, and
+explicit TCP keepalive settings to Run commands/loads, claim, heartbeat, expiry, finalization, cancellation reconciliation, presence,
+diagnostic snapshots, startup version/schema inspection, and readiness. PostgreSQL timeout errors remain operational StoreUnavailable
+facts. In particular, heartbeat timeout makes Attempt ownership uncertain and forbids local finalization; it is never a Research semantic
+failure.
+
+The conservative connect-plus-statement bound is 10 seconds. Worker startup rejects configuration unless this bound is strictly shorter
+than both its heartbeat interval and lease duration. Consequently the non-daemon heartbeat and presence threads have a repository-owned
+I/O bound shorter than their join deadline. Operator migration, backup, restore, and validation commands retain their explicit operator
+lifecycle and are not forced into the short runtime policy.
+
 ## Shutdown
 
 Stop Web and API as needed. Send `SIGTERM` or `SIGINT` to the Worker and wait for exit before stopping PostgreSQL. The Worker enters draining, stops new claims, keeps the current Attempt heartbeat alive, completes safe work, and then exits. Process shutdown is not a semantic failure.
+
+The claim admission linearization rule is explicit: if the process stop request is observed before the PostgreSQL claim transaction
+begins, the Worker marks presence draining and must not claim. If claim has already begun before stop is observed, that claim is in-flight
+and drains normally; the next claim is forbidden. Housekeeping expiry and cancellation reconciliation may run before this barrier because
+they advance existing durable operational truth rather than admit new semantic work. `DRAINING` is a process lifecycle notion, not a Run,
+Attempt, or PostgreSQL state.
+
+The Worker returns the existing application lifecycle exit codes: normal service return is `0`, `SIGINT`/`KeyboardInterrupt` is `130`,
+and `SIGTERM` is `143`. A signal does not request semantic cancellation and does not make a Run fail.
 
 If the Worker is forcibly killed, its heartbeat stops. After the lease expires, the existing Scheduler expires the Attempt and a fresh Worker creates a new Attempt for forward recovery. Never reset a Run or Attempt.
 

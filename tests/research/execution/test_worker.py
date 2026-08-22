@@ -31,7 +31,12 @@ from onlyalpha.research.run import (
     OnlyResearchRunState,
     only_research_admission_resolution_fingerprint,
 )
-from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
+from onlyalpha.research.specification import (
+    OnlyResearchSpecificationError,
+    OnlyResearchSpecificationPhase,
+    OnlyResearchSpecificationResolver,
+)
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.research import OnlyResearchRuntimePhase, OnlyResearchRuntimeResult
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
@@ -308,6 +313,48 @@ def test_dataset_corruption_and_semantic_drift_fail_without_retry(tmp_path: Path
     assert outcome.failure is not None and outcome.failure.code == "EXECUTION_SEMANTIC_DRIFT"
 
 
+def test_execution_time_specification_resolution_failure_is_deterministic_final_failure(tmp_path: Path) -> None:
+    worker, run_store, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
+
+    class _ResolverFailure:
+        def resolve(self, specification: object) -> None:
+            del specification
+            raise OnlyResearchSpecificationError(
+                OnlyResearchSpecificationPhase.TYPE_RESOLUTION,
+                "RESEARCH_SPEC_CALCULATION_TYPE_UNKNOWN",
+                "deployment-specific detail must not enter durable failure",
+            )
+
+    worker._resolver = _ResolverFailure()  # type: ignore[assignment]
+    outcome = worker.execute_claim(claim)
+
+    assert outcome.kind is OnlyResearchWorkerOutcomeKind.FAILED
+    assert run_store.run.state is OnlyResearchRunState.FAILED
+    assert outcome.failure is not None
+    assert outcome.failure.code == "EXECUTION_SEMANTIC_DRIFT"
+    assert outcome.failure.detail == (
+        "Specification re-resolution failed: TYPE_RESOLUTION:RESEARCH_SPEC_CALCULATION_TYPE_UNKNOWN"
+    )
+
+
+def test_run_store_unavailability_keeps_stable_transient_failure_code(tmp_path: Path) -> None:
+    worker, run_store, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
+
+    class _UnavailableRunStore:
+        def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
+            del run_id
+            raise OnlyResearchRunStoreUnavailableError("secret infrastructure detail")
+
+    worker._run_store = _UnavailableRunStore()  # type: ignore[assignment]
+    outcome = worker.execute_claim(claim)
+
+    assert outcome.kind is OnlyResearchWorkerOutcomeKind.RETRY_PENDING
+    assert run_store.run.state is OnlyResearchRunState.RUNNING
+    assert outcome.failure is not None
+    assert outcome.failure.code == "RESEARCH_RUN_STORE_UNAVAILABLE"
+    assert "secret infrastructure detail" not in outcome.failure.detail
+
+
 @pytest.mark.parametrize(
     ("phase", "expected_phase"),
     (
@@ -358,12 +405,17 @@ class _Scheduler:
     def __init__(self, claim: OnlyResearchExecutionClaim | None) -> None:
         self.claim = claim
         self.expired = 0
+        self.claimed = 0
+        self.before_claim: object | None = None
 
     def expire_once(self) -> None:
         self.expired += 1
 
     def claim_once(self, worker_id: OnlyResearchWorkerInstanceId) -> OnlyResearchExecutionClaim | None:
         assert worker_id == WORKER_ID
+        self.claimed += 1
+        if callable(self.before_claim):
+            self.before_claim()
         return self.claim
 
 
@@ -375,11 +427,30 @@ class _ServiceWorker:
 
 
 class _Reconciler:
-    def __init__(self) -> None:
+    def __init__(self, after_reconcile: object | None = None) -> None:
         self.calls = 0
+        self.after_reconcile = after_reconcile
 
     def reconcile_once(self) -> None:
         self.calls += 1
+        if callable(self.after_reconcile):
+            self.after_reconcile()
+
+
+class _Presence:
+    def __init__(self) -> None:
+        self.started = 0
+        self.draining_count = 0
+        self.stopped = 0
+
+    def start(self) -> None:
+        self.started += 1
+
+    def draining(self) -> None:
+        self.draining_count += 1
+
+    def stop(self) -> None:
+        self.stopped += 1
 
 
 def test_worker_service_has_finite_entry_and_shutdown_stops_new_claims(tmp_path: Path) -> None:
@@ -405,3 +476,48 @@ def test_worker_service_has_finite_entry_and_shutdown_stops_new_claims(tmp_path:
             cancellation_reconciler=reconciler,  # type: ignore[arg-type]
             polling_interval=timedelta(0),
         )
+
+
+def test_external_stop_observed_after_housekeeping_is_a_claim_barrier(tmp_path: Path) -> None:
+    _, _, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
+    stopped = False
+
+    def request_stop() -> None:
+        nonlocal stopped
+        stopped = True
+
+    scheduler = _Scheduler(claim)
+    presence = _Presence()
+    service = OnlyResearchWorkerService(
+        scheduler=scheduler,  # type: ignore[arg-type]
+        worker=_ServiceWorker(),  # type: ignore[arg-type]
+        cancellation_reconciler=_Reconciler(request_stop),  # type: ignore[arg-type]
+        presence_reporter=presence,
+    )
+
+    assert service.run_once(stop_requested=lambda: stopped) is None
+    assert scheduler.expired == 1
+    assert scheduler.claimed == 0
+    assert presence.draining_count == 1
+
+
+def test_stop_after_claim_transaction_begins_drains_current_claim_and_blocks_next(tmp_path: Path) -> None:
+    _, _, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
+    stopped = False
+
+    def request_stop() -> None:
+        nonlocal stopped
+        stopped = True
+
+    scheduler = _Scheduler(claim)
+    scheduler.before_claim = request_stop
+    service = OnlyResearchWorkerService(
+        scheduler=scheduler,  # type: ignore[arg-type]
+        worker=_ServiceWorker(),  # type: ignore[arg-type]
+        cancellation_reconciler=_Reconciler(),  # type: ignore[arg-type]
+    )
+
+    assert service.run_once(stop_requested=lambda: stopped) == (OnlyResearchWorkerOutcomeKind.COMPLETED, claim)
+    assert scheduler.claimed == 1
+    assert service.run_once(stop_requested=lambda: stopped) is None
+    assert scheduler.claimed == 1

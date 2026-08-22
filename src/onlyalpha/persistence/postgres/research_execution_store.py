@@ -35,6 +35,7 @@ from onlyalpha.research.run import (
 )
 from onlyalpha.research.run.errors import OnlyResearchRunIntegrityError
 
+from .config import OnlyPostgresOperationalConnectionOptions
 from .research_run_store import _COLUMNS, OnlyPostgresResearchRunStore
 
 _ATTEMPT_COLUMNS = (
@@ -56,8 +57,8 @@ _ATTEMPT_COLUMNS = (
 class OnlyPostgresResearchExecutionStore:
     """PostgreSQL server time is the sole lease coordination clock."""
 
-    def __init__(self, dsn: str) -> None:
-        self._dsn = dsn
+    def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
+        self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
 
     def load_attempt(self, attempt_id: OnlyResearchRunAttemptId) -> OnlyResearchRunAttempt:
         try:

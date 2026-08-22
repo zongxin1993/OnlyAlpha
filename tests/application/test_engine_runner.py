@@ -31,6 +31,12 @@ def test_lifecycle_kind_rejects_mixed_finite_and_long_lived() -> None:
         only_engine_lifecycle_kind(_engine("BACKTEST", "SIM"))  # type: ignore[arg-type]
 
 
+def test_stop_controller_without_process_stop_has_normal_exit_code() -> None:
+    controller = OnlyApplicationStopController()
+    assert controller.stop_requested is False
+    assert controller.exit_code == 0
+
+
 def test_long_lived_runner_uses_finite_wait_and_stops_once_after_keyboard_interrupt() -> None:
     engine = _engine("SIM")
     engine.wait.side_effect = KeyboardInterrupt

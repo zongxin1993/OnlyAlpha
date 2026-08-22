@@ -16,6 +16,7 @@ from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchRunStore,
 )
@@ -28,6 +29,7 @@ from onlyalpha.research.execution import (
     OnlyResearchCancellationRecoveryReconciler,
     OnlyResearchExecutionOwnershipLostError,
     OnlyResearchExecutionPolicy,
+    OnlyResearchExecutionStoreUnavailableError,
     OnlyResearchRetryDecision,
     OnlyResearchRunAttemptId,
     OnlyResearchRunAttemptState,
@@ -263,6 +265,45 @@ def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) ->
         artifact_content_fingerprint="c" * 64,
     )
     assert completed.state is OnlyResearchRunState.COMPLETED
+
+
+def test_heartbeat_statement_timeout_is_ownership_uncertainty_without_finalization(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run_store.create_queued(_queued(350))
+    authoritative_store = OnlyPostgresResearchExecutionStore(postgres_dsn)
+    claim = _claim(authoritative_store, WORKER_1, 91)
+    assert claim is not None
+    options = OnlyPostgresOperationalConnectionOptions(
+        connect_timeout=timedelta(seconds=1),
+        statement_timeout=timedelta(milliseconds=100),
+        lock_timeout=timedelta(milliseconds=50),
+        tcp_user_timeout=timedelta(seconds=1),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "CREATE FUNCTION onlyalpha_test_slow_heartbeat() RETURNS trigger LANGUAGE plpgsql AS "
+            "$$ BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$"
+        )
+        connection.execute(
+            "CREATE TRIGGER onlyalpha_test_slow_heartbeat BEFORE UPDATE ON research_run_attempt "
+            "FOR EACH ROW EXECUTE FUNCTION onlyalpha_test_slow_heartbeat()"
+        )
+    started = time.monotonic()
+    try:
+        with pytest.raises(OnlyResearchExecutionStoreUnavailableError, match="Heartbeat transaction failed"):
+            OnlyPostgresResearchExecutionStore(postgres_dsn, options).heartbeat(
+                attempt_id=claim.attempt.attempt_id,
+                worker_instance_id=WORKER_1,
+                lease_duration=timedelta(minutes=2),
+            )
+        assert time.monotonic() - started < 1.5
+    finally:
+        with psycopg.connect(postgres_dsn) as connection:
+            connection.execute("DROP TRIGGER onlyalpha_test_slow_heartbeat ON research_run_attempt")
+            connection.execute("DROP FUNCTION onlyalpha_test_slow_heartbeat()")
+    assert run_store.load(claim.attempt.run_id).state is OnlyResearchRunState.RUNNING
+    assert authoritative_store.load_attempt(claim.attempt.attempt_id).state is OnlyResearchRunAttemptState.ACTIVE
 
 
 def test_real_postgres_outage_loses_worker_ownership_before_finalization_and_recovers_forward(

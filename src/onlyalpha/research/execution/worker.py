@@ -24,6 +24,7 @@ from onlyalpha.research.run.model import (
     OnlyResearchRunState,
 )
 from onlyalpha.research.run.store import OnlyResearchRunStore
+from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 from onlyalpha.runtime.defaults import OnlyEngineServices
@@ -274,6 +275,24 @@ class OnlyResearchWorker:
             return OnlyResearchWorkerOutcome(OnlyResearchWorkerOutcomeKind.OWNERSHIP_LOST, claim)
         except _MappedWorkerFailure as exc:
             return self._fail(claim, exc.failure)
+        except OnlyResearchSpecificationError as exc:
+            return self._fail(
+                claim,
+                OnlyResearchRunFailure(
+                    OnlyResearchRunFailurePhase.ADMISSION,
+                    "EXECUTION_SEMANTIC_DRIFT",
+                    f"Specification re-resolution failed: {exc.phase.value}:{exc.code}",
+                ),
+            )
+        except OnlyResearchRunStoreUnavailableError:
+            return self._fail(
+                claim,
+                OnlyResearchRunFailure(
+                    OnlyResearchRunFailurePhase.OPERATIONAL,
+                    "RESEARCH_RUN_STORE_UNAVAILABLE",
+                    "Research Run Store unavailable during execution revalidation",
+                ),
+            )
         except Exception as exc:
             _LOG.exception(
                 "unexpected Research Worker failure run_id=%s attempt_id=%s worker_instance_id=%s",
@@ -337,11 +356,14 @@ class OnlyResearchWorkerService:
         self._presence_reporter = presence_reporter
         self._stop = Event()
 
-    def run_once(self) -> OnlyResearchWorkerOutcome | None:
+    def run_once(self, *, stop_requested: Callable[[], bool] | None = None) -> OnlyResearchWorkerOutcome | None:
         if self._stop.is_set():
             return None
         self._scheduler.expire_once()
         self._cancellation_reconciler.reconcile_once()
+        if (stop_requested or (lambda: False))():
+            self.stop()
+            return None
         claim = self._scheduler.claim_once(self._worker.worker_instance_id)
         return None if claim is None else self._worker.execute_claim(claim)
 
@@ -359,7 +381,7 @@ class OnlyResearchWorkerService:
         try:
             while not self._stop.is_set() and not externally_stopped():
                 try:
-                    outcome = self.run_once()
+                    outcome = self.run_once(stop_requested=externally_stopped)
                 except (OnlyResearchExecutionStoreUnavailableError, OnlyResearchRunStoreUnavailableError):
                     only_log_research_operational_event(
                         _LOG,
@@ -395,6 +417,8 @@ class OnlyResearchWorkerService:
 
     def stop(self) -> None:
         """Stop new claims; an already executing claim drains with heartbeat ownership."""
+        if self._stop.is_set():
+            return
         self._stop.set()
         if self._presence_reporter is not None:
             self._presence_reporter.draining()

@@ -154,6 +154,9 @@ Research 可复用 MarketData Domain、Instrument、Reference、Calendar、canon
 以及 Research-only Target/Forward Return、exact alignment、IC/Rank IC 和 immutable Statistics Result。统一 Factor semantic 仍以
 `TIME_SERIES/CROSS_SECTION` 表达数学 execution shape，以 `RESEARCH/TRADING` 表达物理 backend；Runtime type 不进入 Factor identity。
 Evaluation 只允许消费 verified Feature/Target Result，Evaluation → Feature dependency 在 Calculation Graph construction 时 fail closed。
+RESEARCH Calculation backend provider 可以在一个 Worker process 生命周期内复用；`execute(definition, inputs)` 必须只由声明的
+semantic inputs 确定，不能读取前一次 execution 留下的 mutable state。每次 execution 的 mutable state 只能是 `execute()` local，
+或属于该次调用独占创建的对象。该 lifecycle contract 不新增 provider factory/session/pool，也不进入任何 semantic identity。
 P7.11 已激活 finite Research Factory：Runtime 从 exact verified Dataset Snapshot 开始，按 Direct Job、Sweep、Statistics、Result、
 Artifact 与 final verified load 顺序编排既有 authority，并使用 verified immutable authority + deterministic re-entry 恢复；不创建
 Runtime checkpoint 或 workload semantic fingerprint。P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result

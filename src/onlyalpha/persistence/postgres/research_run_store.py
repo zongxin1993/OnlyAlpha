@@ -33,6 +33,8 @@ from onlyalpha.research.run.model import (
 )
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
+from .config import OnlyPostgresOperationalConnectionOptions
+
 _COLUMNS = (
     "run_id",
     "revision",
@@ -54,8 +56,8 @@ _COLUMNS = (
 
 
 class OnlyPostgresResearchRunStore:
-    def __init__(self, dsn: str) -> None:
-        self._dsn = dsn
+    def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
+        self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
 
     def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
         if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:

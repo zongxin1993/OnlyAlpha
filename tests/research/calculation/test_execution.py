@@ -97,6 +97,20 @@ def test_verified_dataset_execution_is_instrument_isolated_and_canonical(tmp_pat
     ]
 
 
+def test_process_reused_official_backend_has_no_cross_execution_state(tmp_path) -> None:
+    verified, registry = _verified(tmp_path)
+    resolver = OnlyResearchCalculationBackendResolver(registry)
+    definition = _graph().nodes[0].definition
+    provider = resolver.resolve(definition)
+    executor = OnlyResearchCalculationExecutor(_StaticVerifiedStore(verified), resolver)
+
+    first = executor.execute(verified.snapshot.snapshot_fingerprint, _graph())
+    second = executor.execute(verified.snapshot.snapshot_fingerprint, _graph())
+
+    assert resolver.resolve(definition) is provider
+    assert [item.table.to_pydict() for item in first.outputs] == [item.table.to_pydict() for item in second.outputs]
+
+
 def test_execution_refuses_tampered_dataset(tmp_path) -> None:
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
     candidate, partitions = snapshot()

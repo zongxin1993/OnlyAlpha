@@ -25,6 +25,7 @@ from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
@@ -53,6 +54,7 @@ from onlyalpha.research.run import (
     OnlyResearchRunRevisionConflictError,
     OnlyResearchRunState,
     OnlyResearchRunStateConflictError,
+    OnlyResearchRunStoreUnavailableError,
     only_research_admission_resolution_fingerprint,
 )
 from onlyalpha.research.specification import (
@@ -754,8 +756,42 @@ def test_database_client_major_policy_fails_closed(monkeypatch: pytest.MonkeyPat
         _assert_client_major("pg_dump")
 
 
-def test_worker_process_sigterm_marks_draining_and_exits_without_operational_failure(
-    postgres_dsn: str, tmp_path: Path
+def test_operational_statement_timeout_is_repository_owned_and_effective(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    options = OnlyPostgresOperationalConnectionOptions(
+        connect_timeout=timedelta(seconds=1),
+        statement_timeout=timedelta(milliseconds=100),
+        lock_timeout=timedelta(milliseconds=50),
+        tcp_user_timeout=timedelta(seconds=1),
+    )
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "CREATE FUNCTION onlyalpha_test_slow_run() RETURNS trigger LANGUAGE plpgsql AS "
+            "$$ BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$"
+        )
+        connection.execute(
+            "CREATE TRIGGER onlyalpha_test_slow_run BEFORE INSERT ON research_run "
+            "FOR EACH ROW EXECUTE FUNCTION onlyalpha_test_slow_run()"
+        )
+    started = time.monotonic()
+    try:
+        with pytest.raises(OnlyResearchRunStoreUnavailableError, match="Research Run create transaction failed"):
+            OnlyPostgresResearchRunStore(postgres_dsn, options).create_queued(
+                _queued("00000000-0000-4000-8000-000000000051")
+            )
+        assert time.monotonic() - started < 1.5
+    finally:
+        with psycopg.connect(postgres_dsn) as connection:
+            connection.execute("DROP TRIGGER onlyalpha_test_slow_run ON research_run")
+            connection.execute("DROP FUNCTION onlyalpha_test_slow_run()")
+
+
+@pytest.mark.parametrize(
+    ("signum", "expected_exit_code"),
+    ((signal.SIGINT, 130), (signal.SIGTERM, 143)),
+)
+def test_worker_process_signal_marks_draining_and_uses_application_exit_contract(
+    postgres_dsn: str, tmp_path: Path, signum: signal.Signals, expected_exit_code: int
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     environment = os.environ.copy()
@@ -785,9 +821,9 @@ def test_worker_process_sigterm_marks_draining_and_exits_without_operational_fai
             break
         time.sleep(0.05)
     assert process.poll() is None
-    process.send_signal(signal.SIGTERM)
+    process.send_signal(signum)
     output, _ = process.communicate(timeout=10)
-    assert process.returncode == 0
+    assert process.returncode == expected_exit_code
     snapshot = operations.load_operational_snapshot(limit=1)
     assert len(snapshot.workers) == 1 and snapshot.workers[0].draining_since is not None
     assert '"event":"research.worker.draining"' in output

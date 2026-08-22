@@ -21,6 +21,7 @@ from onlyalpha.research.operations.model import (
 from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError
 from onlyalpha.research.run.model import OnlyResearchRunId
 
+from .config import OnlyPostgresOperationalConnectionOptions
 from .research_execution_store import _decode_attempt
 from .research_run_store import OnlyPostgresResearchRunStore
 
@@ -28,8 +29,8 @@ from .research_run_store import OnlyPostgresResearchRunStore
 class OnlyPostgresResearchOperationsStore:
     """Presence writes use server time; all diagnosis inputs are read in one transaction."""
 
-    def __init__(self, dsn: str) -> None:
-        self._dsn = dsn
+    def __init__(self, dsn: str, options: OnlyPostgresOperationalConnectionOptions | None = None) -> None:
+        self._dsn = (options or OnlyPostgresOperationalConnectionOptions()).apply(dsn)
 
     def announce_worker(
         self, worker_instance_id: OnlyResearchWorkerInstanceId, *, service_version: str

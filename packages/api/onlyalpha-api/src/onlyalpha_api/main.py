@@ -18,6 +18,7 @@ from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchRunStore,
     only_assert_supported_postgres_server,
 )
@@ -54,12 +55,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
     postgres = OnlyPostgresConfig.from_environment()
-    only_assert_supported_postgres_server(postgres.dsn)
-    OnlyPostgresMigrationAuthority(postgres.dsn).assert_compatible()
+    operational_options = OnlyPostgresOperationalConnectionOptions()
+    operational_dsn = postgres.operational_dsn(operational_options)
+    only_assert_supported_postgres_server(operational_dsn)
+    OnlyPostgresMigrationAuthority(operational_dsn).assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
     for root in (layout.root, layout.research_dataset_root, layout.research_artifact_root):
         root.mkdir(parents=True, exist_ok=True)
-    run_store = OnlyPostgresResearchRunStore(postgres.dsn)
+    run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     calculations = _calculation_registry()
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     resolver = OnlyResearchSpecificationResolver(calculations)
@@ -81,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         calculations,
         OnlyResearchDefinitionResolver(calculations, dataset_store),
         OnlyResearchServiceReadinessProbe(
-            schema_status=lambda: OnlyPostgresMigrationAuthority(postgres.dsn).status(),
+            schema_status=lambda: OnlyPostgresMigrationAuthority(operational_dsn).status(),
             required_roots=(
                 OnlyResearchRequiredRoot("artifact_root", layout.research_artifact_root, False),
                 OnlyResearchRequiredRoot("dataset_root", layout.research_dataset_root, False),
