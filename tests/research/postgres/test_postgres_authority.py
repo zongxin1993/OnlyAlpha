@@ -11,12 +11,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
+from types import SimpleNamespace
 from urllib.request import urlopen
 
 import psycopg
 import pytest
 
+import onlyalpha.persistence.postgres.research_operations_store as research_operations_store_module
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.cli import main as onlyalpha_main
 from onlyalpha.persistence.postgres import (
@@ -161,6 +163,83 @@ def test_worker_presence_and_operational_history_use_server_time_and_remain_diag
         ).state.value
         == "ACTIVE"
     )
+
+
+def test_operational_snapshot_uses_one_read_only_repeatable_read_mvcc_observation(
+    postgres_dsn: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    run_store = OnlyPostgresResearchRunStore(postgres_dsn)
+    queued = run_store.create_queued(_queued("00000000-0000-4000-8000-000000000096"))
+    run_read = Event()
+    writer_committed = Event()
+    original_connect = psycopg.connect
+
+    class _CoordinatedConnection:
+        def __init__(self, connection):  # type: ignore[no-untyped-def]
+            object.__setattr__(self, "_connection", connection)
+
+        def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+            return getattr(self._connection, name)
+
+        def __setattr__(self, name: str, value: object) -> None:
+            setattr(self._connection, name, value)
+
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            self._connection.__enter__()
+            return self
+
+        def __exit__(self, *args: object):  # type: ignore[no-untyped-def]
+            return self._connection.__exit__(*args)
+
+        def execute(self, query, parameters=None):  # type: ignore[no-untyped-def]
+            cursor = self._connection.execute(query, parameters)
+            if isinstance(query, str) and query.startswith("SELECT * FROM research_run WHERE run_id"):
+                with self._connection.cursor() as settings:
+                    isolation = settings.execute(
+                        "SELECT current_setting('transaction_isolation') AS isolation, "
+                        "current_setting('transaction_read_only') AS read_only"
+                    ).fetchone()
+                assert isolation == {"isolation": "repeatable read", "read_only": "on"}
+                run_read.set()
+                assert writer_committed.wait(timeout=10), "writer did not commit during operational snapshot read"
+            return cursor
+
+    def coordinated_connect(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return _CoordinatedConnection(original_connect(*args, **kwargs))
+
+    monkeypatch.setattr(
+        research_operations_store_module,
+        "psycopg",
+        SimpleNamespace(connect=coordinated_connect, Error=psycopg.Error),
+    )
+
+    def claim_after_run_read():  # type: ignore[no-untyped-def]
+        assert run_read.wait(timeout=10), "operational reader did not reach the Run observation"
+        try:
+            return OnlyPostgresResearchExecutionStore(postgres_dsn).claim_next(
+                worker_instance_id=OnlyResearchWorkerInstanceId("00000000-0000-4000-8002-000000000096"),
+                attempt_id=OnlyResearchRunAttemptId("00000000-0000-4000-8001-000000000096"),
+                lease_duration=timedelta(minutes=2),
+                max_attempts=3,
+                run_started_at=NOW + timedelta(seconds=1),
+            )
+        finally:
+            writer_committed.set()
+
+    operations = OnlyPostgresResearchOperationsStore(postgres_dsn)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        writer = executor.submit(claim_after_run_read)
+        first = operations.load_operational_snapshot(run_id=queued.run_id, limit=1)
+        claim = writer.result()
+
+    assert claim is not None
+    assert first.runs[0].run.state is OnlyResearchRunState.QUEUED
+    assert first.runs[0].attempts == ()
+
+    second = operations.load_operational_snapshot(run_id=queued.run_id, limit=1)
+    assert second.runs[0].run.state is OnlyResearchRunState.RUNNING
+    assert second.runs[0].attempts == (claim.attempt,)
 
 
 def test_operator_cli_reads_deterministic_run_attempt_audit_without_secret(

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import cast
 
 import psycopg
+from psycopg import IsolationLevel
 from psycopg.rows import dict_row
 
 from onlyalpha.research.execution.model import (
@@ -75,6 +76,8 @@ class OnlyPostgresResearchOperationsStore:
             raise ValueError("operational snapshot limit must be between 1 and 1000")
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                connection.isolation_level = IsolationLevel.REPEATABLE_READ
+                connection.read_only = True
                 observed_row = connection.execute("SELECT clock_timestamp() AS observed_at").fetchone()
                 assert observed_row is not None
                 if run_id is None:

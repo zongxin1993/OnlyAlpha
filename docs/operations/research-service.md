@@ -43,6 +43,8 @@ Diagnosis codes are derived, read-only facts: `HEALTHY`, `QUEUE_AGED`, `NO_READY
 
 Structured log `event` values are stable machine codes. Logs are diagnostic and must never be used for recovery.
 
+Each operational snapshot is one PostgreSQL `READ ONLY`, `REPEATABLE READ` transaction. The first statement captures `clock_timestamp()` once as the server-side `observed_at` and establishes the MVCC observation used by the subsequent Run, Attempt, and Worker presence reads. Queue age, Worker freshness, and lease-overdue diagnosis all compare against that one returned value. PostgreSQL's default `READ COMMITTED` is insufficient because each statement could otherwise observe a different commit. This read path needs neither `SERIALIZABLE` nor row locks: it observes one stable database state and never coordinates execution or performs recovery.
+
 ## Forward-only migration
 
 Never edit an applied migration, repair the checksum ledger, delete an unknown migration, or use a force flag. `AHEAD`, `CHECKSUM_MISMATCH`, and `HISTORY_DIVERGED` require investigation and fail closed.
@@ -67,15 +69,33 @@ Migration uses an advisory lock and one transaction. Startup never invokes migra
 
 `restore-test` requires an isolated empty target, verifies backup metadata and checksum, runs `pg_restore`, checks schema compatibility, verified-loads the selected Run and its ordered Attempt history, and confirms the source remains compatible.
 
+A valid online recovery pair has this order:
+
+1. Capture the PostgreSQL operational backup at its consistent database observation `Tdb` and wait for `pg_dump` to succeed.
+2. After that, capture the immutable `USER_DATA_ROOT` snapshot at `Tfs`, where `Tfs >= Tdb`.
+3. Keep the two artifacts as one deployment-owned recovery set and verify both before relying on it.
+
+The ordering follows the execution commit contract: verified Research Result and Artifact commits happen before fenced PostgreSQL `COMPLETED` finalization. Therefore every semantic object referenced by a terminal Run in the database backup must exist in the later immutable snapshot:
+
+```text
+DB-referenced semantic objects ⊆ restored immutable semantic objects
+```
+
+Extra immutable objects are safe. For example, work may commit Result and Artifact after `Tdb` while the database backup still records `RUNNING`; after restore, ordinary verified-load and deterministic re-entry reuse those objects and converge the operational projection. Missing objects already referenced by restored terminal PostgreSQL facts are unsafe: treat the recovery set as incoherent/corrupt and fail closed. Do not reinterpret this as a cache miss, silently recompute, repair or overwrite immutable authority, or reopen a terminal Run.
+
+The reverse online order is unsupported: a filesystem snapshot followed by a newer PostgreSQL backup can restore `COMPLETED` references whose semantic objects are absent. Worker drain may be used as a conservative maintenance optimization—drain, allow the current Attempt to finish safely, then take the database backup followed by the immutable snapshot—but drain is not a correctness prerequisite for the database-first procedure.
+
 For an actual disaster restore:
 
 1. Provision an empty PostgreSQL 16 database.
 2. Verify backup SHA-256 against its metadata.
 3. Restore with PostgreSQL 16 `pg_restore --exit-on-error`.
 4. Run `database.py status` and `database.py validate` against the restored database.
-5. Restore the matching immutable `USER_DATA_ROOT` snapshot.
-6. Start API, check readiness, then start Worker.
-7. Verified immutable-store loads and ordinary forward re-entry converge incomplete operational projections.
+5. Restore the paired immutable `USER_DATA_ROOT` snapshot and confirm its capture did not precede the database observation.
+6. Through the existing Research semantic readers, verified-load every exact Research Result and Artifact reference selected for recovery validation. PostgreSQL tooling validates only operational facts and must remain semantic-store blind.
+7. If any referenced terminal semantic object is absent, corrupt, or conflicting, stop and fail closed. Extra verified semantic objects require no repair.
+8. Start API, check readiness, then start Worker.
+9. Verified immutable-store loads and ordinary forward re-entry converge incomplete operational projections.
 
 PostgreSQL backup is not a complete OnlyAlpha backup. Disaster recovery requires both the database backup (operational facts) and the immutable `USER_DATA_ROOT` backup (semantic facts). Use deployment-owned filesystem snapshots or tools such as restic/rsync; OnlyAlpha does not create a second Artifact backup authority.
 
