@@ -94,6 +94,7 @@ def test_quality_and_certification_require_research_authority_lanes_and_coverage
     for workflow in (quality, certification):
         assert "image: postgres:16.10" in workflow
         assert "ONLYALPHA_TEST_POSTGRES_DSN" in workflow
+        assert "research-product-closure" in workflow
         assert "research-postgres --coverage" in workflow
     assert "research-dataset" in quality and "research-dataset --coverage" in quality
     assert "research-dataset" in certification and "research-dataset --coverage" in certification

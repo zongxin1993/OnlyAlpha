@@ -13,7 +13,14 @@ def test_core_does_not_import_calculation_plugins_or_own_concrete_algorithms() -
     for path in Path("src/onlyalpha").rglob("*.py"):
         imports = _imports(path)
         assert not any(
-            name.startswith(("onlyalpha_plugin_indicators", "onlyalpha_plugin_factors", "onlyalpha_plugin_targets"))
+            name.startswith(
+                (
+                    "onlyalpha_plugin_indicators",
+                    "onlyalpha_plugin_factors",
+                    "onlyalpha_plugin_targets",
+                    "onlyalpha_test_plugin",
+                )
+            )
             for name in imports
         ), path
     forbidden = {"macd", "ema", "sma", "rsi", "atr", "bollinger", "rolling_return", "rolling_volatility", "zscore"}
@@ -53,3 +60,14 @@ def test_calculation_identity_has_one_authority_and_excludes_implementation_iden
     semantic_source = "\n".join(path.read_text(encoding="utf-8") for path in calculation.glob("*.py"))
     for forbidden in ("class_path", "factor_path", "runtime_id", "cluster_id", "created_at", "uuid4"):
         assert forbidden not in semantic_source
+
+
+def test_external_calculation_fixture_uses_only_public_calculation_contract() -> None:
+    fixture = Path(
+        "tests/fixtures/external_plugins/onlyalpha_test_plugin/src/onlyalpha_test_plugin/research_calculation.py"
+    )
+    onlyalpha_imports = {name for name in _imports(fixture) if name.startswith("onlyalpha")}
+    assert onlyalpha_imports == {"onlyalpha.calculation"}
+    metadata = Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/pyproject.toml").read_text(encoding="utf-8")
+    assert '[project.entry-points."onlyalpha.calculations"]' in metadata
+    assert "onlyalpha_test_plugin.research_calculation:registrations" in metadata

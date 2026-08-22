@@ -38,6 +38,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_RUN = "research-run"
     RESEARCH_EXECUTION = "research-execution"
     RESEARCH_POSTGRES = "research-postgres"
+    RESEARCH_PRODUCT_CLOSURE = "research-product-closure"
     RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
     RESEARCH_SWEEP = "research-sweep"
@@ -199,6 +200,13 @@ LANES = {
         "no",
         40,
     ),
+    OnlyTestLane.RESEARCH_PRODUCT_CLOSURE: Lane(
+        ("tests/certification/p8_6",),
+        "postgres or not external",
+        "0",
+        "no",
+        40,
+    ),
     OnlyTestLane.RESEARCH_RUNTIME: Lane(
         (
             "tests/runtime/research",
@@ -347,6 +355,7 @@ RELEASE_LANES = (
     OnlyTestLane.RESEARCH_RUN,
     OnlyTestLane.RESEARCH_COMMAND,
     OnlyTestLane.RESEARCH_EXECUTION,
+    OnlyTestLane.RESEARCH_PRODUCT_CLOSURE,
     OnlyTestLane.RESEARCH_POSTGRES,
     OnlyTestLane.RESEARCH_RUNTIME,
     OnlyTestLane.RESEARCH_QUERY,

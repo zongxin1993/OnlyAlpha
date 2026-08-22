@@ -17,6 +17,7 @@ from urllib.request import urlopen
 
 import psycopg
 import pytest
+from psycopg import sql
 
 import onlyalpha.persistence.postgres.research_operations_store as research_operations_store_module
 from onlyalpha.canonical import only_canonical_json
@@ -784,6 +785,21 @@ def test_operational_statement_timeout_is_repository_owned_and_effective(postgre
         with psycopg.connect(postgres_dsn) as connection:
             connection.execute("DROP TRIGGER onlyalpha_test_slow_run ON research_run")
             connection.execute("DROP FUNCTION onlyalpha_test_slow_run()")
+
+
+def test_operational_connection_policy_forces_utc_independent_of_server_default(postgres_dsn: str) -> None:
+    options = OnlyPostgresOperationalConnectionOptions()
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        database = connection.info.dbname
+        connection.execute(
+            sql.SQL("ALTER DATABASE {} SET timezone TO 'Asia/Shanghai'").format(sql.Identifier(database))
+        )
+    try:
+        with psycopg.connect(options.apply(postgres_dsn)) as connection:
+            assert connection.execute("SHOW timezone").fetchone() == ("UTC",)
+    finally:
+        with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+            connection.execute(sql.SQL("ALTER DATABASE {} RESET timezone").format(sql.Identifier(database)))
 
 
 @pytest.mark.parametrize(

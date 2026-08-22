@@ -45,6 +45,7 @@ class OnlyPostgresOperationalConnectionOptions:
             dsn,
             connect_timeout=int(self.connect_timeout.total_seconds()),
             options=(
+                "-c timezone=UTC "
                 f"-c statement_timeout={_milliseconds(self.statement_timeout)}ms "
                 f"-c lock_timeout={_milliseconds(self.lock_timeout)}ms"
             ),

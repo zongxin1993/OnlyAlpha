@@ -37,6 +37,10 @@ diagnostic snapshots, startup version/schema inspection, and readiness. PostgreS
 facts. In particular, heartbeat timeout makes Attempt ownership uncertain and forbids local finalization; it is never a Research semantic
 failure.
 
+The same repository-owned options force every operational PostgreSQL session to `timezone=UTC`. Run and Attempt timestamps are strict UTC
+Domain facts; a non-UTC server/database default may preserve the instant while returning a different offset and must not turn a committed
+row into an unreadable authority. Startup probes, API, Worker, Run/Execution/Operations Stores, and readiness all use this UTC policy.
+
 The conservative connect-plus-statement bound is 10 seconds. Worker startup rejects configuration unless this bound is strictly shorter
 than both its heartbeat interval and lease duration. Consequently the non-daemon heartbeat and presence threads have a repository-owned
 I/O bound shorter than their join deadline. Operator migration, backup, restore, and validation commands retain their explicit operator

@@ -361,7 +361,7 @@ class OnlyResearchWorkerService:
             return None
         self._scheduler.expire_once()
         self._cancellation_reconciler.reconcile_once()
-        if (stop_requested or (lambda: False))():
+        if self._stop.is_set() or (stop_requested or (lambda: False))():
             self.stop()
             return None
         claim = self._scheduler.claim_once(self._worker.worker_instance_id)

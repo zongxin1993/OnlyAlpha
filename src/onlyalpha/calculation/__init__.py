@@ -1,6 +1,11 @@
 """Public calculation semantic authority."""
 # ruff: noqa: F401, F403
 
+from onlyalpha.calculation.capability import (
+    OnlyCalculationSemanticCapability,
+    only_assert_calculation_capabilities_equivalent,
+    only_calculation_capability_projection,
+)
 from onlyalpha.calculation.compatibility import (
     OnlyCalculationCompatibility,
     only_calculation_output_compatibility,

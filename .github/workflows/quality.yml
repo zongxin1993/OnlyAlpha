@@ -179,6 +179,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - run: uv run python scripts/test_suite.py research-product-closure
       - run: uv run python scripts/test_suite.py research-postgres --coverage
 
   web:

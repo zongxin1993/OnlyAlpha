@@ -501,6 +501,29 @@ def test_external_stop_observed_after_housekeeping_is_a_claim_barrier(tmp_path: 
     assert presence.draining_count == 1
 
 
+def test_service_stop_observed_after_housekeeping_is_a_claim_barrier_and_idempotent(tmp_path: Path) -> None:
+    _, _, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
+    scheduler = _Scheduler(claim)
+    presence = _Presence()
+    service: OnlyResearchWorkerService
+
+    def stop_service() -> None:
+        service.stop()
+        service.stop()
+
+    service = OnlyResearchWorkerService(
+        scheduler=scheduler,  # type: ignore[arg-type]
+        worker=_ServiceWorker(),  # type: ignore[arg-type]
+        cancellation_reconciler=_Reconciler(stop_service),  # type: ignore[arg-type]
+        presence_reporter=presence,
+    )
+
+    assert service.run_once() is None
+    assert scheduler.expired == 1
+    assert scheduler.claimed == 0
+    assert presence.draining_count == 1
+
+
 def test_stop_after_claim_transaction_begins_drains_current_claim_and_blocks_next(tmp_path: Path) -> None:
     _, _, _, claim = _case(tmp_path, runtime_executor=_RuntimeExecutor())
     stopped = False
