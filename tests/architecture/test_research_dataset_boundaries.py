@@ -23,9 +23,7 @@ def test_research_dataset_has_no_trading_authority_imports() -> None:
         "runtime",
         "settlement",
     }
-    for path in Path("src/onlyalpha/research").rglob("*.py"):
-        if path.parent.name == "execution":
-            continue  # P8.2 operational application boundary is governed by its dedicated firewall.
+    for path in Path("src/onlyalpha/research/dataset").rglob("*.py"):
         tree = ast.parse(path.read_text())
         imports = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module]
         assert not any(

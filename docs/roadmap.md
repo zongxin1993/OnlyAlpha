@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.5 — IMPLEMENTED / VERIFIED LOCALLY — Operational Hardening & Database Recovery
+Current Increment: P8.5 — IMPLEMENTED / VERIFIED / POST-CLOSURE PASS — Operational Hardening & Database Recovery
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977

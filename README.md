@@ -39,8 +39,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 | **DONE / CERTIFIED** — Vectorized Research Runtime |
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
-| Current milestone | **P8 — Research Control Plane & Web-native Execution** |
-| Current increment | **P8.5 — IMPLEMENTED / VERIFIED locally** — Operational Hardening & Database Recovery |
+| Current milestone | **P8 — IN_PROGRESS — Research Control Plane & Web-native Execution** |
+| Current increment | P8.5 — IMPLEMENTED / VERIFIED / POST-CLOSURE PASS — Operational Hardening & Database Recovery |
 | Next semantic direction | P8.6 — P8 Product Closure & Final Certification |
 | License | MIT |
 

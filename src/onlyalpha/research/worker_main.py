@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import argparse
 import logging
-import signal
 from collections.abc import Sequence
 from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.application.stop_controller import (
+    OnlyApplicationShutdownReason,
+    OnlyApplicationStopController,
+)
 from onlyalpha.core.clock import only_system_utc_now
-from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
-from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
-from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
@@ -25,9 +23,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
     only_assert_supported_postgres_server,
 )
-from onlyalpha.plugin.discovery import only_discover_plugins
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
-from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
@@ -48,22 +44,9 @@ from onlyalpha.research.operations.presence import OnlyResearchWorkerPresenceRep
 from onlyalpha.research.operations.readiness import OnlyResearchRequiredRoot, OnlyResearchServiceReadinessProbe
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
+from onlyalpha.runtime.defaults import only_default_engine_services
 
 _LOG = logging.getLogger(__name__)
-
-
-def _registry() -> OnlyCalculationRegistry:
-    calculations = OnlyCalculationRegistry()
-    only_discover_plugins(
-        OnlyDataSourceFactoryRegistry(),
-        OnlyBrokerFactoryRegistry(),
-        OnlyBrokerFeeContractRegistry(),
-        OnlyMarketProductFactoryRegistry(),
-        calculations,
-        fail_fast=True,
-    )
-    only_register_research_predicate_primitives(calculations)
-    return calculations
 
 
 def _service_version() -> str:
@@ -98,7 +81,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     for root in required_paths:
         root.mkdir(parents=True, exist_ok=True)
-    calculations = _registry()
+    services = only_default_engine_services(fail_fast=True)
+    calculations = services.assembler.components.calculations
     readiness = OnlyResearchServiceReadinessProbe(
         schema_status=migrations.status,
         required_roots=tuple(
@@ -152,7 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_store=run_store,
         resolver=resolver,
         dataset_store=dataset,
-        runtime_executor=OnlyEngineResearchRuntimeExecutor(layout.root),
+        runtime_executor=OnlyEngineResearchRuntimeExecutor(layout.root, services),
         policy=policy,
         now_utc=only_system_utc_now,
     )
@@ -170,11 +154,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         presence_reporter=presence,
     )
 
-    def drain(_signum: int, _frame: object) -> None:
-        service.stop()
-
-    signal.signal(signal.SIGINT, drain)
-    signal.signal(signal.SIGTERM, drain)
+    stop_controller = OnlyApplicationStopController()
+    stop_controller.install()
     only_log_research_operational_event(
         _LOG,
         logging.INFO,
@@ -182,7 +163,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         worker_instance_id=str(worker_id),
         service_version=_service_version(),
     )
-    service.run_forever()
+    try:
+        service.run_forever(stop_requested=lambda: stop_controller.stop_requested)
+    except KeyboardInterrupt:
+        stop_controller.request_stop(OnlyApplicationShutdownReason.KEYBOARD_INTERRUPT)
+        service.stop()
+    finally:
+        stop_controller.restore()
     return 0
 
 

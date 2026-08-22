@@ -26,6 +26,8 @@ Start in this order:
 
 API and Worker startup check schema compatibility and PostgreSQL major but never migrate or repair the database. Worker startup also checks its required roots and Calculation/plugin composition before it may claim work.
 
+A Worker establishes one `OnlyEngineServices` plugin/component composition at process startup. Specification re-resolution and every Research Runtime execution in that process consume the same Calculation registry from those services. Each claimed Attempt still creates a fresh `OnlyEngine` and a fresh Research Runtime lifecycle; restarting the Worker is the only boundary that re-establishes process composition. This is a process-lifetime wiring invariant, not a new durable identity or store.
+
 ## Shutdown
 
 Stop Web and API as needed. Send `SIGTERM` or `SIGINT` to the Worker and wait for exit before stopping PostgreSQL. The Worker enters draining, stops new claims, keeps the current Attempt heartbeat alive, completes safe work, and then exits. Process shutdown is not a semantic failure.

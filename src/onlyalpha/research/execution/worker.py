@@ -26,6 +26,7 @@ from onlyalpha.research.run.model import (
 from onlyalpha.research.run.store import OnlyResearchRunStore
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.research.workload import OnlyResearchWorkloadPlan
+from onlyalpha.runtime.defaults import OnlyEngineServices
 from onlyalpha.runtime.research import (
     OnlyResearchRuntimeBoundary,
     OnlyResearchRuntimeCancellationRequested,
@@ -83,15 +84,19 @@ class _PresenceReporter(Protocol):
 class OnlyEngineResearchRuntimeExecutor:
     """Minimal composition adapter; execution still enters only through OnlyEngine."""
 
-    def __init__(self, user_data_root: Path) -> None:
+    def __init__(self, user_data_root: Path, services: OnlyEngineServices) -> None:
         self._user_data_root = user_data_root
+        self._services = services
 
     def execute(
         self,
         workload: OnlyResearchWorkloadPlan,
         control: OnlyResearchRuntimeExecutionControl,
     ) -> OnlyResearchRuntimeResult:
-        engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("research-worker"), self._user_data_root))
+        engine = OnlyEngine(
+            OnlyEngineConfig(OnlyEngineId("research-worker"), self._user_data_root),
+            services=self._services,
+        )
         runtime_id = engine.add_research_workload(workload)
         try:
             engine.initialize()
@@ -340,7 +345,8 @@ class OnlyResearchWorkerService:
         claim = self._scheduler.claim_once(self._worker.worker_instance_id)
         return None if claim is None else self._worker.execute_claim(claim)
 
-    def run_forever(self) -> None:
+    def run_forever(self, *, stop_requested: Callable[[], bool] | None = None) -> None:
+        externally_stopped = stop_requested or (lambda: False)
         reporter = self._presence_reporter
         if reporter is not None:
             reporter.start()
@@ -351,7 +357,7 @@ class OnlyResearchWorkerService:
             worker_instance_id=str(self._worker.worker_instance_id),
         )
         try:
-            while not self._stop.is_set():
+            while not self._stop.is_set() and not externally_stopped():
                 try:
                     outcome = self.run_once()
                 except (OnlyResearchExecutionStoreUnavailableError, OnlyResearchRunStoreUnavailableError):
@@ -376,6 +382,8 @@ class OnlyResearchWorkerService:
                 else:
                     self._stop.wait(self._polling_interval.total_seconds())
         finally:
+            if externally_stopped() and not self._stop.is_set():
+                self.stop()
             if reporter is not None:
                 reporter.stop()
             only_log_research_operational_event(

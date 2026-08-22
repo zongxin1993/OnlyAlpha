@@ -48,6 +48,7 @@ from onlyalpha.research.run import (
     only_research_admission_resolution_fingerprint,
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.runtime.research import OnlyResearchRuntimeBoundary, OnlyResearchRuntimeResult
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from tests.research.specification.support import registry, specification
@@ -63,6 +64,10 @@ M5 = "0005_research_specification_v2_admission"
 M6 = "0006_research_worker_presence"
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
+
+
+def _services() -> OnlyEngineServices:
+    return only_default_engine_services()
 
 
 def _queued(run_id: int) -> OnlyResearchRun:
@@ -465,7 +470,9 @@ def test_artifact_commit_crash_reenters_real_engine_and_completes_with_new_servi
     first = _claim(first_store, WORKER_1, 61)
     assert first is not None
 
-    first_result = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    first_result = OnlyEngineResearchRuntimeExecutor(tmp_path, _services()).execute(
+        resolution.workload, _NoopRuntimeControl()
+    )
     assert first_result.status.value == "COMPLETED"
     assert run_store.load(queued.run_id).state is OnlyResearchRunState.RUNNING
     with psycopg.connect(postgres_dsn) as connection:
@@ -478,13 +485,14 @@ def test_artifact_commit_crash_reenters_real_engine_and_completes_with_new_servi
     assert restarted_store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=3)) is not None
     second = _claim(restarted_store, WORKER_2, 62)
     assert second is not None and second.attempt.attempt_number == 2
+    restarted_services = _services()
     worker = OnlyResearchWorker(
         worker_instance_id=WORKER_2,
         execution_store=restarted_store,
         run_store=OnlyPostgresResearchRunStore(postgres_dsn),
-        resolver=OnlyResearchSpecificationResolver(registry()),
+        resolver=OnlyResearchSpecificationResolver(restarted_services.assembler.components.calculations),
         dataset_store=OnlyParquetResearchDatasetSnapshotStore(OnlyUserDataLayout(tmp_path).research_dataset_root),
-        runtime_executor=OnlyEngineResearchRuntimeExecutor(tmp_path),
+        runtime_executor=OnlyEngineResearchRuntimeExecutor(tmp_path, restarted_services),
         policy=OnlyResearchExecutionPolicy(),
         now_utc=lambda: NOW + timedelta(minutes=4),
     )
@@ -521,7 +529,9 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
         raise RuntimeError("simulated process loss after Result commit")
 
     monkeypatch.setattr(OnlyParquetResearchArtifactStore, "commit", crash_after_result)
-    failed = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    failed = OnlyEngineResearchRuntimeExecutor(tmp_path, _services()).execute(
+        resolution.workload, _NoopRuntimeControl()
+    )
     assert failed.status.value == "FAILED" and failed.phase is not None
     assert failed.phase.value == "ARTIFACT_COMMIT"
     result_root = OnlyUserDataLayout(tmp_path).research_result_root
@@ -539,13 +549,14 @@ def test_result_commit_crash_reenters_real_engine_without_rewriting_result(
     restarted_store.expire_next(max_attempts=3, run_finished_at=NOW + timedelta(minutes=3))
     second = _claim(restarted_store, WORKER_2, 72)
     assert second is not None
+    restarted_services = _services()
     worker = OnlyResearchWorker(
         worker_instance_id=WORKER_2,
         execution_store=restarted_store,
         run_store=OnlyPostgresResearchRunStore(postgres_dsn),
-        resolver=OnlyResearchSpecificationResolver(registry()),
+        resolver=OnlyResearchSpecificationResolver(restarted_services.assembler.components.calculations),
         dataset_store=OnlyParquetResearchDatasetSnapshotStore(OnlyUserDataLayout(tmp_path).research_dataset_root),
-        runtime_executor=OnlyEngineResearchRuntimeExecutor(tmp_path),
+        runtime_executor=OnlyEngineResearchRuntimeExecutor(tmp_path, restarted_services),
         policy=OnlyResearchExecutionPolicy(),
         now_utc=lambda: NOW + timedelta(minutes=4),
     )
@@ -586,7 +597,9 @@ def test_cancel_crash_after_semantic_commit_reconciles_completed_on_last_attempt
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 82, max_attempts=1)
     assert claim is not None and claim.attempt.attempt_number == 1
-    semantic = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    semantic = OnlyEngineResearchRuntimeExecutor(tmp_path, _services()).execute(
+        resolution.workload, _NoopRuntimeControl()
+    )
     assert semantic.status.value == "COMPLETED"
     running = run_store.load(queued.run_id)
     requested = run_store.commit_transition(
@@ -666,7 +679,9 @@ def test_partial_result_is_preserved_but_does_not_force_artifact_work(
         raise RuntimeError("simulated process loss after Result commit")
 
     monkeypatch.setattr(OnlyParquetResearchArtifactStore, "commit", crash_after_result)
-    failed = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    failed = OnlyEngineResearchRuntimeExecutor(tmp_path, _services()).execute(
+        resolution.workload, _NoopRuntimeControl()
+    )
     assert failed.status.value == "FAILED"
     result_root = OnlyUserDataLayout(tmp_path).research_result_root
     committed = {path.relative_to(result_root): path.read_bytes() for path in result_root.rglob("*") if path.is_file()}
@@ -699,7 +714,9 @@ def test_corrupt_artifact_fails_closed_during_cancellation_recovery(postgres_dsn
     store = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = _claim(store, WORKER_1, 86)
     assert claim is not None
-    semantic = OnlyEngineResearchRuntimeExecutor(tmp_path).execute(resolution.workload, _NoopRuntimeControl())
+    semantic = OnlyEngineResearchRuntimeExecutor(tmp_path, _services()).execute(
+        resolution.workload, _NoopRuntimeControl()
+    )
     assert semantic.status.value == "COMPLETED"
     artifact_root = OnlyUserDataLayout(tmp_path).research_artifact_root
     manifest = next(artifact_root.rglob("artifact_manifest.json"))

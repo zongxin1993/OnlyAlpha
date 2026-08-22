@@ -32,6 +32,7 @@ from onlyalpha.research.run import (
     only_research_admission_resolution_fingerprint,
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.research import OnlyResearchRuntimePhase, OnlyResearchRuntimeResult
 from onlyalpha.runtime.result import OnlyRuntimeResultStatus
 from tests.research.specification.support import registry, specification
@@ -172,7 +173,9 @@ def _case(
     dataset_store: object | None = None,
 ) -> tuple[OnlyResearchWorker, _RunStore, _ExecutionStore, OnlyResearchExecutionClaim]:
     _, workload = workload_case(tmp_path)
-    resolver = OnlyResearchSpecificationResolver(registry())
+    services = only_default_engine_services() if runtime_executor is None else None
+    calculations = services.assembler.components.calculations if services is not None else registry()
+    resolver = OnlyResearchSpecificationResolver(calculations)
     spec = specification(workload.dataset_snapshot_fingerprint)
     resolution = resolver.resolve(spec)
     queued = OnlyResearchRun.queued(
@@ -208,7 +211,7 @@ def _case(
             else OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
         ),  # type: ignore[arg-type]
         runtime_executor=(
-            runtime_executor if runtime_executor is not None else OnlyEngineResearchRuntimeExecutor(tmp_path)
+            runtime_executor if runtime_executor is not None else OnlyEngineResearchRuntimeExecutor(tmp_path, services)
         ),  # type: ignore[arg-type]
         policy=OnlyResearchExecutionPolicy(
             lease_duration=timedelta(seconds=1), heartbeat_interval=timedelta(milliseconds=10)
@@ -226,6 +229,47 @@ def test_worker_reverifies_and_enters_real_engine_runtime_to_complete(tmp_path: 
     assert run_store.run.research_result_fingerprint is not None
     assert run_store.run.artifact_content_fingerprint is not None
     assert execution_store.heartbeat_count >= 2
+
+
+def test_runtime_executor_reuses_services_but_creates_a_fresh_engine_per_claim(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    services = only_default_engine_services()
+    engines: list[object] = []
+    service_identities: list[object] = []
+
+    class _RecordingEngine:
+        def __init__(self, config: object, storage: object = None, *, services: object = None) -> None:
+            del config, storage
+            engines.append(self)
+            service_identities.append(services)
+
+        def add_research_workload(self, workload: object) -> OnlyRuntimeId:
+            del workload
+            return OnlyRuntimeId(f"research-{len(engines)}")
+
+        def initialize(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def run_runtime(self, runtime_id: OnlyRuntimeId, *, research_control: object) -> OnlyResearchRuntimeResult:
+            del runtime_id, research_control
+            return _runtime_result(OnlyRuntimeResultStatus.COMPLETED)
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("onlyalpha.research.execution.worker.OnlyEngine", _RecordingEngine)
+    executor = OnlyEngineResearchRuntimeExecutor(tmp_path, services)
+    _, workload = workload_case(tmp_path)
+
+    executor.execute(workload, object())  # type: ignore[arg-type]
+    executor.execute(workload, object())  # type: ignore[arg-type]
+
+    assert len(engines) == 2 and engines[0] is not engines[1]
+    assert service_identities == [services, services]
 
 
 def test_worker_cooperatively_cancels_at_safe_boundary(tmp_path: Path) -> None:

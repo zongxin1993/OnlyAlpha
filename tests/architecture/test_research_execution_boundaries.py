@@ -42,6 +42,23 @@ def test_worker_enters_semantic_execution_only_through_engine_runtime_contract()
         assert forbidden not in worker
 
 
+def test_worker_startup_composition_is_shared_by_resolution_and_runtime_execution() -> None:
+    startup = Path("src/onlyalpha/research/worker_main.py").read_text()
+    assert "services = only_default_engine_services(fail_fast=True)" in startup
+    assert "calculations = services.assembler.components.calculations" in startup
+    assert "OnlyResearchSpecificationResolver(calculations)" in startup
+    assert "OnlyEngineResearchRuntimeExecutor(layout.root, services)" in startup
+    assert startup.index("services = only_default_engine_services") < startup.index("service.run_forever")
+
+
+def test_worker_claim_execution_cannot_rediscover_process_composition() -> None:
+    worker = Path("src/onlyalpha/research/execution/worker.py").read_text()
+    executor = worker[worker.index("class OnlyEngineResearchRuntimeExecutor") : worker.index("class _LeaseControl")]
+    assert "services=self._services" in executor
+    assert "only_default_engine_services" not in executor
+    assert "only_discover_plugins" not in executor
+
+
 def test_scheduler_worker_have_no_http_web_or_semantic_checkpoint_dependency() -> None:
     source = _source(Path("src/onlyalpha/research/execution"))
     for forbidden in ("fastapi", "pydantic", "onlyalpha_api", "onlyalpha-web", "semantic_checkpoint"):
