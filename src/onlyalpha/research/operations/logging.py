@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+
+from onlyalpha.core.clock import only_system_utc_now
 
 
 def only_log_research_operational_event(
@@ -14,7 +15,7 @@ def only_log_research_operational_event(
     **fields: object,
 ) -> None:
     payload = {
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": only_system_utc_now().isoformat(),
         "level": logging.getLevelName(level),
         "component": "research",
         "event": event,

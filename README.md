@@ -30,7 +30,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.8.5` |
+| Version | `0.8.6` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |
@@ -40,8 +40,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
 | Current milestone | **P8 — IN_PROGRESS — Research Control Plane & Web-native Execution** |
-| Current increment | P8.5 — IMPLEMENTED / VERIFIED / POST-CLOSURE PASS — Operational Hardening & Database Recovery |
-| Next semantic direction | P8.6 — P8 Product Closure & Final Certification |
+| Current increment | P8.6 — IMPLEMENTED / PRODUCT-CLOSURE VERIFIED — Final Phase Gate pending |
+| Next semantic direction | P8.6 Full Phase Gate → exact Final-SHA Certification |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。

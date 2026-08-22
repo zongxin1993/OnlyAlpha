@@ -80,6 +80,15 @@ def test_definition_reader_rejects_wrong_scalar_types_versions_and_duplicates() 
     with pytest.raises(ValueError, match="unknown"):
         OnlyResearchDatasetDefinition.from_dict(unknown)
 
+    with pytest.raises(ValueError, match="SCHEMA_UNSUPPORTED"):
+        replace(_definition(), schema_version=2)
+    with pytest.raises(ValueError, match="STRICT closed"):
+        replace(_definition(), closed_only=False)
+    invalid_instruments = dict(payload)
+    invalid_instruments["instruments"] = {}
+    with pytest.raises(ValueError, match="array of strings"):
+        OnlyResearchDatasetDefinition.from_dict(invalid_instruments)
+
 
 def test_strict_primitives_reject_coercion_and_invalid_utc_sha_shapes() -> None:
     with pytest.raises(ValueError):

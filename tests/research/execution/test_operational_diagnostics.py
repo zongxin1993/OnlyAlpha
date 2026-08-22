@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.execution.model import (
@@ -122,3 +125,12 @@ def test_structured_event_is_stable_and_secret_free(caplog) -> None:  # type: ig
     assert '"event":"research.run.failed"' in rendered
     assert '"run_id":"run"' in rendered and '"attempt_id":"attempt"' in rendered
     assert "password" not in rendered and "postgresql://" not in rendered
+
+
+def test_attempt_state_rejects_active_terminal_facts_and_incomplete_terminal_history() -> None:
+    run = _queued(99).transition(OnlyResearchRunState.RUNNING, at=NOW)
+    active = _active(run, 99, NOW + timedelta(minutes=1))
+    with pytest.raises(ValueError, match="ACTIVE"):
+        replace(active, finished_at=NOW)
+    with pytest.raises(ValueError, match="requires finished_at"):
+        replace(active, state=OnlyResearchRunAttemptState.SUCCEEDED)

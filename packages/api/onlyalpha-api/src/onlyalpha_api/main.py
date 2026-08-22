@@ -19,6 +19,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
+    OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
     only_assert_supported_postgres_server,
 )
@@ -28,6 +29,11 @@ from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.operations.deployment import (
+    OnlyResearchDeploymentCoherenceVerifier,
+    OnlyResearchFrozenDeploymentCheck,
+    OnlyResearchSemanticStoreIdentity,
+)
 from onlyalpha.research.operations.readiness import OnlyResearchRequiredRoot, OnlyResearchServiceReadinessProbe
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
@@ -60,10 +66,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     only_assert_supported_postgres_server(operational_dsn)
     OnlyPostgresMigrationAuthority(operational_dsn).assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
-    for root in (layout.root, layout.research_dataset_root, layout.research_artifact_root):
-        root.mkdir(parents=True, exist_ok=True)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     calculations = _calculation_registry()
+    deployment = OnlyResearchFrozenDeploymentCheck(
+        OnlyResearchDeploymentCoherenceVerifier(
+            OnlyResearchSemanticStoreIdentity(layout.research_root),
+            OnlyPostgresResearchDeploymentStore(postgres.dsn, operational_options),
+        )
+    )
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     resolver = OnlyResearchSpecificationResolver(calculations)
     admission = OnlyResearchRunAdmissionService(
@@ -85,6 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         OnlyResearchDefinitionResolver(calculations, dataset_store),
         OnlyResearchServiceReadinessProbe(
             schema_status=lambda: OnlyPostgresMigrationAuthority(operational_dsn).status(),
+            deployment_check=deployment.assert_compatible,
             required_roots=(
                 OnlyResearchRequiredRoot("artifact_root", layout.research_artifact_root, False),
                 OnlyResearchRequiredRoot("dataset_root", layout.research_dataset_root, False),

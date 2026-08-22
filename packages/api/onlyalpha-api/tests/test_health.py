@@ -70,6 +70,7 @@ def test_readiness_probe_fails_closed_for_database_schema_root_and_registry(tmp_
 
     unavailable = OnlyResearchServiceReadinessProbe(
         schema_status=lambda: (_ for _ in ()).throw(RuntimeError("secret dsn")),
+        deployment_check=lambda: None,
         required_roots=(),
         registry_check=lambda: None,
     ).inspect()
@@ -81,6 +82,7 @@ def test_readiness_probe_fails_closed_for_database_schema_root_and_registry(tmp_
 
     incompatible = OnlyResearchServiceReadinessProbe(
         schema_status=Incompatible,
+        deployment_check=lambda: None,
         required_roots=(),
         registry_check=lambda: None,
     ).inspect()
@@ -88,6 +90,7 @@ def test_readiness_probe_fails_closed_for_database_schema_root_and_registry(tmp_
 
     missing = OnlyResearchServiceReadinessProbe(
         schema_status=Status,
+        deployment_check=lambda: None,
         required_roots=(OnlyResearchRequiredRoot("dataset_root", tmp_path / "missing", False),),
         registry_check=lambda: None,
     ).inspect()
@@ -95,6 +98,7 @@ def test_readiness_probe_fails_closed_for_database_schema_root_and_registry(tmp_
 
     invalid_registry = OnlyResearchServiceReadinessProbe(
         schema_status=Status,
+        deployment_check=lambda: None,
         required_roots=(OnlyResearchRequiredRoot("dataset_root", tmp_path, False),),
         registry_check=lambda: (_ for _ in ()).throw(RuntimeError("bad plugin")),
     ).inspect()

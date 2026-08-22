@@ -23,28 +23,32 @@ class OnlyUserDataLayout:
     root: Path
 
     @property
+    def research_root(self) -> Path:
+        return self.root / "research"
+
+    @property
     def historical_market_data_cache_root(self) -> Path:
         return self.root / "cache" / "market_data"
 
     @property
     def research_dataset_root(self) -> Path:
-        return self.root / "research" / "datasets"
+        return self.research_root / "datasets"
 
     @property
     def research_calculation_result_root(self) -> Path:
-        return self.root / "research" / "calculation-results"
+        return self.research_root / "calculation-results"
 
     @property
     def research_statistics_result_root(self) -> Path:
-        return self.root / "research" / "statistics-results"
+        return self.research_root / "statistics-results"
 
     @property
     def research_result_root(self) -> Path:
-        return self.root / "research" / "results"
+        return self.research_root / "results"
 
     @property
     def research_artifact_root(self) -> Path:
-        return self.root / "research" / "artifacts"
+        return self.research_root / "artifacts"
 
     def run_root(self, engine_id: OnlyEngineId, run_id: str) -> Path:
         return self.root / "runs" / str(engine_id) / run_id

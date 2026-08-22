@@ -15,6 +15,11 @@ from onlyalpha.research.command import (
     OnlyResearchSubmissionRecord,
 )
 from onlyalpha.research.definition import OnlyResearchDefinitionResolver
+from onlyalpha.research.operations.readiness import (
+    OnlyResearchReadiness,
+    OnlyResearchReadinessCheck,
+    OnlyResearchReadinessStatus,
+)
 from onlyalpha.research.run import (
     OnlyPostgresSchemaIncompatibleError,
     OnlyResearchRun,
@@ -90,7 +95,7 @@ class _Store:
         return tuple(runs[:limit])
 
 
-def _client():  # type: ignore[no-untyped-def]
+def _client(readiness_probe=None):  # type: ignore[no-untyped-def]
     store, dataset = _Store(), _Dataset()
     admission = OnlyResearchRunAdmissionService(
         resolver=OnlyResearchSpecificationResolver(registry()),
@@ -112,9 +117,36 @@ def _client():  # type: ignore[no-untyped-def]
                 query,
                 calculations,
                 OnlyResearchDefinitionResolver(calculations, dataset),
+                readiness_probe,
             )
         ),
     )
+
+
+def test_product_routes_require_ready_deployment_while_health_remains_available() -> None:
+    class Probe:
+        def __init__(self) -> None:
+            self.readiness = OnlyResearchReadiness(
+                OnlyResearchReadinessStatus.NOT_READY,
+                (OnlyResearchReadinessCheck("semantic_store", "MISMATCH"),),
+                "SEMANTIC_STORE_IDENTITY_MISMATCH",
+            )
+
+        def inspect(self):  # type: ignore[no-untyped-def]
+            return self.readiness
+
+    probe = Probe()
+    _, _, client = _client(probe)
+    blocked = client.get("/api/v2/research/runs")
+    assert blocked.status_code == 503
+    assert blocked.json()["reason"] == "SEMANTIC_STORE_IDENTITY_MISMATCH"
+    assert client.get("/health/live").status_code == 200
+
+    probe.readiness = OnlyResearchReadiness(
+        OnlyResearchReadinessStatus.READY,
+        (OnlyResearchReadinessCheck("semantic_store", "COMPATIBLE"),),
+    )
+    assert client.get("/api/v2/research/runs").status_code == 200
 
 
 def test_submit_replay_get_list_and_cancel_contract() -> None:

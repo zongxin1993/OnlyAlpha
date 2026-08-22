@@ -180,6 +180,7 @@ def test_research_specification_lane_owns_compiler_architecture_equivalence_and_
     lane = LANES[OnlyTestLane.RESEARCH_SPECIFICATION]
     assert lane.paths == (
         "tests/research/specification",
+        "tests/research/definition/test_resolution.py",
         "tests/architecture/test_research_specification_boundaries.py",
         "tests/runtime/research/test_product.py::test_specification_resolved_and_manual_workloads_have_full_runtime_equivalence",
     )

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.params import Depends as DependsParam
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
@@ -14,7 +15,11 @@ from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.definition.errors import OnlyResearchDefinitionError
 from onlyalpha.research.definition.ports import OnlyResearchUniverseCatalog
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
-from onlyalpha.research.operations.readiness import OnlyResearchServiceReadinessProbe
+from onlyalpha.research.operations.readiness import (
+    OnlyResearchReadiness,
+    OnlyResearchReadinessStatus,
+    OnlyResearchServiceReadinessProbe,
+)
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 from onlyalpha.research.run.errors import OnlyResearchRunError
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
@@ -99,6 +104,12 @@ def create_artifact_query_app(reader: OnlyResearchArtifactReader) -> FastAPI:
     return app
 
 
+class _ResearchServiceNotReady(RuntimeError):
+    def __init__(self, readiness: OnlyResearchReadiness) -> None:
+        self.readiness = readiness
+        super().__init__(readiness.reason or "RESEARCH_SERVICE_NOT_READY")
+
+
 def create_research_app(
     reader: OnlyResearchArtifactReader,
     command_service: OnlyResearchCommandService,
@@ -110,8 +121,34 @@ def create_research_app(
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
         raise TypeError("Research API registered Universe authority must support both resolution and discovery")
-    app = create_artifact_query_app(reader)
-    app.title = "OnlyAlpha Research API"
+    app = FastAPI(title="OnlyAlpha Research API", version=str(RESEARCH_API_SCHEMA_VERSION))
+    artifact_service = OnlyResearchQueryService(reader)
+    readiness_dependencies: list[DependsParam] = []
+    if readiness_probe is not None:
+
+        def require_research_ready() -> None:
+            inspected = readiness_probe.inspect()
+            if inspected.status is not OnlyResearchReadinessStatus.READY:
+                raise _ResearchServiceNotReady(inspected)
+
+        readiness_dependencies.append(Depends(require_research_ready))
+
+    @app.exception_handler(_ResearchServiceNotReady)
+    async def not_ready_handler(_request: Request, error: _ResearchServiceNotReady) -> JSONResponse:
+        inspected = error.readiness
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": inspected.status.value,
+                "checks": {item.name: item.status for item in inspected.checks},
+                "reason": inspected.reason,
+            },
+        )
+
+    @app.exception_handler(OnlyResearchQueryError)
+    async def query_error_handler(_request: Request, error: OnlyResearchQueryError) -> JSONResponse:
+        status, body = research_error_response(error)
+        return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
     async def command_error_handler(_request: Request, error: Exception) -> JSONResponse:
         status, body = run_error_response(error)
@@ -139,9 +176,16 @@ def create_research_app(
         return JSONResponse(status_code=400, content={"detail": "HTTP request validation failed"})
 
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
-    app.include_router(create_run_router(command_service, run_query_service))
-    app.include_router(create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)))
-    app.include_router(create_definition_router(ResearchDefinitionApiService(definition_resolver)))
+    app.include_router(create_artifact_router(artifact_service), dependencies=readiness_dependencies)
+    app.include_router(create_run_router(command_service, run_query_service), dependencies=readiness_dependencies)
+    app.include_router(
+        create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)),
+        dependencies=readiness_dependencies,
+    )
+    app.include_router(
+        create_definition_router(ResearchDefinitionApiService(definition_resolver)),
+        dependencies=readiness_dependencies,
+    )
     app.include_router(create_health_router(readiness_probe))
     return app
 

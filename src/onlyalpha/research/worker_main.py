@@ -19,6 +19,7 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
+    OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
@@ -39,6 +40,10 @@ from onlyalpha.research.execution.worker import (
     OnlyEngineResearchRuntimeExecutor,
     OnlyResearchWorker,
     OnlyResearchWorkerService,
+)
+from onlyalpha.research.operations.deployment import (
+    OnlyResearchDeploymentCoherenceVerifier,
+    OnlyResearchSemanticStoreIdentity,
 )
 from onlyalpha.research.operations.logging import only_log_research_operational_event
 from onlyalpha.research.operations.presence import OnlyResearchWorkerPresenceReporter
@@ -74,6 +79,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     migrations = OnlyPostgresMigrationAuthority(operational_dsn)
     migrations.assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
+    deployment = OnlyResearchDeploymentCoherenceVerifier(
+        OnlyResearchSemanticStoreIdentity(layout.research_root),
+        OnlyPostgresResearchDeploymentStore(postgres.dsn, operational_options),
+    )
     required_paths = (
         layout.root,
         layout.research_dataset_root,
@@ -82,12 +91,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         layout.research_result_root,
         layout.research_artifact_root,
     )
-    for root in required_paths:
-        root.mkdir(parents=True, exist_ok=True)
     services = only_default_engine_services(fail_fast=True)
     calculations = services.assembler.components.calculations
     readiness = OnlyResearchServiceReadinessProbe(
         schema_status=migrations.status,
+        deployment_check=deployment.verify,
         required_roots=tuple(
             OnlyResearchRequiredRoot(name, path, True)
             for name, path in zip(

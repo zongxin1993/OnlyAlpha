@@ -22,6 +22,7 @@ from psycopg import sql
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
 )
 from onlyalpha.research import (
@@ -35,9 +36,15 @@ from onlyalpha.research import (
     OnlyResearchSpecification,
     OnlyResearchSpecificationResolver,
 )
+from onlyalpha.research.operations.deployment import (
+    OnlyResearchDeploymentCoherenceVerifier,
+    OnlyResearchDeploymentError,
+    OnlyResearchDeploymentErrorCode,
+    OnlyResearchSemanticStoreIdentity,
+)
 from onlyalpha.research.run import OnlyResearchRunId
 from onlyalpha.runtime.defaults import only_default_engine_services
-from scripts.database import _backup, _restore_test
+from scripts.database import _backup, _initialize_deployment, _restore_test
 from tests.certification.p8_6.support import external_definition
 from tests.research.calculation.support import snapshot
 
@@ -101,6 +108,7 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
     postgres_dsn: str, tmp_path: Path
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _initialize_deployment(postgres_dsn, tmp_path)
     layout = OnlyUserDataLayout(tmp_path)
     datasets = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
     candidate, partitions = snapshot()
@@ -226,6 +234,10 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
         assert restored_run.state.value == "COMPLETED"
         assert restored_run.research_result_fingerprint == result
         assert restored_run.artifact_content_fingerprint == artifact
+        assert OnlyResearchDeploymentCoherenceVerifier(
+            OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(restore_root).research_root),
+            OnlyPostgresResearchDeploymentStore(target_dsn),
+        ).verify()
 
         specification = OnlyResearchSpecification.from_dict(resolution["exact_specification"])
         services = only_default_engine_services(fail_fast=True)
@@ -279,8 +291,14 @@ def test_external_calculation_runs_through_real_api_worker_engine_and_artifact_q
             artifact_reader.load_verified("f" * 64)
 
         incoherent_root = tmp_path.parent / f"{tmp_path.name}-incoherent"
-        incoherent_root.mkdir()
+        OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(incoherent_root).research_root).initialize()
         assert OnlyPostgresResearchRunStore(target_dsn).load(restored_run.run_id).state.value == "COMPLETED"
+        with pytest.raises(OnlyResearchDeploymentError) as incoherent:
+            OnlyResearchDeploymentCoherenceVerifier(
+                OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(incoherent_root).research_root),
+                OnlyPostgresResearchDeploymentStore(target_dsn),
+            ).verify()
+        assert incoherent.value.code is OnlyResearchDeploymentErrorCode.SEMANTIC_STORE_IDENTITY_MISMATCH
         with pytest.raises(OnlyResearchArtifactStoreError):
             _semantic_readers(incoherent_root)[1].load_verified(result)
     finally:

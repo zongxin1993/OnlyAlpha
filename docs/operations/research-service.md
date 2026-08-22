@@ -7,7 +7,8 @@ This runbook is the operator contract for the single-host/small-team Research AP
 - Python 3.12.
 - PostgreSQL server major 16; CI and local certification use PostgreSQL 16.10.
 - `pg_dump` and `pg_restore` client major 16. A different major fails closed.
-- One writable, durable `USER_DATA_ROOT` shared by the API and Worker.
+- One writable, durable Research semantic-store namespace shared by the API and Worker. Local mount paths may differ, but each path must
+  expose the same immutable namespace identity.
 - `ONLYALPHA_POSTGRES_DSN` supplied through the environment, never argv.
 
 Worker presence is diagnostic only. Attempt leases remain the execution-ownership authority. PostgreSQL server time owns lease and presence coordination.
@@ -19,12 +20,20 @@ Start in this order:
 1. Start PostgreSQL 16.
 2. Run `uv run python scripts/database.py status`.
 3. If and only if status is `BEHIND` or `LEDGER_MISSING`, follow the migration procedure below.
-4. Start the API: `uv run onlyalpha-api --user-data-root "$USER_DATA_ROOT"`.
-5. Verify `GET /health/live` and `GET /health/ready`.
-6. Start the Worker: `uv run onlyalpha-research-worker --user-data-root "$USER_DATA_ROOT"`.
-7. Start the Web application if required.
+4. For a new empty semantic root and unbound deployment, explicitly run
+   `uv run python scripts/database.py initialize-deployment --user-data-root "$USER_DATA_ROOT"`.
+5. Start the API: `uv run onlyalpha-api --user-data-root "$USER_DATA_ROOT"`.
+6. Verify `GET /health/live` and `GET /health/ready`.
+7. Start the Worker: `uv run onlyalpha-research-worker --user-data-root "$USER_DATA_ROOT"`.
+8. Start the Web application if required.
 
-API and Worker startup check schema compatibility and PostgreSQL major but never migrate or repair the database. Worker startup also checks its required roots and Calculation/plugin composition before it may claim work.
+The explicit initialization command creates immutable `research/.onlyalpha-semantic-store.json`, binds that namespace ID to the
+PostgreSQL deployment, and creates the canonical semantic directories. It is idempotent only for the same binding. It refuses a
+non-empty root without identity and refuses a different existing PostgreSQL binding; there is no rebind command.
+
+API and Worker startup check schema compatibility, PostgreSQL major and exact deployment/store identity but never initialize, migrate,
+rebind or repair authority. A mismatch keeps the API not-ready and blocks Research product routes. Worker startup fails before presence,
+claim or semantic execution. Worker startup also checks its required roots and Calculation/plugin composition before it may claim work.
 
 A Worker establishes one `OnlyEngineServices` plugin/component composition at process startup. Specification re-resolution and every Research Runtime execution in that process consume the same Calculation registry from those services. Each claimed Attempt still creates a fresh `OnlyEngine` and a fresh Research Runtime lifecycle; restarting the Worker is the only boundary that re-establishes process composition. This is a process-lifetime wiring invariant, not a new durable identity or store.
 
@@ -98,6 +107,10 @@ Migration uses an advisory lock and one transaction. Startup never invokes migra
 
 `restore-test` requires an isolated empty target, verifies backup metadata and checksum, runs `pg_restore`, checks schema compatibility, verified-loads the selected Run and its ordered Attempt history, and confirms the source remains compatible.
 
+The PostgreSQL backup contains the deployment's expected semantic-store ID. The paired filesystem snapshot contains the immutable
+namespace identity metadata. A restored pair is coherent only when these typed IDs are equal. Missing, corrupt, unsupported or different
+identity fails before API readiness or Worker execution; local restore paths need not equal source paths.
+
 A valid online recovery pair has this order:
 
 1. Capture the PostgreSQL operational backup at its consistent database observation `Tdb` and wait for `pg_dump` to succeed.
@@ -121,10 +134,11 @@ For an actual disaster restore:
 3. Restore with PostgreSQL 16 `pg_restore --exit-on-error`.
 4. Run `database.py status` and `database.py validate` against the restored database.
 5. Restore the paired immutable `USER_DATA_ROOT` snapshot and confirm its capture did not precede the database observation.
-6. Through the existing Research semantic readers, verified-load every exact Research Result and Artifact reference selected for recovery validation. PostgreSQL tooling validates only operational facts and must remain semantic-store blind.
-7. If any referenced terminal semantic object is absent, corrupt, or conflicting, stop and fail closed. Extra verified semantic objects require no repair.
-8. Start API, check readiness, then start Worker.
-9. Verified immutable-store loads and ordinary forward re-entry converge incomplete operational projections.
+6. Verify the restored semantic-store namespace identity equals the PostgreSQL deployment binding.
+7. Through the existing Research semantic readers, verified-load every exact Research Result and Artifact reference selected for recovery validation. PostgreSQL tooling validates only operational facts and must remain semantic-store blind.
+8. If any referenced terminal semantic object is absent, corrupt, or conflicting, stop and fail closed. Extra verified semantic objects require no repair.
+9. Start API, check readiness, then start Worker.
+10. Verified immutable-store loads and ordinary forward re-entry converge incomplete operational projections.
 
 PostgreSQL backup is not a complete OnlyAlpha backup. Disaster recovery requires both the database backup (operational facts) and the immutable `USER_DATA_ROOT` backup (semantic facts). Use deployment-owned filesystem snapshots or tools such as restic/rsync; OnlyAlpha does not create a second Artifact backup authority.
 

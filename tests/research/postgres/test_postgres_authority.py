@@ -22,11 +22,13 @@ from psycopg import sql
 import onlyalpha.persistence.postgres.research_operations_store as research_operations_store_module
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.cli import main as onlyalpha_main
+from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
+    OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
@@ -38,6 +40,11 @@ from onlyalpha.research.execution import (
     OnlyResearchExecutionOwnershipLostError,
     OnlyResearchRunAttemptId,
     OnlyResearchWorkerInstanceId,
+)
+from onlyalpha.research.operations.deployment import (
+    OnlyResearchDeploymentError,
+    OnlyResearchDeploymentErrorCode,
+    OnlyResearchSemanticStoreId,
 )
 from onlyalpha.research.operations.diagnostics import (
     OnlyResearchDiagnosticPolicy,
@@ -66,7 +73,7 @@ from onlyalpha.research.specification import (
     OnlyResearchSpecification,
     OnlyResearchSpecificationResolver,
 )
-from scripts.database import _assert_client_major, _backup, _restore_test
+from scripts.database import _assert_client_major, _backup, _initialize_deployment, _restore_test
 from scripts.database import main as database_main
 from tests.research.specification.support import registry, specification
 
@@ -78,6 +85,30 @@ M3 = "0003_research_run_attempt_authority"
 M4 = "0004_research_run_submission_and_read_projection"
 M5 = "0005_research_specification_v2_admission"
 M6 = "0006_research_worker_presence"
+M7 = "0007_research_deployment_semantic_store_binding"
+
+
+def test_deployment_binding_is_singleton_idempotent_and_cannot_rebind(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchDeploymentStore(postgres_dsn)
+    expected = OnlyResearchSemanticStoreId("00000000-0000-4000-8000-000000000001")
+
+    with pytest.raises(OnlyResearchDeploymentError) as missing:
+        store.load_semantic_store_id()
+    assert missing.value.code is OnlyResearchDeploymentErrorCode.DEPLOYMENT_BINDING_MISSING
+    assert store.initialize(expected) == expected
+    assert store.initialize(expected) == expected
+    assert store.load_semantic_store_id() == expected
+
+    with pytest.raises(OnlyResearchDeploymentError) as mismatch:
+        store.initialize(OnlyResearchSemanticStoreId("00000000-0000-4000-8000-000000000002"))
+    assert mismatch.value.code is OnlyResearchDeploymentErrorCode.SEMANTIC_STORE_IDENTITY_MISMATCH
+
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute(
+            "SELECT count(*), min(semantic_store_id::text), max(semantic_store_id::text) "
+            "FROM research_deployment_semantic_store_binding"
+        ).fetchone() == (1, str(expected), str(expected))
 
 
 def _copy_migrations(target: Path, *migration_ids: str) -> None:
@@ -273,11 +304,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6, M7)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4, M5, M6)
+    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -298,11 +329,46 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6])
+def test_operator_explicitly_initializes_and_binds_new_semantic_store(
+    postgres_dsn: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", postgres_dsn)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["database.py", "initialize-deployment", "--user-data-root", str(tmp_path)],
+    )
+
+    assert database_main() == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["deployment"] == "BOUND"
+    assert OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id() == (
+        OnlyResearchSemanticStoreId(first["semantic_store_id"])
+    )
+    layout = OnlyUserDataLayout(tmp_path)
+    assert all(
+        root.is_dir()
+        for root in (
+            layout.research_dataset_root,
+            layout.research_calculation_result_root,
+            layout.research_statistics_result_root,
+            layout.research_result_root,
+            layout.research_artifact_root,
+        )
+    )
+
+    assert database_main() == 0
+    assert json.loads(capsys.readouterr().out)["semantic_store_id"] == first["semantic_store_id"]
+
+
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6)
+    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -326,8 +392,8 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6)
-    assert authority.migrate() == (M2, M3, M4, M5, M6)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7)
+    assert authority.migrate() == (M2, M3, M4, M5, M6, M7)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -360,7 +426,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4, M5, M6)
+    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -418,7 +484,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 
@@ -716,7 +782,7 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
         assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
         assert metadata["postgres_server_version"].startswith("16.")
         assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 16.")
-        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M6
+        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M7
         assert "onlyalpha_test" not in metadata_path.read_text(encoding="utf-8")
         _restore_test(postgres_dsn, target_dsn, backup, run.run_id.value)
         assert OnlyPostgresResearchRunStore(target_dsn).load(run.run_id) == run
@@ -810,6 +876,7 @@ def test_worker_process_signal_marks_draining_and_uses_application_exit_contract
     postgres_dsn: str, tmp_path: Path, signum: signal.Signals, expected_exit_code: int
 ) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _initialize_deployment(postgres_dsn, tmp_path)
     environment = os.environ.copy()
     environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
     process = subprocess.Popen(
@@ -849,6 +916,7 @@ def test_worker_process_signal_marks_draining_and_uses_application_exit_contract
 
 def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str, tmp_path: Path) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    _initialize_deployment(postgres_dsn, tmp_path)
     run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000017"))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

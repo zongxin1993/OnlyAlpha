@@ -171,6 +171,7 @@ LANES = {
     OnlyTestLane.RESEARCH_SPECIFICATION: Lane(
         (
             "tests/research/specification",
+            "tests/research/definition/test_resolution.py",
             "tests/architecture/test_research_specification_boundaries.py",
             "tests/runtime/research/test_product.py::test_specification_resolved_and_manual_workloads_have_full_runtime_equivalence",
         ),
@@ -201,7 +202,10 @@ LANES = {
         40,
     ),
     OnlyTestLane.RESEARCH_PRODUCT_CLOSURE: Lane(
-        ("tests/certification/p8_6",),
+        (
+            "tests/certification/p8_6",
+            "tests/architecture/test_research_deployment_boundaries.py",
+        ),
         "postgres or not external",
         "0",
         "no",

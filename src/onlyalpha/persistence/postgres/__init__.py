@@ -10,6 +10,9 @@ from .migration import OnlyPostgresMigrationAuthority as OnlyPostgresMigrationAu
 from .migration import OnlyPostgresSchemaStatus as OnlyPostgresSchemaStatus
 from .migration import OnlyPostgresSchemaVerdict as OnlyPostgresSchemaVerdict
 from .migration import only_discover_postgres_migrations as only_discover_postgres_migrations
+from .research_deployment_store import (
+    OnlyPostgresResearchDeploymentStore as OnlyPostgresResearchDeploymentStore,
+)
 from .research_execution_store import OnlyPostgresResearchExecutionStore as OnlyPostgresResearchExecutionStore
 from .research_operations_store import OnlyPostgresResearchOperationsStore as OnlyPostgresResearchOperationsStore
 from .research_run_store import OnlyPostgresResearchRunStore as OnlyPostgresResearchRunStore

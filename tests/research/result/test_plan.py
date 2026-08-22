@@ -8,12 +8,25 @@ from onlyalpha.research import (
     OnlyResearchResultCalculationPlan,
     OnlyResearchResultCandidatePlan,
     OnlyResearchResultPlan,
+    OnlyResearchResultSeriesPlan,
     OnlyResearchResultSignalPlan,
     only_research_result_plan_fingerprint,
 )
 
 A = "a" * 64
 B = "b" * 64
+C = "c" * 64
+D = "d" * 64
+E = "e" * 64
+F = "f" * 64
+
+
+def _scientific_members():
+    calculation = OnlyResearchResultCalculationPlan(B, C)
+    candidate = OnlyResearchResultCandidatePlan(D, "decision", (), B, C, (A,))
+    series = OnlyResearchResultSeriesPlan(D, B, E, "value")
+    signal = OnlyResearchResultSignalPlan("ENTRY_SIGNAL", D, B, E, "value")
+    return calculation, candidate, series, signal
 
 
 def test_plan_is_canonical_input_order_neutral_and_exactly_serializable() -> None:
@@ -134,3 +147,89 @@ def test_candidate_statistics_membership_is_order_neutral_and_duplicate_closed()
 
     with pytest.raises(ValueError, match="duplicate"):
         OnlyResearchResultCandidatePlan("e" * 64, "decision", (), "c" * 64, "d" * 64, (A, A))
+
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda: OnlyResearchResultCalculationPlan("BAD", C),
+        lambda: OnlyResearchResultCandidatePlan(D, "", (), B, C, (A,)),
+        lambda: OnlyResearchResultCandidatePlan(D, "decision", (("z", 1), ("a", 2)), B, C, (A,)),
+        lambda: OnlyResearchResultSeriesPlan(D, B, E, ""),
+        lambda: OnlyResearchResultSignalPlan("UNKNOWN", D, B, E, "value"),
+        lambda: OnlyResearchResultSignalPlan("ENTRY_SIGNAL", D, B, E, ""),
+    ),
+)
+def test_scientific_member_contracts_fail_closed(factory) -> None:  # type: ignore[no-untyped-def]
+    with pytest.raises(ValueError):
+        factory()
+
+
+def test_scientific_plan_rejects_every_membership_and_canonicality_violation() -> None:
+    calculation, candidate, series, signal = _scientific_members()
+    with pytest.raises(ValueError, match="unsupported"):
+        OnlyResearchResultPlan((A,), 99)
+    with pytest.raises(ValueError, match="V1"):
+        OnlyResearchResultPlan((A,), 1, F)
+    with pytest.raises(ValueError, match="calculations are invalid"):
+        OnlyResearchResultPlan((A,), 2, F, [calculation])  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="not canonical and unique"):
+        OnlyResearchResultPlan((A,), 2, F, (calculation, calculation))
+    with pytest.raises(ValueError, match="requires Calculation"):
+        OnlyResearchResultPlan((A,), 2, F)
+    with pytest.raises(ValueError, match="unknown Calculation"):
+        OnlyResearchResultPlan(
+            (A,),
+            2,
+            F,
+            (calculation,),
+            (OnlyResearchResultCandidatePlan(D, "decision", (), E, C, (A,)),),
+        )
+    with pytest.raises(ValueError, match="unknown Candidate"):
+        OnlyResearchResultPlan(
+            (A,),
+            2,
+            F,
+            (calculation,),
+            (candidate,),
+            (OnlyResearchResultSeriesPlan(None, B, E, "global"),),
+            (OnlyResearchResultSignalPlan("ENTRY_SIGNAL", E, B, E, "value"),),
+        )
+    with pytest.raises(ValueError, match="unknown Statistics"):
+        OnlyResearchResultPlan(
+            (A,),
+            2,
+            F,
+            (calculation,),
+            (OnlyResearchResultCandidatePlan(D, "decision", (), B, C, (E,)),),
+        )
+    assert OnlyResearchResultPlan((A,), 2, F, (calculation,), (candidate,), (series,), (signal,)).schema_version == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("calculations", [1], "object"),
+        ("candidates", {}, "array"),
+        (
+            "candidates",
+            [
+                {
+                    "candidate_fingerprint": D,
+                    "candidate_calculation_id": "",
+                    "assignment": {},
+                    "calculation_fingerprint": B,
+                    "graph_fingerprint": C,
+                    "statistics_fingerprints": [A],
+                }
+            ],
+            "non-empty string",
+        ),
+    ),
+)
+def test_scientific_plan_parser_rejects_malformed_nested_values(field: str, value: object, match: str) -> None:
+    calculation, candidate, series, signal = _scientific_members()
+    payload = OnlyResearchResultPlan((A,), 2, F, (calculation,), (candidate,), (series,), (signal,)).to_dict()
+    payload[field] = value
+    with pytest.raises(ValueError, match=match):
+        OnlyResearchResultPlan.from_dict(payload)

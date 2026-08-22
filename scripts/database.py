@@ -17,14 +17,17 @@ from pathlib import Path
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
+from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     ONLYALPHA_POSTGRES_CLIENT_MAJOR,
     OnlyPostgresConfig,
     OnlyPostgresMigrationAuthority,
+    OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
     only_assert_supported_postgres_server,
 )
+from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreIdentity
 from onlyalpha.research.run import OnlyResearchRunId
 
 
@@ -184,6 +187,23 @@ def _validate(dsn: str, run_id: str | None) -> None:
         raise RuntimeError("selected Research Run does not exist")
 
 
+def _initialize_deployment(dsn: str, user_data_root: Path) -> str:
+    _authority(dsn).assert_compatible()
+    only_assert_supported_postgres_server(dsn)
+    layout = OnlyUserDataLayout(user_data_root)
+    identity = OnlyResearchSemanticStoreIdentity(layout.research_root).initialize()
+    OnlyPostgresResearchDeploymentStore(dsn).initialize(identity)
+    for root in (
+        layout.research_dataset_root,
+        layout.research_calculation_result_root,
+        layout.research_statistics_result_root,
+        layout.research_result_root,
+        layout.research_artifact_root,
+    ):
+        root.mkdir(parents=True, exist_ok=True)
+    return str(identity)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="OnlyAlpha PostgreSQL authority operator tool")
     parser.add_argument("--dsn-env", default="ONLYALPHA_POSTGRES_DSN")
@@ -191,6 +211,8 @@ def main() -> int:
     commands.add_parser("status")
     commands.add_parser("plan")
     commands.add_parser("migrate")
+    initialize = commands.add_parser("initialize-deployment")
+    initialize.add_argument("--user-data-root", type=Path, required=True)
     validate = commands.add_parser("validate")
     validate.add_argument("--run-id")
     backup = commands.add_parser("backup")
@@ -218,6 +240,10 @@ def main() -> int:
         return 0
     if args.command == "migrate":
         print(json.dumps({"applied": authority.migrate()}, sort_keys=True))
+        return 0
+    if args.command == "initialize-deployment":
+        store_id = _initialize_deployment(dsn, args.user_data_root)
+        print(json.dumps({"deployment": "BOUND", "semantic_store_id": store_id}, sort_keys=True))
         return 0
     if args.command == "validate":
         _validate(dsn, args.run_id)

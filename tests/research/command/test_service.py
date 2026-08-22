@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.command import (
     OnlyResearchCancellationConflictError,
     OnlyResearchCommandConcurrencyError,
@@ -112,6 +115,35 @@ def test_submission_key_requires_canonical_uuid4() -> None:
     for invalid in ("bad", "00000000-0000-1000-8000-000000000001", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".upper()):
         with pytest.raises(ValueError):
             OnlyResearchSubmissionKey(invalid)
+
+
+def test_command_constructor_record_and_cursor_evidence_fail_closed() -> None:
+    run_id = OnlyResearchRunId("00000000-0000-4000-8000-000000000099")
+    with pytest.raises(ValueError, match="positive"):
+        OnlyResearchCommandService(  # type: ignore[arg-type]
+            admission=object(), store=object(), now_utc=lambda: NOW, cancellation_cas_attempts=0
+        )
+    with pytest.raises(ValueError, match="record"):
+        OnlyResearchSubmissionRecord(cast(object, KEY), "bad", run_id)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        OnlyResearchRunPageCursor(datetime(2026, 8, 18), run_id).encode()
+
+    cursor = OnlyResearchRunPageCursor(NOW, run_id)
+    payload = only_canonical_json({"queued_at": NOW.isoformat(), "run_id": run_id.value, "v": 1})
+    noncanonical = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    assert noncanonical != cursor.encode()
+    with pytest.raises(OnlyResearchRunCursorError):
+        OnlyResearchRunPageCursor.decode(noncanonical)
+
+
+def test_submission_detects_conflicting_record_created_by_store() -> None:
+    class ConflictingStore(_Store):
+        def create_queued_submission(self, run, key, command_fingerprint):  # type: ignore[no-untyped-def]
+            self.runs[run.run_id] = run
+            return OnlyResearchSubmissionRecord(key, "f" * 64, run.run_id)
+
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        _service(ConflictingStore(), _DatasetStore()).submit_research_run(KEY, specification())
 
 
 def test_submit_replay_is_durable_and_skips_environment_dependent_admission() -> None:

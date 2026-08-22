@@ -280,3 +280,54 @@ def test_duplicate_calculation_semantics_fail_at_existing_workload_boundary() ->
     with pytest.raises(OnlyResearchSpecificationError) as error:
         OnlyResearchSpecificationResolver(registry()).resolve(duplicate)
     assert error.value.code == "RESEARCH_SPEC_WORKLOAD_INVALID"
+
+
+def test_scientific_resolution_closes_candidate_signal_duplicate_and_selector_failures() -> None:
+    base = specification()
+    published = (OnlyResearchSeriesSelector("feature", "momentum", "factor_value"),)
+    unknown_candidate = OnlyResearchSpecification(
+        base.dataset_snapshot_fingerprint,
+        base.calculations,
+        base.statistics,
+        OnlyResearchScientificEvidenceSpec("missing", published),
+        2,
+    )
+    resolver = OnlyResearchSpecificationResolver(registry())
+    with pytest.raises(OnlyResearchSpecificationError) as unknown:
+        resolver.resolve(unknown_candidate)
+    assert unknown.value.code == "RESEARCH_SPEC_CANDIDATE_CALCULATION_UNKNOWN"
+
+    resolved = resolver.resolve(base)
+    candidates: dict[str, list[object]] = {}
+    for item in resolved.candidates:
+        candidates.setdefault(item.calculation_id, []).append(item)
+
+    selector = published[0]
+    with pytest.raises(OnlyResearchSpecificationError) as duplicate:
+        resolver._resolve_published_series(candidates, (selector, selector))  # type: ignore[arg-type]
+    assert duplicate.value.code == "RESEARCH_SPEC_DUPLICATE_PUBLISHED_SERIES"
+
+    mismatched_candidate = OnlyResearchScientificEvidenceSpec(
+        "feature",
+        published,
+        OnlyResearchSignalEvidenceSpec(entry=OnlyResearchSeriesSelector("target", "forward_return", "target_value")),
+    )
+    with pytest.raises(OnlyResearchSpecificationError) as mismatch:
+        resolver._resolve_signals(candidates, mismatched_candidate)  # type: ignore[arg-type]
+    assert mismatch.value.code == "RESEARCH_SPEC_SIGNAL_CANDIDATE_MISMATCH"
+
+    wrong_role = OnlyResearchScientificEvidenceSpec(
+        "feature", published, OnlyResearchSignalEvidenceSpec(entry=selector)
+    )
+    with pytest.raises(OnlyResearchSpecificationError) as role:
+        resolver._resolve_signals(candidates, wrong_role)  # type: ignore[arg-type]
+    assert role.value.code == "RESEARCH_SPEC_SIGNAL_ROLE_MISMATCH"
+
+    for invalid in (
+        OnlyResearchSeriesSelector("missing", "momentum", "factor_value"),
+        OnlyResearchSeriesSelector("feature", "missing", "factor_value"),
+        OnlyResearchSeriesSelector("feature", "momentum", "missing"),
+    ):
+        with pytest.raises(OnlyResearchSpecificationError) as selector_error:
+            resolver._resolve_selector(candidates, invalid)  # type: ignore[arg-type]
+        assert selector_error.value.code == "RESEARCH_SPEC_SERIES_REFERENCE_UNKNOWN"

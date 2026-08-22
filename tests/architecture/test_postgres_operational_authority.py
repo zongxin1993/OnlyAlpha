@@ -18,6 +18,7 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "research_run_attempt",
         "research_run_submission",
         "research_worker_presence",
+        "research_deployment_semantic_store_binding",
     ]
     for forbidden in (
         "dataset_row",
@@ -66,6 +67,13 @@ def test_published_migration_0004_and_0005_bytes_are_immutable() -> None:
         assert hashlib.sha256((Path("database/postgres/migrations") / name).read_bytes()).hexdigest() == checksum
 
 
+def test_published_migration_0007_bytes_are_immutable() -> None:
+    import hashlib
+
+    payload = Path("database/postgres/migrations/0007_research_deployment_semantic_store_binding.sql").read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == "de0e2f549c5f8ca54531ebf07a1a62811a6750ea02a625b5ed279b58878b6233"
+
+
 def test_forward_hardening_migration_mirrors_domain_fact_boundaries() -> None:
     sql = Path("database/postgres/migrations/0002_research_run_authority_hardening.sql").read_text()
     for constraint in (
@@ -112,6 +120,23 @@ def test_worker_presence_migration_is_minimal_and_diagnostic_only() -> None:
     for required in ("worker_instance_id", "started_at", "last_seen_at", "service_version", "draining_since"):
         assert required in sql
     for forbidden in ("run_id", "attempt_id", "specification", "dataset", "result", "artifact", "ownership"):
+        assert forbidden not in sql
+
+
+def test_deployment_binding_is_narrow_operational_compatibility_not_semantic_content() -> None:
+    sql = Path("database/postgres/migrations/0007_research_deployment_semantic_store_binding.sql").read_text()
+    assert "semantic_store_id UUID NOT NULL" in sql
+    assert "singleton BOOLEAN PRIMARY KEY" in sql
+    for forbidden in (
+        "dataset",
+        "calculation",
+        "statistics",
+        "research_result",
+        "artifact_content",
+        "specification",
+        "key TEXT",
+        "value TEXT",
+    ):
         assert forbidden not in sql
 
 

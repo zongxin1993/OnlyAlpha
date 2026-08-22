@@ -1,182 +1,204 @@
-# P8.6 Product Closure & Final Certification
+# P8.6 Final Closure
 
 Date: 2026-08-22
 
-## 1. Repository baseline
+## 1. Baseline
 
-- Start SHA: `a98f0241ae73fb578254b3dfecb98d2ee33b1853`
+- Start SHA: `d18e350fc95ce5cb6fc52e3765aac594f7cc1053`
 - Branch: `master`
-- Start worktree: no tracked modification; `prompts/P8.6P8ProductClosure&FinalCertification.md` was the only untracked file.
-- Candidate Final SHA: not frozen. The mandatory browser/product and deployment-coherence conditions below are unresolved.
+- Start worktree: no tracked changes; `prompts/P8.6FinalClosure.md` was the only untracked user input.
+- Release graph: `0.8.6`.
+- Candidate Final SHA: not frozen; the local Full Phase Gate has passed and the candidate commit is the next immutable step.
 
-## 2. First-principles invariants
+## 2. Reproduced Deployment Blocker
 
-- One fact / one authority remains unchanged: PostgreSQL owns Run/Attempt/lease facts; immutable stores own Dataset, Calculation,
-  Statistics, Research Result and Artifact facts.
-- Product semantic execution remains `Run -> Worker -> OnlyEngineResearchRuntimeExecutor -> fresh OnlyEngine -> OnlyResearchRuntime`.
-- Capability comparison projects exact semantic type definitions plus RESEARCH backend availability; provider class, module, wheel and
-  entry-point ordering are excluded.
-- Recovery remains forward-only through fenced operational facts and verified immutable reuse. No mutable semantic checkpoint was added.
-- Missing/corrupt semantic authority and incoherent restore pairs fail closed in certification tests.
+Startup previously checked only local root usability. API `(DB1, root A)` and Worker `(DB1, root B)` could both pass, allowing the Worker
+to commit Result/Artifact under `B`, finalize the Run in DB1, and leave the API reading the exact reference from `A` as not found. The
+defect existed before semantic work admission and could not be repaired at Artifact lookup.
 
-## 3. P8.6.0 Final Correctness Closure
+## 3. ADR
 
-Two reproducible defects were found and fixed inside existing owners.
+ADR 0096 freezes:
 
-1. `OnlyResearchWorkerService.stop()` called during housekeeping set the internal stop event, but the pre-claim barrier only re-read the
-   external stop predicate. One new claim could therefore begin after internal stop was observed. The existing Worker Service now checks
-   both its internal event and external predicate immediately before `claim_once()`. Deterministic tests cover external stop during
-   reconciliation, direct idempotent service stop during reconciliation, and stop after claim begins.
-2. Repository operational connection options bounded I/O but did not force the PostgreSQL session timezone. On a server whose default was
-   `Asia/Shanghai`, API submission committed a UTC instant and then strict Run load rejected the returned `+08:00` value as non-UTC. The
-   existing connection policy now sets `timezone=UTC`; no schema, timestamp identity or durable fact changed.
+```text
+One Research PostgreSQL deployment
+<->
+One immutable Research semantic-store namespace identity
+```
 
-Verdict: `PASS` for the reproduced defects and focused closure.
+`USER_DATA_ROOT/research/.onlyalpha-semantic-store.json` owns only stable namespace ID. Migration
+`0007_research_deployment_semantic_store_binding` owns one PostgreSQL singleton compatibility binding. Path is not identity. Only explicit
+operator initialization writes either fact; API/Worker startup is read-only and cannot repair or dynamically rebind. Restore preserves
+both IDs and requires equality before service readiness.
 
-## 4. P8.6.1 External Plugin Certification
+## 4. Production Changes
 
-`tests/fixtures/external_plugins/onlyalpha_test_plugin` now exposes a real `onlyalpha.calculations` entry point. Its deterministic,
-stateless RESEARCH Indicator imports only the public `onlyalpha.calculation` contract. The product-closure test proves installed entry-point
-discovery, Catalog visibility, Definition/Specification resolution, durable Run submission, fresh Worker composition, OnlyEngine /
-OnlyResearchRuntime execution, immutable Result/Artifact, and HTTP Artifact Query without Core importing the fixture.
+- `research/operations/deployment.py`: typed immutable namespace identity, strict explicit init, frozen startup verification.
+- `persistence/postgres/research_deployment_store.py` plus migration 0007: narrow operational binding; no semantic content.
+- API/Worker composition: read-only coherence check before readiness/claim; incoherent API product routes return 503.
+- `scripts/database.py initialize-deployment`: sole explicit writer and canonical directory initialization.
+- User-data layout: one explicit `research_root`; all existing semantic store paths remain unchanged.
 
-Verdict: `PASS` in the tested coherent deployment.
+No Calculation, Specification, Candidate, Statistics, Research Result or Artifact identity changed. No semantic content moved to
+PostgreSQL, and no registry, alternate Runtime, recovery Store or mutable checkpoint was added.
 
-## 5. P8.6.2 Machine Authoring Certification
+## 5. Deployment Coherence Tests
 
-The no-React client in `test_external_plugin_product.py` uses only HTTP Catalog, Definition Resolution, Command and Artifact Query APIs. The
-server remains the exact Specification authority. Replaying one idempotency key returns one Run. Existing Web transport tests prove the
-structured Builder emits the same formal Definition contract; existing Definition semantic-closure tests prove presentation metadata and
-input ordering do not alter resolved semantic identity.
+- DB X + API/Worker X executes successfully.
+- DB X + API Y remains NOT READY and all Research product routes are blocked.
+- DB X + Worker Y/missing/corrupt identity exits before presence or claim.
+- Two Workers with X are concurrently compatible.
+- Different local paths exposing one identity are compatible.
+- Non-empty root without identity refuses adoption.
+- Equal restore pair passes; restored DB X + store Y fails at deployment verification before semantic lookup.
 
-Verdict: `PASS` for public machine authoring and contract neutrality. A real browser execution is separately mandatory and unresolved.
+## 6. Real Browser Product E2E
 
-## 6. P8.6.3 Web Product E2E
+The mandatory harness starts PostgreSQL 16, migration plus explicit deployment init, a fixed immutable two-instrument Dataset, real API,
+real Vite Web, real Worker, OnlyEngine/OnlyResearchRuntime and Chromium. The browser authors RSI Feature with finite period Sweep,
+Rolling Return inputs, Momentum Factor, Eligibility, Entry, Exit, Forward Return Target and IC Statistics through the production Builder.
 
-The current `apps/onlyalpha-web/e2e/research.spec.ts` uses route-level mock responses and is not accepted as P8.6 product proof. A real local
-PostgreSQL/API/Worker/Web environment was started, but the required browser-control surface reported no available browser instances. No
-mock, source inspection, or alternate browser surface was substituted for the missing real browser run.
+It submits one durable Run, observes QUEUED, reloads while the Worker is absent, closes the page, and only then releases a test-owned file
+barrier that starts the Worker. A new page opens the same Run, observes COMPLETED, follows the exact Result reference, and compares real
+Query DTO facts with the Artifact-backed Viewer. Mechanical evidence includes two Candidates, both instruments, one RSI Feature Decimal,
+one Momentum Factor Decimal, ENTRY_SIGNAL points and IC Statistics points. The real spec contains no `page.route` or semantic mock.
 
-Verdict: `REJECTED / NOT CERTIFIED`.
+## 7. Crash Boundary Matrix
 
-## 7. P8.6.4 Fault / Recovery Matrix
-
-| Fault | Durable facts / evidence | Recovery action | Final fact | Verdict |
+| Boundary | Durable facts at SIGKILL | Recovery | Final semantic truth | Verdict |
 |---|---|---|---|---|
-| F1 Browser refresh | no real browser available | not executed | unproven | BLOCKING |
-| F2 Browser close | no real browser available | not executed | unproven | BLOCKING |
-| F3 API restart | PostgreSQL Run + portable Artifact | fresh API process | identical Run/Artifact DTO | PASS |
-| F4 Worker starts with QUEUED Run | PostgreSQL QUEUED | fresh Worker startup composition | COMPLETED | PASS |
-| F5 crash after claim | ACTIVE Attempt + server lease | expiry + fresh Attempt | stale Attempt fenced | PASS |
-| F6 crash during semantic execution | Run/Attempt plus immutable commits | deterministic re-entry | covered at commit boundaries, not every calculation boundary | PARTIAL |
-| F7 Calculation commit | immutable Calculation Result | verified reuse during result/artifact re-entry | same Result identity | PASS via aggregate re-entry tests |
-| F8 Statistics commit | immutable Statistics Result | verified reuse during result/artifact re-entry | same Result identity | PASS via aggregate re-entry tests |
-| F9 Research Result commit | immutable Research Result | fresh Engine re-entry | Result not rewritten | PASS |
-| F10 Artifact commit before finalization | immutable Artifact, RUNNING Run | fresh Attempt + fenced complete | COMPLETED | PASS |
-| F11 stale Worker return | expired old Attempt, new owner | exact fence rejection | new owner remains authoritative | PASS |
-| F12 cancellation/completion race | semantic completion inspection | semantic-fact-first CAS | one terminal winner | PASS |
-| F13 PostgreSQL outage | StoreUnavailable / ownership uncertainty | bounded retry/recovery | no unsafe finalization | PASS |
-| F14 heartbeat uncertainty | timeout at heartbeat Store | ownership lost | no local finalization | PASS |
-| F15 immutable corruption | corrupt Dataset/Artifact | structured verified-load rejection | FAILED / no repair | PASS |
+| C1 claim, before Dataset/semantic work | RUNNING + ACTIVE Attempt | expire + fresh Attempt | control-equivalent Result/Artifact | PASS |
+| C2 before Research Result commit | reusable lower immutable facts; no final Result/Artifact | deterministic re-entry | control-equivalent Result/Artifact | PASS |
+| C3 Result committed, before Artifact commit | exact immutable Result bytes | verified reuse + Artifact materialize | Result bytes unchanged | PASS |
+| C4 Artifact committed, before PostgreSQL complete | exact Result + Artifact, Run RUNNING | verified reuse + fenced complete | both byte sets unchanged | PASS |
 
-Verdict: `REJECTED` because F1/F2 are unexecuted and F6 does not yet have a dedicated process-kill proof at every requested boundary.
+Each proof uses a real subprocess, `SIGKILL`, a narrow test-owned wrapper at an existing production boundary, and an exact barrier file.
+There is no sleep-based crash-point guess and no production test mode. Attempt 1 becomes EXPIRED, Attempt 2 SUCCEEDED, and stale Attempt 1
+cannot finalize after recovery.
 
-## 8. P8.6.5 Backup / Restore
+## 8. Restore Certification
 
-The product-closure lane performs a real PostgreSQL 16 custom-format backup at `Tdb`, then copies the immutable user-data tree at
-`Tfs >= Tdb`, restores PostgreSQL into an isolated empty database, loads the exact completed Run, verified-loads the exact Research Result
-and Artifact from the restored tree, and starts a fresh API against the restored pair. The restored API returns the same completed Run and
-Artifact summary.
-
-Negative cases remove Research Result, remove Artifact, corrupt the Artifact manifest, request a mismatched fingerprint, and pair the
-restored completed database with an empty semantic root. Each fails through the existing strict readers; no regeneration, reference
-rewrite, terminal reopen or startup repair is introduced.
-
-Verdict: `PASS` for the automated local restore-pair scenario.
+The automated product test captures PostgreSQL at `Tdb`, copies the complete namespace at `Tfs >= Tdb`, restores into an isolated empty
+PostgreSQL 16 database, verifies equal store/binding ID, exact completed Run, Research Result and Artifact, then starts a fresh API and
+compares DTOs. Wrong namespace fails early. Missing Result, missing Artifact, corrupt Artifact and mismatched fingerprint continue to fail
+through strict readers with no repair, overwrite or terminal reopen.
 
 ## 9. Authority Audit
 
-| Fact | Single authority | Writer | Readers | Evidence |
-|---|---|---|---|---|
-| Run state/reference | PostgreSQL `research_run` | Command / fenced Execution Store | API, Worker, operations | real product and PostgreSQL lanes |
-| Attempt/lease | PostgreSQL `research_run_attempt` + server clock | Execution Store | Scheduler/Worker/operations | lease/fencing tests |
-| Process stop | application StopController + Worker Service event | signal/controller/service | Worker loop | deterministic stop tests |
-| Calculation capability | Calculation Registry semantic contracts | startup plugin composition | API resolver, Worker services | canonical projection tests |
-| Scientific semantics | immutable semantic stores | OnlyResearchRuntime chain | verified readers/Query | product/restore test |
-| Browser state | disposable presentation only | browser | browser | architecture/unit tests; real E2E unresolved |
+| Fact | Authority | Verdict |
+|---|---|---|
+| Dataset | immutable Dataset Snapshot Store | unchanged / PASS |
+| Calculation semantics | Calculation contract and registered composition | unchanged / PASS |
+| Statistics | immutable Statistics Result Store | unchanged / PASS |
+| Research Result | immutable Research Result Store | unchanged / PASS |
+| Artifact | immutable portable Artifact Store | unchanged / PASS |
+| Run | PostgreSQL `research_run` | unchanged / PASS |
+| Attempt/lease | PostgreSQL + server clock | unchanged / PASS |
+| Semantic namespace ID | root immutable metadata, explicit operator writer | new single authority / PASS |
+| Deployment binding | PostgreSQL singleton, explicit operator writer | new single authority / PASS |
+| Browser state | disposable client state | unchanged / PASS |
 
 ## 10. Determinism / Reproducibility Audit
 
-- The external fixture uses fixed Dataset content and exact type/version/parameters.
-- API and Worker projections compare equal in independent startup compositions; an empty/different projection raises a fail-closed mismatch.
-- Submission retry preserves one Run identity.
-- Fresh API and restored API return identical terminal Run and Artifact summary facts.
-- Package/module provenance does not enter Calculation semantic identity.
+Fixed Dataset bytes, exact Definition/Specification, stable plugin composition and explicit policy produce identical semantic identities
+across control and all four recovered runs. Operational Attempt/Worker UUIDs and timestamps differ by design; Dataset, Calculation,
+Candidate, Statistics, Research Result and Artifact identities converge. Namespace growth does not change its identity.
 
-## 11. Changed production files
+## 11. Tests and Gates
 
-- `src/onlyalpha/research/execution/worker.py`: closes internal stop-before-claim race in the existing owner.
-- `src/onlyalpha/persistence/postgres/config.py`: forces operational PostgreSQL sessions to UTC.
-- `src/onlyalpha/calculation/capability.py` and public export: pure canonical deployment-conformance projection; no registry/store/identity.
+Completed focused evidence:
 
-No migration, Manager, Service, Store, Runtime, Run/Attempt state, semantic fingerprint or alternate execution path was added.
+- `research-product-closure`: 19 passed, including real Chromium and C1-C4 SIGKILL.
+- `research-postgres`: 81 passed against PostgreSQL 16.10 with PostgreSQL 16 client, including backup/restore.
+- focused deployment/health/architecture: 34 passed.
+- deployment real-process matrix: 5 passed.
+- API mypy: 17 source files, no issues; focused Core mypy passed.
 
-## 12. Tests and Gates
+Local certification environment:
 
-Passed locally:
+- macOS, Python 3.12.12, uv 0.10.5, Node.js 26.7.0, npm 11.19.0 and Playwright 1.62.1;
+- PostgreSQL server 16.10 in the isolated `onlyalpha-p86-pg` container and PostgreSQL 16 client tools;
+- fixed offline Dataset; no Tushare, QMT, realtime market data or mutable online dependency.
 
-- `research-product-closure`: 3 passed.
-- `research-execution`: 41 passed.
+Mandatory coverage was run without threshold reductions:
+
+| Surface | Result |
+|---|---:|
+| repository `core-full` | 83.96% |
+| calculation | 88.35% |
+| research-calculation | 88.32% |
+| research-definition | 83.88% |
+| research-factor | 100% |
+| research-evaluation | 95.38% |
+| research-result | 95.32% total / 96.69% lines / 91.67% branches |
+| research-artifact | 95.07% total / 96.30% lines / 91.58% branches |
+| research-query | 98.02% |
+| research-command | 95.57% total / 87.23% branches |
+| research-runtime | 97.81% |
+| research-specification | 100% lines / branches |
+| research-run | 100% |
+| research-execution | 95.44% |
+| research-job | 100% |
+| research-sweep | 95.86% |
+| research-dataset | 88.47% total / 72.14% branches |
+| research-postgres | 83.47% |
+
+Local Semgrep rule tests passed `4/4`; the tracked-source scan covered 669 files with zero findings. The exact-SHA workflow will rerun
+Semgrep after every candidate file is tracked. OSV dependency audit and Python/JavaScript-TypeScript CodeQL remain mandatory remote
+evidence and are not substituted by local claims.
+
+## 12. Full Phase Gate
+
+`PASS` on 2026-08-22 using the canonical command:
+
+```bash
+uv run python scripts/test_suite.py release
+```
+
+The release command passed Ruff, format checking, all configured mypy surfaces, version synchronization, Web static/unit/build/mock E2E,
+every canonical Research lane, real PostgreSQL product closure, `core-full`, recovery, SIM recovery, A-share conformance, MiniQMT contract
+and all-package build. Notable aggregate lane results were:
+
+- `core-full`: 2258 passed, 1 skipped;
+- `recovery`: 330 passed;
+- `sim-recovery`: 38 passed;
+- `ashare`: 24 passed;
+- `miniqmt-contract`: 34 passed;
+- `research-calculation`: 133 passed;
+- `research-dataset`: 37 passed;
 - `calculation`: 59 passed.
-- real `research-postgres` on PostgreSQL 16: 76 passed.
-- full architecture suite: 341 passed.
-- focused closure/architecture/certification set: 48 passed.
-- focused stop + UTC regression set: 17 passed.
-- `mypy src/onlyalpha`: 595 source files, no issues.
-- API mypy: 17 source files, no issues.
-- Ruff and format check: passed over 1,384 files after formatting.
-- version sync (`0.8.5` current unreleased graph) and `git diff --check`: passed.
 
-The full release/coverage/security/build/Web matrix was not promoted to a Final-SHA Phase Gate because mandatory real-browser product proof
-and the deployment-coherence blocker remain unresolved.
+Independent post-gate checks also passed:
 
-## 13. Remaining Risks
+```bash
+uv run lint-imports
+uv run python scripts/version_sync.py check
+git diff --check
+```
 
-### Blocking design defect: operational DB / semantic root deployment coherence
+Import Linter analyzed 633 files and 4918 dependencies: all three contracts were kept, with zero broken contracts. The workspace release
+graph is consistent at `0.8.6`. Performance warnings emitted by timed tests were diagnostic and did not relax or bypass any required gate.
 
-A Worker connected to the same PostgreSQL authority but configured with a different `user_data_root` can legitimately claim a Run, commit
-immutable evidence under its own root, and fenced-finalize `COMPLETED`. An API using another root then reads the terminal PostgreSQL
-references but returns `RESEARCH_ARTIFACT_NOT_FOUND`. This was reproduced with two real Worker environments during the audit.
+## 13. Candidate Final SHA
 
-The current product requires API and every Worker sharing one operational database to share the same coherent immutable-store deployment,
-but that compatibility is not fenced or admitted across processes. Fixing this may require a new deployment/admission fact and therefore
-an ADR plus explicit schema/compatibility analysis; adding a convenient central registry or silently copying evidence is forbidden.
+Not frozen in this report revision. The local Phase Gate is complete; after this report is finalized, all candidate files will be committed
+together, the exact 40-character SHA captured, and no implementation/workflow/lockfile change will be admitted without a new candidate and
+complete recertification.
 
-### Other blockers and exclusions
+## 14. Exact-SHA Certification
 
-- No real Browser instance was available, so refresh/close/reopen and Scientific Viewer projection were not certified.
-- Dedicated process-kill barriers for every F6-F8 intermediate semantic boundary are not all explicit; aggregate re-entry is proven.
-- Remote exact-SHA CI, CodeQL, Semgrep and dependency-audit evidence was not run against a candidate SHA.
-- Branch protection/release governance was not inspected as semantic proof.
-- The user-provided P8.6 prompt remains an untracked implementation input and prevents a clean-worktree candidate capture unless repository
-  governance explicitly decides whether to commit or exclude it.
+- Workflow/run ID: pending.
+- Artifact: pending.
+- Verdict: `REJECTED` until exact-SHA certification returns `ACCEPTED`.
 
-## 14. Phase Gate
+## 15. Remaining Risks
 
-`NOT RUN AS FINAL PHASE GATE / BLOCKED BY MANDATORY PRODUCT CONDITIONS`.
+- Remote Final-SHA jobs, including the authoritative CodeQL and dependency audit, remain external evidence and cannot be projected before completion.
+- Filesystem snapshot creation/retention remains deployment tooling; OnlyAlpha does not create a second backup authority.
 
-## 15. Final SHA
-
-No candidate Final SHA was created or claimed.
-
-## 16. Final-SHA Certification
-
-- Workflow/run identifier: none.
-- Immutable certification artifact: none.
-- Verdict: `REJECTED`.
-
-## 17. Milestone Verdict
+## 16. Milestone Verdict
 
 `P8 = IN_PROGRESS / REJECTED`
 
-README and Roadmap must remain at P8 `IN_PROGRESS`; no `DONE / CERTIFIED` projection is permitted.
+This verdict may change to `DONE / CERTIFIED` only after Full Phase Gate, clean immutable candidate SHA and exact-SHA artifact verdict
+`ACCEPTED`.

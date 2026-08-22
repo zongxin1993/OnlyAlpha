@@ -13,6 +13,9 @@ from onlyalpha.research import (
     OnlyResearchCalculationSpec,
     OnlyResearchGraphTemplate,
     OnlyResearchGraphTemplateNode,
+    OnlyResearchScientificEvidenceSpec,
+    OnlyResearchSeriesSelector,
+    OnlyResearchSignalEvidenceSpec,
     OnlyResearchSpecification,
     OnlyResearchSpecificationError,
     OnlyResearchSweepParameterDimension,
@@ -191,3 +194,31 @@ def test_model_constructors_reject_invalid_structural_values() -> None:
             (OnlyResearchCalculationSpec("calc", factor_template()),),
             (),
         )
+
+
+def test_scientific_specification_model_closes_every_structural_and_version_branch() -> None:
+    selector = OnlyResearchSeriesSelector("feature", "momentum", "factor_value")
+    with pytest.raises(ValueError, match="selectors"):
+        OnlyResearchSignalEvidenceSpec(entry=object())  # type: ignore[arg-type]
+    for published, match in (((), "non-empty"), ((selector, selector), "unique")):
+        with pytest.raises(ValueError, match=match):
+            OnlyResearchScientificEvidenceSpec("feature", published)
+    with pytest.raises(ValueError, match="signals"):
+        OnlyResearchScientificEvidenceSpec("feature", (selector,), object())  # type: ignore[arg-type]
+
+    signals = OnlyResearchSignalEvidenceSpec(entry=selector)
+    evidence = OnlyResearchScientificEvidenceSpec("feature", (selector,), signals)
+    payload = evidence.to_dict()
+    with pytest.raises(ValueError, match="array"):
+        OnlyResearchScientificEvidenceSpec.from_dict({**payload, "published_series": {}})
+    assert OnlyResearchScientificEvidenceSpec.from_dict(json.loads(json.dumps(payload))) == evidence
+
+    base = specification()
+    with pytest.raises(OnlyResearchSpecificationError, match="V1"):
+        OnlyResearchSpecification(base.dataset_snapshot_fingerprint, base.calculations, base.statistics, evidence, 1)
+    with pytest.raises(OnlyResearchSpecificationError, match="requires scientific"):
+        OnlyResearchSpecification(base.dataset_snapshot_fingerprint, base.calculations, base.statistics, None, 2)
+    malformed = dict(base.to_dict())
+    malformed["calculations"] = {}
+    with pytest.raises(OnlyResearchSpecificationError, match="fields"):
+        OnlyResearchSpecification.from_dict(malformed)

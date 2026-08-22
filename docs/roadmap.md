@@ -22,12 +22,12 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P8
 Milestone State: IN_PROGRESS
-Current Increment: P8.5 — IMPLEMENTED / VERIFIED / POST-CLOSURE PASS — Operational Hardening & Database Recovery
+Current Increment: P8.6 — IMPLEMENTED / PRODUCT-CLOSURE VERIFIED — Final Phase Gate pending
 Latest Certified Milestone: P7 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.6 — P8 Product Closure & Final Certification
+Next Semantic Direction: P8.6 Full Phase Gate → exact Final-SHA Certification
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -624,6 +624,15 @@ V1 优先单机模块化单体，不提前引入 Kubernetes、distributed schedu
 ---
 
 ## P8.6 — P8 Product Closure & Final Certification
+
+状态：`IMPLEMENTED / PRODUCT-CLOSURE VERIFIED LOCALLY`。Deployment coherence、real Browser product E2E、四个 semantic commit
+SIGKILL recovery boundaries 与 coherent/wrong restore-pair 已进入 mandatory `research-product-closure` lane 并通过。P8 仍为
+`IN_PROGRESS`；Full Phase Gate、clean candidate SHA 与 exact Final-SHA `ACCEPTED` artifact 尚未完成。
+
+ADR 0096 冻结一项新的 deployment operational compatibility fact：一个 Research PostgreSQL deployment 只绑定一个 immutable
+Research semantic-store namespace。显式 operator init 写入 root-level immutable namespace ID 并建立 PostgreSQL singleton binding；
+API/Worker startup 只读验证，错/缺失/损坏 identity 在 readiness/claim 前 fail closed。Store ID 不是路径、不是科研 semantic identity，
+不进入 Calculation/Specification/Result/Artifact fingerprint，也不建立 central Artifact registry。
 
 ### 目标
 

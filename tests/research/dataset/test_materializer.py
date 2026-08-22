@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
+import pytest
+
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.cache.historical.models import OnlyCachePolicy, OnlyHistoricalCacheKey
 from onlyalpha.core.ranges import OnlyTimeRange
@@ -14,6 +16,7 @@ from onlyalpha.domain.time import OnlyTimeZone
 from onlyalpha.research.dataset import (
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchDatasetDefinition,
+    OnlyResearchDatasetError,
     OnlyResearchDatasetMaterializationPlan,
     OnlyResearchDatasetMaterializer,
 )
@@ -102,3 +105,22 @@ def test_materializer_provider_identity_changes_provenance_not_snapshot(tmp_path
     assert snapshots[0].snapshot_fingerprint == snapshots[1].snapshot_fingerprint
     assert snapshots[0].content_fingerprint == snapshots[1].content_fingerprint
     assert snapshots[0].provenance != snapshots[1].provenance
+
+
+def test_materialization_plan_and_runtime_admission_fail_closed_on_missing_authorities(tmp_path) -> None:
+    factory = _Factory(build_bar())
+    plan = _plan("provider", factory)
+    with pytest.raises(ValueError, match="batch_size"):
+        replace(plan, batch_size=0)
+
+    service = OnlyHistoricalCacheService(OnlyParquetHistoricalCacheStore(tmp_path / "cache"))
+    store = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "datasets")
+    materializer = OnlyResearchDatasetMaterializer(service, store, lambda: datetime(2026, 1, 1, tzinfo=UTC))
+    with pytest.raises(OnlyResearchDatasetError, match="instrument/calendar"):
+        materializer.materialize(replace(plan, instruments={}))
+    with pytest.raises(OnlyResearchDatasetError, match="unresolved calendar"):
+        materializer.materialize(replace(plan, calendars={}))
+
+    naive = OnlyResearchDatasetMaterializer(service, store, lambda: datetime(2026, 1, 1))
+    with pytest.raises(OnlyResearchDatasetError, match="audit time"):
+        naive.materialize(plan)
