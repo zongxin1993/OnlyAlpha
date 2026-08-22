@@ -39,14 +39,18 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P7 | **DONE / CERTIFIED** — Vectorized Research Runtime |
 | P7 Final SHA | `6b051705c7638dc3acb02dde430c3c2348121811` |
 | P7 Final-SHA Certification | run `31986131977` — **ACCEPTED** |
-| Current milestone | **P8 — IN_PROGRESS — Research Control Plane & Web-native Execution** |
-| Current increment | P8.6 — IMPLEMENTED / PRODUCT-CLOSURE VERIFIED — Final Phase Gate pending |
-| Next semantic direction | P8.6 Full Phase Gate → exact Final-SHA Certification |
+| P8 | **DONE / CERTIFIED** — Research Control Plane & Web-native Execution |
+| P8 Final SHA | `88e616c52fb6c3085e7c64d73f174257bf2d002e` |
+| P8 Final-SHA Certification | run `32581861744` — **ACCEPTED** |
+| Current increment | P8.6 — **DONE / CERTIFIED** |
+| Next semantic direction | Not frozen; re-plan from current Repository truth |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
 
-P8 之后的 milestone **当前不预先编号或冻结**。P8 完成并取得 exact Final-SHA `ACCEPTED` 后，再基于当时 Repository truth 重新规划。Strategy Revision、Research → Backtest → Sim → Live Promotion、Web embedded IDE 与 LLM Agent strategy authoring 是长期目标方向，不因为本文记录而自动成为下一个 milestone。
+P8 的 exact Final-SHA Certification 也已完成。认证 subject `88e616c52fb6c3085e7c64d73f174257bf2d002e` 的 deployment coherence、real Browser product E2E、SIGKILL recovery、restore、static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p8_6_product_closure_and_final_certification.md`](docs/reports/p8_6_product_closure_and_final_certification.md)。
+
+P8 之后的 milestone **当前不预先编号或冻结**。下一阶段只可基于当前 Repository truth 重新规划。Strategy Revision、Research → Backtest → Sim → Live Promotion、Web embedded IDE 与 LLM Agent strategy authoring 是长期目标方向，不因为本文记录而自动成为下一个 milestone。
 
 ---
 

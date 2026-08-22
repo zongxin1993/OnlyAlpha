@@ -21,13 +21,13 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 
 ```text
 Current Milestone: P8
-Milestone State: IN_PROGRESS
-Current Increment: P8.6 — IMPLEMENTED / PRODUCT-CLOSURE VERIFIED — Final Phase Gate pending
-Latest Certified Milestone: P7 — DONE / CERTIFIED
-P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
-P7 Final Certification Run: 31986131977
-P7 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P8.6 Full Phase Gate → exact Final-SHA Certification
+Milestone State: DONE / CERTIFIED
+Current Increment: P8.6 — DONE / CERTIFIED
+Latest Certified Milestone: P8 — DONE / CERTIFIED
+P8 Final Certification Subject: 88e616c52fb6c3085e7c64d73f174257bf2d002e
+P8 Final Certification Run: 32581861744
+P8 Final Certification Verdict: ACCEPTED
+Next Semantic Direction: not frozen; re-plan from current Repository truth
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -625,9 +625,11 @@ V1 优先单机模块化单体，不提前引入 Kubernetes、distributed schedu
 
 ## P8.6 — P8 Product Closure & Final Certification
 
-状态：`IMPLEMENTED / PRODUCT-CLOSURE VERIFIED LOCALLY`。Deployment coherence、real Browser product E2E、四个 semantic commit
-SIGKILL recovery boundaries 与 coherent/wrong restore-pair 已进入 mandatory `research-product-closure` lane 并通过。P8 仍为
-`IN_PROGRESS`；Full Phase Gate、clean candidate SHA 与 exact Final-SHA `ACCEPTED` artifact 尚未完成。
+状态：`DONE / CERTIFIED`。Deployment coherence、real Browser product E2E、四个 semantic commit SIGKILL recovery boundaries 与
+coherent/wrong restore-pair 已进入 mandatory `research-product-closure` lane 并通过。完整 Phase Gate 通过后冻结 subject
+`88e616c52fb6c3085e7c64d73f174257bf2d002e`；Final-SHA Certification run `32581861744` 的 static、build、Web、canonical lanes、
+PostgreSQL product closure、coverage、Semgrep、dependency audit、Python/TypeScript CodeQL 与 aggregate verdict 全部成功，认证工件
+verdict 为 `ACCEPTED`。
 
 ADR 0096 冻结一项新的 deployment operational compatibility fact：一个 Research PostgreSQL deployment 只绑定一个 immutable
 Research semantic-store namespace。显式 operator init 写入 root-level immutable namespace ID 并建立 PostgreSQL singleton binding；
@@ -660,7 +662,8 @@ Start PostgreSQL
 → simulate worker failure and verify recovery/re-entry
 ```
 
-P8 所有 Task Complete 后执行一次完整 Phase Gate；Phase Complete 后冻结 exact Final SHA，再执行 Final-SHA Certification。只有 artifact verdict 为 `ACCEPTED` 才可以把 P8 标记为 `DONE / CERTIFIED`。
+P8 已按 `Task Complete -> Phase Gate -> exact Final SHA -> Final-SHA Certification -> ACCEPTED` 顺序闭合并标记为
+`DONE / CERTIFIED`。P8 之后的 milestone 不在本文预先编号或冻结。
 
 ---
 

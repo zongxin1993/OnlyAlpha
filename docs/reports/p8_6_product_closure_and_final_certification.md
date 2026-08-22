@@ -1,6 +1,6 @@
 # P8.6 Final Closure
 
-Date: 2026-08-22
+Date: 2026-08-23
 
 ## 1. Baseline
 
@@ -8,7 +8,7 @@ Date: 2026-08-22
 - Branch: `master`
 - Start worktree: no tracked changes; `prompts/P8.6FinalClosure.md` was the only untracked user input.
 - Release graph: `0.8.6`.
-- Candidate Final SHA: not frozen; the local Full Phase Gate has passed and the candidate commit is the next immutable step.
+- Final subject SHA: `88e616c52fb6c3085e7c64d73f174257bf2d002e`.
 
 ## 2. Reproduced Deployment Blocker
 
@@ -143,9 +143,9 @@ Mandatory coverage was run without threshold reductions:
 | research-dataset | 88.47% total / 72.14% branches |
 | research-postgres | 83.47% |
 
-Local Semgrep rule tests passed `4/4`; the tracked-source scan covered 669 files with zero findings. The exact-SHA workflow will rerun
-Semgrep after every candidate file is tracked. OSV dependency audit and Python/JavaScript-TypeScript CodeQL remain mandatory remote
-evidence and are not substituted by local claims.
+Local Semgrep rule tests passed `4/4`; the tracked-source scan covered 669 files with zero findings. The exact-SHA workflow repeated the
+same mandatory Semgrep surface successfully. OSV dependency audit and Python/JavaScript-TypeScript CodeQL also passed as authoritative
+remote evidence.
 
 ## 12. Full Phase Gate
 
@@ -181,24 +181,39 @@ graph is consistent at `0.8.6`. Performance warnings emitted by timed tests were
 
 ## 13. Candidate Final SHA
 
-Not frozen in this report revision. The local Phase Gate is complete; after this report is finalized, all candidate files will be committed
-together, the exact 40-character SHA captured, and no implementation/workflow/lockfile change will be admitted without a new candidate and
-complete recertification.
+`88e616c52fb6c3085e7c64d73f174257bf2d002e`
+
+The candidate contained all production source, tests, workflow, lockfile, ADR, operations documentation and the original P8.6 prompt. It
+was committed from a clean candidate set after the local Full Phase Gate, pushed without amendment, and every remote mandatory job checked
+out that exact 40-character SHA.
 
 ## 14. Exact-SHA Certification
 
-- Workflow/run ID: pending.
-- Artifact: pending.
-- Verdict: `REJECTED` until exact-SHA certification returns `ACCEPTED`.
+- Workflow: `Final-SHA Certification`.
+- Run ID: `32581861744`.
+- Run URL: `https://github.com/zongxin1993/OnlyAlpha/actions/runs/32581861744`.
+- Artifact: `certification-88e616c52fb6c3085e7c64d73f174257bf2d002e` (GitHub artifact ID `9478552738`).
+- Artifact digest: `sha256:b3d87120d0b2621a1fb3a3076c3a36e6c5f8e6755e39ecc3e9a03a6cf8e14304`.
+- Evidence JSON SHA-256: `89ba6603cc1e70245885744e67ecb9e8f46650eb0b244ad0399159ece2b504fb`.
+- Verdict: `ACCEPTED`.
+
+The downloaded evidence records the exact subject SHA and all mandatory gates as `success`: subject, static, build, Web, canonical lanes,
+research-postgres/product closure, coverage, Semgrep, dependency audit and CodeQL. The aggregate verdict job completed successfully after
+all dependencies and produced the immutable evidence above.
 
 ## 15. Remaining Risks
 
-- Remote Final-SHA jobs, including the authoritative CodeQL and dependency audit, remain external evidence and cannot be projected before completion.
 - Filesystem snapshot creation/retention remains deployment tooling; OnlyAlpha does not create a second backup authority.
+- This certification proves the finite P8 Research Control Plane and Web-native execution surface. It does not activate LIVE, add Real
+  Broker submission, create a distributed semantic registry, or pre-commit any post-P8 milestone.
 
 ## 16. Milestone Verdict
 
-`P8 = IN_PROGRESS / REJECTED`
+`P8 = DONE / CERTIFIED`
 
-This verdict may change to `DONE / CERTIFIED` only after Full Phase Gate, clean immutable candidate SHA and exact-SHA artifact verdict
-`ACCEPTED`.
+The required sequence completed without lowering any acceptance threshold: deployment coherence, real Browser product E2E, C1-C4
+process-kill recovery, restore certification, Full Phase Gate, clean immutable candidate and exact-SHA certification all passed.
+
+This report, README and Roadmap projection are documentation/current-truth changes made after the immutable certified subject. They do not
+alter the certified P8 implementation SHA. Any later implementation, test, workflow or lockfile change requires the gate appropriate to
+its own scope and cannot be described as part of this immutable P8 certification artifact.
