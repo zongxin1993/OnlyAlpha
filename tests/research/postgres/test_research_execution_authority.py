@@ -246,6 +246,35 @@ def test_four_workers_concurrently_claim_ten_runs_without_authoritative_duplicat
         ).fetchone() == (10, 10)
 
 
+def test_active_attempt_claim_collision_retries_after_transaction_rollback(postgres_dsn: str, monkeypatch) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(340))
+    original = OnlyPostgresResearchExecutionStore._claim_next_once
+    calls = 0
+
+    class _Diagnostic:
+        constraint_name = "research_run_attempt_one_active"
+
+    class _ActiveAttemptCollision(psycopg.errors.UniqueViolation):
+        @property
+        def diag(self):
+            return _Diagnostic()
+
+    def collide_once(self, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _ActiveAttemptCollision()
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(OnlyPostgresResearchExecutionStore, "_claim_next_once", collide_once)
+    claim = _claim(OnlyPostgresResearchExecutionStore(postgres_dsn), WORKER_1, 140)
+
+    assert claim is not None
+    assert claim.attempt.run_id.value == "00000000-0000-4000-8000-000000000340"
+    assert calls == 2
+
+
 def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     run_store = OnlyPostgresResearchRunStore(postgres_dsn)

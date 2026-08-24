@@ -81,10 +81,36 @@ class OnlyPostgresResearchExecutionStore:
         max_attempts: int,
         run_started_at: datetime,
     ) -> OnlyResearchExecutionClaim | None:
-        try:
-            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-                row = connection.execute(
-                    """
+        while True:
+            try:
+                return self._claim_next_once(
+                    worker_instance_id=worker_instance_id,
+                    attempt_id=attempt_id,
+                    lease_duration=lease_duration,
+                    max_attempts=max_attempts,
+                    run_started_at=run_started_at,
+                )
+            except (OnlyResearchRunIntegrityError, ValueError):
+                raise
+            except psycopg.errors.UniqueViolation as exc:
+                if exc.diag.constraint_name == "research_run_attempt_one_active":
+                    continue
+                raise OnlyResearchExecutionStoreUnavailableError("Claim transaction failed") from exc
+            except psycopg.Error as exc:
+                raise OnlyResearchExecutionStoreUnavailableError("Claim transaction failed") from exc
+
+    def _claim_next_once(
+        self,
+        *,
+        worker_instance_id: OnlyResearchWorkerInstanceId,
+        attempt_id: OnlyResearchRunAttemptId,
+        lease_duration: timedelta,
+        max_attempts: int,
+        run_started_at: datetime,
+    ) -> OnlyResearchExecutionClaim | None:
+        with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+            row = connection.execute(
+                """
                     SELECT r.* FROM research_run AS r
                     WHERE r.state IN ('QUEUED', 'RUNNING')
                       AND NOT EXISTS (
@@ -96,46 +122,42 @@ class OnlyPostgresResearchExecutionStore:
                     ORDER BY r.queued_at ASC, r.run_id ASC
                     FOR UPDATE OF r SKIP LOCKED LIMIT 1
                     """,
-                    (max_attempts,),
-                ).fetchone()
-                if row is None:
-                    return None
-                run = OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], row))
-                number_row = connection.execute(
-                    "SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next_attempt_number "
-                    "FROM research_run_attempt WHERE run_id = %s",
-                    (run.run_id.value,),
-                ).fetchone()
-                assert number_row is not None
-                if run.state is OnlyResearchRunState.QUEUED:
-                    running = run.transition(OnlyResearchRunState.RUNNING, at=run_started_at)
-                    _update_run(connection, run, running)
-                    run = running
-                lease_row = connection.execute("SELECT clock_timestamp() AS lease_now").fetchone()
-                assert lease_row is not None
-                lease_now = cast(datetime, lease_row["lease_now"])
-                attempt = OnlyResearchRunAttempt(
-                    attempt_id,
-                    run.run_id,
-                    int(number_row["next_attempt_number"]),
-                    OnlyResearchRunAttemptState.ACTIVE,
-                    worker_instance_id,
-                    lease_now,
-                    lease_now,
-                    lease_now + lease_duration,
-                )
-                connection.execute(
-                    sql.SQL("INSERT INTO research_run_attempt ({}) VALUES ({})").format(
-                        sql.SQL(", ").join(map(sql.Identifier, _ATTEMPT_COLUMNS)),
-                        sql.SQL(", ").join(sql.Placeholder() for _ in _ATTEMPT_COLUMNS),
-                    ),
-                    _attempt_values(attempt),
-                )
-                return OnlyResearchExecutionClaim(attempt)
-        except (OnlyResearchRunIntegrityError, ValueError):
-            raise
-        except psycopg.Error as exc:
-            raise OnlyResearchExecutionStoreUnavailableError("Claim transaction failed") from exc
+                (max_attempts,),
+            ).fetchone()
+            if row is None:
+                return None
+            run = OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], row))
+            number_row = connection.execute(
+                "SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next_attempt_number "
+                "FROM research_run_attempt WHERE run_id = %s",
+                (run.run_id.value,),
+            ).fetchone()
+            assert number_row is not None
+            if run.state is OnlyResearchRunState.QUEUED:
+                running = run.transition(OnlyResearchRunState.RUNNING, at=run_started_at)
+                _update_run(connection, run, running)
+                run = running
+            lease_row = connection.execute("SELECT clock_timestamp() AS lease_now").fetchone()
+            assert lease_row is not None
+            lease_now = cast(datetime, lease_row["lease_now"])
+            attempt = OnlyResearchRunAttempt(
+                attempt_id,
+                run.run_id,
+                int(number_row["next_attempt_number"]),
+                OnlyResearchRunAttemptState.ACTIVE,
+                worker_instance_id,
+                lease_now,
+                lease_now,
+                lease_now + lease_duration,
+            )
+            connection.execute(
+                sql.SQL("INSERT INTO research_run_attempt ({}) VALUES ({})").format(
+                    sql.SQL(", ").join(map(sql.Identifier, _ATTEMPT_COLUMNS)),
+                    sql.SQL(", ").join(sql.Placeholder() for _ in _ATTEMPT_COLUMNS),
+                ),
+                _attempt_values(attempt),
+            )
+            return OnlyResearchExecutionClaim(attempt)
 
     def heartbeat(
         self,
