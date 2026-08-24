@@ -158,6 +158,41 @@ def test_failed_run_preserves_semantic_facts_committed_before_artifact_failure()
     assert failed.failure == failure
 
 
+def test_execution_evidence_references_are_canonical_valid_linked_and_terminal_only() -> None:
+    running = _queued().transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
+    invalid = (
+        (
+            {
+                "research_result_fingerprint": RESULT,
+                "calculation_execution_evidence_fingerprints": ("b" * 64, "a" * 64),
+            },
+            "canonical and unique",
+        ),
+        (
+            {
+                "research_result_fingerprint": RESULT,
+                "calculation_execution_evidence_fingerprints": ("a" * 64, "a" * 64),
+            },
+            "canonical and unique",
+        ),
+        (
+            {"research_result_fingerprint": RESULT, "calculation_execution_evidence_fingerprints": ("invalid",)},
+            "lower-case SHA256",
+        ),
+        (
+            {"calculation_execution_evidence_fingerprints": ("a" * 64,)},
+            "require Research Result",
+        ),
+        (
+            {"research_result_fingerprint": RESULT, "calculation_execution_evidence_fingerprints": ("a" * 64,)},
+            "active Run cannot contain finalized",
+        ),
+    )
+    for changes, message in invalid:
+        with pytest.raises(OnlyResearchRunIntegrityError, match=message):
+            replace(running, **changes)
+
+
 def test_lifecycle_time_order_and_reference_consistency_fail_closed() -> None:
     running = _queued().transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=2))
     requested = running.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW + timedelta(seconds=4))
