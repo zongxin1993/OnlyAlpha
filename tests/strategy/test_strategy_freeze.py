@@ -48,6 +48,18 @@ class _Runs:
         return self.run
 
 
+class _BrokenVerifiedStore:
+    def load_verified(self, fingerprint):
+        del fingerprint
+        raise ValueError("corrupt immutable authority")
+
+
+class _BrokenDatasetStore:
+    def load_verified_table(self, fingerprint):
+        del fingerprint
+        raise ValueError("corrupt Dataset authority")
+
+
 def _freeze_case(tmp_path):
     case = p9_strategy_case(tmp_path / "base")
     resolved_definition = OnlyResearchDefinitionResolver(
@@ -123,6 +135,8 @@ def test_freeze_reconstructs_and_idempotently_commits_exact_strategy(tmp_path) -
     assert reused.strategy_fingerprint == created.strategy_fingerprint
     assert store.load_verified(created.strategy_fingerprint).strategy_fingerprint.value == created.strategy_fingerprint
     assert len(catalog.freeze_records) == 1
+    assert created.freeze_record.equivalence_evidence_fingerprints
+    assert created.freeze_record.admission_evidence_fingerprint
 
 
 def test_freeze_recomputes_candidate_and_rejects_unverified_identity(tmp_path) -> None:
@@ -148,3 +162,28 @@ def test_freeze_rejects_non_completed_run(tmp_path) -> None:
     with pytest.raises(OnlyStrategyFreezeError) as error:
         service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
     assert error.value.code == "CANDIDATE_NOT_FOUND"
+
+
+@pytest.mark.parametrize(
+    ("attribute", "replacement", "code"),
+    (
+        ("_research_results", _BrokenVerifiedStore(), "RESEARCH_RESULT_CORRUPT"),
+        ("_calculation_results", _BrokenVerifiedStore(), "CALCULATION_RESULT_CORRUPT"),
+        ("_datasets", _BrokenDatasetStore(), "RESEARCH_RESULT_CORRUPT"),
+    ),
+)
+def test_freeze_verified_authority_failure_has_stable_code_and_no_publication(
+    tmp_path,
+    attribute,
+    replacement,
+    code,
+) -> None:
+    service, run, candidate, _, catalog = _freeze_case(tmp_path)
+    setattr(service, attribute, replacement)
+
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
+
+    assert error.value.code == code
+    assert not catalog.strategies
+    assert not (tmp_path / "semantic" / "strategy").exists()

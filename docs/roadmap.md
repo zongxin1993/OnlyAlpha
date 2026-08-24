@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.0 — Strategy Revision & Promotion Foundation / IMPLEMENTED LOCALLY, GATES PENDING
+Current Increment: P9.0 Closure — Strategy Authority Closure & Certification / IN PROGRESS
 Latest Certified Milestone: P8 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -30,7 +30,7 @@ P7 Final Certification Verdict: ACCEPTED
 P8 Final Certification Subject: 88e616c52fb6c3085e7c64d73f174257bf2d002e
 P8 Final Certification Run: 32581861744
 P8 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: close P9.0 local gates, then exact-SHA certification before changing milestone status
+Next Semantic Direction: complete P9.0 Closure gates and exact-SHA certification before changing milestone status
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -750,11 +750,11 @@ P8 exact-SHA 认证后已从当时 Repository truth 重新规划 P9。P9.0 当�
 
 ### P9.0 — Strategy Revision & Promotion Foundation
 
-状态：**IMPLEMENTED LOCALLY / CLOSURE GATES PENDING**。当前实现建立 canonical `strategy_fingerprint`、exact Market Input
-Contract、Research/TRADING implementation manifest 与 equivalence admission、唯一 Candidate Freeze、共享 P8 semantic namespace
+状态：**CLOSURE IN PROGRESS**。当前实现建立 canonical `strategy_fingerprint`、`FINAL_ONLY + RAW_ONLY` Market Input
+Contract、closed Research/TRADING implementation manifest、verified immutable Equivalence Evidence、唯一 Candidate Freeze、共享 P8 semantic namespace
 下的 immutable Strategy Store、PostgreSQL catalog/provenance/promotion schema、fingerprint-only Backtest/SIM composition、内部
-Revision Adapter、provider-neutral `StrategyDecision` 和 append-only Promotion chain。动态 Strategy import authority 已移除；旧
-`class_path/config_path/extensions` 显式失败。
+Revision Adapter、显式 provider-neutral `StrategyDecision` pipeline handoff 和 predecessor-only append-only Promotion chain。动态
+Strategy import、任意 Python `OnlyStrategy` callback authoring/injection authority 已移除；旧 `class_path/config_path/extensions` 显式失败。
 
 本状态不是 `DONE / CERTIFIED`。在完整 Task/Phase gate、版本 `0.9.0` 一致性和 exact Final-SHA remote certification 完成前，P9
 与 P9.0 均保持 `IN_PROGRESS`。

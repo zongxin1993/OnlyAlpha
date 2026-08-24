@@ -14,8 +14,8 @@ from onlyalpha.factor.registry import OnlyFactorRegistry
 from onlyalpha.factor.score import OnlyFactorScore
 from onlyalpha.factor.snapshot import OnlyFactorSnapshot
 from onlyalpha.indicator.registry import OnlyIndicatorRegistry
-from onlyalpha.strategy.base import OnlyStrategy
-from onlyalpha.strategy.context import OnlyStrategyBarContext
+from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
+from onlyalpha.strategy.execution import OnlyStrategyDecision
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +27,7 @@ class OnlyClusterExecutionPlan:
 @dataclass(frozen=True, slots=True)
 class OnlyClusterPipelineResult:
     strategy_called: bool
+    strategy_decision: OnlyStrategyDecision | None
     factor_snapshots: tuple[OnlyFactorSnapshot, ...]
     factor_scores: tuple[OnlyFactorScore, ...]
 
@@ -36,7 +37,7 @@ class OnlyClusterPipeline:
         self,
         indicators: OnlyIndicatorRegistry,
         factors: OnlyFactorRegistry,
-        strategy: OnlyStrategy,
+        strategy: OnlyRevisionStrategyAdapter | None,
         plan: OnlyClusterExecutionPlan,
         snapshots: dict[OnlyFactorId, OnlyFactorSnapshot],
         scores: dict[OnlyFactorId, OnlyFactorScore],
@@ -72,10 +73,10 @@ class OnlyClusterPipeline:
             self._snapshots.get(factor_id) is not None and self._snapshots[factor_id].ready
             for factor_id in self._plan.required_factor_ids
         )
-        if ready:
-            self._strategy.on_bar(OnlyStrategyBarContext(self._strategy.context, bar, context.snapshot))
+        decision = None if not ready or self._strategy is None else self._strategy.on_bar(bar)
         return OnlyClusterPipelineResult(
-            ready,
+            decision is not None,
+            decision,
             tuple(self._snapshots[key] for key in sorted(self._snapshots)),
             tuple(self._scores[key] for key in sorted(self._scores)),
         )

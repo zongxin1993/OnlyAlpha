@@ -4,15 +4,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationRegistry
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.research import (
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchDefinitionResolver,
 )
+from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy import (
-    OnlyCalculationEquivalenceAdmission,
-    OnlyCalculationEquivalenceAdmissionRegistry,
+    OnlyCalculationEquivalenceCorpus,
+    OnlyCalculationEquivalenceEvidenceStore,
+    OnlyCalculationEquivalenceExecution,
+    OnlyCalculationEquivalenceRow,
+    OnlyCalculationEquivalenceVerifier,
     OnlyStrategyMarketInputContract,
     OnlyStrategyRevision,
     OnlyStrategySignalBinding,
@@ -33,7 +36,26 @@ class P9StrategyCase:
     dataset_fingerprint: str
     bars: tuple[OnlyBar, ...]
     revision_variants: tuple[OnlyStrategyRevision, ...]
-    equivalence: OnlyCalculationEquivalenceAdmissionRegistry
+    equivalence: OnlyCalculationEquivalenceEvidenceStore
+
+
+class _CanonicalEvidenceRunner:
+    def execute(self, reference, corpus):
+        del corpus
+        return OnlyCalculationEquivalenceExecution(
+            (
+                OnlyCalculationEquivalenceRow(
+                    "CERTIFICATION.CORPUS",
+                    1,
+                    (
+                        (
+                            "semantic_reference",
+                            f"{reference.kind.value}:{reference.type_id}@{reference.semantic_version}",
+                        ),
+                    ),
+                ),
+            )
+        )
 
 
 class _Datasets:
@@ -57,12 +79,19 @@ def p9_strategy_case(root: Path) -> P9StrategyCase:
         registry,
         _Datasets(dataset_store, committed.snapshot_fingerprint),
     ).resolve(definition(committed.definition))
+    only_register_trading_predicate_primitives(registry)
     candidates = tuple(
         item
         for item in resolved.specification_resolution.candidates
         if item.calculation_id == "decision" and item.candidate_fingerprint is not None
     )
-    equivalence = OnlyCalculationEquivalenceAdmissionRegistry()
+    equivalence = OnlyCalculationEquivalenceEvidenceStore(root / "semantic")
+    verifier = OnlyCalculationEquivalenceVerifier(
+        registry,
+        _CanonicalEvidenceRunner(),
+        _CanonicalEvidenceRunner(),
+    )
+    corpus = OnlyCalculationEquivalenceCorpus("P9_TEST_CANONICAL", {"axis": [1]})
     registered: set[tuple[str, str, str]] = set()
     for node in (node for candidate_value in candidates for node in candidate_value.graph.nodes):
         definition_value = node.definition
@@ -88,20 +117,7 @@ def p9_strategy_case(root: Path) -> P9StrategyCase:
         if key in registered:
             continue
         registered.add(key)
-        equivalence.register(
-            OnlyCalculationEquivalenceAdmission(
-                research.implementation_manifest.calculation_type_reference,
-                research.implementation_manifest.implementation_fingerprint,
-                trading.implementation_manifest.implementation_fingerprint,
-                only_canonical_fingerprint(
-                    {
-                        "contract": "P9_CROSS_BACKEND_EQUIVALENCE_V1",
-                        "type_id": definition_value.type_id,
-                        "semantic_version": definition_value.semantic_version,
-                    }
-                ),
-            )
-        )
+        equivalence.commit(verifier.verify(research.implementation_manifest.calculation_type_reference, corpus))
     dataset_definition = committed.definition
     revisions = []
     for selected in candidates:
@@ -116,16 +132,21 @@ def p9_strategy_case(root: Path) -> P9StrategyCase:
             OnlyStrategySignalBinding(by_role["ENTRY_SIGNAL"].node_fingerprint, by_role["ENTRY_SIGNAL"].output_name),
             OnlyStrategySignalBinding(by_role["EXIT_SIGNAL"].node_fingerprint, by_role["EXIT_SIGNAL"].output_name),
         )
-        admitted = OnlyStrategyTradingAdmissionService(registry, equivalence).admit(selected.graph, signal_semantics)
+        market_input = OnlyStrategyMarketInputContract(
+            dataset_definition.bar_specification,
+            dataset_definition.aggregation_source,
+            dataset_definition.adjustment_type,
+            dataset_definition.adjustment_reference,
+        )
+        admitted = OnlyStrategyTradingAdmissionService(registry, equivalence).admit(
+            selected.graph,
+            signal_semantics,
+            market_input,
+        )
         revisions.append(
             OnlyStrategyRevision(
                 OnlyStrategyUniverse(dataset_definition.instruments),
-                OnlyStrategyMarketInputContract(
-                    dataset_definition.bar_specification,
-                    dataset_definition.aggregation_source,
-                    dataset_definition.adjustment_type,
-                    dataset_definition.adjustment_reference,
-                ),
+                market_input,
                 selected.graph,
                 admitted.implementation_bindings,
                 signal_semantics,

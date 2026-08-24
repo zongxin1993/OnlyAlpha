@@ -20,6 +20,7 @@ from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionDecision,
     OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionStage,
+    only_verified_strategy_promotion_chain,
 )
 
 from .config import OnlyPostgresOperationalConnectionOptions
@@ -94,8 +95,9 @@ class OnlyPostgresStrategyStore:
                 connection.execute(
                     "INSERT INTO strategy_freeze_record "
                     "(freeze_record_fingerprint, candidate_fingerprint, research_result_fingerprint, "
-                    "strategy_fingerprint, admission_evidence_fingerprint, actor, created_at, comment, schema_version) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "strategy_fingerprint, admission_evidence_fingerprint, equivalence_evidence_fingerprints, "
+                    "actor, created_at, comment, schema_version) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (candidate_fingerprint, research_result_fingerprint, strategy_fingerprint) DO NOTHING",
                     (
                         record.record_fingerprint,
@@ -103,6 +105,7 @@ class OnlyPostgresStrategyStore:
                         record.research_result_fingerprint,
                         record.strategy_fingerprint,
                         record.admission_evidence_fingerprint,
+                        list(record.equivalence_evidence_fingerprints),
                         record.actor,
                         record.created_at,
                         record.comment,
@@ -128,12 +131,16 @@ class OnlyPostgresStrategyStore:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 rows = connection.execute(
-                    "SELECT * FROM strategy_promotion_record WHERE strategy_fingerprint = %s ORDER BY recorded_at, promotion_record_fingerprint",
+                    "SELECT * FROM strategy_promotion_record WHERE strategy_fingerprint = %s "
+                    "ORDER BY promotion_record_fingerprint",
                     (strategy_fingerprint,),
                 ).fetchall()
         except psycopg.Error as exc:
             raise OnlyStrategyPromotionError("PROMOTION_LEDGER_UNAVAILABLE", strategy_fingerprint) from exc
-        return tuple(_promotion_record(row) for row in rows)
+        return only_verified_strategy_promotion_chain(
+            tuple(_promotion_record(row) for row in rows),
+            strategy_fingerprint,
+        )
 
     def append(self, record: OnlyStrategyPromotionRecord) -> OnlyStrategyPromotionRecord:
         self.assert_namespace()
@@ -143,12 +150,16 @@ class OnlyPostgresStrategyStore:
                     "SELECT strategy_fingerprint FROM strategy_catalog WHERE strategy_fingerprint = %s FOR UPDATE",
                     (record.strategy_fingerprint,),
                 )
-                last = connection.execute(
-                    "SELECT promotion_record_fingerprint FROM strategy_promotion_record "
-                    "WHERE strategy_fingerprint = %s ORDER BY recorded_at DESC, promotion_record_fingerprint DESC LIMIT 1",
+                rows = connection.execute(
+                    "SELECT * FROM strategy_promotion_record WHERE strategy_fingerprint = %s "
+                    "ORDER BY promotion_record_fingerprint",
                     (record.strategy_fingerprint,),
-                ).fetchone()
-                expected = None if last is None else str(last["promotion_record_fingerprint"])
+                ).fetchall()
+                chain = only_verified_strategy_promotion_chain(
+                    tuple(_promotion_record(row) for row in rows),
+                    record.strategy_fingerprint,
+                )
+                expected = None if not chain else chain[-1].record_fingerprint
                 if expected != record.previous_record_fingerprint:
                     raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CONFLICT", record.strategy_fingerprint)
                 connection.execute(
@@ -180,16 +191,23 @@ class OnlyPostgresStrategyStore:
 
 
 def _freeze_record(row: dict[str, object]) -> OnlyStrategyFreezeRecord:
-    record = OnlyStrategyFreezeRecord(
-        str(row["candidate_fingerprint"]),
-        str(row["research_result_fingerprint"]),
-        str(row["strategy_fingerprint"]),
-        str(row["admission_evidence_fingerprint"]),
-        str(row["actor"]),
-        cast(datetime, row["created_at"]),
-        None if row["comment"] is None else str(row["comment"]),
-        int(str(row["schema_version"])),
-    )
+    try:
+        evidence = row["equivalence_evidence_fingerprints"]
+        if not isinstance(evidence, list):
+            raise ValueError("exact equivalence evidence is unavailable")
+        record = OnlyStrategyFreezeRecord(
+            str(row["candidate_fingerprint"]),
+            str(row["research_result_fingerprint"]),
+            str(row["strategy_fingerprint"]),
+            str(row["admission_evidence_fingerprint"]),
+            tuple(str(item) for item in evidence),
+            str(row["actor"]),
+            cast(datetime, row["created_at"]),
+            None if row["comment"] is None else str(row["comment"]),
+            int(str(row["schema_version"])),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OnlyStrategyFreezeError("STRATEGY_CATALOG_CORRUPT", str(row.get("strategy_fingerprint", ""))) from exc
     if record.record_fingerprint != row["freeze_record_fingerprint"]:
         raise OnlyStrategyFreezeError("STRATEGY_CATALOG_CORRUPT", record.strategy_fingerprint)
     return record

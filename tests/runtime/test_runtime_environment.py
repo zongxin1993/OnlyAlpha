@@ -37,10 +37,6 @@ def test_runtime_environment_is_order_independent_and_excludes_cluster_local_con
     local_change = replace(
         config,
         cluster=replace(config.cluster, cluster_id=type(config.cluster_id)("other-cluster")),
-        strategy=replace(
-            config.strategy,
-            extensions=MappingProxyType({**config.strategy.extensions, "trade_quantity": "2000"}),
-        ),
     )
     binding = _binding(config)
     assert builder.build(config, binding) == builder.build(local_change, binding)

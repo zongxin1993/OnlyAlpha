@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NoReturn
+from typing import NoReturn, Protocol
 
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -13,68 +13,32 @@ from onlyalpha.calculation.definition import (
     OnlyTimestampSemantic,
 )
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
+from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.strategy.errors import OnlyStrategyAdmissionError
+from onlyalpha.domain.enums import OnlyAdjustmentType
+from onlyalpha.strategy.equivalence import OnlyCalculationEquivalenceEvidence
+from onlyalpha.strategy.errors import OnlyCalculationEquivalenceError, OnlyStrategyAdmissionError
 from onlyalpha.strategy.revision import (
     OnlyStrategyImplementationBinding,
+    OnlyStrategyMarketInputContract,
     OnlyStrategySignalSemantics,
 )
 
 
-@dataclass(frozen=True, order=True, slots=True)
-class OnlyCalculationEquivalenceAdmission:
-    calculation_type_reference: OnlyCalculationTypeReference
-    research_implementation_fingerprint: str
-    trading_implementation_fingerprint: str
-    evidence_fingerprint: str
-
-    def __post_init__(self) -> None:
-        for name, value in (
-            ("Research implementation", self.research_implementation_fingerprint),
-            ("Trading implementation", self.trading_implementation_fingerprint),
-            ("equivalence evidence", self.evidence_fingerprint),
-        ):
-            _sha(value, name)
-
-
-class OnlyCalculationEquivalenceAdmissionRegistry:
-    """Explicit evidence authority; evidence never enters Strategy identity."""
-
-    def __init__(self) -> None:
-        self._admissions: dict[tuple[OnlyCalculationTypeReference, str, str], OnlyCalculationEquivalenceAdmission] = {}
-
-    def register(self, admission: OnlyCalculationEquivalenceAdmission) -> None:
-        key = (
-            admission.calculation_type_reference,
-            admission.research_implementation_fingerprint,
-            admission.trading_implementation_fingerprint,
-        )
-        existing = self._admissions.get(key)
-        if existing is not None and existing != admission:
-            raise ValueError("Calculation equivalence evidence conflicts")
-        self._admissions[key] = admission
-
-    def require(
+class OnlyCalculationEquivalenceEvidenceReader(Protocol):
+    def require_verified(
         self,
         reference: OnlyCalculationTypeReference,
         research_implementation_fingerprint: str,
         trading_implementation_fingerprint: str,
-    ) -> OnlyCalculationEquivalenceAdmission:
-        try:
-            return self._admissions[
-                (reference, research_implementation_fingerprint, trading_implementation_fingerprint)
-            ]
-        except KeyError as exc:
-            raise OnlyStrategyAdmissionError(
-                "STRATEGY_NOT_TRADING_ADMISSIBLE",
-                f"semantic equivalence evidence is unavailable for {reference.type_id}@{reference.semantic_version}",
-            ) from exc
+    ) -> tuple[OnlyCalculationEquivalenceEvidence, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyStrategyAdmission:
     implementation_bindings: tuple[OnlyStrategyImplementationBinding, ...]
+    equivalence_evidence_fingerprints: tuple[str, ...]
     admission_evidence_fingerprint: str
 
 
@@ -82,7 +46,7 @@ class OnlyStrategyTradingAdmissionService:
     def __init__(
         self,
         calculations: OnlyCalculationRegistry,
-        equivalence: OnlyCalculationEquivalenceAdmissionRegistry,
+        equivalence: OnlyCalculationEquivalenceEvidenceReader,
     ) -> None:
         self._calculations = calculations
         self._equivalence = equivalence
@@ -91,7 +55,16 @@ class OnlyStrategyTradingAdmissionService:
         self,
         graph: OnlyCalculationGraphDefinition,
         signals: OnlyStrategySignalSemantics,
+        market_input_contract: OnlyStrategyMarketInputContract,
     ) -> OnlyStrategyAdmission:
+        if (
+            market_input_contract.adjustment_type is not OnlyAdjustmentType.RAW
+            or market_input_contract.adjustment_reference is not None
+        ):
+            self._fail(
+                "STRATEGY_NOT_TRADING_ADMISSIBLE",
+                "P9.0 Trading Strategy input must be RAW without an adjustment reference",
+            )
         bindings: list[OnlyStrategyImplementationBinding] = []
         evidence: list[str] = []
         for node in graph.ordered_nodes:
@@ -119,22 +92,41 @@ class OnlyStrategyTradingAdmissionService:
                     "IMPLEMENTATION_IDENTITY_UNRESOLVED",
                     f"exact implementation identity is unavailable for {definition.type_id}@{definition.semantic_version}",
                 )
+            if trading.state_capability is None:
+                self._fail(
+                    "CALCULATION_STATE_CAPABILITY_UNRESOLVED",
+                    f"{definition.type_id}@{definition.semantic_version}",
+                )
+            if (
+                trading.state_capability is OnlyCalculationStateCapability.CHECKPOINTABLE
+                and trading.checkpoint_schema_version is None
+            ):
+                self._fail(
+                    "CALCULATION_STATE_CAPABILITY_UNRESOLVED",
+                    f"{definition.type_id}@{definition.semantic_version}",
+                )
             research_fingerprint = research.implementation_manifest.implementation_fingerprint
             trading_fingerprint = trading.implementation_manifest.implementation_fingerprint
-            admitted = self._equivalence.require(reference, research_fingerprint, trading_fingerprint)
+            try:
+                admitted = self._equivalence.require_verified(reference, research_fingerprint, trading_fingerprint)
+            except OnlyCalculationEquivalenceError as exc:
+                code = "STRATEGY_NOT_TRADING_ADMISSIBLE" if exc.code == "EQUIVALENCE_EVIDENCE_NOT_FOUND" else exc.code
+                self._fail(code, exc.detail, exc)
             bindings.append(
                 OnlyStrategyImplementationBinding(node.fingerprint, research_fingerprint, trading_fingerprint)
             )
-            evidence.append(admitted.evidence_fingerprint)
+            evidence.extend(item.evidence_fingerprint for item in admitted)
         self._validate_signals(graph, signals)
         canonical = tuple(sorted(bindings))
+        evidence_fingerprints = tuple(sorted(set(evidence)))
         return OnlyStrategyAdmission(
             canonical,
+            evidence_fingerprints,
             only_canonical_fingerprint(
                 {
                     "domain": "onlyalpha.strategy.trading-admission-evidence",
                     "schema_version": 1,
-                    "evidence_fingerprints": sorted(evidence),
+                    "evidence_fingerprints": evidence_fingerprints,
                 }
             ),
         )
@@ -143,9 +135,10 @@ class OnlyStrategyTradingAdmissionService:
         self,
         graph: OnlyCalculationGraphDefinition,
         signals: OnlyStrategySignalSemantics,
+        market_input_contract: OnlyStrategyMarketInputContract,
         expected: tuple[OnlyStrategyImplementationBinding, ...],
     ) -> None:
-        actual = self.admit(graph, signals).implementation_bindings
+        actual = self.admit(graph, signals, market_input_contract).implementation_bindings
         if actual != expected:
             self._fail("IMPLEMENTATION_IDENTITY_MISMATCH", "current Calculation implementation differs from Revision")
 
@@ -208,11 +201,6 @@ _BAR_SOURCES = frozenset(
         "bar.open_interest",
     }
 )
-
-
-def _sha(value: str, name: str) -> None:
-    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
-        raise ValueError(f"{name} must be a lower-case SHA256")
 
 
 __all__ = [name for name in globals() if name.startswith("Only")]

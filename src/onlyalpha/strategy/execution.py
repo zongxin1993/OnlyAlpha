@@ -8,8 +8,14 @@ from enum import Enum
 from types import MappingProxyType
 
 from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyOutputDefinition
-from onlyalpha.calculation.registry import OnlyCalculationRegistry, OnlyTradingCalculationBackendResolver
+from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
+from onlyalpha.calculation.registry import (
+    OnlyCalculationBackendRegistration,
+    OnlyCalculationRegistry,
+    OnlyTradingCalculationBackendResolver,
+)
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
@@ -74,25 +80,37 @@ class OnlyStrategyExecutionResolver:
     def resolve(self, strategy_fingerprint: OnlyStrategyFingerprint | str) -> OnlyStrategyExecutionPlan:
         try:
             revision = self._strategies.load_verified(strategy_fingerprint)
+            if (
+                revision.market_input_contract.adjustment_type is not OnlyAdjustmentType.RAW
+                or revision.market_input_contract.adjustment_reference is not None
+            ):
+                raise OnlyStrategyResolutionError(
+                    "STRATEGY_OBSERVATION_NOT_ADMITTED",
+                    "P9.0 Trading Strategy input must be RAW without an adjustment reference",
+                )
             expected = {item.node_fingerprint: item for item in revision.implementation_bindings}
             for node in revision.decision_graph.nodes:
                 binding = expected[node.fingerprint]
-                for backend, fingerprint in (
-                    (OnlyCalculationBackendKind.RESEARCH, binding.research_implementation_fingerprint),
-                    (OnlyCalculationBackendKind.TRADING, binding.trading_implementation_fingerprint),
+                registration = self._calculations.resolve(
+                    node.definition.kind,
+                    node.definition.type_id,
+                    node.definition.semantic_version,
+                    OnlyCalculationBackendKind.TRADING,
+                )
+                manifest = registration.implementation_manifest
+                if (
+                    manifest is None
+                    or manifest.implementation_fingerprint != binding.trading_implementation_fingerprint
                 ):
-                    registration = self._calculations.resolve(
-                        node.definition.kind,
-                        node.definition.type_id,
-                        node.definition.semantic_version,
-                        backend,
+                    raise OnlyStrategyResolutionError(
+                        "IMPLEMENTATION_IDENTITY_MISMATCH",
+                        f"{node.definition.type_id}@{node.definition.semantic_version}:TRADING",
                     )
-                    manifest = registration.implementation_manifest
-                    if manifest is None or manifest.implementation_fingerprint != fingerprint:
-                        raise OnlyStrategyResolutionError(
-                            "IMPLEMENTATION_IDENTITY_MISMATCH",
-                            f"{node.definition.type_id}@{node.definition.semantic_version}:{backend.value}",
-                        )
+                if registration.state_capability is None:
+                    raise OnlyStrategyResolutionError(
+                        "CALCULATION_STATE_CAPABILITY_UNRESOLVED",
+                        f"{node.definition.type_id}@{node.definition.semantic_version}",
+                    )
             return OnlyStrategyExecutionPlan(revision, self._calculations)
         except OnlyStrategyResolutionError:
             raise
@@ -180,18 +198,21 @@ class OnlyStrategyIncrementalExecutor:
     def capture_checkpoint(self) -> Mapping[str, object]:
         instances: dict[str, object] = {}
         for (instrument, node), instance in sorted(self._instances.items()):
-            capability = getattr(instance, "checkpoint_schema_version", None)
+            registration = self._registration(node)
+            if registration.state_capability is OnlyCalculationStateCapability.STATELESS:
+                continue
             capture = getattr(instance, "capture_checkpoint", None)
-            if capability is None or not callable(capture):
-                if callable(getattr(instance, "update", None)):
-                    continue
+            if not callable(capture):
                 raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_UNSUPPORTED", node)
+            schema_version = registration.checkpoint_schema_version
+            assert schema_version is not None
             instances[f"{instrument}|{node}"] = {
-                "schema_version": capability,
+                "participant_fingerprint": self._participant_fingerprint(instrument, node),
+                "schema_version": schema_version,
                 "payload": capture(),
             }
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "instances": instances,
             "last_decisions": {
                 instrument: _decision_to_checkpoint(decision) for instrument, decision in sorted(self._last.items())
@@ -206,33 +227,11 @@ class OnlyStrategyIncrementalExecutor:
         }:
             raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "invalid checkpoint fields")
         if (
-            payload["schema_version"] != 1
+            payload["schema_version"] != 2
             or not isinstance(payload["instances"], Mapping)
             or not isinstance(payload["last_decisions"], Mapping)
         ):
             raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "unsupported checkpoint")
-        nodes = {item.fingerprint: item.definition for item in self._plan.revision.decision_graph.nodes}
-        contract = self._plan.revision.market_input_contract
-        for key, raw in payload["instances"].items():
-            if not isinstance(key, str) or not isinstance(raw, Mapping) or set(raw) != {"schema_version", "payload"}:
-                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "invalid participant")
-            try:
-                instrument, node = key.split("|", 1)
-                definition = nodes[node]
-                bar_type = OnlyBarType(
-                    OnlyInstrumentId.parse(instrument),
-                    contract.bar_specification,
-                    contract.aggregation_source,
-                )
-            except (KeyError, ValueError) as exc:
-                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", key) from exc
-            instance = self._instance(instrument, node, definition, bar_type)
-            if getattr(instance, "checkpoint_schema_version", None) != raw["schema_version"]:
-                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "participant schema mismatch")
-            restore = getattr(instance, "restore_checkpoint", None)
-            if not callable(restore):
-                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_UNSUPPORTED", node)
-            restore(raw["payload"])
         restored: dict[str, OnlyStrategyDecision] = {}
         for instrument, raw in payload["last_decisions"].items():
             if not isinstance(instrument, str):
@@ -245,6 +244,44 @@ class OnlyStrategyIncrementalExecutor:
             if OnlyInstrumentId.parse(instrument) not in set(self._plan.revision.universe.instruments):
                 raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "instrument outside Universe")
             restored[instrument] = decision
+        checkpointable_nodes = tuple(
+            node.fingerprint
+            for node in self._plan.revision.decision_graph.nodes
+            if self._registration(node.fingerprint).state_capability is OnlyCalculationStateCapability.CHECKPOINTABLE
+        )
+        expected_participants = {f"{instrument}|{node}" for instrument in restored for node in checkpointable_nodes}
+        if set(payload["instances"]) != expected_participants:
+            raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "checkpoint participant set differs")
+        nodes = {item.fingerprint: item.definition for item in self._plan.revision.decision_graph.nodes}
+        contract = self._plan.revision.market_input_contract
+        for key, raw in payload["instances"].items():
+            if (
+                not isinstance(key, str)
+                or not isinstance(raw, Mapping)
+                or set(raw) != {"participant_fingerprint", "schema_version", "payload"}
+            ):
+                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "invalid participant")
+            try:
+                instrument, node = key.split("|", 1)
+                definition = nodes[node]
+                registration = self._registration(node)
+                bar_type = OnlyBarType(
+                    OnlyInstrumentId.parse(instrument),
+                    contract.bar_specification,
+                    contract.aggregation_source,
+                )
+            except (KeyError, ValueError) as exc:
+                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", key) from exc
+            if (
+                raw["participant_fingerprint"] != self._participant_fingerprint(instrument, node)
+                or raw["schema_version"] != registration.checkpoint_schema_version
+            ):
+                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", "participant identity differs")
+            instance = self._instance(instrument, node, definition, bar_type)
+            restore = getattr(instance, "restore_checkpoint", None)
+            if not callable(restore):
+                raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_UNSUPPORTED", node)
+            restore(raw["payload"])
         self._last = restored
 
     def _instance(self, instrument: str, node: str, definition: object, bar_type: OnlyBarType) -> object:
@@ -255,8 +292,47 @@ class OnlyStrategyIncrementalExecutor:
                 definition,  # type: ignore[arg-type]
                 _TradingIndicatorRequest(OnlyIndicatorId(f"strategy-{node[:24]}"), bar_type),
             )
+            registration = self._registration(node)
+            if registration.state_capability is OnlyCalculationStateCapability.CHECKPOINTABLE:
+                if (
+                    getattr(instance, "checkpoint_schema_version", None) != registration.checkpoint_schema_version
+                    or not callable(getattr(instance, "capture_checkpoint", None))
+                    or not callable(getattr(instance, "restore_checkpoint", None))
+                ):
+                    raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_UNSUPPORTED", node)
             self._instances[key] = instance
         return instance
+
+    def _registration(self, node_fingerprint: str) -> OnlyCalculationBackendRegistration:
+        node = next(
+            (item for item in self._plan.revision.decision_graph.nodes if item.fingerprint == node_fingerprint),
+            None,
+        )
+        if node is None:
+            raise OnlyStrategyResolutionError("STRATEGY_CHECKPOINT_CORRUPT", node_fingerprint)
+        return self._plan.calculations.resolve(
+            node.definition.kind,
+            node.definition.type_id,
+            node.definition.semantic_version,
+            OnlyCalculationBackendKind.TRADING,
+        )
+
+    def _participant_fingerprint(self, instrument: str, node_fingerprint: str) -> str:
+        binding = next(
+            item for item in self._plan.revision.implementation_bindings if item.node_fingerprint == node_fingerprint
+        )
+        registration = self._registration(node_fingerprint)
+        return only_canonical_fingerprint(
+            {
+                "domain": "onlyalpha.strategy.checkpoint-participant",
+                "schema_version": 1,
+                "strategy_fingerprint": str(self._plan.strategy_fingerprint),
+                "instrument_id": instrument,
+                "node_fingerprint": node_fingerprint,
+                "trading_implementation_fingerprint": binding.trading_implementation_fingerprint,
+                "checkpoint_schema_version": registration.checkpoint_schema_version,
+            }
+        )
 
     @staticmethod
     def _update(

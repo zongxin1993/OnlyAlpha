@@ -1,3 +1,3 @@
-from .strategy import OnlySimCertificationIntentStrategy
+"""Legacy callback acceptance Strategy removed by P9.0 authority closure."""
 
-__all__ = ["OnlySimCertificationIntentStrategy"]
+__all__: list[str] = []

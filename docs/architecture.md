@@ -262,7 +262,16 @@ MarketData Validate / Process
 → Market Rule / Risk / Order
 ```
 
-Indicator 和 Factor 没有交易权限。Strategy 只通过受限 Context 读取 immutable Snapshot，并通过正式订单接口表达 intent；它不能创建 Fill、模拟 Broker 回报或维护平行账户真值。
+Indicator 和 Factor 没有交易权限。P9.0 Closure 后，生产 Strategy 不再是可子类化 Python callback，也不再接收订单、仓位、
+账户、风险或 Broker Context。唯一执行链是 `strategy_fingerprint → load_verified StrategyRevision → TRADING Calculation graph →
+StrategyDecision`。Cluster Factory 只把 resolved `OnlyStrategyExecutionPlan` 交给 Cluster，Cluster 内部唯一
+`OnlyRevisionStrategyAdapter` 同步产生 `ELIGIBILITY/ENTRY/EXIT`，并通过 `OnlyClusterPipelineResult.strategy_decision` 显式交付。
+`StrategyDecision` 不是 Order Intent；Portfolio/Position Policy、Risk 与 Order 仍是下游独立权威。
+
+Trading Resolver 只验证 Revision 已绑定的 exact TRADING implementation，不导入或要求 RESEARCH runtime backend。Freeze 阶段由
+verified immutable Equivalence Evidence Store 验证 exact Research/TRADING implementation pair。P9.0 BAR admission 只允许
+`FINAL_ONLY + RAW_ONLY`。Calculation registration 显式声明 `STATELESS/CHECKPOINTABLE`；Promotion 顺序只由
+`previous_record_fingerprint` 链重建，audit timestamp 不参与语义排序。
 
 ### 6.1 Target LIVE Manual Workload
 

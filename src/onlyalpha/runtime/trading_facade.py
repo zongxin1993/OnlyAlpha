@@ -1448,31 +1448,26 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             return
         for cluster in sorted(self.clusters, key=lambda item: item.config.cluster_id):
             prefix = f"cluster.{cluster.config.cluster_id}"
-            strategy = cluster.strategy
-            strategy_component_id = f"{prefix}.30.strategy.{strategy.strategy_id}"
-            if strategy.checkpoint_capability is None:
-                raise OnlyRuntimeError(f"checkpoint capability is not declared by Strategy: {type(strategy).__name__}")
-            if strategy.checkpoint_capability is OnlyCheckpointCapability.STATELESS:
-                self._checkpoint_registry.register(OnlyStatelessRuntimeCheckpointParticipant(strategy_component_id))
-            else:
-                if strategy.checkpoint_schema_version is None:
-                    raise OnlyRuntimeError(
-                        f"checkpoint schema version is not declared by Strategy: {type(strategy).__name__}"
+            strategy = cluster.revision_strategy_participant
+            if strategy is not None:
+                strategy_component_id = f"{prefix}.30.strategy.{strategy.strategy_fingerprint}"
+                if strategy.checkpoint_capability is OnlyCheckpointCapability.STATELESS:
+                    self._checkpoint_registry.register(OnlyStatelessRuntimeCheckpointParticipant(strategy_component_id))
+                else:
+                    self._checkpoint_registry.register(
+                        OnlyJsonRuntimeCheckpointParticipant(
+                            strategy_component_id,
+                            strategy.checkpoint_schema_version,
+                            strategy.capture_checkpoint,
+                            strategy.restore_checkpoint,
+                        )
                     )
-                self._checkpoint_registry.register(
-                    OnlyJsonRuntimeCheckpointParticipant(
-                        strategy_component_id,
-                        strategy.checkpoint_schema_version,
-                        strategy.capture_checkpoint,
-                        strategy.restore_checkpoint,
-                    )
-                )
             self._checkpoint_registry.register(
                 OnlyJsonRuntimeCheckpointParticipant(
                     f"{prefix}.40.result-recorder",
                     1,
-                    strategy.context.results.capture_checkpoint,
-                    strategy.context.results.restore_checkpoint,
+                    cluster.result_recorder.capture_checkpoint,
+                    cluster.result_recorder.restore_checkpoint,
                 )
             )
             if cluster.action_workload is not None:
@@ -2078,7 +2073,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             update=update,
             prepared_at=update.ts_init,
             engine_id=OnlyEngineId(str(self.config.engine_id)),
-            strategy_id=self._services.cluster_manager.require_cluster(order.cluster_id).strategy.strategy_id,
+            strategy_id=self._services.cluster_manager.require_cluster(order.cluster_id).strategy_id,
             processing_sequence=processing_sequence,
             trading_day=trading_day,
             contract_multiplier=self._instruments[order.instrument_id].contract_multiplier,

@@ -4,22 +4,23 @@ from pathlib import Path
 from onlyalpha.cli import main
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from tests.runtime_runner import only_write_migrated_cluster_config
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
 
 
 def test_engine_publishes_concise_reports_without_recalculating(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("report-engine"), tmp_path))
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster_from_file(only_write_migrated_cluster_config(CONFIG, tmp_path))
 
     result = engine.run()
 
     assert result.status == "COMPLETED"
     assert len(result.backtest_reports) == len(result.console_reports) == len(result.report_paths) == 1
     projection = result.backtest_reports[0]
-    assert projection["order_count"] == 2
-    assert projection["execution_count"] == 2
-    assert projection["trade_count"] == 1
+    assert projection["order_count"] == 0
+    assert projection["execution_count"] == 0
+    assert projection["trade_count"] == 0
     assert projection["result_fingerprint"]
     assert "orders" not in projection
     report = result.report_paths[0].read_text(encoding="utf-8")
@@ -43,12 +44,13 @@ def test_engine_publishes_concise_reports_without_recalculating(tmp_path: Path) 
 
 
 def test_cli_keeps_single_json_line_and_adds_report_fields(tmp_path: Path, capsys: object) -> None:
-    assert main(["run", "--config", CONFIG, "--user-data", str(tmp_path)]) == 0
+    config = only_write_migrated_cluster_config(CONFIG, tmp_path)
+    assert main(["run", "--config", str(config), "--user-data", str(tmp_path)]) == 0
 
     payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
     assert payload["status"] == "COMPLETED"
     assert payload["cluster_count"] == 1
-    assert payload["trade_count"] == 1
+    assert payload["trade_count"] == 0
     assert Path(payload["report_path"]).is_file()
     assert Path(payload["manifest_path"]).is_file()
 

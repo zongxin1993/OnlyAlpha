@@ -1,27 +1,13 @@
 import ast
 from pathlib import Path
 
-from onlyalpha_test_plugin.macd_plugin import OnlyTestMacdStrategy
 
-
-def test_macd_strategy_source_uses_only_strategy_context_capabilities() -> None:
+def test_external_macd_fixture_contains_factor_only_and_no_callback_strategy() -> None:
     path = Path("tests/fixtures/external_plugins/onlyalpha_test_plugin/src/onlyalpha_test_plugin/macd_plugin.py")
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    strategy = next(
-        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "OnlyTestMacdStrategy"
-    )
-    forbidden = {
-        "order_manager",
-        "position_manager",
-        "strategy_ledger_manager",
-        "account_manager",
-        "event_bus",
-        "broker_gateway",
-        "execution_processor",
-    }
-    attributes = {node.attr for node in ast.walk(strategy) if isinstance(node, ast.Attribute)}
-    assert attributes.isdisjoint(forbidden)
-    assert "list_open" in attributes
-    assert "submit" in attributes
-    assert OnlyTestMacdStrategy.__mro__[1].__name__ == "OnlyStrategy"
-    assert "indicators" not in attributes
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+    assert "OnlyTestMacdFactor" in classes
+    assert all("Strategy" not in name for name in classes)
+    source = path.read_text(encoding="utf-8")
+    assert "onlyalpha.strategy.base" not in source
+    assert ".orders.submit(" not in source

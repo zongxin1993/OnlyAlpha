@@ -518,9 +518,9 @@ authoritative inspection point 已存在则投影 `COMPLETED`；完整证据 abs
 `FAILED` fail closed。该终态通过 PostgreSQL exact revision/state + no-ACTIVE transaction 原子提交；不得创建新 Attempt、继续缺失的
 semantic work、让 Scheduler/PostgreSQL adapter 读取 semantic Store，或让 retry budget 覆盖已完成事实。
 
-当前 Strategy-facing `OnlyRuntimeContext` 与 Trading Semantic Plane 已不暴露或读取 Runtime mode，Position、Fee、Market Rule 与
-Durable Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的
-identity、planning、driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。
+当前 Revision-backed Strategy executor 不接收 Runtime Context，也不暴露或读取 Runtime mode；Position、Fee、Market Rule 与 Durable
+Execution Capability 的生产经济路径保持 mode-neutral，并由架构门禁冻结。Runtime mode 只可留在 Control Plane 的 identity、planning、
+driver 和 lifecycle composition，不得重新进入 Strategy 或经济权限判断。
 
 Backtest / Sim / Live 追求 Trading Semantic Equivalence，而不是 Driver Implementation Equivalence。差异主要限于：
 
@@ -673,14 +673,17 @@ Factor：
 
 Strategy：
 
-- 只能通过受限 Context 读取系统状态；
-- 只能通过正式订单接口表达交易意图；
-- 不得维护与 Runtime 真值并行的完整账户、订单或持仓副本；
-- 不得绕过 Risk；
-- 不得直接创建 Fill；
-- 不得自行模拟 Broker 回报；
-- Checkpoint 能力必须显式声明。
-- 不得读取 Runtime type 后改变交易意图或经济逻辑。
+- 唯一生产语义权威是 immutable `StrategyRevision`，唯一身份是 `strategy_fingerprint`；
+- 只能通过 `StrategyExecutionResolver → exact TRADING Calculation graph` 执行；
+- 每个 admitted final RAW BAR 同步产生显式 `StrategyDecision(ELIGIBILITY/ENTRY/EXIT)`；
+- 不接受任意 Python `OnlyStrategy` subclass、callback 或 Cluster strategy object 注入；
+- 不读取 Account、Position、Order、Risk、Broker、Execution 或 Runtime type；
+- `StrategyDecision` 不是订单、仓位规模、资金分配、风险结论或 Broker command；
+- Calculation 状态能力必须在 TRADING registration 显式声明为 `STATELESS/CHECKPOINTABLE`；
+- CHECKPOINTABLE Calculation 必须绑定 schema version，并保持连续执行与 checkpoint/restore 等价。
+
+旧 `OnlyStrategyId` 仅可作为内部历史交易事实归因类型保留，不是 Strategy identity、authoring 或 execution authority，也不得从
+`onlyalpha.strategy` public surface 导出。
 
 ---
 

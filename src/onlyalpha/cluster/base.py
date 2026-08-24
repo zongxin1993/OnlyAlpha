@@ -29,9 +29,8 @@ from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
 from onlyalpha.result.strategy import OnlyStrategyResultRecorder
 from onlyalpha.runtime.context import OnlyClusterContext, OnlyTimerContext
-from onlyalpha.strategy.base import OnlyNoopStrategy, OnlyStrategy
-from onlyalpha.strategy.config import OnlyStrategyConfig
-from onlyalpha.strategy.context import OnlyStrategyContext, OnlyStrategyFactorView, OnlyStrategyTimerContext
+from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
+from onlyalpha.strategy.execution import OnlyStrategyExecutionPlan
 from onlyalpha.strategy.identifiers import OnlyStrategyId
 
 
@@ -96,19 +95,24 @@ class OnlyCluster:
     def __init__(
         self,
         config: OnlyClusterConfig,
-        strategy: OnlyStrategy | None = None,
+        strategy_plan: OnlyStrategyExecutionPlan | None = None,
         factors: tuple[OnlyFactor, ...] = (),
         indicator_factories: OnlyIndicatorFactoryRegistry | None = None,
         action_workload: OnlyClusterActionWorkload | None = None,
     ) -> None:
         self.config = config
-        self.strategy = strategy or OnlyNoopStrategy(OnlyStrategyConfig(OnlyStrategyId(f"{config.cluster_id}-noop")))
+        if strategy_plan is not None and not isinstance(strategy_plan, OnlyStrategyExecutionPlan):
+            raise TypeError("OnlyCluster accepts only a resolved Strategy execution plan")
+        self._revision_strategy = None if strategy_plan is None else OnlyRevisionStrategyAdapter(strategy_plan)
+        strategy_identity = (
+            f"{config.cluster_id}-infrastructure"
+            if self._revision_strategy is None
+            else self._revision_strategy.strategy_fingerprint
+        )
+        self._strategy_id = OnlyStrategyId(strategy_identity)
+        self._result_recorder = OnlyStrategyResultRecorder(config.cluster_id, str(self._strategy_id))
         self.factor_registry = OnlyFactorRegistry(factors)
         self._factor_plan = OnlyFactorDependencyGraph().build(factors)
-        required = self.strategy.config.required_factor_ids
-        unknown = set(required) - {item.factor_id for item in factors}
-        if unknown:
-            raise ValueError(f"Strategy references unknown required Factors: {sorted(unknown)}")
         if indicator_factories is None:
             indicator_factories = OnlyIndicatorFactoryRegistry()
         if not isinstance(indicator_factories, OnlyIndicatorFactoryRegistry):
@@ -140,6 +144,24 @@ class OnlyCluster:
         return self._action_workload
 
     @property
+    def revision_strategy_participant(self) -> OnlyRevisionStrategyAdapter | None:
+        return self._revision_strategy
+
+    @property
+    def strategy_fingerprint(self) -> str | None:
+        return None if self._revision_strategy is None else self._revision_strategy.strategy_fingerprint
+
+    @property
+    def strategy_id(self) -> OnlyStrategyId:
+        """Internal trading attribution identity; not a Strategy authoring surface."""
+
+        return self._strategy_id
+
+    @property
+    def result_recorder(self) -> OnlyStrategyResultRecorder:
+        return self._result_recorder
+
+    @property
     def indicator_snapshots(self) -> tuple[OnlyIndicatorSnapshot, ...]:
         return () if self._indicator_registry is None else self._indicator_registry.all_snapshots()
 
@@ -160,14 +182,11 @@ class OnlyCluster:
         self._factor_scores = {factor.factor_id: factor.score() for factor in self.factors}
 
     def snapshot(self) -> OnlyClusterSnapshot:
-        required = self.strategy.config.required_factor_ids
-        ready = all(
-            self._factor_snapshots.get(item) is not None and self._factor_snapshots[item].ready for item in required
-        )
+        ready = True
         return OnlyClusterSnapshot(
             OnlyClusterId(self.config.cluster_id),
             self.state,
-            str(self.strategy.strategy_id),
+            str(self._strategy_id),
             tuple(item.factor_id for item in self.factors),
             ready,
         )
@@ -199,23 +218,18 @@ class OnlyCluster:
                 )
             )
             factor.on_initialize()
-        strategy_context = OnlyStrategyContext(
-            context,
-            OnlyStrategyFactorView(self._factor_snapshots, self._factor_scores),
-            OnlyStrategyResultRecorder(self.config.cluster_id, str(self.strategy.strategy_id)),
-        )
-        self.strategy._only_cluster_bind(strategy_context)
         if self._action_workload is not None:
             self._action_workload.bind(context)
-        self.strategy.on_initialize()
+        if self._revision_strategy is not None:
+            self._revision_strategy.on_initialize()
         if self.config.subscription is not None:
             context.subscriptions.subscribe_bars(self.config.subscription)
         self._indicator_registry = indicator_registry
         self._pipeline = OnlyClusterPipeline(
             indicator_registry,
             self.factor_registry,
-            self.strategy,
-            OnlyClusterExecutionPlan(self._factor_plan, self.strategy.config.required_factor_ids),
+            self._revision_strategy,
+            OnlyClusterExecutionPlan(self._factor_plan, ()),
             self._factor_snapshots,
             self._factor_scores,
         )
@@ -223,7 +237,8 @@ class OnlyCluster:
     def on_start(self) -> None:
         for factor in self.factors:
             factor.on_start()
-        self.strategy.on_start()
+        if self._revision_strategy is not None:
+            self._revision_strategy.on_start()
 
     def on_recovery_enter(self) -> None:
         """Enter deterministic replay without repeating ordinary start side effects."""
@@ -239,7 +254,7 @@ class OnlyCluster:
             self._action_workload.on_bar(bar)
 
     def build_result_extension(self) -> Mapping[str, object]:
-        result = dict(self.strategy.build_result_extension())
+        result = {} if self._revision_strategy is None else dict(self._revision_strategy.build_result_extension())
         if self._action_workload is not None:
             overlap = set(result) & set(self._action_workload.build_result_extension())
             if overlap:
@@ -248,16 +263,19 @@ class OnlyCluster:
         return MappingProxyType(result)
 
     def on_timer(self, context: OnlyTimerContext) -> None:
-        self.strategy.on_timer(OnlyStrategyTimerContext(self.strategy.context, context))
+        del context
 
     def on_pause(self) -> None:
-        self.strategy.on_pause()
+        if self._revision_strategy is not None:
+            self._revision_strategy.on_pause()
 
     def on_resume(self) -> None:
-        self.strategy.on_resume()
+        if self._revision_strategy is not None:
+            self._revision_strategy.on_resume()
 
     def on_stop(self) -> None:
-        self.strategy.on_stop()
+        if self._revision_strategy is not None:
+            self._revision_strategy.on_stop()
         for factor in reversed(self.factors):
             factor.on_stop()
 

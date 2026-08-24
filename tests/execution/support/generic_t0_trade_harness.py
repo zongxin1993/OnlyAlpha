@@ -343,7 +343,7 @@ def only_test_real_trade_planning_context(
         update=update,
         prepared_at=update.ts_init,
         engine_id=OnlyEngineId("integration-engine"),
-        strategy_id=env.cluster.integration_strategy.strategy_id,
+        strategy_id=env.cluster.strategy_id,
         processing_sequence=processor._processing_sequence + 1,
         trading_day=trading_day,
         contract_multiplier=env.instrument.contract_multiplier,

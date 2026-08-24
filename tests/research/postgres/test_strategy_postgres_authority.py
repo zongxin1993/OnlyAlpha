@@ -34,7 +34,15 @@ def _store(postgres_dsn: str) -> OnlyPostgresStrategyStore:
 def test_strategy_catalog_and_freeze_provenance_are_idempotent_without_semantic_json(postgres_dsn: str) -> None:
     store = _store(postgres_dsn)
     store.ensure_strategy("a" * 64, 1)
-    record = OnlyStrategyFreezeRecord("b" * 64, "c" * 64, "a" * 64, "d" * 64, "operator", NOW)
+    record = OnlyStrategyFreezeRecord(
+        "b" * 64,
+        "c" * 64,
+        "a" * 64,
+        "d" * 64,
+        ("e" * 64,),
+        "operator",
+        NOW,
+    )
 
     assert store.append_freeze_record(record) == record
     assert store.append_freeze_record(record) == record
@@ -73,7 +81,7 @@ def test_strategy_promotion_is_exact_append_only_chain(postgres_dsn: str) -> Non
         OnlyStrategyPromotionDecision.APPROVED,
         "sim evidence",
         "operator",
-        NOW + timedelta(seconds=1),
+        NOW - timedelta(seconds=1),
         first.record_fingerprint,
     )
 
