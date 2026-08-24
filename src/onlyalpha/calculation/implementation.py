@@ -189,11 +189,11 @@ def only_implementation_manifest_from_bytes(
 
 
 def only_python_stdlib_semantic_dependency(module_id: str) -> OnlyCalculationSemanticDependency:
-    """Bind semantics that rely on the active Python standard-library numeric runtime."""
+    """Bind semantics to the supported CPython major/minor stdlib contract."""
 
     return OnlyCalculationSemanticDependency(
         f"{platform.python_implementation().lower()}.{module_id}",
-        platform.python_version(),
+        ".".join(platform.python_version_tuple()[:2]),
     )
 
 

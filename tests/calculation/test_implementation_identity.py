@@ -4,6 +4,7 @@ from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationSemanticDependency,
     only_implementation_manifest_from_bytes,
+    only_python_stdlib_semantic_dependency,
 )
 from tests.strategy.p9_support import p9_strategy_case
 
@@ -76,3 +77,16 @@ def test_every_official_p9_registration_binds_external_numeric_runtime(tmp_path)
             )
             assert registration.implementation_manifest is not None
             assert registration.implementation_manifest.semantic_dependencies
+
+
+def test_stdlib_semantic_dependency_uses_supported_major_minor_contract(monkeypatch) -> None:
+    monkeypatch.setattr("platform.python_implementation", lambda: "CPython")
+    monkeypatch.setattr("platform.python_version_tuple", lambda: ("3", "12", "3"))
+    first = only_python_stdlib_semantic_dependency("decimal")
+    monkeypatch.setattr("platform.python_version_tuple", lambda: ("3", "12", "12"))
+    patched = only_python_stdlib_semantic_dependency("decimal")
+    monkeypatch.setattr("platform.python_version_tuple", lambda: ("3", "13", "0"))
+    changed_minor = only_python_stdlib_semantic_dependency("decimal")
+
+    assert first == patched == OnlyCalculationSemanticDependency("cpython.decimal", "3.12")
+    assert changed_minor == OnlyCalculationSemanticDependency("cpython.decimal", "3.13")
