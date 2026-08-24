@@ -24,6 +24,8 @@ from onlyalpha.calculation import (
 from onlyalpha.research.calculation import (
     OnlyResearchCalculationBackendResolver,
     OnlyResearchCalculationError,
+    OnlyResearchCalculationExecutionPlan,
+    OnlyResearchCalculationExecutionPlanBinding,
     OnlyResearchCalculationExecutor,
 )
 from onlyalpha.research.dataset import (
@@ -255,6 +257,60 @@ def test_execution_plan_rejects_graph_node_binding_set_mismatch(tmp_path) -> Non
         _execute_static(verified, registry, _InvalidExecutionOrder())
     assert raised.value.code == "RESEARCH_IMPLEMENTATION_IDENTITY_UNRESOLVED"
     assert "node set differs" in raised.value.detail
+
+
+@pytest.mark.parametrize(
+    "bindings",
+    (
+        ("b" * 64, "a" * 64),
+        ("a" * 64, "a" * 64),
+    ),
+)
+def test_execution_plan_rejects_noncanonical_or_duplicate_bindings(bindings) -> None:
+    definition = _graph().nodes[0].definition
+    backend = OnlyResearchCalculationBackendResolver(_registry()).resolve(definition)
+    with pytest.raises(ValueError, match="canonical and unique"):
+        OnlyResearchCalculationExecutionPlan(
+            "f" * 64,
+            tuple(OnlyResearchCalculationExecutionPlanBinding(fingerprint, backend) for fingerprint in bindings),
+        )
+
+
+@pytest.mark.parametrize("fingerprint", ("f" * 63, "g" * 64))
+def test_execution_plan_rejects_each_invalid_graph_fingerprint_shape(fingerprint) -> None:
+    with pytest.raises(ValueError, match="lower-case SHA256"):
+        OnlyResearchCalculationExecutionPlan(fingerprint, ())
+
+
+def test_dependency_input_binding_rejects_missing_node_and_missing_output(tmp_path) -> None:
+    verified, registry = _verified(tmp_path)
+    first = resolve_definition(TYPES[0], {"period": 2})
+    derived_type = replace(
+        TYPES[0],
+        type_id="vendor.indicator.derived",
+        inputs=(replace(TYPES[0].inputs[0], nullable=True),),
+    )
+    derived = derived_type.resolve(
+        {"period": 2},
+        {"value": OnlyCalculationReference(first.fingerprint, "value")},
+        first.warmup,
+    )
+    executor = OnlyResearchCalculationExecutor(
+        _StaticVerifiedStore(verified), OnlyResearchCalculationBackendResolver(registry)
+    )
+    table = verified.table.filter(pa.compute.equal(verified.table["instrument_id"], "A.XNAS"))
+
+    with pytest.raises(OnlyResearchCalculationError, match="missing node input"):
+        executor._resolve_instrument_inputs(derived, table, verified.snapshot.dataset_schema, {}, "A.XNAS")
+    wrong_output = pa.table({"other": pa.array([Decimal("1")], type=pa.decimal128(38, 18))})
+    with pytest.raises(OnlyResearchCalculationError, match="missing node input"):
+        executor._resolve_instrument_inputs(
+            derived,
+            table,
+            verified.snapshot.dataset_schema,
+            {first.fingerprint: {"A.XNAS": wrong_output}},
+            "A.XNAS",
+        )
 
 
 class _InvalidBackend:

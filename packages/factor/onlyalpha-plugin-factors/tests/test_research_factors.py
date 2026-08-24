@@ -11,6 +11,7 @@ from onlyalpha_plugin_factors.registration import (
     resolve_percentile,
 )
 from onlyalpha_plugin_factors.research import OnlyOfficialResearchFactorBackend
+from onlyalpha_plugin_factors.trading import OnlyOfficialTradingFactorBackendFactory
 
 from onlyalpha.calculation import (
     FACTOR_SCORE_SEMANTIC_TYPE,
@@ -224,6 +225,70 @@ def test_momentum_normalizes_decimal_parameters_and_computes_exact_formula_with_
         },
     )
     assert result["factor_value"].to_pylist() == [Decimal("6.250000000000"), None, Decimal("0.500000000000")]
+
+
+def test_trading_momentum_backend_computes_exact_formula_and_propagates_each_null_input() -> None:
+    backend = OnlyOfficialTradingFactorBackendFactory().create(
+        _momentum({"short_weight": "0.25", "long_weight": Decimal("2")}), object()
+    )
+
+    assert backend.update({"return_short": Decimal("1"), "return_long": Decimal("3")}) == {
+        "factor_value": Decimal("6.250000000000")
+    }
+    assert backend.update({"return_short": None, "return_long": Decimal("3")}) == {"factor_value": None}
+    assert backend.update({"return_short": Decimal("1"), "return_long": None}) == {"factor_value": None}
+
+
+@pytest.mark.parametrize(
+    "definition",
+    (
+        replace(_momentum(), type_id="vendor.factor.unsupported"),
+        replace(_momentum(), semantic_version="2"),
+    ),
+)
+def test_trading_momentum_factory_rejects_each_unsupported_type_identity(definition) -> None:
+    with pytest.raises(ValueError, match="unsupported official TRADING Factor"):
+        OnlyOfficialTradingFactorBackendFactory().create(definition, object())
+
+
+@pytest.mark.parametrize(
+    ("inputs", "error", "message"),
+    (
+        ({"wrong": Decimal("1")}, ValueError, "inputs are invalid"),
+        ({"return_short": "1", "return_long": Decimal("1")}, TypeError, "Decimal or null"),
+        ({"return_short": Decimal("1"), "return_long": "1"}, TypeError, "Decimal or null"),
+    ),
+)
+def test_trading_momentum_backend_rejects_invalid_input_contract(inputs, error, message) -> None:
+    backend = OnlyOfficialTradingFactorBackendFactory().create(_momentum(), object())
+    with pytest.raises(error, match=message):
+        backend.update(inputs)
+
+
+@pytest.mark.parametrize(
+    ("definition", "error", "message"),
+    (
+        (
+            replace(_momentum(), parameters={"short_weight": "invalid", "long_weight": Decimal("1")}),
+            TypeError,
+            "weights must be Decimal",
+        ),
+        (
+            replace(_momentum(), parameters={"short_weight": Decimal("1"), "long_weight": "invalid"}),
+            TypeError,
+            "weights must be Decimal",
+        ),
+        (
+            replace(_momentum(), numeric=replace(_momentum().numeric, output_quantum=None)),
+            ValueError,
+            "output quantum",
+        ),
+    ),
+)
+def test_trading_momentum_backend_rejects_invalid_resolved_numeric_contract(definition, error, message) -> None:
+    backend = OnlyOfficialTradingFactorBackendFactory().create(definition, object())
+    with pytest.raises(error, match=message):
+        backend.update({"return_short": Decimal("1"), "return_long": Decimal("1")})
 
 
 @pytest.mark.parametrize(
