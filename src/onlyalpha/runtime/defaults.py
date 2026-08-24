@@ -29,6 +29,7 @@ from onlyalpha.runtime.persistence.factory import (
 )
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
+from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
 
 
@@ -61,6 +62,7 @@ def only_default_engine_services(
         fail_fast=fail_fast,
     )
     only_register_research_predicate_primitives(calculations)
+    only_register_trading_predicate_primitives(calculations)
     clusters = OnlyClusterFactory(
         calculations,
         indicators,

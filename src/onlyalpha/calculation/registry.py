@@ -15,7 +15,10 @@ from onlyalpha.calculation.definition import (
     OnlyCalculationTypeDefinition,
     OnlyCalculationTypeReference,
 )
-from onlyalpha.calculation.implementation import OnlyCalculationImplementationManifest
+from onlyalpha.calculation.implementation import (
+    OnlyCalculationImplementationManifest,
+    OnlyCalculationStateCapability,
+)
 
 
 @runtime_checkable
@@ -49,6 +52,26 @@ class OnlyCalculationBackendRegistration:
     provider: object
     definition_resolver: OnlyCalculationDefinitionResolver | None = None
     implementation_manifest: OnlyCalculationImplementationManifest | None = None
+    state_capability: OnlyCalculationStateCapability | None = None
+    checkpoint_schema_version: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.backend is not OnlyCalculationBackendKind.TRADING:
+            if self.state_capability is not None or self.checkpoint_schema_version is not None:
+                raise ValueError("state capability belongs only to a TRADING Calculation registration")
+            return
+        if self.state_capability is OnlyCalculationStateCapability.STATELESS:
+            if self.checkpoint_schema_version is not None:
+                raise ValueError("STATELESS Calculation cannot declare a checkpoint schema")
+        elif self.state_capability is OnlyCalculationStateCapability.CHECKPOINTABLE:
+            if (
+                not isinstance(self.checkpoint_schema_version, int)
+                or isinstance(self.checkpoint_schema_version, bool)
+                or self.checkpoint_schema_version < 1
+            ):
+                raise ValueError("CHECKPOINTABLE Calculation requires a positive checkpoint schema version")
+        elif self.checkpoint_schema_version is not None:
+            raise ValueError("unknown Calculation state capability cannot declare a checkpoint schema")
 
 
 class OnlyCalculationRegistry:
@@ -90,7 +113,7 @@ class OnlyCalculationRegistry:
             if resolver.type_definition != definition:
                 raise ValueError(f"calculation Definition resolver type mismatch: {semantic_key}")
             existing_resolver = self._definition_resolvers.get(semantic_key)
-            if existing_resolver is not None and existing_resolver is not resolver:
+            if existing_resolver is not None and existing_resolver != resolver:
                 raise ValueError(f"calculation Definition resolver differs across backends: {semantic_key}")
             self._definition_resolvers[semantic_key] = resolver
         self._registrations[key] = registration

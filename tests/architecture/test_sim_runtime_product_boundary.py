@@ -90,7 +90,8 @@ def test_streaming_market_data_driver_has_no_execution_dependency() -> None:
 
 def test_sim_identity_does_not_enter_strategy_facade_or_trading_kernel_branches() -> None:
     paths = [
-        _SOURCE_ROOT / "strategy" / "context.py",
+        _SOURCE_ROOT / "strategy" / "adapter.py",
+        _SOURCE_ROOT / "strategy" / "execution.py",
         _SOURCE_ROOT / "runtime" / "trading_facade.py",
         *(_SOURCE_ROOT / "runtime" / "trading").glob("*.py"),
     ]

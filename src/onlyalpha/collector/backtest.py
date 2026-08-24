@@ -94,11 +94,11 @@ class OnlyBacktestResultCollector:
             sequence += 1
             return sequence
 
-        cluster_strategy = {cluster.config.cluster_id: str(cluster.strategy.strategy_id) for cluster in clusters}
+        cluster_strategy = {cluster.config.cluster_id: str(cluster.strategy_id) for cluster in clusters}
         local_signals = tuple(
             signal
             for cluster in sorted(clusters, key=lambda item: item.config.cluster_id)
-            for signal in cluster.strategy.context.results.seal()
+            for signal in cluster.result_recorder.seal()
         )
         signals = tuple(replace(signal, sequence=next_sequence()) for signal in local_signals)
         orders = tuple(sorted(runtime.order_manager.snapshot_all(), key=lambda item: str(item.order_id)))

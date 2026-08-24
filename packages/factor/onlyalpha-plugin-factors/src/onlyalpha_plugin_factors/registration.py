@@ -27,7 +27,12 @@ from onlyalpha.calculation import (
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
 )
-from onlyalpha.calculation.implementation import only_python_implementation_manifest
+from onlyalpha.calculation.implementation import (
+    OnlyCalculationStateCapability,
+    only_distribution_semantic_dependency,
+    only_python_implementation_manifest,
+    only_python_stdlib_semantic_dependency,
+)
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha_plugin_factors.research import OnlyOfficialResearchFactorBackend
 from onlyalpha_plugin_factors.trading import OnlyOfficialTradingFactorBackendFactory
@@ -149,6 +154,10 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 entrypoint_identity="onlyalpha_plugin_factors.research:OnlyOfficialResearchFactorBackend",
                 package_root=package_root,
                 resource_paths=("registration.py", "research.py"),
+                semantic_dependencies=(
+                    only_python_stdlib_semantic_dependency("decimal"),
+                    only_distribution_semantic_dependency("pyarrow"),
+                ),
             ),
         )
         for item in (MOMENTUM, CROSS_SECTION_PERCENTILE)
@@ -167,7 +176,9 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 entrypoint_identity=("onlyalpha_plugin_factors.trading:OnlyOfficialTradingFactorBackendFactory"),
                 package_root=package_root,
                 resource_paths=("registration.py", "trading.py"),
+                semantic_dependencies=(only_python_stdlib_semantic_dependency("decimal"),),
             ),
+            OnlyCalculationStateCapability.STATELESS,
         ),
     )
     return research + trading

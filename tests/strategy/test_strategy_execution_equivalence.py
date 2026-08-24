@@ -4,6 +4,10 @@ from decimal import Decimal
 
 import pytest
 
+from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationRegistry
+from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyAggregationSource
+from onlyalpha.domain.identifiers import OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.research import OnlyResearchCalculationBackendResolver, OnlyResearchCalculationExecutor
 from onlyalpha.strategy import (
@@ -13,6 +17,7 @@ from onlyalpha.strategy import (
     only_strategy_observation_fingerprint,
     only_strategy_observation_key,
 )
+from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from tests.strategy.p9_support import p9_strategy_case
 
 
@@ -50,6 +55,20 @@ def test_research_batch_and_trading_incremental_decisions_are_exactly_equivalent
     assert trading_signals == research_signals
 
 
+def test_revision_adapter_returns_exact_decision_synchronously_without_private_decision_log(tmp_path) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(case.revision)
+    plan = OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint)
+    adapter = OnlyRevisionStrategyAdapter(plan)
+
+    decision = adapter.on_bar(case.bars[0])
+
+    assert decision.strategy_fingerprint == str(case.revision.strategy_fingerprint)
+    assert adapter.on_bar(case.bars[0]) == decision
+    assert not hasattr(adapter, "decisions")
+
+
 def test_observation_key_content_and_final_admission_are_distinct(tmp_path) -> None:
     bar = p9_strategy_case(tmp_path / "case").bars[0]
     corrected = replace(bar, close=OnlyPrice(bar.close.value + Decimal("0.50"), bar.close.precision))
@@ -83,6 +102,68 @@ def test_corrected_final_bar_fails_without_implicit_state_rollback(tmp_path) -> 
     with pytest.raises(OnlyStrategyResolutionError) as error:
         executor.execute(replace(bar, close=OnlyPrice(bar.close.value + Decimal("0.50"), bar.close.precision)))
     assert error.value.code == "CORRECTED_FINAL_BAR_UNSUPPORTED"
+
+
+@pytest.mark.parametrize("mismatch", ("instrument", "bar_specification", "aggregation_source", "adjustment"))
+def test_market_input_contract_mismatches_fail_closed(tmp_path, mismatch) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(case.revision)
+    executor = (
+        OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
+    )
+    bar = case.bars[0]
+    if mismatch == "instrument":
+        bar = replace(
+            bar,
+            bar_type=OnlyBarType(
+                OnlyInstrumentId.parse("OTHER.XNAS"),
+                bar.bar_type.specification,
+                bar.bar_type.aggregation_source,
+            ),
+        )
+    elif mismatch == "bar_specification":
+        specification = bar.bar_type.specification
+        bar = replace(
+            bar,
+            bar_type=OnlyBarType(
+                bar.instrument_id,
+                OnlyBarSpecification(
+                    specification.step + 1,
+                    specification.aggregation,
+                    specification.price_type,
+                ),
+                bar.bar_type.aggregation_source,
+            ),
+        )
+    elif mismatch == "aggregation_source":
+        source = (
+            OnlyAggregationSource.INTERNAL
+            if bar.bar_type.aggregation_source is OnlyAggregationSource.EXTERNAL
+            else OnlyAggregationSource.EXTERNAL
+        )
+        bar = replace(bar, bar_type=OnlyBarType(bar.instrument_id, bar.bar_type.specification, source))
+    else:
+        bar = replace(bar, adjustment_type=OnlyAdjustmentType.FORWARD)
+
+    with pytest.raises(OnlyStrategyResolutionError) as error:
+        executor.execute(bar)
+    assert error.value.code == "STRATEGY_OBSERVATION_NOT_ADMITTED"
+
+
+def test_out_of_order_final_bar_fails_closed(tmp_path) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(case.revision)
+    executor = (
+        OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
+    )
+    same_instrument = [bar for bar in case.bars if bar.instrument_id == case.bars[0].instrument_id]
+    executor.execute(same_instrument[1])
+
+    with pytest.raises(OnlyStrategyResolutionError) as error:
+        executor.execute(same_instrument[0])
+    assert error.value.code == "STRATEGY_OBSERVATION_OUT_OF_ORDER"
 
 
 def test_checkpoint_restores_last_observation_and_incremental_state(tmp_path) -> None:
@@ -128,6 +209,27 @@ def test_checkpoint_rejects_tampered_strategy_identity(tmp_path) -> None:
     assert error.value.code == "STRATEGY_CHECKPOINT_CORRUPT"
 
 
+@pytest.mark.parametrize("field", ("participant_fingerprint", "schema_version"))
+def test_checkpoint_rejects_tampered_participant_identity(tmp_path, field) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(case.revision)
+    plan = OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint)
+    executor = plan.new_executor()
+    executor.execute(case.bars[0])
+    checkpoint = dict(executor.capture_checkpoint())
+    instances = dict(checkpoint["instances"])
+    participant = next(iter(instances))
+    raw = dict(instances[participant])
+    raw[field] = "0" * 64 if field == "participant_fingerprint" else int(raw[field]) + 1
+    instances[participant] = raw
+    checkpoint["instances"] = instances
+
+    with pytest.raises(OnlyStrategyResolutionError) as error:
+        plan.new_executor().restore_checkpoint(checkpoint)
+    assert error.value.code == "STRATEGY_CHECKPOINT_CORRUPT"
+
+
 @pytest.mark.parametrize("raw_authority", ({"strategy": "arbitrary"}, "tests.example:PythonStrategy"))
 def test_execution_resolver_accepts_only_committed_strategy_fingerprint(tmp_path, raw_authority) -> None:
     case = p9_strategy_case(tmp_path / "case")
@@ -136,3 +238,62 @@ def test_execution_resolver_accepts_only_committed_strategy_fingerprint(tmp_path
     with pytest.raises(OnlyStrategyResolutionError) as error:
         resolver.resolve(raw_authority)
     assert error.value.code == "STRATEGY_RESOLUTION_FAILED"
+
+
+def test_trading_resolution_requires_no_research_backend_runtime(tmp_path) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    trading_only = OnlyCalculationRegistry()
+    seen = set()
+    for node in case.revision.decision_graph.nodes:
+        key = (node.definition.kind, node.definition.type_id, node.definition.semantic_version)
+        if key in seen:
+            continue
+        seen.add(key)
+        trading_only.register(case.registry.resolve(*key, OnlyCalculationBackendKind.TRADING))
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(case.revision)
+
+    executor = (
+        OnlyStrategyExecutionResolver(store, trading_only).resolve(case.revision.strategy_fingerprint).new_executor()
+    )
+
+    assert executor.execute(case.bars[0]).strategy_fingerprint == str(case.revision.strategy_fingerprint)
+
+
+def test_checkpointable_registration_without_restore_fails_closed(tmp_path) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+
+    class _BrokenFactory:
+        def create(self, definition, request):
+            del definition, request
+            return object()
+
+    broken = OnlyCalculationRegistry()
+    first = next(
+        node
+        for node in case.revision.decision_graph.ordered_nodes
+        if case.registry.resolve(
+            node.definition.kind,
+            node.definition.type_id,
+            node.definition.semantic_version,
+            OnlyCalculationBackendKind.TRADING,
+        ).checkpoint_schema_version
+        is not None
+    )
+    seen = set()
+    for node in case.revision.decision_graph.nodes:
+        key = (node.definition.kind, node.definition.type_id, node.definition.semantic_version)
+        if key in seen:
+            continue
+        seen.add(key)
+        registration = case.registry.resolve(*key, OnlyCalculationBackendKind.TRADING)
+        if key == (first.definition.kind, first.definition.type_id, first.definition.semantic_version):
+            registration = replace(registration, provider=_BrokenFactory())
+        broken.register(registration)
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(case.revision)
+    executor = OnlyStrategyExecutionResolver(store, broken).resolve(case.revision.strategy_fingerprint).new_executor()
+
+    with pytest.raises(OnlyStrategyResolutionError) as error:
+        executor.execute(case.bars[0])
+    assert error.value.code == "STRATEGY_CHECKPOINT_UNSUPPORTED"

@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import platform
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path, PurePosixPath
 
 from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationTypeReference
 from onlyalpha.canonical import only_canonical_fingerprint
+
+
+class OnlyCalculationStateCapability(StrEnum):
+    """Explicit TRADING Calculation replay-state contract."""
+
+    STATELESS = "STATELESS"
+    CHECKPOINTABLE = "CHECKPOINTABLE"
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -36,13 +46,20 @@ class OnlyCalculationImplementationResource:
 class OnlyCalculationSemanticDependency:
     dependency_id: str
     semantic_version: str
+    artifact_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not self.dependency_id.strip() or not self.semantic_version.strip():
             raise ValueError("semantic dependency identity is required")
+        if self.artifact_fingerprint is not None:
+            _require_sha(self.artifact_fingerprint, "semantic dependency artifact identity")
 
-    def to_dict(self) -> dict[str, str]:
-        return {"dependency_id": self.dependency_id, "semantic_version": self.semantic_version}
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "dependency_id": self.dependency_id,
+            "semantic_version": self.semantic_version,
+            "artifact_fingerprint": self.artifact_fingerprint,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +186,25 @@ def only_implementation_manifest_from_bytes(
         ),
         tuple(semantic_dependencies),
     )
+
+
+def only_python_stdlib_semantic_dependency(module_id: str) -> OnlyCalculationSemanticDependency:
+    """Bind semantics to the supported CPython major/minor stdlib contract."""
+
+    return OnlyCalculationSemanticDependency(
+        f"{platform.python_implementation().lower()}.{module_id}",
+        ".".join(platform.python_version_tuple()[:2]),
+    )
+
+
+def only_distribution_semantic_dependency(distribution: str) -> OnlyCalculationSemanticDependency:
+    """Bind one exact third-party distribution that affects deterministic outputs."""
+
+    try:
+        semantic_version = version(distribution)
+    except PackageNotFoundError as exc:
+        raise ValueError(f"semantic dependency distribution is unavailable: {distribution}") from exc
+    return OnlyCalculationSemanticDependency(distribution, semantic_version)
 
 
 def _require_sha(value: str, name: str) -> None:

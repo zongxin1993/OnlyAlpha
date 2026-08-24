@@ -102,20 +102,20 @@ class OnlyStrategyPromotionService:
         self._audit_time = audit_time
 
     def current_stage(self, strategy_fingerprint: str) -> OnlyStrategyPromotionStage:
-        if not self._strategies.exists(strategy_fingerprint):
-            raise OnlyStrategyPromotionError("STRATEGY_NOT_FOUND", strategy_fingerprint)
+        try:
+            self._strategies.load_verified(strategy_fingerprint)
+        except Exception as exc:
+            code = getattr(exc, "code", "STRATEGY_NOT_FOUND")
+            raise OnlyStrategyPromotionError(str(code), strategy_fingerprint) from exc
         stage = OnlyStrategyPromotionStage.RESEARCH
-        previous: str | None = None
-        for record in self._ledger.records(strategy_fingerprint):
-            if record.strategy_fingerprint != strategy_fingerprint or record.previous_record_fingerprint != previous:
-                raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", strategy_fingerprint)
-            if record.record_fingerprint != only_canonical_fingerprint(record.to_dict(include_fingerprint=False)):
-                raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", record.record_fingerprint)
+        for record in only_verified_strategy_promotion_chain(
+            self._ledger.records(strategy_fingerprint),
+            strategy_fingerprint,
+        ):
             if record.from_stage is not stage or _NEXT.get(stage) is not record.to_stage:
                 raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "stage chain is invalid")
             if record.decision is OnlyStrategyPromotionDecision.APPROVED:
                 stage = record.to_stage
-            previous = record.record_fingerprint
         return stage
 
     def record(
@@ -134,7 +134,10 @@ class OnlyStrategyPromotionService:
                 "ILLEGAL_PROMOTION_TRANSITION",
                 f"{current.value} -> {to_stage.value}",
             )
-        records = self._ledger.records(strategy_fingerprint)
+        records = only_verified_strategy_promotion_chain(
+            self._ledger.records(strategy_fingerprint),
+            strategy_fingerprint,
+        )
         timestamp = self._audit_time()
         _utc(timestamp, "Promotion audit time")
         try:
@@ -166,11 +169,63 @@ class OnlyInMemoryStrategyPromotionLedger(OnlyStrategyPromotionLedger):
         values = self._records.setdefault(record.strategy_fingerprint, [])
         if any(item.record_fingerprint == record.record_fingerprint for item in values):
             return next(item for item in values if item.record_fingerprint == record.record_fingerprint)
-        expected = None if not values else values[-1].record_fingerprint
+        chain = only_verified_strategy_promotion_chain(tuple(values), record.strategy_fingerprint)
+        expected = None if not chain else chain[-1].record_fingerprint
         if record.previous_record_fingerprint != expected:
             raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CONFLICT", record.strategy_fingerprint)
         values.append(record)
         return record
+
+
+def only_verified_strategy_promotion_chain(
+    records: tuple[OnlyStrategyPromotionRecord, ...],
+    strategy_fingerprint: str,
+) -> tuple[OnlyStrategyPromotionRecord, ...]:
+    """Reconstruct one exact immutable chain without consulting audit timestamps."""
+
+    if not records:
+        return ()
+    by_fingerprint: dict[str, OnlyStrategyPromotionRecord] = {}
+    children: dict[str | None, list[OnlyStrategyPromotionRecord]] = {}
+    for record in records:
+        if record.strategy_fingerprint != strategy_fingerprint:
+            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "Strategy identity differs")
+        fingerprint = record.record_fingerprint
+        if fingerprint != only_canonical_fingerprint(record.to_dict(include_fingerprint=False)):
+            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", fingerprint)
+        if fingerprint in by_fingerprint:
+            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "duplicate Promotion Record")
+        by_fingerprint[fingerprint] = record
+        children.setdefault(record.previous_record_fingerprint, []).append(record)
+    heads = children.get(None, [])
+    if len(heads) != 1:
+        raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "Promotion chain must have one head")
+    if any(len(values) != 1 for previous, values in children.items() if previous is not None):
+        raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "Promotion chain branches")
+    chain: list[OnlyStrategyPromotionRecord] = []
+    consumed: set[str] = set()
+    current = heads[0]
+    while True:
+        fingerprint = current.record_fingerprint
+        if fingerprint in consumed:
+            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "Promotion chain contains a cycle")
+        consumed.add(fingerprint)
+        chain.append(current)
+        next_values = children.get(fingerprint, [])
+        if not next_values:
+            break
+        current = next_values[0]
+    if consumed != set(by_fingerprint):
+        raise OnlyStrategyPromotionError(
+            "PROMOTION_LEDGER_CORRUPT", "Promotion chain contains orphan or cyclic records"
+        )
+    stage = OnlyStrategyPromotionStage.RESEARCH
+    for record in chain:
+        if record.from_stage is not stage or _NEXT.get(stage) is not record.to_stage:
+            raise OnlyStrategyPromotionError("PROMOTION_LEDGER_CORRUPT", "stage chain is invalid")
+        if record.decision is OnlyStrategyPromotionDecision.APPROVED:
+            stage = record.to_stage
+    return tuple(chain)
 
 
 def _sha(value: str, name: str) -> None:

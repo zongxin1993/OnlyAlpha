@@ -43,17 +43,18 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P8 | **DONE / CERTIFIED** — Research Control Plane & Web-native Execution |
 | P8 Final SHA | `88e616c52fb6c3085e7c64d73f174257bf2d002e` |
 | P8 Final-SHA Certification | run `32581861744` — **ACCEPTED** |
-| Current increment | P9.0 — Strategy Revision & Promotion Foundation / IMPLEMENTED LOCALLY, GATES PENDING |
-| Next semantic direction | Close P9.0 local gates, then exact-SHA certification before changing milestone status |
+| Current increment | P9.0 Closure — Strategy Authority Closure & Certification / IN PROGRESS |
+| Next semantic direction | Complete P9.0 Closure gates and exact-SHA certification before changing milestone status |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
 
 P8 的 exact Final-SHA Certification 也已完成。认证 subject `88e616c52fb6c3085e7c64d73f174257bf2d002e` 的 deployment coherence、real Browser product E2E、SIGKILL recovery、restore、static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p8_6_product_closure_and_final_certification.md`](docs/reports/p8_6_product_closure_and_final_certification.md)。
 
-P9 已在 P8 exact-SHA 认证后基于 Repository truth 重新规划。当前只冻结 P9.0 Strategy Revision & Promotion Foundation：canonical
-Strategy identity、Candidate Freeze、immutable Store、fingerprint-only Backtest/SIM composition、单一 Revision-backed execution path
-与 append-only Promotion evidence。本地实现或测试通过不等于 `DONE / CERTIFIED`；P9.0 必须完成全部 closure gate 并对 exact Final SHA
+P9 已在 P8 exact-SHA 认证后基于 Repository truth 重新规划。当前执行 P9.0 Strategy Authority Closure：canonical Strategy identity、
+Candidate Freeze、verified Equivalence Evidence、immutable Store、fingerprint-only Backtest/SIM composition、单一 Revision-backed
+execution path、显式 StrategyDecision handoff 与 predecessor-only Promotion evidence。本地实现或测试通过不等于
+`DONE / CERTIFIED`；P9.0 必须完成全部 closure gate 并对 exact Final SHA
 取得远程认证 `ACCEPTED` 后才能改变里程碑状态。
 
 ---

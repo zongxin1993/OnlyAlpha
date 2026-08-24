@@ -4,9 +4,9 @@ from onlyalpha_plugin_indicators.registration import registrations as indicator_
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
+from onlyalpha.calculation import OnlyCalculationRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
-from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.plugin.discovery import only_discover_plugins
 from onlyalpha.plugin.errors import OnlyPluginDiscoveryError
@@ -36,16 +36,16 @@ class _Entries:
 
 def _discover(monkeypatch, entries, *, fail_fast=True):
     monkeypatch.setattr("onlyalpha.plugin.discovery.metadata.entry_points", lambda: _Entries(entries))
-    indicators = OnlyIndicatorFactoryRegistry()
+    calculations = OnlyCalculationRegistry()
     report = only_discover_plugins(
         OnlyDataSourceFactoryRegistry(),
         OnlyBrokerFactoryRegistry(),
         OnlyBrokerFeeContractRegistry(),
         OnlyMarketProductFactoryRegistry(),
-        indicators,
+        calculations,
         fail_fast=fail_fast,
     )
-    return indicators, report
+    return calculations, report
 
 
 def test_calculation_discovery_is_stable_and_registers_research_evaluation_types(monkeypatch) -> None:
@@ -56,8 +56,7 @@ def test_calculation_discovery_is_stable_and_registers_research_evaluation_types
     )
     registry, report = _discover(monkeypatch, entries)
     assert tuple(item.name for item in report.discovered) == ("a-indicators", "m-targets", "z-factors")
-    assert len(registry._factories) == 9  # noqa: SLF001 - discovery contract inspection
-    assert {item.type_id for item in registry._calculations.type_definitions()} >= {  # noqa: SLF001
+    assert {item.type_id for item in registry.type_definitions()} >= {
         "onlyalpha.factor.momentum",
         "onlyalpha.factor.cross_section_percentile",
         "onlyalpha.target.forward_return",

@@ -14,6 +14,10 @@ class OnlyStrategyAdmissionError(OnlyStrategyError):
     pass
 
 
+class OnlyCalculationEquivalenceError(OnlyStrategyError):
+    pass
+
+
 class OnlyStrategyFreezeError(OnlyStrategyError):
     pass
 

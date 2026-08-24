@@ -11,7 +11,6 @@ from onlyalpha.config import OnlyClusterImportConfig, OnlyRuntimeAssemblyPlan
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, only_bar_type_id
-from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
 from onlyalpha.strategy.store import OnlyStrategyRevisionStore
 
@@ -60,7 +59,7 @@ class OnlyClusterFactory:
                     "allowed_instrument_ids": revision.universe.instruments,
                 },
             ),
-            OnlyRevisionStrategyAdapter(plan),
+            plan,
             (),
             self._indicators,
             None if not config.scenario_actions else OnlyScenarioActionWorkload(config.scenario_actions),

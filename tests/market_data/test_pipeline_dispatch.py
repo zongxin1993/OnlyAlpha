@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.core.clock import OnlyClockView, OnlyLiveClock, OnlyVirtualClock
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
@@ -26,45 +27,22 @@ from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription, OnlyStr
 from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDataPipelineError
 from onlyalpha.market_data.snapshot import OnlyMarketDataSnapshot, OnlyMarketDataSnapshotError
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription
-from onlyalpha.strategy.base import OnlyStrategy
-from onlyalpha.strategy.config import OnlyStrategyConfig
-from onlyalpha.strategy.context import OnlyStrategyBarContext
-from onlyalpha.strategy.identifiers import OnlyStrategyId
-
-
-class OnlyRecordingStrategy(OnlyStrategy):
-    def __init__(self, cluster_id: str, order: list[str] | None = None) -> None:
-        super().__init__(OnlyStrategyConfig(OnlyStrategyId(f"{cluster_id}-strategy")))
-        self.calls: list[tuple[OnlyBar, OnlyMarketDataSnapshot]] = []
-        self._order = order
-
-    def on_initialize(self) -> None:
-        pass
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        bar = context.primary_bar
-        assert isinstance(bar, OnlyBar)
-        if self._order is not None:
-            self._order.append(f"strategy:{self.strategy_id}")
-        assert isinstance(context.snapshot, OnlyMarketDataSnapshot)
-        self.calls.append((bar, context.snapshot))
-
-
-class OnlyFailingStrategy(OnlyRecordingStrategy):
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        raise RuntimeError("strategy failed")
 
 
 class OnlyRecordingCluster(OnlyCluster):
     def __init__(self, cluster_id: str, order: list[str] | None = None, *, failing: bool = False) -> None:
-        strategy_type = OnlyFailingStrategy if failing else OnlyRecordingStrategy
-        strategy = strategy_type(cluster_id, order)
-        super().__init__(OnlyClusterConfig(cluster_id), strategy)
-        self.recording_strategy = strategy
+        super().__init__(OnlyClusterConfig(cluster_id))
+        self.calls: list[tuple[OnlyBar, OnlyMarketDataSnapshot]] = []
+        self._order = order
+        self._failing = failing
 
-    @property
-    def calls(self) -> list[tuple[OnlyBar, OnlyMarketDataSnapshot]]:
-        return self.recording_strategy.calls
+    def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
+        if self._failing:
+            raise RuntimeError("workload failed")
+        if self._order is not None:
+            self._order.append(f"workload:{self.config.cluster_id}")
+        assert isinstance(context.snapshot, OnlyMarketDataSnapshot)
+        self.calls.append((bar, context.snapshot))
 
 
 class OnlyCloseIndicator(OnlyBarIndicator):
@@ -238,7 +216,7 @@ def test_all_derived_bars_and_required_indicator_finish_before_one_callback(
         dispatcher.dispatch(final_update)
     assert final_update is not None
     assert final_update.updated_bar_types == frozenset({bar_1m, bar_3m, bar_5m, bar_15m})
-    assert order[-2:] == ["indicator:close-15m", "strategy:cluster-strategy"]
+    assert order[-2:] == ["indicator:close-15m", "workload:cluster"]
     assert final_update.updated_indicator_ids == (indicator.indicator_id,)
     assert cluster.calls[-1][1].indicator_values == {}
     assert len(cluster.calls) == 15

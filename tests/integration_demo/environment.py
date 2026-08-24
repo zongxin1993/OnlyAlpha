@@ -13,6 +13,7 @@ from onlyalpha.account.models import OnlyAccountSnapshot
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.models import OnlyBrokerAccountSnapshot, OnlyBrokerOrderSnapshot
+from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterConfig
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.audit import OnlyMarketDataAuditStore
@@ -72,10 +73,6 @@ from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositi
 from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime
 from onlyalpha.runtime.persistence.store import OnlyInMemoryRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
-from onlyalpha.strategy.base import OnlyStrategy
-from onlyalpha.strategy.config import OnlyStrategyConfig
-from onlyalpha.strategy.context import OnlyStrategyBarContext
-from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.strategy_ledger.models import OnlyStrategyLedgerSnapshot
 from tests.runtime_support.market_product import only_cn_ashare_market_product, only_generic_market_product
 
@@ -183,29 +180,8 @@ class OnlyReportBuilder:
         )
 
 
-class OnlyIntegrationStrategy(OnlyStrategy):
-    """Small strategy fixture using only the production Strategy Context."""
-
-    def __init__(self, strategy_id: str) -> None:
-        super().__init__(OnlyStrategyConfig(OnlyStrategyId(strategy_id)))
-        self.pending_order: OnlyOrderRequest | None = None
-        self.submit_results: list[OnlyOrderSubmitResult] = []
-        self.snapshots: list[OnlyMarketDataSnapshot] = []
-
-    def on_initialize(self) -> None:
-        pass
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        if not isinstance(context.snapshot, OnlyMarketDataSnapshot):
-            raise TypeError("integration Strategy requires MarketDataSnapshot")
-        self.snapshots.append(context.snapshot)
-        if self.pending_order is not None:
-            self.submit_results.append(context.strategy.orders.submit(self.pending_order))  # type: ignore[union-attr]
-            self.pending_order = None
-
-
 class OnlyIntegrationCluster(OnlyCluster):
-    """Container fixture; callback behavior is delegated to one Strategy."""
+    """Explicit integration harness workload, not a production Strategy authority."""
 
     def __init__(
         self,
@@ -213,31 +189,26 @@ class OnlyIntegrationCluster(OnlyCluster):
         cluster_id: OnlyClusterId = CLUSTER_ID,
         primary_bar_type: OnlyBarType | None = None,
     ) -> None:
-        strategy = OnlyIntegrationStrategy(f"{cluster_id}-strategy")
         super().__init__(
             OnlyClusterConfig(
                 str(cluster_id),
                 OnlyBarSubscription(bar_types, primary_bar_type=primary_bar_type),
             ),
-            strategy,
         )
-        self.integration_strategy = strategy
+        self.pending_order: OnlyOrderRequest | None = None
+        self.submit_results: list[OnlyOrderSubmitResult] = []
+        self.snapshots: list[OnlyMarketDataSnapshot] = []
 
-    @property
-    def pending_order(self) -> OnlyOrderRequest | None:
-        return self.integration_strategy.pending_order
-
-    @pending_order.setter
-    def pending_order(self, value: OnlyOrderRequest | None) -> None:
-        self.integration_strategy.pending_order = value
-
-    @property
-    def submit_results(self) -> list[OnlyOrderSubmitResult]:
-        return self.integration_strategy.submit_results
-
-    @property
-    def snapshots(self) -> list[OnlyMarketDataSnapshot]:
-        return self.integration_strategy.snapshots
+    def on_bar(self, bar: OnlyBar, context: OnlyBarContext) -> None:
+        del bar
+        if not isinstance(context.snapshot, OnlyMarketDataSnapshot):
+            raise TypeError("integration workload requires MarketDataSnapshot")
+        self.snapshots.append(context.snapshot)
+        if self.pending_order is not None:
+            if self.context is None:
+                raise RuntimeError("integration Cluster Context is unavailable")
+            self.submit_results.append(self.context.orders.submit(self.pending_order))
+            self.pending_order = None
 
 
 class OnlyIntegrationEnvironment:

@@ -7,10 +7,12 @@ from onlyalpha.strategy import (
     OnlyInMemoryStrategyPromotionLedger,
     OnlyStrategyPromotionDecision,
     OnlyStrategyPromotionError,
+    OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
     OnlyStrategyRevisionStore,
 )
+from onlyalpha.strategy.promotion import only_verified_strategy_promotion_chain
 from tests.strategy.p9_support import p9_strategy_case
 
 
@@ -128,3 +130,104 @@ def test_promotion_records_are_immutable_and_invalid_evidence_fails_closed(tmp_p
     )
     with pytest.raises(FrozenInstanceError):
         record.reason = "mutated"  # type: ignore[misc]
+
+
+def test_promotion_chain_order_is_timestamp_independent(tmp_path) -> None:
+    revision = p9_strategy_case(tmp_path / "case").revision
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store.commit(revision)
+    ledger = OnlyInMemoryStrategyPromotionLedger()
+    timestamps = iter(
+        (
+            datetime(2026, 8, 24, 0, 0, 2, tzinfo=UTC),
+            datetime(2026, 8, 24, 0, 0, 1, tzinfo=UTC),
+            datetime(2026, 8, 24, 0, 0, 1, tzinfo=UTC),
+        )
+    )
+    service = OnlyStrategyPromotionService(store, ledger, lambda: next(timestamps))
+    fingerprint = str(revision.strategy_fingerprint)
+    for stage, evidence in (
+        (OnlyStrategyPromotionStage.BACKTEST, "a" * 64),
+        (OnlyStrategyPromotionStage.SIM, "b" * 64),
+        (OnlyStrategyPromotionStage.LIVE_ELIGIBLE, "c" * 64),
+    ):
+        service.record(
+            strategy_fingerprint=fingerprint,
+            to_stage=stage,
+            evidence_fingerprints=(evidence,),
+            decision=OnlyStrategyPromotionDecision.APPROVED,
+            reason="exact evidence",
+            actor="operator",
+        )
+
+    assert service.current_stage(fingerprint) is OnlyStrategyPromotionStage.LIVE_ELIGIBLE
+    assert only_verified_strategy_promotion_chain(
+        tuple(reversed(ledger.records(fingerprint))),
+        fingerprint,
+    ) == ledger.records(fingerprint)
+
+
+def test_promotion_chain_rejects_two_heads_branch_and_orphan() -> None:
+    fingerprint = "a" * 64
+    now = datetime(2026, 8, 24, tzinfo=UTC)
+    first = OnlyStrategyPromotionRecord(
+        fingerprint,
+        OnlyStrategyPromotionStage.RESEARCH,
+        OnlyStrategyPromotionStage.BACKTEST,
+        ("b" * 64,),
+        OnlyStrategyPromotionDecision.APPROVED,
+        "first",
+        "operator",
+        now,
+    )
+    second_head = OnlyStrategyPromotionRecord(
+        fingerprint,
+        OnlyStrategyPromotionStage.RESEARCH,
+        OnlyStrategyPromotionStage.BACKTEST,
+        ("c" * 64,),
+        OnlyStrategyPromotionDecision.APPROVED,
+        "second head",
+        "operator",
+        now,
+    )
+    with pytest.raises(OnlyStrategyPromotionError, match="one head"):
+        only_verified_strategy_promotion_chain((first, second_head), fingerprint)
+
+    child = OnlyStrategyPromotionRecord(
+        fingerprint,
+        OnlyStrategyPromotionStage.BACKTEST,
+        OnlyStrategyPromotionStage.SIM,
+        ("d" * 64,),
+        OnlyStrategyPromotionDecision.APPROVED,
+        "child",
+        "operator",
+        now,
+        first.record_fingerprint,
+    )
+    branch = OnlyStrategyPromotionRecord(
+        fingerprint,
+        OnlyStrategyPromotionStage.BACKTEST,
+        OnlyStrategyPromotionStage.SIM,
+        ("e" * 64,),
+        OnlyStrategyPromotionDecision.APPROVED,
+        "branch",
+        "operator",
+        now,
+        first.record_fingerprint,
+    )
+    with pytest.raises(OnlyStrategyPromotionError, match="branches"):
+        only_verified_strategy_promotion_chain((first, child, branch), fingerprint)
+
+    orphan = OnlyStrategyPromotionRecord(
+        fingerprint,
+        OnlyStrategyPromotionStage.BACKTEST,
+        OnlyStrategyPromotionStage.SIM,
+        ("f" * 64,),
+        OnlyStrategyPromotionDecision.APPROVED,
+        "orphan",
+        "operator",
+        now,
+        "9" * 64,
+    )
+    with pytest.raises(OnlyStrategyPromotionError, match="orphan"):
+        only_verified_strategy_promotion_chain((first, orphan), fingerprint)

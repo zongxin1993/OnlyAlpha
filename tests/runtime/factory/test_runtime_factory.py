@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -20,12 +21,17 @@ from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.research import only_research_runtime_plan
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from tests.runtime.research.support import workload_case
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 from tests.runtime_support.market_product import only_generic_market_product
 
 
-def _plan(runtime_type: str):
+def _plan(runtime_type: str, user_data_root: Path | None = None):
     baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    if user_data_root is not None:
+        baseline = only_migrate_cluster_to_strategy(baseline, user_data_root)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["strategy"] = {"fingerprint": baseline.strategy.fingerprint}
+    payload["factors"] = []
     payload["runtime"]["type"] = runtime_type
     payload["cluster"]["runtime_type"] = runtime_type
     config = OnlyClusterRunConfig.from_mapping(payload, source_path="tests/fixtures/legacy_macd/cluster.json")
@@ -96,9 +102,9 @@ def _test_origin() -> OnlyPluginOrigin:
     return OnlyPluginOrigin(OnlyPluginOriginType.TEST, "sim-runtime-contract")
 
 
-def test_backtest_factory_is_selected_through_runtime_assembler() -> None:
+def test_backtest_factory_is_selected_through_runtime_assembler(tmp_path: Path) -> None:
     services = only_default_engine_services()
-    build = services.assembler.build(_plan("BACKTEST"))
+    build = services.assembler.build(_plan("BACKTEST", tmp_path), tmp_path)
     assert build.runtime is not None
     assert build.runtime.runtime_type == "BACKTEST"
     build.runtime.close()

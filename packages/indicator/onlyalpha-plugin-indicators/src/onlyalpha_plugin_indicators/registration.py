@@ -29,7 +29,10 @@ from onlyalpha.calculation.definition import (
 )
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,
+    OnlyCalculationStateCapability,
+    only_distribution_semantic_dependency,
     only_python_implementation_manifest,
+    only_python_stdlib_semantic_dependency,
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha.domain.market import OnlyBarType
@@ -302,6 +305,14 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             entrypoint_identity=entrypoint,
             package_root=package_root,
             resource_paths=resources,
+            semantic_dependencies=(
+                only_python_stdlib_semantic_dependency("decimal"),
+                *(
+                    (only_distribution_semantic_dependency("pyarrow"),)
+                    if backend is OnlyCalculationBackendKind.RESEARCH
+                    else ()
+                ),
+            ),
         )
 
     trading = tuple(
@@ -324,6 +335,8 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                     else ("registration.py", "standard.py", "snapshots.py")
                 ),
             ),
+            OnlyCalculationStateCapability.CHECKPOINTABLE,
+            1,
         )
         for item in (*TYPES, ATR_V2)
     )

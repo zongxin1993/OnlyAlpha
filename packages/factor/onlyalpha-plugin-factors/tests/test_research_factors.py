@@ -85,14 +85,16 @@ def test_official_factor_contracts_and_exact_registry_are_machine_readable() -> 
     for registration in reversed(registrations()):
         registry.register(registration)
     assert registry.type_definitions() == (CROSS_SECTION_PERCENTILE, MOMENTUM)
-    assert all(registration.backend is OnlyCalculationBackendKind.RESEARCH for registration in registrations())
+    assert {registration.backend for registration in registrations()} == {
+        OnlyCalculationBackendKind.RESEARCH,
+        OnlyCalculationBackendKind.TRADING,
+    }
 
 
 def test_all_official_factor_registrations_have_exact_definition_resolvers() -> None:
     official = registrations()
     assert {registration.type_definition for registration in official} == {MOMENTUM, CROSS_SECTION_PERCENTILE}
     for registration in official:
-        assert registration.backend is OnlyCalculationBackendKind.RESEARCH
         assert registration.definition_resolver is not None
         assert registration.definition_resolver.type_definition == registration.type_definition
 

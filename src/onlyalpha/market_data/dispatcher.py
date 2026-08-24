@@ -93,14 +93,7 @@ class OnlyDirectBarDispatchExecutor:
 
         assert isinstance(snapshot, OnlyMarketDataSnapshot)
         try:
-            if cluster.context is None:
-                from typing import cast
-
-                from onlyalpha.strategy.context import OnlyStrategyBarContext, OnlyStrategyContext
-
-                cluster.strategy.on_bar(OnlyStrategyBarContext(cast(OnlyStrategyContext, None), bar, snapshot))
-            else:
-                cluster.on_bar(bar, OnlyBarContext(snapshot, self._clock_view))
+            cluster.on_bar(bar, OnlyBarContext(snapshot, self._clock_view))
         except Exception as exc:
             failure = OnlyClusterFailure(
                 snapshot.runtime_id,
