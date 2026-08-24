@@ -4,11 +4,14 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 def test_fresh_runtime_flushes_bootstrap_fifo_before_runtime_started(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("fresh-event-gate"), tmp_path))
-    engine.add_cluster(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"))
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+    )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     assert runtime.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.READY_BLOCKED

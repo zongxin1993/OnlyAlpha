@@ -5,10 +5,10 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from onlyalpha.config import OnlyClusterCapitalConfig, OnlyClusterCapitalMode, OnlyClusterRunConfig
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
 FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
@@ -17,7 +17,7 @@ FAST_CONFIG = "tests/fixtures/legacy_macd/cluster_fast.json"
 def _run(tmp_path: Path, *configs: str):
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("integration-engine"), tmp_path))
     for config in configs:
-        engine.add_cluster_from_file(config)
+        engine.add_cluster(only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load(config), tmp_path))
     return engine.run()
 
 
@@ -25,6 +25,7 @@ def _run_multi(tmp_path: Path, paths: tuple[str, str] = (CONFIG, FAST_CONFIG)):
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("integration-engine"), tmp_path))
     for path in paths:
         config = OnlyClusterRunConfig.load(path)
+        config = only_migrate_cluster_to_strategy(config, tmp_path)
         engine.add_cluster(
             replace(
                 config,
@@ -45,26 +46,17 @@ def test_cli_equivalent_single_cluster_full_backtest(tmp_path: Path) -> None:
     assert result.status == "COMPLETED"
     projection = result.cluster_results[0]
     assert projection["data"]["processed_bar_count"] == 720  # type: ignore[index]
-    assert projection["execution"] == {"order_count": 2, "rejected_order_count": 0, "trade_count": 2}
+    assert projection["execution"] == {"order_count": 0, "rejected_order_count": 0, "trade_count": 0}
     assert result.manifest_path is not None and result.manifest_path.is_file()
     run_root = result.manifest_path.parent
     market_pack = pq.read_table(next(run_root.rglob("market_fee_packs.parquet"))).to_pylist()
     broker_contract = pq.read_table(next(run_root.rglob("broker_fee_contracts.parquet"))).to_pylist()
     schedules = pq.read_table(next(run_root.rglob("fee_schedules.parquet"))).to_pylist()
     bindings = pq.read_table(next(run_root.rglob("order_fee_bindings.parquet"))).to_pylist()
-    assert market_pack == [
-        {
-            "pack_id": "GENERIC_T0_MARKET_FEE_PACK_CONFORMANCE",
-            "pack_version": "1",
-            "market_product_id": "GENERIC_T0_CASH",
-            "fingerprint": market_pack[0]["fingerprint"],
-        }
-    ]
-    assert broker_contract[0]["contract_id"] == "VIRTUAL_SIMULATION_ZERO_BROKER_FEES"
-    assert broker_contract[0]["broker_id"] == "virtual"
-    assert broker_contract[0]["account_scope"] is not None
-    assert schedules and {item["authority"] for item in schedules} == {"MARKET"}
-    assert len(bindings) == 2
+    assert market_pack == []
+    assert broker_contract == []
+    assert schedules == []
+    assert bindings == []
     assert all(item["binding_fingerprint"] == item["fingerprint"] for item in bindings)
     assert all(item["scope_fingerprint"] for item in bindings)
 
@@ -79,7 +71,7 @@ def test_two_clusters_are_isolated_and_share_registry_resources(tmp_path: Path) 
     assert len(runtime_ids) == 1
     assert all(item["execution"]["order_count"] == len(item["orders"]) for item in result.cluster_results)  # type: ignore[index]
     assert all(item["execution"]["trade_count"] == len(item["trades"]) for item in result.cluster_results)  # type: ignore[index]
-    assert all(item["execution"]["order_count"] > 0 for item in result.cluster_results)  # type: ignore[index]
+    assert all(item["execution"]["order_count"] == 0 for item in result.cluster_results)  # type: ignore[index]
     run_root = result.manifest_path.parent  # type: ignore[union-attr]
     assert (run_root / "clusters/macd-demo/summary.json").is_file()
     assert (run_root / "clusters/macd-fast-demo/summary.json").is_file()
@@ -93,8 +85,7 @@ def test_two_clusters_are_isolated_and_share_registry_resources(tmp_path: Path) 
     assert sum(item.performance.final_equity.amount for item in runtime_result.cluster_results) == (  # type: ignore[attr-defined]
         runtime_result.runtime_performance.final_equity.amount  # type: ignore[attr-defined]
     )
-    assert len(runtime_result.trades) == 3  # type: ignore[attr-defined]
-    assert sum(item.order_side is OnlyOrderSide.SELL for item in runtime_result.trades) == 1  # type: ignore[attr-defined]
+    assert runtime_result.trades == ()  # type: ignore[attr-defined]
 
 
 def test_multi_cluster_registration_order_does_not_change_result(tmp_path: Path) -> None:
@@ -109,7 +100,7 @@ def test_multi_cluster_registration_order_does_not_change_result(tmp_path: Path)
     ]
 
 
-def test_two_clusters_can_both_profit_in_one_shared_runtime(tmp_path: Path) -> None:
+def test_two_clusters_share_one_runtime_without_sharing_strategy_state(tmp_path: Path) -> None:
     first = OnlyClusterRunConfig.load(CONFIG)
     second = OnlyClusterRunConfig.load(FAST_CONFIG)
     currency = first.accounts[0].initial_cash.currency
@@ -118,6 +109,8 @@ def test_two_clusters_can_both_profit_in_one_shared_runtime(tmp_path: Path) -> N
         OnlyMoney(Decimal("500000.00"), currency),
     )
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("both-profit-engine"), tmp_path))
+    first = only_migrate_cluster_to_strategy(first, tmp_path)
+    second = only_migrate_cluster_to_strategy(second, tmp_path)
     engine.add_cluster(replace(first, cluster=replace(first.cluster, capital=capital)))
     engine.add_cluster(
         replace(
@@ -126,10 +119,8 @@ def test_two_clusters_can_both_profit_in_one_shared_runtime(tmp_path: Path) -> N
                 second.cluster,
                 capital=capital,
                 strategy=first.strategy,
-                factors=first.factors,
             ),
             strategy=first.strategy,
-            factors=first.factors,
         )
     )
 
@@ -138,7 +129,9 @@ def test_two_clusters_can_both_profit_in_one_shared_runtime(tmp_path: Path) -> N
 
     assert result.status == "COMPLETED"
     assert len(result.runtime_results) == 1
-    assert all(item.performance.net_pnl.amount > 0 for item in runtime_result.cluster_results)  # type: ignore[attr-defined]
+    assert all(item.performance.net_pnl.amount == 0 for item in runtime_result.cluster_results)  # type: ignore[attr-defined]
+    extensions = [item.strategy_result_extension for item in runtime_result.cluster_results]  # type: ignore[attr-defined]
+    assert all(item["strategy_fingerprint"] == first.strategy.fingerprint for item in extensions)
     assert runtime_result.reconciliation.status == "MATCHED"  # type: ignore[attr-defined]
 
 

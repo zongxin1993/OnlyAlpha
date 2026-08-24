@@ -8,7 +8,7 @@ from tests.integration.test_engine_continuous_restart import _sqlite_config
 
 
 def test_corrupt_checkpoint_component_fails_fast_without_falling_back(tmp_path: Path) -> None:
-    config = _sqlite_config()
+    config = _sqlite_config(tmp_path)
     engine_id = OnlyEngineId("checkpoint-corruption")
     engine_a = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
     engine_a.add_cluster(config)

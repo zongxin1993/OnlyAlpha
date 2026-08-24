@@ -32,6 +32,7 @@ from onlyalpha.engine.models import (
     OnlyEngineValidationResult,
     OnlyRuntimeSession,
 )
+from onlyalpha.factor.factory import only_load_factor_type
 from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.output import OnlyEngineResultExporter, OnlyUserDataLayout
 from onlyalpha.report import OnlyConsoleBacktestReport, OnlyJsonBacktestReport, OnlyMarkdownBacktestReport
@@ -57,7 +58,6 @@ from onlyalpha.runtime.research import (
 from onlyalpha.runtime.result import OnlyRuntimeResult
 from onlyalpha.runtime.runtime import OnlyRuntime
 from onlyalpha.storage.base import OnlyStorage
-from onlyalpha.strategy.factory import only_load_type
 
 
 class OnlyEngine:
@@ -639,11 +639,11 @@ class OnlyEngine:
 
     @staticmethod
     def _validate_extension_types(config: OnlyClusterRunConfig) -> None:
-        paths = [config.strategy.strategy_path, config.strategy.config_path]
+        paths: list[str] = []
         for factor in config.factors:
             paths.extend((factor.factor_path, factor.config_path))
         for path in paths:
-            only_load_type(path)
+            only_load_factor_type(path)
 
     @staticmethod
     def _config_fingerprint(config: OnlyClusterRunConfig) -> str:

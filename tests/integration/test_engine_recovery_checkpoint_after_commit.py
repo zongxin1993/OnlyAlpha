@@ -24,7 +24,7 @@ def test_post_recovery_after_commit_exception_fails_closed_and_keeps_checkpoint(
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_recovery_services(OnlyAfterCommitCheckpointStoreFactory()),
     )
-    interrupted.add_cluster(_same_bar_config())
+    interrupted.add_cluster(_same_bar_config(tmp_path))
     failed = interrupted.run()
     assert failed.status == "FAILED"
     assert any("POST_RECOVERY_CHECKPOINT_COMMITTED_BUT_FINALIZATION_INTERRUPTED" in item for item in failed.failures)

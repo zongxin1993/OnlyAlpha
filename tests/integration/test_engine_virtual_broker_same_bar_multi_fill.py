@@ -12,7 +12,7 @@ from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill
 
 def test_engine_commits_two_same_bar_fills_in_deterministic_order(tmp_path) -> None:  # type: ignore[no-untyped-def]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("virtual-same-bar-multi-fill"), tmp_path))
-    engine.add_cluster(only_virtual_multi_fill_config(same_bar=True))
+    engine.add_cluster(only_virtual_multi_fill_config(tmp_path, same_bar=True))
     result = engine.run()
     assert result.status == "COMPLETED", result.failures
     runtime = engine.runtime_sessions[0].runtime

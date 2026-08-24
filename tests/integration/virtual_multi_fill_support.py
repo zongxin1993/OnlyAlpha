@@ -1,11 +1,10 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerGateway
-from onlyalpha_test_plugin.macd_plugin import OnlyTestMacdFactorSnapshot, OnlyTestMacdStrategy
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
@@ -18,151 +17,29 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
 )
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
-from onlyalpha.strategy.context import OnlyStrategyBarContext
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
 )
-from tests.integration.test_engine_continuous_restart import _sqlite_config
+from tests.runtime_runner import only_copy_cluster_strategy_revision, only_migrate_cluster_to_strategy
 from tests.support.canonical import canonical_value
 from tests.support.recovery_baselines import assert_recovery_equivalent, load_recovery_baseline
 
 
-class OnlyFirstBarBuyStrategy(OnlyTestMacdStrategy):
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._callback_count += 1
-        if self._has_entered:
-            return
-        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-        assert self.config.trade_quantity is not None
-        self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "FIRST_BAR_BUY")
-        self._has_entered = True
-
-
-class OnlyRoundTripLongCloseStrategy(OnlyTestMacdStrategy):
-    """Open once, then close the settled Generic-T0 long through the same Broker Fill Plan."""
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._callback_count += 1
-        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-        assert self.config.instrument_id is not None
-        assert self.config.trade_quantity is not None
-        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-        has_open_order = bool(context.strategy.orders.list_open())
-        if self._callback_count == 1:
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "ROUND_TRIP_OPEN")
-            self._has_entered = True
-            return
-        if (
-            allocation is not None
-            and allocation.total_quantity.value > 0
-            and allocation.available_quantity.value > 0
-            and not has_open_order
-            and not self._exit_pending
-        ):
-            self._submit(
-                context,
-                OnlyOrderSide.SELL,
-                allocation.available_quantity,
-                factor,
-                "ROUND_TRIP_LONG_CLOSE",
-            )
-            self._exit_pending = True
-
-
-class OnlyDelayedRoundTripLongCloseStrategy(OnlyTestMacdStrategy):
-    """Enter one Bar after the peer Cluster, then close only its own Allocation."""
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._callback_count += 1
-        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-        assert self.config.instrument_id is not None
-        assert self.config.trade_quantity is not None
-        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-        has_open_order = bool(context.strategy.orders.list_open())
-        if self._callback_count == 2 and not self._has_entered:
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "DELAYED_ROUND_TRIP_OPEN")
-            self._has_entered = True
-            return
-        if (
-            allocation is not None
-            and allocation.total_quantity.value > 0
-            and allocation.available_quantity.value > 0
-            and not has_open_order
-            and not self._exit_pending
-        ):
-            self._submit(
-                context,
-                OnlyOrderSide.SELL,
-                allocation.available_quantity,
-                factor,
-                "DELAYED_ROUND_TRIP_LONG_CLOSE",
-            )
-            self._exit_pending = True
-
-
-class OnlyPartialFillThenCancelStrategy(OnlyFirstBarBuyStrategy):
-    """Cancel an accepted remainder after the first durable partial Fill."""
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        open_orders = context.strategy.orders.list_open()
-        partially_filled = next((item for item in open_orders if item.filled_quantity.value > 0), None)
-        if partially_filled is not None:
-            context.strategy.orders.cancel(partially_filled.order_id, reason="PARTIAL_FILL_FIXTURE_TERMINAL")
-            self._callback_count += 1
-            return
-        super().on_bar(context)
-
-
-class OnlyEarlyScheduledCloseStrategy(OnlyTestMacdStrategy):
-    """Open at the first callback and wait for the peer Allocation before closing."""
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._scheduled_round_trip(context, entry_callback=1, exit_callback=18, reason="EARLY")
-
-    def _scheduled_round_trip(
-        self,
-        context: OnlyStrategyBarContext,
-        *,
-        entry_callback: int,
-        exit_callback: int,
-        reason: str,
-    ) -> None:
-        self._callback_count += 1
-        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-        assert self.config.instrument_id is not None
-        assert self.config.trade_quantity is not None
-        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-        if self._callback_count == entry_callback:
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, f"{reason}_OPEN")
-            self._has_entered = True
-        elif (
-            self._callback_count >= exit_callback
-            and allocation is not None
-            and allocation.available_quantity.value > 0
-            and not context.strategy.orders.list_open()
-            and not self._exit_pending
-        ):
-            self._submit(context, OnlyOrderSide.SELL, allocation.available_quantity, factor, f"{reason}_CLOSE")
-            self._exit_pending = True
-
-
-class OnlyLateScheduledCloseStrategy(OnlyEarlyScheduledCloseStrategy):
-    """Open during the uptrend so its cost differs from the peer Cluster."""
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._scheduled_round_trip(context, entry_callback=15, exit_callback=20, reason="LATE")
-
-
 def only_virtual_multi_fill_config(
+    user_data_root: Path,
     *,
     same_bar: bool = False,
     fill_latency_ns: int = 0,
     long_close: bool = False,
 ) -> OnlyClusterRunConfig:
-    baseline = _sqlite_config()
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["runtime"]["persistence"] = {
+        "backend": "SQLITE",
+        "checkpoint": {"enabled": True, "retain_last": 2},
+    }
     payload["runtime"]["end_time"] = "2026-01-05T02:00:00Z"
     payload["brokers"][0]["extensions"]["matching"]["partial_fill"] = {
         "mode": "SCHEDULE",
@@ -174,19 +51,50 @@ def only_virtual_multi_fill_config(
         ],
     }
     payload["brokers"][0]["extensions"]["latency"] = {"fill_ns": fill_latency_ns}
-    payload["strategy"]["class_path"] = (
-        "tests.integration.virtual_multi_fill_support:OnlyRoundTripLongCloseStrategy"
-        if long_close
-        else "tests.integration.virtual_multi_fill_support:OnlyFirstBarBuyStrategy"
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path), user_data_root
     )
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    actions = [
+        {
+            "action_id": "OPEN",
+            "sequence": 1,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "TESTETF.XSHG",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": "1000",
+            "price": "10.00",
+            "offset": "OPEN",
+        }
+    ]
+    if long_close:
+        actions.append(
+            {
+                "action_id": "CLOSE",
+                "sequence": 5,
+                "type": "SUBMIT_ORDER",
+                "instrument_id": "TESTETF.XSHG",
+                "side": "SELL",
+                "order_type": "LIMIT",
+                "quantity": "1000",
+                "price": "0.01",
+                "offset": "CLOSE",
+            }
+        )
+    return replace(config, cluster=replace(config.cluster, scenario_actions=tuple(actions)))  # type: ignore[arg-type]
 
 
-def only_terminal_after_partial_fill_config() -> OnlyClusterRunConfig:
-    config = only_virtual_multi_fill_config()
-    payload = json.loads(json.dumps(dict(config.normalized_payload)))
-    payload["strategy"]["class_path"] = "tests.integration.virtual_multi_fill_support:OnlyPartialFillThenCancelStrategy"
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=config.source_path)
+def only_terminal_after_partial_fill_config(user_data_root: Path) -> OnlyClusterRunConfig:
+    config = only_virtual_multi_fill_config(user_data_root)
+    actions = config.cluster.scenario_actions + (
+        {
+            "action_id": "CANCEL",
+            "sequence": 3,
+            "type": "CANCEL_ORDER",
+            "target_action_id": "OPEN",
+        },
+    )
+    return replace(config, cluster=replace(config.cluster, scenario_actions=actions))
 
 
 class OnlyMultiFillFaultStoreFactory:
@@ -293,7 +201,7 @@ def only_assert_multi_fill_recovery_equivalence(
     config: OnlyClusterRunConfig | None = None,
     baseline_id: str | None = None,
 ) -> tuple[OnlyEngine, OnlyEngine]:
-    selected = config or only_virtual_multi_fill_config()
+    selected = config or only_virtual_multi_fill_config(tmp_path)
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_default_engine_services(runtime_persistence_store_factory=factory),  # type: ignore[arg-type]
@@ -315,8 +223,9 @@ def only_assert_multi_fill_recovery_equivalence(
             baseline_fixture.manifest["broker_checkpoint"]
         )
     else:
-        baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-        baseline.add_cluster(selected)
+        baseline_root = tmp_path / "baseline"
+        baseline = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+        baseline.add_cluster(only_copy_cluster_strategy_revision(selected, tmp_path, baseline_root))
         expected = baseline.run()
         assert expected.status == "COMPLETED", expected.failures
         expected_result = expected.runtime_results[0]
@@ -329,15 +238,9 @@ def only_assert_multi_fill_recovery_equivalence(
 
 
 __all__ = [
-    "OnlyFirstBarBuyStrategy",
-    "OnlyRoundTripLongCloseStrategy",
-    "OnlyDelayedRoundTripLongCloseStrategy",
-    "OnlyEarlyScheduledCloseStrategy",
-    "OnlyLateScheduledCloseStrategy",
     "OnlyMultiFillFaultStoreFactory",
     "OnlyOutboxCheckpointFailureStoreFactory",
     "OnlyPlanCursorCheckpointFailureStoreFactory",
-    "OnlyPartialFillThenCancelStrategy",
     "only_assert_multi_fill_recovery_equivalence",
     "only_terminal_after_partial_fill_config",
     "only_virtual_multi_fill_config",

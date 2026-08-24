@@ -155,8 +155,8 @@ class OnlyMarketScenarioRunner:
             for record_value in result[OnlyScenarioFactType.ORDER]:
                 record = cast(dict[str, object], record_value)
                 request_id = str(record.get("request_id", ""))
-                if request_id.startswith("scenario-"):
-                    record["action_id"] = request_id.removeprefix("scenario-")
+                if "action_id" not in record and request_id.startswith("scenario-"):
+                    record["action_id"] = request_id.removeprefix("scenario-").rsplit(":", 1)[-1]
         return {key: tuple(value) for key, value in result.items()}
 
     @staticmethod

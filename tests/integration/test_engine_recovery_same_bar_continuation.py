@@ -1,17 +1,12 @@
-import json
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerFactory, OnlyVirtualBrokerGateway
 from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerPluginConfig
-from onlyalpha_test_plugin.macd_plugin import (
-    OnlyTestMacdFactorSnapshot,
-    OnlyTestMacdStrategy,
-    OnlyTestMacdStrategyConfig,
-)
 
-from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
-from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
+from onlyalpha.config import OnlyBrokerFeeContractConfig, OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
+from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
@@ -41,7 +36,6 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
 )
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
-from onlyalpha.strategy.context import OnlyStrategyBarContext
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
@@ -125,37 +119,6 @@ class OnlySameBarContinuationTestBrokerFactory:
         return OnlyBrokerComponent(test_gateway, test_gateway, test_gateway)
 
 
-class OnlyPositionTriggeredContinuationStrategy(OnlyTestMacdStrategy):
-    def __init__(self, config: OnlyTestMacdStrategyConfig) -> None:
-        super().__init__(config)
-        self._continuation_submitted = False
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._callback_count += 1
-        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-        assert self.config.instrument_id is not None
-        assert self.config.trade_quantity is not None
-        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-        has_position = allocation is not None and allocation.total_quantity.value > 0
-        if self._callback_count == 1:
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "INITIAL_ORDER")
-            self._has_entered = True
-        elif has_position and not self._continuation_submitted and not context.strategy.orders.list_open():
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "POSITION_CONTINUATION")
-            self._continuation_submitted = True
-
-    def capture_checkpoint(self) -> object:
-        parent = super().capture_checkpoint()
-        assert isinstance(parent, dict)
-        return {**parent, "continuation_submitted": self._continuation_submitted}
-
-    def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, Mapping):
-            raise ValueError("same-Bar continuation Strategy checkpoint must be an object")
-        super().restore_checkpoint(payload)
-        self._continuation_submitted = bool(payload["continuation_submitted"])
-
-
 class OnlyFirstCommitTailFaultFactory:
     def __init__(self) -> None:
         self._delegate = OnlyDefaultRuntimePersistenceStoreFactory()
@@ -171,19 +134,46 @@ class OnlyFirstCommitTailFaultFactory:
         )
 
 
-def _same_bar_config() -> OnlyClusterRunConfig:
-    baseline = _sqlite_config()
-    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
-    payload["runtime"]["end_time"] = "2026-01-05T01:40:00Z"
-    payload["brokers"][0]["plugin"] = _SAME_BAR_DESCRIPTOR.plugin_id
-    payload["accounts"][0]["broker_fee_contract"] = {
-        "contract_id": "TEST_SAME_BAR_BROKER_SIMULATION_ZERO_BROKER_FEES",
-        "contract_version": "1",
-    }
-    payload["strategy"]["class_path"] = (
-        "tests.integration.test_engine_recovery_same_bar_continuation:OnlyPositionTriggeredContinuationStrategy"
+def _same_bar_config(user_data_root: Path) -> OnlyClusterRunConfig:
+    baseline = _sqlite_config(user_data_root)
+    actions = (
+        {
+            "action_id": "INITIAL_ORDER",
+            "sequence": 1,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "TESTETF.XSHG",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": "100",
+            "price": "1000.00",
+            "offset": "OPEN",
+        },
+        {
+            "action_id": "POSITION_CONTINUATION",
+            "sequence": 2,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "TESTETF.XSHG",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": "100",
+            "price": "1000.00",
+            "offset": "OPEN",
+        },
     )
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    return replace(
+        baseline,
+        runtime=replace(baseline.runtime, end_time=baseline.runtime.start_time.replace(minute=40)),  # type: ignore[union-attr]
+        brokers=(replace(baseline.brokers[0], plugin_id=_SAME_BAR_DESCRIPTOR.plugin_id),),
+        accounts=(
+            replace(
+                baseline.accounts[0],
+                broker_fee_contract=OnlyBrokerFeeContractConfig(
+                    "TEST_SAME_BAR_BROKER_SIMULATION_ZERO_BROKER_FEES", "1"
+                ),
+            ),
+        ),
+        cluster=replace(baseline.cluster, scenario_actions=actions),  # type: ignore[arg-type]
+    )
 
 
 def _services(*, with_fault: bool = False) -> OnlyEngineServices:
@@ -201,7 +191,7 @@ def _services(*, with_fault: bool = False) -> OnlyEngineServices:
 
 
 def test_engine_recovers_tail_then_commits_same_bar_continuation(tmp_path: Path) -> None:
-    config = _same_bar_config()
+    config = _same_bar_config(tmp_path)
     engine_id = OnlyEngineId("same-bar-continuation")
     engine_a = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services(with_fault=True))
     engine_a.add_cluster(config)
@@ -251,8 +241,9 @@ def test_engine_recovers_tail_then_commits_same_bar_continuation(tmp_path: Path)
     diagnostic = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
     assert diagnostic.continuation_transaction_count == 2
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"), services=_services())
-    baseline_engine.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root), services=_services())
+    baseline_engine.add_cluster(_same_bar_config(baseline_root))
     baseline = baseline_engine.run()
     assert baseline.status == "COMPLETED"
     assert only_backtest_business_projection(recovered.runtime_results[0]) == only_backtest_business_projection(

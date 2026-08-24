@@ -11,7 +11,7 @@ def test_recovery_discards_temporary_bootstrap_events(tmp_path: Path) -> None:
     engine_id = OnlyEngineId("recovery-bootstrap-discard")
     only_create_tail_failure(tmp_path, engine_id)
     engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine.add_cluster(_same_bar_config())
+    engine.add_cluster(_same_bar_config(tmp_path))
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     snapshot = runtime.event_gate_snapshot

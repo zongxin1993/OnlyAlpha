@@ -70,7 +70,7 @@ Strategy Semantic Definition
 └── Signal Contract
 ```
 
-当前 Trading `OnlyStrategy` / Cluster callback 是现行实现 surface，不自动等价于未来 immutable Strategy identity。未来 Strategy Product 实现必须通过正式迁移把现行 execution surface 变成同一 Strategy Revision 的执行投影，不能长期保留两套策略真值。
+P9.0 已把 Trading Strategy 产品入口迁移为 immutable Strategy Revision：Runtime/Cluster 只按 `strategy_fingerprint` 经 verified Store/Resolver 装配，Kernel callback 仅由内部 revision-backed adapter 承接。任意 Python `OnlyStrategy` subclass 与动态 class/config path 不再是 Runtime Strategy authority；后续能力不得重建第二执行路径。
 
 ## 3. Universe 与 Decision Mode 必须正交
 
@@ -551,11 +551,11 @@ origin Research references
 
 代码 artifact、package artifact、Strategy Revision semantic record 应保持职责分离；一个巨大 JSON 不应成为所有 authority 的替代品。
 
-## 13. 当前 P8 与长期 Strategy Product 的边界
+## 13. 当前 P9.0 与长期 Strategy Product 的边界
 
 P8 当前目标仍是完成 Web-native Research Control Plane，不预先扩张为完整 Strategy Promotion milestone。
 
-P8 应为未来 Strategy Product 留下正确输入和展示边界：
+P8 已留下 exact Candidate/Result/Artifact 输入边界；P9.0 已冻结并实现 Candidate Freeze、immutable Strategy Revision、唯一增量执行投影与 Promotion ledger foundation：
 
 ```text
 Universe selection
@@ -578,7 +578,7 @@ LLM Agent strategy authoring automation
 Backtest / Sim / Live full Web productization
 ```
 
-这些方向存在，不等于已经冻结为 `P9` 或任何下一个 milestone。
+这些更长期方向仍不等于 P9.0 已实现 Portfolio/Execution Profile、Live deployment permission 或完整 Production Trading Vertical。
 
 ## 14. 最终架构不变量
 

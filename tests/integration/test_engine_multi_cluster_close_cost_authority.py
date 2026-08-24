@@ -1,35 +1,91 @@
-import json
+from dataclasses import replace
 from decimal import Decimal
+from pathlib import Path
 
-from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.config import (
+    OnlyClusterCapitalConfig,
+    OnlyClusterCapitalMode,
+    OnlyClusterRunConfig,
+    OnlyRuntimeCheckpointConfig,
+    OnlyRuntimePersistenceBackend,
+    OnlyRuntimePersistenceConfig,
+)
 from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
+from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.execution import OnlyCommittedExecutionFact
-from tests.integration.test_engine_continuous_restart import _sqlite_config
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
-def _configs() -> tuple[OnlyClusterRunConfig, OnlyClusterRunConfig]:
-    baseline = _sqlite_config()
-    first = json.loads(json.dumps(dict(baseline.normalized_payload)))
-    first["runtime"]["end_time"] = "2026-01-05T02:00:00Z"
-    first["cluster"]["cluster_id"] = "close-a"
-    first["cluster"]["capital"] = {"mode": "FIXED_CAPITAL", "amount": "500000.00", "currency": "CNY"}
-    first["strategy"]["class_path"] = "tests.integration.virtual_multi_fill_support:OnlyEarlyScheduledCloseStrategy"
-    first["strategy"]["extensions"]["strategy_id"] = "close-a-strategy"
-
-    second = json.loads(json.dumps(first))
-    second["cluster"]["cluster_id"] = "close-b"
-    second["strategy"]["class_path"] = "tests.integration.virtual_multi_fill_support:OnlyLateScheduledCloseStrategy"
-    second["strategy"]["extensions"]["strategy_id"] = "close-b-strategy"
-    return (
-        OnlyClusterRunConfig.from_mapping(first, source_path=baseline.source_path),
-        OnlyClusterRunConfig.from_mapping(second, source_path=baseline.source_path),
+def _configs(user_data_root: Path) -> tuple[OnlyClusterRunConfig, OnlyClusterRunConfig]:
+    baseline = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), user_data_root
     )
+    capital = OnlyClusterCapitalConfig(
+        OnlyClusterCapitalMode.FIXED_CAPITAL,
+        OnlyMoney(Decimal("500000.00"), baseline.accounts[0].initial_cash.currency),
+    )
+
+    def actions(entry: int, exit_: int, quantity: str) -> tuple[dict[str, object], ...]:
+        return (
+            {
+                "action_id": "OPEN",
+                "sequence": entry,
+                "type": "SUBMIT_ORDER",
+                "instrument_id": "TESTETF.XSHG",
+                "side": "BUY",
+                "order_type": "LIMIT",
+                "quantity": quantity,
+                "price": "10.00",
+                "offset": "OPEN",
+            },
+            {
+                "action_id": "CLOSE",
+                "sequence": exit_,
+                "type": "SUBMIT_ORDER",
+                "instrument_id": "TESTETF.XSHG",
+                "side": "SELL",
+                "order_type": "LIMIT",
+                "quantity": quantity,
+                "price": "0.01",
+                "offset": "CLOSE",
+            },
+        )
+
+    runtime = replace(
+        baseline.runtime,
+        end_time=baseline.runtime.start_time.replace(minute=0, hour=2),  # type: ignore[union-attr]
+        persistence=OnlyRuntimePersistenceConfig(
+            OnlyRuntimePersistenceBackend.SQLITE,
+            checkpoint=OnlyRuntimeCheckpointConfig(True),
+        ),
+    )
+    first = replace(
+        baseline,
+        runtime=runtime,
+        cluster=replace(
+            baseline.cluster,
+            cluster_id=type(baseline.cluster.cluster_id)("close-a"),
+            capital=capital,
+            scenario_actions=actions(1, 18, "1000"),
+        ),  # type: ignore[arg-type]
+    )
+    second = replace(
+        baseline,
+        runtime=runtime,
+        cluster=replace(
+            baseline.cluster,
+            cluster_id=type(baseline.cluster.cluster_id)("close-b"),
+            capital=capital,
+            scenario_actions=actions(15, 20, "2000"),
+        ),  # type: ignore[arg-type]
+    )
+    return first, second
 
 
 def _run(tmp_path, *, reverse: bool = False):  # type: ignore[no-untyped-def]
-    configs = _configs()
+    configs = _configs(tmp_path)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("multi-cluster-close-authority"), tmp_path))
     for config in reversed(configs) if reverse else configs:
         engine.add_cluster(config)
@@ -48,7 +104,7 @@ def test_engine_multi_cluster_close_uses_cluster_allocation_cost(tmp_path) -> No
     assert len(buys) == len(close_facts) == 2
     buy_price_by_cluster = {item.cluster_id: item.fill_price for item in buys}
     close_by_cluster = {item.cluster_id: item for item in close_facts}
-    assert len({item.value for item in buy_price_by_cluster.values()}) == 2
+    assert len({item.fill_quantity.value for item in buys}) == 2
     for fact in close_facts:
         expected_cost = buy_price_by_cluster[fact.cluster_id].value * fact.fill_quantity.value
         assert fact.released_open_price_quantity == expected_cost

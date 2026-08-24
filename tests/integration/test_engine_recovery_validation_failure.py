@@ -24,7 +24,7 @@ def test_validation_failure_keeps_checkpoint_and_blocks_resume(tmp_path) -> None
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_recovery_services(OnlyValidationMismatchStoreFactory()),
     )
-    failed_engine.add_cluster(_same_bar_config())
+    failed_engine.add_cluster(_same_bar_config(tmp_path))
     failed = failed_engine.run()
     assert failed.status == "FAILED"
     assert any("POST_RECOVERY_AUTHORITY_VALIDATION_FAILED" in item for item in failed.failures)

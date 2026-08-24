@@ -19,6 +19,9 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "research_run_submission",
         "research_worker_presence",
         "research_deployment_semantic_store_binding",
+        "strategy_catalog",
+        "strategy_freeze_record",
+        "strategy_promotion_record",
     ]
     for forbidden in (
         "dataset_row",
@@ -137,6 +140,18 @@ def test_deployment_binding_is_narrow_operational_compatibility_not_semantic_con
         "key TEXT",
         "value TEXT",
     ):
+        assert forbidden not in sql
+
+
+def test_strategy_catalog_contains_only_namespace_catalog_and_append_only_evidence() -> None:
+    sql = Path("database/postgres/migrations/0008_strategy_revision_promotion_foundation.sql").read_text()
+    for table in ("strategy_catalog", "strategy_freeze_record", "strategy_promotion_record"):
+        assert f"CREATE TABLE {table}" in sql
+    assert "semantic_namespace_id UUID NOT NULL REFERENCES" in sql
+    assert "research_deployment_semantic_store_binding (semantic_store_id)" in sql
+    assert "UNIQUE (candidate_fingerprint, research_result_fingerprint, strategy_fingerprint)" in sql
+    assert "previous_record_fingerprint" in sql
+    for forbidden in ("strategy_json", "decision_graph JSON", "mutable_status", "UPDATE strategy_"):
         assert forbidden not in sql
 
 

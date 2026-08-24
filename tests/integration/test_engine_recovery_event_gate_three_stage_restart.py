@@ -24,7 +24,7 @@ def test_a_b_c_restart_keeps_business_equivalence_and_event_gate_contract(tmp_pa
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_recovery_services(OnlyAfterCommitCheckpointStoreFactory()),
     )
-    engine_b.add_cluster(_same_bar_config())
+    engine_b.add_cluster(_same_bar_config(tmp_path))
     result_b = engine_b.run()
     assert result_b.status == "FAILED"
     assert any("POST_RECOVERY_CHECKPOINT_COMMITTED_BUT_FINALIZATION_INTERRUPTED" in item for item in result_b.failures)
@@ -36,7 +36,7 @@ def test_a_b_c_restart_keeps_business_equivalence_and_event_gate_contract(tmp_pa
     assert pending_ids
 
     engine_c = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine_c.add_cluster(_same_bar_config())
+    engine_c.add_cluster(_same_bar_config(tmp_path))
     engine_c.initialize()
     runtime_c = engine_c.runtime_sessions[0].runtime
     assert runtime_c.event_gate_snapshot.phase is OnlyRuntimeEventGatePhase.READY_BLOCKED
@@ -55,8 +55,9 @@ def test_a_b_c_restart_keeps_business_equivalence_and_event_gate_contract(tmp_pa
     recovered = runtime_c.run()
     engine_c.stop()
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"), services=_services())
-    baseline_engine.add_cluster(_same_bar_config())
+    baseline_root = tmp_path / "baseline"
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root), services=_services())
+    baseline_engine.add_cluster(_same_bar_config(baseline_root))
     baseline_engine.initialize()
     baseline_engine.start()
     expected = baseline_engine.runtime_sessions[0].runtime.run()

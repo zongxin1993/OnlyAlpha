@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 
 from onlyalpha.calculation import (
     FACTOR_SCORE_SEMANTIC_TYPE,
@@ -13,6 +14,7 @@ from onlyalpha.calculation import (
     OnlyCalculationKind,
     OnlyCalculationReference,
     OnlyCalculationTypeDefinition,
+    OnlyCalculationTypeReference,
     OnlyFactorKind,
     OnlyInputDefinition,
     OnlyMissingValuePolicy,
@@ -25,8 +27,10 @@ from onlyalpha.calculation import (
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
 )
+from onlyalpha.calculation.implementation import only_python_implementation_manifest
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha_plugin_factors.research import OnlyOfficialResearchFactorBackend
+from onlyalpha_plugin_factors.trading import OnlyOfficialTradingFactorBackendFactory
 
 _NUMERIC = OnlyNumericDefinition(
     representation="DECIMAL",
@@ -131,12 +135,39 @@ def resolve_percentile(parameters: Mapping[str, object], value: OnlyCalculationR
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     backend = OnlyOfficialResearchFactorBackend()
-    return tuple(
+    package_root = Path(__file__).resolve().parent
+    resolvers = {item: OnlyOfficialFactorDefinitionResolver(item) for item in (MOMENTUM, CROSS_SECTION_PERCENTILE)}
+    research = tuple(
         OnlyCalculationBackendRegistration(
             item,
             OnlyCalculationBackendKind.RESEARCH,
             backend,
-            OnlyOfficialFactorDefinitionResolver(item),
+            resolvers[item],
+            only_python_implementation_manifest(
+                calculation_type_reference=OnlyCalculationTypeReference(item.kind, item.type_id, item.semantic_version),
+                backend_kind=OnlyCalculationBackendKind.RESEARCH,
+                entrypoint_identity="onlyalpha_plugin_factors.research:OnlyOfficialResearchFactorBackend",
+                package_root=package_root,
+                resource_paths=("registration.py", "research.py"),
+            ),
         )
         for item in (MOMENTUM, CROSS_SECTION_PERCENTILE)
     )
+    trading = (
+        OnlyCalculationBackendRegistration(
+            MOMENTUM,
+            OnlyCalculationBackendKind.TRADING,
+            OnlyOfficialTradingFactorBackendFactory(),
+            resolvers[MOMENTUM],
+            only_python_implementation_manifest(
+                calculation_type_reference=OnlyCalculationTypeReference(
+                    MOMENTUM.kind, MOMENTUM.type_id, MOMENTUM.semantic_version
+                ),
+                backend_kind=OnlyCalculationBackendKind.TRADING,
+                entrypoint_identity=("onlyalpha_plugin_factors.trading:OnlyOfficialTradingFactorBackendFactory"),
+                package_root=package_root,
+                resource_paths=("registration.py", "trading.py"),
+            ),
+        ),
+    )
+    return research + trading

@@ -14,6 +14,7 @@ from onlyalpha.fee.reconciliation_policy import (
     OnlyFeeReconciliationPolicy,
 )
 from onlyalpha.runtime.defaults import only_default_engine_services
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 def _payload() -> dict[str, object]:
@@ -95,7 +96,9 @@ def test_unknown_reconciliation_policy_fails_composition_without_residue(tmp_pat
         "policy_id": "UNKNOWN",
         "policy_version": "1",
     }
-    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH), tmp_path
+    )
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("reconciliation-policy-unknown"), tmp_path))
     before = engine.snapshot()
     with pytest.raises(ValueError, match="FEE_RECONCILIATION_POLICY_NOT_INSTALLED"):
@@ -109,7 +112,9 @@ def test_custom_reconciliation_policy_is_selected_by_backtest_factory(tmp_path) 
         "policy_id": "CUSTOM_STRICT",
         "policy_version": "1",
     }
-    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH), tmp_path
+    )
     currency = config.accounts[0].initial_cash.currency
     policy = OnlyFeeReconciliationPolicy.create(
         policy_id="CUSTOM_STRICT",
@@ -156,7 +161,9 @@ def test_inline_broker_contract_is_installed_by_engine_composition(tmp_path) -> 
         "contract_id": "VIRTUAL:BACKTEST-ACCOUNT:COMMISSION",
         "contract_version": "2025.01",
     }
-    config = OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH)
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=SOURCE_PATH), tmp_path
+    )
     services = only_default_engine_services()
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("broker-fee-inline"), tmp_path), services=services)
     engine.add_cluster(config)

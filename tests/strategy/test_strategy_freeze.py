@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from onlyalpha.canonical import only_canonical_json
+from onlyalpha.research import (
+    OnlyJsonResearchResultStore,
+    OnlyParquetResearchCalculationResultStore,
+    OnlyParquetResearchStatisticsResultStore,
+    OnlyResearchCalculationBackendResolver,
+    OnlyResearchCalculationExecutor,
+    OnlyResearchDefinitionResolver,
+    OnlyResearchJobExecutor,
+    OnlyResearchResultAssembler,
+    OnlyResearchStatisticsExecutor,
+    OnlyResearchSweepExecutor,
+)
+from onlyalpha.research.run import (
+    OnlyResearchRun,
+    OnlyResearchRunId,
+    OnlyResearchRunState,
+    only_research_admission_resolution_fingerprint,
+)
+from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from onlyalpha.strategy import OnlyStrategyTradingAdmissionService
+from onlyalpha.strategy.errors import OnlyStrategyFreezeError
+from onlyalpha.strategy.freeze import (
+    OnlyInMemoryStrategyCatalog,
+    OnlyStrategyFreezeDisposition,
+    OnlyStrategyFreezeRequest,
+    OnlyStrategyFreezeService,
+)
+from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from tests.research.definition.support import definition
+from tests.strategy.p9_support import _Datasets, p9_strategy_case
+
+NOW = datetime(2026, 8, 24, tzinfo=UTC)
+
+
+class _Runs:
+    def __init__(self, run):
+        self.run = run
+
+    def load(self, run_id):
+        assert run_id == self.run.run_id
+        return self.run
+
+
+def _freeze_case(tmp_path):
+    case = p9_strategy_case(tmp_path / "base")
+    resolved_definition = OnlyResearchDefinitionResolver(
+        case.registry,
+        _Datasets(case.dataset_store, case.dataset_fingerprint),
+    ).resolve(definition(case.dataset_store.load_verified_table(case.dataset_fingerprint).snapshot.definition))
+    workload = resolved_definition.workload
+    calculation_store = OnlyParquetResearchCalculationResultStore(
+        tmp_path / "calculation-results", case.dataset_store, audit_time=lambda: NOW
+    )
+    calculation_executor = OnlyResearchCalculationExecutor(
+        case.dataset_store, OnlyResearchCalculationBackendResolver(case.registry)
+    )
+    job = OnlyResearchJobExecutor(calculation_executor, calculation_store)
+    sweep = OnlyResearchSweepExecutor(job)
+    for plan in workload.direct_jobs:
+        job.execute(plan)
+    for plan in workload.sweeps:
+        sweep.execute(plan)
+    statistics_store = OnlyParquetResearchStatisticsResultStore(
+        tmp_path / "statistics-results", calculation_store, audit_time=lambda: NOW
+    )
+    statistics_executor = OnlyResearchStatisticsExecutor(calculation_store, statistics_store)
+    for plan in workload.statistics_plans:
+        statistics_executor.execute(plan)
+    research_store = OnlyJsonResearchResultStore(tmp_path / "research-results", statistics_store, calculation_store)
+    assembled = OnlyResearchResultAssembler(
+        statistics_store,
+        audit_time=lambda: NOW,
+        calculation_result_store=calculation_store,
+    ).assemble(workload.result_plan)
+    result = research_store.commit(assembled)
+    resolution = resolved_definition.specification_resolution
+    queued = OnlyResearchRun.queued(
+        run_id=OnlyResearchRunId("00000000-0000-4000-8000-000000000901"),
+        specification=resolved_definition.specification,
+        canonical_specification_payload=only_canonical_json(resolved_definition.specification.to_dict()),
+        admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
+        queued_at=NOW,
+    )
+    run = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1)).transition(
+        OnlyResearchRunState.COMPLETED,
+        at=NOW + timedelta(seconds=2),
+        research_result_fingerprint=result.research_result_fingerprint,
+        artifact_content_fingerprint="f" * 64,
+    )
+    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    catalog = OnlyInMemoryStrategyCatalog()
+    service = OnlyStrategyFreezeService(
+        runs=_Runs(run),
+        research_results=research_store,
+        calculation_results=calculation_store,
+        datasets=case.dataset_store,
+        specification_resolver=OnlyResearchSpecificationResolver(case.registry),
+        admission=OnlyStrategyTradingAdmissionService(case.registry, case.equivalence),
+        strategies=store,
+        catalog=catalog,
+        audit_time=lambda: NOW,
+    )
+    candidate = next(item for item in resolution.candidates if item.calculation_id == "decision")
+    return service, run, candidate, store, catalog
+
+
+def test_freeze_reconstructs_and_idempotently_commits_exact_strategy(tmp_path) -> None:
+    service, run, candidate, store, catalog = _freeze_case(tmp_path)
+    request = OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier")
+
+    created = service.freeze(request)
+    reused = service.freeze(request)
+
+    assert created.disposition is OnlyStrategyFreezeDisposition.CREATED
+    assert reused.disposition is OnlyStrategyFreezeDisposition.REUSED
+    assert reused.strategy_fingerprint == created.strategy_fingerprint
+    assert store.load_verified(created.strategy_fingerprint).strategy_fingerprint.value == created.strategy_fingerprint
+    assert len(catalog.freeze_records) == 1
+
+
+def test_freeze_recomputes_candidate_and_rejects_unverified_identity(tmp_path) -> None:
+    service, run, _, _, _ = _freeze_case(tmp_path)
+
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        service.freeze(OnlyStrategyFreezeRequest(run.run_id, "e" * 64, "certifier"))
+    assert error.value.code == "CANDIDATE_NOT_FOUND"
+
+
+def test_freeze_rejects_non_completed_run(tmp_path) -> None:
+    service, run, candidate, _, _ = _freeze_case(tmp_path)
+    service._runs = _Runs(  # type: ignore[attr-defined]
+        OnlyResearchRun.queued(
+            run_id=run.run_id,
+            specification=run.specification,
+            canonical_specification_payload=run.canonical_specification_payload,
+            admission_resolution_fingerprint=run.admission_resolution_fingerprint,
+            queued_at=NOW,
+        )
+    )
+
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
+    assert error.value.code == "CANDIDATE_NOT_FOUND"

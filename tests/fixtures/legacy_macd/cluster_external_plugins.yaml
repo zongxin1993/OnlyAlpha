@@ -63,13 +63,7 @@ brokers:
       matching: {type: NEXT_BAR}
       slippage: {type: NONE}
 strategy:
-  class_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategy
-  config_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategyConfig
-  extensions:
-    strategy_id: external-strategy
-    signal_factor_id: external-signal
-    instrument_id: TESTETF.XSHG
-    trade_quantity: "1000"
+  fingerprint: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 factors:
   - factor_id: external-signal
     factor_type: TIME_SERIES

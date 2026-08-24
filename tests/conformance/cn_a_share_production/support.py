@@ -6,35 +6,21 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import cast
 
 from onlyalpha.config import OnlyClusterRunConfig
-from onlyalpha.domain.enums import OnlyOffset, OnlyOrderSide, OnlyOrderStatus, OnlyOrderType
-from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import (
-    OnlyAccountId,
-    OnlyClusterId,
     OnlyEngineId,
-    OnlyInstrumentId,
-    OnlyOrderId,
-    OnlyOrderRequestId,
 )
-from onlyalpha.domain.market import OnlyBar
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig, OnlyEngineRunResult
-from onlyalpha.plugin.api import OnlyCheckpointCapability
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
 from onlyalpha.runtime.defaults import OnlyEngineServices
-from onlyalpha.strategy.base import OnlyStrategy
-from onlyalpha.strategy.config import OnlyStrategyConfig
-from onlyalpha.strategy.context import OnlyStrategyBarContext
-from onlyalpha.strategy.identifiers import OnlyStrategyId
 from onlyalpha.transaction import OnlyCommittedRuntimeTransaction
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 ROOT = Path(__file__).resolve().parents[3]
 DATASET = ROOT / "tests" / "fixtures" / "conformance" / "cn_a_share_production_v1"
@@ -171,260 +157,6 @@ def only_cn_a_share_product_broker_fee_contract() -> dict[str, object]:
             }
         ],
     }
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyCnAshareProductStrategyConfig(OnlyStrategyConfig):
-    cluster_id: OnlyClusterId | None = None
-    account_id: OnlyAccountId | None = None
-    instrument_id: OnlyInstrumentId | None = None
-    trade_quantity: OnlyQuantity | None = None
-    scenario: OnlyCnAshareProductScenario = OnlyCnAshareProductScenario.ROUND_TRIP
-
-    @classmethod
-    def from_mapping(cls, values: Mapping[str, object]) -> OnlyCnAshareProductStrategyConfig:
-        instruments = values.get("instruments")
-        raw_instrument = values.get("instrument_id")
-        if not isinstance(instruments, Mapping) or not isinstance(raw_instrument, str):
-            raise TypeError("CN A-share Product Strategy requires instrument Reference data")
-        instrument_id = next((item for item in instruments if str(item) == raw_instrument), None)
-        if not isinstance(instrument_id, OnlyInstrumentId):
-            raise ValueError(f"unknown CN A-share Product instrument: {raw_instrument}")
-        instrument = instruments[instrument_id]
-        cluster_id = values["cluster_id"]
-        account_id = values["account_id"]
-        return cls(
-            OnlyStrategyId(str(values.get("strategy_id", "cn-a-share-product-strategy"))),
-            (),
-            {},
-            cluster_id if isinstance(cluster_id, OnlyClusterId) else OnlyClusterId(str(cluster_id)),
-            account_id if isinstance(account_id, OnlyAccountId) else OnlyAccountId(str(account_id)),
-            instrument_id,
-            OnlyQuantity(Decimal(str(values.get("trade_quantity", "1000"))), instrument.quantity_precision),
-            OnlyCnAshareProductScenario(str(values.get("scenario", OnlyCnAshareProductScenario.ROUND_TRIP.value))),
-        )
-
-
-class OnlyCnAshareProductStrategy(OnlyStrategy):
-    """Deterministic product intent; all economic writes remain Runtime-owned."""
-
-    def __init__(self, config: OnlyCnAshareProductStrategyConfig) -> None:
-        super().__init__(config)
-        self.config = config
-        self._bar_count = 0
-        self._request_sequence = 0
-        self._entry_submitted = False
-        self._entry_trading_day: date | None = None
-        self._same_day_sell_attempted = False
-        self._exit_submitted = False
-        self._cancel_requested = False
-        self._submission_results: list[dict[str, object]] = []
-        self._cancel_results: list[dict[str, object]] = []
-
-    def on_initialize(self) -> None:
-        if any(
-            item is None
-            for item in (
-                self.config.cluster_id,
-                self.config.account_id,
-                self.config.instrument_id,
-                self.config.trade_quantity,
-            )
-        ):
-            raise ValueError("CN A-share Product Strategy configuration is incomplete")
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._bar_count += 1
-        bar = context.primary_bar
-        if not isinstance(bar, OnlyBar):
-            raise TypeError("CN A-share Product Strategy requires an OnlyBar primary input")
-        if not self._entry_submitted:
-            self._entry_trading_day = bar.trading_day
-            self._submit(context, OnlyOrderSide.BUY, self._quantity(), "PRODUCT_BUY_OPEN")
-            self._entry_submitted = True
-            return
-
-        open_orders = context.strategy.orders.list_open()
-        partial = next(
-            (
-                item
-                for item in open_orders
-                if item.status is OnlyOrderStatus.PARTIALLY_FILLED and item.filled_quantity.value > 0
-            ),
-            None,
-        )
-        if self.config.scenario is OnlyCnAshareProductScenario.BUY_PARTIAL_CANCEL:
-            if partial is not None and partial.side is OnlyOrderSide.BUY and not self._cancel_requested:
-                self._cancel(context, partial.order_id, "PRODUCT_BUY_PARTIAL_CANCEL")
-            return
-        if self.config.scenario is OnlyCnAshareProductScenario.BUY_ONLY:
-            return
-
-        if (
-            self.config.scenario is OnlyCnAshareProductScenario.SELL_PARTIAL_CANCEL
-            and partial is not None
-            and partial.side is OnlyOrderSide.SELL
-            and not self._cancel_requested
-        ):
-            self._cancel(context, partial.order_id, "PRODUCT_SELL_PARTIAL_CANCEL")
-            return
-
-        instrument_id = self._instrument_id()
-        allocation = context.strategy.positions.cluster.get(instrument_id)
-        if allocation is None or allocation.total_quantity.value <= 0 or open_orders:
-            return
-        entry_day = self._entry_trading_day
-        if entry_day is None:
-            raise RuntimeError("CN A-share Product entry TradingDay is unavailable")
-        if (
-            self.config.scenario is OnlyCnAshareProductScenario.ROUND_TRIP
-            and bar.trading_day == entry_day
-            and allocation.total_quantity == self._quantity()
-            and not self._same_day_sell_attempted
-        ):
-            self._submit(context, OnlyOrderSide.SELL, allocation.total_quantity, "PRODUCT_SAME_DAY_SELL")
-            self._same_day_sell_attempted = True
-            return
-        if bar.trading_day > entry_day and allocation.available_quantity.value > 0 and not self._exit_submitted:
-            self._submit(context, OnlyOrderSide.SELL, allocation.available_quantity, "PRODUCT_SELL_CLOSE")
-            self._exit_submitted = True
-
-    def _submit(
-        self,
-        context: OnlyStrategyBarContext,
-        side: OnlyOrderSide,
-        quantity: OnlyQuantity,
-        tag: str,
-    ) -> None:
-        self._request_sequence += 1
-        cluster_id = self._cluster_id()
-        account_id = self._account_id()
-        request_id = OnlyOrderRequestId(f"{cluster_id}-product-{self._request_sequence:04d}-{side.value.lower()}")
-        bar = context.primary_bar
-        if not isinstance(bar, OnlyBar):
-            raise TypeError("CN A-share Product order requires an OnlyBar")
-        result = context.strategy.orders.submit(
-            OnlyOrderRequest(
-                request_id,
-                self._instrument_id(),
-                side,
-                OnlyOrderType.LIMIT,
-                quantity,
-                account_id=account_id,
-                offset=OnlyOffset.OPEN if side is OnlyOrderSide.BUY else OnlyOffset.CLOSE,
-                price=bar.close,
-                tags=(PRODUCT_ID, tag),
-            )
-        )
-        rejection = result.risk_rejection
-        self._submission_results.append(
-            {
-                "request_id": str(request_id),
-                "tag": tag,
-                "side": side.value,
-                "created": result.created,
-                "submitted": result.submitted,
-                "order_id": None if result.order_id is None else str(result.order_id),
-                "error": result.error,
-                "risk_rejection_code": None if rejection is None else rejection.code.value,
-                "market_reason_code": None if rejection is None else rejection.details.get("market_reason_code"),
-                "market_rule_code": None if rejection is None else rejection.details.get("market_rule_code"),
-                "market_product_id": None if rejection is None else rejection.details.get("market_product_id"),
-                "market_product_version": (
-                    None if rejection is None else rejection.details.get("market_product_version")
-                ),
-                "market_reference_fingerprint": (
-                    None if rejection is None else rejection.details.get("market_reference_fingerprint")
-                ),
-                "market_compiled_rule_fingerprint": (
-                    None if rejection is None else rejection.details.get("market_compiled_rule_fingerprint")
-                ),
-            }
-        )
-
-    def _cancel(self, context: OnlyStrategyBarContext, order_id: OnlyOrderId, reason: str) -> None:
-        result = context.strategy.orders.cancel(order_id, reason=reason)
-        self._cancel_requested = True
-        self._cancel_results.append(
-            {
-                "order_id": str(result.snapshot.order_id),
-                "requested": result.requested,
-                "cancelled": result.cancelled,
-                "status": result.snapshot.status.value,
-                "error": result.error,
-            }
-        )
-
-    def _cluster_id(self) -> OnlyClusterId:
-        if self.config.cluster_id is None:
-            raise RuntimeError("CN A-share Product Cluster identity is unavailable")
-        return self.config.cluster_id
-
-    def _account_id(self) -> OnlyAccountId:
-        if self.config.account_id is None:
-            raise RuntimeError("CN A-share Product Account identity is unavailable")
-        return self.config.account_id
-
-    def _instrument_id(self) -> OnlyInstrumentId:
-        if self.config.instrument_id is None:
-            raise RuntimeError("CN A-share Product Instrument identity is unavailable")
-        return self.config.instrument_id
-
-    def _quantity(self) -> OnlyQuantity:
-        if self.config.trade_quantity is None:
-            raise RuntimeError("CN A-share Product quantity is unavailable")
-        return self.config.trade_quantity
-
-    def build_result_extension(self) -> Mapping[str, object]:
-        return {
-            "product_id": PRODUCT_ID,
-            "product_contract_version": PRODUCT_CONTRACT_VERSION,
-            "scenario": self.config.scenario.value,
-            "bar_count": self._bar_count,
-            "submission_results": list(self._submission_results),
-            "cancel_results": list(self._cancel_results),
-        }
-
-    @property
-    def checkpoint_schema_version(self) -> int | None:
-        return 1
-
-    @property
-    def checkpoint_capability(self) -> OnlyCheckpointCapability | None:
-        return OnlyCheckpointCapability.CHECKPOINTABLE
-
-    def capture_checkpoint(self) -> object:
-        return {
-            "bar_count": self._bar_count,
-            "request_sequence": self._request_sequence,
-            "entry_submitted": self._entry_submitted,
-            "entry_trading_day": None if self._entry_trading_day is None else self._entry_trading_day.isoformat(),
-            "same_day_sell_attempted": self._same_day_sell_attempted,
-            "exit_submitted": self._exit_submitted,
-            "cancel_requested": self._cancel_requested,
-            "submission_results": list(self._submission_results),
-            "cancel_results": list(self._cancel_results),
-        }
-
-    def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, Mapping):
-            raise ValueError("CN A-share Product Strategy checkpoint must be an object")
-        self._bar_count = int(str(payload["bar_count"]))
-        self._request_sequence = int(str(payload["request_sequence"]))
-        self._entry_submitted = bool(payload["entry_submitted"])
-        raw_day = payload["entry_trading_day"]
-        self._entry_trading_day = None if raw_day is None else date.fromisoformat(str(raw_day))
-        self._same_day_sell_attempted = bool(payload["same_day_sell_attempted"])
-        self._exit_submitted = bool(payload["exit_submitted"])
-        self._cancel_requested = bool(payload["cancel_requested"])
-        self._submission_results = _checkpoint_rows(payload["submission_results"], "submission_results")
-        self._cancel_results = _checkpoint_rows(payload["cancel_results"], "cancel_results")
-
-
-def _checkpoint_rows(value: object, label: str) -> list[dict[str, object]]:
-    if not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value):
-        raise ValueError(f"CN A-share Product Strategy checkpoint {label} must be an array")
-    return [dict(cast(Mapping[str, object], item)) for item in value]
 
 
 def _bar_payload(raw: Mapping[str, object]) -> dict[str, object]:
@@ -593,16 +325,7 @@ def only_cn_a_share_product_config(
     if simulation_submissions:
         broker_extensions["simulation"] = {"submissions": [dict(item) for item in simulation_submissions]}
     payload["brokers"] = [{"gateway_id": "virtual-main", "plugin": "virtual", "extensions": broker_extensions}]
-    payload["strategy"] = {
-        "class_path": ("tests.conformance.cn_a_share_production.support:OnlyCnAshareProductStrategy"),
-        "config_path": ("tests.conformance.cn_a_share_production.support:OnlyCnAshareProductStrategyConfig"),
-        "extensions": {
-            "strategy_id": "cn-a-share-product-strategy",
-            "instrument_id": instrument_id,
-            "trade_quantity": "1000",
-            "scenario": scenario.value,
-        },
-    }
+    payload["strategy"] = {"fingerprint": "0" * 64}
     payload["factors"] = [
         {
             "factor_id": "product-bar-clock",
@@ -640,6 +363,86 @@ def only_cn_a_share_product_config(
             ],
         }
     ]
+    action = {
+        "type": "SUBMIT_ORDER",
+        "instrument_id": instrument_id,
+        "order_type": "LIMIT",
+        "quantity": "1000",
+        "tags": [PRODUCT_ID],
+    }
+    actions: list[dict[str, object]] = [
+        {
+            **action,
+            "action_id": "PRODUCT_BUY_OPEN",
+            "tag": "PRODUCT_BUY_OPEN",
+            "sequence": 1,
+            "side": "BUY",
+            "price": "10.00",
+            "offset": "OPEN",
+            "result_metadata": {
+                "product_id": PRODUCT_ID,
+                "product_contract_version": PRODUCT_CONTRACT_VERSION,
+                "scenario": scenario.value,
+            },
+        }
+    ]
+    if scenario is OnlyCnAshareProductScenario.ROUND_TRIP:
+        actions.extend(
+            (
+                {
+                    **action,
+                    "action_id": "PRODUCT_SAME_DAY_SELL",
+                    "tag": "PRODUCT_SAME_DAY_SELL",
+                    "sequence": 3,
+                    "side": "SELL",
+                    "price": "10.00",
+                    "offset": "CLOSE",
+                },
+                {
+                    **action,
+                    "action_id": "PRODUCT_SELL_CLOSE",
+                    "tag": "PRODUCT_SELL_CLOSE",
+                    "sequence": 9,
+                    "side": "SELL",
+                    "price": "10.20",
+                    "offset": "CLOSE",
+                },
+            )
+        )
+    elif scenario in {
+        OnlyCnAshareProductScenario.SELL_AFTER_SETTLEMENT,
+        OnlyCnAshareProductScenario.SELL_PARTIAL_CANCEL,
+    }:
+        actions.append(
+            {
+                **action,
+                "action_id": "PRODUCT_SELL_CLOSE",
+                "tag": "PRODUCT_SELL_CLOSE",
+                "sequence": 9,
+                "side": "SELL",
+                "price": "10.20",
+                "offset": "CLOSE",
+            }
+        )
+    if scenario is OnlyCnAshareProductScenario.BUY_PARTIAL_CANCEL:
+        actions.append(
+            {
+                "action_id": "PRODUCT_BUY_PARTIAL_CANCEL",
+                "sequence": 2,
+                "type": "CANCEL_ORDER",
+                "target_action_id": "PRODUCT_BUY_OPEN",
+            }
+        )
+    elif scenario is OnlyCnAshareProductScenario.SELL_PARTIAL_CANCEL:
+        actions.append(
+            {
+                "action_id": "PRODUCT_SELL_PARTIAL_CANCEL",
+                "sequence": 10,
+                "type": "CANCEL_ORDER",
+                "target_action_id": "PRODUCT_SELL_CLOSE",
+            }
+        )
+    payload["scenario_actions"] = actions
     payload["output"] = {"formats": ["JSON"]}
     return OnlyClusterRunConfig.from_mapping(payload, source_path=DATASET / "product_config.json")
 
@@ -653,7 +456,7 @@ def only_run_cn_a_share_product(
 ) -> OnlyCnAshareProductRun:
     """Run one Product scenario exclusively through the formal Engine entry."""
 
-    selected = config or only_cn_a_share_product_config()
+    selected = only_migrate_cluster_to_strategy(config or only_cn_a_share_product_config(), output_root)
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId(engine_id), output_root),
         services=services,
@@ -661,7 +464,7 @@ def only_run_cn_a_share_product(
     engine.add_cluster(selected)
     engine_result = engine.run()
     if len(engine_result.runtime_results) != 1:
-        raise AssertionError("CN A-share Product run must assemble exactly one Runtime")
+        raise AssertionError(f"CN A-share Product run must assemble exactly one Runtime: {engine_result.failures}")
     runtime_result = engine_result.runtime_results[0]
     if not isinstance(runtime_result, OnlyBacktestResult):
         raise TypeError("CN A-share Product Runtime did not return OnlyBacktestResult")

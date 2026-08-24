@@ -52,7 +52,7 @@ def test_finalization_failure_matrix_is_silent_and_restartable(
     assert any(not item.published for item in before_outbox)
 
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=only_recovery_services(factory))
-    engine_b.add_cluster(_same_bar_config())
+    engine_b.add_cluster(_same_bar_config(tmp_path))
     result_b = engine_b.run()
     assert result_b.status == "FAILED"
     assert any(failure_code in item for item in result_b.failures)
@@ -66,6 +66,6 @@ def test_finalization_failure_matrix_is_silent_and_restartable(
     assert any(not item.published for item in after_outbox)
 
     engine_c = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine_c.add_cluster(_same_bar_config())
+    engine_c.add_cluster(_same_bar_config(tmp_path))
     result_c = engine_c.run()
     assert result_c.status == "COMPLETED", result_c.failures

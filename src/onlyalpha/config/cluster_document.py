@@ -23,7 +23,7 @@ from onlyalpha.config.models import (
     OnlyFactorImportConfig,
     OnlyJsonMapping,
     OnlyReferenceDataConfig,
-    OnlyStrategyImportConfig,
+    OnlyStrategyReferenceConfig,
     OnlyUniverseConfig,
     _load_document,
     _normalize_mapping,
@@ -53,7 +53,7 @@ class OnlyClusterRunConfig:
     data_sources: tuple[OnlyDataSourceRuntimeConfig, ...]
     accounts: tuple[OnlyAccountRuntimeConfig, ...]
     brokers: tuple[OnlyBrokerRuntimeConfig, ...]
-    strategy: OnlyStrategyImportConfig
+    strategy: OnlyStrategyReferenceConfig
     factors: tuple[OnlyFactorImportConfig, ...]
     output: OnlyOutputConfig
     market: OnlyMarketProductConfig
@@ -119,6 +119,7 @@ class OnlyClusterRunConfig:
         combined_cluster.pop("runtime_type", None)
         combined_cluster["strategy"] = strategy_raw
         combined_cluster["factors"] = factors_raw
+        combined_cluster["scenario_actions"] = root.get("scenario_actions", [])
         cluster = parser._cluster(
             _normalize_mapping(cast(Mapping[object, object], combined_cluster), "$.cluster"), "$.cluster"
         )

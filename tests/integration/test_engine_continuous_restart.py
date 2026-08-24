@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
@@ -17,6 +18,7 @@ from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
 )
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 class OnlyFaultInjectingRuntimePersistenceStoreFactory:
@@ -34,7 +36,7 @@ class OnlyFaultInjectingRuntimePersistenceStoreFactory:
         )
 
 
-def _sqlite_config() -> OnlyClusterRunConfig:
+def _sqlite_config(user_data_root: Path) -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["end_time"] = "2026-01-05T01:53:00Z"
@@ -42,11 +44,27 @@ def _sqlite_config() -> OnlyClusterRunConfig:
         "backend": "SQLITE",
         "checkpoint": {"enabled": True, "retain_last": 2},
     }
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path), user_data_root
+    )
+    actions = (
+        {
+            "action_id": "BUY",
+            "sequence": 10,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "TESTETF.XSHG",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": "100",
+            "price": "1000.00",
+            "offset": "OPEN",
+        },
+    )
+    return replace(config, cluster=replace(config.cluster, scenario_actions=actions))  # type: ignore[arg-type]
 
 
 def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
-    config = _sqlite_config()
+    config = _sqlite_config(tmp_path)
     engine_id = OnlyEngineId("execution-restart")
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
@@ -62,6 +80,7 @@ def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
     assert path.is_file()
     reader = OnlySqliteRuntimePersistenceStore(path)
     committed = reader.records(runtime_id)
+    assert committed, result_a.failures
     assert len(committed) == 2
     assert committed[0].operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
     assert committed[0].projection_ready
@@ -79,8 +98,9 @@ def only_assert_engine_restart_equivalence(tmp_path: Path) -> None:
     assert recovery.recovered_transaction_count + recovery.rehydrated_transaction_count == 1
     assert result_b.status == "COMPLETED"
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline_engine.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline_engine.add_cluster(_sqlite_config(baseline_root))
     baseline_result = baseline_engine.run()
     assert baseline_result.status == "COMPLETED"
     recovered_runtime = result_b.runtime_results[0]

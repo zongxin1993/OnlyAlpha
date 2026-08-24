@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from importlib.metadata import version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,19 +21,19 @@ from onlyalpha.engine import OnlyEngine, OnlyEngineConfig  # noqa: E402
 from onlyalpha.result import only_backtest_business_projection, only_result_fingerprint  # noqa: E402
 from tests.integration.test_engine_multi_cluster_close_cost_authority import _configs  # noqa: E402
 from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill_config  # noqa: E402
+from tests.runtime_runner import only_migrate_cluster_to_strategy  # noqa: E402
 from tests.support.canonical import canonical_value, write_canonical_json  # noqa: E402
 
 TARGET = ROOT / "tests" / "fixtures" / "results"
 SCENARIOS = ("minimal_round_trip", "multi_fill_round_trip", "multi_cluster_close")
 
 
-def _minimal_config() -> OnlyClusterRunConfig:
+def _minimal_config(user_data_root: Path) -> OnlyClusterRunConfig:
     baseline = OnlyClusterRunConfig.load(ROOT / "tests" / "fixtures" / "legacy_macd" / "cluster_fast.json")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     start = datetime(2026, 1, 5, 1, 30, tzinfo=UTC)
     payload["runtime"]["start_time"] = start.isoformat().replace("+00:00", "Z")
     payload["runtime"]["end_time"] = (start + timedelta(minutes=8)).isoformat().replace("+00:00", "Z")
-    payload["strategy"]["class_path"] = "tests.integration.virtual_multi_fill_support:OnlyRoundTripLongCloseStrategy"
     payload["factors"][0]["indicators"][0]["parameters"] = {
         "fast_period": 2,
         "slow_period": 3,
@@ -64,16 +65,43 @@ def _minimal_config() -> OnlyClusterRunConfig:
             },
         }
     ]
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path), user_data_root
+    )
+    actions = (
+        {
+            "action_id": "OPEN",
+            "sequence": 1,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "TESTETF.XSHG",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": "100",
+            "price": "1000.00",
+            "offset": "OPEN",
+        },
+        {
+            "action_id": "CLOSE",
+            "sequence": 4,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "TESTETF.XSHG",
+            "side": "SELL",
+            "order_type": "LIMIT",
+            "quantity": "100",
+            "price": "0.01",
+            "offset": "CLOSE",
+        },
+    )
+    return replace(config, cluster=replace(config.cluster, scenario_actions=actions))
 
 
-def _scenario_configs(name: str) -> tuple[OnlyClusterRunConfig, ...]:
+def _scenario_configs(name: str, user_data_root: Path) -> tuple[OnlyClusterRunConfig, ...]:
     if name == "minimal_round_trip":
-        return (_minimal_config(),)
+        return (_minimal_config(user_data_root),)
     if name == "multi_fill_round_trip":
-        return (only_virtual_multi_fill_config(long_close=True),)
+        return (only_virtual_multi_fill_config(user_data_root, long_close=True),)
     if name == "multi_cluster_close":
-        configs = _configs()
+        configs = _configs(user_data_root)
         currency = configs[0].accounts[0].initial_cash.currency
         capital = OnlyClusterCapitalConfig(
             OnlyClusterCapitalMode.FIXED_CAPITAL,
@@ -87,7 +115,7 @@ def regenerate(name: str, generated_at: str) -> None:
     with tempfile.TemporaryDirectory(prefix=f"onlyalpha-{name}-") as raw:
         run_root = Path(raw)
         engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(f"fixture-{name}"), run_root))
-        configs = _scenario_configs(name)
+        configs = _scenario_configs(name, run_root)
         for config in configs:
             engine.add_cluster(config)
         result = engine.run()
@@ -107,7 +135,7 @@ def regenerate(name: str, generated_at: str) -> None:
         write_canonical_json(staging / "canonical_projection.json", projection)
         manifest = {
             "fixture_schema_version": 2,
-            "onlyalpha_version": "0.3.6",
+            "onlyalpha_version": version("onlyalpha"),
             "scenario": name,
             "generation_command": f"uv run python scripts/regenerate_result_fixtures.py --scenario {name}",
             "market_products": [

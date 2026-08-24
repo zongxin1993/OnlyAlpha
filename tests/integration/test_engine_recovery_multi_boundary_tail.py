@@ -1,4 +1,4 @@
-import json
+from dataclasses import replace
 from pathlib import Path
 
 from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
@@ -51,18 +51,22 @@ class OnlyTwoBoundaryTailStoreFactory:
         return OnlyTwoBoundaryTailRuntimePersistenceStore(self._delegate.create(request))
 
 
-def _multi_boundary_config() -> OnlyClusterRunConfig:
-    baseline = _sqlite_config()
-    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
-    payload["runtime"]["end_time"] = "2026-01-05T01:45:00Z"
-    payload["strategy"]["class_path"] = (
-        "tests.integration.test_engine_recovery_same_bar_continuation:OnlyPositionTriggeredContinuationStrategy"
+def _multi_boundary_config(user_data_root: Path) -> OnlyClusterRunConfig:
+    baseline = _sqlite_config(user_data_root)
+    action = dict(baseline.cluster.scenario_actions[0])
+    actions = (
+        {**action, "action_id": "FIRST", "sequence": 9},
+        {**action, "action_id": "SECOND", "sequence": 10},
     )
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    return replace(
+        baseline,
+        runtime=replace(baseline.runtime, end_time=baseline.runtime.start_time.replace(minute=45)),  # type: ignore[union-attr]
+        cluster=replace(baseline.cluster, scenario_actions=actions),
+    )
 
 
 def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> None:
-    config = _multi_boundary_config()
+    config = _multi_boundary_config(tmp_path)
     engine_id = OnlyEngineId("multi-boundary-tail")
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
@@ -107,8 +111,9 @@ def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> N
     assert checkpoint_after_recovery.header.checkpoint_sequence > checkpoint_before_tail.header.checkpoint_sequence
     reopened.close()
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline_engine.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline_engine.add_cluster(_multi_boundary_config(baseline_root))
     baseline = baseline_engine.run()
     assert baseline.status == "COMPLETED"
     assert only_backtest_business_projection(recovered.runtime_results[0]) == only_backtest_business_projection(

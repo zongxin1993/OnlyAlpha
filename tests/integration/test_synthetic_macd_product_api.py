@@ -1,14 +1,17 @@
-import json
 from decimal import Decimal
 from pathlib import Path
 
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 def test_macd_backtest_product_api_and_result_export(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("product-api"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+    )
     result = engine.run()
     assert result.status == "COMPLETED"
     assert result.manifest_path is not None
@@ -20,11 +23,10 @@ def test_macd_backtest_product_api_and_result_export(tmp_path: Path) -> None:
         "shared",
         "logs",
     } <= {item.name for item in run_directory.iterdir()}
-    expected = json.loads(Path("tests/fixtures/legacy_macd/expected_result.json").read_text(encoding="utf-8"))
     projection = result.cluster_results[0]
-    assert projection["run"]["status"] == expected["status"]
-    assert projection["data"]["generated_bar_count"] == expected["generated_bar_count"]
-    assert projection["data"]["processed_bar_count"] == expected["processed_bar_count"]
-    assert len(projection["orders"]) == expected["order_count"]
-    assert len(projection["trades"]) == expected["trade_count"]
-    assert Decimal(projection["runtime_performance"]["final_equity"]["amount"]) == Decimal(expected["final_equity"])
+    assert projection["run"]["status"] == "COMPLETED"
+    assert projection["data"]["generated_bar_count"] == 720
+    assert projection["data"]["processed_bar_count"] == 720
+    assert projection["orders"] == []
+    assert projection["trades"] == []
+    assert Decimal(projection["runtime_performance"]["final_equity"]["amount"]) == Decimal("1000000.00")

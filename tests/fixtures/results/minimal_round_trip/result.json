@@ -1,8 +1,8 @@
 {
   "backtest_reports": [
     {
-      "analysis_fingerprint": "b65bda02f7b5b42bcf27de459072c4d284e38f194c671b5a8a9a91601633e59b",
-      "artifact_content_fingerprint": "0496aa5b92aa41abb11d245853ed603ada158c729ab04e7ef3fd17d9be851f95",
+      "analysis_fingerprint": "b2660385ad5f6dd79911e5ee13ab2b2a1e3c2a52862580265a83377b8e252947",
+      "artifact_content_fingerprint": "064b6b6409d102d6de53151ee50c2decfa09877706a3d0586cd751911291222b",
       "artifact_manifest_path": "artifact_manifest.json",
       "bar_count": 7,
       "cluster_count": 1,
@@ -21,10 +21,10 @@
           },
           "current_drawdown": {
             "precision": 8,
-            "value": "-0.00002009"
+            "value": "-0.10009900"
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -32,7 +32,7 @@
             }
           },
           "final_equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -53,10 +53,10 @@
           "losing_trade_count": 0,
           "maximum_drawdown": {
             "precision": 8,
-            "value": "-0.00002009"
+            "value": "-0.10009900"
           },
           "net_pnl": {
-            "amount": "-10.17",
+            "amount": "-100099.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -66,7 +66,7 @@
           "profit_factor": null,
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -75,7 +75,7 @@
           },
           "return_since_start": {
             "precision": 8,
-            "value": "-0.00001017"
+            "value": "-0.10009900"
           },
           "runtime_id": {
             "value": "backtest-da7934c8d836da5a"
@@ -112,7 +112,7 @@
           "unix_nanos": 1767577020000000000
         }
       },
-      "result_fingerprint": "e3fc175d0a966a1850afa5dc0798399b4e47d5e3ac083977e9374f0edd164d37",
+      "result_fingerprint": "5a908ed78be436f3245e76cf55d80ac61da5a2b1b35220818da2319e7a798c0c",
       "runtime_id": "backtest-da7934c8d836da5a",
       "runtime_performance": {
         "account_id": {
@@ -126,7 +126,7 @@
         },
         "current_drawdown": {
           "precision": 8,
-          "value": "-0.00999911"
+          "value": "-0.10009900"
         },
         "external_cash_flow": {
           "amount": "0",
@@ -137,7 +137,7 @@
           }
         },
         "fees": {
-          "amount": "20.17",
+          "amount": "100.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -145,7 +145,7 @@
           }
         },
         "final_equity": {
-          "amount": "999989.83",
+          "amount": "899901.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -153,7 +153,7 @@
           }
         },
         "high_water_mark": {
-          "amount": "1010089.83",
+          "amount": "1000000.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -170,10 +170,10 @@
         },
         "maximum_drawdown": {
           "precision": 8,
-          "value": "-0.01009008"
+          "value": "-0.10010000"
         },
         "net_pnl": {
-          "amount": "-10.17",
+          "amount": "-100099.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -182,7 +182,7 @@
         },
         "quality_flags": [],
         "realized_pnl": {
-          "amount": "10.00",
+          "amount": "-99999.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -191,7 +191,7 @@
         },
         "return_since_start": {
           "precision": 8,
-          "value": "-0.00001017"
+          "value": "-0.10009900"
         },
         "runtime_id": {
           "value": "backtest-da7934c8d836da5a"
@@ -459,9 +459,9 @@
           },
           "runtime_id": "backtest-da7934c8d836da5a",
           "sequence": 3,
-          "source": "MARKET_VALUATION",
+          "source": "STATE_CHANGE",
           "trading_day": null,
-          "ts_event_ns": 1767576720000000000,
+          "ts_event_ns": 1767576660000000000,
           "unrealized_pnl": {
             "amount": "0.00",
             "currency": {
@@ -547,7 +547,7 @@
           "sequence": 4,
           "source": "MARKET_VALUATION",
           "trading_day": null,
-          "ts_event_ns": 1767576780000000000,
+          "ts_event_ns": 1767576720000000000,
           "unrealized_pnl": {
             "amount": "0.00",
             "currency": {
@@ -563,7 +563,7 @@
           "account_id": "backtest-account",
           "account_version": 5,
           "cash": {
-            "amount": "1000000.00",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -579,7 +579,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "1000000.00",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -599,7 +599,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "0",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -631,9 +631,9 @@
           },
           "runtime_id": "backtest-da7934c8d836da5a",
           "sequence": 5,
-          "source": "STATE_CHANGE",
+          "source": "COMMITTED_EXECUTION",
           "trading_day": null,
-          "ts_event_ns": 1767576780000000000,
+          "ts_event_ns": 1767576720000000000,
           "unrealized_pnl": {
             "amount": "0.00",
             "currency": {
@@ -649,7 +649,7 @@
           "account_id": "backtest-account",
           "account_version": 6,
           "cash": {
-            "amount": "1000000.00",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -665,7 +665,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "1000000.00",
+            "amount": "900907.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -685,7 +685,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "0",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -695,7 +695,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "0.00",
+            "amount": "1007.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -719,9 +719,9 @@
           "sequence": 6,
           "source": "MARKET_VALUATION",
           "trading_day": null,
-          "ts_event_ns": 1767576840000000000,
+          "ts_event_ns": 1767576720000000000,
           "unrealized_pnl": {
-            "amount": "0.00",
+            "amount": "-98993.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -735,7 +735,7 @@
           "account_id": "backtest-account",
           "account_version": 7,
           "cash": {
-            "amount": "989909.92",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -751,7 +751,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "989909.92",
+            "amount": "900907.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -771,7 +771,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -781,7 +781,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "0.00",
+            "amount": "1007.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -803,11 +803,11 @@
           },
           "runtime_id": "backtest-da7934c8d836da5a",
           "sequence": 7,
-          "source": "COMMITTED_EXECUTION",
+          "source": "STATE_CHANGE",
           "trading_day": null,
-          "ts_event_ns": 1767576840000000000,
+          "ts_event_ns": 1767576720000000000,
           "unrealized_pnl": {
-            "amount": "0.00",
+            "amount": "-98993.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -821,7 +821,7 @@
           "account_id": "backtest-account",
           "account_version": 8,
           "cash": {
-            "amount": "989909.92",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -837,7 +837,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999999.92",
+            "amount": "900907.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -857,7 +857,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -867,7 +867,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "10090.00",
+            "amount": "1007.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -889,11 +889,11 @@
           },
           "runtime_id": "backtest-da7934c8d836da5a",
           "sequence": 8,
-          "source": "MARKET_VALUATION",
+          "source": "STATE_CHANGE",
           "trading_day": null,
-          "ts_event_ns": 1767576840000000000,
+          "ts_event_ns": 1767576720000000000,
           "unrealized_pnl": {
-            "amount": "10.00",
+            "amount": "-98993.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -907,7 +907,7 @@
           "account_id": "backtest-account",
           "account_version": 9,
           "cash": {
-            "amount": "989909.92",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -923,7 +923,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999999.92",
+            "amount": "900908.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -943,7 +943,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -953,7 +953,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "10090.00",
+            "amount": "1008.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -975,11 +975,11 @@
           },
           "runtime_id": "backtest-da7934c8d836da5a",
           "sequence": 9,
-          "source": "STATE_CHANGE",
+          "source": "MARKET_VALUATION",
           "trading_day": null,
-          "ts_event_ns": 1767576840000000000,
+          "ts_event_ns": 1767576780000000000,
           "unrealized_pnl": {
-            "amount": "10.00",
+            "amount": "-98992.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -993,7 +993,7 @@
           "account_id": "backtest-account",
           "account_version": 10,
           "cash": {
-            "amount": "989909.92",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1009,7 +1009,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999999.92",
+            "amount": "900909.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1029,7 +1029,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1039,7 +1039,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "10090.00",
+            "amount": "1009.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1061,11 +1061,11 @@
           },
           "runtime_id": "backtest-da7934c8d836da5a",
           "sequence": 10,
-          "source": "STATE_CHANGE",
+          "source": "MARKET_VALUATION",
           "trading_day": null,
           "ts_event_ns": 1767576840000000000,
           "unrealized_pnl": {
-            "amount": "10.00",
+            "amount": "-98991.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1079,7 +1079,7 @@
           "account_id": "backtest-account",
           "account_version": 11,
           "cash": {
-            "amount": "989909.92",
+            "amount": "899900.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1095,7 +1095,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "1000009.92",
+            "amount": "900910.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1115,7 +1115,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1125,7 +1125,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "10100.00",
+            "amount": "1010.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1151,7 +1151,7 @@
           "trading_day": null,
           "ts_event_ns": 1767576900000000000,
           "unrealized_pnl": {
-            "amount": "20.00",
+            "amount": "-98990.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1165,7 +1165,7 @@
           "account_id": "backtest-account",
           "account_version": 12,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1181,7 +1181,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "1010089.83",
+            "amount": "900911.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1201,7 +1201,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1211,7 +1211,7 @@
             "schema_version": 1
           },
           "position_market_value": {
-            "amount": "10100.00",
+            "amount": "1010.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1222,7 +1222,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1237,7 +1237,7 @@
           "trading_day": null,
           "ts_event_ns": 1767576900000000000,
           "unrealized_pnl": {
-            "amount": "20.00",
+            "amount": "-98990.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1251,7 +1251,7 @@
           "account_id": "backtest-account",
           "account_version": 13,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1267,7 +1267,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1287,7 +1287,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1308,7 +1308,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1337,7 +1337,7 @@
           "account_id": "backtest-account",
           "account_version": 14,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1353,7 +1353,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1373,7 +1373,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1394,7 +1394,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1423,7 +1423,7 @@
           "account_id": "backtest-account",
           "account_version": 15,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1439,7 +1439,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1459,7 +1459,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1480,7 +1480,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1509,7 +1509,7 @@
           "account_id": "backtest-account",
           "account_version": 16,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1525,7 +1525,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1545,7 +1545,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1566,7 +1566,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1595,7 +1595,7 @@
           "account_id": "backtest-account",
           "account_version": 17,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1611,7 +1611,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1631,7 +1631,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1652,7 +1652,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1681,7 +1681,7 @@
           "account_id": "backtest-account",
           "account_version": 17,
           "cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1697,7 +1697,7 @@
             "schema_version": 1
           },
           "equity": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1717,7 +1717,7 @@
             "schema_version": 1
           },
           "fees": {
-            "amount": "20.17",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -1738,7 +1738,7 @@
           },
           "quality_flags": [],
           "realized_pnl": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -2257,7 +2257,7 @@
             "sequence": 4,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576720000000000
+              "unix_nanos": 1767576660000000000
             },
             "unrealized_pnl": {
               "amount": "0",
@@ -2383,133 +2383,7 @@
             "sequence": 5,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576780000000000
-            },
-            "unrealized_pnl": {
-              "amount": "0",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            }
-          },
-          {
-            "currency": {
-              "code": "CNY",
-              "currency_type": "FIAT",
-              "precision": 2,
-              "schema_version": 1
-            },
-            "current_drawdown": {
-              "precision": 8,
-              "schema_version": 1,
-              "value": "0E-8"
-            },
-            "equity": {
-              "amount": "1000000.00",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            },
-            "fees": {
-              "amount": "0",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            },
-            "initial_equity": {
-              "amount": "1000000.00",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            },
-            "key": {
-              "account_id": {
-                "schema_version": 1,
-                "value": "backtest-account"
-              },
-              "base_currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "cluster_id": {
-                "schema_version": 1,
-                "value": "macd-fast-demo"
-              },
-              "runtime_id": {
-                "schema_version": 1,
-                "value": "backtest-da7934c8d836da5a"
-              },
-              "schema_version": 1
-            },
-            "ledger_cash": {
-              "amount": "1000000.00",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            },
-            "ledger_id": {
-              "schema_version": 1,
-              "value": "SLEDGER-backtest-da7934c8d836da5a-backtest-account-macd-fast-demo-CNY"
-            },
-            "ledger_version": 6,
-            "maximum_drawdown": {
-              "precision": 8,
-              "schema_version": 1,
-              "value": "0"
-            },
-            "position_market_value": {
-              "amount": "0",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            },
-            "quality_flags": [],
-            "realized_pnl": {
-              "amount": "0",
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "schema_version": 1
-            },
-            "return_since_start": {
-              "precision": 8,
-              "schema_version": 1,
-              "value": "0E-8"
-            },
-            "schema_version": 1,
-            "sequence": 6,
-            "ts_event": {
-              "schema_version": 1,
-              "unix_nanos": 1767576780000000000
+              "unix_nanos": 1767576660000000000
             },
             "unrealized_pnl": {
               "amount": "0",
@@ -2632,10 +2506,10 @@
               "value": "0E-8"
             },
             "schema_version": 1,
-            "sequence": 7,
+            "sequence": 6,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576780000000000
+              "unix_nanos": 1767576720000000000
             },
             "unrealized_pnl": {
               "amount": "0",
@@ -2658,10 +2532,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "0E-8"
+              "value": "-0.00010000"
             },
             "equity": {
-              "amount": "1000000.00",
+              "amount": "999900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2671,7 +2545,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "0",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2712,7 +2586,133 @@
               "schema_version": 1
             },
             "ledger_cash": {
+              "amount": "899900.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            },
+            "ledger_id": {
+              "schema_version": 1,
+              "value": "SLEDGER-backtest-da7934c8d836da5a-backtest-account-macd-fast-demo-CNY"
+            },
+            "ledger_version": 8,
+            "maximum_drawdown": {
+              "precision": 8,
+              "schema_version": 1,
+              "value": "-0.00010000"
+            },
+            "position_market_value": {
+              "amount": "100000.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            },
+            "quality_flags": [],
+            "realized_pnl": {
+              "amount": "0",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            },
+            "return_since_start": {
+              "precision": 8,
+              "schema_version": 1,
+              "value": "-0.00010000"
+            },
+            "schema_version": 1,
+            "sequence": 7,
+            "ts_event": {
+              "schema_version": 1,
+              "unix_nanos": 1767576720000000000
+            },
+            "unrealized_pnl": {
+              "amount": "0.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            }
+          },
+          {
+            "currency": {
+              "code": "CNY",
+              "currency_type": "FIAT",
+              "precision": 2,
+              "schema_version": 1
+            },
+            "current_drawdown": {
+              "precision": 8,
+              "schema_version": 1,
+              "value": "-0.09909300"
+            },
+            "equity": {
+              "amount": "900907.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            },
+            "fees": {
+              "amount": "100.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            },
+            "initial_equity": {
               "amount": "1000000.00",
+              "currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "schema_version": 1
+            },
+            "key": {
+              "account_id": {
+                "schema_version": 1,
+                "value": "backtest-account"
+              },
+              "base_currency": {
+                "code": "CNY",
+                "currency_type": "FIAT",
+                "precision": 2,
+                "schema_version": 1
+              },
+              "cluster_id": {
+                "schema_version": 1,
+                "value": "macd-fast-demo"
+              },
+              "runtime_id": {
+                "schema_version": 1,
+                "value": "backtest-da7934c8d836da5a"
+              },
+              "schema_version": 1
+            },
+            "ledger_cash": {
+              "amount": "899900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2729,10 +2729,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "0"
+              "value": "-0.09909300"
             },
             "position_market_value": {
-              "amount": "0",
+              "amount": "1007.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2755,16 +2755,16 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "0E-8"
+              "value": "-0.09909300"
             },
             "schema_version": 1,
             "sequence": 8,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576840000000000
+              "unix_nanos": 1767576720000000000
             },
             "unrealized_pnl": {
-              "amount": "0",
+              "amount": "-98993.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2784,10 +2784,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "equity": {
-              "amount": "999989.92",
+              "amount": "900907.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2797,7 +2797,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2838,7 +2838,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "989909.92",
+              "amount": "899900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2855,10 +2855,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "position_market_value": {
-              "amount": "10080.00",
+              "amount": "1007.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2881,16 +2881,16 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "schema_version": 1,
             "sequence": 9,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576840000000000
+              "unix_nanos": 1767576720000000000
             },
             "unrealized_pnl": {
-              "amount": "0.00",
+              "amount": "-98993.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2910,10 +2910,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-8E-8"
+              "value": "-0.09909300"
             },
             "equity": {
-              "amount": "999999.92",
+              "amount": "900907.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2923,7 +2923,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2964,7 +2964,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "989909.92",
+              "amount": "899900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -2981,10 +2981,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "position_market_value": {
-              "amount": "10090.00",
+              "amount": "1007.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3007,16 +3007,16 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-8E-8"
+              "value": "-0.09909300"
             },
             "schema_version": 1,
             "sequence": 10,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576840000000000
+              "unix_nanos": 1767576720000000000
             },
             "unrealized_pnl": {
-              "amount": "10.00",
+              "amount": "-98993.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3036,10 +3036,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-8E-8"
+              "value": "-0.09909200"
             },
             "equity": {
-              "amount": "999999.92",
+              "amount": "900908.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3049,7 +3049,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3090,7 +3090,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "989909.92",
+              "amount": "899900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3107,10 +3107,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "position_market_value": {
-              "amount": "10090.00",
+              "amount": "1008.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3133,16 +3133,16 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-8E-8"
+              "value": "-0.09909200"
             },
             "schema_version": 1,
             "sequence": 11,
             "ts_event": {
               "schema_version": 1,
-              "unix_nanos": 1767576840000000000
+              "unix_nanos": 1767576780000000000
             },
             "unrealized_pnl": {
-              "amount": "10.00",
+              "amount": "-98992.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3162,10 +3162,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-8E-8"
+              "value": "-0.09909100"
             },
             "equity": {
-              "amount": "999999.92",
+              "amount": "900909.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3175,7 +3175,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3216,7 +3216,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "989909.92",
+              "amount": "899900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3233,10 +3233,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "position_market_value": {
-              "amount": "10090.00",
+              "amount": "1009.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3259,7 +3259,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-8E-8"
+              "value": "-0.09909100"
             },
             "schema_version": 1,
             "sequence": 12,
@@ -3268,7 +3268,7 @@
               "unix_nanos": 1767576840000000000
             },
             "unrealized_pnl": {
-              "amount": "10.00",
+              "amount": "-98991.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3288,10 +3288,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "0E-8"
+              "value": "-0.09909000"
             },
             "equity": {
-              "amount": "1000009.92",
+              "amount": "900910.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3301,7 +3301,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3342,7 +3342,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "989909.92",
+              "amount": "899900.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3359,10 +3359,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001008"
+              "value": "-0.09909300"
             },
             "position_market_value": {
-              "amount": "10100.00",
+              "amount": "1010.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3385,7 +3385,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "0.00000992"
+              "value": "-0.09909000"
             },
             "schema_version": 1,
             "sequence": 13,
@@ -3394,7 +3394,7 @@
               "unix_nanos": 1767576900000000000
             },
             "unrealized_pnl": {
-              "amount": "20.00",
+              "amount": "-98990.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3414,10 +3414,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3427,7 +3427,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3468,7 +3468,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3485,7 +3485,7 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "position_market_value": {
               "amount": "0.00",
@@ -3499,7 +3499,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3511,7 +3511,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "sequence": 14,
@@ -3540,10 +3540,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3553,7 +3553,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3594,7 +3594,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3611,7 +3611,7 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "position_market_value": {
               "amount": "0.00",
@@ -3625,7 +3625,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3637,7 +3637,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "sequence": 15,
@@ -3666,10 +3666,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3679,7 +3679,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3720,7 +3720,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3737,7 +3737,7 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "position_market_value": {
               "amount": "0.00",
@@ -3751,7 +3751,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3763,7 +3763,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "sequence": 16,
@@ -3792,10 +3792,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3805,7 +3805,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3846,7 +3846,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3863,7 +3863,7 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "position_market_value": {
               "amount": "0.00",
@@ -3877,7 +3877,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3889,7 +3889,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "sequence": 17,
@@ -3918,10 +3918,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3931,7 +3931,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3972,7 +3972,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -3989,7 +3989,7 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "position_market_value": {
               "amount": "0",
@@ -4003,7 +4003,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4015,7 +4015,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "sequence": 18,
@@ -4044,10 +4044,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4057,7 +4057,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4098,7 +4098,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4115,7 +4115,7 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "position_market_value": {
               "amount": "0",
@@ -4129,7 +4129,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4141,7 +4141,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "sequence": 19,
@@ -4177,10 +4177,10 @@
             "current_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4190,7 +4190,7 @@
               "schema_version": 1
             },
             "final_equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4214,10 +4214,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "net_pnl": {
-              "amount": "-10.17",
+              "amount": "-100099.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4229,7 +4229,7 @@
             "profit_factor": null,
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4241,7 +4241,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "runtime_id": "backtest-da7934c8d836da5a",
             "trade_count": 2,
@@ -4259,57 +4259,104 @@
             "win_rate": null,
             "winning_trade_count": 0
           },
-          "factor_results": [
-            {
-              "confidence": "1",
-              "factor_id": "macd-fast-signal",
-              "macd": {
-                "cross_state": "NONE",
-                "dea": "0.004850608711",
-                "dif": "0.004850608711",
-                "histogram": "0E-12",
-                "indicator_id": "macd-fast-primary",
-                "ready": true,
-                "samples": 7,
-                "ts_event_ns": 1767577020000000000
-              },
-              "ready": true,
-              "signal": "HOLD",
-              "trend_score": "0",
-              "ts_event_ns": 1767577020000000000
-            }
-          ],
-          "indicator_diagnostics": [
-            {
-              "cross_state": "NONE",
-              "dea": "0.004850608711",
-              "dif": "0.004850608711",
-              "histogram": "0E-12",
-              "indicator_id": "macd-fast-primary",
-              "ready": true,
-              "samples": 7,
-              "ts_event_ns": 1767577020000000000
-            }
-          ],
+          "factor_results": [],
+          "indicator_diagnostics": [],
           "strategy_result_extension": {
-            "callback_count": 5,
-            "signal_state": "FLAT",
-            "signals": [
+            "bar_count": 7,
+            "cancel_results": [],
+            "last_strategy_decision": {
+              "decision_time_ns": 1767577020000000000,
+              "eligibility": true,
+              "entry": false,
+              "exit": true,
+              "instrument_id": "TESTETF.XSHG",
+              "observation_fingerprint": "b78a4d2568f94092d97f57130d13ec1f9f06c73d9bb5b4f4f3784f435230d0c1",
+              "observation_key": "f0222537936f81c43b001ac2136bce616107be4cf94b94ffc8144d5807bbe55c",
+              "strategy_fingerprint": "d5ea1e6c708ab263d5d39555ecc83347d6179491aec3f77a375005f230062710"
+            },
+            "scenario_actions": [
               {
-                "dea": "0.003055555556",
-                "dif": "0.003055555556",
-                "order_request_id": "macd-fast-demo-macd-000001-buy",
-                "sequence": 1,
-                "signal_type": "ROUND_TRIP_OPEN",
-                "ts_event_ns": 1767576780000000000
+                "action_id": "OPEN",
+                "created": true,
+                "error": null,
+                "market_compiled_rule_fingerprint": null,
+                "market_product_id": null,
+                "market_product_version": null,
+                "market_reason_code": null,
+                "market_reference_fingerprint": null,
+                "market_rule_code": null,
+                "order_id": "backtest-da7934c8d836da5a-ORDER-000001",
+                "record_type": "SUBMISSION",
+                "request_id": "scenario-macd-fast-demo:OPEN",
+                "risk_rejection": "",
+                "risk_rejection_code": null,
+                "side": "BUY",
+                "status": "EXECUTED",
+                "submitted": true,
+                "tag": "OPEN"
               },
               {
-                "dea": "0.003935185185",
-                "dif": "0.003935185185",
-                "order_request_id": "macd-fast-demo-macd-000002-sell",
-                "sequence": 2,
-                "signal_type": "ROUND_TRIP_LONG_CLOSE",
-                "ts_event_ns": 1767576840000000000
+                "action_id": "CLOSE",
+                "created": true,
+                "error": null,
+                "market_compiled_rule_fingerprint": null,
+                "market_product_id": null,
+                "market_product_version": null,
+                "market_reason_code": null,
+                "market_reference_fingerprint": null,
+                "market_rule_code": null,
+                "order_id": "backtest-da7934c8d836da5a-ORDER-000002",
+                "record_type": "SUBMISSION",
+                "request_id": "scenario-macd-fast-demo:CLOSE",
+                "risk_rejection": "",
+                "risk_rejection_code": null,
+                "side": "SELL",
+                "status": "EXECUTED",
+                "submitted": true,
+                "tag": "CLOSE"
+              }
+            ],
+            "strategy_fingerprint": "d5ea1e6c708ab263d5d39555ecc83347d6179491aec3f77a375005f230062710",
+            "submission_results": [
+              {
+                "action_id": "OPEN",
+                "created": true,
+                "error": null,
+                "market_compiled_rule_fingerprint": null,
+                "market_product_id": null,
+                "market_product_version": null,
+                "market_reason_code": null,
+                "market_reference_fingerprint": null,
+                "market_rule_code": null,
+                "order_id": "backtest-da7934c8d836da5a-ORDER-000001",
+                "record_type": "SUBMISSION",
+                "request_id": "scenario-macd-fast-demo:OPEN",
+                "risk_rejection": "",
+                "risk_rejection_code": null,
+                "side": "BUY",
+                "status": "EXECUTED",
+                "submitted": true,
+                "tag": "OPEN"
+              },
+              {
+                "action_id": "CLOSE",
+                "created": true,
+                "error": null,
+                "market_compiled_rule_fingerprint": null,
+                "market_product_id": null,
+                "market_product_version": null,
+                "market_reason_code": null,
+                "market_reference_fingerprint": null,
+                "market_rule_code": null,
+                "order_id": "backtest-da7934c8d836da5a-ORDER-000002",
+                "record_type": "SUBMISSION",
+                "request_id": "scenario-macd-fast-demo:CLOSE",
+                "risk_rejection": "",
+                "risk_rejection_code": null,
+                "side": "SELL",
+                "status": "EXECUTED",
+                "submitted": true,
+                "tag": "CLOSE"
               }
             ]
           }
@@ -4324,7 +4371,7 @@
         "processed_bar_count": 7,
         "quality_flags": []
       },
-      "determinism_fingerprint": "e3fc175d0a966a1850afa5dc0798399b4e47d5e3ac083977e9374f0edd164d37",
+      "determinism_fingerprint": "5a908ed78be436f3245e76cf55d80ac61da5a2b1b35220818da2319e7a798c0c",
       "diagnostics": {
         "execution_recoveries": [],
         "failure_count": 0,
@@ -4352,7 +4399,7 @@
         },
         "account_type": "CASH",
         "available_margin": {
-          "amount": "999989.83",
+          "amount": "899901.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -4369,7 +4416,7 @@
         },
         "cash": {
           "ledger_cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -4390,7 +4437,7 @@
           },
           "schema_version": 1,
           "trade_available_cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -4410,7 +4457,7 @@
             "schema_version": 1
           },
           "withdrawable_cash": {
-            "amount": "999989.83",
+            "amount": "899901.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -4425,7 +4472,7 @@
           "unix_nanos": 1767576600000000000
         },
         "equity": {
-          "amount": "999989.83",
+          "amount": "899901.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -4435,7 +4482,7 @@
           "schema_version": 1
         },
         "fees": {
-          "amount": "20.17",
+          "amount": "100.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -4469,7 +4516,7 @@
         },
         "quality_flags": [],
         "realized_pnl": {
-          "amount": "10.00",
+          "amount": "-99999.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -4495,7 +4542,7 @@
               "value": "backtest-account"
             },
             "consumed_amount": {
-              "amount": "10090.08",
+              "amount": "100100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4506,7 +4553,7 @@
             },
             "created_at": {
               "schema_version": 1,
-              "unix_nanos": 1767576780000000000
+              "unix_nanos": 1767576660000000000
             },
             "order_id": {
               "schema_version": 1,
@@ -4527,7 +4574,7 @@
               "value": "ARESV-backtest-da7934c8d836da5a-backtest-da7934c8d836da5a-ORDER-000001"
             },
             "reserved_amount": {
-              "amount": "10090.08",
+              "amount": "100100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4544,7 +4591,7 @@
             "state": "CONSUMED",
             "updated_at": {
               "schema_version": 1,
-              "unix_nanos": 1767576840000000000
+              "unix_nanos": 1767576720000000000
             },
             "version": 2
           }
@@ -4640,7 +4687,7 @@
           },
           "cash": {
             "cash_available": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4660,7 +4707,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -4730,7 +4777,7 @@
                 "value": "backtest-account"
               },
               "amount": {
-                "amount": "-10090.08",
+                "amount": "-100100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -4775,11 +4822,11 @@
               "trade_id": null,
               "ts_event": {
                 "schema_version": 1,
-                "unix_nanos": 1767576780000000000
+                "unix_nanos": 1767576660000000000
               },
               "ts_init": {
                 "schema_version": 1,
-                "unix_nanos": 1767576780000000000
+                "unix_nanos": 1767576660000000000
               }
             },
             {
@@ -4788,7 +4835,7 @@
                 "value": "backtest-account"
               },
               "amount": {
-                "amount": "-10080.00",
+                "amount": "-100000.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -4833,11 +4880,11 @@
               },
               "ts_event": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
+                "unix_nanos": 1767576720000000000
               },
               "ts_init": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
+                "unix_nanos": 1767576720000000000
               }
             },
             {
@@ -4846,7 +4893,7 @@
                 "value": "backtest-account"
               },
               "amount": {
-                "amount": "-10.08",
+                "amount": "-100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -4891,11 +4938,11 @@
               },
               "ts_event": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
+                "unix_nanos": 1767576720000000000
               },
               "ts_init": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
+                "unix_nanos": 1767576720000000000
               }
             },
             {
@@ -4904,7 +4951,7 @@
                 "value": "backtest-account"
               },
               "amount": {
-                "amount": "10090.00",
+                "amount": "1.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -4955,64 +5002,6 @@
                 "schema_version": 1,
                 "unix_nanos": 1767576900000000000
               }
-            },
-            {
-              "account_id": {
-                "schema_version": 1,
-                "value": "backtest-account"
-              },
-              "amount": {
-                "amount": "-10.09",
-                "currency": {
-                  "code": "CNY",
-                  "currency_type": "FIAT",
-                  "precision": 2,
-                  "schema_version": 1
-                },
-                "schema_version": 1
-              },
-              "cash_flow_id": null,
-              "causation_id": null,
-              "cluster_id": {
-                "schema_version": 1,
-                "value": "macd-fast-demo"
-              },
-              "correlation_id": null,
-              "currency": {
-                "code": "CNY",
-                "currency_type": "FIAT",
-                "precision": 2,
-                "schema_version": 1
-              },
-              "entry_id": {
-                "schema_version": 1,
-                "value": "SCASH-SLEDGER-backtest-da7934c8d836da5a-backtest-account-macd-fast-demo-CNY-0000000006"
-              },
-              "entry_type": "FEE",
-              "metadata": {},
-              "order_id": {
-                "schema_version": 1,
-                "value": "backtest-da7934c8d836da5a-ORDER-000002"
-              },
-              "reservation_id": null,
-              "runtime_id": {
-                "schema_version": 1,
-                "value": "backtest-da7934c8d836da5a"
-              },
-              "schema_version": 1,
-              "sequence": 6,
-              "trade_id": {
-                "schema_version": 1,
-                "value": "virtual-trade-00000002"
-              },
-              "ts_event": {
-                "schema_version": 1,
-                "unix_nanos": 1767576900000000000
-              },
-              "ts_init": {
-                "schema_version": 1,
-                "unix_nanos": 1767576900000000000
-              }
             }
           ],
           "created_at": {
@@ -5021,7 +5010,7 @@
           },
           "equity": {
             "cash_available": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5041,7 +5030,7 @@
               "schema_version": 1
             },
             "daily_pnl": {
-              "amount": "-10.17",
+              "amount": "-100099.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5053,15 +5042,15 @@
             "daily_return": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5071,7 +5060,7 @@
               "schema_version": 1
             },
             "equity_by_cash_view": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5081,7 +5070,7 @@
               "schema_version": 1
             },
             "equity_by_pnl_view": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5101,7 +5090,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5111,7 +5100,7 @@
               "schema_version": 1
             },
             "high_water_mark": {
-              "amount": "1000009.92",
+              "amount": "1000000.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5152,7 +5141,7 @@
               "schema_version": 1
             },
             "ledger_cash": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5164,11 +5153,11 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "metadata": {},
             "net_pnl": {
-              "amount": "-10.17",
+              "amount": "-100099.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5199,7 +5188,7 @@
             },
             "quality_flags": [],
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5211,7 +5200,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "trading_day": {
@@ -5241,7 +5230,7 @@
           "fee_entries": [
             {
               "amount": {
-                "amount": "10.08",
+                "amount": "100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -5289,68 +5278,11 @@
               },
               "ts_event": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
+                "unix_nanos": 1767576720000000000
               },
               "ts_init": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
-              }
-            },
-            {
-              "amount": {
-                "amount": "10.09",
-                "currency": {
-                  "code": "CNY",
-                  "currency_type": "FIAT",
-                  "precision": 2,
-                  "schema_version": 1
-                },
-                "schema_version": 1
-              },
-              "entry_id": {
-                "schema_version": 1,
-                "value": "SFEE-backtest-da7934c8d836da5a-virtual-trade-00000002"
-              },
-              "fee_type": "COMMISSION",
-              "key": {
-                "account_id": {
-                  "schema_version": 1,
-                  "value": "backtest-account"
-                },
-                "base_currency": {
-                  "code": "CNY",
-                  "currency_type": "FIAT",
-                  "precision": 2,
-                  "schema_version": 1
-                },
-                "cluster_id": {
-                  "schema_version": 1,
-                  "value": "macd-fast-demo"
-                },
-                "runtime_id": {
-                  "schema_version": 1,
-                  "value": "backtest-da7934c8d836da5a"
-                },
-                "schema_version": 1
-              },
-              "metadata": {},
-              "order_id": {
-                "schema_version": 1,
-                "value": "backtest-da7934c8d836da5a-ORDER-000002"
-              },
-              "schema_version": 1,
-              "sequence": 8,
-              "trade_id": {
-                "schema_version": 1,
-                "value": "virtual-trade-00000002"
-              },
-              "ts_event": {
-                "schema_version": 1,
-                "unix_nanos": 1767576900000000000
-              },
-              "ts_init": {
-                "schema_version": 1,
-                "unix_nanos": 1767576900000000000
+                "unix_nanos": 1767576720000000000
               }
             }
           ],
@@ -5391,7 +5323,7 @@
               "value": "macd-fast-demo"
             },
             "daily_pnl": {
-              "amount": "-10.17",
+              "amount": "-100099.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5403,15 +5335,15 @@
             "daily_return": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "equity": {
-              "amount": "999989.83",
+              "amount": "899901.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5421,7 +5353,7 @@
               "schema_version": 1
             },
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5454,10 +5386,10 @@
             "maximum_drawdown": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00002009"
+              "value": "-0.10009900"
             },
             "net_pnl": {
-              "amount": "-10.17",
+              "amount": "-100099.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5471,7 +5403,7 @@
             "return_since_start": {
               "precision": 8,
               "schema_version": 1,
-              "value": "-0.00001017"
+              "value": "-0.10009900"
             },
             "schema_version": 1,
             "trade_count": 2,
@@ -5484,7 +5416,7 @@
           },
           "pnl": {
             "fees": {
-              "amount": "20.17",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5494,7 +5426,7 @@
               "schema_version": 1
             },
             "net_pnl": {
-              "amount": "-10.17",
+              "amount": "-100099.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5504,7 +5436,7 @@
               "schema_version": 1
             },
             "realized_pnl": {
-              "amount": "10.00",
+              "amount": "-99999.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -5529,7 +5461,7 @@
           "reservations": [
             {
               "consumed_amount": {
-                "amount": "10090.08",
+                "amount": "100100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -5540,10 +5472,10 @@
               },
               "created_at": {
                 "schema_version": 1,
-                "unix_nanos": 1767576780000000000
+                "unix_nanos": 1767576660000000000
               },
               "estimated_fee": {
-                "amount": "10.08",
+                "amount": "100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -5553,7 +5485,7 @@
                 "schema_version": 1
               },
               "estimated_notional": {
-                "amount": "10080.00",
+                "amount": "100000.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -5603,7 +5535,7 @@
                 "value": "SCRES-backtest-da7934c8d836da5a-macd-fast-demo-backtest-da7934c8d836da5a-ORDER-000001"
               },
               "reserved_amount": {
-                "amount": "10090.08",
+                "amount": "100100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -5617,7 +5549,7 @@
               "state": "CONSUMED",
               "updated_at": {
                 "schema_version": 1,
-                "unix_nanos": 1767576840000000000
+                "unix_nanos": 1767576720000000000
               },
               "version": 4
             }
@@ -5647,7 +5579,7 @@
         {
           "accepted_at": {
             "schema_version": 1,
-            "unix_nanos": 1767576780000000000
+            "unix_nanos": 1767576660000000000
           },
           "account_id": {
             "schema_version": 1,
@@ -5656,7 +5588,7 @@
           "average_fill_price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.08"
+            "value": "1000.00"
           },
           "cancel_requested_at": null,
           "cancelled_at": null,
@@ -5670,15 +5602,15 @@
           },
           "created_at": {
             "schema_version": 1,
-            "unix_nanos": 1767576780000000000
+            "unix_nanos": 1767576660000000000
           },
-          "cumulative_price_quantity": "10080.00",
+          "cumulative_price_quantity": "100000.00",
           "expire_time": null,
           "expired_at": null,
           "failed_at": null,
           "failure": null,
           "fee_estimate": {
-            "assumptions_fingerprint": "9b22f2ba51f374703135a8b375538c46c10ae56896490fe57ab328366575bd42",
+            "assumptions_fingerprint": "188068703e9669de1fdd57da32c44052d6f50cab329221bbd0f12865da6258e9",
             "estimated_rebate": {
               "amount": "0",
               "currency": {
@@ -5690,7 +5622,7 @@
               "schema_version": 1
             },
             "expected": {
-              "assessment_id": "142d97a4805419a7f14abce07bbc710c6af4045394b19b91f2c54c70de06b805",
+              "assessment_id": "5c7085b1b3f8832061d1604557263764c299fab0d302d0b4a7249344e643ddd2",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -5728,7 +5660,7 @@
                 },
                 "bound_at": {
                   "schema_version": 1,
-                  "unix_nanos": 1767576780000000000
+                  "unix_nanos": 1767576660000000000
                 },
                 "broker_fee_contract": {
                   "account_scope": {
@@ -5760,7 +5692,7 @@
                     "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
                   }
                 ],
-                "fingerprint": "1181aa5c7a7965eafcca51bbc49c9e20797e320d37061d347da2f7db612b6855",
+                "fingerprint": "e4c32ef14d12186a75fa7581b29c0e0c4fdf8a8df0f410e363826824b95ce7ad",
                 "instrument_id": {
                   "schema_version": 1,
                   "symbol": {
@@ -5794,7 +5726,7 @@
               "components": [
                 {
                   "bounded_amount": {
-                    "amount": "10.08",
+                    "amount": "100.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -5819,7 +5751,7 @@
                   },
                   "local_finality": "ESTIMATED",
                   "raw_amount": {
-                    "amount": "10.08",
+                    "amount": "100.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -5830,7 +5762,7 @@
                   },
                   "schema_version": 1,
                   "target_amount": {
-                    "amount": "10.08",
+                    "amount": "100.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -5843,7 +5775,7 @@
               ],
               "local_finality": "ESTIMATED",
               "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-              "resolution_fingerprint": "fbb3a971ae99b143f1e7b3357ee00c7a93e79ffefc3afe1701c51b13617aedac",
+              "resolution_fingerprint": "28e651c95cc8453c684f9dd0933c42a66ad6bd1eda8d9d906b73bac1b6b58d25",
               "schema_version": 2,
               "subject": {
                 "account_id": {
@@ -5876,7 +5808,7 @@
                 "schema_version": 1
               },
               "total_charges": {
-                "amount": "10.08",
+                "amount": "100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -5898,7 +5830,7 @@
               "trade_id": null
             },
             "maximum": {
-              "assessment_id": "c68b2191492886eccb04c682a6953b24ce8035cee4ebaabd1c3330097805ddf2",
+              "assessment_id": "a202bdc7448721f6d4959a07e423fba23ddac963bf34714373a0168df3bd0506",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -5936,7 +5868,7 @@
                 },
                 "bound_at": {
                   "schema_version": 1,
-                  "unix_nanos": 1767576780000000000
+                  "unix_nanos": 1767576660000000000
                 },
                 "broker_fee_contract": {
                   "account_scope": {
@@ -5968,7 +5900,7 @@
                     "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
                   }
                 ],
-                "fingerprint": "1181aa5c7a7965eafcca51bbc49c9e20797e320d37061d347da2f7db612b6855",
+                "fingerprint": "e4c32ef14d12186a75fa7581b29c0e0c4fdf8a8df0f410e363826824b95ce7ad",
                 "instrument_id": {
                   "schema_version": 1,
                   "symbol": {
@@ -6002,7 +5934,7 @@
               "components": [
                 {
                   "bounded_amount": {
-                    "amount": "10.08",
+                    "amount": "100.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6027,7 +5959,7 @@
                   },
                   "local_finality": "ESTIMATED",
                   "raw_amount": {
-                    "amount": "10.08",
+                    "amount": "100.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6038,7 +5970,7 @@
                   },
                   "schema_version": 1,
                   "target_amount": {
-                    "amount": "10.08",
+                    "amount": "100.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6051,7 +5983,7 @@
               ],
               "local_finality": "ESTIMATED",
               "policy_fingerprint": "19309a3d329ac3faafb5b9942ea71d22bf414eb2b93e6f6c620f70dd3570b4ae",
-              "resolution_fingerprint": "fbb3a971ae99b143f1e7b3357ee00c7a93e79ffefc3afe1701c51b13617aedac",
+              "resolution_fingerprint": "28e651c95cc8453c684f9dd0933c42a66ad6bd1eda8d9d906b73bac1b6b58d25",
               "schema_version": 2,
               "subject": {
                 "account_id": {
@@ -6084,7 +6016,7 @@
                 "schema_version": 1
               },
               "total_charges": {
-                "amount": "10.08",
+                "amount": "100.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -6106,7 +6038,7 @@
               "trade_id": null
             },
             "reservation_charge": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6154,7 +6086,7 @@
             },
             "bound_at": {
               "schema_version": 1,
-              "unix_nanos": 1767576780000000000
+              "unix_nanos": 1767576660000000000
             },
             "broker_fee_contract": {
               "account_scope": {
@@ -6186,7 +6118,7 @@
                 "scope_fingerprint": "c6fa81ec33041e61ed6c0b0070e995914f1ec7d4af67260c5fa7df3af15240eb"
               }
             ],
-            "fingerprint": "1181aa5c7a7965eafcca51bbc49c9e20797e320d37061d347da2f7db612b6855",
+            "fingerprint": "e4c32ef14d12186a75fa7581b29c0e0c4fdf8a8df0f410e363826824b95ce7ad",
             "instrument_id": {
               "schema_version": 1,
               "symbol": {
@@ -6220,18 +6152,18 @@
           "fill_count": 1,
           "filled_at": {
             "schema_version": 1,
-            "unix_nanos": 1767576840000000000
+            "unix_nanos": 1767576720000000000
           },
           "filled_quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "funding_plan": {
-            "binding_fingerprint": "1181aa5c7a7965eafcca51bbc49c9e20797e320d37061d347da2f7db612b6855",
-            "estimate_fingerprint": "9b22f2ba51f374703135a8b375538c46c10ae56896490fe57ab328366575bd42",
+            "binding_fingerprint": "e4c32ef14d12186a75fa7581b29c0e0c4fdf8a8df0f410e363826824b95ce7ad",
+            "estimate_fingerprint": "188068703e9669de1fdd57da32c44052d6f50cab329221bbd0f12865da6258e9",
             "fee_reservation": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6245,7 +6177,7 @@
               "value": "backtest-da7934c8d836da5a-ORDER-000001"
             },
             "principal_reservation": {
-              "amount": "10080.00",
+              "amount": "100000.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6256,7 +6188,7 @@
             },
             "schema_version": 1,
             "total_reservation": {
-              "amount": "10090.08",
+              "amount": "100100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6283,7 +6215,9 @@
             "schema_version": 1,
             "value": "virtual-trade-00000001"
           },
-          "metadata": {},
+          "metadata": {
+            "scenario_action_id": "OPEN"
+          },
           "offset": "OPEN",
           "order_id": {
             "schema_version": 1,
@@ -6293,12 +6227,12 @@
           "price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.08"
+            "value": "1000.00"
           },
           "quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "rejected_at": null,
           "rejection": null,
@@ -6309,7 +6243,7 @@
           },
           "request_id": {
             "schema_version": 1,
-            "value": "macd-fast-demo-macd-000001-buy"
+            "value": "scenario-macd-fast-demo:OPEN"
           },
           "runtime_id": {
             "schema_version": 1,
@@ -6321,16 +6255,13 @@
           "stop_price": null,
           "submitted_at": {
             "schema_version": 1,
-            "unix_nanos": 1767576780000000000
+            "unix_nanos": 1767576660000000000
           },
-          "tags": [
-            "MACD",
-            "ROUND_TRIP_OPEN"
-          ],
+          "tags": [],
           "time_in_force": "DAY",
           "updated_at": {
             "schema_version": 1,
-            "unix_nanos": 1767576840000000000
+            "unix_nanos": 1767576720000000000
           },
           "venue_order_id": {
             "schema_version": 1,
@@ -6350,7 +6281,7 @@
           "average_fill_price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.09"
+            "value": "0.01"
           },
           "cancel_requested_at": null,
           "cancelled_at": null,
@@ -6366,13 +6297,13 @@
             "schema_version": 1,
             "unix_nanos": 1767576840000000000
           },
-          "cumulative_price_quantity": "10090.00",
+          "cumulative_price_quantity": "1.00",
           "expire_time": null,
           "expired_at": null,
           "failed_at": null,
           "failure": null,
           "fee_estimate": {
-            "assumptions_fingerprint": "8943ac565c09c72e0eccc2e32697f40b2317bd62f093644652f22c93a00db241",
+            "assumptions_fingerprint": "44cb50c56c02acd18e4944cb9d12c36a0d8f793571bfff2cbdd752204af328a9",
             "estimated_rebate": {
               "amount": "0",
               "currency": {
@@ -6384,7 +6315,7 @@
               "schema_version": 1
             },
             "expected": {
-              "assessment_id": "89251e15fd4dc04a9ca58b64c98ed4ace4785762816610ef33bc62efe82628d9",
+              "assessment_id": "fb18c51c8b3be38046388daa5407c84e5f1bbe7a0c93cbac0d8123fb3a9acdc4",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -6488,7 +6419,7 @@
               "components": [
                 {
                   "bounded_amount": {
-                    "amount": "10.09",
+                    "amount": "0.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6513,7 +6444,7 @@
                   },
                   "local_finality": "ESTIMATED",
                   "raw_amount": {
-                    "amount": "10.09",
+                    "amount": "0.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6524,7 +6455,7 @@
                   },
                   "schema_version": 1,
                   "target_amount": {
-                    "amount": "10.09",
+                    "amount": "0.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6570,7 +6501,7 @@
                 "schema_version": 1
               },
               "total_charges": {
-                "amount": "10.09",
+                "amount": "0.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -6592,7 +6523,7 @@
               "trade_id": null
             },
             "maximum": {
-              "assessment_id": "4afdbca5fbd3786bac2fea7d4036f6d5dcdc10bec66a48907aa00c3e599b5667",
+              "assessment_id": "fdc5152a05c663b136a1778dd1b52234aac02e9e07a57f6bc8f924747f29c2dc",
               "binding": {
                 "account_id": {
                   "schema_version": 1,
@@ -6696,7 +6627,7 @@
               "components": [
                 {
                   "bounded_amount": {
-                    "amount": "10.09",
+                    "amount": "0.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6721,7 +6652,7 @@
                   },
                   "local_finality": "ESTIMATED",
                   "raw_amount": {
-                    "amount": "10.09",
+                    "amount": "0.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6732,7 +6663,7 @@
                   },
                   "schema_version": 1,
                   "target_amount": {
-                    "amount": "10.09",
+                    "amount": "0.00",
                     "currency": {
                       "code": "CNY",
                       "currency_type": "FIAT",
@@ -6778,7 +6709,7 @@
                 "schema_version": 1
               },
               "total_charges": {
-                "amount": "10.09",
+                "amount": "0.00",
                 "currency": {
                   "code": "CNY",
                   "currency_type": "FIAT",
@@ -6800,7 +6731,7 @@
               "trade_id": null
             },
             "reservation_charge": {
-              "amount": "10.09",
+              "amount": "0.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6919,13 +6850,13 @@
           "filled_quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "funding_plan": {
             "binding_fingerprint": "100f91d4938fd619690d167d26dd3e93a36737f71219572a1add4c9528d7a7ed",
-            "estimate_fingerprint": "8943ac565c09c72e0eccc2e32697f40b2317bd62f093644652f22c93a00db241",
+            "estimate_fingerprint": "44cb50c56c02acd18e4944cb9d12c36a0d8f793571bfff2cbdd752204af328a9",
             "fee_reservation": {
-              "amount": "10.09",
+              "amount": "0.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6939,7 +6870,7 @@
               "value": "backtest-da7934c8d836da5a-ORDER-000002"
             },
             "principal_reservation": {
-              "amount": "10090.00",
+              "amount": "1.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6950,7 +6881,7 @@
             },
             "schema_version": 1,
             "total_reservation": {
-              "amount": "10100.09",
+              "amount": "1.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -6977,7 +6908,9 @@
             "schema_version": 1,
             "value": "virtual-trade-00000002"
           },
-          "metadata": {},
+          "metadata": {
+            "scenario_action_id": "CLOSE"
+          },
           "offset": "CLOSE",
           "order_id": {
             "schema_version": 1,
@@ -6987,12 +6920,12 @@
           "price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.09"
+            "value": "0.01"
           },
           "quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "rejected_at": null,
           "rejection": null,
@@ -7003,7 +6936,7 @@
           },
           "request_id": {
             "schema_version": 1,
-            "value": "macd-fast-demo-macd-000002-sell"
+            "value": "scenario-macd-fast-demo:CLOSE"
           },
           "runtime_id": {
             "schema_version": 1,
@@ -7017,10 +6950,7 @@
             "schema_version": 1,
             "unix_nanos": 1767576840000000000
           },
-          "tags": [
-            "MACD",
-            "ROUND_TRIP_LONG_CLOSE"
-          ],
+          "tags": [],
           "time_in_force": "DAY",
           "updated_at": {
             "schema_version": 1,
@@ -7040,7 +6970,7 @@
         "status": "MATCHED",
         "ts_event_ns": 1767577020000000000
       },
-      "result_fingerprint": "e3fc175d0a966a1850afa5dc0798399b4e47d5e3ac083977e9374f0edd164d37",
+      "result_fingerprint": "5a908ed78be436f3245e76cf55d80ac61da5a2b1b35220818da2319e7a798c0c",
       "run": {
         "cluster_ids": [
           "macd-fast-demo"
@@ -7063,7 +6993,7 @@
         "current_drawdown": {
           "precision": 8,
           "schema_version": 1,
-          "value": "-0.00999911"
+          "value": "-0.10009900"
         },
         "external_cash_flow": {
           "amount": "0",
@@ -7076,7 +7006,7 @@
           "schema_version": 1
         },
         "fees": {
-          "amount": "20.17",
+          "amount": "100.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7086,7 +7016,7 @@
           "schema_version": 1
         },
         "final_equity": {
-          "amount": "999989.83",
+          "amount": "899901.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7096,7 +7026,7 @@
           "schema_version": 1
         },
         "high_water_mark": {
-          "amount": "1010089.83",
+          "amount": "1000000.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7118,10 +7048,10 @@
         "maximum_drawdown": {
           "precision": 8,
           "schema_version": 1,
-          "value": "-0.01009008"
+          "value": "-0.10010000"
         },
         "net_pnl": {
-          "amount": "-10.17",
+          "amount": "-100099.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7132,7 +7062,7 @@
         },
         "quality_flags": [],
         "realized_pnl": {
-          "amount": "10.00",
+          "amount": "-99999.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7144,7 +7074,7 @@
         "return_since_start": {
           "precision": 8,
           "schema_version": 1,
-          "value": "-0.00001017"
+          "value": "-0.10009900"
         },
         "runtime_id": "backtest-da7934c8d836da5a",
         "unrealized_pnl": {
@@ -7163,7 +7093,7 @@
       "trades": [
         {
           "account_cash_delta": {
-            "amount": "-10090.08",
+            "amount": "-100100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7173,7 +7103,7 @@
             "schema_version": 1
           },
           "account_fee_delta": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7197,7 +7127,7 @@
             "schema_version": 1
           },
           "account_reservation_consumed_delta": {
-            "amount": "10090.08",
+            "amount": "100100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7217,11 +7147,11 @@
             "schema_version": 1
           },
           "allocation_closed": false,
-          "allocation_cumulative_open_price_quantity_after": "10080.00",
+          "allocation_cumulative_open_price_quantity_after": "100000.00",
           "allocation_cumulative_open_price_quantity_before": "0",
-          "allocation_quantity_after": "1000",
+          "allocation_quantity_after": "100",
           "allocation_quantity_before": "0",
-          "allocation_quantity_delta": "1000",
+          "allocation_quantity_delta": "100",
           "allocation_realized_pnl_delta": {
             "amount": "0",
             "currency": {
@@ -7263,7 +7193,7 @@
             "value": "2026-01-05"
           },
           "cash_delta": {
-            "amount": "-10090.08",
+            "amount": "-100100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7298,9 +7228,9 @@
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
-          "cumulative_price_quantity_after": "10080.00",
+          "cumulative_price_quantity_after": "100000.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7314,14 +7244,14 @@
           "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000001",
           "fee_application": {
-            "accrual_after_fingerprint": "d2061e9afb68b94589181468d23082a15ec71a73f9df944c36861145f3e7653b",
+            "accrual_after_fingerprint": "1a341e115d99545f4d1227e291eec9761f7758c09c89217a5887f7230004ac8a",
             "accrual_before_fingerprint": null,
-            "application_id": "89d8019c03fe3bff0b4449f7fdd7d7dfea37590647c064a98ed89dded44567a2",
-            "binding_fingerprint": "1181aa5c7a7965eafcca51bbc49c9e20797e320d37061d347da2f7db612b6855",
+            "application_id": "b136fae5895df2a3e3fd45e5085ae24a87406bba91fbc041a3592680509376cf",
+            "binding_fingerprint": "e4c32ef14d12186a75fa7581b29c0e0c4fdf8a8df0f410e363826824b95ce7ad",
             "components": [
               {
                 "amount": {
-                  "amount": "10.08",
+                  "amount": "100.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -7331,7 +7261,7 @@
                   "schema_version": 1
                 },
                 "cumulative_applied_after": {
-                  "amount": "10.08",
+                  "amount": "100.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -7351,7 +7281,7 @@
                   "schema_version": 1
                 },
                 "cumulative_raw_after": {
-                  "amount": "10.08",
+                  "amount": "100.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -7361,7 +7291,7 @@
                   "schema_version": 1
                 },
                 "cumulative_target_after": {
-                  "amount": "10.08",
+                  "amount": "100.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -7372,7 +7302,7 @@
                 },
                 "economic_direction": "CHARGE",
                 "fill_raw_amount": {
-                  "amount": "10.08",
+                  "amount": "100.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -7400,9 +7330,9 @@
             ],
             "idempotency_key": "fee-application:backtest-da7934c8d836da5a:virtual-trade-00000001",
             "local_finality": "MODEL_CONFIRMED",
-            "resolution_fingerprint": "fbb3a971ae99b143f1e7b3357ee00c7a93e79ffefc3afe1701c51b13617aedac",
+            "resolution_fingerprint": "28e651c95cc8453c684f9dd0933c42a66ad6bd1eda8d9d906b73bac1b6b58d25",
             "schema_version": 2,
-            "signed_cash_effect": "-10.08",
+            "signed_cash_effect": "-100.00",
             "subject": {
               "account_id": {
                 "schema_version": 1,
@@ -7434,7 +7364,7 @@
               "schema_version": 1
             },
             "total_charges": {
-              "amount": "10.08",
+              "amount": "100.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -7458,15 +7388,15 @@
               "value": "virtual-trade-00000001"
             }
           },
-          "fee_application_id": "89d8019c03fe3bff0b4449f7fdd7d7dfea37590647c064a98ed89dded44567a2",
+          "fee_application_id": "b136fae5895df2a3e3fd45e5085ae24a87406bba91fbc041a3592680509376cf",
           "fee_authority": "MARKET",
-          "fee_binding_fingerprint": "1181aa5c7a7965eafcca51bbc49c9e20797e320d37061d347da2f7db612b6855",
-          "fee_resolution_fingerprint": "fbb3a971ae99b143f1e7b3357ee00c7a93e79ffefc3afe1701c51b13617aedac",
+          "fee_binding_fingerprint": "e4c32ef14d12186a75fa7581b29c0e0c4fdf8a8df0f410e363826824b95ce7ad",
+          "fee_resolution_fingerprint": "28e651c95cc8453c684f9dd0933c42a66ad6bd1eda8d9d906b73bac1b6b58d25",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
-          "fee_signed_cash_effect": "-10.08",
+          "fee_signed_cash_effect": "-100.00",
           "fee_status": "MODEL_CONFIRMED",
           "fee_total_charges": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7488,16 +7418,16 @@
           "fill_count_after": 1,
           "fill_identity": "EFILL-3482c4bbb218c25be97003766133583173638dfd483570e6761fbd704c9a5bd2",
           "fill_index": 1,
-          "fill_payload_fingerprint": "2e654928ff860219a345bfe81ec1e2067aa6e3e3eb35415f96720eeb9649b3d3",
+          "fill_payload_fingerprint": "b1b774f25b65ce3fd16f336888e8d6726bb8f72a11f17db2d6159f2d34f4b14f",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.08"
+            "value": "1000.00"
           },
           "fill_quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "gateway_id": {
             "schema_version": 1,
@@ -7514,7 +7444,7 @@
             "schema_version": 1
           },
           "gross_notional": {
-            "amount": "10080.00",
+            "amount": "100000.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7524,7 +7454,7 @@
             "schema_version": 1
           },
           "incremental_fee_charges": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7555,7 +7485,7 @@
             }
           },
           "ledger_cash_delta": {
-            "amount": "-10090.08",
+            "amount": "-100100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7565,7 +7495,7 @@
             "schema_version": 1
           },
           "ledger_fee_delta": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7595,7 +7525,7 @@
           "margin_currency": null,
           "margin_instruction_id": null,
           "market_fee": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7631,7 +7561,7 @@
           "occupied_margin_delta": null,
           "offset": "OPEN",
           "order_cumulative_fee_charges_after": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7658,7 +7588,7 @@
           "order_status_after": "FILLED",
           "order_type": "LIMIT",
           "other_fee": {
-            "amount": "10.08",
+            "amount": "100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7668,13 +7598,13 @@
             "schema_version": 1
           },
           "position_closed": false,
-          "position_cumulative_open_price_quantity_after": "10080.00",
+          "position_cumulative_open_price_quantity_after": "100000.00",
           "position_cumulative_open_price_quantity_before": "0",
           "position_effect": "OPEN",
           "position_mode": "NETTING",
-          "position_quantity_after": "1000",
+          "position_quantity_after": "100",
           "position_quantity_before": "0",
-          "position_quantity_delta": "1000",
+          "position_quantity_delta": "100",
           "position_realized_pnl_delta": {
             "amount": "0",
             "currency": {
@@ -7706,7 +7636,7 @@
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.08"
+            "value": "1000.00"
           },
           "released_margin_delta": null,
           "released_open_price_quantity": "0",
@@ -7715,10 +7645,10 @@
             "schema_version": 1,
             "value": "0"
           },
-          "request_id": "macd-fast-demo-macd-000001-buy",
+          "request_id": "scenario-macd-fast-demo:OPEN",
           "reserved_margin_delta": null,
           "risk_reservation_notional_consumed_delta": {
-            "amount": "10080.00",
+            "amount": "100000.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7730,7 +7660,7 @@
           "risk_reservation_quantity_consumed_delta": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "runtime_id": {
             "schema_version": 1,
@@ -7738,7 +7668,7 @@
           },
           "schema_version": 6,
           "settled_notional": {
-            "amount": "10080.00",
+            "amount": "100000.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7747,7 +7677,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-82d675b3f9aca377a960490b4bdeadf140446184588f102c26d04059179ced37",
+          "settlement_instruction_id": "SINS-0894114e12adcb6b1c3f85f102bdb067d3cc3a6b73aa5341b057a0b4867b6645",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "0.00",
@@ -7762,10 +7692,10 @@
           "source_sequence": 5,
           "strategy_id": {
             "schema_version": 1,
-            "value": "macd-fast-strategy"
+            "value": "d5ea1e6c708ab263d5d39555ecc83347d6179491aec3f77a375005f230062710"
           },
           "strategy_reservation_consumed_delta": {
-            "amount": "10090.08",
+            "amount": "100100.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7806,22 +7736,22 @@
           },
           "ts_committed": {
             "schema_version": 1,
-            "unix_nanos": 1767576840000000000
+            "unix_nanos": 1767576720000000000
           },
           "ts_event": {
             "schema_version": 1,
-            "unix_nanos": 1767576840000000000
+            "unix_nanos": 1767576720000000000
           },
           "ts_init": {
             "schema_version": 1,
-            "unix_nanos": 1767576840000000000
+            "unix_nanos": 1767576720000000000
           },
           "venue_id": "XSHG",
           "venue_trade_id": "virtual-venue-trade-00000001"
         },
         {
           "account_cash_delta": {
-            "amount": "10079.91",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7831,7 +7761,7 @@
             "schema_version": 1
           },
           "account_fee_delta": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7845,7 +7775,7 @@
             "value": "backtest-account"
           },
           "account_realized_pnl_delta": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7876,12 +7806,12 @@
           },
           "allocation_closed": true,
           "allocation_cumulative_open_price_quantity_after": "0",
-          "allocation_cumulative_open_price_quantity_before": "10080.00",
+          "allocation_cumulative_open_price_quantity_before": "100000.00",
           "allocation_quantity_after": "0",
-          "allocation_quantity_before": "1000",
-          "allocation_quantity_delta": "-1000",
+          "allocation_quantity_before": "100",
+          "allocation_quantity_delta": "-100",
           "allocation_realized_pnl_delta": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7921,7 +7851,7 @@
             "value": "2026-01-05"
           },
           "cash_delta": {
-            "amount": "10079.91",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -7956,9 +7886,9 @@
           "cumulative_filled_quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
-          "cumulative_price_quantity_after": "10090.00",
+          "cumulative_price_quantity_after": "1.00",
           "currency": {
             "code": "CNY",
             "currency_type": "FIAT",
@@ -7972,14 +7902,14 @@
           "execution_support_policy_version": "2",
           "external_event_id": "virtual-fill-00000002",
           "fee_application": {
-            "accrual_after_fingerprint": "1871fd792b04ac41fba658b60c7d58ca534f086220a69efca21867746be24e4d",
+            "accrual_after_fingerprint": "4936647b70605042ca2dbc10a55be3b891a00ae31b2f97a1da27ea501c79d9d6",
             "accrual_before_fingerprint": null,
-            "application_id": "de5c5ceb661d6e46226c5f187a12a7cbcfa927a35104de77fa8b0812710ca623",
+            "application_id": "1ba3b05057a8f5d168c07e0bb86f5b5dd1eecf195ca050228f561347eb39baa9",
             "binding_fingerprint": "100f91d4938fd619690d167d26dd3e93a36737f71219572a1add4c9528d7a7ed",
             "components": [
               {
                 "amount": {
-                  "amount": "10.09",
+                  "amount": "0.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -7989,7 +7919,7 @@
                   "schema_version": 1
                 },
                 "cumulative_applied_after": {
-                  "amount": "10.09",
+                  "amount": "0.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -8009,7 +7939,7 @@
                   "schema_version": 1
                 },
                 "cumulative_raw_after": {
-                  "amount": "10.09",
+                  "amount": "0.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -8019,7 +7949,7 @@
                   "schema_version": 1
                 },
                 "cumulative_target_after": {
-                  "amount": "10.09",
+                  "amount": "0.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -8030,7 +7960,7 @@
                 },
                 "economic_direction": "CHARGE",
                 "fill_raw_amount": {
-                  "amount": "10.09",
+                  "amount": "0.00",
                   "currency": {
                     "code": "CNY",
                     "currency_type": "FIAT",
@@ -8060,7 +7990,7 @@
             "local_finality": "MODEL_CONFIRMED",
             "resolution_fingerprint": "813b14cbac6fd1c8a2ddbbb05b40c13267d1c54d59422d611cea0839dda4ff15",
             "schema_version": 2,
-            "signed_cash_effect": "-10.09",
+            "signed_cash_effect": "0.00",
             "subject": {
               "account_id": {
                 "schema_version": 1,
@@ -8092,7 +8022,7 @@
               "schema_version": 1
             },
             "total_charges": {
-              "amount": "10.09",
+              "amount": "0.00",
               "currency": {
                 "code": "CNY",
                 "currency_type": "FIAT",
@@ -8116,15 +8046,15 @@
               "value": "virtual-trade-00000002"
             }
           },
-          "fee_application_id": "de5c5ceb661d6e46226c5f187a12a7cbcfa927a35104de77fa8b0812710ca623",
+          "fee_application_id": "1ba3b05057a8f5d168c07e0bb86f5b5dd1eecf195ca050228f561347eb39baa9",
           "fee_authority": "MARKET",
           "fee_binding_fingerprint": "100f91d4938fd619690d167d26dd3e93a36737f71219572a1add4c9528d7a7ed",
           "fee_resolution_fingerprint": "813b14cbac6fd1c8a2ddbbb05b40c13267d1c54d59422d611cea0839dda4ff15",
           "fee_scope_fingerprint": "4b466f65d75c5ec7da73854f61a9ade39a4980ac3ffec2d335a36f425bdf6eba",
-          "fee_signed_cash_effect": "-10.09",
+          "fee_signed_cash_effect": "0.00",
           "fee_status": "MODEL_CONFIRMED",
           "fee_total_charges": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8146,23 +8076,23 @@
           "fill_count_after": 1,
           "fill_identity": "EFILL-970028e403abd4db2d4cf6a92da44d021b7e739a33e7fe0060d28428fc8789da",
           "fill_index": 1,
-          "fill_payload_fingerprint": "84f9bef515e4eae7ab86ca8678388bfc3e07ad0412d7545e0465dbbf45369d67",
+          "fill_payload_fingerprint": "f11a2c8c78f5ba1cf496505e65f215eef2d744b05df3419f541d42cb0c1a8576",
           "fill_price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.09"
+            "value": "0.01"
           },
           "fill_quantity": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "gateway_id": {
             "schema_version": 1,
             "value": "virtual-main"
           },
           "gross_cash_inflow": {
-            "amount": "10090.00",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8172,7 +8102,7 @@
             "schema_version": 1
           },
           "gross_notional": {
-            "amount": "10090.00",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8182,7 +8112,7 @@
             "schema_version": 1
           },
           "incremental_fee_charges": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8213,7 +8143,7 @@
             }
           },
           "ledger_cash_delta": {
-            "amount": "10079.91",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8223,7 +8153,7 @@
             "schema_version": 1
           },
           "ledger_fee_delta": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8233,7 +8163,7 @@
             "schema_version": 1
           },
           "ledger_realized_pnl_delta": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8253,7 +8183,7 @@
           "margin_currency": null,
           "margin_instruction_id": null,
           "market_fee": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8277,7 +8207,7 @@
           "market_product_id": "GENERIC_T0_CASH",
           "market_product_version": "1",
           "net_cash_inflow": {
-            "amount": "10079.91",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8289,7 +8219,7 @@
           "occupied_margin_delta": null,
           "offset": "CLOSE",
           "order_cumulative_fee_charges_after": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8316,7 +8246,7 @@
           "order_status_after": "FILLED",
           "order_type": "LIMIT",
           "other_fee": {
-            "amount": "10.09",
+            "amount": "0.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8327,14 +8257,14 @@
           },
           "position_closed": true,
           "position_cumulative_open_price_quantity_after": "0.00",
-          "position_cumulative_open_price_quantity_before": "10080.00",
+          "position_cumulative_open_price_quantity_before": "100000.00",
           "position_effect": "CLOSE",
           "position_mode": "NETTING",
           "position_quantity_after": "0",
-          "position_quantity_before": "1000",
-          "position_quantity_delta": "-1000",
+          "position_quantity_before": "100",
+          "position_quantity_delta": "-100",
           "position_realized_pnl_delta": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8346,12 +8276,12 @@
           "position_reservation_consumed_delta": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "position_side": "LONG",
           "processing_sequence": 6,
           "realized_pnl_delta": {
-            "amount": "10.00",
+            "amount": "-99999.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8364,19 +8294,19 @@
           "reference_price": {
             "precision": 2,
             "schema_version": 1,
-            "value": "10.09"
+            "value": "0.01"
           },
           "released_margin_delta": null,
-          "released_open_price_quantity": "10080.00",
+          "released_open_price_quantity": "100000.00",
           "remaining_quantity": {
             "precision": 0,
             "schema_version": 1,
             "value": "0"
           },
-          "request_id": "macd-fast-demo-macd-000002-sell",
+          "request_id": "scenario-macd-fast-demo:CLOSE",
           "reserved_margin_delta": null,
           "risk_reservation_notional_consumed_delta": {
-            "amount": "10090.00",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8388,7 +8318,7 @@
           "risk_reservation_quantity_consumed_delta": {
             "precision": 0,
             "schema_version": 1,
-            "value": "1000"
+            "value": "100"
           },
           "runtime_id": {
             "schema_version": 1,
@@ -8396,7 +8326,7 @@
           },
           "schema_version": 6,
           "settled_notional": {
-            "amount": "10090.00",
+            "amount": "1.00",
             "currency": {
               "code": "CNY",
               "currency_type": "FIAT",
@@ -8405,7 +8335,7 @@
             },
             "schema_version": 1
           },
-          "settlement_instruction_id": "SINS-321df04465ae6e1dddac1911e2a33750f532bb7599c0f4757cd17db19636d8a1",
+          "settlement_instruction_id": "SINS-07454a0af7aa905568902275251a4c06cc9370fedc506fc6296eef9d9016084a",
           "settlement_status": "SETTLED",
           "slippage": {
             "amount": "-0.00",
@@ -8420,7 +8350,7 @@
           "source_sequence": 8,
           "strategy_id": {
             "schema_version": 1,
-            "value": "macd-fast-strategy"
+            "value": "d5ea1e6c708ab263d5d39555ecc83347d6179491aec3f77a375005f230062710"
           },
           "strategy_reservation_consumed_delta": {
             "amount": "0.00",
@@ -8480,13 +8410,13 @@
       ]
     }
   ],
-  "determinism_fingerprint": "e1c1e5f69f5e9633197df68ecc3d6d29c4eb095b27786dd6751ea9d549c26b66",
+  "determinism_fingerprint": "991091ba4a4c2636ecab843d42d59382ae7e1362c0e1960256727d1aff2d601d",
   "engine_id": "fixture-minimal_round_trip",
   "failures": [],
-  "manifest_path": "/tmp/onlyalpha-minimal_round_trip-tmnbmfmm/runs/fixture-minimal_round_trip/run-60ce5cd7ce4b421f9fff487620509bce/manifest.json",
+  "manifest_path": "/tmp/onlyalpha-minimal_round_trip-mzq1nyj7/runs/fixture-minimal_round_trip/run-3b4c2e9922cd48e8a049e9d12b2a3e8a/manifest.json",
   "report_paths": [
-    "/tmp/onlyalpha-minimal_round_trip-tmnbmfmm/runs/fixture-minimal_round_trip/run-60ce5cd7ce4b421f9fff487620509bce/report.md"
+    "/tmp/onlyalpha-minimal_round_trip-mzq1nyj7/runs/fixture-minimal_round_trip/run-3b4c2e9922cd48e8a049e9d12b2a3e8a/report.md"
   ],
-  "run_id": "run-60ce5cd7ce4b421f9fff487620509bce",
+  "run_id": "run-3b4c2e9922cd48e8a049e9d12b2a3e8a",
   "status": "COMPLETED"
 }

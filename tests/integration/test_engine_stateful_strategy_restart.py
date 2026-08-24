@@ -11,13 +11,14 @@ from tests.integration.test_engine_continuous_restart import (
 
 def test_stateful_macd_strategy_factor_and_indicator_restart(tmp_path: Path) -> None:
     only_assert_engine_restart_equivalence(tmp_path)
-    config = _sqlite_config()
+    config = _sqlite_config(tmp_path)
     engine_c = OnlyEngine(OnlyEngineConfig(OnlyEngineId("execution-restart"), tmp_path))
     engine_c.add_cluster(config)
     result_c = engine_c.run()
     assert result_c.status == "COMPLETED"
-    baseline = OnlyEngine(OnlyEngineConfig(OnlyEngineId("execution-restart"), tmp_path / "second-baseline"))
-    baseline.add_cluster(config)
+    baseline_root = tmp_path / "second-baseline"
+    baseline = OnlyEngine(OnlyEngineConfig(OnlyEngineId("execution-restart"), baseline_root))
+    baseline.add_cluster(_sqlite_config(baseline_root))
     baseline_result = baseline.run()
     assert baseline_result.status == "COMPLETED"
     assert result_c.runtime_results[0].facts.signals == baseline_result.runtime_results[0].facts.signals

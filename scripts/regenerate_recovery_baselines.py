@@ -6,6 +6,8 @@ import json
 import sqlite3
 import sys
 import tempfile
+from dataclasses import replace
+from importlib.metadata import version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,18 +35,21 @@ BASELINES = (
 )
 
 
-def _configs_for(name: str) -> tuple[OnlyClusterRunConfig, ...]:
+def _configs_for(name: str, user_data_root: Path) -> tuple[OnlyClusterRunConfig, ...]:
     if name == "long_close_whole_baseline":
-        config = only_virtual_multi_fill_config(long_close=True)
-        payload = json.loads(json.dumps(dict(config.normalized_payload)))
-        del payload["brokers"][0]["extensions"]["matching"]["partial_fill"]
-        return (type(config).from_mapping(payload, source_path=config.source_path),)
+        config = only_virtual_multi_fill_config(user_data_root, long_close=True)
+        broker = config.brokers[0]
+        extensions = json.loads(json.dumps(dict(broker.extensions)))
+        del extensions["matching"]["partial_fill"]
+        return (replace(config, brokers=(replace(broker, extensions=extensions),)),)
     if name == "long_close_multi_fill_baseline":
-        return (only_virtual_multi_fill_config(long_close=True),)
+        return (only_virtual_multi_fill_config(user_data_root, long_close=True),)
     if name == "multi_cluster_close_baseline":
-        return tuple(_configs())
+        configs = _configs(user_data_root)
+        persistence = only_virtual_multi_fill_config(user_data_root).runtime.persistence
+        return tuple(replace(item, runtime=replace(item.runtime, persistence=persistence)) for item in configs)
     if name == "terminal_after_partial_fill_baseline":
-        return (only_terminal_after_partial_fill_config(),)
+        return (only_terminal_after_partial_fill_config(user_data_root),)
     raise ValueError(name)
 
 
@@ -52,7 +57,7 @@ def regenerate(name: str) -> None:
     with tempfile.TemporaryDirectory(prefix=f"onlyalpha-recovery-{name}-") as raw:
         run_root = Path(raw)
         engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(f"recovery-{name}"), run_root))
-        for config in _configs_for(name):
+        for config in _configs_for(name, run_root):
             engine.add_cluster(config)  # type: ignore[arg-type]
         result = engine.run()
         if result.status != "COMPLETED" or not result.runtime_results:
@@ -101,7 +106,7 @@ def regenerate(name: str) -> None:
                 "scenario_fingerprint": result.determinism_fingerprint,
                 "configuration_fingerprint": result.determinism_fingerprint,
                 "persistence_schema_version": "5",
-                "onlyalpha_version": "0.3.6",
+                "onlyalpha_version": version("onlyalpha"),
                 "database_template": template_name,
                 "database_archive": archive_name,
                 "database_fingerprint": fingerprint,

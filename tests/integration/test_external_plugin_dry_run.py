@@ -1,14 +1,16 @@
 from pathlib import Path
 
 from onlyalpha.cli import main
+from tests.runtime_runner import only_write_migrated_cluster_config
 
 
 def test_external_plugin_dry_run_reports_discovery_and_does_not_create_run(tmp_path: Path, capsys: object) -> None:
+    config = only_write_migrated_cluster_config("tests/fixtures/legacy_macd/cluster_external_plugins.yaml", tmp_path)
     exit_code = main(
         [
             "run",
             "--config",
-            "tests/fixtures/legacy_macd/cluster_external_plugins.yaml",
+            str(config),
             "--user-data",
             str(tmp_path),
             "--dry-run",

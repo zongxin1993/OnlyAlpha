@@ -3,8 +3,10 @@ from pathlib import Path
 from onlyalpha_test_plugin.broker import OnlyExternalTestBrokerGateway
 from onlyalpha_test_plugin.data_source import OnlyExternalTestHistoricalDataSource
 
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 def test_plugin_shutdown_order_is_broker_then_data_source(tmp_path: Path, monkeypatch: object) -> None:
@@ -35,7 +37,11 @@ def test_plugin_shutdown_order_is_broker_then_data_source(tmp_path: Path, monkey
     monkeypatch.setattr(OnlyExternalTestHistoricalDataSource, "stop", stop_data)  # type: ignore[attr-defined]
     monkeypatch.setattr(OnlyExternalTestHistoricalDataSource, "close", close_data)  # type: ignore[attr-defined]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("shutdown-order"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster_external_plugins.yaml")
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(
+            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), tmp_path
+        )
+    )
     assert engine.run().status == "COMPLETED"
     assert trace.index("broker.stop") < trace.index("data.stop")
     assert trace.index("broker.close") < trace.index("data.close")

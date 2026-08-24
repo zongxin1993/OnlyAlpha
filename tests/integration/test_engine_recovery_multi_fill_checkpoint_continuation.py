@@ -19,7 +19,7 @@ def test_checkpoint_between_broker_execute_and_publish_restores_pending_fill(tmp
         tmp_path,
         OnlyEngineId("multi-fill-publish-continuation"),
         factory=OnlyPlanCursorCheckpointFailureStoreFactory(1),
-        config=only_virtual_multi_fill_config(fill_latency_ns=60_000_000_000),
+        config=only_virtual_multi_fill_config(tmp_path, fill_latency_ns=60_000_000_000),
     )
 
 
@@ -36,5 +36,5 @@ def test_checkpoint_between_final_broker_execute_and_publish_restores_terminal_f
         tmp_path,
         OnlyEngineId("multi-fill-final-publish-continuation"),
         factory=OnlyPlanCursorCheckpointFailureStoreFactory(3),
-        config=only_virtual_multi_fill_config(fill_latency_ns=60_000_000_000),
+        config=only_virtual_multi_fill_config(tmp_path, fill_latency_ns=60_000_000_000),
     )

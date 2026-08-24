@@ -69,20 +69,6 @@ brokers:
     plugin: virtual
     extensions: {matching: {type: NEXT_BAR}, slippage: {type: NONE}}
 strategy:
-  class_path: examples.strategy.macd.strategy:OnlyMacdStrategy
-  config_path: examples.strategy.macd.config:OnlyMacdStrategyConfig
-  extensions: {strategy_id: macd-strategy, signal_factor_id: macd-signal, instrument_id: 600000.XSHG, trade_quantity: "1000", allow_reentry: true, max_entries: 2, exit_mode: FULL_AVAILABLE}
-factors:
-  - factor_id: macd-signal
-    factor_type: TIME_SERIES
-    type_id: examples.factor.macd_signal
-    semantic_version: "1"
-    class_path: examples.factor.time_series.macd_signal.factor:OnlyMacdSignalFactor
-    config_path: examples.factor.time_series.macd_signal.config:OnlyMacdSignalFactorConfig
-    required: true
-    subscriptions:
-      instrument_bars:
-        - {instrument_id: 600000.XSHG, bar_specification: {step: 1440, aggregation: TIME, price_type: LAST, source: EXTERNAL}, role: PRIMARY}
-    indicators:
-      - {indicator_id: macd-primary, type: MACD, parameters: {fast_period: 3, slow_period: 6, signal_period: 3, warmup_bars: 8}}
+  # Replace with the fingerprint returned by Freeze; it must exist in the configured Strategy Store.
+  fingerprint: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 output: {formats: [JSON]}

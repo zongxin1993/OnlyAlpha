@@ -23,7 +23,7 @@ from onlyalpha.config.models import (
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyReferenceDataConfig,
-    OnlyStrategyImportConfig,
+    OnlyStrategyReferenceConfig,
     OnlyUniverseConfig,
 )
 from onlyalpha.config.persistence import (
@@ -57,6 +57,6 @@ __all__ = [
     "OnlyRuntimeCheckpointConfig",
     "OnlyRuntimePersistenceBackend",
     "OnlyRuntimePersistenceConfig",
-    "OnlyStrategyImportConfig",
+    "OnlyStrategyReferenceConfig",
     "OnlyUniverseConfig",
 ]

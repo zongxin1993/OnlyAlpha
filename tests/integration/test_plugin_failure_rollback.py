@@ -3,9 +3,19 @@ from pathlib import Path
 from onlyalpha_test_plugin.broker import OnlyExternalTestBrokerGateway
 from onlyalpha_test_plugin.data_source import OnlyExternalTestDataSourceFactory, OnlyExternalTestHistoricalDataSource
 
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.plugin import OnlyPluginLifecycleState
+from tests.runtime_runner import only_migrate_cluster_to_strategy
+
+
+def _add(engine: OnlyEngine, root: Path) -> None:
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(
+            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), root
+        )
+    )
 
 
 def test_plugin_create_failure_is_structured_and_releases_engine_resources(tmp_path: Path, monkeypatch: object) -> None:
@@ -15,7 +25,7 @@ def test_plugin_create_failure_is_structured_and_releases_engine_resources(tmp_p
 
     monkeypatch.setattr(OnlyExternalTestDataSourceFactory, "create", fail_create)  # type: ignore[attr-defined]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("plugin-create-rollback"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster_external_plugins.yaml")
+    _add(engine, tmp_path)
     result = engine.run()
     assert result.status == "FAILED"
     assert "PLUGIN_CREATE_FAILED" in result.failures[0]
@@ -38,7 +48,7 @@ def test_plugin_connect_failure_closes_previously_initialized_resources(tmp_path
     monkeypatch.setattr(OnlyExternalTestBrokerGateway, "connect", fail_connect)  # type: ignore[attr-defined]
     monkeypatch.setattr(OnlyExternalTestHistoricalDataSource, "close", close_source)  # type: ignore[attr-defined]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("plugin-connect-rollback"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster_external_plugins.yaml")
+    _add(engine, tmp_path)
     result = engine.run()
     assert result.status == "FAILED"
     assert "PLUGIN_INITIALIZATION_FAILED" in result.failures[0]
@@ -53,7 +63,7 @@ def test_plugin_start_failure_rolls_back_initialized_resources(tmp_path: Path, m
 
     monkeypatch.setattr(OnlyExternalTestBrokerGateway, "start", fail_start)  # type: ignore[attr-defined]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("plugin-rollback"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster_external_plugins.yaml")
+    _add(engine, tmp_path)
     result = engine.run()
     assert result.status == "FAILED"
     assert "test-external-broker" in result.failures[0]
@@ -88,7 +98,7 @@ def test_plugin_stop_failure_is_structured_and_does_not_skip_cleanup(tmp_path: P
     monkeypatch.setattr(OnlyExternalTestHistoricalDataSource, "stop", stop_data)  # type: ignore[attr-defined]
     monkeypatch.setattr(OnlyExternalTestHistoricalDataSource, "close", close_data)  # type: ignore[attr-defined]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("plugin-stop-rollback"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster_external_plugins.yaml")
+    _add(engine, tmp_path)
     result = engine.run()
     assert result.status == "FAILED"
     assert "PLUGIN_STOP_FAILED" in result.failures[0]

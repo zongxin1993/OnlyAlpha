@@ -100,7 +100,15 @@ class OnlySimRuntimeFactory:
             market_inbound = OnlyMarketDataInboundQueue(streaming.inbound_queue_capacity)
             broker_inbound = OnlyBoundedBrokerInboundQueue(streaming.inbound_queue_capacity)
 
-            clusters = tuple(components.clusters.create(item, config) for item in config.clusters if item.enabled)
+            if request.user_data_root is None:
+                raise _OnlySimCompositionError(
+                    "STRATEGY_SEMANTIC_ROOT_REQUIRED",
+                    "SIM Strategy resolution requires the shared semantic root",
+                )
+            semantic_root = OnlyUserDataLayout(request.user_data_root).research_root
+            clusters = tuple(
+                components.clusters.create(item, config, semantic_root) for item in config.clusters if item.enabled
+            )
             if not clusters:
                 raise _OnlySimCompositionError(
                     "SIM_CLUSTER_REQUIRED",

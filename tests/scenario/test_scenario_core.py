@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.scenario import (
     OnlyMarketScenarioParser,
     OnlyMarketScenarioPlanner,
@@ -18,11 +20,24 @@ from onlyalpha.scenario import (
     OnlyScenarioFactType,
     only_scenario_fingerprint,
 )
+from onlyalpha.strategy import OnlyStrategyRevisionStore, OnlyStrategyUniverse
+from tests.strategy.p9_support import p9_strategy_case
+
+
+def _seed_scenario_strategy(root: Path) -> str:
+    case = p9_strategy_case(root / "research")
+    revision = replace(
+        case.revision,
+        universe=OnlyStrategyUniverse((OnlyInstrumentId.parse("TEST.XSHG"),)),
+    )
+    OnlyStrategyRevisionStore(root / "research").commit(revision)
+    return str(revision.strategy_fingerprint)
 
 
 def scenario_payload() -> dict[str, object]:
     return {
         "schema_version": "1",
+        "strategy_fingerprint": "a" * 64,
         "scenario": {"id": "GENERIC_T0_BASIC", "version": "1.0", "description": "T0 cash"},
         "runtime": {
             "mode": "BACKTEST",
@@ -143,13 +158,17 @@ def test_assertion_engine_only_compares_supplied_standard_facts() -> None:
 
 def test_scenario_runner_traverses_engine_and_is_deterministic(tmp_path: Path) -> None:
     payload = scenario_payload()
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    payload["strategy_fingerprint"] = _seed_scenario_strategy(first_root)
+    assert _seed_scenario_strategy(second_root) == payload["strategy_fingerprint"]
     second = deepcopy(payload["data"]["bars"][0])  # type: ignore[index]
     second.update({"ts_event": "2026-01-05T01:32:00Z", "ts_init": "2026-01-05T01:32:00Z", "sequence": 2})
     payload["data"]["bars"].append(second)  # type: ignore[index]
     scenario = OnlyMarketScenarioParser().parse(payload)
 
-    first = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / "first"))
-    second_run = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, tmp_path / "second"))
+    first = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, first_root))
+    second_run = OnlyMarketScenarioRunner().run(OnlyMarketScenarioRunRequest(scenario, second_root))
 
     assert first.status == second_run.status == "PASSED"
     assert first.result_fingerprint == second_run.result_fingerprint

@@ -14,7 +14,7 @@ def test_continuation_outbox_delivers_only_after_runtime_open(tmp_path: Path) ->
     failed = only_create_tail_failure(tmp_path, engine_id)
     runtime_id = failed.runtime_sessions[0].runtime_id
     engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine.add_cluster(_same_bar_config())
+    engine.add_cluster(_same_bar_config(tmp_path))
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)

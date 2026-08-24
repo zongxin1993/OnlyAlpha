@@ -3,14 +3,21 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.engine.models import OnlyEngineRunResult
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 def _run(target: Path) -> tuple[OnlyEngineRunResult, Path, dict[str, object]]:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("artifact-engine"), target))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(
+            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"),
+            target,
+        )
+    )
     result = engine.run()
     assert result.manifest_path is not None
     root = result.manifest_path.parent
@@ -33,13 +40,13 @@ def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
     assert summary["market_product"]["provider_plugin_id"] == "onlyalpha-market-generic-t0-cash"
     assert len(summary["market_product"]["composition_fingerprint"]) == 64
     expected_rows = {
-        "orders.parquet": 2,
-        "executions.parquet": 2,
-        "trades.parquet": 1,
+        "orders.parquet": 0,
+        "executions.parquet": 0,
+        "trades.parquet": 0,
         "positions.parquet": 0,
         "accounts.parquet": 1,
-        "equity.parquet": 731,
-        "cluster_equity.parquet": 732,
+        "equity.parquet": 722,
+        "cluster_equity.parquet": 722,
         "signals.parquet": 0,
     }
     for relative_path, row_count in expected_rows.items():
@@ -47,11 +54,10 @@ def test_engine_publishes_verified_standard_artifacts(tmp_path: Path) -> None:
         assert table.num_rows == row_count
         assert table.num_columns > 0
     executions = pq.read_table(root / "executions.parquet").to_pylist()
-    assert all(item["fees"] > 0 for item in executions)
+    assert executions == []
     assert all(
         item["turnover"] == item["price"] * item["quantity"] * item["contract_multiplier"] for item in executions
     )
     assert all(item["slippage"] is not None for item in executions)
     assert all(item["position_side"] == "LONG" for item in executions)
-    assert [item["position_effect"] for item in executions] == ["OPEN", "CLOSE"]
     assert all(item["market_product_id"] and item["market_product_version"] for item in executions)

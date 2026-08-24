@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyEngineId
@@ -10,8 +12,8 @@ from tests.integration.virtual_multi_fill_support import OnlyMultiFillFaultStore
 from tests.support.recovery_baselines import assert_recovery_equivalent, load_recovery_baseline
 
 
-def _add_configs(engine: OnlyEngine) -> None:
-    for config in _configs():
+def _add_configs(engine: OnlyEngine, user_data_root: Path) -> None:
+    for config in _configs(user_data_root):
         engine.add_cluster(config)
 
 
@@ -27,12 +29,12 @@ def test_multi_cluster_close_recovery_matches_baseline(tmp_path, fault) -> None:
             runtime_persistence_store_factory=OnlyMultiFillFaultStoreFactory(fault, fault_after=2)
         ),
     )
-    _add_configs(failed)
+    _add_configs(failed, tmp_path)
     failed_result = failed.run()
     assert failed_result.status == "FAILED"
 
     recovered = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
-    _add_configs(recovered)
+    _add_configs(recovered, tmp_path)
     recovered_result = recovered.run()
     assert recovered_result.status == "COMPLETED", recovered_result.failures
 
@@ -43,12 +45,12 @@ def test_multi_cluster_close_recovery_matches_baseline(tmp_path, fault) -> None:
 def test_completed_multi_cluster_close_checkpoint_restart_is_idempotent(tmp_path) -> None:  # type: ignore[no-untyped-def]
     engine_id = OnlyEngineId("multi-cluster-close-checkpoint")
     first = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
-    _add_configs(first)
+    _add_configs(first, tmp_path)
     first_result = first.run()
     assert first_result.status == "COMPLETED", first_result.failures
 
     restarted = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))
-    _add_configs(restarted)
+    _add_configs(restarted, tmp_path)
     restarted_result = restarted.run()
     assert restarted_result.status == "COMPLETED", restarted_result.failures
     assert only_backtest_business_projection(first_result.runtime_results[0]) == only_backtest_business_projection(

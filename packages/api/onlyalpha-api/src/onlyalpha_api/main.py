@@ -25,6 +25,7 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.plugin.discovery import only_discover_plugins
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
+from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.command.query import OnlyResearchRunQueryService
 from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
@@ -51,6 +52,7 @@ def _calculation_registry() -> OnlyCalculationRegistry:
         calculations,
         fail_fast=True,
     )
+    only_register_research_predicate_primitives(calculations)
     return calculations
 
 

@@ -56,7 +56,7 @@ class OnlyCheckpointWindowFaultFactory:
 
 @pytest.mark.parametrize("after_commit", (False, True))
 def test_audit_checkpoint_windows_replay_each_business_bar_once(tmp_path: Path, after_commit: bool) -> None:
-    config = _sqlite_config()
+    config = _sqlite_config(tmp_path)
     engine_id = OnlyEngineId(f"checkpoint-window-{after_commit}")
     failed = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
@@ -72,8 +72,9 @@ def test_audit_checkpoint_windows_replay_each_business_bar_once(tmp_path: Path, 
     recovered_result = recovered.run()
     assert recovered_result.status == "COMPLETED"
 
-    baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline.add_cluster(_sqlite_config(baseline_root))
     baseline_result = baseline.run()
     assert baseline_result.status == "COMPLETED"
     assert only_backtest_business_projection(recovered_result.runtime_results[0]) == only_backtest_business_projection(

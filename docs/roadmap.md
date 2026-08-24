@@ -2,7 +2,7 @@
 
 本文件只描述当前实现迁移到下一目标阶段的阶段边界、退出条件与非目标。当前事实以源码、正式测试、未被替代的 ADR 和产品认证为准；历史实现细节保存在 `docs/adr/`、`docs/reports/` 与 Git history，不在 Roadmap 中重复维护任务流水账。
 
-Runtime taxonomy 继续由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 冻结，多市场/异构 Runtime 拓扑由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 冻结，Live genesis/manual/liquidation 目标合同由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 冻结。长期 Strategy Product 语义、Research → Backtest → Sim → Live Promotion 与 Web/LLM Agent 参考目标见 [Target Strategy Product Architecture](strategy_product_architecture.md)；该目标存在不等于已经冻结 P8 之后的 milestone。
+Runtime taxonomy 继续由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 冻结，多市场/异构 Runtime 拓扑由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 冻结，Live genesis/manual/liquidation 目标合同由 [ADR 0081](adr/0081-live-genesis-manual-workload-and-liquidation-control.md) 冻结。Strategy Revision、Freeze、唯一执行路径与 Promotion Foundation 由 [ADR 0097](adr/0097-strategy-revision-freeze-and-promotion-authority.md) 冻结；更长期的 Web/LLM Agent 方向仍见 [Target Strategy Product Architecture](strategy_product_architecture.md)。
 
 ## 目标 Runtime taxonomy
 
@@ -20,14 +20,17 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ## 当前状态
 
 ```text
-Current Milestone: P8
-Milestone State: DONE / CERTIFIED
-Current Increment: P8.6 — DONE / CERTIFIED
+Current Milestone: P9
+Milestone State: IN_PROGRESS
+Current Increment: P9.0 — Strategy Revision & Promotion Foundation / IMPLEMENTED LOCALLY, GATES PENDING
 Latest Certified Milestone: P8 — DONE / CERTIFIED
+P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
+P7 Final Certification Run: 31986131977
+P7 Final Certification Verdict: ACCEPTED
 P8 Final Certification Subject: 88e616c52fb6c3085e7c64d73f174257bf2d002e
 P8 Final Certification Run: 32581861744
 P8 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: not frozen; re-plan from current Repository truth
+Next Semantic Direction: close P9.0 local gates, then exact-SHA certification before changing milestone status
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -740,11 +743,21 @@ P8 只有在以下条件同时满足时才能完结：
 
 ---
 
-## P8 以后
+## P9 — Production Trading Vertical
 
-**当前不冻结 P8 之后的阶段编号、任务或产品承诺。**
+P8 exact-SHA 认证后已从当时 Repository truth 重新规划 P9。P9.0 当前只冻结 Strategy Revision & Promotion Foundation，不把
+后续 Portfolio、Risk、Execution Profile、Live Broker 或 deployment permission 提前并入 Strategy。
 
-旧 Roadmap 中预先规划的 `P9 Live Runtime Foundation`、`P10 Multi-Market Product Expansion` 与“后续候选”列表已经撤销，不再作为工程任务承诺。P8 完成并取得 exact Final-SHA `ACCEPTED` 后，再重新阅读当时的 Repository、产品需求、运行经验与未解决风险，从第一性原理决定下一阶段。
+### P9.0 — Strategy Revision & Promotion Foundation
+
+状态：**IMPLEMENTED LOCALLY / CLOSURE GATES PENDING**。当前实现建立 canonical `strategy_fingerprint`、exact Market Input
+Contract、Research/TRADING implementation manifest 与 equivalence admission、唯一 Candidate Freeze、共享 P8 semantic namespace
+下的 immutable Strategy Store、PostgreSQL catalog/provenance/promotion schema、fingerprint-only Backtest/SIM composition、内部
+Revision Adapter、provider-neutral `StrategyDecision` 和 append-only Promotion chain。动态 Strategy import authority 已移除；旧
+`class_path/config_path/extensions` 显式失败。
+
+本状态不是 `DONE / CERTIFIED`。在完整 Task/Phase gate、版本 `0.9.0` 一致性和 exact Final-SHA remote certification 完成前，P9
+与 P9.0 均保持 `IN_PROGRESS`。
 
 ### 长期 Strategy Product 参考方向
 

@@ -5,6 +5,7 @@ from onlyalpha_test_plugin.broker import OnlyExternalTestBrokerGateway
 
 from onlyalpha.cluster.base import OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterManager
+from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.event.bus import OnlyEventCapacityError
@@ -12,12 +13,10 @@ from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase, OnlyRuntimeEventRouter
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from onlyalpha.runtime.runtime import OnlyRuntimeState
+from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from tests.integration.recovery_finalization_support import only_create_tail_failure
-from tests.integration.test_engine_recovery_same_bar_continuation import (
-    OnlyPositionTriggeredContinuationStrategy,
-    _same_bar_config,
-    _services,
-)
+from tests.integration.test_engine_recovery_same_bar_continuation import _same_bar_config, _services
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 
 def _event_types(runtime: object) -> tuple[str, ...]:
@@ -31,7 +30,11 @@ def test_plugin_start_failure_is_completely_silent_before_open(tmp_path: Path, m
 
     monkeypatch.setattr(OnlyExternalTestBrokerGateway, "start", fail_start)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-plugin-start"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster_external_plugins.yaml")
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(
+            OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster_external_plugins.yaml"), tmp_path
+        )
+    )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     with pytest.raises(Exception, match="TEST_PLUGIN_START_FAILURE"):
@@ -49,7 +52,9 @@ def test_router_open_failure_is_atomic_and_blocks_later_start_steps(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-router-open"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+    )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
 
@@ -76,7 +81,7 @@ def test_outbox_failure_stops_at_first_error_and_preserves_suffix(
     engine_id = OnlyEngineId(f"event-gate-outbox-{fail_on}")
     only_create_tail_failure(tmp_path, engine_id)
     engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine.add_cluster(_same_bar_config())
+    engine.add_cluster(_same_bar_config(tmp_path))
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime.runtime_id)
@@ -116,13 +121,13 @@ def test_outbox_failure_stops_at_first_error_and_preserves_suffix(
 def test_fresh_cluster_start_failure_occurs_after_bootstrap_acceptance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_start(self: OnlyPositionTriggeredContinuationStrategy) -> None:
+    def fail_start(self: OnlyRevisionStrategyAdapter) -> None:
         del self
         raise RuntimeError("TEST_CLUSTER_START_FAILURE")
 
-    monkeypatch.setattr(OnlyPositionTriggeredContinuationStrategy, "on_start", fail_start)
+    monkeypatch.setattr(OnlyRevisionStrategyAdapter, "on_start", fail_start)
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-cluster-start"), tmp_path), services=_services())
-    engine.add_cluster(_same_bar_config())
+    engine.add_cluster(_same_bar_config(tmp_path))
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     with pytest.raises(Exception, match="TEST_CLUSTER_START_FAILURE"):
@@ -148,7 +153,7 @@ def test_recovered_cluster_resume_failure_never_publishes_runtime_started(
 
     monkeypatch.setattr(OnlyClusterManager, "resume_recovered_all", fail_resume)
     engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine.add_cluster(_same_bar_config())
+    engine.add_cluster(_same_bar_config(tmp_path))
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
     with pytest.raises(Exception, match="TEST_CLUSTER_RESUME_FAILURE"):
@@ -164,7 +169,9 @@ def test_runtime_started_publication_failure_preserves_original_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("event-gate-lifecycle"), tmp_path))
-    engine.add_cluster_from_file("tests/fixtures/legacy_macd/cluster.json")
+    engine.add_cluster(
+        only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json"), tmp_path)
+    )
     engine.initialize()
     runtime = engine.runtime_sessions[0].runtime
 

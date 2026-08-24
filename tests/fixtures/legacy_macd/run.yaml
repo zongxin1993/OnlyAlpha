@@ -87,15 +87,7 @@ clusters:
       account_id: macd-backtest-demo-DEFAULT
       enabled: true
       strategy:
-          class_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategy
-          config_path: onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategyConfig
-          extensions:
-              strategy_id: macd-strategy
-              signal_factor_id: macd-signal
-              instrument_id: TESTETF.XSHG
-              trade_quantity: "1000"
-              allow_reentry: false
-              exit_mode: FULL_AVAILABLE
+          fingerprint: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       factors:
           - factor_id: macd-signal
             factor_type: TIME_SERIES

@@ -50,6 +50,7 @@ class OnlyMarketScenarioParser:
             "actions",
             "expectations",
             "extensions",
+            "strategy_fingerprint",
         }
     )
 
@@ -206,40 +207,10 @@ class OnlyMarketScenarioParser:
                 }
             ],
             "strategy": {
-                "class_path": "onlyalpha.scenario.action_strategy:OnlyScenarioActionStrategy",
-                "config_path": "onlyalpha.scenario.action_strategy:OnlyScenarioActionStrategyConfig",
-                "extensions": {
-                    "strategy_id": "scenario-action-strategy",
-                    "factor_id": "scenario-bar-factor",
-                    "actions": strategy_actions,
-                },
+                "fingerprint": self._string(root.get("strategy_fingerprint"), "$.strategy_fingerprint"),
             },
-            "factors": [
-                {
-                    "factor_id": "scenario-bar-factor",
-                    "factor_type": "TIME_SERIES",
-                    "type_id": "onlyalpha.scenario.factor.bar",
-                    "semantic_version": "1",
-                    "class_path": "onlyalpha.scenario.action_strategy:OnlyScenarioBarFactor",
-                    "config_path": "onlyalpha.scenario.action_strategy:OnlyScenarioBarFactorConfig",
-                    "required": True,
-                    "subscriptions": {
-                        "instrument_bars": [
-                            {
-                                "instrument_id": instrument_id,
-                                "bar_specification": {
-                                    "step": 1,
-                                    "aggregation": "TIME",
-                                    "price_type": "LAST",
-                                    "source": "EXTERNAL",
-                                },
-                                "role": "PRIMARY",
-                            }
-                        ]
-                    },
-                    "indicators": [],
-                }
-            ],
+            "factors": [],
+            "scenario_actions": strategy_actions,
         }
 
     def _bars(

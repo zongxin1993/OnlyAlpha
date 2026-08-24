@@ -33,7 +33,7 @@ from onlyalpha.config.models import (
     OnlyJsonMapping,
     OnlyJsonValue,
     OnlyReferenceDataConfig,
-    OnlyStrategyImportConfig,
+    OnlyStrategyReferenceConfig,
     OnlyStrategySubscriptionConfig,
     OnlySubscriptionRole,
     OnlyUniverseBarSubscriptionConfig,
@@ -563,10 +563,16 @@ class _OnlyClusterDocumentParser:
             "capital",
             "risk_profile_id",
             "metadata",
+            "scenario_actions",
         }
         if unknown_cluster:
             raise OnlyClusterConfigError(f"{path} UNKNOWN_FIELD: {sorted(unknown_cluster)[0]}")
         strategy = self._map(raw.get("strategy"), f"{path}.strategy")
+        if {"class_path", "config_path", "extensions"} & set(strategy):
+            raise OnlyClusterConfigError("LEGACY_STRATEGY_CONFIGURATION_UNSUPPORTED")
+        unknown_strategy = set(strategy) - {"fingerprint"}
+        if unknown_strategy:
+            raise OnlyClusterConfigError(f"{path}.strategy UNKNOWN_FIELD: {sorted(unknown_strategy)[0]}")
         metadata_raw = self._map(raw.get("metadata", {}), f"{path}.metadata")
         capital_raw = raw.get("capital")
         capital = None
@@ -605,11 +611,7 @@ class _OnlyClusterDocumentParser:
             OnlyClusterId(self._str(raw.get("cluster_id"), f"{path}.cluster_id")),
             OnlyAccountId(self._str(raw.get("account_id"), f"{path}.account_id")),
             self._bool(raw.get("enabled", True), f"{path}.enabled"),
-            OnlyStrategyImportConfig(
-                self._str(strategy.get("class_path"), f"{path}.strategy.class_path"),
-                self._str(strategy.get("config_path"), f"{path}.strategy.config_path"),
-                self._map(strategy.get("extensions", {}), f"{path}.strategy.extensions"),
-            ),
+            OnlyStrategyReferenceConfig(self._str(strategy.get("fingerprint"), f"{path}.strategy.fingerprint")),
             tuple(
                 self._factor(self._map(item, f"{path}.factors[{i}]"), f"{path}.factors[{i}]")
                 for i, item in enumerate(self._list(raw.get("factors", []), f"{path}.factors"))
@@ -619,6 +621,10 @@ class _OnlyClusterDocumentParser:
             if raw.get("risk_profile_id") is None
             else self._str(raw.get("risk_profile_id"), f"{path}.risk_profile_id"),
             MappingProxyType({k: self._str(v, f"{path}.metadata.{k}") for k, v in metadata_raw.items()}),
+            tuple(
+                self._map(item, f"{path}.scenario_actions[{index}]")
+                for index, item in enumerate(self._list(raw.get("scenario_actions", []), f"{path}.scenario_actions"))
+            ),
         )
 
     def _runtime_currency(self) -> OnlyCurrency:

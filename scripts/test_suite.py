@@ -25,6 +25,7 @@ WORKSPACE_TESTS = (
 
 
 class OnlyTestLane(StrEnum):
+    STRATEGY = "strategy"
     CALCULATION = "calculation"
     RESEARCH_DEFINITION = "research-definition"
     RESEARCH_CALCULATION = "research-calculation"
@@ -74,6 +75,16 @@ class Lane:
 
 
 LANES = {
+    OnlyTestLane.STRATEGY: Lane(
+        (
+            "tests/strategy",
+            "tests/architecture/test_p9_strategy_authority.py",
+            "tests/config/test_run_config.py",
+        ),
+        "not external",
+        "2",
+        "worksteal",
+    ),
     OnlyTestLane.CALCULATION: Lane(
         (
             "tests/calculation",
@@ -354,6 +365,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.STRATEGY,
     OnlyTestLane.RESEARCH_DEFINITION,
     OnlyTestLane.RESEARCH_SPECIFICATION,
     OnlyTestLane.RESEARCH_RUN,

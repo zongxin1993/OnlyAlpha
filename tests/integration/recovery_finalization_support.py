@@ -87,6 +87,6 @@ def only_recovery_services(factory: object | None = None):  # type: ignore[no-un
 
 def only_create_tail_failure(tmp_path: Path, engine_id: OnlyEngineId) -> OnlyEngine:
     engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services(with_fault=True))
-    engine.add_cluster(_same_bar_config())
+    engine.add_cluster(_same_bar_config(tmp_path))
     assert engine.run().status == "FAILED"
     return engine

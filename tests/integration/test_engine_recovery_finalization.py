@@ -9,7 +9,7 @@ def test_engine_recovery_requires_verified_finalization_before_running(tmp_path)
     engine_id = OnlyEngineId("recovery-finalization")
     only_create_tail_failure(tmp_path, engine_id)
     recovered = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    recovered.add_cluster(_same_bar_config())
+    recovered.add_cluster(_same_bar_config(tmp_path))
     result = recovered.run()
     assert result.status == "COMPLETED", result.failures
     runtime = recovered.runtime_sessions[0].runtime

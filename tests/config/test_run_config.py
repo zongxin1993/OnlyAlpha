@@ -15,6 +15,17 @@ def test_cluster_document_round_trip_preserves_typed_configuration() -> None:
     assert restored.runtime == config.runtime
     assert restored.reference_data == config.reference_data
     assert restored.cluster == config.cluster
+    assert restored.strategy.fingerprint == "a" * 64
+
+
+@pytest.mark.parametrize("legacy_field", ("class_path", "config_path", "extensions"))
+def test_legacy_strategy_configuration_is_rejected(legacy_field: str) -> None:
+    baseline = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
+    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["strategy"][legacy_field] = "legacy"
+
+    with pytest.raises(OnlyClusterConfigError, match="LEGACY_STRATEGY_CONFIGURATION_UNSUPPORTED"):
+        OnlyClusterRunConfig.from_mapping(payload)
 
 
 def test_common_parser_accepts_every_runtime_type_without_reading_extensions() -> None:

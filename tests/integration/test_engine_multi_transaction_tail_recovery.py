@@ -1,15 +1,7 @@
-import json
-from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
-from onlyalpha_test_plugin.macd_plugin import (
-    OnlyTestMacdFactorSnapshot,
-    OnlyTestMacdStrategy,
-    OnlyTestMacdStrategyConfig,
-)
-
 from onlyalpha.config import OnlyClusterRunConfig, OnlyRuntimePersistenceConfig
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
@@ -20,78 +12,12 @@ from onlyalpha.runtime.persistence.factory import (
     OnlyRuntimePersistenceStoreCreateRequest,
 )
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
-from onlyalpha.strategy.context import OnlyStrategyBarContext
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from tests.execution.support.execution_fault_injection import (
     OnlyFailOnceRuntimePersistenceStore,
     OnlyTestRuntimePersistenceFault,
 )
 from tests.integration.test_engine_continuous_restart import _sqlite_config
-
-
-class OnlyMultiOrderCheckpointStrategy(OnlyTestMacdStrategy):
-    def __init__(self, config: OnlyTestMacdStrategyConfig) -> None:
-        super().__init__(config)
-        self._second_order_submitted = False
-        self._continuation_order_submitted = False
-        self._new_transaction_submitted = False
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        previous = self._request_sequence
-        super().on_bar(context)
-        if self._request_sequence == previous + 1 and not self._second_order_submitted:
-            factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-            assert self.config.trade_quantity is not None
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "GOLDEN_CROSS_SECOND")
-            self._second_order_submitted = True
-        if (
-            self._callback_count == 30
-            and not self._continuation_order_submitted
-            and not context.strategy.orders.list_open()
-        ):
-            factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-            assert self.config.instrument_id is not None
-            allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-            assert allocation is not None
-            self._submit(
-                context,
-                OnlyOrderSide.SELL,
-                allocation.available_quantity,
-                factor,
-                "CONTINUATION_ORDER",
-            )
-            self._continuation_order_submitted = True
-        if (
-            self._callback_count == 35
-            and not self._new_transaction_submitted
-            and not context.strategy.orders.list_open()
-        ):
-            assert self.config.instrument_id is not None
-            allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-            if allocation is not None and allocation.total_quantity.value > 0:
-                return
-            factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-            assert self.config.trade_quantity is not None
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "POST_RECOVERY_BUY")
-            self._new_transaction_submitted = True
-
-    def capture_checkpoint(self) -> object:
-        parent = super().capture_checkpoint()
-        assert isinstance(parent, dict)
-        return {
-            **parent,
-            "continuation_order_submitted": self._continuation_order_submitted,
-            "new_transaction_submitted": self._new_transaction_submitted,
-            "second_order_submitted": self._second_order_submitted,
-        }
-
-    def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, Mapping):
-            raise ValueError("multi-order Strategy checkpoint must be an object")
-        super().restore_checkpoint(payload)
-        self._continuation_order_submitted = bool(payload["continuation_order_submitted"])
-        self._new_transaction_submitted = bool(payload["new_transaction_submitted"])
-        self._second_order_submitted = bool(payload["second_order_submitted"])
 
 
 class OnlySecondCommitFaultFactory:
@@ -110,18 +36,27 @@ class OnlySecondCommitFaultFactory:
         )
 
 
-def _multi_order_config() -> OnlyClusterRunConfig:
-    baseline = _sqlite_config()
-    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
-    payload["runtime"]["end_time"] = "2026-01-05T02:30:00Z"
-    payload["strategy"]["class_path"] = (
-        "tests.integration.test_engine_multi_transaction_tail_recovery:OnlyMultiOrderCheckpointStrategy"
+def _multi_order_config(user_data_root: Path) -> OnlyClusterRunConfig:
+    baseline = _sqlite_config(user_data_root)
+    actions = (
+        {**dict(baseline.cluster.scenario_actions[0]), "action_id": "BUY_1", "sequence": 9},
+        {**dict(baseline.cluster.scenario_actions[0]), "action_id": "BUY_2", "sequence": 10},
+        {
+            **dict(baseline.cluster.scenario_actions[0]),
+            "action_id": "SELL_ALL",
+            "sequence": 15,
+            "side": "SELL",
+            "quantity": "200",
+            "price": "1.00",
+            "offset": "CLOSE",
+        },
+        {**dict(baseline.cluster.scenario_actions[0]), "action_id": "POST_RECOVERY_BUY", "sequence": 20},
     )
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    return replace(baseline, cluster=replace(baseline.cluster, scenario_actions=actions))
 
 
 def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_path: Path) -> None:
-    config = _multi_order_config()
+    config = _multi_order_config(tmp_path)
     engine_id = OnlyEngineId("multi-tail-restart")
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
@@ -142,8 +77,8 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     assert tuple(item.execution_sequence for item in tail) == (1, 2, 3, 4)
     assert tuple(item.operation_kind for item in tail) == (
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
-        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
     )
     assert tuple(item.projection_ready for item in tail) == (True, True, True, False)
@@ -167,12 +102,13 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
         replay_errors,
     )
     diagnostic = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
-    assert diagnostic.rehydrated_transaction_count == 1
+    assert diagnostic.rehydrated_transaction_count == 0
     assert diagnostic.recovered_transaction_count == 1
     assert len(recovered.runtime_results[0].trades) > 2
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline_engine.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline_engine.add_cluster(_multi_order_config(baseline_root))
     baseline = baseline_engine.run()
     assert baseline.status == "COMPLETED"
     assert recovered.runtime_results[0].trades == baseline.runtime_results[0].trades

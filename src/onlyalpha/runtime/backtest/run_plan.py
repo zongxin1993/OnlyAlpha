@@ -168,7 +168,7 @@ class OnlyBacktestRunPlan:
                         runtime.strategy_ledger_manager.valuation_count(ledger.key),
                         ledger.quality_flags,
                     ),
-                    dict(cluster.strategy.build_result_extension()),
+                    dict(cluster.build_result_extension()),
                     tuple(dict(item.to_dict()) for item in self._factor_snapshots(cluster)),
                     tuple(dict(item.to_dict()) for item in cluster.indicator_snapshots),
                 )

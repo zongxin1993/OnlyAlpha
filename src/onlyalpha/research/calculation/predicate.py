@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
@@ -28,6 +30,7 @@ from onlyalpha.calculation import (
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
 )
+from onlyalpha.calculation.implementation import only_python_implementation_manifest
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
 
 PREDICATE_VALUE_SEMANTIC_TYPE = "PREDICATE_VALUE"
@@ -110,6 +113,41 @@ class _Backend:
         raise ValueError(f"unknown internal Predicate primitive: {name}")
 
 
+class _TradingBackendFactory:
+    def create(self, definition: OnlyCalculationDefinition, request: object) -> object:
+        del request
+        return _TradingBackend(definition)
+
+
+@dataclass(frozen=True, slots=True)
+class _TradingBackend:
+    definition: OnlyCalculationDefinition
+
+    def update(self, inputs: Mapping[str, object]) -> Mapping[str, object]:
+        name = self.definition.type_id.removeprefix(f"{_PREFIX}.")
+        if name.startswith("compare."):
+            _, operator, _, layout = name.split(".")
+            left = inputs["left"]
+            right = inputs["right"] if layout == "refs" else self.definition.parameters["literal"]
+            if layout != "refs" and bool(self.definition.parameters["literal_left"]):
+                left, right = right, left
+            if left is None or right is None:
+                return {"value": None}
+            return {"value": _compare(operator, left, right)}
+        if name == "boolean.and":
+            left, right = inputs["left"], inputs["right"]
+            return {"value": False if left is False or right is False else (None if None in (left, right) else True)}
+        if name == "boolean.or":
+            left, right = inputs["left"], inputs["right"]
+            return {"value": True if left is True or right is True else (None if None in (left, right) else False)}
+        if name == "boolean.not":
+            value = inputs["value"]
+            return {"value": None if value is None else not bool(value)}
+        if name.startswith("terminal."):
+            return {"value": inputs["value"]}
+        raise ValueError(f"unknown internal Predicate primitive: {name}")
+
+
 def _registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     definitions: list[OnlyCalculationTypeDefinition] = []
     numeric = (OnlyCalculationDataType.DECIMAL, OnlyCalculationDataType.INTEGER)
@@ -153,10 +191,81 @@ def _registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             )
         )
     backend = _Backend()
-    return tuple(
-        OnlyCalculationBackendRegistration(item, OnlyCalculationBackendKind.RESEARCH, backend, _Resolver(item))
-        for item in definitions
-    )
+    trading = _TradingBackendFactory()
+    package_root = Path(__file__).resolve().parent
+    registrations: list[OnlyCalculationBackendRegistration] = []
+    for item in definitions:
+        reference = OnlyCalculationTypeReference(item.kind, item.type_id, item.semantic_version)
+        resolver = _Resolver(item)
+        registrations.extend(
+            (
+                OnlyCalculationBackendRegistration(
+                    item,
+                    OnlyCalculationBackendKind.RESEARCH,
+                    backend,
+                    resolver,
+                    only_python_implementation_manifest(
+                        calculation_type_reference=reference,
+                        backend_kind=OnlyCalculationBackendKind.RESEARCH,
+                        entrypoint_identity="onlyalpha.research.calculation.predicate:_Backend",
+                        package_root=package_root,
+                        resource_paths=("predicate.py",),
+                    ),
+                ),
+                OnlyCalculationBackendRegistration(
+                    item,
+                    OnlyCalculationBackendKind.TRADING,
+                    trading,
+                    resolver,
+                    only_python_implementation_manifest(
+                        calculation_type_reference=reference,
+                        backend_kind=OnlyCalculationBackendKind.TRADING,
+                        entrypoint_identity="onlyalpha.research.calculation.predicate:_TradingBackendFactory",
+                        package_root=package_root,
+                        resource_paths=("predicate.py",),
+                    ),
+                ),
+            )
+        )
+    return tuple(registrations)
+
+
+def _compare(operator: str, left: object, right: object) -> bool:
+    if operator == "eq":
+        return left == right
+    if operator == "ne":
+        return left != right
+    if isinstance(left, Decimal) and isinstance(right, Decimal):
+        return _ordered_decimal(operator, left, right)
+    if isinstance(left, int) and not isinstance(left, bool) and isinstance(right, int) and not isinstance(right, bool):
+        return _ordered_int(operator, left, right)
+    if isinstance(left, str) and isinstance(right, str):
+        return _ordered_str(operator, left, right)
+    raise TypeError("Predicate ordered operands must have the same admitted scalar type")
+
+
+def _ordered_decimal(operator: str, first: Decimal, second: Decimal) -> bool:
+    return _ordered(operator, first < second, first <= second, first > second, first >= second)
+
+
+def _ordered_int(operator: str, first: int, second: int) -> bool:
+    return _ordered(operator, first < second, first <= second, first > second, first >= second)
+
+
+def _ordered_str(operator: str, first: str, second: str) -> bool:
+    return _ordered(operator, first < second, first <= second, first > second, first >= second)
+
+
+def _ordered(operator: str, less: bool, less_equal: bool, greater: bool, greater_equal: bool) -> bool:
+    if operator == "lt":
+        return less
+    if operator == "le":
+        return less_equal
+    if operator == "gt":
+        return greater
+    if operator == "ge":
+        return greater_equal
+    raise ValueError(f"unknown comparison operator: {operator}")
 
 
 def _comparison(data_type: OnlyCalculationDataType, operator: str, *, refs: bool) -> OnlyCalculationTypeDefinition:

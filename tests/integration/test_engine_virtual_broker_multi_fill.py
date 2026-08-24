@@ -14,7 +14,7 @@ from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill
 
 def test_engine_runs_300_400_300_as_three_formal_transactions(tmp_path) -> None:  # type: ignore[no-untyped-def]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("virtual-multi-fill"), tmp_path))
-    engine.add_cluster(only_virtual_multi_fill_config())
+    engine.add_cluster(only_virtual_multi_fill_config(tmp_path))
     result = engine.run()
     assert result.status == "COMPLETED", result.failures
     runtime = engine.runtime_sessions[0].runtime

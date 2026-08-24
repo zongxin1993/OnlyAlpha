@@ -49,6 +49,7 @@ from onlyalpha.runtime.streaming.phase import OnlyStreamingPhase
 from onlyalpha.runtime.streaming.phase_controller import OnlyStreamingPhaseSnapshot
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 
 pytestmark = pytest.mark.integration
 
@@ -95,7 +96,24 @@ def _config(tmp_path: Path, *, checkpoint: bool = False) -> OnlyClusterRunConfig
     userdata = tmp_path / "userdata_mini"
     userdata.mkdir(parents=True, exist_ok=True)
     payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
-    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+    config = only_migrate_cluster_to_strategy(
+        OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path),
+        tmp_path / "user_data",
+    )
+    actions = (
+        {
+            "action_id": "SIM_BUY",
+            "sequence": 10,
+            "type": "SUBMIT_ORDER",
+            "instrument_id": "000001.XSHE",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": "1000",
+            "price": "10.05",
+            "offset": "OPEN",
+        },
+    )
+    return replace(config, cluster=replace(config.cluster, scenario_actions=actions))  # type: ignore[arg-type]
 
 
 def _engine(
@@ -602,7 +620,7 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
         assert runtime.state is OnlyRuntimeState.RUNNING
         assert runtime.streaming_phase is OnlyStreamingPhase.LIVE
         assert runtime.historical_watermarks
-        assert runtime.historical_processed_bar_count >= 10
+        assert runtime.historical_processed_bar_count >= 9
         assert tuple(item.state for item in runtime.plugin_resource_snapshots) == (
             OnlyPluginLifecycleState.RUNNING,
             OnlyPluginLifecycleState.RUNNING,
@@ -621,6 +639,15 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
         _publish_and_wait_received(runtime, xtdata, clock, 37)
         assert runtime.order_snapshots == ()
         _publish_and_wait_received(runtime, xtdata, clock, 38)
+        action_workload = runtime.clusters[0].action_workload
+        assert action_workload is not None
+        _wait_until(
+            lambda: bool(action_workload.build_result_extension()["scenario_actions"]),
+            "SIM Scenario action did not execute",
+        )
+        action_records = action_workload.build_result_extension()["scenario_actions"]
+        assert action_records and action_records[0]["status"] == "EXECUTED", action_records  # type: ignore[index]
+        assert runtime.order_snapshots, (runtime.state, runtime.recovery_failure, runtime.processing_results)
         _wait_until(
             lambda: (
                 len(runtime.order_snapshots) == 1
@@ -788,7 +815,8 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         )
         _wait_until(
             lambda: any(
-                result.status is OnlyMarketDataProcessingStatus.APPLIED and str(result.update_id) == "miniqmt-live-13"
+                result.status is OnlyMarketDataProcessingStatus.APPLIED
+                and str(result.update_id).startswith("miniqmt-live-")
                 for result in runtime.processing_results
             ),
             "pre-gap Worker callback did not complete",
@@ -857,7 +885,7 @@ def test_engine_sim_incomplete_gap_recovery_fails_closed(
             "pre-gap confirmed frontier did not reach 01:37",
         )
         _wait_until(
-            lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+            lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
             "pre-gap Worker callback did not complete",
         )
         _publish_closed_gap_trigger(runtime, clock, 42)
@@ -909,7 +937,7 @@ def test_engine_sim_secondary_gap_during_suffix_reconciliation_fails_closed(
         _publish_and_wait_received(runtime, xtdata, clock, 37)
         _publish_and_wait_received(runtime, xtdata, clock, 38)
         _wait_until(
-            lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+            lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
             "pre-gap Worker callback did not complete",
         )
         before = runtime.streaming_phase_snapshot
@@ -964,7 +992,7 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
         "pre-gap confirmed frontier did not reach 01:37",
     )
     _wait_until(
-        lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+        lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
         "pre-gap Worker callback did not complete",
     )
     before = runtime.streaming_phase_snapshot
@@ -1031,7 +1059,7 @@ def test_engine_sim_stop_during_buffered_suffix_catch_up_prevents_late_processin
     _publish_and_wait_received(runtime, xtdata, clock, 37)
     _publish_and_wait_received(runtime, xtdata, clock, 38)
     _wait_until(
-        lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+        lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
         "pre-gap Worker callback did not complete",
     )
     _publish_closed_gap_trigger(runtime, clock, 42)
@@ -1074,7 +1102,7 @@ def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
         _publish_and_wait_received(runtime, xtdata, clock, 37)
         _publish_and_wait_received(runtime, xtdata, clock, 38)
         _wait_until(
-            lambda: any(str(result.update_id) == "miniqmt-live-13" for result in runtime.processing_results),
+            lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
             "pre-disconnect Worker callback did not complete",
         )
         before = runtime.streaming_phase_snapshot

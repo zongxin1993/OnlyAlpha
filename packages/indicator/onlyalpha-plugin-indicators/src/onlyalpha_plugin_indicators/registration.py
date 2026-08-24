@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -14,6 +15,7 @@ from onlyalpha.calculation.definition import (
     OnlyCalculationKind,
     OnlyCalculationReference,
     OnlyCalculationTypeDefinition,
+    OnlyCalculationTypeReference,
     OnlyInputDefinition,
     OnlyMissingValuePolicy,
     OnlyNumericDefinition,
@@ -24,6 +26,10 @@ from onlyalpha.calculation.definition import (
     OnlyPreReadyOutput,
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
+)
+from onlyalpha.calculation.implementation import (
+    OnlyCalculationImplementationManifest,
+    only_python_implementation_manifest,
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha.domain.market import OnlyBarType
@@ -282,18 +288,57 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
     def resolver_for(item: OnlyCalculationTypeDefinition) -> OnlyOfficialIndicatorDefinitionResolver:
         return next(resolver for resolver in resolvers if resolver.type_definition is item)
 
+    package_root = Path(__file__).resolve().parent
+
+    def manifest(
+        item: OnlyCalculationTypeDefinition,
+        backend: OnlyCalculationBackendKind,
+        entrypoint: str,
+        resources: tuple[str, ...],
+    ) -> OnlyCalculationImplementationManifest:
+        return only_python_implementation_manifest(
+            calculation_type_reference=OnlyCalculationTypeReference(item.kind, item.type_id, item.semantic_version),
+            backend_kind=backend,
+            entrypoint_identity=entrypoint,
+            package_root=package_root,
+            resource_paths=resources,
+        )
+
     trading = tuple(
         OnlyCalculationBackendRegistration(
             item,
             OnlyCalculationBackendKind.TRADING,
             OnlyMacdBackendFactory(item) if item.type_id.endswith(".macd") else OnlyStandardBackendFactory(item),
             resolver_for(item),
+            manifest(
+                item,
+                OnlyCalculationBackendKind.TRADING,
+                (
+                    "onlyalpha_plugin_indicators.registration:OnlyMacdBackendFactory"
+                    if item.type_id.endswith(".macd")
+                    else "onlyalpha_plugin_indicators.registration:OnlyStandardBackendFactory"
+                ),
+                (
+                    ("registration.py", "macd.py", "snapshots.py")
+                    if item.type_id.endswith(".macd")
+                    else ("registration.py", "standard.py", "snapshots.py")
+                ),
+            ),
         )
         for item in (*TYPES, ATR_V2)
     )
     research = tuple(
         OnlyCalculationBackendRegistration(
-            item, OnlyCalculationBackendKind.RESEARCH, OnlyOfficialResearchIndicatorBackend(), resolver_for(item)
+            item,
+            OnlyCalculationBackendKind.RESEARCH,
+            OnlyOfficialResearchIndicatorBackend(),
+            resolver_for(item),
+            manifest(
+                item,
+                OnlyCalculationBackendKind.RESEARCH,
+                "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
+                ("registration.py", "research.py"),
+            ),
         )
         for item in (*TYPES[:3], *TYPES[4:], ATR_V2)
     )

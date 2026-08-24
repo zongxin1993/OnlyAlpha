@@ -195,14 +195,14 @@ class OnlyStrategySubscriptionConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyStrategyImportConfig:
-    strategy_path: str
-    config_path: str
-    extensions: OnlyJsonMapping
+class OnlyStrategyReferenceConfig:
+    """Runtime reference to the sole immutable Strategy authority."""
+
+    fingerprint: str
 
     def __post_init__(self) -> None:
-        _validate_import_path(self.strategy_path, "strategy_path")
-        _validate_import_path(self.config_path, "config_path")
+        if len(self.fingerprint) != 64 or any(character not in "0123456789abcdef" for character in self.fingerprint):
+            raise OnlyConfigError("STRATEGY_FINGERPRINT_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,11 +237,12 @@ class OnlyClusterImportConfig:
     cluster_id: OnlyClusterId
     account_id: OnlyAccountId
     enabled: bool
-    strategy: OnlyStrategyImportConfig
+    strategy: OnlyStrategyReferenceConfig
     factors: tuple[OnlyFactorImportConfig, ...]
     capital: OnlyClusterCapitalConfig | None = None
     risk_profile_id: str | None = None
     metadata: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    scenario_actions: tuple[OnlyJsonMapping, ...] = ()
 
 
 def _load_document(path: Path) -> OnlyJsonMapping:

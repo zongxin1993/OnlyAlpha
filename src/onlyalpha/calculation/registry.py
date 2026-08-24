@@ -15,6 +15,7 @@ from onlyalpha.calculation.definition import (
     OnlyCalculationTypeDefinition,
     OnlyCalculationTypeReference,
 )
+from onlyalpha.calculation.implementation import OnlyCalculationImplementationManifest
 
 
 @runtime_checkable
@@ -47,6 +48,7 @@ class OnlyCalculationBackendRegistration:
     backend: OnlyCalculationBackendKind
     provider: object
     definition_resolver: OnlyCalculationDefinitionResolver | None = None
+    implementation_manifest: OnlyCalculationImplementationManifest | None = None
 
 
 class OnlyCalculationRegistry:
@@ -71,6 +73,16 @@ class OnlyCalculationRegistry:
             raise ValueError(f"calculation type definition differs across backends: {semantic_key}")
         if registration.provider is None:
             raise TypeError("calculation backend provider is required")
+        manifest = registration.implementation_manifest
+        if manifest is not None:
+            reference = manifest.calculation_type_reference
+            if (
+                reference.kind is not definition.kind
+                or reference.type_id != definition.type_id
+                or reference.semantic_version != definition.semantic_version
+                or manifest.backend_kind is not registration.backend
+            ):
+                raise ValueError(f"calculation implementation manifest mismatch: {key}")
         resolver = registration.definition_resolver
         if resolver is not None:
             if not isinstance(resolver, OnlyCalculationDefinitionResolver):

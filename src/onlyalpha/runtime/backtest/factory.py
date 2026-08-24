@@ -12,7 +12,6 @@ from pathlib import Path
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
-from onlyalpha.config import OnlyRuntimeAssemblyPlan
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.models import OnlyHistoricalBarRequest, OnlyHistoricalDataRange
 from onlyalpha.domain.enums import OnlyRuntimeMode
@@ -45,6 +44,8 @@ from onlyalpha.runtime.persistence.factory import (
 from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
+from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
+from onlyalpha.strategy.store import OnlyStrategyRevisionStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,7 +141,12 @@ class OnlyBacktestRuntimeFactory:
                     request.market_product.composition_identity.fingerprint,
                 )
             )
-            clusters = tuple(components.clusters.create(item, config) for item in config.clusters if item.enabled)
+            if request.user_data_root is None:
+                raise ValueError("STRATEGY_SEMANTIC_ROOT_REQUIRED")
+            semantic_root = OnlyUserDataLayout(request.user_data_root).research_root
+            clusters = tuple(
+                components.clusters.create(item, config, semantic_root) for item in config.clusters if item.enabled
+            )
             if not clusters:
                 raise ValueError("product Backtest requires at least one enabled Cluster")
             bar_types = frozenset(
@@ -282,7 +288,7 @@ class OnlyBacktestRuntimeFactory:
             queue_policy=runtime_config.event_queue_policy,
         )
         queue = OnlyBoundedBrokerInboundQueue(runtime_config.event_capacity)
-        bar_types = self._configured_bar_types(config)
+        bar_types = self._configured_bar_types(request)
         data_factory = components.data_sources.resolve(source_common.plugin_id)
         if config.runtime.persistence.checkpoint.enabled:
             data_checkpoint = self._require_checkpoint_capability(data_factory.descriptor.capabilities, "DataSource")
@@ -371,21 +377,29 @@ class OnlyBacktestRuntimeFactory:
         return capability
 
     @staticmethod
-    def _configured_bar_types(config: OnlyRuntimeAssemblyPlan) -> dict[OnlyInstrumentId, OnlyBarType]:
-        clusters = config.clusters
+    def _configured_bar_types(request: OnlyRuntimeBuildRequest) -> dict[OnlyInstrumentId, OnlyBarType]:
+        config = request.config
+        components = request.components
+        if not isinstance(components, OnlyComponentFactoryRegistries):
+            raise TypeError("Backtest factory requires OnlyComponentFactoryRegistries")
+        if request.user_data_root is None:
+            raise ValueError("STRATEGY_SEMANTIC_ROOT_REQUIRED")
+        resolver = OnlyStrategyExecutionResolver(
+            OnlyStrategyRevisionStore(OnlyUserDataLayout(request.user_data_root).research_root),
+            components.calculations,
+        )
         result: dict[OnlyInstrumentId, OnlyBarType] = {}
-        for cluster in clusters:
-            for factor in cluster.factors:
-                for instrument_subscription in factor.subscriptions.instrument_bars:
-                    result[instrument_subscription.instrument_id] = (
-                        instrument_subscription.bar_specification.to_bar_type(instrument_subscription.instrument_id)
-                    )
-                for universe_subscription in factor.subscriptions.universe_bars:
-                    universe = next(
-                        item for item in config.universes if item.universe_id == universe_subscription.universe_id
-                    )
-                    for instrument_id in universe.instrument_ids:
-                        result[instrument_id] = universe_subscription.bar_specification.to_bar_type(instrument_id)
+        for cluster in config.clusters:
+            if not cluster.enabled:
+                continue
+            revision = resolver.resolve(cluster.strategy.fingerprint).revision
+            contract = revision.market_input_contract
+            for instrument_id in revision.universe.instruments:
+                bar_type = OnlyBarType(instrument_id, contract.bar_specification, contract.aggregation_source)
+                existing = result.get(instrument_id)
+                if existing is not None and existing != bar_type:
+                    raise ValueError("Strategy Market Input Contracts conflict for one instrument")
+                result[instrument_id] = bar_type
         return result
 
     @staticmethod

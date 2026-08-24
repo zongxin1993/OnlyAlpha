@@ -7,10 +7,11 @@ from tests.integration.virtual_multi_fill_support import (
     OnlyMultiFillFaultStoreFactory,
     only_virtual_multi_fill_config,
 )
+from tests.runtime_runner import only_copy_cluster_strategy_revision
 
 
 def test_multi_fill_a_b_c_restart_matches_no_fault_baseline(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    config = only_virtual_multi_fill_config()
+    config = only_virtual_multi_fill_config(tmp_path)
     engine_id = OnlyEngineId("multi-fill-three-stage")
     fault_factory = OnlyMultiFillFaultStoreFactory(OnlyTestRuntimePersistenceFault.AFTER_COMMIT)
     engine_a = OnlyEngine(
@@ -33,8 +34,9 @@ def test_multi_fill_a_b_c_restart_matches_no_fault_baseline(tmp_path) -> None:  
     engine_c.add_cluster(config)
     recovered = engine_c.run()
     assert recovered.status == "COMPLETED", recovered.failures
-    baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline.add_cluster(only_copy_cluster_strategy_revision(config, tmp_path, baseline_root))
     expected = baseline.run()
     assert expected.status == "COMPLETED", expected.failures
     assert recovered.runtime_results[0].result_fingerprint == expected.runtime_results[0].result_fingerprint

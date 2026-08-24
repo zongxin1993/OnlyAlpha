@@ -4,7 +4,7 @@ from pathlib import Path
 from onlyalpha.cluster.base import OnlyCluster
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.market_data.dispatcher import OnlyClusterBarSubscription
-from onlyalpha.strategy.base import OnlyStrategy
+from onlyalpha.strategy import OnlyStrategyFingerprint
 
 
 def test_removed_legacy_strategy_indicator_ownership_paths_do_not_return() -> None:
@@ -29,12 +29,11 @@ def test_bar_subscription_has_no_indicator_ids_and_runtime_factory_is_algorithm_
     assert "register_indicator" not in source
 
 
-def test_config_and_product_model_are_cluster_strategy_factor_indicator() -> None:
+def test_config_uses_strategy_fingerprint_while_legacy_factor_config_is_not_strategy_authority() -> None:
     config = OnlyClusterRunConfig.load("tests/fixtures/legacy_macd/cluster.json")
     cluster = config.cluster
-    assert cluster.strategy.strategy_path.endswith(":OnlyTestMacdStrategy")
+    assert OnlyStrategyFingerprint(cluster.strategy.fingerprint).value == cluster.strategy.fingerprint
     assert len(cluster.factors) == 1
     assert cluster.factors[0].factor_path.endswith(":OnlyTestMacdFactor")
     assert [str(item.indicator_type) for item in cluster.factors[0].indicators] == ["MACD"]
     assert not issubclass(type(cluster.strategy), OnlyCluster)
-    assert not issubclass(OnlyStrategy, OnlyCluster)

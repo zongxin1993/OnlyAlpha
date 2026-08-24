@@ -66,7 +66,7 @@ def test_recovery_suppresses_direct_categories_and_delivers_only_durable_transac
     )
 
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine_b.add_cluster(_same_bar_config())
+    engine_b.add_cluster(_same_bar_config(tmp_path))
     engine_b.initialize()
     runtime = engine_b.runtime_sessions[0].runtime
     snapshot = runtime.event_gate_snapshot

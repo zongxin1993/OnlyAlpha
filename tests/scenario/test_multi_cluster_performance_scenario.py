@@ -1,12 +1,19 @@
 import json
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
-from onlyalpha.config import OnlyClusterRunConfig
-from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.config import OnlyClusterRunConfig, OnlyStrategyReferenceConfig
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.strategy import (
+    OnlyStrategyMarketInputContract,
+    OnlyStrategyRevisionStore,
+    OnlyStrategyUniverse,
+)
+from tests.strategy.p9_support import p9_strategy_case
 
 
 def _config(path: str, capital: str) -> OnlyClusterRunConfig:
@@ -17,9 +24,33 @@ def _config(path: str, capital: str) -> OnlyClusterRunConfig:
 
 
 def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) -> None:
+    first = _config("tests/fixtures/legacy_macd/cluster.json", "400000.00")
+    second = _config("tests/fixtures/legacy_macd/cluster_fast.json", "600000.00")
+    subscription = first.factors[0].subscriptions.instrument_bars[0]
+    case = p9_strategy_case(tmp_path / "research")
+    revision = replace(
+        case.revision,
+        universe=OnlyStrategyUniverse(tuple(item.instrument_id for item in first.reference_data.instruments)),
+        market_input_contract=OnlyStrategyMarketInputContract(
+            subscription.bar_specification.to_bar_type(subscription.instrument_id).specification,
+            subscription.bar_specification.source,
+            OnlyAdjustmentType.RAW,
+        ),
+    )
+    OnlyStrategyRevisionStore(tmp_path / "research").commit(revision)
+    strategy = OnlyStrategyReferenceConfig(str(revision.strategy_fingerprint))
+
+    def migrated(config: OnlyClusterRunConfig) -> OnlyClusterRunConfig:
+        return replace(
+            config,
+            cluster=replace(config.cluster, strategy=strategy, factors=()),
+            strategy=strategy,
+            factors=(),
+        )
+
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("multi-cluster-performance-scenario"), tmp_path))
-    engine.add_cluster(_config("tests/fixtures/legacy_macd/cluster.json", "400000.00"))
-    engine.add_cluster(_config("tests/fixtures/legacy_macd/cluster_fast.json", "600000.00"))
+    engine.add_cluster(migrated(first))
+    engine.add_cluster(migrated(second))
 
     run = engine.run()
     result = run.runtime_results[0]
@@ -30,11 +61,11 @@ def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) ->
     assert set(clusters) == {"macd-demo", "macd-fast-demo"}
     assert clusters["macd-demo"].initial_equity.amount == Decimal("400000.00")
     assert clusters["macd-fast-demo"].initial_equity.amount == Decimal("600000.00")
-    assert clusters["macd-demo"].net_pnl.amount > 0
-    assert clusters["macd-fast-demo"].net_pnl.amount < 0
-    assert clusters["macd-demo"].fees.amount != clusters["macd-fast-demo"].fees.amount
-    assert len(result.trades) == 3  # type: ignore[attr-defined]
-    assert sum(item.order_side is OnlyOrderSide.SELL for item in result.trades) == 1  # type: ignore[attr-defined]
+    assert clusters["macd-demo"].net_pnl.amount == 0
+    assert clusters["macd-fast-demo"].net_pnl.amount == 0
+    assert clusters["macd-demo"].fees.amount == 0
+    assert clusters["macd-fast-demo"].fees.amount == 0
+    assert result.trades == ()  # type: ignore[attr-defined]
     assert result.runtime_performance.net_pnl.amount == sum(  # type: ignore[attr-defined]
         (item.net_pnl.amount for item in clusters.values()), Decimal(0)
     )

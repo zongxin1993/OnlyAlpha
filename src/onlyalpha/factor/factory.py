@@ -2,11 +2,19 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib import import_module
 
 from onlyalpha.calculation.definition import OnlyCalculationTypeReference
 from onlyalpha.factor.base import OnlyFactor
 from onlyalpha.factor.config import OnlyFactorConfig
-from onlyalpha.strategy.factory import only_load_type
+
+
+def only_load_factor_type(path: str) -> type[object]:
+    module_name, class_name = path.split(":", 1)
+    candidate = getattr(import_module(module_name), class_name)
+    if not isinstance(candidate, type):
+        raise TypeError(f"{path} does not reference a class")
+    return candidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,8 +27,8 @@ class OnlyFactorCreateRequest:
 
 class OnlyFactorFactory:
     def create(self, request: OnlyFactorCreateRequest) -> OnlyFactor:
-        config_type = only_load_type(request.config_path)
-        factor_type = only_load_type(request.factor_path)
+        config_type = only_load_factor_type(request.config_path)
+        factor_type = only_load_factor_type(request.factor_path)
         if not issubclass(config_type, OnlyFactorConfig):
             raise TypeError("Factor config class must derive from OnlyFactorConfig")
         if not issubclass(factor_type, OnlyFactor):

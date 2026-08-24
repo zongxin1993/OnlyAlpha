@@ -22,7 +22,7 @@ def test_engine_virtual_broker_runs_complete_long_close_multi_fill(tmp_path, sam
     engine = OnlyEngine(
         OnlyEngineConfig(OnlyEngineId(f"virtual-long-close-{'same' if same_bar else 'cross'}-bar"), tmp_path)
     )
-    engine.add_cluster(only_virtual_multi_fill_config(same_bar=same_bar, long_close=True))
+    engine.add_cluster(only_virtual_multi_fill_config(tmp_path, same_bar=same_bar, long_close=True))
 
     result = engine.run()
 

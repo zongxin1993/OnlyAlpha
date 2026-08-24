@@ -27,7 +27,7 @@ def test_long_close_multi_fill_recovers_commit_and_projection_boundaries(tmp_pat
         tmp_path,
         OnlyEngineId(f"long-close-{fault.value.lower()}"),
         factory=OnlyMultiFillFaultStoreFactory(fault, fault_after=3),
-        config=only_virtual_multi_fill_config(long_close=True),
+        config=only_virtual_multi_fill_config(tmp_path, long_close=True),
         baseline_id="long_close_multi_fill_baseline",
     )
 
@@ -38,7 +38,7 @@ def test_long_close_checkpoint_continues_after_exact_fill_cursor(tmp_path, curso
         tmp_path,
         OnlyEngineId(f"long-close-checkpoint-fill-{cursor}"),
         factory=OnlyPlanCursorCheckpointFailureStoreFactory(cursor, plan_index=1),
-        config=only_virtual_multi_fill_config(long_close=True),
+        config=only_virtual_multi_fill_config(tmp_path, long_close=True),
         baseline_id="long_close_multi_fill_baseline",
     )
 
@@ -48,7 +48,7 @@ def test_long_close_checkpoint_between_broker_execute_and_publish_restores_pendi
         tmp_path,
         OnlyEngineId("long-close-broker-publish"),
         factory=OnlyPlanCursorCheckpointFailureStoreFactory(1, plan_index=1),
-        config=only_virtual_multi_fill_config(long_close=True, fill_latency_ns=60_000_000_000),
+        config=only_virtual_multi_fill_config(tmp_path, long_close=True, fill_latency_ns=60_000_000_000),
     )
 
 
@@ -57,13 +57,13 @@ def test_long_close_pending_outbox_recovers_without_double_projection(tmp_path) 
         tmp_path,
         OnlyEngineId("long-close-outbox"),
         factory=OnlyOutboxCheckpointFailureStoreFactory(minimum_execution_sequence=6),
-        config=only_virtual_multi_fill_config(long_close=True),
+        config=only_virtual_multi_fill_config(tmp_path, long_close=True),
         baseline_id="long_close_multi_fill_baseline",
     )
 
 
 def test_long_close_a_b_c_restart_matches_no_fault_baseline(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    config = only_virtual_multi_fill_config(long_close=True)
+    config = only_virtual_multi_fill_config(tmp_path, long_close=True)
     engine_id = OnlyEngineId("long-close-three-stage")
     fault = OnlyTestRuntimePersistenceFault.AFTER_COMMIT
     engine_a = OnlyEngine(

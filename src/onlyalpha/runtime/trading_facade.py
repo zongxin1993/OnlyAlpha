@@ -1475,6 +1475,15 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                     strategy.context.results.restore_checkpoint,
                 )
             )
+            if cluster.action_workload is not None:
+                self._checkpoint_registry.register(
+                    OnlyJsonRuntimeCheckpointParticipant(
+                        f"{prefix}.35.scenario-actions",
+                        1,
+                        cluster.action_workload.capture_checkpoint,
+                        cluster.action_workload.restore_checkpoint,
+                    )
+                )
             for factor in cluster.factors:
                 factor_component_id = f"{prefix}.20.factor.{factor.factor_id}"
                 if factor.checkpoint_capability is None:

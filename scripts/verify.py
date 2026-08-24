@@ -569,6 +569,23 @@ IMPACT_RULES = (
         "Tushare historical normalization feeds Dataset materialization",
     ),
     VerificationImpactRule(
+        "strategy-product",
+        (
+            "src/onlyalpha/strategy/",
+            "tests/strategy/",
+            "src/onlyalpha/cluster/factory.py",
+            "tests/architecture/test_p9_strategy_authority.py",
+        ),
+        (
+            "src/onlyalpha/config/models.py",
+            "src/onlyalpha/calculation/implementation.py",
+        ),
+        (OnlyTestLane.STRATEGY, OnlyTestLane.CALCULATION),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Strategy Revision, Freeze, Trading Admission and execution projection form one product authority",
+    ),
+    VerificationImpactRule(
         "shared-test-infrastructure",
         ("tests/fixtures/", "tests/support/", "tests/architecture/"),
         (),
@@ -665,6 +682,7 @@ def _static_plan(
     )
     rules = set(rule_names)
     typed_roots = {
+        "strategy-product": ("src/onlyalpha/strategy", "src/onlyalpha/calculation"),
         "research-definition": ("src/onlyalpha/research/definition",),
         "research-runtime": ("src/onlyalpha/runtime/research", "src/onlyalpha/runtime/product.py"),
         "research-specification": ("src/onlyalpha/research/specification",),

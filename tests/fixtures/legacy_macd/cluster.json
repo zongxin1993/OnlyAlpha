@@ -47,14 +47,7 @@
       "slippage": {"type": "NONE"}
     }
   }],
-  "strategy": {
-    "class_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategy",
-    "config_path": "onlyalpha_test_plugin.macd_plugin:OnlyTestMacdStrategyConfig",
-    "extensions": {
-      "strategy_id": "macd-strategy", "signal_factor_id": "macd-signal",
-      "instrument_id": "TESTETF.XSHG", "trade_quantity": "1000"
-    }
-  },
+  "strategy": {"fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
   "factors": [{
     "factor_id": "macd-signal", "factor_type": "TIME_SERIES",
     "type_id": "onlyalpha.test.factor.macd", "semantic_version": "1",

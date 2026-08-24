@@ -1,69 +1,25 @@
-import json
-from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
-from onlyalpha_test_plugin.macd_plugin import OnlyTestMacdFactorSnapshot, OnlyTestMacdStrategyConfig
-
-from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
-from onlyalpha.strategy.context import OnlyStrategyBarContext
 from tests.integration.test_engine_recovery_same_bar_continuation import (
-    OnlyPositionTriggeredContinuationStrategy,
     _same_bar_config,
     _services,
 )
 
 
-class OnlyThreeContinuationStrategy(OnlyPositionTriggeredContinuationStrategy):
-    def __init__(self, config: OnlyTestMacdStrategyConfig) -> None:
-        super().__init__(config)
-        self._continuation_count = 0
-
-    def on_bar(self, context: OnlyStrategyBarContext) -> None:
-        self._callback_count += 1
-        factor = context.strategy.factors.require(self.config.required_factor_ids[0], OnlyTestMacdFactorSnapshot)
-        assert self.config.instrument_id is not None
-        assert self.config.trade_quantity is not None
-        allocation = context.strategy.positions.cluster.get(self.config.instrument_id)
-        has_position = allocation is not None and allocation.total_quantity.value > 0
-        if self._callback_count == 1:
-            self._submit(context, OnlyOrderSide.BUY, self.config.trade_quantity, factor, "INITIAL_ORDER")
-            self._has_entered = True
-        elif has_position and self._continuation_count == 0 and not context.strategy.orders.list_open():
-            for index in range(1, 4):
-                self._submit(
-                    context,
-                    OnlyOrderSide.BUY,
-                    self.config.trade_quantity,
-                    factor,
-                    f"POSITION_CONTINUATION_{index}",
-                )
-                self._continuation_count += 1
-            self._continuation_submitted = True
-
-    def capture_checkpoint(self) -> object:
-        parent = super().capture_checkpoint()
-        assert isinstance(parent, dict)
-        return {**parent, "continuation_count": self._continuation_count}
-
-    def restore_checkpoint(self, payload: object) -> None:
-        if not isinstance(payload, Mapping):
-            raise ValueError("three-continuation Strategy checkpoint must be an object")
-        super().restore_checkpoint(payload)
-        self._continuation_count = int(payload["continuation_count"])
-
-
 def test_engine_commits_three_contiguous_continuations_in_recovery_boundary(tmp_path: Path) -> None:
-    baseline_config = _same_bar_config()
-    payload = json.loads(json.dumps(dict(baseline_config.normalized_payload)))
-    payload["strategy"]["class_path"] = (
-        "tests.integration.test_engine_recovery_multiple_continuations:OnlyThreeContinuationStrategy"
+    baseline_config = _same_bar_config(tmp_path)
+    initial = dict(baseline_config.cluster.scenario_actions[0])
+    continuation = dict(baseline_config.cluster.scenario_actions[1])
+    actions = (initial,) + tuple(
+        {**continuation, "action_id": f"POSITION_CONTINUATION_{index}"} for index in range(1, 4)
     )
-    config = type(baseline_config).from_mapping(payload, source_path=baseline_config.source_path)
+    config = replace(baseline_config, cluster=replace(baseline_config.cluster, scenario_actions=actions))
     engine_id = OnlyEngineId("three-recovery-continuations")
 
     engine_a = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services(with_fault=True))
@@ -85,8 +41,17 @@ def test_engine_commits_three_contiguous_continuations_in_recovery_boundary(tmp_
     assert all(item.projection_ready for item in transactions[:8])
     reader.close()
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"), services=_services())
-    baseline_engine.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline_config = _same_bar_config(baseline_root)
+    baseline_initial = dict(baseline_config.cluster.scenario_actions[0])
+    baseline_continuation = dict(baseline_config.cluster.scenario_actions[1])
+    baseline_actions = (baseline_initial,) + tuple(
+        {**baseline_continuation, "action_id": f"POSITION_CONTINUATION_{index}"} for index in range(1, 4)
+    )
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root), services=_services())
+    baseline_engine.add_cluster(
+        replace(baseline_config, cluster=replace(baseline_config.cluster, scenario_actions=baseline_actions))
+    )
     baseline = baseline_engine.run()
     assert baseline.status == "COMPLETED"
     assert recovered.runtime_results[0].orders == baseline.runtime_results[0].orders

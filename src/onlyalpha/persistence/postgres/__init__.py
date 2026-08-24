@@ -16,6 +16,7 @@ from .research_deployment_store import (
 from .research_execution_store import OnlyPostgresResearchExecutionStore as OnlyPostgresResearchExecutionStore
 from .research_operations_store import OnlyPostgresResearchOperationsStore as OnlyPostgresResearchOperationsStore
 from .research_run_store import OnlyPostgresResearchRunStore as OnlyPostgresResearchRunStore
+from .strategy_store import OnlyPostgresStrategyStore as OnlyPostgresStrategyStore
 from .version import ONLYALPHA_POSTGRES_CLIENT_MAJOR as ONLYALPHA_POSTGRES_CLIENT_MAJOR
 from .version import ONLYALPHA_POSTGRES_SERVER_MAJOR as ONLYALPHA_POSTGRES_SERVER_MAJOR
 from .version import OnlyPostgresServerVersion as OnlyPostgresServerVersion

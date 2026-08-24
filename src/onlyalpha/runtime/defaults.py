@@ -8,7 +8,6 @@ from onlyalpha.cluster.factory import OnlyClusterFactory
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.data.synthetic.factory import OnlySyntheticDataSourceFactory
 from onlyalpha.domain.value import OnlyCurrency
-from onlyalpha.factor.factory import OnlyFactorFactory
 from onlyalpha.fee.basis import only_default_fee_basis_provider_registry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.fee.reconciliation_policy import (
@@ -19,6 +18,7 @@ from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
+from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries, OnlyEngineRunAssembler
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
 from onlyalpha.runtime.factory import OnlyRuntimeFactoryRegistry
@@ -30,7 +30,6 @@ from onlyalpha.runtime.persistence.factory import (
 from onlyalpha.runtime.research.factory import OnlyResearchRuntimeFactory
 from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from onlyalpha.scenario.data_source import OnlyScenarioDataSourceFactory
-from onlyalpha.strategy.factory import OnlyStrategyFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,9 +60,9 @@ def only_default_engine_services(
         calculations,
         fail_fast=fail_fast,
     )
+    only_register_research_predicate_primitives(calculations)
     clusters = OnlyClusterFactory(
-        OnlyStrategyFactory(),
-        OnlyFactorFactory(),
+        calculations,
         indicators,
     )
     runtimes = OnlyRuntimeFactoryRegistry()

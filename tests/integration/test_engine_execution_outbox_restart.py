@@ -38,7 +38,7 @@ class OnlyOutboxFaultRuntimePersistenceStoreFactory:
 
 
 def test_engine_restart_retries_same_ready_outbox_event_without_projection_replay(tmp_path: Path) -> None:
-    config = _sqlite_config()
+    config = _sqlite_config(tmp_path)
     engine_id = OnlyEngineId("outbox-restart")
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),

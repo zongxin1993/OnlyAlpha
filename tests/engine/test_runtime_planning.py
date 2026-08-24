@@ -22,6 +22,7 @@ from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.factory import OnlyRuntimeBuildResult
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 from tests.runtime_support.market_product import only_generic_market_product
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"
@@ -77,7 +78,7 @@ def test_engine_add_cluster_does_not_build_or_close_runtime(tmp_path: Path) -> N
         OnlyEngineConfig(OnlyEngineId("no-build"), tmp_path),
         services=services,
     )
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load(CONFIG), tmp_path))
     assembler.build.assert_not_called()
     assembler.validate.assert_not_called()
 
@@ -85,7 +86,7 @@ def test_engine_add_cluster_does_not_build_or_close_runtime(tmp_path: Path) -> N
 def test_engine_initialize_creates_runtime_and_cluster_sessions(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("sessions"), tmp_path))
     for config in _multi_configs():
-        engine.add_cluster(config)
+        engine.add_cluster(only_migrate_cluster_to_strategy(config, tmp_path))
     engine.initialize()
     assert len(engine.runtime_sessions) == 1
     assert len(engine.cluster_sessions) == 2
@@ -106,7 +107,7 @@ def test_engine_initialize_preserves_primary_failure_when_partial_runtime_cleanu
         OnlyEngineConfig(OnlyEngineId("initialize-primary-failure"), tmp_path),
         services=services,
     )
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load(CONFIG), tmp_path))
 
     with pytest.raises(RuntimeError, match="runtime initialize failed") as raised:
         engine.initialize()
@@ -126,7 +127,7 @@ def test_engine_product_source_does_not_use_legacy_run_service() -> None:
 
 def test_engine_output_contains_runtime_plan_and_normalized_configs(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("outputs"), tmp_path))
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load(CONFIG), tmp_path))
     result = engine.run()
     assert result.manifest_path is not None
     root = result.manifest_path.parent
@@ -143,7 +144,7 @@ def test_engine_output_contains_runtime_plan_and_normalized_configs(tmp_path: Pa
 
 def test_engine_is_single_use_and_stop_is_idempotent(tmp_path: Path) -> None:
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("single-use"), tmp_path))
-    engine.add_cluster_from_file(CONFIG)
+    engine.add_cluster(only_migrate_cluster_to_strategy(OnlyClusterRunConfig.load(CONFIG), tmp_path))
     assert engine.run().status == "COMPLETED"
     engine.stop()
     with pytest.raises(OnlyLifecycleError, match="ENGINE_ALREADY_TERMINATED"):

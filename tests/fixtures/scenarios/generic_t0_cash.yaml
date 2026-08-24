@@ -1,4 +1,5 @@
 schema_version: "1"
+strategy_fingerprint: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 scenario: {id: GENERIC_T0_CASH_ENGINE, version: "1.0", description: "Fractional T0 cash through OnlyEngine"}
 runtime:
   mode: BACKTEST

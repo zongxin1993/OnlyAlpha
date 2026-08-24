@@ -11,6 +11,7 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.plugin.descriptor import OnlyPluginOrigin, OnlyPluginOriginType
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
+from tests.runtime_runner import only_migrate_cluster_to_strategy
 from tests.support.golden_data import (
     OnlyMiniQmtGoldenDataSourceFactory,
     load_miniqmt_golden_dataset,
@@ -77,8 +78,7 @@ def _config() -> OnlyClusterRunConfig:
             "extensions": {"dataset_path": str(DATASET)},
         }
     ]
-    payload["strategy"]["extensions"]["instrument_id"] = "600000.XSHG"
-    payload["strategy"]["extensions"]["trade_quantity"] = "100"
+    payload["strategy"] = {"fingerprint": "0" * 64}
     subscription = payload["factors"][0]["subscriptions"]["instrument_bars"][0]
     subscription["instrument_id"] = "600000.XSHG"
     subscription["bar_specification"]["step"] = 1440
@@ -96,7 +96,7 @@ def _services() -> OnlyEngineServices:
 
 def _run(target: Path):  # type: ignore[no-untyped-def]
     engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("miniqmt-golden-smoke"), target), services=_services())
-    engine.add_cluster(_config())
+    engine.add_cluster(only_migrate_cluster_to_strategy(_config(), target))
     return engine.run()
 
 

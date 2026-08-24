@@ -12,6 +12,13 @@ from onlyalpha.calculation.compatibility import (
 )
 from onlyalpha.calculation.definition import *  # noqa: F403
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
+from onlyalpha.calculation.implementation import (
+    OnlyCalculationImplementationManifest,
+    OnlyCalculationImplementationResource,
+    OnlyCalculationSemanticDependency,
+    only_implementation_manifest_from_bytes,
+    only_python_implementation_manifest,
+)
 from onlyalpha.calculation.registry import (
     OnlyCalculationBackendRegistration,
     OnlyCalculationDefinitionResolver,

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from onlyalpha.config import OnlyRuntimePersistenceConfig
@@ -35,7 +36,10 @@ class OnlyOpenOrderCheckpointFaultFactory:
 
 
 def test_engine_restart_restores_open_order_and_virtual_broker_before_fill(tmp_path: Path) -> None:
-    config = _sqlite_config()
+    config = _sqlite_config(tmp_path)
+    action = dict(config.cluster.scenario_actions[0])
+    action["sequence"] = 21
+    config = replace(config, cluster=replace(config.cluster, scenario_actions=(action,)))
     engine_id = OnlyEngineId("open-order-restart")
     engine_a = OnlyEngine(
         OnlyEngineConfig(engine_id, tmp_path),
@@ -62,8 +66,14 @@ def test_engine_restart_restores_open_order_and_virtual_broker_before_fill(tmp_p
     assert recovered.status == "COMPLETED"
     assert recovered.runtime_results[0].orders[0].status.value == "FILLED"
 
-    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline_engine.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline_engine = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline_config = _sqlite_config(baseline_root)
+    baseline_action = dict(baseline_config.cluster.scenario_actions[0])
+    baseline_action["sequence"] = 21
+    baseline_engine.add_cluster(
+        replace(baseline_config, cluster=replace(baseline_config.cluster, scenario_actions=(baseline_action,)))
+    )
     baseline = baseline_engine.run()
     assert baseline.status == "COMPLETED"
     assert recovered.runtime_results[0].result_fingerprint == baseline.runtime_results[0].result_fingerprint

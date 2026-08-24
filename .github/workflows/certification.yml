@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-evaluation, research-sweep, research-factor, research-job, research-calculation, calculation, research-dataset, core-full, recovery, sim-recovery, ashare, miniqmt-contract]
     steps:
       - uses: actions/checkout@v6
         with:

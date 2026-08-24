@@ -7,6 +7,7 @@ import pytest
 
 from onlyalpha.config import (
     OnlyBrokerFeeContractConfig,
+    OnlyClusterConfigError,
     OnlyClusterRunConfig,
     OnlyFeeReconciliationPolicyConfig,
 )
@@ -128,15 +129,14 @@ def test_same_account_with_different_reconciliation_policy_fails_globally(tmp_pa
     assert engine.snapshot() == before
 
 
-def test_dynamic_import_failure_rolls_back_all_resource_references(tmp_path: Path) -> None:
+def test_legacy_dynamic_strategy_configuration_is_rejected_before_resource_registration(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
     baseline = OnlyClusterRunConfig.load(CONFIG)
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["strategy"]["class_path"] = "missing.plugin:OnlyMissingStrategy"
-    invalid = OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
     before = engine.snapshot()
-    with pytest.raises(ModuleNotFoundError):
-        engine.add_cluster(invalid)
+    with pytest.raises(OnlyClusterConfigError, match="LEGACY_STRATEGY_CONFIGURATION_UNSUPPORTED"):
+        OnlyClusterRunConfig.from_mapping(payload, source_path=CONFIG)
     assert engine.snapshot() == before
 
 
@@ -163,7 +163,7 @@ def test_failed_composition_leaves_no_contract_authority_residue(tmp_path: Path)
     invalid = replace(
         baseline,
         accounts=selected_accounts,
-        strategy=replace(baseline.strategy, strategy_path="missing.plugin:OnlyMissingStrategy"),
+        factors=(replace(baseline.factors[0], factor_path="missing.plugin:OnlyMissingFactor"),),
         broker_fee_contract_authorities=(first_contract,),
     )
     corrected = replace(

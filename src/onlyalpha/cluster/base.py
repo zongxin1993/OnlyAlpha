@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
+from typing import Protocol
 
 from onlyalpha.cluster.bar_context import OnlyBarContext
 from onlyalpha.cluster.pipeline import OnlyClusterExecutionPlan, OnlyClusterPipeline, OnlyClusterPipelineResult
@@ -54,6 +55,20 @@ class OnlyClusterState(StrEnum):
     UNLOADED = "UNLOADED"
 
 
+class OnlyClusterActionWorkload(Protocol):
+    """Non-Strategy deterministic harness commands, used only by Scenario."""
+
+    def bind(self, context: OnlyClusterContext) -> None: ...
+
+    def on_bar(self, bar: OnlyBar) -> None: ...
+
+    def build_result_extension(self) -> Mapping[str, object]: ...
+
+    def capture_checkpoint(self) -> object: ...
+
+    def restore_checkpoint(self, payload: object) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyClusterConfig:
     cluster_id: str
@@ -84,6 +99,7 @@ class OnlyCluster:
         strategy: OnlyStrategy | None = None,
         factors: tuple[OnlyFactor, ...] = (),
         indicator_factories: OnlyIndicatorFactoryRegistry | None = None,
+        action_workload: OnlyClusterActionWorkload | None = None,
     ) -> None:
         self.config = config
         self.strategy = strategy or OnlyNoopStrategy(OnlyStrategyConfig(OnlyStrategyId(f"{config.cluster_id}-noop")))
@@ -105,6 +121,7 @@ class OnlyCluster:
         self._factor_snapshots: dict[OnlyFactorId, OnlyFactorSnapshot] = {}
         self._factor_scores: dict[OnlyFactorId, OnlyFactorScore] = {}
         self._last_pipeline_result: OnlyClusterPipelineResult | None = None
+        self._action_workload = action_workload
 
     @property
     def context(self) -> OnlyClusterContext | None:
@@ -117,6 +134,10 @@ class OnlyCluster:
     @property
     def factors(self) -> tuple[OnlyFactor, ...]:
         return self.factor_registry.factors
+
+    @property
+    def action_workload(self) -> OnlyClusterActionWorkload | None:
+        return self._action_workload
 
     @property
     def indicator_snapshots(self) -> tuple[OnlyIndicatorSnapshot, ...]:
@@ -184,6 +205,8 @@ class OnlyCluster:
             OnlyStrategyResultRecorder(self.config.cluster_id, str(self.strategy.strategy_id)),
         )
         self.strategy._only_cluster_bind(strategy_context)
+        if self._action_workload is not None:
+            self._action_workload.bind(context)
         self.strategy.on_initialize()
         if self.config.subscription is not None:
             context.subscriptions.subscribe_bars(self.config.subscription)
@@ -212,6 +235,17 @@ class OnlyCluster:
         if self._pipeline is None:
             raise OnlyClusterError("Cluster Pipeline is not initialized")
         self._last_pipeline_result = self._pipeline.process_bar(bar, context)
+        if self._action_workload is not None:
+            self._action_workload.on_bar(bar)
+
+    def build_result_extension(self) -> Mapping[str, object]:
+        result = dict(self.strategy.build_result_extension())
+        if self._action_workload is not None:
+            overlap = set(result) & set(self._action_workload.build_result_extension())
+            if overlap:
+                raise OnlyClusterError(f"Cluster result extension conflict: {sorted(overlap)}")
+            result.update(self._action_workload.build_result_extension())
+        return MappingProxyType(result)
 
     def on_timer(self, context: OnlyTimerContext) -> None:
         self.strategy.on_timer(OnlyStrategyTimerContext(self.strategy.context, context))

@@ -1,5 +1,5 @@
 {
-  "configuration_fingerprint": "e1c1e5f69f5e9633197df68ecc3d6d29c4eb095b27786dd6751ea9d549c26b66",
+  "configuration_fingerprint": "991091ba4a4c2636ecab843d42d59382ae7e1362c0e1960256727d1aff2d601d",
   "data_fingerprint": "d55f29e9a20a81c675c02f38ba35e21192193df7d309c6c4118dc8069f497b2a",
   "expected_fill_count": 2,
   "expected_terminal_count": 0,
@@ -20,8 +20,8 @@
       "provider_plugin_id": "onlyalpha-market-generic-t0-cash"
     }
   ],
-  "onlyalpha_version": "0.3.6",
-  "result_fingerprint": "e3fc175d0a966a1850afa5dc0798399b4e47d5e3ac083977e9374f0edd164d37",
+  "onlyalpha_version": "0.9.0",
+  "result_fingerprint": "5a908ed78be436f3245e76cf55d80ac61da5a2b1b35220818da2319e7a798c0c",
   "runtime_type": "BACKTEST",
   "scenario": "minimal_round_trip"
 }

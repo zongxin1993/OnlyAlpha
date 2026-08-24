@@ -11,7 +11,7 @@ from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill
 
 
 def test_engine_a_b_c_restarts_preserve_complete_business_result(tmp_path: Path) -> None:
-    config = only_virtual_multi_fill_config(long_close=True)
+    config = only_virtual_multi_fill_config(tmp_path, long_close=True)
     engine_id = OnlyEngineId("three-causal-restarts")
 
     engine_a = OnlyEngine(
@@ -37,8 +37,9 @@ def test_engine_a_b_c_restarts_preserve_complete_business_result(tmp_path: Path)
     result_c = engine_c.run()
     assert result_c.status == "COMPLETED"
 
-    baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"))
-    baseline.add_cluster(config)
+    baseline_root = tmp_path / "baseline"
+    baseline = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root))
+    baseline.add_cluster(only_virtual_multi_fill_config(baseline_root, long_close=True))
     baseline_result = baseline.run()
     assert baseline_result.status == "COMPLETED"
     assert only_backtest_business_projection(result_c.runtime_results[0]) == only_backtest_business_projection(

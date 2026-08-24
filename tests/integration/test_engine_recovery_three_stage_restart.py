@@ -19,16 +19,17 @@ def test_engine_a_b_c_restart_uses_committed_post_recovery_checkpoint_once(tmp_p
         OnlyEngineConfig(engine_id, tmp_path),
         services=only_recovery_services(OnlyAfterCommitCheckpointStoreFactory()),
     )
-    engine_b.add_cluster(_same_bar_config())
+    engine_b.add_cluster(_same_bar_config(tmp_path))
     assert engine_b.run().status == "FAILED"
 
     engine_c = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path), services=_services())
-    engine_c.add_cluster(_same_bar_config())
+    engine_c.add_cluster(_same_bar_config(tmp_path))
     recovered = engine_c.run()
     assert recovered.status == "COMPLETED", recovered.failures
 
-    baseline = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path / "baseline"), services=_services())
-    baseline.add_cluster(_same_bar_config())
+    baseline_root = tmp_path / "baseline"
+    baseline = OnlyEngine(OnlyEngineConfig(engine_id, baseline_root), services=_services())
+    baseline.add_cluster(_same_bar_config(baseline_root))
     expected = baseline.run()
     assert expected.status == "COMPLETED"
     assert only_backtest_business_projection(recovered.runtime_results[0]) == only_backtest_business_projection(
