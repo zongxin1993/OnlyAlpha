@@ -1,198 +1,132 @@
 from dataclasses import replace
-from decimal import Decimal
+from inspect import signature
 
 import pytest
 
+from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
-    OnlyCalculationRegistry,
-    only_implementation_manifest_from_bytes,
-)
-from onlyalpha.strategy import (
-    OnlyCalculationEquivalenceCorpus,
     OnlyCalculationEquivalenceError,
-    OnlyCalculationEquivalenceEvidenceStore,
-    OnlyCalculationEquivalenceExecution,
-    OnlyCalculationEquivalenceRow,
-    OnlyCalculationEquivalenceVerifier,
+    OnlyCalculationEquivalenceEvidenceV2Store,
+    OnlyCalculationRegistry,
+    only_required_calculation_equivalence_profile,
 )
+from onlyalpha.strategy.equivalence import OnlyLegacyCalculationEquivalenceEvidenceV1Reader
 from tests.strategy.p9_support import p9_strategy_case
 
 
-class _Runner:
-    def __init__(self, value: object = Decimal("1.000000000000")) -> None:
-        self._value = value
-
-    def execute(self, reference, corpus):
-        del reference, corpus
-        return OnlyCalculationEquivalenceExecution(
-            (
-                OnlyCalculationEquivalenceRow(
-                    "TEST.SYMBOL",
-                    1_000_000_000,
-                    (("value", self._value),),
-                ),
-            )
-        )
-
-
-def _reference(case):
-    node = case.revision.decision_graph.ordered_nodes[0]
-    registration = case.registry.resolve(
-        node.definition.kind,
-        node.definition.type_id,
-        node.definition.semantic_version,
-        OnlyCalculationBackendKind.RESEARCH,
+def test_actual_backends_must_match_before_evidence_v2_is_published(tmp_path) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    node = next(
+        item
+        for item in case.revision.decision_graph.ordered_nodes
+        if item.definition.type_id.startswith("onlyalpha.factor.")
     )
-    assert registration.implementation_manifest is not None
-    return registration.implementation_manifest.calculation_type_reference
+    registry = OnlyCalculationRegistry()
+    seen = set()
+    for candidate in case.revision.decision_graph.nodes:
+        key = (candidate.definition.kind, candidate.definition.type_id, candidate.definition.semantic_version)
+        if key in seen:
+            continue
+        seen.add(key)
+        for backend in (OnlyCalculationBackendKind.RESEARCH, OnlyCalculationBackendKind.TRADING):
+            registration = case.registry.resolve(*key, backend)
+            if candidate.fingerprint == node.fingerprint and backend is OnlyCalculationBackendKind.TRADING:
 
+                class _MismatchFactory:
+                    def create(self, definition, request):
+                        del definition, request
 
-def test_verifier_and_store_publish_deterministic_verified_evidence(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
-    reference = _reference(case)
-    corpus = OnlyCalculationEquivalenceCorpus("EXACT", {"timestamps": [1_000_000_000]})
-    verifier = OnlyCalculationEquivalenceVerifier(case.registry, _Runner(), _Runner())
-    first = verifier.verify(reference, corpus)
-    second = verifier.verify(reference, corpus)
-    store = OnlyCalculationEquivalenceEvidenceStore(tmp_path / "authority")
+                        class _Mismatch:
+                            def update(self, inputs):
+                                del inputs
+                                return {node.definition.outputs[0].name: None}
 
-    committed = store.commit(first)
+                        return _Mismatch()
 
-    assert committed == store.commit(second)
-    assert store.load_verified(committed.evidence_fingerprint) == committed
-    assert store.require_verified(
-        reference,
-        committed.research_implementation_fingerprint,
-        committed.trading_implementation_fingerprint,
-    ) == (committed,)
-
-
-def test_corpus_change_changes_evidence_but_not_implementation_pair(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
-    reference = _reference(case)
-    verifier = OnlyCalculationEquivalenceVerifier(case.registry, _Runner(), _Runner())
-    first = verifier.verify(reference, OnlyCalculationEquivalenceCorpus("A", {"axis": [1]})).evidence
-    second = verifier.verify(reference, OnlyCalculationEquivalenceCorpus("B", {"axis": [1, 2]})).evidence
-
-    assert first.evidence_fingerprint != second.evidence_fingerprint
-    assert first.research_implementation_fingerprint == second.research_implementation_fingerprint
-    assert first.trading_implementation_fingerprint == second.trading_implementation_fingerprint
-
-
-def test_output_difference_cannot_create_equivalent_evidence(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
-    verifier = OnlyCalculationEquivalenceVerifier(case.registry, _Runner(Decimal("1")), _Runner(Decimal("2")))
+                registration = replace(registration, provider=_MismatchFactory())
+            registry.register(registration)
+    store = OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / "semantic")
+    service = OnlyCalculationEquivalenceCertificationApplicationService(registry, store)
 
     with pytest.raises(OnlyCalculationEquivalenceError) as error:
-        verifier.verify(_reference(case), OnlyCalculationEquivalenceCorpus("DIFF", {"axis": [1]}))
-    assert error.value.code == "EQUIVALENCE_VERIFICATION_FAILED"
+        service.certify(node)
+    assert error.value.code == "EQUIVALENCE_CERTIFICATION_FAILED"
+    assert not (tmp_path / "semantic" / "calculation-equivalence" / "evidence-v2").exists()
 
 
-def test_implementation_change_makes_old_evidence_inapplicable(tmp_path) -> None:
+def test_certification_api_accepts_no_runner_corpus_profile_or_output(tmp_path) -> None:
+    store = OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / "semantic")
+
+    assert tuple(signature(OnlyCalculationEquivalenceCertificationApplicationService).parameters) == (
+        "calculations",
+        "evidence_store",
+    )
+    assert tuple(signature(OnlyCalculationEquivalenceCertificationApplicationService.certify).parameters) == (
+        "self",
+        "node",
+    )
+    assert not hasattr(store, "commit")
+    assert not hasattr(store, "publish")
+
+
+def test_evidence_v2_binds_exact_node_and_required_profile(tmp_path) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    reference = _reference(case)
-    original = case.registry.resolve(
-        reference.kind,
-        reference.type_id,
-        reference.semantic_version,
+    first, second = tuple(
+        item
+        for item in case.revision.decision_graph.ordered_nodes
+        if item.definition.type_id == "onlyalpha.indicator.rolling_return"
+    )
+    store = OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / "semantic")
+    service = OnlyCalculationEquivalenceCertificationApplicationService(case.registry, store)
+    evidence = service.certify(first)
+    profile = only_required_calculation_equivalence_profile(first.definition)
+    research = case.registry.resolve(
+        first.definition.kind,
+        first.definition.type_id,
+        first.definition.semantic_version,
         OnlyCalculationBackendKind.RESEARCH,
-    )
-    assert original.implementation_manifest is not None
-    changed_manifest = only_implementation_manifest_from_bytes(
-        calculation_type_reference=reference,
-        backend_kind=OnlyCalculationBackendKind.RESEARCH,
-        entrypoint_identity=original.implementation_manifest.entrypoint_identity,
-        resources={"changed.py": b"behavior changed"},
-    )
-    changed = OnlyCalculationRegistry()
-    changed.register(replace(original, implementation_manifest=changed_manifest))
+    ).implementation_manifest
     trading = case.registry.resolve(
-        reference.kind,
-        reference.type_id,
-        reference.semantic_version,
+        first.definition.kind,
+        first.definition.type_id,
+        first.definition.semantic_version,
         OnlyCalculationBackendKind.TRADING,
-    )
-    assert trading.implementation_manifest is not None
-    changed.register(trading)
-    store = OnlyCalculationEquivalenceEvidenceStore(tmp_path / "authority")
-    old = OnlyCalculationEquivalenceVerifier(case.registry, _Runner(), _Runner()).verify(
-        reference,
-        OnlyCalculationEquivalenceCorpus("EXACT", {"axis": [1]}),
-    )
-    store.commit(old)
-
-    with pytest.raises(OnlyCalculationEquivalenceError) as error:
+    ).implementation_manifest
+    assert research is not None and trading is not None
+    assert (
         store.require_verified(
-            reference,
-            changed_manifest.implementation_fingerprint,
-            trading.implementation_manifest.implementation_fingerprint,
+            calculation_node_fingerprint=first.fingerprint,
+            reference=research.calculation_type_reference,
+            research_implementation_fingerprint=research.implementation_fingerprint,
+            trading_implementation_fingerprint=trading.implementation_fingerprint,
+            certification_profile_fingerprint=profile.profile_fingerprint,
         )
-    assert error.value.code == "EQUIVALENCE_EVIDENCE_NOT_FOUND"
-
-
-def test_tampered_or_arbitrary_evidence_fingerprint_fails_closed(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
-    reference = _reference(case)
-    store = OnlyCalculationEquivalenceEvidenceStore(tmp_path / "authority")
-    evidence = store.commit(
-        OnlyCalculationEquivalenceVerifier(case.registry, _Runner(), _Runner()).verify(
-            reference,
-            OnlyCalculationEquivalenceCorpus("EXACT", {"axis": [1]}),
+        == evidence
+    )
+    with pytest.raises(OnlyCalculationEquivalenceError) as wrong_node:
+        store.require_verified(
+            calculation_node_fingerprint=second.fingerprint,
+            reference=research.calculation_type_reference,
+            research_implementation_fingerprint=research.implementation_fingerprint,
+            trading_implementation_fingerprint=trading.implementation_fingerprint,
+            certification_profile_fingerprint=profile.profile_fingerprint,
         )
-    )
-    manifest = (
-        tmp_path
-        / "authority"
-        / "calculation-equivalence"
-        / "evidence"
-        / evidence.evidence_fingerprint[:2]
-        / evidence.evidence_fingerprint
-        / "manifest.json"
-    )
-    manifest.write_text("{}", encoding="utf-8")
-
-    with pytest.raises(OnlyCalculationEquivalenceError) as corrupt:
-        store.load_verified(evidence.evidence_fingerprint)
-    assert corrupt.value.code == "EQUIVALENCE_EVIDENCE_CORRUPT"
-    with pytest.raises(OnlyCalculationEquivalenceError) as missing:
-        store.load_verified("f" * 64)
-    assert missing.value.code == "EQUIVALENCE_EVIDENCE_NOT_FOUND"
+    assert wrong_node.value.code == "EQUIVALENCE_EVIDENCE_NOT_FOUND"
+    changed_profile = replace(profile, cases=tuple(sorted((*profile.cases, "SYSTEM_PROFILE_V2_CASE"))))
+    with pytest.raises(OnlyCalculationEquivalenceError) as wrong_profile:
+        store.require_verified(
+            calculation_node_fingerprint=first.fingerprint,
+            reference=research.calculation_type_reference,
+            research_implementation_fingerprint=research.implementation_fingerprint,
+            trading_implementation_fingerprint=trading.implementation_fingerprint,
+            certification_profile_fingerprint=changed_profile.profile_fingerprint,
+        )
+    assert wrong_profile.value.code == "EQUIVALENCE_EVIDENCE_NOT_FOUND"
 
 
-def test_evidence_store_rejects_unexpected_files_and_symlink_authority(tmp_path) -> None:
-    case = p9_strategy_case(tmp_path / "case")
-    reference = _reference(case)
-    verified = OnlyCalculationEquivalenceVerifier(case.registry, _Runner(), _Runner()).verify(
-        reference,
-        OnlyCalculationEquivalenceCorpus("EXACT", {"axis": [1]}),
-    )
-    store = OnlyCalculationEquivalenceEvidenceStore(tmp_path / "authority")
-    evidence = store.commit(verified)
-    target = (
-        tmp_path
-        / "authority"
-        / "calculation-equivalence"
-        / "evidence"
-        / evidence.evidence_fingerprint[:2]
-        / evidence.evidence_fingerprint
-    )
-    (target / "unexpected.json").write_text("{}", encoding="utf-8")
-    with pytest.raises(OnlyCalculationEquivalenceError) as unexpected:
-        store.load_verified(evidence.evidence_fingerprint)
-    assert unexpected.value.code == "EQUIVALENCE_EVIDENCE_CORRUPT"
-
-    symlink_store = OnlyCalculationEquivalenceEvidenceStore(tmp_path / "symlink-authority")
-    symlink_target = (
-        tmp_path
-        / "symlink-authority"
-        / "calculation-equivalence"
-        / "evidence"
-        / evidence.evidence_fingerprint[:2]
-        / evidence.evidence_fingerprint
-    )
-    symlink_target.parent.mkdir(parents=True)
-    symlink_target.symlink_to(target, target_is_directory=True)
-    with pytest.raises(OnlyCalculationEquivalenceError) as symlink:
-        symlink_store.load_verified(evidence.evidence_fingerprint)
-    assert symlink.value.code == "EQUIVALENCE_EVIDENCE_CORRUPT"
+def test_legacy_v1_is_load_only_and_cannot_satisfy_admission(tmp_path) -> None:
+    reader = OnlyLegacyCalculationEquivalenceEvidenceV1Reader(tmp_path / "semantic")
+    assert not hasattr(reader, "require_verified")
+    assert not hasattr(reader, "commit")
+    assert not hasattr(reader, "publish")

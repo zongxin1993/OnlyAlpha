@@ -24,6 +24,7 @@ class OnlyResearchRuntimeResult:
     research_result_plan_fingerprint: str = ""
     research_result_fingerprint: str = ""
     artifact_content_fingerprint: str = ""
+    calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
     determinism_fingerprint: str = ""
     phase: OnlyResearchRuntimePhase | None = None
     code: str | None = None
@@ -42,6 +43,7 @@ class OnlyResearchRuntimeResult:
             "research_result_plan_fingerprint": self.research_result_plan_fingerprint,
             "research_result_fingerprint": self.research_result_fingerprint,
             "artifact_content_fingerprint": self.artifact_content_fingerprint,
+            "calculation_execution_evidence_fingerprints": list(self.calculation_execution_evidence_fingerprints),
             "determinism_fingerprint": self.determinism_fingerprint,
             "failure": None
             if self.phase is None
@@ -55,6 +57,7 @@ def _job(value: OnlyResearchJobOutcome) -> dict[str, object]:
         "disposition": value.disposition.value,
         "calculation_fingerprint": value.calculation_fingerprint,
         "calculation_result_fingerprint": value.calculation_result_fingerprint,
+        "calculation_execution_evidence_fingerprint": value.calculation_execution_evidence_fingerprint,
     }
 
 
@@ -76,6 +79,7 @@ def _sweep(value: OnlyResearchSweepOutcome) -> dict[str, object]:
                 "ordinal": cell.ordinal,
                 "calculation_fingerprint": cell.calculation_fingerprint,
                 "calculation_result_fingerprint": cell.calculation_result_fingerprint,
+                "calculation_execution_evidence_fingerprint": cell.calculation_execution_evidence_fingerprint,
                 "disposition": cell.disposition.value,
             }
             for cell in value.cells

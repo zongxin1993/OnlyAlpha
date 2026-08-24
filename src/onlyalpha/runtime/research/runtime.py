@@ -176,6 +176,14 @@ class OnlyResearchRuntime:
                 }
             )
             self.state = OnlyResearchRuntimeState.COMPLETED
+            execution_evidence = tuple(
+                sorted(
+                    {
+                        *(item.calculation_execution_evidence_fingerprint for item in direct),
+                        *(cell.calculation_execution_evidence_fingerprint for sweep in sweeps for cell in sweep.cells),
+                    }
+                )
+            )
             return OnlyResearchRuntimeResult(
                 self.runtime_id,
                 OnlyRuntimeResultStatus.COMPLETED,
@@ -186,6 +194,7 @@ class OnlyResearchRuntime:
                 result_outcome.research_result_plan_fingerprint,
                 result_outcome.research_result_fingerprint,
                 artifact_outcome.artifact_content_fingerprint,
+                execution_evidence,
                 determinism,
             )
         except OnlyResearchRuntimeControlSignal:

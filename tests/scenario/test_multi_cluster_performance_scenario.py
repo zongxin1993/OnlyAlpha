@@ -10,10 +10,9 @@ from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
 from onlyalpha.strategy import (
     OnlyStrategyMarketInputContract,
-    OnlyStrategyRevisionStore,
     OnlyStrategyUniverse,
 )
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 
 def _config(path: str, capital: str) -> OnlyClusterRunConfig:
@@ -37,7 +36,7 @@ def test_engine_multi_cluster_performance_full_vertical_slice(tmp_path: Path) ->
             OnlyAdjustmentType.RAW,
         ),
     )
-    OnlyStrategyRevisionStore(tmp_path / "research").commit(revision)
+    publish_frozen_strategy_for_execution_test(tmp_path / "research", revision)
     strategy = OnlyStrategyReferenceConfig(str(revision.strategy_fingerprint))
 
     def migrated(config: OnlyClusterRunConfig) -> OnlyClusterRunConfig:

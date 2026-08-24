@@ -16,12 +16,12 @@ from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_s
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.result import OnlyRuntimeResult
 from onlyalpha.strategy import (
+    OnlyFrozenStrategyRevisionStore,
     OnlyStrategyMarketInputContract,
-    OnlyStrategyRevisionStore,
     OnlyStrategyUniverse,
 )
 from tests.runtime_support.market_product import _NoResources
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 
 def only_run_cluster_runtime(
@@ -93,7 +93,7 @@ def only_migrate_cluster_to_strategy(
         universe=OnlyStrategyUniverse(instrument_ids),
         market_input_contract=market_input_contract,
     )
-    OnlyStrategyRevisionStore(user_data_root / "research").commit(revision)
+    publish_frozen_strategy_for_execution_test(user_data_root / "research", revision)
     strategy = OnlyStrategyReferenceConfig(str(revision.strategy_fingerprint))
     config = replace(
         config,
@@ -132,6 +132,8 @@ def only_copy_cluster_strategy_revision(
 ) -> OnlyClusterRunConfig:
     """Copy one immutable test Revision into an isolated Engine root."""
 
-    revision = OnlyStrategyRevisionStore(source_user_data_root / "research").load_verified(config.strategy.fingerprint)
-    OnlyStrategyRevisionStore(target_user_data_root / "research").commit(revision)
+    revision = OnlyFrozenStrategyRevisionStore(source_user_data_root / "research").load_verified(
+        config.strategy.fingerprint
+    )
+    publish_frozen_strategy_for_execution_test(target_user_data_root / "research", revision)
     return config

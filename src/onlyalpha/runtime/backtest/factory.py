@@ -45,7 +45,7 @@ from onlyalpha.runtime.persistence.store import OnlyRuntimePersistenceStorePort
 from onlyalpha.runtime.planning import OnlyRuntimePlan
 from onlyalpha.runtime.runtime import OnlyRuntimeAssemblyConfig
 from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -385,7 +385,7 @@ class OnlyBacktestRuntimeFactory:
         if request.user_data_root is None:
             raise ValueError("STRATEGY_SEMANTIC_ROOT_REQUIRED")
         resolver = OnlyStrategyExecutionResolver(
-            OnlyStrategyRevisionStore(OnlyUserDataLayout(request.user_data_root).research_root),
+            OnlyFrozenStrategyRevisionStore(OnlyUserDataLayout(request.user_data_root).research_root),
             components.calculations,
         )
         result: dict[OnlyInstrumentId, OnlyBarType] = {}

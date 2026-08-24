@@ -70,7 +70,10 @@ Strategy Semantic Definition
 └── Signal Contract
 ```
 
-P9.0 已把 Trading Strategy 产品入口迁移为 immutable Strategy Revision：Runtime/Cluster 只按 `strategy_fingerprint` 经 verified Store/Resolver 装配，Kernel callback 仅由内部 revision-backed adapter 承接。任意 Python `OnlyStrategy` subclass 与动态 class/config path 不再是 Runtime Strategy authority；后续能力不得重建第二执行路径。
+P9.0 已把 Trading Strategy 产品入口迁移为 immutable Strategy Revision：Runtime/Cluster 只按 `strategy_fingerprint` 从 Freeze-only
+`frozen-revisions` Store 经 reader/Resolver 装配，Kernel callback 仅由内部 revision-backed adapter 承接。Freeze 从 Run-linked Research
+Execution Evidence 读取 historical implementation，并要求 exact-node actual-backend Equivalence Evidence V2。任意 Python
+`OnlyStrategy` subclass、动态 class/config path 与 raw Revision commit 不再是 Runtime Strategy authority；后续能力不得重建第二执行路径。
 
 ## 3. Universe 与 Decision Mode 必须正交
 

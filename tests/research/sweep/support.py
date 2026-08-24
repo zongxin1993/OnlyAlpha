@@ -17,6 +17,7 @@ from onlyalpha.research import (
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchCalculationBackendResolver,
+    OnlyResearchCalculationExecutionEvidenceStore,
     OnlyResearchCalculationExecutor,
     OnlyResearchGraphTemplate,
     OnlyResearchGraphTemplateNode,
@@ -95,4 +96,5 @@ def execution_case(root: Path):
     result_store = OnlyParquetResearchCalculationResultStore(
         root / "results", dataset_store, audit_time=lambda: datetime(2026, 8, 14, tzinfo=UTC)
     )
+    result_store._test_execution_evidence_store = OnlyResearchCalculationExecutionEvidenceStore(root / "semantic")
     return committed, calculation, result_store

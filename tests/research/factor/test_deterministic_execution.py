@@ -13,7 +13,6 @@ from onlyalpha_plugin_factors.registration import registrations as factor_regist
 from onlyalpha_plugin_indicators.registration import registrations as indicator_registrations
 
 from onlyalpha.calculation import (
-    OnlyCalculationBackendRegistration,
     OnlyCalculationGraphDefinition,
     OnlyCalculationNodeDefinition,
     OnlyCalculationReference,
@@ -24,11 +23,11 @@ from onlyalpha.research import (
     OnlyResearchCalculationExecutor,
     OnlyResearchJobDisposition,
     OnlyResearchJobError,
-    OnlyResearchJobExecutor,
 )
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore, OnlyVerifiedResearchDataset
 from tests.research.calculation.support import reordered_snapshot, snapshot
 from tests.research.factor.support import factor_case, factor_graph, factor_registry
+from tests.research.job.support import research_job_executor
 
 
 class _StaticVerifiedStore:
@@ -168,7 +167,7 @@ def _registry_with_scorer(backend):
     registry = factor_registry().__class__()
     for registration in (*indicator_registrations(), *factor_registrations()):
         registry.register(
-            OnlyCalculationBackendRegistration(registration.type_definition, registration.backend, backend)
+            replace(registration, provider=backend)
             if registration.type_definition is CROSS_SECTION_PERCENTILE
             else registration
         )
@@ -247,7 +246,7 @@ def test_factor_result_store_and_job_converge_to_one_verified_authority(tmp_path
             return self.delegate.execute(snapshot_fingerprint, graph)
 
     counted = _CountingCalculation(calculation)
-    job = OnlyResearchJobExecutor(counted, result_store)
+    job = research_job_executor(counted, result_store)
     first = job.execute(plan)
     second = job.execute(plan)
     assert first.disposition is OnlyResearchJobDisposition.EXECUTED
@@ -296,5 +295,5 @@ def test_corrupt_factor_result_fails_closed_without_reexecution(tmp_path) -> Non
 
     forbidden = _ForbiddenCalculation()
     with pytest.raises(OnlyResearchJobError, match="RESULT_CORRUPT"):
-        OnlyResearchJobExecutor(forbidden, factor_case(tmp_path)[2]).execute(plan)
+        research_job_executor(forbidden, factor_case(tmp_path)[2]).execute(plan)
     assert forbidden.calls == 0

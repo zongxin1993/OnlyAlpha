@@ -292,6 +292,9 @@ class OnlyPostgresResearchExecutionStore:
                         at=run_finished_at,
                         research_result_fingerprint=inspection.research_result_fingerprint,
                         artifact_content_fingerprint=inspection.artifact_content_fingerprint,
+                        calculation_execution_evidence_fingerprints=(
+                            inspection.calculation_execution_evidence_fingerprints
+                        ),
                     )
                 elif inspection.status is OnlyResearchSemanticCompletionStatus.ABSENT:
                     transitioned = current.transition(OnlyResearchRunState.CANCELLED, at=run_finished_at)
@@ -316,7 +319,10 @@ class OnlyPostgresResearchExecutionStore:
         run_finished_at: datetime,
         research_result_fingerprint: str,
         artifact_content_fingerprint: str,
+        calculation_execution_evidence_fingerprints: tuple[str, ...],
     ) -> OnlyResearchRun:
+        if not calculation_execution_evidence_fingerprints:
+            raise ValueError("RESEARCH_EXECUTION_PROVENANCE_UNAVAILABLE")
         return self._finalize(
             claim,
             OnlyResearchRunAttemptState.SUCCEEDED,
@@ -325,6 +331,7 @@ class OnlyPostgresResearchExecutionStore:
                 at=run_finished_at,
                 research_result_fingerprint=research_result_fingerprint,
                 artifact_content_fingerprint=artifact_content_fingerprint,
+                calculation_execution_evidence_fingerprints=(calculation_execution_evidence_fingerprints),
             ),
         )
 

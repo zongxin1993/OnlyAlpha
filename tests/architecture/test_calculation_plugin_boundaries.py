@@ -58,11 +58,14 @@ def test_calculation_semantic_identity_is_separate_from_explicit_implementation_
                 fingerprint_calls.append(path)
     assert set(fingerprint_calls) == {
         calculation / "definition.py",
+        calculation / "equivalence.py",
         calculation / "graph.py",
         calculation / "implementation.py",
     }
     semantic_source = "\n".join(
-        path.read_text(encoding="utf-8") for path in calculation.glob("*.py") if path.name != "implementation.py"
+        path.read_text(encoding="utf-8")
+        for path in calculation.glob("*.py")
+        if path.name not in {"implementation.py", "equivalence.py"}
     )
     for forbidden in ("class_path", "factor_path", "runtime_id", "cluster_id", "created_at", "uuid4"):
         assert forbidden not in semantic_source

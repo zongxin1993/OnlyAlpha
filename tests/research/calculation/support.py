@@ -62,8 +62,9 @@ def snapshot(
 ) -> tuple[OnlyResearchDatasetSnapshot, tuple[tuple[OnlyBar, ...], ...]]:
     values = bars() if values is None else values
     first = values[0]
+    instruments = tuple(dict.fromkeys(item.instrument_id for item in values))
     definition = OnlyResearchDatasetDefinition(
-        tuple(item.instrument_id for item in values[::4]),
+        instruments,
         first.bar_type.specification,
         first.bar_type.aggregation_source,
         OnlyTimeRange(

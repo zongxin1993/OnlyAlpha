@@ -227,4 +227,5 @@ def test_process_kill_boundaries_reenter_and_converge_exact_semantic_truth(
             run_finished_at=datetime.now(UTC) + timedelta(seconds=1),
             research_result_fingerprint=completed.research_result_fingerprint or "",
             artifact_content_fingerprint=completed.artifact_content_fingerprint or "",
+            calculation_execution_evidence_fingerprints=(completed.calculation_execution_evidence_fingerprints),
         )

@@ -15,6 +15,7 @@ from onlyalpha.research import (
     OnlyResearchSweepExecutor,
     OnlyResearchSweepPlanner,
 )
+from tests.research.job.support import research_job_executor
 from tests.research.sweep.support import definition, execution_case, registry
 
 
@@ -36,9 +37,9 @@ def test_first_run_executes_and_second_identical_run_reuses_without_calculation(
     dataset, calculation, store = execution_case(tmp_path)
     plan = _plan(dataset.snapshot_fingerprint)
     first_counted = _CountingCalculationExecutor(calculation)
-    first = OnlyResearchSweepExecutor(OnlyResearchJobExecutor(first_counted, store)).execute(plan)
+    first = OnlyResearchSweepExecutor(research_job_executor(first_counted, store)).execute(plan)
     second_counted = _CountingCalculationExecutor(calculation)
-    second = OnlyResearchSweepExecutor(OnlyResearchJobExecutor(second_counted, store)).execute(plan)
+    second = OnlyResearchSweepExecutor(research_job_executor(second_counted, store)).execute(plan)
     assert first.total_cells == first.executed_count == 3
     assert first.reused_count == 0
     assert second.total_cells == second.reused_count == 3
@@ -53,10 +54,10 @@ def test_first_run_executes_and_second_identical_run_reuses_without_calculation(
 def test_partial_reentry_reuses_prefix_executes_suffix_and_converges_to_clean_identities(tmp_path) -> None:
     dataset, calculation, store = execution_case(tmp_path)
     plan = _plan(dataset.snapshot_fingerprint)
-    job = OnlyResearchJobExecutor(calculation, store)
+    job = research_job_executor(calculation, store)
     prefix = tuple(job.execute(cell.job_plan) for cell in plan.cells[:2])
     counted = _CountingCalculationExecutor(calculation)
-    resumed = OnlyResearchSweepExecutor(OnlyResearchJobExecutor(counted, store)).execute(plan)
+    resumed = OnlyResearchSweepExecutor(research_job_executor(counted, store)).execute(plan)
     assert [cell.disposition for cell in resumed.cells] == [
         OnlyResearchJobDisposition.REUSED,
         OnlyResearchJobDisposition.REUSED,
@@ -68,7 +69,7 @@ def test_partial_reentry_reuses_prefix_executes_suffix_and_converges_to_clean_id
     ]
     clean_dataset, clean_calculation, clean_store = execution_case(tmp_path / "clean")
     clean_plan = _plan(clean_dataset.snapshot_fingerprint)
-    clean = OnlyResearchSweepExecutor(OnlyResearchJobExecutor(clean_calculation, clean_store)).execute(clean_plan)
+    clean = OnlyResearchSweepExecutor(research_job_executor(clean_calculation, clean_store)).execute(clean_plan)
     assert [item.calculation_fingerprint for item in resumed.cells] == [
         item.calculation_fingerprint for item in clean.cells
     ]
@@ -84,7 +85,7 @@ def _result_root(root: Path, fingerprint: str) -> Path:
 def test_corrupt_result_fails_closed_at_exact_cell_without_reexecution(tmp_path) -> None:
     dataset, calculation, store = execution_case(tmp_path)
     plan = _plan(dataset.snapshot_fingerprint)
-    job = OnlyResearchJobExecutor(calculation, store)
+    job = research_job_executor(calculation, store)
     job.execute(plan.cells[0].job_plan)
     job.execute(plan.cells[1].job_plan)
     root = _result_root(tmp_path, plan.cells[1].calculation_fingerprint)
@@ -92,7 +93,7 @@ def test_corrupt_result_fails_closed_at_exact_cell_without_reexecution(tmp_path)
     partition.write_bytes(partition.read_bytes() + b"tamper")
     counted = _CountingCalculationExecutor(calculation)
     with pytest.raises(OnlyResearchSweepError) as raised:
-        OnlyResearchSweepExecutor(OnlyResearchJobExecutor(counted, store)).execute(plan)
+        OnlyResearchSweepExecutor(research_job_executor(counted, store)).execute(plan)
     assert raised.value.code == "SWEEP_JOB_FAILED"
     assert raised.value.ordinal == 1
     assert raised.value.job_phase is OnlyResearchJobPhase.RESULT_REUSE
@@ -114,6 +115,7 @@ class _FailingJobExecutor(OnlyResearchJobExecutor):
             OnlyResearchJobDisposition.REUSED,
             plan.calculation_fingerprint,
             (str(len(self.calls)) * 64)[:64],
+            "e" * 64,
         )
 
 

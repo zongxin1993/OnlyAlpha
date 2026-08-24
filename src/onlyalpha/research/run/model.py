@@ -106,6 +106,7 @@ class OnlyResearchRun:
     research_result_fingerprint: str | None = None
     artifact_content_fingerprint: str | None = None
     failure: OnlyResearchRunFailure | None = None
+    calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -127,6 +128,13 @@ class OnlyResearchRun:
                 value = getattr(self, name)
                 if value is not None:
                     _sha(value, name)
+            evidence = tuple(sorted(self.calculation_execution_evidence_fingerprints))
+            if evidence != self.calculation_execution_evidence_fingerprints or len(evidence) != len(set(evidence)):
+                raise ValueError("Calculation Execution Evidence references must be canonical and unique")
+            for value in evidence:
+                _sha(value, "calculation_execution_evidence_fingerprint")
+            if evidence and self.research_result_fingerprint is None:
+                raise ValueError("Execution Evidence references require Research Result reference")
             for name in ("queued_at", "started_at", "cancel_requested_at", "finished_at"):
                 value = getattr(self, name)
                 if value is not None:
@@ -150,18 +158,23 @@ class OnlyResearchRun:
                 raise ValueError("finished_at precedes cancel_requested_at")
             if self.artifact_content_fingerprint is not None and self.research_result_fingerprint is None:
                 raise ValueError("Artifact reference requires Research Result reference")
-            if self.state is self.state.QUEUED and any(
-                value is not None
-                for value in (
-                    self.started_at,
-                    self.cancel_requested_at,
-                    self.finished_at,
-                    self.research_result_fingerprint,
-                    self.artifact_content_fingerprint,
-                    self.failure,
+            if self.state is self.state.QUEUED and (
+                any(
+                    value is not None
+                    for value in (
+                        self.started_at,
+                        self.cancel_requested_at,
+                        self.finished_at,
+                        self.research_result_fingerprint,
+                        self.artifact_content_fingerprint,
+                        self.failure,
+                    )
                 )
+                or self.calculation_execution_evidence_fingerprints
             ):
                 raise ValueError("QUEUED Run contains later lifecycle facts")
+            if self.state in {self.state.RUNNING, self.state.CANCEL_REQUESTED} and evidence:
+                raise ValueError("active Run cannot contain finalized Execution Evidence references")
             if self.state in {self.state.RUNNING, self.state.CANCEL_REQUESTED} and self.started_at is None:
                 raise ValueError("active Run requires started_at")
             if self.state is self.state.RUNNING and self.cancel_requested_at is not None:
@@ -214,6 +227,7 @@ class OnlyResearchRun:
         failure: OnlyResearchRunFailure | None = None,
         research_result_fingerprint: str | None = None,
         artifact_content_fingerprint: str | None = None,
+        calculation_execution_evidence_fingerprints: tuple[str, ...] | None = None,
     ) -> OnlyResearchRun:
         _utc(at, "transition timestamp")
         if target not in _TRANSITIONS[self.state]:
@@ -234,20 +248,25 @@ class OnlyResearchRun:
         else:
             next_failure = None
         return OnlyResearchRun(
-            self.run_id,
-            self.revision + 1,
-            target,
-            self.specification,
-            self.specification_fingerprint,
-            self.canonical_specification_payload,
-            self.admission_resolution_fingerprint,
-            self.queued_at,
-            started_at,
-            cancel_requested_at,
-            finished_at,
-            research_result_fingerprint or self.research_result_fingerprint,
-            artifact_content_fingerprint or self.artifact_content_fingerprint,
-            next_failure,
+            run_id=self.run_id,
+            revision=self.revision + 1,
+            state=target,
+            specification=self.specification,
+            specification_fingerprint=self.specification_fingerprint,
+            canonical_specification_payload=self.canonical_specification_payload,
+            admission_resolution_fingerprint=self.admission_resolution_fingerprint,
+            queued_at=self.queued_at,
+            started_at=started_at,
+            cancel_requested_at=cancel_requested_at,
+            finished_at=finished_at,
+            research_result_fingerprint=research_result_fingerprint or self.research_result_fingerprint,
+            artifact_content_fingerprint=artifact_content_fingerprint or self.artifact_content_fingerprint,
+            failure=next_failure,
+            calculation_execution_evidence_fingerprints=(
+                self.calculation_execution_evidence_fingerprints
+                if calculation_execution_evidence_fingerprints is None
+                else calculation_execution_evidence_fingerprints
+            ),
         )
 
     def is_exact_successor_of(self, previous: OnlyResearchRun) -> bool:
@@ -268,6 +287,12 @@ class OnlyResearchRun:
                 artifact_content_fingerprint=self.artifact_content_fingerprint
                 if self.artifact_content_fingerprint != previous.artifact_content_fingerprint
                 else None,
+                calculation_execution_evidence_fingerprints=(
+                    self.calculation_execution_evidence_fingerprints
+                    if self.calculation_execution_evidence_fingerprints
+                    != previous.calculation_execution_evidence_fingerprints
+                    else None
+                ),
             )
         except (OnlyResearchRunIntegrityError, OnlyResearchRunStateConflictError, ValueError):
             return False

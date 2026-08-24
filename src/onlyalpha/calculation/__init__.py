@@ -11,6 +11,15 @@ from onlyalpha.calculation.compatibility import (
     only_calculation_output_compatibility,
 )
 from onlyalpha.calculation.definition import *  # noqa: F403
+from onlyalpha.calculation.equivalence import (
+    OnlyCalculationEquivalenceCertificationProfile,
+    OnlyCalculationEquivalenceError,
+    OnlyCalculationEquivalenceEvidenceV2,
+    OnlyCalculationEquivalenceEvidenceV2Store,
+    OnlyCalculationEquivalenceVerdict,
+    only_calculation_equivalence_comparison_fingerprint,
+    only_required_calculation_equivalence_profile,
+)
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition, OnlyCalculationNodeDefinition
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,

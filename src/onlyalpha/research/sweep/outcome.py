@@ -17,6 +17,7 @@ class OnlyResearchSweepCellOutcome:
     assignment: tuple[tuple[OnlyResearchSweepParameterTarget, OnlyCalculationScalar], ...]
     calculation_fingerprint: str
     calculation_result_fingerprint: str
+    calculation_execution_evidence_fingerprint: str
     disposition: OnlyResearchJobDisposition
 
     def __post_init__(self) -> None:
@@ -32,6 +33,13 @@ class OnlyResearchSweepCellOutcome:
         require_sha256(
             {"calculation_result_fingerprint": self.calculation_result_fingerprint},
             "calculation_result_fingerprint",
+            "Sweep Cell Outcome",
+        )
+        require_sha256(
+            {
+                "calculation_execution_evidence_fingerprint": self.calculation_execution_evidence_fingerprint,
+            },
+            "calculation_execution_evidence_fingerprint",
             "Sweep Cell Outcome",
         )
 

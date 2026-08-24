@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
+from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
+from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
+
+from onlyalpha.config import OnlyClusterRunConfig
+from onlyalpha.core.clock import OnlyBacktestClock
+from onlyalpha.domain.identifiers import OnlyEngineId, OnlyInstrumentId
+from onlyalpha.domain.market import OnlyBarType
+from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.runtime.sim.runtime import OnlySimRuntime
+from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
+from onlyalpha.strategy.freeze import OnlyStrategyFreezeRequest
+from tests.research.calculation.support import bars
+from tests.strategy.test_strategy_freeze import _freeze_case
+
+pytestmark = pytest.mark.integration
+
+_HELPER = Path("packages/provider/onlyalpha-plugin-miniqmt/tests/helpers/historical_worker.py").resolve()
+_OBSERVED_AT = datetime(2026, 8, 4, 1, 36, 17, tzinfo=UTC)
+
+
+class _ExactMiniQmtFeed:
+    def __init__(self, ends: tuple[datetime, ...]) -> None:
+        self._ends = ends
+        self.callbacks = []
+
+    def download_history_data(self, *args, **kwargs) -> None:
+        del args, kwargs
+
+    def get_market_data_ex(self, fields, symbols, period, **kwargs):
+        del fields, period, kwargs
+        rows = [
+            {
+                "time": int(end.timestamp() * 1000),
+                "open": "10.00",
+                "high": "10.10",
+                "low": "9.90",
+                "close": "10.05",
+                "volume": "100",
+            }
+            for end in self._ends
+        ]
+        return {symbols[0]: rows}
+
+    def subscribe_quote(self, *args, **kwargs) -> int:
+        del args
+        self.callbacks.append(kwargs["callback"])
+        return len(self.callbacks)
+
+    def unsubscribe_quote(self, sequence: int) -> None:
+        del sequence
+
+
+def _research_bars():
+    instrument = OnlyInstrumentId.parse("000001.XSHE")
+    return tuple(
+        replace(
+            bar,
+            bar_type=OnlyBarType(instrument, bar.bar_type.specification, bar.bar_type.aggregation_source),
+        )
+        for bar in bars()[:4]
+    )
+
+
+def _runtime_config(runtime_type: str, strategy_fingerprint: str, tmp_path: Path) -> OnlyClusterRunConfig:
+    baseline = OnlyClusterRunConfig.load("examples/configs/miniqmt_sim_acceptance.yaml")
+    payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
+    payload["cluster"]["runtime_type"] = runtime_type
+    payload["strategy"] = {"fingerprint": strategy_fingerprint}
+    if runtime_type == "BACKTEST":
+        payload["runtime"]["start_time"] = "2026-08-03T06:57:00Z"
+        payload["runtime"]["end_time"] = "2026-08-04T01:37:00Z"
+    payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
+    payload["runtime"]["persistence"] = {"backend": "MEMORY", "checkpoint": {"enabled": False}}
+    userdata = tmp_path / "userdata_mini"
+    userdata.mkdir(parents=True, exist_ok=True)
+    payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
+    return OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)
+
+
+def test_research_evidence_freeze_publishes_one_strategy_for_backtest_and_sim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_data = tmp_path / "user_data"
+    service, run, candidate, frozen_store, _catalog = _freeze_case(
+        tmp_path / "research-authorities",
+        semantic_root=user_data / "research",
+        values=_research_bars(),
+    )
+    frozen = service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
+    fingerprint = frozen.strategy_fingerprint
+    assert frozen_store.load_verified(fingerprint).strategy_fingerprint.value == fingerprint
+
+    current_close = _OBSERVED_AT.replace(second=0, microsecond=0)
+    previous_close = current_close - timedelta(hours=18, minutes=36)
+    exact_ends = tuple(previous_close - timedelta(minutes=offset) for offset in range(2, -1, -1)) + tuple(
+        current_close - timedelta(minutes=offset) for offset in range(5, -1, -1)
+    )
+    feed = _ExactMiniQmtFeed(exact_ends)
+
+    def create(self: OnlyMiniQmtDataSourceFactory, request: object) -> OnlyMiniQmtDataSource:
+        del self
+        return OnlyMiniQmtDataSource(request, request.plugin_config, feed)  # type: ignore[arg-type,attr-defined]
+
+    monkeypatch.setattr(OnlyMiniQmtDataSourceFactory, "create", create)
+    monkeypatch.setattr("onlyalpha.runtime.sim.factory.OnlyLiveClock", lambda: OnlyBacktestClock(_OBSERVED_AT))
+    monkeypatch.setattr(
+        OnlyMiniQmtHistoricalIsolatedClient,
+        "_default_command",
+        staticmethod(
+            lambda request_path: (
+                sys.executable,
+                str(_HELPER),
+                "--request",
+                str(request_path),
+                "--behavior",
+                "opening-boundary",
+            )
+        ),
+    )
+
+    decisions: dict[str, list[object]] = {"BACKTEST": [], "SIM": []}
+    active_runtime = "BACKTEST"
+    original_on_bar = OnlyRevisionStrategyAdapter.on_bar
+
+    def capture(self, bar):
+        decision = original_on_bar(self, bar)
+        decisions[active_runtime].append(decision)
+        return decision
+
+    monkeypatch.setattr(OnlyRevisionStrategyAdapter, "on_bar", capture)
+
+    backtest = OnlyEngine(OnlyEngineConfig(OnlyEngineId("p9-c2-backtest"), user_data))
+    backtest.add_cluster(_runtime_config("BACKTEST", fingerprint, tmp_path))
+    backtest_result = backtest.run()
+    assert backtest_result.status == "COMPLETED"
+
+    active_runtime = "SIM"
+    sim = OnlyEngine(OnlyEngineConfig(OnlyEngineId("p9-c2-sim"), user_data))
+    sim.add_cluster(_runtime_config("SIM", fingerprint, tmp_path))
+    sim.initialize()
+    sim.start()
+    try:
+        assert isinstance(sim.runtimes[0], OnlySimRuntime)
+        assert decisions["SIM"]
+    finally:
+        sim.stop()
+        sim.close()
+
+    assert [item.decision_time.unix_nanos for item in decisions["BACKTEST"]] == [  # type: ignore[attr-defined]
+        item.decision_time.unix_nanos
+        for item in decisions["SIM"]  # type: ignore[attr-defined]
+    ]
+    assert decisions["BACKTEST"] == decisions["SIM"]
+    assert {item.strategy_fingerprint for item in decisions["BACKTEST"]} == {fingerprint}  # type: ignore[attr-defined]

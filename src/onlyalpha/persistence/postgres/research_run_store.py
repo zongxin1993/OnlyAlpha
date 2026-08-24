@@ -49,6 +49,7 @@ _COLUMNS = (
     "finished_at",
     "research_result_fingerprint",
     "artifact_content_fingerprint",
+    "calculation_execution_evidence_fingerprints",
     "failure_phase",
     "failure_code",
     "failure_detail",
@@ -211,6 +212,7 @@ class OnlyPostgresResearchRunStore:
             run.finished_at,
             run.research_result_fingerprint,
             run.artifact_content_fingerprint,
+            list(run.calculation_execution_evidence_fingerprints),
             None if failure is None else failure.phase.value,
             None if failure is None else failure.code,
             None if failure is None else failure.detail,
@@ -237,21 +239,29 @@ class OnlyPostgresResearchRunStore:
                     str(row["failure_detail"]),
                 )
             )
+            raw_evidence = row["calculation_execution_evidence_fingerprints"]
+            if raw_evidence is None:
+                evidence: tuple[str, ...] = ()
+            elif isinstance(raw_evidence, list) and all(isinstance(item, str) for item in raw_evidence):
+                evidence = tuple(cast(list[str], raw_evidence))
+            else:
+                raise ValueError("Execution Evidence references must be an array or null")
             return OnlyResearchRun(
-                OnlyResearchRunId(str(row["run_id"])),
-                int(cast(int, row["revision"])),
-                OnlyResearchRunState(str(row["state"])),
-                specification,
-                str(row["specification_fingerprint"]),
-                canonical,
-                str(row["admission_resolution_fingerprint"]),
-                cast(datetime, row["queued_at"]),
-                cast(datetime | None, row["started_at"]),
-                cast(datetime | None, row["cancel_requested_at"]),
-                cast(datetime | None, row["finished_at"]),
-                cast(str | None, row["research_result_fingerprint"]),
-                cast(str | None, row["artifact_content_fingerprint"]),
-                failure,
+                run_id=OnlyResearchRunId(str(row["run_id"])),
+                revision=int(cast(int, row["revision"])),
+                state=OnlyResearchRunState(str(row["state"])),
+                specification=specification,
+                specification_fingerprint=str(row["specification_fingerprint"]),
+                canonical_specification_payload=canonical,
+                admission_resolution_fingerprint=str(row["admission_resolution_fingerprint"]),
+                queued_at=cast(datetime, row["queued_at"]),
+                started_at=cast(datetime | None, row["started_at"]),
+                cancel_requested_at=cast(datetime | None, row["cancel_requested_at"]),
+                finished_at=cast(datetime | None, row["finished_at"]),
+                research_result_fingerprint=cast(str | None, row["research_result_fingerprint"]),
+                artifact_content_fingerprint=cast(str | None, row["artifact_content_fingerprint"]),
+                failure=failure,
+                calculation_execution_evidence_fingerprints=evidence,
             )
         except (KeyError, TypeError, ValueError, OnlyResearchRunIntegrityError) as exc:
             raise OnlyResearchRunIntegrityError("PostgreSQL Research Run row failed strict verification") from exc

@@ -4,22 +4,22 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from onlyalpha.strategy import (
+    OnlyFrozenStrategyRevisionStore,
     OnlyInMemoryStrategyPromotionLedger,
     OnlyStrategyPromotionDecision,
     OnlyStrategyPromotionError,
     OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
-    OnlyStrategyRevisionStore,
 )
 from onlyalpha.strategy.promotion import only_verified_strategy_promotion_chain
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 
 def test_promotion_is_append_only_chained_evidence_with_derived_stage(tmp_path) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", revision)
     ledger = OnlyInMemoryStrategyPromotionLedger()
     times = iter(
         (
@@ -69,8 +69,8 @@ def test_promotion_is_append_only_chained_evidence_with_derived_stage(tmp_path) 
 )
 def test_promotion_rejects_stage_skips(tmp_path, target) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", revision)
     service = OnlyStrategyPromotionService(
         store,
         OnlyInMemoryStrategyPromotionLedger(),
@@ -91,7 +91,7 @@ def test_promotion_rejects_stage_skips(tmp_path, target) -> None:
 
 def test_promotion_rejects_unknown_strategy(tmp_path) -> None:
     service = OnlyStrategyPromotionService(
-        OnlyStrategyRevisionStore(tmp_path / "semantic"),
+        OnlyFrozenStrategyRevisionStore(tmp_path / "semantic"),
         OnlyInMemoryStrategyPromotionLedger(),
         lambda: datetime(2026, 8, 24, tzinfo=UTC),
     )
@@ -102,8 +102,8 @@ def test_promotion_rejects_unknown_strategy(tmp_path) -> None:
 
 def test_promotion_records_are_immutable_and_invalid_evidence_fails_closed(tmp_path) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", revision)
     service = OnlyStrategyPromotionService(
         store,
         OnlyInMemoryStrategyPromotionLedger(),
@@ -134,8 +134,8 @@ def test_promotion_records_are_immutable_and_invalid_evidence_fails_closed(tmp_p
 
 def test_promotion_chain_order_is_timestamp_independent(tmp_path) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", revision)
     ledger = OnlyInMemoryStrategyPromotionLedger()
     timestamps = iter(
         (

@@ -1,7 +1,11 @@
 """Public deterministic Research Calculation execution contracts."""
 # ruff: noqa: F401
 
-from .backend import OnlyResearchCalculationBackend, OnlyResearchCalculationBackendResolver
+from .backend import (
+    OnlyResearchCalculationBackend,
+    OnlyResearchCalculationBackendResolver,
+    OnlyResolvedResearchCalculationBackend,
+)
 from .binding import (
     OnlyResearchDatasetSourceContract,
     only_bind_research_dataset_source,
@@ -11,8 +15,15 @@ from .binding import (
 from .errors import OnlyResearchCalculationError, OnlyResearchCalculationResultStoreError
 from .execution import (
     OnlyResearchCalculationExecution,
+    OnlyResearchCalculationExecutionPlan,
+    OnlyResearchCalculationExecutionPlanBinding,
     OnlyResearchCalculationExecutor,
+    OnlyResearchCalculationImplementationBinding,
     OnlyResearchCalculationNodeOutput,
+)
+from .execution_evidence import (
+    OnlyResearchCalculationExecutionEvidence,
+    OnlyResearchCalculationExecutionEvidenceStore,
 )
 from .identity import only_research_calculation_fingerprint
 from .predicate import (

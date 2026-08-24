@@ -21,6 +21,9 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchRunStore,
 )
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
+from onlyalpha.research.calculation.execution_evidence import (
+    OnlyResearchCalculationExecutionEvidenceStore,
+)
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
@@ -67,6 +70,8 @@ M6 = "0006_research_worker_presence"
 M7 = "0007_research_deployment_semantic_store_binding"
 M8 = "0008_strategy_revision_promotion_foundation"
 M9 = "0009_strategy_authority_closure"
+M10 = "0010_p9_0_closure_2_authority_hardening"
+EXECUTION_EVIDENCE = ("e" * 64,)
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
 
@@ -85,6 +90,28 @@ def _queued(run_id: int) -> OnlyResearchRun:
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=NOW,
     )
+
+
+def _insert_legacy_queued(postgres_dsn: str, run: OnlyResearchRun) -> OnlyResearchRun:
+    """Seed a pre-C2 schema without asking the current adapter to emulate it."""
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "INSERT INTO research_run (run_id, revision, state, specification_schema_version, "
+            "specification_fingerprint, specification_payload, admission_resolution_fingerprint, queued_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                run.run_id.value,
+                run.revision,
+                run.state.value,
+                run.specification.schema_version,
+                run.specification_fingerprint,
+                run.canonical_specification_payload,
+                run.admission_resolution_fingerprint,
+                run.queued_at,
+            ),
+        )
+    return run
 
 
 def _claim(
@@ -118,7 +145,12 @@ def _reconciler(
     return OnlyResearchCancellationRecoveryReconciler(
         execution_store=OnlyPostgresResearchExecutionStore(postgres_dsn),
         resolver=OnlyResearchSpecificationResolver(registry()),
-        completion_probe=OnlyResearchVerifiedSemanticCompletionProbe(result, artifact),
+        completion_probe=OnlyResearchVerifiedSemanticCompletionProbe(
+            result,
+            artifact,
+            calculation,
+            OnlyResearchCalculationExecutionEvidenceStore(layout.research_root),
+        ),
         now_utc=lambda: now,
     )
 
@@ -145,10 +177,10 @@ def test_existing_m1_m2_database_plans_exact_forward_suffix_and_preserves_run(
         source = DEFAULT_MIGRATION_ROOT / f"{migration_id}.sql"
         (tmp_path / source.name).write_bytes(source.read_bytes())
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1, M2)
-    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued(310))
+    run = _insert_legacy_queued(postgres_dsn, _queued(310))
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5, M6, M7, M8, M9)
-    assert authority.migrate() == (M3, M4, M5, M6, M7, M8, M9)
+    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5, M6, M7, M8, M9, M10)
+    assert authority.migrate() == (M3, M4, M5, M6, M7, M8, M9, M10)
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
 
@@ -250,6 +282,7 @@ def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) ->
             run_finished_at=NOW + timedelta(minutes=6),
             research_result_fingerprint="b" * 64,
             artifact_content_fingerprint="c" * 64,
+            calculation_execution_evidence_fingerprints=EXECUTION_EVIDENCE,
         ),
         lambda: store.fail(
             claim=first,
@@ -266,6 +299,7 @@ def test_heartbeat_expiry_reclaim_and_stale_worker_fencing(postgres_dsn: str) ->
         run_finished_at=NOW + timedelta(minutes=6),
         research_result_fingerprint="b" * 64,
         artifact_content_fingerprint="c" * 64,
+        calculation_execution_evidence_fingerprints=EXECUTION_EVIDENCE,
     )
     assert completed.state is OnlyResearchRunState.COMPLETED
 
@@ -386,6 +420,7 @@ def test_real_postgres_outage_loses_worker_ownership_before_finalization_and_rec
             run_finished_at=NOW + timedelta(minutes=4),
             research_result_fingerprint="b" * 64,
             artifact_content_fingerprint="c" * 64,
+            calculation_execution_evidence_fingerprints=EXECUTION_EVIDENCE,
         )
 
 
@@ -438,6 +473,7 @@ def test_cancellation_and_completion_race_preserve_committed_semantics(postgres_
         run_finished_at=NOW + timedelta(seconds=3),
         research_result_fingerprint="b" * 64,
         artifact_content_fingerprint="c" * 64,
+        calculation_execution_evidence_fingerprints=EXECUTION_EVIDENCE,
     )
     assert completed.state is OnlyResearchRunState.COMPLETED
     assert completed.cancel_requested_at == requested.cancel_requested_at
@@ -664,6 +700,7 @@ def test_cancel_crash_after_semantic_commit_reconciles_completed_on_last_attempt
     assert completed.cancel_requested_at == requested.cancel_requested_at
     assert completed.research_result_fingerprint == semantic.research_result_fingerprint
     assert completed.artifact_content_fingerprint == semantic.artifact_content_fingerprint
+    assert completed.calculation_execution_evidence_fingerprints == semantic.calculation_execution_evidence_fingerprints
     assert (
         restarted.claim_next(
             worker_instance_id=WORKER_2,
@@ -680,6 +717,7 @@ def test_cancel_crash_after_semantic_commit_reconciles_completed_on_last_attempt
             run_finished_at=NOW + timedelta(minutes=6),
             research_result_fingerprint=semantic.research_result_fingerprint,
             artifact_content_fingerprint=semantic.artifact_content_fingerprint,
+            calculation_execution_evidence_fingerprints=EXECUTION_EVIDENCE,
         )
 
 

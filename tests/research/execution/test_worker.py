@@ -165,6 +165,7 @@ def _runtime_result(
         research_result_plan_fingerprint="d" * 64,
         research_result_fingerprint="b" * 64,
         artifact_content_fingerprint="c" * 64,
+        calculation_execution_evidence_fingerprints=("e" * 64,),
         phase=phase,
         code=code,
         detail="detail" if phase is not None else None,

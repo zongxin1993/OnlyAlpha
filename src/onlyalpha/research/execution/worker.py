@@ -263,6 +263,7 @@ class OnlyResearchWorker:
                 run_finished_at=self._now_utc(),
                 research_result_fingerprint=result.research_result_fingerprint,
                 artifact_content_fingerprint=result.artifact_content_fingerprint,
+                calculation_execution_evidence_fingerprints=(result.calculation_execution_evidence_fingerprints),
             )
             return OnlyResearchWorkerOutcome(OnlyResearchWorkerOutcomeKind.COMPLETED, claim, completed)
         except OnlyResearchRuntimeCancellationRequested:

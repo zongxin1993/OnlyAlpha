@@ -7,8 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from onlyalpha.calculation.equivalence import OnlyCalculationEquivalenceEvidenceV2Store
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
+from onlyalpha.research.calculation.execution_evidence import (
+    OnlyResearchCalculationExecutionEvidenceStore,
+)
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.dataset import OnlyVerifiedResearchDataset
 from onlyalpha.research.operations.deployment import (
@@ -22,7 +26,6 @@ from onlyalpha.research.run import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
-from onlyalpha.strategy.equivalence import OnlyCalculationEquivalenceEvidenceStore
 from onlyalpha.strategy.freeze import (
     OnlyStrategyFreezeOutcome,
     OnlyStrategyFreezeRequest,
@@ -34,7 +37,10 @@ from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
 )
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import (
+    OnlyFrozenStrategyRevisionStore,
+    _only_compose_frozen_strategy_authority,
+)
 
 
 class _ResearchRuns(Protocol):
@@ -78,16 +84,19 @@ class OnlyStrategyFreezeApplicationService:
         only_register_trading_predicate_primitives(calculations)
         catalog = OnlyPostgresStrategyStore(postgres_dsn, semantic_namespace_id)
         catalog.assert_namespace()
-        evidence = OnlyCalculationEquivalenceEvidenceStore(semantic_root)
+        evidence = OnlyCalculationEquivalenceEvidenceV2Store(semantic_root)
+        strategies, publisher = _only_compose_frozen_strategy_authority(semantic_root)
         return cls(
             OnlyStrategyFreezeService(
                 runs=runs,
                 research_results=research_results,
                 calculation_results=calculation_results,
+                calculation_execution_evidence=(OnlyResearchCalculationExecutionEvidenceStore(semantic_root)),
                 datasets=datasets,
                 specification_resolver=specification_resolver,
                 admission=OnlyStrategyTradingAdmissionService(calculations, evidence),
-                strategies=OnlyStrategyRevisionStore(semantic_root),
+                strategies=strategies,
+                strategy_publisher=publisher,
                 catalog=catalog,
                 audit_time=audit_time,
             )
@@ -117,7 +126,7 @@ class OnlyStrategyPromotionApplicationService:
         ledger.assert_namespace()
         return cls(
             OnlyStrategyPromotionService(
-                OnlyStrategyRevisionStore(semantic_root),
+                OnlyFrozenStrategyRevisionStore(semantic_root),
                 ledger,
                 audit_time,
             )

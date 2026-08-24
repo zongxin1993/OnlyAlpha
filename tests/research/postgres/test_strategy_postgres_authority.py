@@ -37,6 +37,7 @@ def test_strategy_catalog_and_freeze_provenance_are_idempotent_without_semantic_
     record = OnlyStrategyFreezeRecord(
         "b" * 64,
         "c" * 64,
+        ("f" * 64,),
         "a" * 64,
         "d" * 64,
         ("e" * 64,),

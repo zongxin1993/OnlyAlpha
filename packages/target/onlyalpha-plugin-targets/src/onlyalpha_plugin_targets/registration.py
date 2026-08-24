@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 
 from onlyalpha.calculation import (
     TARGET_VALUE_SEMANTIC_TYPE,
@@ -14,6 +15,7 @@ from onlyalpha.calculation import (
     OnlyCalculationKind,
     OnlyCalculationReference,
     OnlyCalculationTypeDefinition,
+    OnlyCalculationTypeReference,
     OnlyInputDefinition,
     OnlyMissingValuePolicy,
     OnlyNumericDefinition,
@@ -24,6 +26,11 @@ from onlyalpha.calculation import (
     OnlyPreReadyOutput,
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
+)
+from onlyalpha.calculation.implementation import (
+    only_distribution_semantic_dependency,
+    only_python_implementation_manifest,
+    only_python_stdlib_semantic_dependency,
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha_plugin_targets.research import OnlyOfficialResearchTargetBackend
@@ -104,11 +111,27 @@ def resolve_forward_return(
 
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
+    package_root = Path(__file__).resolve().parent
     return (
         OnlyCalculationBackendRegistration(
             FORWARD_RETURN,
             OnlyCalculationBackendKind.RESEARCH,
             OnlyOfficialResearchTargetBackend(),
             OnlyOfficialTargetDefinitionResolver(FORWARD_RETURN),
+            only_python_implementation_manifest(
+                calculation_type_reference=OnlyCalculationTypeReference(
+                    FORWARD_RETURN.kind,
+                    FORWARD_RETURN.type_id,
+                    FORWARD_RETURN.semantic_version,
+                ),
+                backend_kind=OnlyCalculationBackendKind.RESEARCH,
+                entrypoint_identity="onlyalpha_plugin_targets.research:OnlyOfficialResearchTargetBackend",
+                package_root=package_root,
+                resource_paths=("registration.py", "research.py"),
+                semantic_dependencies=(
+                    only_python_stdlib_semantic_dependency("decimal"),
+                    only_distribution_semantic_dependency("pyarrow"),
+                ),
+            ),
         ),
     )

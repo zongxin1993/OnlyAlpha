@@ -268,10 +268,17 @@ StrategyDecision`。Cluster Factory 只把 resolved `OnlyStrategyExecutionPlan` 
 `OnlyRevisionStrategyAdapter` 同步产生 `ELIGIBILITY/ENTRY/EXIT`，并通过 `OnlyClusterPipelineResult.strategy_decision` 显式交付。
 `StrategyDecision` 不是 Order Intent；Portfolio/Position Policy、Risk 与 Order 仍是下游独立权威。
 
-Trading Resolver 只验证 Revision 已绑定的 exact TRADING implementation，不导入或要求 RESEARCH runtime backend。Freeze 阶段由
-verified immutable Equivalence Evidence Store 验证 exact Research/TRADING implementation pair。P9.0 BAR admission 只允许
+Trading Resolver 只验证 Revision 已绑定的 exact TRADING implementation，不导入或要求 RESEARCH runtime backend。Research Calculation
+在读取 Dataset 行前冻结 exact per-node implementation plan，并把 Result producer provenance 发布为独立 immutable Execution Evidence；
+Calculation Result identity 不包含 implementation identity。Completed Run 持有 exact Evidence fingerprints，legacy Run 缺少 provenance
+时不可 Freeze。Freeze 阶段只从 Run-linked Evidence 读取 historical RESEARCH implementation，并由 actual-backend Equivalence Evidence
+V2 验证 exact node + Research/Trading pair + system profile/corpus；current RESEARCH Registry 不得重解释历史事实。P9.0 BAR admission 只允许
 `FINAL_ONLY + RAW_ONLY`。Calculation registration 显式声明 `STATELESS/CHECKPOINTABLE`；Promotion 顺序只由
 `previous_record_fingerprint` 链重建，audit timestamp 不参与语义排序。
+
+Runtime-readable Strategy authority 固定为 `strategy/frozen-revisions`。`OnlyStrategyRevision(...)` 仍是 Domain constructor，但只有
+verified Freeze 可获得内部 publisher capability；Runtime、Cluster、Backtest、SIM 与 Promotion 只接收 reader capability。旧 raw
+`strategy/revisions` namespace 不会被自动信任、复制或用于 Runtime resolution。
 
 ### 6.1 Target LIVE Manual Workload
 

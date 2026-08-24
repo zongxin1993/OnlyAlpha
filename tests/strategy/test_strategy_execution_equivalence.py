@@ -11,14 +11,14 @@ from onlyalpha.domain.market import OnlyBarSpecification, OnlyBarType
 from onlyalpha.domain.value import OnlyPrice
 from onlyalpha.research import OnlyResearchCalculationBackendResolver, OnlyResearchCalculationExecutor
 from onlyalpha.strategy import (
+    OnlyFrozenStrategyRevisionStore,
     OnlyStrategyExecutionResolver,
     OnlyStrategyResolutionError,
-    OnlyStrategyRevisionStore,
     only_strategy_observation_fingerprint,
     only_strategy_observation_key,
 )
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
-from tests.strategy.p9_support import p9_strategy_case
+from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 
 def test_research_batch_and_trading_incremental_decisions_are_exactly_equivalent(tmp_path) -> None:
@@ -27,8 +27,8 @@ def test_research_batch_and_trading_incremental_decisions_are_exactly_equivalent
         case.dataset_store,
         OnlyResearchCalculationBackendResolver(case.registry),
     ).execute(case.dataset_fingerprint, case.revision.decision_graph)
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     trading = (
         OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
     )
@@ -57,8 +57,8 @@ def test_research_batch_and_trading_incremental_decisions_are_exactly_equivalent
 
 def test_revision_adapter_returns_exact_decision_synchronously_without_private_decision_log(tmp_path) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     plan = OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint)
     adapter = OnlyRevisionStrategyAdapter(plan)
 
@@ -79,8 +79,8 @@ def test_observation_key_content_and_final_admission_are_distinct(tmp_path) -> N
     assert only_strategy_observation_fingerprint(transported) == only_strategy_observation_fingerprint(bar)
 
     case = p9_strategy_case(tmp_path / "second")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     executor = (
         OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
     )
@@ -91,8 +91,8 @@ def test_observation_key_content_and_final_admission_are_distinct(tmp_path) -> N
 
 def test_corrected_final_bar_fails_without_implicit_state_rollback(tmp_path) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     executor = (
         OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
     )
@@ -107,8 +107,8 @@ def test_corrected_final_bar_fails_without_implicit_state_rollback(tmp_path) -> 
 @pytest.mark.parametrize("mismatch", ("instrument", "bar_specification", "aggregation_source", "adjustment"))
 def test_market_input_contract_mismatches_fail_closed(tmp_path, mismatch) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     executor = (
         OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
     )
@@ -153,8 +153,8 @@ def test_market_input_contract_mismatches_fail_closed(tmp_path, mismatch) -> Non
 
 def test_out_of_order_final_bar_fails_closed(tmp_path) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     executor = (
         OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
     )
@@ -168,8 +168,8 @@ def test_out_of_order_final_bar_fails_closed(tmp_path) -> None:
 
 def test_checkpoint_restores_last_observation_and_incremental_state(tmp_path) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     plan = OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint)
     continuous = plan.new_executor()
     resumed = plan.new_executor()
@@ -190,8 +190,8 @@ def test_checkpoint_restores_last_observation_and_incremental_state(tmp_path) ->
 
 def test_checkpoint_rejects_tampered_strategy_identity(tmp_path) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     executor = (
         OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint).new_executor()
     )
@@ -212,8 +212,8 @@ def test_checkpoint_rejects_tampered_strategy_identity(tmp_path) -> None:
 @pytest.mark.parametrize("field", ("participant_fingerprint", "schema_version"))
 def test_checkpoint_rejects_tampered_participant_identity(tmp_path, field) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     plan = OnlyStrategyExecutionResolver(store, case.registry).resolve(case.revision.strategy_fingerprint)
     executor = plan.new_executor()
     executor.execute(case.bars[0])
@@ -233,7 +233,7 @@ def test_checkpoint_rejects_tampered_participant_identity(tmp_path, field) -> No
 @pytest.mark.parametrize("raw_authority", ({"strategy": "arbitrary"}, "tests.example:PythonStrategy"))
 def test_execution_resolver_accepts_only_committed_strategy_fingerprint(tmp_path, raw_authority) -> None:
     case = p9_strategy_case(tmp_path / "case")
-    resolver = OnlyStrategyExecutionResolver(OnlyStrategyRevisionStore(tmp_path / "semantic"), case.registry)
+    resolver = OnlyStrategyExecutionResolver(OnlyFrozenStrategyRevisionStore(tmp_path / "semantic"), case.registry)
 
     with pytest.raises(OnlyStrategyResolutionError) as error:
         resolver.resolve(raw_authority)
@@ -250,8 +250,8 @@ def test_trading_resolution_requires_no_research_backend_runtime(tmp_path) -> No
             continue
         seen.add(key)
         trading_only.register(case.registry.resolve(*key, OnlyCalculationBackendKind.TRADING))
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
 
     executor = (
         OnlyStrategyExecutionResolver(store, trading_only).resolve(case.revision.strategy_fingerprint).new_executor()
@@ -290,8 +290,8 @@ def test_checkpointable_registration_without_restore_fails_closed(tmp_path) -> N
         if key == (first.definition.kind, first.definition.type_id, first.definition.semantic_version):
             registration = replace(registration, provider=_BrokenFactory())
         broken.register(registration)
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(case.revision)
+    store = OnlyFrozenStrategyRevisionStore(tmp_path / "semantic")
+    publish_frozen_strategy_for_execution_test(tmp_path / "semantic", case.revision)
     executor = OnlyStrategyExecutionResolver(store, broken).resolve(case.revision.strategy_fingerprint).new_executor()
 
     with pytest.raises(OnlyStrategyResolutionError) as error:

@@ -191,6 +191,7 @@ def test_contract_readers_and_value_objects_reject_malformed_shapes() -> None:
         (),
         "a" * 64,
         "b" * 64,
+        "c" * 64,
         OnlyResearchJobDisposition.REUSED,
     )
     with pytest.raises(ValueError, match="counts"):
@@ -198,4 +199,4 @@ def test_contract_readers_and_value_objects_reject_malformed_shapes() -> None:
     with pytest.raises(ValueError, match="ordinals"):
         OnlyResearchSweepOutcome(1, 0, 1, (cell,))
     with pytest.raises(ValueError, match="ordinal"):
-        OnlyResearchSweepCellOutcome(-1, (), "a" * 64, "b" * 64, OnlyResearchJobDisposition.REUSED)
+        OnlyResearchSweepCellOutcome(-1, (), "a" * 64, "b" * 64, "c" * 64, OnlyResearchJobDisposition.REUSED)

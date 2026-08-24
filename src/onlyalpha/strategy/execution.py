@@ -23,7 +23,7 @@ from onlyalpha.indicator.base import OnlyBarIndicator
 from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.strategy.errors import OnlyStrategyResolutionError
 from onlyalpha.strategy.revision import OnlyStrategyFingerprint, OnlyStrategyRevision, OnlyStrategySignalBinding
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +73,7 @@ class OnlyStrategyExecutionPlan:
 
 
 class OnlyStrategyExecutionResolver:
-    def __init__(self, strategies: OnlyStrategyRevisionStore, calculations: OnlyCalculationRegistry) -> None:
+    def __init__(self, strategies: OnlyStrategyRevisionReader, calculations: OnlyCalculationRegistry) -> None:
         self._strategies = strategies
         self._calculations = calculations
 
@@ -173,7 +173,7 @@ class OnlyStrategyIncrementalExecutor:
                 for name, reference in definition.input_bindings.items()
             }
             instance = self._instance(instrument, node.fingerprint, definition, bar.bar_type)
-            values = self._update(instance, definition.outputs, bar, inputs)
+            values = only_invoke_trading_calculation(instance, definition.outputs, bar, inputs)
             for output in definition.outputs:
                 if output.name not in values:
                     raise OnlyStrategyResolutionError(
@@ -333,32 +333,6 @@ class OnlyStrategyIncrementalExecutor:
                 "checkpoint_schema_version": registration.checkpoint_schema_version,
             }
         )
-
-    @staticmethod
-    def _update(
-        instance: object,
-        outputs: tuple[OnlyOutputDefinition, ...],
-        bar: OnlyBar,
-        inputs: Mapping[str, object],
-    ) -> Mapping[str, object]:
-        if isinstance(instance, OnlyBarIndicator):
-            instance.update_bar(bar)
-            snapshot = instance.snapshot()
-            result: dict[str, object] = {}
-            for output in outputs:
-                name = str(output.name)
-                value = getattr(snapshot, name)
-                if isinstance(value, Enum):
-                    value = value.value
-                result[name] = value
-            return result
-        update = getattr(instance, "update", None)
-        if not callable(update):
-            raise OnlyStrategyResolutionError("TRADING_BACKEND_INVALID", type(instance).__name__)
-        value = update(MappingProxyType(dict(inputs)))
-        if not isinstance(value, Mapping):
-            raise OnlyStrategyResolutionError("TRADING_BACKEND_OUTPUT_INVALID", type(instance).__name__)
-        return value
 
 
 def _decision_to_checkpoint(decision: OnlyStrategyDecision) -> Mapping[str, object]:
@@ -526,6 +500,34 @@ def _bar_source(bar: OnlyBar, source: str | None) -> object:
         return values[str(source)]
     except KeyError as exc:
         raise OnlyStrategyResolutionError("STRATEGY_OBSERVATION_NOT_ADMITTED", f"unsupported source {source}") from exc
+
+
+def only_invoke_trading_calculation(
+    instance: object,
+    outputs: tuple[OnlyOutputDefinition, ...],
+    bar: OnlyBar,
+    inputs: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Shared exact TRADING invocation used by Runtime and Certification Authority."""
+
+    if isinstance(instance, OnlyBarIndicator):
+        instance.update_bar(bar)
+        snapshot = instance.snapshot()
+        result: dict[str, object] = {}
+        for output in outputs:
+            name = str(output.name)
+            value = getattr(snapshot, name)
+            if isinstance(value, Enum):
+                value = value.value
+            result[name] = value
+        return result
+    update = getattr(instance, "update", None)
+    if not callable(update):
+        raise OnlyStrategyResolutionError("TRADING_BACKEND_INVALID", type(instance).__name__)
+    value = update(MappingProxyType(dict(inputs)))
+    if not isinstance(value, Mapping):
+        raise OnlyStrategyResolutionError("TRADING_BACKEND_OUTPUT_INVALID", type(instance).__name__)
+    return value
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_"))]

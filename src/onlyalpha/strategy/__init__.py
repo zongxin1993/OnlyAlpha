@@ -7,18 +7,7 @@ from onlyalpha.strategy.admission import (
     OnlyStrategyAdmission,
     OnlyStrategyTradingAdmissionService,
 )
-from onlyalpha.strategy.equivalence import (
-    OnlyCalculationEquivalenceCorpus,
-    OnlyCalculationEquivalenceEvidence,
-    OnlyCalculationEquivalenceEvidenceStore,
-    OnlyCalculationEquivalenceExecution,
-    OnlyCalculationEquivalenceRow,
-    OnlyCalculationEquivalenceRunner,
-    OnlyCalculationEquivalenceVerdict,
-    OnlyCalculationEquivalenceVerifier,
-)
 from onlyalpha.strategy.errors import (
-    OnlyCalculationEquivalenceError,
     OnlyStrategyAdmissionError,
     OnlyStrategyError,
     OnlyStrategyFreezeError,
@@ -63,6 +52,6 @@ from onlyalpha.strategy.revision import (
     OnlyStrategyUniverseKind,
     only_strategy_revision_fingerprint,
 )
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore, OnlyStrategyRevisionReader
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_", "STRATEGY_"))]

@@ -681,6 +681,14 @@ Strategy：
 - `StrategyDecision` 不是订单、仓位规模、资金分配、风险结论或 Broker command；
 - Calculation 状态能力必须在 TRADING registration 显式声明为 `STATELESS/CHECKPOINTABLE`；
 - CHECKPOINTABLE Calculation 必须绑定 schema version，并保持连续执行与 checkpoint/restore 等价。
+- Research Calculation 在执行前必须一次性冻结 exact per-node RESEARCH implementation plan；Calculation Result 与 Research
+  Calculation Execution Evidence 分别拥有 semantic output 与 implementation provenance，二者 identity 不得合并。
+- Freeze-eligible completed Research Run 必须显式引用 exact immutable Execution Evidence；legacy Run 缺少 provenance 时不可 Freeze，
+  且不得由 current Registry 回填或推断 historical RESEARCH implementation。
+- Trading Admission 只从 Run-linked Execution Evidence 读取 historical RESEARCH implementation，并要求 exact-node、system-owned
+  profile/corpus、actual RESEARCH/TRADING backend execution 产生的 Equivalence Evidence V2；V1 不可升级或用于 Admission。
+- raw `OnlyStrategyRevision` 不可发布到 executable authority；只有 Freeze 内部 publisher 可写 `strategy/frozen-revisions`，Runtime、
+  Cluster、Backtest、SIM 与 Promotion 只可持有 `OnlyStrategyRevisionReader`。
 
 旧 `OnlyStrategyId` 仅可作为内部历史交易事实归因类型保留，不是 Strategy identity、authoring 或 execution authority，也不得从
 `onlyalpha.strategy` public surface 导出。

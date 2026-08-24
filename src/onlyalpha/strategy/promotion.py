@@ -10,7 +10,7 @@ from typing import Protocol
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.strategy.errors import OnlyStrategyPromotionError
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
 
 class OnlyStrategyPromotionStage(StrEnum):
@@ -93,7 +93,7 @@ class OnlyStrategyPromotionLedger(Protocol):
 class OnlyStrategyPromotionService:
     def __init__(
         self,
-        strategies: OnlyStrategyRevisionStore,
+        strategies: OnlyStrategyRevisionReader,
         ledger: OnlyStrategyPromotionLedger,
         audit_time: Callable[[], datetime],
     ) -> None:

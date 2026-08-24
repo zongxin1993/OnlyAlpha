@@ -18,6 +18,7 @@ from onlyalpha.research import (
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchCalculationBackendResolver,
+    OnlyResearchCalculationExecutionEvidenceStore,
     OnlyResearchCalculationExecutor,
     OnlyResearchJobExecutor,
     OnlyResearchJobPlan,
@@ -61,4 +62,6 @@ def factor_case(root: Path):
         root / "results", dataset_store, audit_time=lambda: datetime(2026, 8, 14, tzinfo=UTC)
     )
     plan = OnlyResearchJobPlan(committed_dataset.snapshot_fingerprint, graph)
-    return plan, calculation, result_store, OnlyResearchJobExecutor(calculation, result_store)
+    evidence_store = OnlyResearchCalculationExecutionEvidenceStore(root / "semantic")
+    result_store._test_execution_evidence_store = evidence_store
+    return plan, calculation, result_store, OnlyResearchJobExecutor(calculation, result_store, evidence_store)

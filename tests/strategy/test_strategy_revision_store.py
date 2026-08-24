@@ -1,34 +1,59 @@
 import json
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 
 import pytest
 
-from onlyalpha.domain.enums import OnlyAggregationSource
-from onlyalpha.strategy import OnlyStrategyStoreError
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
-from tests.strategy.p9_support import p9_strategy_case
+from onlyalpha.strategy import OnlyFrozenStrategyRevisionStore, OnlyStrategyStoreError
+from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 
-def test_strategy_store_commit_load_exists_and_concurrent_reuse(tmp_path) -> None:
+def test_frozen_strategy_store_is_read_only_and_loads_verified_freeze_fixture(tmp_path) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    root = tmp_path / "semantic"
+    store = OnlyFrozenStrategyRevisionStore(root)
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        committed = tuple(executor.map(store.commit, (revision,) * 8))
+    assert not hasattr(store, "commit")
+    assert not hasattr(store, "publish")
+    with pytest.raises(OnlyStrategyStoreError) as missing:
+        store.load_verified(revision.strategy_fingerprint)
+    assert missing.value.code == "STRATEGY_NOT_FOUND"
 
-    assert all(item == revision for item in committed)
+    publish_frozen_strategy_for_execution_test(root, revision)
     assert store.exists(str(revision.strategy_fingerprint))
     assert store.load_verified(str(revision.strategy_fingerprint)) == revision
 
 
-@pytest.mark.parametrize("corruption", ["manifest", "unexpected", "path", "symlink"])
-def test_strategy_store_fails_closed_on_corruption(tmp_path, corruption) -> None:
+def test_legacy_raw_revision_namespace_is_not_runtime_readable(tmp_path) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(revision)
+    root = tmp_path / "semantic"
     fingerprint = str(revision.strategy_fingerprint)
-    target = tmp_path / "semantic" / "strategy" / "revisions" / "sha256" / fingerprint[:2] / fingerprint
+    legacy = root / "strategy" / "revisions" / "sha256" / fingerprint[:2] / fingerprint
+    legacy.mkdir(parents=True)
+    (legacy / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "strategy_fingerprint": fingerprint,
+                "revision": revision.to_dict(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = OnlyFrozenStrategyRevisionStore(root)
+    assert not store.exists(fingerprint)
+    with pytest.raises(OnlyStrategyStoreError) as error:
+        store.load_verified(fingerprint)
+    assert error.value.code == "STRATEGY_NOT_FOUND"
+
+
+@pytest.mark.parametrize("corruption", ["manifest", "unexpected", "path", "symlink"])
+def test_frozen_strategy_reader_fails_closed_on_corruption(tmp_path, corruption) -> None:
+    revision = p9_strategy_case(tmp_path / "case").revision
+    root = tmp_path / "semantic"
+    publish_frozen_strategy_for_execution_test(root, revision)
+    store = OnlyFrozenStrategyRevisionStore(root)
+    fingerprint = str(revision.strategy_fingerprint)
+    target = root / "strategy" / "frozen-revisions" / "sha256" / fingerprint[:2] / fingerprint
     manifest = target / "manifest.json"
     if corruption == "manifest":
         payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -47,39 +72,3 @@ def test_strategy_store_fails_closed_on_corruption(tmp_path, corruption) -> None
     with pytest.raises(OnlyStrategyStoreError) as error:
         store.load_verified(fingerprint)
     assert error.value.code == "STRATEGY_CORRUPT"
-
-
-def test_strategy_store_detects_deterministic_conflict_without_overwrite(tmp_path, monkeypatch) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
-    store.commit(revision)
-    conflicting = replace(
-        revision,
-        market_input_contract=replace(
-            revision.market_input_contract,
-            aggregation_source=OnlyAggregationSource.INTERNAL,
-        ),
-    )
-    monkeypatch.setattr(store, "load_verified", lambda fingerprint: conflicting)
-
-    with pytest.raises(OnlyStrategyStoreError) as error:
-        store.commit(revision)
-    assert error.value.code == "DETERMINISTIC_STRATEGY_CONFLICT"
-
-
-def test_strategy_store_failed_publication_leaves_no_target_or_staging_residue(tmp_path, monkeypatch) -> None:
-    revision = p9_strategy_case(tmp_path / "case").revision
-    root = tmp_path / "semantic"
-    store = OnlyStrategyRevisionStore(root)
-
-    def fail_publication(source, target):
-        del source, target
-        raise OSError("injected publication failure")
-
-    monkeypatch.setattr("onlyalpha.strategy.store.os.rename", fail_publication)
-    with pytest.raises(OnlyStrategyStoreError) as error:
-        store.commit(revision)
-    assert error.value.code == "STRATEGY_COMMIT_FAILED"
-    parent = root / "strategy" / "revisions" / "sha256" / str(revision.strategy_fingerprint)[:2]
-    assert not (parent / str(revision.strategy_fingerprint)).exists()
-    assert not tuple(parent.glob(".stage-*"))

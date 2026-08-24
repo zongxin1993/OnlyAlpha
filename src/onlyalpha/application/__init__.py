@@ -1,5 +1,10 @@
 """Stable command/query application boundaries for product adapters."""
 
+from onlyalpha.application.calculation_equivalence import (
+    OnlyCalculationEquivalenceCertificationApplicationService,
+    OnlyCalculationEquivalenceCertificationProfileAuthority,
+)
+
 from .engine_inspection import OnlyEngineInspectionService
 from .engine_runner import (
     OnlyEngineApplicationRunner,
@@ -19,6 +24,8 @@ from .strategy_authority import (
 
 __all__ = [
     "OnlyEngineApplicationRunner",
+    "OnlyCalculationEquivalenceCertificationApplicationService",
+    "OnlyCalculationEquivalenceCertificationProfileAuthority",
     "OnlyEngineInspectionService",
     "OnlyEconomicBaseline",
     "OnlyHistoricalWarmupInspection",

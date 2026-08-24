@@ -10,6 +10,10 @@ from onlyalpha.research.calculation.errors import (
     OnlyResearchCalculationResultStoreError,
 )
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecution
+from onlyalpha.research.calculation.execution_evidence import (
+    OnlyResearchCalculationExecutionEvidence,
+    OnlyResearchCalculationExecutionEvidenceStore,
+)
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.calculation.result_ports import OnlyResearchCalculationResultStore
 
@@ -33,9 +37,11 @@ class OnlyResearchJobExecutor:
         self,
         calculation_executor: _OnlyResearchCalculationExecutor,
         result_store: OnlyResearchCalculationResultStore,
+        execution_evidence_store: OnlyResearchCalculationExecutionEvidenceStore,
     ) -> None:
         self._calculation_executor = calculation_executor
         self._result_store = result_store
+        self._execution_evidence_store = execution_evidence_store
 
     def execute(self, plan: OnlyResearchJobPlan) -> OnlyResearchJobOutcome:
         if not isinstance(plan, OnlyResearchJobPlan):
@@ -57,7 +63,17 @@ class OnlyResearchJobExecutor:
                 str(exc),
             ) from exc
         else:
-            return _outcome(plan, existing, OnlyResearchJobDisposition.REUSED, OnlyResearchJobPhase.RESULT_REUSE)
+            try:
+                evidence = self._execution_evidence_store.require_for_result(existing)
+            except OnlyResearchCalculationError as exc:
+                raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
+            return _outcome(
+                plan,
+                existing,
+                evidence,
+                OnlyResearchJobDisposition.REUSED,
+                OnlyResearchJobPhase.RESULT_REUSE,
+            )
 
         try:
             execution = self._calculation_executor.execute(
@@ -88,7 +104,17 @@ class OnlyResearchJobExecutor:
                 "RESEARCH_JOB_RESULT_COMMIT_FAILED",
                 str(exc),
             ) from exc
-        return _outcome(plan, committed, OnlyResearchJobDisposition.EXECUTED, OnlyResearchJobPhase.RESULT_COMMIT)
+        try:
+            evidence = self._execution_evidence_store.commit_execution(execution, committed)
+        except OnlyResearchCalculationError as exc:
+            raise _job_error(OnlyResearchJobPhase.RESULT_COMMIT, exc) from exc
+        return _outcome(
+            plan,
+            committed,
+            evidence,
+            OnlyResearchJobDisposition.EXECUTED,
+            OnlyResearchJobPhase.RESULT_COMMIT,
+        )
 
 
 def _job_error(phase: OnlyResearchJobPhase, error: OnlyResearchCalculationError) -> OnlyResearchJobError:
@@ -98,6 +124,7 @@ def _job_error(phase: OnlyResearchJobPhase, error: OnlyResearchCalculationError)
 def _outcome(
     plan: OnlyResearchJobPlan,
     result: OnlyResearchCalculationResult,
+    evidence: OnlyResearchCalculationExecutionEvidence,
     disposition: OnlyResearchJobDisposition,
     phase: OnlyResearchJobPhase,
 ) -> OnlyResearchJobOutcome:
@@ -106,6 +133,8 @@ def _outcome(
         manifest.calculation_fingerprint != plan.calculation_fingerprint
         or manifest.dataset_snapshot_fingerprint != plan.dataset_snapshot_fingerprint
         or manifest.calculation_graph_fingerprint != plan.calculation_graph.fingerprint
+        or evidence.calculation_fingerprint != manifest.calculation_fingerprint
+        or evidence.calculation_result_fingerprint != manifest.calculation_result_fingerprint
     ):
         raise OnlyResearchJobError(phase, "RESULT_INVALID", "Result authority does not match Research Job Plan")
     return OnlyResearchJobOutcome(
@@ -113,4 +142,5 @@ def _outcome(
         disposition,
         manifest.calculation_fingerprint,
         manifest.calculation_result_fingerprint,
+        evidence.evidence_fingerprint,
     )

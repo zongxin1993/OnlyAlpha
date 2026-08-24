@@ -12,7 +12,7 @@ from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.indicator.registry import OnlyIndicatorFactoryRegistry
 from onlyalpha.market_data.subscriptions import OnlyBarSubscription, only_bar_type_id
 from onlyalpha.strategy.execution import OnlyStrategyExecutionResolver
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 
 
 class OnlyClusterFactory:
@@ -34,7 +34,7 @@ class OnlyClusterFactory:
         if config.factors:
             raise ValueError("LEGACY_FACTOR_PIPELINE_CONFIGURATION_UNSUPPORTED")
         plan = OnlyStrategyExecutionResolver(
-            OnlyStrategyRevisionStore(semantic_root),
+            OnlyFrozenStrategyRevisionStore(semantic_root),
             self._calculations,
         ).resolve(config.strategy.fingerprint)
         revision = plan.revision

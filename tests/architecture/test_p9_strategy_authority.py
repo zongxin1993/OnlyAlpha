@@ -144,5 +144,61 @@ def test_official_freeze_and_promotion_application_composition_exists() -> None:
     source = Path("src/onlyalpha/application/strategy_authority.py").read_text(encoding="utf-8")
     assert "class OnlyStrategyFreezeApplicationService" in source
     assert "class OnlyStrategyPromotionApplicationService" in source
-    assert "OnlyCalculationEquivalenceEvidenceStore" in source
+    assert "OnlyCalculationEquivalenceEvidenceV2Store" in source
+    assert "OnlyResearchCalculationExecutionEvidenceStore" in source
     assert "OnlyResearchSemanticStoreId" in source
+
+
+def test_admission_uses_historical_execution_evidence_and_never_current_research_registry() -> None:
+    source = Path("src/onlyalpha/strategy/admission.py").read_text(encoding="utf-8")
+    assert "research_execution_evidence" in source
+    assert "research_implementation_bindings" in source
+    assert "OnlyCalculationBackendKind.RESEARCH" not in source
+    assert "OnlyCalculationEquivalenceEvidenceV2" in source
+
+
+def test_production_certification_accepts_no_runner_or_caller_corpus() -> None:
+    source = Path("src/onlyalpha/application/calculation_equivalence.py").read_text(encoding="utf-8")
+    legacy = Path("src/onlyalpha/strategy/equivalence.py").read_text(encoding="utf-8")
+    assert "class OnlyCalculationEquivalenceCertificationApplicationService" in source
+    assert "def certify(self, node:" in source
+    assert "runner" not in source.lower()
+    assert (
+        "corpus:"
+        not in source[
+            source.index("class OnlyCalculationEquivalenceCertificationApplicationService") : source.index(
+                "def _materialize_corpus"
+            )
+        ]
+    )
+    assert "OnlyCalculationEquivalenceVerifier" not in legacy
+    assert "def commit(" not in legacy
+    assert "def require_verified(" not in legacy
+
+
+def test_runtime_has_reader_only_frozen_strategy_capability() -> None:
+    public = Path("src/onlyalpha/strategy/__init__.py").read_text(encoding="utf-8")
+    store = Path("src/onlyalpha/strategy/store.py").read_text(encoding="utf-8")
+    assert "OnlyStrategyRevisionReader" in public
+    assert "OnlyFrozenStrategyRevisionStore" in public
+    assert "_OnlyFrozenStrategyPublisher" not in public
+    assert "OnlyStrategyRevisionStore" not in public
+    assert "def commit(" not in store
+    for root in (Path("src/onlyalpha/runtime"), Path("src/onlyalpha/cluster")):
+        for path in root.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            assert "_OnlyFrozenStrategyPublisher" not in source
+            assert "_only_compose_frozen_strategy_authority" not in source
+            assert "strategy/revisions" not in source
+
+
+def test_only_freeze_path_holds_internal_strategy_publication_capability() -> None:
+    allowed = {
+        Path("src/onlyalpha/strategy/store.py"),
+        Path("src/onlyalpha/strategy/freeze.py"),
+        Path("src/onlyalpha/application/strategy_authority.py"),
+    }
+    for path in Path("src/onlyalpha").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "_OnlyFrozenStrategyPublisher" in source or "_only_authorize_frozen_strategy_publication" in source:
+            assert path in allowed

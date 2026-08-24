@@ -9,6 +9,9 @@ from enum import StrEnum
 from typing import NoReturn, Protocol
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.research.calculation.execution_evidence import (
+    OnlyResearchCalculationExecutionEvidence,
+)
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.dataset import OnlyVerifiedResearchDataset
 from onlyalpha.research.result.result import OnlyResearchResult
@@ -27,7 +30,11 @@ from onlyalpha.strategy.revision import (
     OnlyStrategySignalSemantics,
     OnlyStrategyUniverse,
 )
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import (
+    OnlyFrozenStrategyRevisionStore,
+    _only_authorize_frozen_strategy_publication,
+    _OnlyFrozenStrategyPublisher,
+)
 
 
 class _ResearchRunStore(Protocol):
@@ -40,6 +47,10 @@ class _ResearchResultStore(Protocol):
 
 class _CalculationResultStore(Protocol):
     def load_verified(self, calculation_fingerprint: str) -> OnlyResearchCalculationResult: ...
+
+
+class _CalculationExecutionEvidenceStore(Protocol):
+    def load_verified(self, evidence_fingerprint: str) -> OnlyResearchCalculationExecutionEvidence: ...
 
 
 class _DatasetStore(Protocol):
@@ -68,16 +79,17 @@ class OnlyStrategyFreezeRequest:
 class OnlyStrategyFreezeRecord:
     candidate_fingerprint: str
     research_result_fingerprint: str
+    research_execution_evidence_fingerprints: tuple[str, ...]
     strategy_fingerprint: str
     admission_evidence_fingerprint: str
     equivalence_evidence_fingerprints: tuple[str, ...]
     actor: str
     created_at: datetime
     comment: str | None = None
-    schema_version: int = 2
+    schema_version: int = 3
 
     def __post_init__(self) -> None:
-        if self.schema_version != 2:
+        if self.schema_version != 3:
             raise ValueError("unsupported Strategy Freeze Record schema")
         for name in (
             "candidate_fingerprint",
@@ -86,6 +98,15 @@ class OnlyStrategyFreezeRecord:
             "admission_evidence_fingerprint",
         ):
             _sha(getattr(self, name), name)
+        provenance = tuple(sorted(self.research_execution_evidence_fingerprints))
+        if (
+            not provenance
+            or provenance != self.research_execution_evidence_fingerprints
+            or len(provenance) != len(set(provenance))
+        ):
+            raise ValueError("Freeze Research Execution Evidence must be canonical, non-empty and unique")
+        for value in provenance:
+            _sha(value, "research_execution_evidence_fingerprint")
         canonical = tuple(sorted(self.equivalence_evidence_fingerprints))
         if (
             not canonical
@@ -108,6 +129,7 @@ class OnlyStrategyFreezeRecord:
             "schema_version": self.schema_version,
             "candidate_fingerprint": self.candidate_fingerprint,
             "research_result_fingerprint": self.research_result_fingerprint,
+            "research_execution_evidence_fingerprints": list(self.research_execution_evidence_fingerprints),
             "strategy_fingerprint": self.strategy_fingerprint,
             "admission_evidence_fingerprint": self.admission_evidence_fingerprint,
             "equivalence_evidence_fingerprints": list(self.equivalence_evidence_fingerprints),
@@ -147,20 +169,24 @@ class OnlyStrategyFreezeService:
         runs: _ResearchRunStore,
         research_results: _ResearchResultStore,
         calculation_results: _CalculationResultStore,
+        calculation_execution_evidence: _CalculationExecutionEvidenceStore,
         datasets: _DatasetStore,
         specification_resolver: OnlyResearchSpecificationResolver,
         admission: OnlyStrategyTradingAdmissionService,
-        strategies: OnlyStrategyRevisionStore,
+        strategies: OnlyFrozenStrategyRevisionStore,
+        strategy_publisher: _OnlyFrozenStrategyPublisher,
         catalog: OnlyStrategyCatalogWriter,
         audit_time: Callable[[], datetime],
     ) -> None:
         self._runs = runs
         self._research_results = research_results
         self._calculation_results = calculation_results
+        self._calculation_execution_evidence = calculation_execution_evidence
         self._datasets = datasets
         self._specification_resolver = specification_resolver
         self._admission = admission
         self._strategies = strategies
+        self._strategy_publisher = strategy_publisher
         self._catalog = catalog
         self._audit_time = audit_time
 
@@ -172,6 +198,11 @@ class OnlyStrategyFreezeService:
                 self._fail("CANDIDATE_NOT_FOUND", str(request.research_run_id), exc)
             if run.state is not OnlyResearchRunState.COMPLETED or run.research_result_fingerprint is None:
                 self._fail("CANDIDATE_NOT_FOUND", "Research Run is not completed with exact Result evidence")
+            if not run.calculation_execution_evidence_fingerprints:
+                self._fail(
+                    "RESEARCH_EXECUTION_PROVENANCE_UNAVAILABLE",
+                    "completed Research Run has no exact Calculation Execution Evidence references",
+                )
             # The immutable Result Store is addressed by the resolved Plan
             # identity, while the operational Run records the committed Result
             # content identity.  Re-resolve first, then verify both linkages.
@@ -232,6 +263,33 @@ class OnlyStrategyFreezeService:
                 or calculation.manifest.calculation_graph.to_dict() != candidate.graph.to_dict()
             ):
                 self._fail("CALCULATION_RESULT_CORRUPT", "exact Candidate Calculation evidence differs")
+            execution_evidence_values: list[OnlyResearchCalculationExecutionEvidence] = []
+            for evidence_fingerprint in run.calculation_execution_evidence_fingerprints:
+                try:
+                    execution_evidence_values.append(
+                        self._calculation_execution_evidence.load_verified(evidence_fingerprint)
+                    )
+                except Exception as exc:
+                    self._fail(
+                        "RESEARCH_EXECUTION_EVIDENCE_CORRUPT",
+                        evidence_fingerprint,
+                        exc,
+                    )
+            matching_execution_evidence = tuple(
+                item
+                for item in execution_evidence_values
+                if item.calculation_fingerprint == candidate.calculation_fingerprint
+                and item.calculation_result_fingerprint == calculation.manifest.calculation_result_fingerprint
+                and item.result_content_fingerprint == calculation.manifest.result_content_fingerprint
+                and item.dataset_snapshot_fingerprint == calculation.manifest.dataset_snapshot_fingerprint
+                and item.calculation_graph_fingerprint == candidate.graph_fingerprint
+            )
+            if len(matching_execution_evidence) != 1:
+                self._fail(
+                    "RESEARCH_EXECUTION_IDENTITY_MISMATCH",
+                    "Candidate Calculation must have exactly one Run-linked producer evidence",
+                )
+            execution_evidence = matching_execution_evidence[0]
             try:
                 verified_dataset = self._datasets.load_verified_table(run.specification.dataset_snapshot_fingerprint)
             except Exception as exc:
@@ -248,7 +306,12 @@ class OnlyStrategyFreezeService:
                 dataset_definition.adjustment_type,
                 dataset_definition.adjustment_reference,
             )
-            admitted = self._admission.admit(candidate.graph, signals, market_input_contract)
+            admitted = self._admission.admit(
+                candidate.graph,
+                signals,
+                market_input_contract,
+                execution_evidence,
+            )
             revision = OnlyStrategyRevision(
                 OnlyStrategyUniverse(dataset_definition.instruments),
                 market_input_contract,
@@ -258,7 +321,7 @@ class OnlyStrategyFreezeService:
             )
             fingerprint = str(revision.strategy_fingerprint)
             existed = self._strategies.exists(fingerprint)
-            self._strategies.commit(revision)
+            self._strategy_publisher.publish_verified(_only_authorize_frozen_strategy_publication(revision))
             self._catalog.ensure_strategy(fingerprint, revision.schema_version)
             existing_relation = self._catalog.find_freeze_relation(
                 recomputed,
@@ -273,6 +336,7 @@ class OnlyStrategyFreezeService:
                 OnlyStrategyFreezeRecord(
                     candidate_fingerprint=recomputed,
                     research_result_fingerprint=run.research_result_fingerprint,
+                    research_execution_evidence_fingerprints=(execution_evidence.evidence_fingerprint,),
                     strategy_fingerprint=fingerprint,
                     admission_evidence_fingerprint=admitted.admission_evidence_fingerprint,
                     equivalence_evidence_fingerprints=admitted.equivalence_evidence_fingerprints,

@@ -37,6 +37,7 @@ class OnlyResearchSweepExecutor:
                     tuple((item.target, item.value) for item in cell.assignment),
                     job_outcome.calculation_fingerprint,
                     job_outcome.calculation_result_fingerprint,
+                    job_outcome.calculation_execution_evidence_fingerprint,
                     job_outcome.disposition,
                 )
             )

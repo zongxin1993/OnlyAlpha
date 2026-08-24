@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -10,6 +11,7 @@ from onlyalpha.research import (
     OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchStatisticsResultStore,
     OnlyResearchCalculationBackendResolver,
+    OnlyResearchCalculationExecutionEvidenceStore,
     OnlyResearchCalculationExecutor,
     OnlyResearchDefinitionResolver,
     OnlyResearchJobExecutor,
@@ -32,7 +34,7 @@ from onlyalpha.strategy.freeze import (
     OnlyStrategyFreezeRequest,
     OnlyStrategyFreezeService,
 )
-from onlyalpha.strategy.store import OnlyStrategyRevisionStore
+from onlyalpha.strategy.store import _only_compose_frozen_strategy_authority
 from tests.research.definition.support import definition
 from tests.strategy.p9_support import _Datasets, p9_strategy_case
 
@@ -60,8 +62,9 @@ class _BrokenDatasetStore:
         raise ValueError("corrupt Dataset authority")
 
 
-def _freeze_case(tmp_path):
-    case = p9_strategy_case(tmp_path / "base")
+def _freeze_case(tmp_path, *, semantic_root=None, values=None):
+    case = p9_strategy_case(tmp_path / "base", values=values)
+    semantic_root = tmp_path / "semantic" if semantic_root is None else semantic_root
     resolved_definition = OnlyResearchDefinitionResolver(
         case.registry,
         _Datasets(case.dataset_store, case.dataset_fingerprint),
@@ -73,12 +76,16 @@ def _freeze_case(tmp_path):
     calculation_executor = OnlyResearchCalculationExecutor(
         case.dataset_store, OnlyResearchCalculationBackendResolver(case.registry)
     )
-    job = OnlyResearchJobExecutor(calculation_executor, calculation_store)
+    execution_evidence_store = OnlyResearchCalculationExecutionEvidenceStore(semantic_root)
+    job = OnlyResearchJobExecutor(calculation_executor, calculation_store, execution_evidence_store)
     sweep = OnlyResearchSweepExecutor(job)
+    evidence_fingerprints: set[str] = set()
     for plan in workload.direct_jobs:
-        job.execute(plan)
+        evidence_fingerprints.add(job.execute(plan).calculation_execution_evidence_fingerprint)
     for plan in workload.sweeps:
-        sweep.execute(plan)
+        evidence_fingerprints.update(
+            item.calculation_execution_evidence_fingerprint for item in sweep.execute(plan).cells
+        )
     statistics_store = OnlyParquetResearchStatisticsResultStore(
         tmp_path / "statistics-results", calculation_store, audit_time=lambda: NOW
     )
@@ -105,17 +112,20 @@ def _freeze_case(tmp_path):
         at=NOW + timedelta(seconds=2),
         research_result_fingerprint=result.research_result_fingerprint,
         artifact_content_fingerprint="f" * 64,
+        calculation_execution_evidence_fingerprints=tuple(sorted(evidence_fingerprints)),
     )
-    store = OnlyStrategyRevisionStore(tmp_path / "semantic")
+    store, publisher = _only_compose_frozen_strategy_authority(semantic_root)
     catalog = OnlyInMemoryStrategyCatalog()
     service = OnlyStrategyFreezeService(
         runs=_Runs(run),
         research_results=research_store,
         calculation_results=calculation_store,
+        calculation_execution_evidence=execution_evidence_store,
         datasets=case.dataset_store,
         specification_resolver=OnlyResearchSpecificationResolver(case.registry),
         admission=OnlyStrategyTradingAdmissionService(case.registry, case.equivalence),
         strategies=store,
+        strategy_publisher=publisher,
         catalog=catalog,
         audit_time=lambda: NOW,
     )
@@ -136,6 +146,7 @@ def test_freeze_reconstructs_and_idempotently_commits_exact_strategy(tmp_path) -
     assert store.load_verified(created.strategy_fingerprint).strategy_fingerprint.value == created.strategy_fingerprint
     assert len(catalog.freeze_records) == 1
     assert created.freeze_record.equivalence_evidence_fingerprints
+    assert created.freeze_record.research_execution_evidence_fingerprints
     assert created.freeze_record.admission_evidence_fingerprint
 
 
@@ -164,6 +175,17 @@ def test_freeze_rejects_non_completed_run(tmp_path) -> None:
     assert error.value.code == "CANDIDATE_NOT_FOUND"
 
 
+def test_legacy_completed_run_without_execution_provenance_cannot_freeze(tmp_path) -> None:
+    service, run, candidate, _, _ = _freeze_case(tmp_path)
+    service._runs = _Runs(  # type: ignore[attr-defined]
+        replace(run, calculation_execution_evidence_fingerprints=())
+    )
+
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
+    assert error.value.code == "RESEARCH_EXECUTION_PROVENANCE_UNAVAILABLE"
+
+
 @pytest.mark.parametrize(
     ("attribute", "replacement", "code"),
     (
@@ -186,4 +208,4 @@ def test_freeze_verified_authority_failure_has_stable_code_and_no_publication(
 
     assert error.value.code == code
     assert not catalog.strategies
-    assert not (tmp_path / "semantic" / "strategy").exists()
+    assert not (tmp_path / "semantic" / "strategy" / "frozen-revisions").exists()

@@ -26,6 +26,9 @@ from onlyalpha.persistence.postgres import (
     only_assert_supported_postgres_server,
 )
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
+from onlyalpha.research.calculation.execution_evidence import (
+    OnlyResearchCalculationExecutionEvidenceStore,
+)
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
@@ -124,6 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     research_results = OnlyJsonResearchResultStore(layout.research_result_root, statistics_results, calculation_results)
     artifact_reader = OnlyResearchArtifactProfileReader(layout.research_artifact_root)
+    execution_evidence = OnlyResearchCalculationExecutionEvidenceStore(layout.research_root)
     resolver = OnlyResearchSpecificationResolver(calculations)
     policy = OnlyResearchExecutionPolicy(
         lease_duration=timedelta(seconds=args.lease_seconds),
@@ -142,7 +146,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     reconciler = OnlyResearchCancellationRecoveryReconciler(
         execution_store=execution_store,
         resolver=resolver,
-        completion_probe=OnlyResearchVerifiedSemanticCompletionProbe(research_results, artifact_reader),
+        completion_probe=OnlyResearchVerifiedSemanticCompletionProbe(
+            research_results,
+            artifact_reader,
+            calculation_results,
+            execution_evidence,
+        ),
         now_utc=only_system_utc_now,
     )
     worker = OnlyResearchWorker(

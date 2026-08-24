@@ -12,7 +12,9 @@ from onlyalpha.calculation import (
     OnlyCalculationBackendRegistration,
     OnlyCalculationDataType,
     OnlyCalculationRegistry,
+    OnlyCalculationTypeReference,
     OnlyInputDefinition,
+    only_implementation_manifest_from_bytes,
 )
 from onlyalpha.research.calculation import (
     OnlyResearchCalculationBackendResolver,
@@ -30,6 +32,17 @@ class _Backend:
         return {}
 
 
+def _manifest(type_definition):
+    return only_implementation_manifest_from_bytes(
+        calculation_type_reference=OnlyCalculationTypeReference(
+            type_definition.kind, type_definition.type_id, type_definition.semantic_version
+        ),
+        backend_kind=OnlyCalculationBackendKind.RESEARCH,
+        entrypoint_identity="tests.research.calculation.test_backend_binding_identity:_Backend",
+        resources={"backend.py": b"backend-v1"},
+    )
+
+
 def test_research_resolver_is_exact_and_never_falls_back_to_trading() -> None:
     registry = OnlyCalculationRegistry()
     type_definition = TYPES[0]
@@ -38,14 +51,27 @@ def test_research_resolver_is_exact_and_never_falls_back_to_trading() -> None:
     definition = resolve_definition(type_definition, {"period": 2})
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_BACKEND_UNAVAILABLE.*unsupported backend"):
         resolver.resolve(definition)
-    registration = OnlyCalculationBackendRegistration(type_definition, OnlyCalculationBackendKind.RESEARCH, _Backend())
-    registry.register(registration)
-    assert resolver.resolve(definition) is registration.provider
+    missing = OnlyCalculationBackendRegistration(type_definition, OnlyCalculationBackendKind.RESEARCH, _Backend())
+    registry.register(missing)
+    with pytest.raises(OnlyResearchCalculationError) as unresolved:
+        resolver.resolve(definition)
+    assert unresolved.value.code == "RESEARCH_IMPLEMENTATION_IDENTITY_UNRESOLVED"
+    resolved_registry = OnlyCalculationRegistry()
+    registration = OnlyCalculationBackendRegistration(
+        type_definition,
+        OnlyCalculationBackendKind.RESEARCH,
+        _Backend(),
+        implementation_manifest=_manifest(type_definition),
+    )
+    resolved_registry.register(registration)
+    resolved = OnlyResearchCalculationBackendResolver(resolved_registry).resolve(definition)
+    assert resolved.provider is registration.provider
+    assert resolved.implementation_manifest == registration.implementation_manifest
     with pytest.raises(OnlyResearchCalculationError, match="unknown semantic version"):
-        resolver.resolve(replace(definition, semantic_version="999"))
+        OnlyResearchCalculationBackendResolver(resolved_registry).resolve(replace(definition, semantic_version="999"))
     unknown = replace(definition, type_id="vendor.indicator.unknown")
     with pytest.raises(OnlyResearchCalculationError, match="unknown calculation type"):
-        resolver.resolve(unknown)
+        OnlyResearchCalculationBackendResolver(resolved_registry).resolve(unknown)
     invalid = OnlyCalculationRegistry()
     invalid.register(OnlyCalculationBackendRegistration(type_definition, OnlyCalculationBackendKind.RESEARCH, object()))
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_BACKEND_INVALID"):

@@ -55,12 +55,14 @@ def test_outcome_contract_is_exact_and_validated() -> None:
         OnlyResearchJobDisposition.EXECUTED,
         "a" * 64,
         "b" * 64,
+        "c" * 64,
     )
     assert tuple(item.name for item in fields(outcome)) == (
         "status",
         "disposition",
         "calculation_fingerprint",
         "calculation_result_fingerprint",
+        "calculation_execution_evidence_fingerprint",
     )
     with pytest.raises(ValueError, match="lower-case SHA256"):
         OnlyResearchJobOutcome(
@@ -68,8 +70,9 @@ def test_outcome_contract_is_exact_and_validated() -> None:
             OnlyResearchJobDisposition.REUSED,
             "invalid",
             "b" * 64,
+            "c" * 64,
         )
     with pytest.raises(ValueError, match="status must be SUCCEEDED"):
-        OnlyResearchJobOutcome("FAILED", OnlyResearchJobDisposition.REUSED, "a" * 64, "b" * 64)
+        OnlyResearchJobOutcome("FAILED", OnlyResearchJobDisposition.REUSED, "a" * 64, "b" * 64, "c" * 64)
     with pytest.raises(ValueError, match="disposition is invalid"):
-        OnlyResearchJobOutcome(OnlyResearchJobStatus.SUCCEEDED, "UNKNOWN", "a" * 64, "b" * 64)
+        OnlyResearchJobOutcome(OnlyResearchJobStatus.SUCCEEDED, "UNKNOWN", "a" * 64, "b" * 64, "c" * 64)

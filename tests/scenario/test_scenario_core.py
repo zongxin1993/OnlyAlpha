@@ -20,8 +20,8 @@ from onlyalpha.scenario import (
     OnlyScenarioFactType,
     only_scenario_fingerprint,
 )
-from onlyalpha.strategy import OnlyStrategyRevisionStore, OnlyStrategyUniverse
-from tests.strategy.p9_support import p9_strategy_case
+from onlyalpha.strategy import OnlyStrategyUniverse
+from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 
 def _seed_scenario_strategy(root: Path) -> str:
@@ -30,7 +30,7 @@ def _seed_scenario_strategy(root: Path) -> str:
         case.revision,
         universe=OnlyStrategyUniverse((OnlyInstrumentId.parse("TEST.XSHG"),)),
     )
-    OnlyStrategyRevisionStore(root / "research").commit(revision)
+    publish_frozen_strategy_for_execution_test(root / "research", revision)
     return str(revision.strategy_fingerprint)
 
 

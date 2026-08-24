@@ -62,6 +62,7 @@ class OnlyResearchExecutionStore(Protocol):
         run_finished_at: datetime,
         research_result_fingerprint: str,
         artifact_content_fingerprint: str,
+        calculation_execution_evidence_fingerprints: tuple[str, ...],
     ) -> OnlyResearchRun: ...
 
     def fail(

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Protocol, cast, runtime_checkable
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationDefinition
+from onlyalpha.calculation.implementation import OnlyCalculationImplementationManifest
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 
 from .errors import OnlyResearchCalculationError
@@ -22,13 +24,19 @@ class OnlyResearchCalculationBackend(Protocol):
     ) -> Mapping[str, pa.Array | pa.ChunkedArray]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class OnlyResolvedResearchCalculationBackend:
+    provider: OnlyResearchCalculationBackend
+    implementation_manifest: OnlyCalculationImplementationManifest
+
+
 class OnlyResearchCalculationBackendResolver:
     """Resolve the exact RESEARCH provider without version or backend fallback."""
 
     def __init__(self, registry: OnlyCalculationRegistry) -> None:
         self._registry = registry
 
-    def resolve(self, definition: OnlyCalculationDefinition) -> OnlyResearchCalculationBackend:
+    def resolve(self, definition: OnlyCalculationDefinition) -> OnlyResolvedResearchCalculationBackend:
         try:
             registration = self._registry.resolve(
                 definition.kind,
@@ -43,4 +51,10 @@ class OnlyResearchCalculationBackendResolver:
             raise OnlyResearchCalculationError(
                 "RESEARCH_BACKEND_INVALID", "RESEARCH calculation backend provider must define execute()"
             )
-        return cast(OnlyResearchCalculationBackend, provider)
+        manifest = registration.implementation_manifest
+        if manifest is None:
+            raise OnlyResearchCalculationError(
+                "RESEARCH_IMPLEMENTATION_IDENTITY_UNRESOLVED",
+                f"{definition.type_id}@{definition.semantic_version}",
+            )
+        return OnlyResolvedResearchCalculationBackend(cast(OnlyResearchCalculationBackend, provider), manifest)

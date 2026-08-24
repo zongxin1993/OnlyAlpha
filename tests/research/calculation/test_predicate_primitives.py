@@ -22,7 +22,7 @@ def _execute(
     bindings = {key: OnlyCalculationReference(None, key, "bar.close") for key in inputs}
     definition = registry.rematerialize_definition(reference, parameters or {}, bindings)
     backend = OnlyResearchCalculationBackendResolver(registry).resolve(definition)
-    return backend.execute(definition, inputs)["value"].to_pylist()
+    return backend.provider.execute(definition, inputs)["value"].to_pylist()
 
 
 def test_predicate_registration_is_complete_idempotent_and_resolvable() -> None:

@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.0 Closure — Strategy Authority Closure & Certification / IN PROGRESS
+Current Increment: P9.0 Closure-2 — Authority Hardening & Final Certification / IN PROGRESS
 Latest Certified Milestone: P8 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -30,7 +30,7 @@ P7 Final Certification Verdict: ACCEPTED
 P8 Final Certification Subject: 88e616c52fb6c3085e7c64d73f174257bf2d002e
 P8 Final Certification Run: 32581861744
 P8 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: complete P9.0 Closure gates and exact-SHA certification before changing milestone status
+Next Semantic Direction: complete P9.0 Closure-2 gates and exact-SHA certification before changing milestone status
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -750,11 +750,15 @@ P8 exact-SHA 认证后已从当时 Repository truth 重新规划 P9。P9.0 当�
 
 ### P9.0 — Strategy Revision & Promotion Foundation
 
-状态：**CLOSURE IN PROGRESS**。当前实现建立 canonical `strategy_fingerprint`、`FINAL_ONLY + RAW_ONLY` Market Input
-Contract、closed Research/TRADING implementation manifest、verified immutable Equivalence Evidence、唯一 Candidate Freeze、共享 P8 semantic namespace
-下的 immutable Strategy Store、PostgreSQL catalog/provenance/promotion schema、fingerprint-only Backtest/SIM composition、内部
+状态：**CLOSURE-2 IN PROGRESS**。当前实现建立 canonical `strategy_fingerprint`、`FINAL_ONLY + RAW_ONLY` Market Input
+Contract、exact Research Calculation Execution Evidence、actual-backend Equivalence Evidence V2、唯一 Candidate Freeze、共享 P8 semantic namespace
+下 Freeze-only `frozen-revisions` Strategy Store、PostgreSQL Run/Freeze provenance、fingerprint-only Backtest/SIM composition、内部
 Revision Adapter、显式 provider-neutral `StrategyDecision` pipeline handoff 和 predecessor-only append-only Promotion chain。动态
 Strategy import、任意 Python `OnlyStrategy` callback authoring/injection authority 已移除；旧 `class_path/config_path/extensions` 显式失败。
+
+Closure-2 已把 historical RESEARCH implementation identity 固定到 Run-linked immutable Execution Evidence；Trading Admission 不再用
+current RESEARCH Registry 重解释历史事实。生产 Equivalence Certification 不接受 caller runner、output、profile 或 corpus，并绑定 exact
+Calculation node。raw `OnlyStrategyRevision` 不能进入 Runtime-readable namespace，Runtime/Cluster 只持有 Strategy reader capability。
 
 本状态不是 `DONE / CERTIFIED`。在完整 Task/Phase gate、版本 `0.9.0` 一致性和 exact Final-SHA remote certification 完成前，P9
 与 P9.0 均保持 `IN_PROGRESS`。

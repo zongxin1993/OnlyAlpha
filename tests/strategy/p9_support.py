@@ -1,21 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationRegistry
+from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
+from onlyalpha.calculation import OnlyCalculationEquivalenceEvidenceV2Store, OnlyCalculationRegistry
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.domain.market import OnlyBar
 from onlyalpha.research import (
+    OnlyParquetResearchCalculationResultStore,
     OnlyParquetResearchDatasetSnapshotStore,
+    OnlyResearchCalculationBackendResolver,
+    OnlyResearchCalculationExecutionEvidence,
+    OnlyResearchCalculationExecutionEvidenceStore,
+    OnlyResearchCalculationExecutor,
     OnlyResearchDefinitionResolver,
 )
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy import (
-    OnlyCalculationEquivalenceCorpus,
-    OnlyCalculationEquivalenceEvidenceStore,
-    OnlyCalculationEquivalenceExecution,
-    OnlyCalculationEquivalenceRow,
-    OnlyCalculationEquivalenceVerifier,
+    OnlyFrozenStrategyRevisionStore,
     OnlyStrategyMarketInputContract,
     OnlyStrategyRevision,
     OnlyStrategySignalBinding,
@@ -36,26 +40,8 @@ class P9StrategyCase:
     dataset_fingerprint: str
     bars: tuple[OnlyBar, ...]
     revision_variants: tuple[OnlyStrategyRevision, ...]
-    equivalence: OnlyCalculationEquivalenceEvidenceStore
-
-
-class _CanonicalEvidenceRunner:
-    def execute(self, reference, corpus):
-        del corpus
-        return OnlyCalculationEquivalenceExecution(
-            (
-                OnlyCalculationEquivalenceRow(
-                    "CERTIFICATION.CORPUS",
-                    1,
-                    (
-                        (
-                            "semantic_reference",
-                            f"{reference.kind.value}:{reference.type_id}@{reference.semantic_version}",
-                        ),
-                    ),
-                ),
-            )
-        )
+    equivalence: OnlyCalculationEquivalenceEvidenceV2Store
+    execution_evidence: tuple[OnlyResearchCalculationExecutionEvidence, ...]
 
 
 class _Datasets:
@@ -70,9 +56,27 @@ class _Datasets:
         return verified
 
 
-def p9_strategy_case(root: Path) -> P9StrategyCase:
+def publish_frozen_strategy_for_execution_test(root: Path, revision: OnlyStrategyRevision) -> None:
+    """Pure execution fixture support; no equivalent publisher exists under src/onlyalpha."""
+
+    fingerprint = str(revision.strategy_fingerprint)
+    target = root / "strategy" / "frozen-revisions" / "sha256" / fingerprint[:2] / fingerprint
+    if target.is_dir():
+        if OnlyFrozenStrategyRevisionStore(root).load_verified(fingerprint) != revision:
+            raise ValueError("test frozen Strategy publication conflict")
+        return
+    target.mkdir(parents=True, exist_ok=False)
+    payload = {
+        "schema_version": 1,
+        "strategy_fingerprint": fingerprint,
+        "revision": revision.to_dict(),
+    }
+    (target / "manifest.json").write_text(only_canonical_json(payload), encoding="utf-8")
+
+
+def p9_strategy_case(root: Path, *, values: tuple[OnlyBar, ...] | None = None) -> P9StrategyCase:
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(root / "datasets")
-    candidate, partitions = snapshot()
+    candidate, partitions = snapshot(values)
     committed = dataset_store.commit(candidate, partitions)
     registry = evaluation_registry()
     resolved = OnlyResearchDefinitionResolver(
@@ -85,42 +89,29 @@ def p9_strategy_case(root: Path) -> P9StrategyCase:
         for item in resolved.specification_resolution.candidates
         if item.calculation_id == "decision" and item.candidate_fingerprint is not None
     )
-    equivalence = OnlyCalculationEquivalenceEvidenceStore(root / "semantic")
-    verifier = OnlyCalculationEquivalenceVerifier(
-        registry,
-        _CanonicalEvidenceRunner(),
-        _CanonicalEvidenceRunner(),
+    semantic_root = root / "semantic"
+    equivalence = OnlyCalculationEquivalenceEvidenceV2Store(semantic_root)
+    certification = OnlyCalculationEquivalenceCertificationApplicationService(registry, equivalence)
+    for node in {node.fingerprint: node for value in candidates for node in value.graph.nodes}.values():
+        certification.certify(node)
+    calculation_results = OnlyParquetResearchCalculationResultStore(
+        root / "calculation-results",
+        dataset_store,
+        audit_time=lambda: datetime(2026, 8, 24, tzinfo=UTC),
     )
-    corpus = OnlyCalculationEquivalenceCorpus("P9_TEST_CANONICAL", {"axis": [1]})
-    registered: set[tuple[str, str, str]] = set()
-    for node in (node for candidate_value in candidates for node in candidate_value.graph.nodes):
-        definition_value = node.definition
-        research = registry.resolve(
-            definition_value.kind,
-            definition_value.type_id,
-            definition_value.semantic_version,
-            OnlyCalculationBackendKind.RESEARCH,
-        )
-        trading = registry.resolve(
-            definition_value.kind,
-            definition_value.type_id,
-            definition_value.semantic_version,
-            OnlyCalculationBackendKind.TRADING,
-        )
-        assert research.implementation_manifest is not None
-        assert trading.implementation_manifest is not None
-        key = (
-            definition_value.type_id,
-            research.implementation_manifest.implementation_fingerprint,
-            trading.implementation_manifest.implementation_fingerprint,
-        )
-        if key in registered:
-            continue
-        registered.add(key)
-        equivalence.commit(verifier.verify(research.implementation_manifest.calculation_type_reference, corpus))
+    evidence_store = OnlyResearchCalculationExecutionEvidenceStore(semantic_root)
+    calculation = OnlyResearchCalculationExecutor(
+        dataset_store,
+        OnlyResearchCalculationBackendResolver(registry),
+    )
     dataset_definition = committed.definition
-    revisions = []
+    revisions: list[OnlyStrategyRevision] = []
+    execution_evidence: list[OnlyResearchCalculationExecutionEvidence] = []
     for selected in candidates:
+        execution = calculation.execute(committed.snapshot_fingerprint, selected.graph)
+        result = calculation_results.commit(execution, selected.graph)
+        provenance = evidence_store.commit_execution(execution, result)
+        execution_evidence.append(provenance)
         signals = tuple(
             item
             for item in resolved.specification_resolution.signals
@@ -142,6 +133,7 @@ def p9_strategy_case(root: Path) -> P9StrategyCase:
             selected.graph,
             signal_semantics,
             market_input,
+            provenance,
         )
         revisions.append(
             OnlyStrategyRevision(
@@ -157,7 +149,8 @@ def p9_strategy_case(root: Path) -> P9StrategyCase:
         registry,
         dataset_store,
         committed.snapshot_fingerprint,
-        bars(),
+        bars() if values is None else values,
         tuple(revisions),
         equivalence,
+        tuple(execution_evidence),
     )

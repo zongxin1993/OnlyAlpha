@@ -10,6 +10,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
+from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidence
+from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.result.result import OnlyResearchResult
 from onlyalpha.research.run import (
     OnlyResearchRun,
@@ -36,17 +38,35 @@ class OnlyResearchSemanticCompletionInspection:
     status: OnlyResearchSemanticCompletionStatus
     research_result_fingerprint: str | None = None
     artifact_content_fingerprint: str | None = None
+    calculation_execution_evidence_fingerprints: tuple[str, ...] = ()
     failure: OnlyResearchRunFailure | None = None
 
     def __post_init__(self) -> None:
         references = (self.research_result_fingerprint, self.artifact_content_fingerprint)
         if self.status is self.status.COMPLETE:
-            if any(value is None for value in references) or self.failure is not None:
-                raise ValueError("COMPLETE inspection requires exact Result and Artifact references")
+            evidence = tuple(sorted(self.calculation_execution_evidence_fingerprints))
+            if (
+                any(value is None for value in references)
+                or not evidence
+                or evidence != self.calculation_execution_evidence_fingerprints
+                or len(evidence) != len(set(evidence))
+                or self.failure is not None
+            ):
+                raise ValueError(
+                    "COMPLETE inspection requires exact Result, Artifact, and Execution Evidence references"
+                )
         elif self.status is self.status.CORRUPT:
-            if any(value is not None for value in references) or self.failure is None:
+            if (
+                any(value is not None for value in references)
+                or self.calculation_execution_evidence_fingerprints
+                or self.failure is None
+            ):
                 raise ValueError("CORRUPT inspection requires one structured failure")
-        elif any(value is not None for value in references) or self.failure is not None:
+        elif (
+            any(value is not None for value in references)
+            or self.calculation_execution_evidence_fingerprints
+            or self.failure is not None
+        ):
             raise ValueError("ABSENT inspection cannot carry semantic references or failure")
 
 
@@ -58,27 +78,45 @@ class _ResearchArtifactReader(Protocol):
     def load_verified(self, research_result_fingerprint: str) -> OnlyResearchArtifact: ...
 
 
+class _CalculationResultReader(Protocol):
+    def load_verified(self, calculation_fingerprint: str) -> OnlyResearchCalculationResult: ...
+
+
+class _CalculationExecutionEvidenceReader(Protocol):
+    def require_for_result(self, result: OnlyResearchCalculationResult) -> OnlyResearchCalculationExecutionEvidence: ...
+
+
 class OnlyResearchSemanticCompletionProbe(Protocol):
     def inspect(
         self,
         *,
         research_result_plan_fingerprint: str,
         dataset_snapshot_fingerprint: str,
+        calculation_fingerprints: tuple[str, ...],
     ) -> OnlyResearchSemanticCompletionInspection: ...
 
 
 class OnlyResearchVerifiedSemanticCompletionProbe:
     """Prove completion from existing immutable authorities without producing work."""
 
-    def __init__(self, result_reader: _ResearchResultReader, artifact_reader: _ResearchArtifactReader) -> None:
+    def __init__(
+        self,
+        result_reader: _ResearchResultReader,
+        artifact_reader: _ResearchArtifactReader,
+        calculation_result_reader: _CalculationResultReader,
+        execution_evidence_reader: _CalculationExecutionEvidenceReader,
+    ) -> None:
         self._result_reader = result_reader
         self._artifact_reader = artifact_reader
+        self._calculation_result_reader = calculation_result_reader
+        self._execution_evidence_reader = execution_evidence_reader
 
     def inspect(
         self,
         *,
         research_result_plan_fingerprint: str,
         dataset_snapshot_fingerprint: str,
+        calculation_fingerprints: tuple[str, ...],
     ) -> OnlyResearchSemanticCompletionInspection:
         try:
             result = self._result_reader.load_verified(research_result_plan_fingerprint)
@@ -122,10 +160,33 @@ class OnlyResearchVerifiedSemanticCompletionProbe:
                 "CANCELLATION_RECOVERY_ARTIFACT_VERIFICATION_FAILED",
                 ValueError("verified Research Artifact linkage mismatch"),
             )
+        try:
+            evidence_fingerprints: list[str] = []
+            exact_results = {item.calculation_fingerprint: item for item in manifest.calculation_results}
+            for calculation_fingerprint in calculation_fingerprints:
+                calculation = self._calculation_result_reader.load_verified(calculation_fingerprint)
+                reference = exact_results.get(calculation_fingerprint)
+                if (
+                    reference is not None
+                    and calculation.manifest.calculation_result_fingerprint != reference.calculation_result_fingerprint
+                ):
+                    raise ValueError("verified Calculation Result linkage mismatch")
+                evidence = self._execution_evidence_reader.require_for_result(calculation)
+                evidence_fingerprints.append(evidence.evidence_fingerprint)
+            evidence_references = tuple(sorted(evidence_fingerprints))
+            if not evidence_references or len(evidence_references) != len(set(evidence_references)):
+                raise ValueError("exact Calculation Execution Evidence membership is unavailable")
+        except Exception as exc:
+            return _corrupt(
+                OnlyResearchRunFailurePhase.RESULT_COMMIT,
+                "CANCELLATION_RECOVERY_EXECUTION_EVIDENCE_VERIFICATION_FAILED",
+                exc,
+            )
         return OnlyResearchSemanticCompletionInspection(
-            OnlyResearchSemanticCompletionStatus.COMPLETE,
-            manifest.research_result_fingerprint,
-            artifact_manifest.artifact_content_fingerprint,
+            status=OnlyResearchSemanticCompletionStatus.COMPLETE,
+            research_result_fingerprint=manifest.research_result_fingerprint,
+            artifact_content_fingerprint=artifact_manifest.artifact_content_fingerprint,
+            calculation_execution_evidence_fingerprints=evidence_references,
         )
 
 
@@ -175,6 +236,9 @@ class OnlyResearchCancellationRecoveryReconciler:
                 inspection = self._completion_probe.inspect(
                     research_result_plan_fingerprint=resolution.workload.result_plan.fingerprint,
                     dataset_snapshot_fingerprint=resolution.workload.dataset_snapshot_fingerprint,
+                    calculation_fingerprints=tuple(
+                        item.calculation_fingerprint for item in resolution.workload.calculation_jobs
+                    ),
                 )
         except Exception as exc:
             inspection = _corrupt(
@@ -206,7 +270,7 @@ def _corrupt(
     exc: Exception,
 ) -> OnlyResearchSemanticCompletionInspection:
     return OnlyResearchSemanticCompletionInspection(
-        OnlyResearchSemanticCompletionStatus.CORRUPT,
+        status=OnlyResearchSemanticCompletionStatus.CORRUPT,
         failure=OnlyResearchRunFailure(phase, code, f"Verified semantic inspection failed: {type(exc).__name__}"),
     )
 

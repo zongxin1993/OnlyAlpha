@@ -17,7 +17,9 @@ from onlyalpha.calculation import (
     OnlyCalculationNodeDefinition,
     OnlyCalculationReference,
     OnlyCalculationRegistry,
+    OnlyCalculationTypeReference,
     OnlyTimestampSemantic,
+    only_implementation_manifest_from_bytes,
 )
 from onlyalpha.research.calculation import (
     OnlyResearchCalculationBackendResolver,
@@ -36,6 +38,23 @@ def _registry() -> OnlyCalculationRegistry:
     for registration in registrations():
         registry.register(registration)
     return registry
+
+
+def _registration(type_definition, provider):
+    manifest = only_implementation_manifest_from_bytes(
+        calculation_type_reference=OnlyCalculationTypeReference(
+            type_definition.kind, type_definition.type_id, type_definition.semantic_version
+        ),
+        backend_kind=OnlyCalculationBackendKind.RESEARCH,
+        entrypoint_identity=f"{type(provider).__module__}:{type(provider).__qualname__}",
+        resources={"backend.py": type(provider).__qualname__.encode()},
+    )
+    return OnlyCalculationBackendRegistration(
+        type_definition,
+        OnlyCalculationBackendKind.RESEARCH,
+        provider,
+        implementation_manifest=manifest,
+    )
 
 
 def _graph():
@@ -101,13 +120,13 @@ def test_process_reused_official_backend_has_no_cross_execution_state(tmp_path) 
     verified, registry = _verified(tmp_path)
     resolver = OnlyResearchCalculationBackendResolver(registry)
     definition = _graph().nodes[0].definition
-    provider = resolver.resolve(definition)
+    provider = resolver.resolve(definition).provider
     executor = OnlyResearchCalculationExecutor(_StaticVerifiedStore(verified), resolver)
 
     first = executor.execute(verified.snapshot.snapshot_fingerprint, _graph())
     second = executor.execute(verified.snapshot.snapshot_fingerprint, _graph())
 
-    assert resolver.resolve(definition) is provider
+    assert resolver.resolve(definition).provider is provider
     assert [item.table.to_pydict() for item in first.outputs] == [item.table.to_pydict() for item in second.outputs]
 
 
@@ -192,9 +211,7 @@ def test_multi_node_dag_routes_dependency_and_order_is_stable(tmp_path) -> None:
         first.warmup,
     )
     registry = _registry()
-    registry.register(
-        OnlyCalculationBackendRegistration(derived_type, OnlyCalculationBackendKind.RESEARCH, _PassBackend())
-    )
+    registry.register(_registration(derived_type, _PassBackend()))
     graph = OnlyCalculationGraphDefinition(
         (OnlyCalculationNodeDefinition(derived), OnlyCalculationNodeDefinition(first))
     )
@@ -210,7 +227,7 @@ def test_multi_node_dag_routes_dependency_and_order_is_stable(tmp_path) -> None:
     assert [item.node_fingerprint for item in left.outputs[:2]] == [first.fingerprint, derived.fingerprint]
 
 
-def test_execution_rejects_missing_upstream_output_defensively(tmp_path) -> None:
+def test_execution_plan_rejects_graph_node_binding_set_mismatch(tmp_path) -> None:
     first = resolve_definition(TYPES[0], {"period": 2})
     derived_type = replace(
         TYPES[0],
@@ -226,19 +243,18 @@ def test_execution_rejects_missing_upstream_output_defensively(tmp_path) -> None
         (OnlyCalculationNodeDefinition(first), OnlyCalculationNodeDefinition(derived))
     )
     registry = _registry()
-    registry.register(
-        OnlyCalculationBackendRegistration(derived_type, OnlyCalculationBackendKind.RESEARCH, _PassBackend())
-    )
+    registry.register(_registration(derived_type, _PassBackend()))
     verified, _ = _verified(tmp_path)
 
     class _InvalidExecutionOrder:
         fingerprint = valid_graph.fingerprint
+        nodes = valid_graph.nodes
         ordered_nodes = (OnlyCalculationNodeDefinition(derived),)
 
     with pytest.raises(OnlyResearchCalculationError) as raised:
         _execute_static(verified, registry, _InvalidExecutionOrder())
-    assert raised.value.code == "RESEARCH_INPUT_INCOMPATIBLE"
-    assert raised.value.detail == "missing node input value"
+    assert raised.value.code == "RESEARCH_IMPLEMENTATION_IDENTITY_UNRESOLVED"
+    assert "node set differs" in raised.value.detail
 
 
 class _InvalidBackend:
@@ -262,9 +278,7 @@ class _InvalidBackend:
 def test_invalid_backend_output_fails_whole_execution(tmp_path, result, message) -> None:
     definition = resolve_definition(TYPES[0], {"period": 2})
     registry = OnlyCalculationRegistry()
-    registry.register(
-        OnlyCalculationBackendRegistration(TYPES[0], OnlyCalculationBackendKind.RESEARCH, _InvalidBackend(result))
-    )
+    registry.register(_registration(TYPES[0], _InvalidBackend(result)))
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
     candidate, partitions = snapshot()
     store.commit(candidate, partitions)
@@ -281,9 +295,7 @@ def test_non_nullable_backend_output_rejects_null_atomically(tmp_path) -> None:
     definition = replace(definition, outputs=(replace(definition.outputs[0], nullable=False),))
     result = {"value": pa.array([Decimal("1"), None, Decimal("3"), Decimal("4")], type=pa.decimal128(38, 18))}
     registry = OnlyCalculationRegistry()
-    registry.register(
-        OnlyCalculationBackendRegistration(TYPES[0], OnlyCalculationBackendKind.RESEARCH, _InvalidBackend(result))
-    )
+    registry.register(_registration(TYPES[0], _InvalidBackend(result)))
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
     candidate, partitions = snapshot()
     store.commit(candidate, partitions)
@@ -309,11 +321,7 @@ def test_execution_rejects_unsupported_timestamp_semantic(tmp_path) -> None:
 def test_backend_failure_is_atomic(tmp_path) -> None:
     definition = resolve_definition(TYPES[0], {"period": 2})
     registry = OnlyCalculationRegistry()
-    registry.register(
-        OnlyCalculationBackendRegistration(
-            TYPES[0], OnlyCalculationBackendKind.RESEARCH, _InvalidBackend(ValueError("injected"))
-        )
-    )
+    registry.register(_registration(TYPES[0], _InvalidBackend(ValueError("injected"))))
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
     candidate, partitions = snapshot()
     store.commit(candidate, partitions)

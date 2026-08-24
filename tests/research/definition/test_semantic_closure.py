@@ -307,7 +307,7 @@ def _predicate_backend(name: str, inputs: dict[str, pa.Array], parameters: dict[
     bindings = {input_name: OnlyCalculationReference(None, input_name, "bar.close") for input_name in inputs}
     definition_ = registry.rematerialize_definition(reference, parameters or {}, bindings)
     backend = OnlyResearchCalculationBackendResolver(registry).resolve(definition_)
-    return backend.execute(definition_, inputs)["value"].to_pylist()
+    return backend.provider.execute(definition_, inputs)["value"].to_pylist()
 
 
 def test_predicate_backend_freezes_three_valued_boolean_truth_tables() -> None:

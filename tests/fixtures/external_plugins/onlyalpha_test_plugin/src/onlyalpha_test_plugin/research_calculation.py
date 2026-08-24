@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -16,6 +17,7 @@ from onlyalpha.calculation import (
     OnlyCalculationKind,
     OnlyCalculationReference,
     OnlyCalculationTypeDefinition,
+    OnlyCalculationTypeReference,
     OnlyInputDefinition,
     OnlyMissingValuePolicy,
     OnlyNumericDefinition,
@@ -24,6 +26,9 @@ from onlyalpha.calculation import (
     OnlyPreReadyOutput,
     OnlyTimestampSemantic,
     OnlyWarmupDefinition,
+    only_distribution_semantic_dependency,
+    only_python_implementation_manifest,
+    only_python_stdlib_semantic_dependency,
 )
 
 EXTERNAL_IDENTITY = OnlyCalculationTypeDefinition(
@@ -72,12 +77,28 @@ class OnlyExternalIdentityResearchBackend:
 
 
 def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
+    package_root = Path(__file__).resolve().parent
     return (
         OnlyCalculationBackendRegistration(
             EXTERNAL_IDENTITY,
             OnlyCalculationBackendKind.RESEARCH,
             OnlyExternalIdentityResearchBackend(),
             OnlyExternalIdentityDefinitionResolver(),
+            only_python_implementation_manifest(
+                calculation_type_reference=OnlyCalculationTypeReference(
+                    EXTERNAL_IDENTITY.kind,
+                    EXTERNAL_IDENTITY.type_id,
+                    EXTERNAL_IDENTITY.semantic_version,
+                ),
+                backend_kind=OnlyCalculationBackendKind.RESEARCH,
+                entrypoint_identity=("onlyalpha_test_plugin.research_calculation:OnlyExternalIdentityResearchBackend"),
+                package_root=package_root,
+                resource_paths=("research_calculation.py",),
+                semantic_dependencies=(
+                    only_python_stdlib_semantic_dependency("decimal"),
+                    only_distribution_semantic_dependency("pyarrow"),
+                ),
+            ),
         ),
     )
 

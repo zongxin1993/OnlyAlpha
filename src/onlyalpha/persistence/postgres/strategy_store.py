@@ -95,14 +95,16 @@ class OnlyPostgresStrategyStore:
                 connection.execute(
                     "INSERT INTO strategy_freeze_record "
                     "(freeze_record_fingerprint, candidate_fingerprint, research_result_fingerprint, "
-                    "strategy_fingerprint, admission_evidence_fingerprint, equivalence_evidence_fingerprints, "
+                    "research_execution_evidence_fingerprints, strategy_fingerprint, "
+                    "admission_evidence_fingerprint, equivalence_evidence_fingerprints, "
                     "actor, created_at, comment, schema_version) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (candidate_fingerprint, research_result_fingerprint, strategy_fingerprint) DO NOTHING",
                     (
                         record.record_fingerprint,
                         record.candidate_fingerprint,
                         record.research_result_fingerprint,
+                        list(record.research_execution_evidence_fingerprints),
                         record.strategy_fingerprint,
                         record.admission_evidence_fingerprint,
                         list(record.equivalence_evidence_fingerprints),
@@ -193,18 +195,20 @@ class OnlyPostgresStrategyStore:
 def _freeze_record(row: dict[str, object]) -> OnlyStrategyFreezeRecord:
     try:
         evidence = row["equivalence_evidence_fingerprints"]
-        if not isinstance(evidence, list):
+        provenance = row["research_execution_evidence_fingerprints"]
+        if not isinstance(evidence, list) or not isinstance(provenance, list):
             raise ValueError("exact equivalence evidence is unavailable")
         record = OnlyStrategyFreezeRecord(
-            str(row["candidate_fingerprint"]),
-            str(row["research_result_fingerprint"]),
-            str(row["strategy_fingerprint"]),
-            str(row["admission_evidence_fingerprint"]),
-            tuple(str(item) for item in evidence),
-            str(row["actor"]),
-            cast(datetime, row["created_at"]),
-            None if row["comment"] is None else str(row["comment"]),
-            int(str(row["schema_version"])),
+            candidate_fingerprint=str(row["candidate_fingerprint"]),
+            research_result_fingerprint=str(row["research_result_fingerprint"]),
+            research_execution_evidence_fingerprints=tuple(str(item) for item in provenance),
+            strategy_fingerprint=str(row["strategy_fingerprint"]),
+            admission_evidence_fingerprint=str(row["admission_evidence_fingerprint"]),
+            equivalence_evidence_fingerprints=tuple(str(item) for item in evidence),
+            actor=str(row["actor"]),
+            created_at=cast(datetime, row["created_at"]),
+            comment=None if row["comment"] is None else str(row["comment"]),
+            schema_version=int(str(row["schema_version"])),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise OnlyStrategyFreezeError("STRATEGY_CATALOG_CORRUPT", str(row.get("strategy_fingerprint", ""))) from exc

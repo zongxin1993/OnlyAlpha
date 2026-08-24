@@ -49,12 +49,27 @@ class _Reader:
         return self.value
 
 
+class _EvidenceReader:
+    def __init__(self, value: object = None, error: Exception | None = None) -> None:
+        self.value = value or SimpleNamespace(evidence_fingerprint="8" * 64)
+        self.error = error
+
+    def require_for_result(self, result: object) -> object:
+        del result
+        if self.error is not None:
+            raise self.error
+        return self.value
+
+
 def _semantic_values() -> tuple[object, object]:
     result_manifest = SimpleNamespace(
         research_result_plan_fingerprint="a" * 64,
         research_result_content_fingerprint="b" * 64,
         research_result_fingerprint="c" * 64,
         dataset_snapshot_fingerprint="d" * 64,
+        calculation_results=(
+            SimpleNamespace(calculation_fingerprint="f" * 64, calculation_result_fingerprint="7" * 64),
+        ),
     )
     artifact_manifest = SimpleNamespace(
         research_result_plan_fingerprint="a" * 64,
@@ -66,30 +81,47 @@ def _semantic_values() -> tuple[object, object]:
     return SimpleNamespace(manifest=result_manifest), SimpleNamespace(manifest=artifact_manifest)
 
 
+def _completion_probe(
+    result_reader: object,
+    artifact_reader: object,
+    calculation_reader: object | None = None,
+    evidence_reader: object | None = None,
+) -> OnlyResearchVerifiedSemanticCompletionProbe:
+    calculation = SimpleNamespace(manifest=SimpleNamespace(calculation_result_fingerprint="7" * 64))
+    return OnlyResearchVerifiedSemanticCompletionProbe(
+        result_reader,  # type: ignore[arg-type]
+        artifact_reader,  # type: ignore[arg-type]
+        calculation_reader or _Reader(calculation),  # type: ignore[arg-type]
+        evidence_reader or _EvidenceReader(),  # type: ignore[arg-type]
+    )
+
+
 def test_verified_completion_probe_distinguishes_complete_absent_and_corrupt() -> None:
     result, artifact = _semantic_values()
-    complete = OnlyResearchVerifiedSemanticCompletionProbe(_Reader(result), _Reader(artifact)).inspect(
+    complete = _completion_probe(_Reader(result), _Reader(artifact)).inspect(
         research_result_plan_fingerprint="a" * 64,
         dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
     )
     assert complete == OnlyResearchSemanticCompletionInspection(
-        OnlyResearchSemanticCompletionStatus.COMPLETE,
-        "c" * 64,
-        "e" * 64,
+        status=OnlyResearchSemanticCompletionStatus.COMPLETE,
+        research_result_fingerprint="c" * 64,
+        artifact_content_fingerprint="e" * 64,
+        calculation_execution_evidence_fingerprints=("8" * 64,),
     )
 
     artifact_reader = _Reader(error=_Error("ARTIFACT_NOT_FOUND"))
-    partial = OnlyResearchVerifiedSemanticCompletionProbe(_Reader(result), artifact_reader).inspect(
+    partial = _completion_probe(_Reader(result), artifact_reader).inspect(
         research_result_plan_fingerprint="a" * 64,
         dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
     )
     assert partial.status is OnlyResearchSemanticCompletionStatus.ABSENT
 
-    corrupt = OnlyResearchVerifiedSemanticCompletionProbe(
-        _Reader(result), _Reader(error=_Error("ARTIFACT_CORRUPT"))
-    ).inspect(
+    corrupt = _completion_probe(_Reader(result), _Reader(error=_Error("ARTIFACT_CORRUPT"))).inspect(
         research_result_plan_fingerprint="a" * 64,
         dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
     )
     assert corrupt.status is OnlyResearchSemanticCompletionStatus.CORRUPT
     assert corrupt.failure is not None
@@ -99,34 +131,39 @@ def test_verified_completion_probe_distinguishes_complete_absent_and_corrupt() -
 def test_completion_inspection_contract_rejects_incoherent_evidence() -> None:
     failure = OnlyResearchRunFailure(OnlyResearchRunFailurePhase.RESULT_COMMIT, "CORRUPT", "corrupt")
     invalid = (
-        (OnlyResearchSemanticCompletionStatus.COMPLETE, None, None, None),
-        (OnlyResearchSemanticCompletionStatus.CORRUPT, "a" * 64, None, failure),
-        (OnlyResearchSemanticCompletionStatus.ABSENT, None, None, failure),
+        (OnlyResearchSemanticCompletionStatus.COMPLETE, None, None, (), None),
+        (OnlyResearchSemanticCompletionStatus.CORRUPT, "a" * 64, None, (), failure),
+        (OnlyResearchSemanticCompletionStatus.ABSENT, None, None, (), failure),
     )
-    for status, result, artifact, item_failure in invalid:
+    for status, result, artifact, evidence, item_failure in invalid:
         with pytest.raises(ValueError):
-            OnlyResearchSemanticCompletionInspection(status, result, artifact, item_failure)
+            OnlyResearchSemanticCompletionInspection(status, result, artifact, evidence, item_failure)
 
 
 def test_verified_completion_probe_fails_closed_for_result_errors_and_linkage_mismatch() -> None:
     artifact = _semantic_values()[1]
-    missing = OnlyResearchVerifiedSemanticCompletionProbe(
-        _Reader(error=_Error("RESEARCH_RESULT_NOT_FOUND")), _Reader(artifact)
-    ).inspect(research_result_plan_fingerprint="a" * 64, dataset_snapshot_fingerprint="d" * 64)
+    missing = _completion_probe(_Reader(error=_Error("RESEARCH_RESULT_NOT_FOUND")), _Reader(artifact)).inspect(
+        research_result_plan_fingerprint="a" * 64,
+        dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
+    )
     assert missing.status is OnlyResearchSemanticCompletionStatus.ABSENT
 
-    corrupt = OnlyResearchVerifiedSemanticCompletionProbe(
-        _Reader(error=_Error("RESEARCH_RESULT_CORRUPT")), _Reader(artifact)
-    ).inspect(research_result_plan_fingerprint="a" * 64, dataset_snapshot_fingerprint="d" * 64)
+    corrupt = _completion_probe(_Reader(error=_Error("RESEARCH_RESULT_CORRUPT")), _Reader(artifact)).inspect(
+        research_result_plan_fingerprint="a" * 64,
+        dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
+    )
     assert corrupt.status is OnlyResearchSemanticCompletionStatus.CORRUPT
     assert corrupt.failure is not None
     assert corrupt.failure.code == "CANCELLATION_RECOVERY_RESULT_VERIFICATION_FAILED"
 
     result, _ = _semantic_values()
     result.manifest.dataset_snapshot_fingerprint = "f" * 64
-    mismatch = OnlyResearchVerifiedSemanticCompletionProbe(_Reader(result), _Reader(artifact)).inspect(
+    mismatch = _completion_probe(_Reader(result), _Reader(artifact)).inspect(
         research_result_plan_fingerprint="a" * 64,
         dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
     )
     assert mismatch.status is OnlyResearchSemanticCompletionStatus.CORRUPT
 
@@ -134,9 +171,10 @@ def test_verified_completion_probe_fails_closed_for_result_errors_and_linkage_mi
 def test_verified_completion_probe_rejects_artifact_linkage_mismatch() -> None:
     result, artifact = _semantic_values()
     artifact.manifest.research_result_content_fingerprint = "f" * 64
-    mismatch = OnlyResearchVerifiedSemanticCompletionProbe(_Reader(result), _Reader(artifact)).inspect(
+    mismatch = _completion_probe(_Reader(result), _Reader(artifact)).inspect(
         research_result_plan_fingerprint="a" * 64,
         dataset_snapshot_fingerprint="d" * 64,
+        calculation_fingerprints=("f" * 64,),
     )
     assert mismatch.status is OnlyResearchSemanticCompletionStatus.CORRUPT
     assert mismatch.failure is not None
@@ -149,7 +187,11 @@ class _Probe:
         self.calls = 0
 
     def inspect(self, **kwargs: object) -> OnlyResearchSemanticCompletionInspection:
-        assert set(kwargs) == {"research_result_plan_fingerprint", "dataset_snapshot_fingerprint"}
+        assert set(kwargs) == {
+            "research_result_plan_fingerprint",
+            "dataset_snapshot_fingerprint",
+            "calculation_fingerprints",
+        }
         self.calls += 1
         return self.inspection
 
@@ -178,6 +220,7 @@ class _RecoveryStore:
                 at=run_finished_at,
                 research_result_fingerprint=inspection.research_result_fingerprint,
                 artifact_content_fingerprint=inspection.artifact_content_fingerprint,
+                calculation_execution_evidence_fingerprints=(inspection.calculation_execution_evidence_fingerprints),
             )
         elif inspection.status is OnlyResearchSemanticCompletionStatus.ABSENT:
             target = self.run.transition(OnlyResearchRunState.CANCELLED, at=run_finished_at)
@@ -208,7 +251,12 @@ def _cancel_requested(tmp_path: Path) -> tuple[OnlyResearchRun, OnlyResearchSpec
     ("inspection", "expected_state"),
     (
         (
-            OnlyResearchSemanticCompletionInspection(OnlyResearchSemanticCompletionStatus.COMPLETE, "b" * 64, "c" * 64),
+            OnlyResearchSemanticCompletionInspection(
+                OnlyResearchSemanticCompletionStatus.COMPLETE,
+                "b" * 64,
+                "c" * 64,
+                ("e" * 64,),
+            ),
             OnlyResearchRunState.COMPLETED,
         ),
         (

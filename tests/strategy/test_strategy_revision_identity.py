@@ -14,6 +14,32 @@ from onlyalpha.strategy import (
 from tests.strategy.p9_support import p9_strategy_case
 
 
+def test_same_semantic_result_with_different_research_implementation_changes_strategy_identity(tmp_path) -> None:
+    case = p9_strategy_case(tmp_path / "case")
+    binding = case.revision.implementation_bindings[0]
+    first_evidence = case.execution_evidence[0]
+    first_provenance_binding = first_evidence.research_implementation_bindings[0]
+    second_evidence = replace(
+        first_evidence,
+        research_implementation_bindings=(
+            replace(first_provenance_binding, research_implementation_fingerprint="f" * 64),
+            *first_evidence.research_implementation_bindings[1:],
+        ),
+    )
+    changed = replace(
+        case.revision,
+        implementation_bindings=(
+            replace(binding, research_implementation_fingerprint="f" * 64),
+            *case.revision.implementation_bindings[1:],
+        ),
+    )
+
+    assert first_evidence.calculation_result_fingerprint == second_evidence.calculation_result_fingerprint
+    assert first_evidence.evidence_fingerprint != second_evidence.evidence_fingerprint
+    assert changed.decision_graph.fingerprint == case.revision.decision_graph.fingerprint
+    assert changed.strategy_fingerprint != case.revision.strategy_fingerprint
+
+
 def test_strategy_fingerprint_is_canonical_and_excludes_external_evidence(tmp_path) -> None:
     case = p9_strategy_case(tmp_path)
     revision = case.revision

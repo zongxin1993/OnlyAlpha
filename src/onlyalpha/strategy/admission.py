@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import NoReturn, Protocol
 
@@ -12,13 +13,17 @@ from onlyalpha.calculation.definition import (
     OnlyFactorKind,
     OnlyTimestampSemantic,
 )
+from onlyalpha.calculation.equivalence import (
+    OnlyCalculationEquivalenceError,
+    OnlyCalculationEquivalenceEvidenceV2,
+    only_required_calculation_equivalence_profile,
+)
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.domain.enums import OnlyAdjustmentType
-from onlyalpha.strategy.equivalence import OnlyCalculationEquivalenceEvidence
-from onlyalpha.strategy.errors import OnlyCalculationEquivalenceError, OnlyStrategyAdmissionError
+from onlyalpha.strategy.errors import OnlyStrategyAdmissionError
 from onlyalpha.strategy.revision import (
     OnlyStrategyImplementationBinding,
     OnlyStrategyMarketInputContract,
@@ -29,10 +34,29 @@ from onlyalpha.strategy.revision import (
 class OnlyCalculationEquivalenceEvidenceReader(Protocol):
     def require_verified(
         self,
+        *,
+        calculation_node_fingerprint: str,
         reference: OnlyCalculationTypeReference,
         research_implementation_fingerprint: str,
         trading_implementation_fingerprint: str,
-    ) -> tuple[OnlyCalculationEquivalenceEvidence, ...]: ...
+        certification_profile_fingerprint: str,
+    ) -> OnlyCalculationEquivalenceEvidenceV2: ...
+
+
+class _ResearchImplementationBinding(Protocol):
+    @property
+    def node_fingerprint(self) -> str: ...
+
+    @property
+    def research_implementation_fingerprint(self) -> str: ...
+
+
+class _ResearchCalculationExecutionEvidence(Protocol):
+    @property
+    def calculation_graph_fingerprint(self) -> str: ...
+
+    @property
+    def research_implementation_bindings(self) -> Sequence[_ResearchImplementationBinding]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +80,7 @@ class OnlyStrategyTradingAdmissionService:
         graph: OnlyCalculationGraphDefinition,
         signals: OnlyStrategySignalSemantics,
         market_input_contract: OnlyStrategyMarketInputContract,
+        research_execution_evidence: _ResearchCalculationExecutionEvidence,
     ) -> OnlyStrategyAdmission:
         if (
             market_input_contract.adjustment_type is not OnlyAdjustmentType.RAW
@@ -64,6 +89,17 @@ class OnlyStrategyTradingAdmissionService:
             self._fail(
                 "STRATEGY_NOT_TRADING_ADMISSIBLE",
                 "P9.0 Trading Strategy input must be RAW without an adjustment reference",
+            )
+        historical = {
+            item.node_fingerprint: item.research_implementation_fingerprint
+            for item in research_execution_evidence.research_implementation_bindings
+        }
+        if research_execution_evidence.calculation_graph_fingerprint != graph.fingerprint or set(historical) != {
+            item.fingerprint for item in graph.nodes
+        }:
+            self._fail(
+                "RESEARCH_EXECUTION_IDENTITY_MISMATCH",
+                "historical Research implementation bindings differ from exact Calculation Graph",
             )
         bindings: list[OnlyStrategyImplementationBinding] = []
         evidence: list[str] = []
@@ -85,9 +121,8 @@ class OnlyStrategyTradingAdmissionService:
             if unsupported:
                 self._fail("STRATEGY_NOT_TRADING_ADMISSIBLE", f"unsupported market input: {unsupported[0]}")
             reference = OnlyCalculationTypeReference(definition.kind, definition.type_id, definition.semantic_version)
-            research = self._registration(reference, OnlyCalculationBackendKind.RESEARCH)
-            trading = self._registration(reference, OnlyCalculationBackendKind.TRADING)
-            if research.implementation_manifest is None or trading.implementation_manifest is None:
+            trading = self._trading_registration(reference)
+            if trading.implementation_manifest is None:
                 self._fail(
                     "IMPLEMENTATION_IDENTITY_UNRESOLVED",
                     f"exact implementation identity is unavailable for {definition.type_id}@{definition.semantic_version}",
@@ -105,17 +140,27 @@ class OnlyStrategyTradingAdmissionService:
                     "CALCULATION_STATE_CAPABILITY_UNRESOLVED",
                     f"{definition.type_id}@{definition.semantic_version}",
                 )
-            research_fingerprint = research.implementation_manifest.implementation_fingerprint
+            research_fingerprint = historical[node.fingerprint]
             trading_fingerprint = trading.implementation_manifest.implementation_fingerprint
             try:
-                admitted = self._equivalence.require_verified(reference, research_fingerprint, trading_fingerprint)
+                profile = only_required_calculation_equivalence_profile(definition)
+            except OnlyCalculationEquivalenceError as exc:
+                self._fail(exc.code, exc.detail, exc)
+            try:
+                admitted = self._equivalence.require_verified(
+                    calculation_node_fingerprint=node.fingerprint,
+                    reference=reference,
+                    research_implementation_fingerprint=research_fingerprint,
+                    trading_implementation_fingerprint=trading_fingerprint,
+                    certification_profile_fingerprint=profile.profile_fingerprint,
+                )
             except OnlyCalculationEquivalenceError as exc:
                 code = "STRATEGY_NOT_TRADING_ADMISSIBLE" if exc.code == "EQUIVALENCE_EVIDENCE_NOT_FOUND" else exc.code
                 self._fail(code, exc.detail, exc)
             bindings.append(
                 OnlyStrategyImplementationBinding(node.fingerprint, research_fingerprint, trading_fingerprint)
             )
-            evidence.extend(item.evidence_fingerprint for item in admitted)
+            evidence.append(admitted.evidence_fingerprint)
         self._validate_signals(graph, signals)
         canonical = tuple(sorted(bindings))
         evidence_fingerprints = tuple(sorted(set(evidence)))
@@ -137,28 +182,22 @@ class OnlyStrategyTradingAdmissionService:
         signals: OnlyStrategySignalSemantics,
         market_input_contract: OnlyStrategyMarketInputContract,
         expected: tuple[OnlyStrategyImplementationBinding, ...],
+        research_execution_evidence: _ResearchCalculationExecutionEvidence,
     ) -> None:
-        actual = self.admit(graph, signals, market_input_contract).implementation_bindings
+        actual = self.admit(graph, signals, market_input_contract, research_execution_evidence).implementation_bindings
         if actual != expected:
             self._fail("IMPLEMENTATION_IDENTITY_MISMATCH", "current Calculation implementation differs from Revision")
 
-    def _registration(
-        self, reference: OnlyCalculationTypeReference, backend: OnlyCalculationBackendKind
-    ) -> OnlyCalculationBackendRegistration:
+    def _trading_registration(self, reference: OnlyCalculationTypeReference) -> OnlyCalculationBackendRegistration:
         try:
             return self._calculations.resolve(
                 reference.kind,
                 reference.type_id,
                 reference.semantic_version,
-                backend,
+                OnlyCalculationBackendKind.TRADING,
             )
         except ValueError as exc:
-            code = (
-                "TRADING_BACKEND_UNAVAILABLE"
-                if backend is OnlyCalculationBackendKind.TRADING
-                else "RESEARCH_BACKEND_UNAVAILABLE"
-            )
-            self._fail(code, str(exc), exc)
+            self._fail("TRADING_BACKEND_UNAVAILABLE", str(exc), exc)
 
     @staticmethod
     def _validate_signals(graph: OnlyCalculationGraphDefinition, signals: OnlyStrategySignalSemantics) -> None:

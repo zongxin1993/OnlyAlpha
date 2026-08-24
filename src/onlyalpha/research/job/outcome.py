@@ -23,6 +23,7 @@ class OnlyResearchJobOutcome:
     disposition: OnlyResearchJobDisposition
     calculation_fingerprint: str
     calculation_result_fingerprint: str
+    calculation_execution_evidence_fingerprint: str
 
     def __post_init__(self) -> None:
         if self.status is not OnlyResearchJobStatus.SUCCEEDED:
@@ -33,6 +34,7 @@ class OnlyResearchJobOutcome:
             {
                 "calculation_fingerprint": self.calculation_fingerprint,
                 "calculation_result_fingerprint": self.calculation_result_fingerprint,
+                "calculation_execution_evidence_fingerprint": self.calculation_execution_evidence_fingerprint,
             },
             "calculation_fingerprint",
             "Research Job Outcome",
@@ -40,5 +42,12 @@ class OnlyResearchJobOutcome:
         require_sha256(
             {"calculation_result_fingerprint": self.calculation_result_fingerprint},
             "calculation_result_fingerprint",
+            "Research Job Outcome",
+        )
+        require_sha256(
+            {
+                "calculation_execution_evidence_fingerprint": self.calculation_execution_evidence_fingerprint,
+            },
+            "calculation_execution_evidence_fingerprint",
             "Research Job Outcome",
         )

@@ -11,6 +11,7 @@ from onlyalpha.research.artifact.scientific_store import OnlyParquetResearchScie
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
+from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
@@ -54,7 +55,8 @@ class OnlyResearchRuntimeFactory:
             dataset,
             OnlyResearchCalculationBackendResolver(request.components.calculations),
         )
-        job = OnlyResearchJobExecutor(calculation, calculation_store)
+        execution_evidence = OnlyResearchCalculationExecutionEvidenceStore(layout.research_root)
+        job = OnlyResearchJobExecutor(calculation, calculation_store, execution_evidence)
         sweep = OnlyResearchSweepExecutor(job)
         statistics_store = OnlyParquetResearchStatisticsResultStore(
             layout.research_statistics_result_root,
