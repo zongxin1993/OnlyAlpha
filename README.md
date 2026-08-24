@@ -43,19 +43,23 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P8 | **DONE / CERTIFIED** — Research Control Plane & Web-native Execution |
 | P8 Final SHA | `88e616c52fb6c3085e7c64d73f174257bf2d002e` |
 | P8 Final-SHA Certification | run `32581861744` — **ACCEPTED** |
-| Current increment | P9.0 Closure-2 — Authority Hardening & Final Certification / IN PROGRESS |
-| Next semantic direction | Complete P9.0 Closure-2 gates and exact-SHA certification before changing milestone status |
+| P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
+| P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
+| P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
+| Current increment | P9.0 Closure-2 — **DONE / CERTIFIED** |
+| Next semantic direction | Re-audit repository truth and plan P9.1 without expanding the certified P9.0 contract |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
 
 P8 的 exact Final-SHA Certification 也已完成。认证 subject `88e616c52fb6c3085e7c64d73f174257bf2d002e` 的 deployment coherence、real Browser product E2E、SIGKILL recovery、restore、static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p8_6_product_closure_and_final_certification.md`](docs/reports/p8_6_product_closure_and_final_certification.md)。
 
-P9 已在 P8 exact-SHA 认证后基于 Repository truth 重新规划。当前执行 P9.0 Closure-2：exact Research Execution Evidence、
+P9 已在 P8 exact-SHA 认证后基于 Repository truth 重新规划。P9.0 Closure-2 已完成 exact Research Execution Evidence、
 actual-backend Equivalence Evidence V2、Freeze-only frozen Strategy Store、fingerprint-only Backtest/SIM composition、单一 Revision-backed
-execution path、显式 StrategyDecision handoff 与 predecessor-only Promotion evidence。本地实现或测试通过不等于
-`DONE / CERTIFIED`；P9.0 必须完成全部 closure gate 并对 exact Final SHA
-取得远程认证 `ACCEPTED` 后才能改变里程碑状态。
+execution path、显式 StrategyDecision handoff 与 predecessor-only Promotion evidence。exact subject
+`ab07a7c828bd23b7b1d10b95023413a7d83bad8e` 已在 Final-SHA Certification run `32728974966` 取得 artifact verdict
+`ACCEPTED`，因此 P9.0 为 `DONE / CERTIFIED`。详细证据见
+[`docs/reports/p9_0_closure_2_authority_hardening_and_final_certification.md`](docs/reports/p9_0_closure_2_authority_hardening_and_final_certification.md)。
 
 ---
 
