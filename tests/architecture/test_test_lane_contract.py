@@ -68,6 +68,14 @@ def test_architecture_lane_is_the_single_stable_repository_gate() -> None:
     assert lane.dist == "no"
 
 
+def test_kernel_lane_owns_lifecycle_host_and_k1_boundary() -> None:
+    lane = LANES[OnlyTestLane.KERNEL]
+    assert lane.paths == ("tests/kernel", "tests/architecture/test_p9_k1_kernel_boundary.py")
+    assert lane.expression == "unit or architecture"
+    assert lane.workers == "0"
+    assert lane.dist == "no"
+
+
 def test_normal_ci_directly_runs_the_canonical_architecture_gate() -> None:
     workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
     assert "- run: uv run python scripts/test_suite.py architecture" in workflow

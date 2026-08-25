@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_research_app
+from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_api.research.run_errors import run_error_response
 
+from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKernelLifecycleStep
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactStoreError
 from onlyalpha.research.command import (
     OnlyResearchCommandService,
@@ -95,6 +98,18 @@ class _Store:
         return tuple(runs[:limit])
 
 
+def _ready_projection() -> OnlyKernelResearchReadinessProjection:
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    return OnlyKernelResearchReadinessProjection(
+        kernel,
+        OnlyResearchReadiness(
+            OnlyResearchReadinessStatus.READY,
+            (OnlyResearchReadinessCheck("product_scope", "READY"),),
+        ),
+    )
+
+
 def _client(readiness_probe=None):  # type: ignore[no-untyped-def]
     store, dataset = _Store(), _Dataset()
     admission = OnlyResearchRunAdmissionService(
@@ -117,36 +132,32 @@ def _client(readiness_probe=None):  # type: ignore[no-untyped-def]
                 query,
                 calculations,
                 OnlyResearchDefinitionResolver(calculations, dataset),
-                readiness_probe,
+                readiness_probe or _ready_projection(),
             )
         ),
     )
 
 
 def test_product_routes_require_ready_deployment_while_health_remains_available() -> None:
-    class Probe:
-        def __init__(self) -> None:
-            self.readiness = OnlyResearchReadiness(
-                OnlyResearchReadinessStatus.NOT_READY,
-                (OnlyResearchReadinessCheck("semantic_store", "MISMATCH"),),
-                "SEMANTIC_STORE_IDENTITY_MISMATCH",
-            )
-
-        def inspect(self):  # type: ignore[no-untyped-def]
-            return self.readiness
-
-    probe = Probe()
+    failure = OnlyResearchReadiness(
+        OnlyResearchReadinessStatus.NOT_READY,
+        (OnlyResearchReadinessCheck("semantic_store", "MISMATCH"),),
+        "SEMANTIC_STORE_IDENTITY_MISMATCH",
+    )
+    failed_kernel = OnlyAlphaKernelHost(
+        verifiers=(OnlyKernelLifecycleStep("semantic_store", lambda: (_ for _ in ()).throw(RuntimeError("mismatch"))),)
+    )
+    with pytest.raises(OnlyKernelHostError):
+        failed_kernel.start()
+    probe = OnlyKernelResearchReadinessProjection(failed_kernel, failure)
     _, _, client = _client(probe)
     blocked = client.get("/api/v2/research/runs")
     assert blocked.status_code == 503
     assert blocked.json()["reason"] == "SEMANTIC_STORE_IDENTITY_MISMATCH"
     assert client.get("/health/live").status_code == 200
 
-    probe.readiness = OnlyResearchReadiness(
-        OnlyResearchReadinessStatus.READY,
-        (OnlyResearchReadinessCheck("semantic_store", "COMPATIBLE"),),
-    )
-    assert client.get("/api/v2/research/runs").status_code == 200
+    assert client.get("/api/v2/research/runs").status_code == 503
+    assert _client(_ready_projection())[2].get("/api/v2/research/runs").status_code == 200
 
 
 def test_submit_replay_get_list_and_cancel_contract() -> None:

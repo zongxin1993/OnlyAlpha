@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from onlyalpha_api.main import _calculation_registry
+from onlyalpha_api.main import _configure_calculation_registry
 
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
@@ -16,8 +16,14 @@ def _research_projection(registry: OnlyCalculationRegistry):
     return only_calculation_capability_projection(registry, OnlyCalculationBackendKind.RESEARCH)
 
 
+def _api_calculation_registry() -> OnlyCalculationRegistry:
+    registry = OnlyCalculationRegistry()
+    _configure_calculation_registry(registry)
+    return registry
+
+
 def test_api_and_worker_startup_expose_the_same_research_semantic_capabilities() -> None:
-    api = _research_projection(_calculation_registry())
+    api = _research_projection(_api_calculation_registry())
     worker_services = only_default_engine_services(fail_fast=True)
     worker = _research_projection(worker_services.assembler.components.calculations)
 
@@ -27,7 +33,7 @@ def test_api_and_worker_startup_expose_the_same_research_semantic_capabilities()
 
 
 def test_research_semantic_capability_drift_fails_closed() -> None:
-    expected = _research_projection(_calculation_registry())
+    expected = _research_projection(_api_calculation_registry())
     actual = _research_projection(OnlyCalculationRegistry())
 
     with pytest.raises(ValueError, match="semantic capability mismatch"):

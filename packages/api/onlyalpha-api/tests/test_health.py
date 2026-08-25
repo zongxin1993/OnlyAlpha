@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from onlyalpha_api.health import create_health_router
+from onlyalpha_api.health import OnlyKernelResearchReadinessProjection, create_health_router
 
+from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKernelLifecycleStep
 from onlyalpha.research.operations.readiness import (
     OnlyResearchReadiness,
     OnlyResearchReadinessCheck,
@@ -61,6 +63,51 @@ def test_ready_contract_is_strict_and_deterministic() -> None:
     ).get("/health/ready")
     assert response.status_code == 200
     assert response.json()["checks"] == {"postgres": "READY", "schema": "COMPATIBLE"}
+
+
+def test_kernel_projection_preserves_verified_contract_and_fails_closed_after_stop() -> None:
+    evidence = OnlyResearchReadiness(
+        OnlyResearchReadinessStatus.READY,
+        (
+            OnlyResearchReadinessCheck("postgres", "READY"),
+            OnlyResearchReadinessCheck("schema", "COMPATIBLE"),
+        ),
+    )
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    probe = OnlyKernelResearchReadinessProjection(kernel, evidence)
+    app = FastAPI()
+    app.include_router(create_health_router(probe))
+    client = TestClient(app)
+
+    assert client.get("/health/ready").json() == {
+        "status": "READY",
+        "checks": {"postgres": "READY", "schema": "COMPATIBLE"},
+        "reason": None,
+    }
+    kernel.stop()
+    stopped = client.get("/health/ready")
+    assert stopped.status_code == 503
+    assert stopped.json() == {
+        "status": "NOT_READY",
+        "checks": {"postgres": "READY", "schema": "COMPATIBLE", "product_kernel": "STOPPED"},
+        "reason": "KERNEL_STOPPED",
+    }
+
+
+def test_kernel_projection_preserves_failed_verification_reason() -> None:
+    evidence = OnlyResearchReadiness(
+        OnlyResearchReadinessStatus.NOT_READY,
+        (OnlyResearchReadinessCheck("deployment_binding", "SEMANTIC_STORE_IDENTITY_MISMATCH"),),
+        "SEMANTIC_STORE_IDENTITY_MISMATCH",
+    )
+    kernel = OnlyAlphaKernelHost(
+        verifiers=(OnlyKernelLifecycleStep("deployment", lambda: (_ for _ in ()).throw(RuntimeError("mismatch"))),)
+    )
+    with pytest.raises(OnlyKernelHostError):
+        kernel.start()
+
+    assert OnlyKernelResearchReadinessProjection(kernel, evidence).inspect() == evidence
 
 
 def test_readiness_probe_fails_closed_for_database_schema_root_and_registry(tmp_path) -> None:  # type: ignore[no-untyped-def]

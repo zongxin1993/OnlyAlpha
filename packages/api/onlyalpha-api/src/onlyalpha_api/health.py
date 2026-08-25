@@ -15,6 +15,50 @@ class _ReadinessProbe(Protocol):
     def inspect(self) -> OnlyResearchReadiness: ...
 
 
+class _KernelStateProjection(Protocol):
+    @property
+    def value(self) -> str: ...
+
+
+class _KernelStatusProjection(Protocol):
+    @property
+    def state(self) -> _KernelStateProjection: ...
+
+    @property
+    def ready(self) -> bool: ...
+
+
+class _KernelStatusReader(Protocol):
+    @property
+    def status(self) -> _KernelStatusProjection: ...
+
+
+class OnlyKernelResearchReadinessProjection:
+    """Preserve the Research health DTO while projecting Product Kernel readiness."""
+
+    def __init__(self, kernel: _KernelStatusReader, verification: OnlyResearchReadiness | None) -> None:
+        self._kernel = kernel
+        self._verification = verification
+
+    def inspect(self) -> OnlyResearchReadiness:
+        status = self._kernel.status
+        from onlyalpha.research.operations.readiness import OnlyResearchReadinessCheck
+
+        verification = self._verification
+        if status.ready and verification is not None and verification.status is OnlyResearchReadinessStatus.READY:
+            return verification
+        if verification is not None and verification.status is OnlyResearchReadinessStatus.NOT_READY:
+            return verification
+        return OnlyResearchReadiness(
+            OnlyResearchReadinessStatus.NOT_READY,
+            (
+                *(verification.checks if verification is not None else ()),
+                OnlyResearchReadinessCheck("product_kernel", status.state.value),
+            ),
+            f"KERNEL_{status.state.value}",
+        )
+
+
 class ResearchHealthDto(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -61,4 +105,4 @@ def create_health_router(probe: _ReadinessProbe | None) -> APIRouter:
     return router
 
 
-__all__ = ["ResearchHealthDto", "create_health_router"]
+__all__ = ["OnlyKernelResearchReadinessProjection", "ResearchHealthDto", "create_health_router"]

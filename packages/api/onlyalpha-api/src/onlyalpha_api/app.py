@@ -18,13 +18,12 @@ from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolve
 from onlyalpha.research.operations.readiness import (
     OnlyResearchReadiness,
     OnlyResearchReadinessStatus,
-    OnlyResearchServiceReadinessProbe,
 )
 from onlyalpha.research.query import OnlyResearchArtifactReader, OnlyResearchQueryError, OnlyResearchQueryService
 from onlyalpha.research.run.errors import OnlyResearchRunError
 from onlyalpha.research.specification.errors import OnlyResearchSpecificationError
 
-from .health import create_health_router
+from .health import OnlyKernelResearchReadinessProjection, create_health_router
 from .research.definition_errors import definition_error_response
 from .research.definition_routes import (
     DEFINITION_ROUTE_TAG,
@@ -116,22 +115,20 @@ def create_research_app(
     run_query_service: OnlyResearchRunQueryService,
     calculation_registry: OnlyCalculationRegistry,
     definition_resolver: OnlyResearchDefinitionResolver,
-    readiness_probe: OnlyResearchServiceReadinessProbe | None = None,
+    readiness_probe: OnlyKernelResearchReadinessProjection,
 ) -> FastAPI:
     universe_authority = definition_resolver.universe_resolver
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
         raise TypeError("Research API registered Universe authority must support both resolution and discovery")
     app = FastAPI(title="OnlyAlpha Research API", version=str(RESEARCH_API_SCHEMA_VERSION))
     artifact_service = OnlyResearchQueryService(reader)
-    readiness_dependencies: list[DependsParam] = []
-    if readiness_probe is not None:
 
-        def require_research_ready() -> None:
-            inspected = readiness_probe.inspect()
-            if inspected.status is not OnlyResearchReadinessStatus.READY:
-                raise _ResearchServiceNotReady(inspected)
+    def require_research_ready() -> None:
+        inspected = readiness_probe.inspect()
+        if inspected.status is not OnlyResearchReadinessStatus.READY:
+            raise _ResearchServiceNotReady(inspected)
 
-        readiness_dependencies.append(Depends(require_research_ready))
+    readiness_dependencies: list[DependsParam] = [Depends(require_research_ready)]
 
     @app.exception_handler(_ResearchServiceNotReady)
     async def not_ready_handler(_request: Request, error: _ResearchServiceNotReady) -> JSONResponse:

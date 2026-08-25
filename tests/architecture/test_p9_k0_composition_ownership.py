@@ -56,7 +56,8 @@ def test_database_operator_is_only_production_migration_composer() -> None:
     assert constructor.approved_paths == {"scripts/database.py"}
 
 
-def test_future_kernel_constructors_remain_absent() -> None:
-    reserved = {item.id for item in CONTRACT.constructors.values() if item.capability in {"C17", "C18"}}
-    assert reserved
-    assert all(CONSTRUCTOR_SITES[identifier] == frozenset() for identifier in reserved)
+def test_kernel_host_has_one_composition_site_and_command_dispatch_remains_absent() -> None:
+    lifecycle = next(item for item in CONTRACT.constructors.values() if item.capability == "C17")
+    command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")
+    assert CONSTRUCTOR_SITES[lifecycle.id] == {"packages/api/onlyalpha-api/src/onlyalpha_api/main.py"}
+    assert CONSTRUCTOR_SITES[command.id] == frozenset()

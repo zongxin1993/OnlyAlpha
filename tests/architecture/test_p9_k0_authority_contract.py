@@ -30,7 +30,7 @@ def test_repository_authority_contract_is_valid_and_finite() -> None:
     assert tuple(contract.facts) == tuple(f"F{number:02d}" for number in range(1, 14))
     assert tuple(contract.capabilities) == tuple(f"C{number:02d}" for number in range(1, 19))
     assert len(contract.actors) == 18
-    assert contract.reserved_future_capabilities == {"C17", "C18"}
+    assert contract.reserved_future_capabilities == {"C18"}
 
 
 @pytest.mark.parametrize("section", ("facts", "capabilities", "actors"))
@@ -82,13 +82,13 @@ def test_privileged_capability_without_ownership_rule_fails_closed() -> None:
         authority_contract_from_document(document)
 
 
-def test_reserved_kernel_capability_cannot_gain_pre_k1_holder() -> None:
+def test_reserved_product_command_capability_cannot_gain_pre_k2_holder() -> None:
     document = _document()
     ownership = document["ownership"]
     assert isinstance(ownership, list)
-    reserved = next(item for item in ownership if item["capability"] == "C17")
+    reserved = next(item for item in ownership if item["capability"] == "C18")
     reserved["approved_production_holders"] = ["A12"]
-    with pytest.raises(AuthorityContractError, match="pre-K1 production holders"):
+    with pytest.raises(AuthorityContractError, match="reserved capability has production holders"):
         authority_contract_from_document(document)
 
 

@@ -105,8 +105,9 @@ def test_real_worker_api_runtime_and_database_policy() -> None:
     assert {"C06", "C07", "C11"}.isdisjoint(ACTUAL["A05"])
     assert "C10" in ACTUAL["A03"]
     assert "C11" not in ACTUAL["A03"]
+    assert "C17" in ACTUAL["A03"]
     assert "C05" in ACTUAL["A07"]
     assert {"C06", "C07", "C11"}.isdisjoint(ACTUAL["A07"])
     assert "C11" in ACTUAL["A10"]
-    assert ACTUAL["A12"].isdisjoint({"C17", "C18"})
-    assert ACTUAL["A13"].isdisjoint({"C17", "C18"})
+    assert ACTUAL["A12"] == {"C17"}
+    assert "C18" not in ACTUAL["A13"]

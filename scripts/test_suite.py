@@ -26,6 +26,7 @@ WORKSPACE_TESTS = (
 
 class OnlyTestLane(StrEnum):
     ARCHITECTURE = "architecture"
+    KERNEL = "kernel"
     STRATEGY = "strategy"
     CALCULATION = "calculation"
     RESEARCH_DEFINITION = "research-definition"
@@ -77,6 +78,12 @@ class Lane:
 
 LANES = {
     OnlyTestLane.ARCHITECTURE: Lane(("tests/architecture",), "architecture", "0", "no"),
+    OnlyTestLane.KERNEL: Lane(
+        ("tests/kernel", "tests/architecture/test_p9_k1_kernel_boundary.py"),
+        "unit or architecture",
+        "0",
+        "no",
+    ),
     OnlyTestLane.STRATEGY: Lane(
         (
             "tests/strategy",
@@ -367,6 +374,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
+    OnlyTestLane.KERNEL,
     OnlyTestLane.STRATEGY,
     OnlyTestLane.RESEARCH_DEFINITION,
     OnlyTestLane.RESEARCH_SPECIFICATION,

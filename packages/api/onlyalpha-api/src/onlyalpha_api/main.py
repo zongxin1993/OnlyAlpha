@@ -13,6 +13,7 @@ from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
+from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKernelLifecycleStep, OnlyKernelState
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
@@ -35,15 +36,40 @@ from onlyalpha.research.operations.deployment import (
     OnlyResearchFrozenDeploymentCheck,
     OnlyResearchSemanticStoreIdentity,
 )
-from onlyalpha.research.operations.readiness import OnlyResearchRequiredRoot, OnlyResearchServiceReadinessProbe
+from onlyalpha.research.operations.readiness import (
+    OnlyResearchReadiness,
+    OnlyResearchReadinessStatus,
+    OnlyResearchRequiredRoot,
+    OnlyResearchServiceReadinessProbe,
+)
 from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
 
 from .app import create_research_app
+from .health import OnlyKernelResearchReadinessProjection
 
 
-def _calculation_registry() -> OnlyCalculationRegistry:
-    calculations = OnlyCalculationRegistry()
+class _ResearchProductVerification:
+    def __init__(self, probe: OnlyResearchServiceReadinessProbe) -> None:
+        self._probe = probe
+        self._evidence: OnlyResearchReadiness | None = None
+
+    @property
+    def evidence(self) -> OnlyResearchReadiness | None:
+        return self._evidence
+
+    def verify(self) -> None:
+        evidence = self._probe.inspect()
+        self._evidence = evidence
+        if evidence.status is not OnlyResearchReadinessStatus.READY:
+            raise RuntimeError(evidence.reason or "RESEARCH_SERVICE_NOT_READY")
+
+
+def _verify_postgres_server(operational_dsn: str) -> None:
+    only_assert_supported_postgres_server(operational_dsn)
+
+
+def _configure_calculation_registry(calculations: OnlyCalculationRegistry) -> None:
     only_discover_plugins(
         OnlyDataSourceFactoryRegistry(),
         OnlyBrokerFactoryRegistry(),
@@ -53,7 +79,10 @@ def _calculation_registry() -> OnlyCalculationRegistry:
         fail_fast=True,
     )
     only_register_research_predicate_primitives(calculations)
-    return calculations
+
+
+def _verify_calculation_registry(calculations: OnlyCalculationRegistry) -> None:
+    calculations.type_definitions()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -65,12 +94,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     postgres = OnlyPostgresConfig.from_environment()
     operational_options = OnlyPostgresOperationalConnectionOptions()
     operational_dsn = postgres.operational_dsn(operational_options)
-    only_assert_supported_postgres_server(operational_dsn)
     schema = OnlyPostgresSchemaVerifier(operational_dsn)
-    schema.assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
-    calculations = _calculation_registry()
+    calculations = OnlyCalculationRegistry()
     deployment = OnlyResearchFrozenDeploymentCheck(
         OnlyResearchDeploymentCoherenceVerifier(
             OnlyResearchSemanticStoreIdentity(layout.research_root),
@@ -78,24 +105,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
     dataset_store = OnlyParquetResearchDatasetSnapshotStore(layout.research_dataset_root)
-    resolver = OnlyResearchSpecificationResolver(calculations)
-    admission = OnlyResearchRunAdmissionService(
-        resolver=resolver,
-        dataset_store=dataset_store,
-        run_store=run_store,
-        now_utc=only_system_utc_now,
-    )
-    command = OnlyResearchCommandService(
-        admission=admission,
-        store=run_store,
-        now_utc=only_system_utc_now,
-    )
-    app = create_research_app(
-        OnlyResearchArtifactProfileReader(layout.research_artifact_root),
-        command,
-        OnlyResearchRunQueryService(run_store),
-        calculations,
-        OnlyResearchDefinitionResolver(calculations, dataset_store),
+    verification = _ResearchProductVerification(
         OnlyResearchServiceReadinessProbe(
             schema_status=schema.status,
             deployment_check=deployment.assert_compatible,
@@ -104,10 +114,57 @@ def main(argv: Sequence[str] | None = None) -> int:
                 OnlyResearchRequiredRoot("dataset_root", layout.research_dataset_root, False),
                 OnlyResearchRequiredRoot("user_data_root", layout.root, False),
             ),
-            registry_check=lambda: None,
+            registry_check=lambda: _verify_calculation_registry(calculations),
+        )
+    )
+    kernel = OnlyAlphaKernelHost(
+        booters=(
+            OnlyKernelLifecycleStep(
+                "calculation_registry_composition",
+                lambda: _configure_calculation_registry(calculations),
+            ),
+        ),
+        verifiers=(
+            OnlyKernelLifecycleStep(
+                "postgres_server_compatibility",
+                lambda: _verify_postgres_server(operational_dsn),
+            ),
+            OnlyKernelLifecycleStep("research_product_scope", verification.verify),
         ),
     )
-    uvicorn.run(app, host=args.host, port=args.port)
+    try:
+        startup_status = kernel.start()
+    except OnlyKernelHostError as error:
+        startup_status = kernel.status
+        if startup_status.failure != error.failure:
+            raise RuntimeError("Product Kernel failure evidence diverged from lifecycle status") from error
+    if startup_status.state not in {OnlyKernelState.READY, OnlyKernelState.FAILED}:
+        raise RuntimeError("Product Kernel startup did not reach a closed outcome")
+    try:
+        resolver = OnlyResearchSpecificationResolver(calculations)
+        admission = OnlyResearchRunAdmissionService(
+            resolver=resolver,
+            dataset_store=dataset_store,
+            run_store=run_store,
+            now_utc=only_system_utc_now,
+        )
+        command = OnlyResearchCommandService(
+            admission=admission,
+            store=run_store,
+            now_utc=only_system_utc_now,
+        )
+        app = create_research_app(
+            OnlyResearchArtifactProfileReader(layout.research_artifact_root),
+            command,
+            OnlyResearchRunQueryService(run_store),
+            calculations,
+            OnlyResearchDefinitionResolver(calculations, dataset_store),
+            OnlyKernelResearchReadinessProjection(kernel, verification.evidence),
+        )
+        uvicorn.run(app, host=args.host, port=args.port)
+    finally:
+        if kernel.state is OnlyKernelState.READY:
+            kernel.stop()
     return 0
 
 

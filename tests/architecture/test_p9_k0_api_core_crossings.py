@@ -57,7 +57,6 @@ EXPECTED_API_CORE_CROSSINGS = {
         onlyalpha.research.definition.resolver.OnlyResearchDefinitionResolver
         onlyalpha.research.operations.readiness.OnlyResearchReadiness
         onlyalpha.research.operations.readiness.OnlyResearchReadinessStatus
-        onlyalpha.research.operations.readiness.OnlyResearchServiceReadinessProbe
         onlyalpha.research.query.OnlyResearchArtifactReader
         onlyalpha.research.query.OnlyResearchQueryError
         onlyalpha.research.query.OnlyResearchQueryService
@@ -80,6 +79,10 @@ EXPECTED_API_CORE_CROSSINGS = {
         onlyalpha.core.clock.only_system_utc_now
         onlyalpha.data.factory.OnlyDataSourceFactoryRegistry
         onlyalpha.fee.broker_contract.OnlyBrokerFeeContractRegistry
+        onlyalpha.kernel.OnlyAlphaKernelHost
+        onlyalpha.kernel.OnlyKernelHostError
+        onlyalpha.kernel.OnlyKernelLifecycleStep
+        onlyalpha.kernel.OnlyKernelState
         onlyalpha.market.product.OnlyMarketProductFactoryRegistry
         onlyalpha.output.user_data.OnlyUserDataLayout
         onlyalpha.persistence.postgres.OnlyPostgresConfig
@@ -99,6 +102,8 @@ EXPECTED_API_CORE_CROSSINGS = {
         onlyalpha.research.operations.deployment.OnlyResearchFrozenDeploymentCheck
         onlyalpha.research.operations.deployment.OnlyResearchSemanticStoreIdentity
         onlyalpha.research.operations.readiness.OnlyResearchRequiredRoot
+        onlyalpha.research.operations.readiness.OnlyResearchReadiness
+        onlyalpha.research.operations.readiness.OnlyResearchReadinessStatus
         onlyalpha.research.operations.readiness.OnlyResearchServiceReadinessProbe
         onlyalpha.research.run.admission.OnlyResearchRunAdmissionService
         onlyalpha.research.specification.resolver.OnlyResearchSpecificationResolver

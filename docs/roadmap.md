@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.0 — Architecture Freeze & Final Authority Closure — DONE / VERIFIED
+Current Increment: P9.K.1 — Kernel Host & Lifecycle — IMPLEMENTED IN WORKTREE / LOCAL DETERMINISTIC GATES PASS
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -33,7 +33,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.1 — Kernel Host & Lifecycle — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
+Next Semantic Direction: close P9.K.1 on an immutable revision, then P9.K.2; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -781,7 +781,17 @@ schema；remote quality CI 与 Final-SHA certification 未运行。
 
 P9.K.0 的审计产物见
 [`reports/p9_k0_product_surface_inventory.md`](reports/p9_k0_product_surface_inventory.md)。唯一正式 Architecture Gate 由 canonical
-`architecture` lane 执行。下一 increment 是 **P9.K.1 — Kernel Host & Lifecycle — IMPLEMENTATION READY**。P9.K 整体尚未完成；原 P9.1+ production vertical 在 P9.K 完整闭环前
+`architecture` lane 执行。
+
+**P9.K.1 — Kernel Host & Lifecycle** 已在基于 `1c3be8823ba67c851b01e2c0c5ae93e39187f719` 的 worktree 中实现最小
+`onlyalpha.kernel` boundary、唯一 lifecycle state、closed deterministic transition graph、READY mutation gate、ordered
+boot/verification/recovery/drain 与 fail-closed failure evidence。当前 Research API composition root 是唯一 production Host constructor；
+它只持有 schema verification capability，复用既有 deployment/root/Registry readiness evidence，并把现有 HTTP readiness 投影到 Product
+Kernel lifecycle。Product/Trading Kernel 保持分离，P9.0 semantics、database schema/migration 与 public HTTP route/DTO contract 均未改变。
+canonical `kernel`、`architecture`、`research-command`、真实 PostgreSQL `research-postgres --coverage` 和
+`research-product-closure` lanes 均通过；当前证据级别仅为 **LOCAL DETERMINISTIC GATES PASS**，不是 immutable-SHA VERIFIED 或
+CERTIFIED。详细证据见
+[`reports/p9_k1_kernel_host_lifecycle.md`](reports/p9_k1_kernel_host_lifecycle.md)。P9.K 整体尚未完成；K2/K3/K7 尚未开始；原 P9.1+ production vertical 在 P9.K 完整闭环前
 保持 blocked，不得绕过 Product Control Plane 方向继续增加 direct external mutation path。
 
 ### 长期 Strategy Product 参考方向

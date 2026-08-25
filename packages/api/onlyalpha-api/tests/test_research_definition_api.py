@@ -7,9 +7,11 @@ from typing import cast
 import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_api import create_research_app
+from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_api.research.definition_schema import ResearchDefinitionRequestDto
 from onlyalpha_api.research.run_schema import SubmitResearchRunRequest
 
+from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.definition import (
@@ -17,6 +19,11 @@ from onlyalpha.research.definition import (
     OnlyResearchRegisteredUniverse,
     OnlyResearchUniverseKind,
     OnlyResearchUniverseSelection,
+)
+from onlyalpha.research.operations.readiness import (
+    OnlyResearchReadiness,
+    OnlyResearchReadinessCheck,
+    OnlyResearchReadinessStatus,
 )
 from onlyalpha.research.query import OnlyResearchArtifactReader
 from onlyalpha.research.specification import OnlyResearchSpecification
@@ -54,12 +61,21 @@ def _case(tmp_path, universe_authority=None):  # type: ignore[no-untyped-def]
     committed = store.commit(candidate, partitions)
     calculations = evaluation_registry()
     resolver = OnlyResearchDefinitionResolver(calculations, store, universe_resolver=universe_authority)
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
     app = create_research_app(
         cast(OnlyResearchArtifactReader, _Unused()),
         cast(OnlyResearchCommandService, _Unused()),
         cast(OnlyResearchRunQueryService, _Unused()),
         calculations,
         resolver,
+        OnlyKernelResearchReadinessProjection(
+            kernel,
+            OnlyResearchReadiness(
+                OnlyResearchReadinessStatus.READY,
+                (OnlyResearchReadinessCheck("product_scope", "READY"),),
+            ),
+        ),
     )
     return committed, calculations, resolver, TestClient(app)
 

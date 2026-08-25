@@ -279,7 +279,7 @@ def _validate(contract: AuthorityContract) -> None:
         raise AuthorityContractError("reserved capability declarations differ")
     for capability in contract.reserved_future_capabilities:
         if contract.ownership[capability].approved_production_holders:
-            raise AuthorityContractError(f"reserved capability has pre-K1 production holders: {capability}")
+            raise AuthorityContractError(f"reserved capability has production holders: {capability}")
 
 
 def _indexed(document: Mapping[str, Any], key: str, factory: Any) -> dict[str, Any]:
