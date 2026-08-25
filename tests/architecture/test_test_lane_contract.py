@@ -60,6 +60,14 @@ def test_every_regular_lane_uses_one_workspace_pytest_session() -> None:
         assert lane.paths
 
 
+def test_architecture_lane_is_the_single_stable_repository_gate() -> None:
+    lane = LANES[OnlyTestLane.ARCHITECTURE]
+    assert lane.paths == ("tests/architecture",)
+    assert lane.expression == "architecture"
+    assert lane.workers == "0"
+    assert lane.dist == "no"
+
+
 def test_research_job_lane_owns_application_contract_and_architecture_gate() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_JOB]
     assert lane.paths == (

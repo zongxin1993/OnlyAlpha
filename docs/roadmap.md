@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.0 — Product Authority Surface Inventory & Architecture Freeze
+Current Increment: P9.K.0.1 — Architecture Freeze Guard Closure — DONE / LOCAL GATES PASS
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -772,14 +772,15 @@ P9.0 exact subject `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` 已通过完整 Ta
 
 ### P9.K — Stateful Kernel & Protocol Boundary
 
-P9.0 semantic foundation 保持不变。当前 architecture increment 是 **P9.K.0 — Product Authority Surface Inventory & Architecture
-Freeze**：审计并分类现存 Product/Control/Mutation、Operator/Infrastructure 与 Test surface，冻结 direct Engine/Runtime、console
-entrypoint、transport 和 publication capability 的已知集合；不实现 Kernel Host，也不新增 Product API endpoint。
+P9.0 semantic foundation 保持不变。**P9.K.0.1 — Architecture Freeze Guard Closure** 已在 P9.K.0 inventory 上完成机械封口：root
+实际 binding、alias-aware Engine/Runtime construction、CLI capability、filename-independent HTTP route ownership、完整 Research
+execution-agent boundary 与 operator-only Projection Reconciliation 分类均已 fail-closed 冻结；不实现 Kernel Host，也不新增 Product
+API endpoint。
 
 P9.K.0 的审计产物见
-[`reports/p9_k0_product_surface_inventory.md`](reports/p9_k0_product_surface_inventory.md)。下一 increment 是 **P9.K.1 — Kernel Host &
-Lifecycle**。原 P9.1+ production vertical 在 P9.K 完整闭环前保持 blocked，不得绕过 Product Control Plane 方向继续增加 direct external
-mutation path。
+[`reports/p9_k0_product_surface_inventory.md`](reports/p9_k0_product_surface_inventory.md)。唯一正式 Architecture Gate 由 canonical
+`architecture` lane 执行。下一 increment 是 **P9.K.1 — Kernel Host & Lifecycle**。原 P9.1+ production vertical 在 P9.K 完整闭环前
+保持 blocked，不得绕过 Product Control Plane 方向继续增加 direct external mutation path。
 
 ### 长期 Strategy Product 参考方向
 

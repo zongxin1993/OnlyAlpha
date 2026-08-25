@@ -25,6 +25,7 @@ WORKSPACE_TESTS = (
 
 
 class OnlyTestLane(StrEnum):
+    ARCHITECTURE = "architecture"
     STRATEGY = "strategy"
     CALCULATION = "calculation"
     RESEARCH_DEFINITION = "research-definition"
@@ -75,6 +76,7 @@ class Lane:
 
 
 LANES = {
+    OnlyTestLane.ARCHITECTURE: Lane(("tests/architecture",), "architecture", "0", "no"),
     OnlyTestLane.STRATEGY: Lane(
         (
             "tests/strategy",

@@ -163,6 +163,15 @@ uv run mypy <affected-module-or-package>
 uv run python scripts/test_suite.py <lane>
 ```
 
+完整 Repository Architecture Gate 只有一个正式入口：
+
+```bash
+uv run python scripts/test_suite.py architecture
+```
+
+该 lane 将 collection 确定地限制在 `tests/architecture` 并使用 repository test tooling 的 importlib/marker/layering 合同；不要使用先收集
+整个 workspace 的裸 `-m architecture` 命令。
+
 是否运行整个 lane 由 Task 的 Impact Scope 决定，而不是固定要求。
 
 `scripts/verify.py` 的 component plan 对 Ruff、Format 和 Mypy 使用 affected targets；architecture boundary 才要求 Import Linter，

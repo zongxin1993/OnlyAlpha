@@ -69,7 +69,7 @@ K0 freezes this direction only. It does not introduce a Kernel Host, lifecycle s
 | K0-S019 | `research/execution/worker.py`; `research/execution/scheduler.py`; `research/execution/reconciliation.py` | `WORKER` | `EXECUTION`, `PERSISTENCE_WRITE`, `RECOVERY`, `RECONCILIATION`, `SEMANTIC_PUBLICATION` | PostgreSQL Attempt/lease; existing immutable Calculation/Statistics/Result/Artifact stores through Research Runtime | claim → fenced execution → Runtime → verified commit/reuse → fenced finalization | `OPERATOR / INFRASTRUCTURE ONLY` / retained | Worker cannot Freeze/Promote or publish Strategy. Worker authority guard. |
 | K0-S020 | `application/strategy_authority.py: OnlyStrategyFreezeApplicationService`; `strategy/freeze.py` | `INTERNAL_APPLICATION` | `COMMAND`, `SEMANTIC_PUBLICATION`, `PERSISTENCE_WRITE` | sole Candidate→Strategy Freeze; immutable Freeze relation + frozen Revision semantic authority, PostgreSQL projection | exact references → verified evidence/admission → relation/revision publication → projection | `KEEP INTERNAL` / expose only through K2/K3 | Unique Strategy publisher owner. Existing P9 gate plus K0 exact capability allowlist. |
 | K0-S021 | `application/strategy_authority.py: OnlyStrategyPromotionApplicationService`; `strategy/promotion.py` | `INTERNAL_APPLICATION` | `COMMAND`, `SEMANTIC_PUBLICATION`, `PERSISTENCE_WRITE` | append-only Promotion chain in PostgreSQL operational/evidence authority | exact Strategy/evidence intent → predecessor verification → append record | `KEEP INTERNAL` / expose only through K2/K3 | No mutable status and no Runtime/Worker access. Worker/route guards. |
-| K0-S022 | `application/strategy_authority.py: OnlyStrategyFreezeProjectionReconciliationApplicationService`; `strategy/freeze.py: OnlyStrategyFreezeProjectionReconciler` | `OPERATOR`, `INTERNAL_APPLICATION` | `RECONCILIATION`, `SEMANTIC_READ`, `PERSISTENCE_WRITE` | immutable Strategy truth read; PostgreSQL projection write | exact fingerprint → verified Revision/relations → idempotent projection convergence | `KEEP INTERNAL` / operator composition in K1/K5 | Projection cannot repair semantic truth. Route/worker guards. |
+| K0-S022 | `application/strategy_authority.py: OnlyStrategyFreezeProjectionReconciliationApplicationService`; `strategy/freeze.py: OnlyStrategyFreezeProjectionReconciler` | `OPERATOR`, `INTERNAL_APPLICATION` | `RECONCILIATION`, `SEMANTIC_READ`, `PERSISTENCE_WRITE` | immutable Strategy truth read; PostgreSQL projection write | exact fingerprint → verified Revision/relations → idempotent projection convergence | `OPERATOR / INFRASTRUCTURE ONLY` / explicit recovery composition in K1/K5 | Projection cannot repair semantic truth and is not a generic Product Command. Route/worker guards. |
 | K0-S023 | `application/calculation_equivalence.py` | `INTERNAL_APPLICATION` | `COMMAND`, `SEMANTIC_PUBLICATION` | exact-node system-owned Equivalence Evidence V2 store | node intent → actual RESEARCH/TRADING execution → exact comparison → immutable evidence | `KEEP INTERNAL` / future K2 decision | Caller cannot inject runner/corpus/output. Existing P9 authority tests. |
 | K0-S024 | `persistence/postgres/{research_run_store,research_execution_store,research_deployment_store,research_operations_store,strategy_store,migration}.py` | `INFRASTRUCTURE` / importable adapters | `PERSISTENCE_READ`, `PERSISTENCE_WRITE`, `MIGRATION` | PostgreSQL operational authorities and projections only | application/operator composition → narrow adapter → transaction/CAS/fencing | `KEEP INTERNAL` / K1/K2 composition | API composition root may construct adapters; routes may not. Route ownership guard. |
 | K0-S025 | `research/dataset/parquet_store.py`; `research/calculation/result_store.py`; `research/evaluation/result_store.py`; `research/result/result_store.py`; `research/artifact/{store,scientific_store}.py`; `research/calculation/execution_evidence.py`; `calculation/equivalence.py`; `strategy/store.py` | `INTERNAL_APPLICATION`, `RUNTIME` / importable internals | `SEMANTIC_READ`, `SEMANTIC_PUBLICATION` | distinct immutable content-addressed semantic authorities | owning materializer/executor/Freeze → staged verified commit → verified load | `KEEP INTERNAL` / K1/K2 capability composition | No universal writer; Strategy publisher remains private and Freeze-owned. K0 ownership and existing semantic boundary tests. |
@@ -135,10 +135,49 @@ ruff format --check (new tests):             PASS
 git diff --check:                            PASS
 ```
 
-The literal repository-root command `uv run pytest -q -m architecture` was also attempted. Pytest aborted during global collection before marker selection because unrelated test directories contain duplicate non-package module names (`test_execution.py` and `test_historical.py`). Running the complete authoritative path `uv run pytest -q tests/architecture` avoids that pre-existing collection ambiguity and executed all 376 architecture tests successfully. No skip, xfail, retry, relaxed assertion, or test deletion was used.
+At the original K0 audit, the literal repository-root marker command aborted during global collection before marker selection because unrelated test directories contain duplicate non-package module names (`test_execution.py` and `test_historical.py`). The path-scoped run avoided that collection ambiguity and executed all 376 architecture tests successfully. K0.1 supersedes the ad-hoc invocation with the canonical lane below. No skip, xfail, retry, relaxed assertion, or test deletion was used.
 
 The optional Semgrep self-test was not part of the K0 required gate and could not be executed because the local environment has no `semgrep` executable. The only Semgrep fixture change is Ruff's standard-library import ordering; all `ruleid`/`ok` annotations and tested expressions remain byte-for-byte unchanged.
 
 ## Final verdict
 
 All 31 surfaces have an exact location, actor, capability set, authority boundary, target classification, and migration/retention stage. Unclassified surfaces and unknown mutation authorities are both zero. Existing debt is finite and mechanically frozen. P9.K.0 verdict: **COMPLETE**.
+
+## P9.K.0.1 Architecture Freeze Guard Closure
+
+- Closure base SHA: `a67fd3a7e8388e32fdd77269b73f711f439586bf`
+- Closure SHA: `WORKTREE` (pending an explicit commit; no SHA is fabricated)
+- Closure date: `2026-08-25`
+- Scope: mechanical guard closure only; production semantic code, HTTP contract, and database schema are unchanged
+
+K0.1 upgrades the original inventory into a fail-closed executable contract:
+
+- root-package AST binding inspection freezes actual public/reachable names, including imports omitted from `__all__`, with explicit `PUBLIC CONTRACT`, `PUBLIC VALUE / READ-ONLY`, and `KNOWN MIGRATION DEBT` categories;
+- Engine/Runtime construction detection resolves import ownership and aliases before comparing the exact classified construction-site allowlist;
+- the exact current CLI `onlyalpha` capability import set is frozen, while the existing read-only operational diagnostics remain legal;
+- HTTP route ownership is detected from FastAPI route decorators or `add_api_route`, independent of filenames, and the exact current route-module set is frozen;
+- `worker_main.py` plus every module under `research/execution/` is checked as one execution-agent boundary without removing its legal Research execution/publication capabilities;
+- K0-S022 is classified only as `OPERATOR / INFRASTRUCTURE ONLY`, never as a generic Product Command;
+- the sole official repository Architecture Gate is:
+
+```bash
+uv run python scripts/test_suite.py architecture
+```
+
+This lane scopes collection to `tests/architecture`, uses importlib collection, and therefore removes the repository-wide marker ambiguity without renaming unrelated tests. K1 remains not started, and P9.1+ remains blocked until P9.K closure.
+
+Closure verification on the working tree:
+
+```text
+Required targeted architecture files + lane contract: 65 passed
+Complete canonical Architecture Gate:                  384 passed
+import-linter contracts:                               3 kept, 0 broken
+ruff check .:                                          PASS
+ruff format --check (changed Python):                  PASS
+git diff --check:                                      PASS
+```
+
+Impact-aware verification was also attempted because `scripts/test_suite.py` is verification infrastructure. Its first 20 gates passed,
+including repository static checks, Core/API mypy, version sync, Web static/unit/build/E2E, and the reached canonical lanes. The next
+`research-product-closure` gate stopped with 8 passed and 11 setup errors because `ONLYALPHA_TEST_POSTGRES_DSN` is not configured. That
+real-PostgreSQL certification lane is **NOT EXECUTED / ENVIRONMENT BLOCKED**, not PASS, and is outside the K0.1 required gate.

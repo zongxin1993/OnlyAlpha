@@ -1678,6 +1678,7 @@ uv run python scripts/test_suite.py research-factor
 uv run python scripts/test_suite.py research-job
 uv run python scripts/test_suite.py research-sweep
 uv run python scripts/test_suite.py research-runtime
+uv run python scripts/test_suite.py architecture
 uv run python scripts/test_suite.py fast
 uv run python scripts/test_suite.py integration
 uv run python scripts/test_suite.py ashare
@@ -1713,6 +1714,10 @@ requires_local_qmt
 requires_broker_account
 windows
 ```
+
+Repository-wide Architecture Gate 的唯一正式调用是 `uv run python scripts/test_suite.py architecture`；不得以会先收集全部 workspace
+测试的裸 marker 命令替代。P9.K.0 已审计的 direct Engine/Runtime/mutation debt 不得增长；任何新的 external capability 都必须先显式修改
+architecture contract 并重新审计。
 
 ### 26.1 Lane 选择
 
