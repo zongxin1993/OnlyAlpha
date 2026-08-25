@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.0.1 — Architecture Freeze Guard Closure — DONE / LOCAL GATES PASS
+Current Increment: P9.K.0.1.1 — Capability Guard Completeness & Closure Evidence Binding — DONE / LOCAL DETERMINISTIC GATES PASS
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -772,10 +772,11 @@ P9.0 exact subject `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` 已通过完整 Ta
 
 ### P9.K — Stateful Kernel & Protocol Boundary
 
-P9.0 semantic foundation 保持不变。**P9.K.0.1 — Architecture Freeze Guard Closure** 已在 P9.K.0 inventory 上完成机械封口：root
-实际 binding、alias-aware Engine/Runtime construction、CLI capability、filename-independent HTTP route ownership、完整 Research
-execution-agent boundary 与 operator-only Projection Reconciliation 分类均已 fail-closed 冻结；不实现 Kernel Host，也不新增 Product
-API endpoint。
+P9.0 semantic foundation 保持不变。**P9.K.0.1.1 — Capability Guard Completeness & Closure Evidence Binding** 已完成 K0/K0.1
+最终机械封口：canonical scanner 同时覆盖普通 module import 与 symbol import；CLI capability、每个实际 HTTP route module 的 approved
+dependency、递归 Research execution-agent subtree、Engine/Runtime constructor capability import owner 均已 exact/fail-closed 冻结；K0.1
+证据已绑定既有 immutable implementation subject。该 closure 不实现 Kernel Host，不新增 Product API endpoint，也不修改 production
+semantic code。
 
 P9.K.0 的审计产物见
 [`reports/p9_k0_product_surface_inventory.md`](reports/p9_k0_product_surface_inventory.md)。唯一正式 Architecture Gate 由 canonical

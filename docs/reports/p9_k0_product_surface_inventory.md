@@ -146,7 +146,7 @@ All 31 surfaces have an exact location, actor, capability set, authority boundar
 ## P9.K.0.1 Architecture Freeze Guard Closure
 
 - Closure base SHA: `a67fd3a7e8388e32fdd77269b73f711f439586bf`
-- Closure SHA: `WORKTREE` (pending an explicit commit; no SHA is fabricated)
+- K0.1 implementation subject: `aeced4b4e198ed2c3035eea5ab04a46785b00a26`
 - Closure date: `2026-08-25`
 - Scope: mechanical guard closure only; production semantic code, HTTP contract, and database schema are unchanged
 
@@ -166,7 +166,7 @@ uv run python scripts/test_suite.py architecture
 
 This lane scopes collection to `tests/architecture`, uses importlib collection, and therefore removes the repository-wide marker ambiguity without renaming unrelated tests. K1 remains not started, and P9.1+ remains blocked until P9.K closure.
 
-Closure verification on the working tree:
+K0.1 local deterministic verification:
 
 ```text
 Required targeted architecture files + lane contract: 65 passed
@@ -181,3 +181,46 @@ Impact-aware verification was also attempted because `scripts/test_suite.py` is 
 including repository static checks, Core/API mypy, version sync, Web static/unit/build/E2E, and the reached canonical lanes. The next
 `research-product-closure` gate stopped with 8 passed and 11 setup errors because `ONLYALPHA_TEST_POSTGRES_DSN` is not configured. That
 real-PostgreSQL certification lane is **NOT EXECUTED / ENVIRONMENT BLOCKED**, not PASS, and is outside the K0.1 required gate.
+
+Remote certification for K0.1 was **NOT RUN / NOT REQUIRED**. The local deterministic results above are not represented as remote
+certification.
+
+## P9.K.0.1.1 Capability Guard Completeness
+
+- Implementation subject: K0.1 immutable commit `aeced4b4e198ed2c3035eea5ab04a46785b00a26`
+- Guard closure base: `aeced4b4e198ed2c3035eea5ab04a46785b00a26`
+- Closure date: `2026-08-25`
+- Local verification: canonical Architecture Gate, import-linter, Ruff, changed-Python format check, and diff check all **PASS**
+- Remaining unknown capability paths: `0`
+- P9.0 semantic changes: `0`
+- HTTP contract changes: `0`
+- Database schema changes: `0`
+- Production behavior changes: `0`
+- K1 implementation state: **NOT STARTED**
+- Remote certification: **NOT RUN / NOT REQUIRED**
+- Verdict: **COMPLETE / LOCAL DETERMINISTIC GATES PASS**
+- Next: **P9.K.1 — Kernel Host & Lifecycle**
+
+K0.1.1 local deterministic verification:
+
+```text
+Required targeted architecture files: 72 passed
+Complete canonical Architecture Gate: 391 passed
+import-linter contracts:              3 kept, 0 broken
+ruff check .:                         PASS
+ruff format --check (changed Python): PASS
+git diff --check:                     PASS
+```
+
+K0.1.1 closes capability acquisition rather than adding product behavior:
+
+- one shared canonical scanner records both `ast.Import` module capability and alias-independent `ast.ImportFrom` symbol capability;
+- the CLI `onlyalpha.*` set is an exact allowlist, so an ordinary module import or symbol alias changes the frozen set;
+- each filename-independently discovered route module has an exact approved `onlyalpha.*` dependency set; unknown dependencies fail closed;
+- `worker_main.py` and the full recursive `research/execution/**/*.py` subtree remain execution agents without Strategy Product authority;
+- every non-test Engine/Runtime constructor capability import owner is exact and classified, in addition to the existing alias-aware
+  constructor-call guard;
+- the K0.1 evidence now names its existing immutable implementation subject instead of a stale pre-commit `WORKTREE` placeholder.
+
+No `src/onlyalpha/kernel/` implementation, Product API endpoint, Strategy/Research/Runtime semantic change, persistence migration, or
+production source modification is part of K0.1.1.

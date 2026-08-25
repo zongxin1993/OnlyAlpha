@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture._p9_k0_guard_helpers import canonical_imports, module_name
+
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
@@ -84,6 +86,39 @@ EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
     ("src/onlyalpha/scenario/runner.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
 }
 
+EXPECTED_CONSTRUCTOR_IMPORT_OWNERS = {
+    ("examples/committed_execution_report.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
+    ("scripts/pytest_metrics.py", "OnlyEngine"): "TEST TOOLING",
+    ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
+    ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
+    ("src/onlyalpha/__init__.py", "OnlyBacktestRuntime"): "KNOWN MIGRATION DEBT",
+    ("src/onlyalpha/__init__.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
+    ("src/onlyalpha/__init__.py", "OnlyLiveRuntime"): "KNOWN MIGRATION DEBT",
+    ("src/onlyalpha/__init__.py", "OnlyResearchRuntime"): "KNOWN MIGRATION DEBT",
+    ("src/onlyalpha/__init__.py", "OnlyRuntime"): "KNOWN MIGRATION DEBT",
+    ("src/onlyalpha/application/engine_inspection.py", "OnlyEngine"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/application/engine_runner.py", "OnlyEngine"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/application/engine_runner.py", "OnlyRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/cli.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
+    ("src/onlyalpha/collector/backtest.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/engine/__init__.py", "OnlyEngine"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/engine/engine.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/engine/engine.py", "OnlyRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
+    ("src/onlyalpha/runtime/backtest/__init__.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/backtest/driver.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/backtest/run_plan.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/research/__init__.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/research/factory.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/sim/__init__.py", "OnlySimRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/sim/factory.py", "OnlySimRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/live/__init__.py", "OnlyLiveRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/live/runtime.py", "OnlyRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/runtime/trading_facade.py", "OnlyRuntime"): "ALLOWED INTERNAL",
+    ("src/onlyalpha/scenario/runner.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
+}
+
 ROOT_PUBLIC_CONTRACT = {
     "OnlyBacktestClock",
     "OnlyBarSubscription",
@@ -154,17 +189,6 @@ def _console_entry_points() -> set[tuple[str, str, str]]:
     return result
 
 
-def _module_name(path: Path) -> str | None:
-    relative = path.relative_to(ROOT)
-    parts = relative.parts
-    if "src" not in parts:
-        return None
-    source_index = len(parts) - 1 - tuple(reversed(parts)).index("src")
-    module_parts = list(parts[source_index + 1 :])
-    module_parts[-1] = Path(module_parts[-1]).stem
-    return ".".join(module_parts)
-
-
 def _import_bindings(tree: ast.Module, module_name: str | None) -> dict[str, str]:
     result: dict[str, str] = {}
     package = None if module_name is None else module_name.rpartition(".")[0]
@@ -222,8 +246,38 @@ def _direct_construction_sites() -> set[tuple[str, str]]:
             if "tests" in path.relative_to(ROOT).parts:
                 continue
             source = path.read_text(encoding="utf-8")
-            for name in _construction_sites_in_source(source, module_name=_module_name(path)):
+            for name in _construction_sites_in_source(source, module_name=module_name(path, ROOT)):
                 result.add((path.relative_to(ROOT).as_posix(), name))
+    return result
+
+
+def _constructor_imports_in_source(source: str, *, module: str | None = None) -> set[str]:
+    result: set[str] = set()
+    constructor_modules: dict[str, set[str]] = {}
+    for qualified, constructor in CONSTRUCTOR_OWNERS.items():
+        owner, _, symbol = qualified.rpartition(".")
+        if symbol == constructor:
+            constructor_modules.setdefault(owner, set()).add(constructor)
+    for capability in canonical_imports(source, module=module):
+        kind, imported = capability[:2]
+        if kind == "module":
+            result.update(constructor_modules.get(imported, ()))
+        elif len(capability) == 3:
+            constructor = CONSTRUCTOR_OWNERS.get(f"{imported}.{capability[2]}")
+            if constructor is not None:
+                result.add(constructor)
+    return result
+
+
+def _constructor_import_owners() -> set[tuple[str, str]]:
+    result: set[tuple[str, str]] = set()
+    for root in (ROOT / "src", ROOT / "packages", ROOT / "scripts", ROOT / "examples"):
+        for path in sorted(root.rglob("*.py")):
+            if "tests" in path.relative_to(ROOT).parts:
+                continue
+            source = path.read_text(encoding="utf-8")
+            imported = _constructor_imports_in_source(source, module=module_name(path, ROOT))
+            result.update((path.relative_to(ROOT).as_posix(), name) for name in imported)
     return result
 
 
@@ -299,6 +353,27 @@ def test_direct_engine_and_runtime_construction_sites_are_frozen() -> None:
 def test_engine_alias_cannot_bypass_constructor_ownership_guard() -> None:
     source = "from onlyalpha import OnlyEngine as Engine\nEngine(config)\n"
     assert _construction_sites_in_source(source) == {"OnlyEngine"}
+
+
+def test_engine_and_runtime_constructor_import_ownership_is_frozen() -> None:
+    assert _constructor_import_owners() == set(EXPECTED_CONSTRUCTOR_IMPORT_OWNERS)
+    assert set(EXPECTED_CONSTRUCTOR_IMPORT_OWNERS.values()) == {
+        "ALLOWED INTERNAL",
+        "KNOWN MIGRATION DEBT",
+        "OPERATOR / INFRASTRUCTURE",
+        "TEST TOOLING",
+    }
+
+
+def test_engine_assignment_alias_is_blocked_at_capability_import_boundary() -> None:
+    source = "from onlyalpha import OnlyEngine\nFactory = OnlyEngine\nFactory(config)\n"
+    assert _construction_sites_in_source(source) == set()
+    assert _constructor_imports_in_source(source) == {"OnlyEngine"}
+
+
+def test_engine_module_import_is_a_constructor_capability_acquisition() -> None:
+    source = "import onlyalpha.engine as engine\nFactory = engine.OnlyEngine\n"
+    assert _constructor_imports_in_source(source) == {"OnlyEngine"}
 
 
 def test_top_level_python_surface_is_frozen() -> None:
