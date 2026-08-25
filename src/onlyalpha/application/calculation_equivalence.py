@@ -65,6 +65,19 @@ class _CorpusCase:
     inputs: Mapping[str, pa.Array]
 
 
+@dataclass(frozen=True, slots=True)
+class _CertificationHorizon:
+    """Exact-node state boundary exercised by the system-owned corpus."""
+
+    minimum_observations: int
+    observation_count: int
+    state_model: str
+
+    def __post_init__(self) -> None:
+        if self.minimum_observations <= 0 or self.observation_count <= self.minimum_observations:
+            raise OnlyCalculationEquivalenceError("EQUIVALENCE_CERTIFICATION_HORIZON_INVALID", self.state_model)
+
+
 class OnlyCalculationEquivalenceCertificationProfileAuthority:
     """Closed P9.0 profile selection; callers cannot supply profiles or corpora."""
 
@@ -167,21 +180,61 @@ def _materialize_corpus(
     definition: OnlyCalculationDefinition,
     profile: OnlyCalculationEquivalenceCertificationProfile,
 ) -> tuple[_CorpusCase, ...]:
+    horizon = _required_certification_horizon(definition)
     result: list[_CorpusCase] = []
     for ordinal, case_id in enumerate(profile.cases):
-        values = _decimal_values(case_id)
+        values = _decimal_values(case_id, horizon.observation_count)
         bars = _bars(case_id, ordinal, values)
         inputs: dict[str, pa.Array] = {}
         contracts = {item.name: item for item in definition.inputs}
         for name in sorted(definition.input_bindings):
             contract = contracts[name]
             source = definition.input_bindings[name].source
-            raw = _source_values(source, bars) if source is not None else _contract_values(contract.data_type, case_id)
+            raw = (
+                _source_values(source, bars)
+                if source is not None
+                else _contract_values(contract.data_type, case_id, horizon.observation_count)
+            )
             if contract.nullable and case_id in {"NULLABLE_INPUT_SEMANTICS", "BOOLEAN_TRUTH_NULL_SEMANTICS"}:
                 raw = tuple(None if index in {1, 4} else value for index, value in enumerate(raw))
             inputs[name] = _array(contract.data_type, raw)
         result.append(_CorpusCase(case_id, bars, MappingProxyType(inputs)))
     return tuple(result)
+
+
+def _required_certification_horizon(definition: OnlyCalculationDefinition) -> _CertificationHorizon:
+    """Derive the finite engineering horizon from exact resolved semantics.
+
+    This is deterministic admission evidence, not a mathematical proof over all inputs.
+    """
+
+    minimum = definition.warmup.minimum_observations
+    initialization = definition.warmup.initialization.upper()
+    type_id = definition.type_id
+    parameters = definition.parameters
+    declared_periods = tuple(
+        int(str(parameters[name]))
+        for name in ("period", "fast_period", "slow_period", "signal_period", "warmup_bars")
+        if name in parameters
+    )
+    if declared_periods and any(value <= 0 for value in declared_periods):
+        raise OnlyCalculationEquivalenceError("EQUIVALENCE_CERTIFICATION_HORIZON_INVALID", type_id)
+    if type_id.endswith(".macd"):
+        warmup = int(str(parameters.get("warmup_bars", minimum)))
+        slow = int(str(parameters.get("slow_period", warmup)))
+        signal = int(str(parameters.get("signal_period", 1)))
+        boundary = max(minimum, warmup, slow + signal - 1)
+        return _CertificationHorizon(boundary, boundary + max(4, signal), "MACD_RECURSIVE")
+    if "EMA" in initialization or type_id.endswith(".ema"):
+        period = int(str(parameters.get("period", minimum)))
+        boundary = max(minimum, period)
+        return _CertificationHorizon(boundary, boundary + max(4, period), "RECURSIVE")
+    if "WINDOW" in initialization or "period" in parameters:
+        period = int(str(parameters.get("period", minimum)))
+        boundary = max(minimum, period)
+        # first full window, first eviction, then two post-eviction steady observations
+        return _CertificationHorizon(boundary, boundary + 3, "ROLLING_WINDOW")
+    return _CertificationHorizon(minimum, max(minimum + 3, 8), "STATE_TRANSITION")
 
 
 def _execute_research(
@@ -281,37 +334,39 @@ def _case_payload(case: _CorpusCase) -> dict[str, object]:
     }
 
 
-def _decimal_values(case_id: str) -> tuple[Decimal, ...]:
-    values = {
-        "FLAT_SEQUENCE": ("10", "10", "10", "10", "10", "10"),
-        "NEGATIVE_SLOPE_SEQUENCE": ("12", "10", "8", "6", "4", "2"),
-        "POSITIVE_SLOPE_SEQUENCE": ("2", "4", "6", "8", "10", "12"),
-        "QUANTIZATION_BOUNDARY": (
-            "1.000000000000",
-            "1.000000000001",
-            "1.000000000002",
-            "1.000000000003",
-            "1.000000000004",
-            "1.000000000005",
-        ),
-        "WARMUP_AND_STEADY_STATE": ("1", "2", "4", "8", "16", "32"),
+def _decimal_values(case_id: str, count: int) -> tuple[Decimal, ...]:
+    if count <= 0:
+        raise OnlyCalculationEquivalenceError("EQUIVALENCE_CERTIFICATION_HORIZON_INVALID", case_id)
+    if case_id == "FLAT_SEQUENCE":
+        return (Decimal("10"),) * count
+    if case_id == "NEGATIVE_SLOPE_SEQUENCE":
+        return tuple(Decimal(2 * (count - index)) for index in range(count))
+    if case_id == "POSITIVE_SLOPE_SEQUENCE":
+        return tuple(Decimal(2 * (index + 1)) for index in range(count))
+    if case_id == "QUANTIZATION_BOUNDARY":
+        quantum = Decimal("0.000000000001")
+        return tuple(Decimal("1") + quantum * index for index in range(count))
+    if case_id == "WARMUP_AND_STEADY_STATE":
+        return tuple(Decimal(index + 1) ** 2 for index in range(count))
+    seeds = {
         "ZERO_BOUNDARY": ("0", "0", "1", "0", "2", "0"),
         "NULLABLE_INPUT_SEMANTICS": ("1", "2", "3", "4", "5", "6"),
         "BOOLEAN_TRUTH_NULL_SEMANTICS": ("1", "2", "3", "4", "5", "6"),
         "MULTI_OUTPUT_ALIGNMENT": ("3", "1", "4", "1", "5", "9"),
-    }[case_id]
-    return tuple(Decimal(item) for item in values)
+    }
+    seed = tuple(Decimal(item) for item in seeds[case_id])
+    return tuple(seed[index % len(seed)] + Decimal(index // len(seed)) for index in range(count))
 
 
-def _contract_values(data_type: OnlyCalculationDataType, case_id: str) -> tuple[object, ...]:
-    values = _decimal_values(case_id)
+def _contract_values(data_type: OnlyCalculationDataType, case_id: str, count: int) -> tuple[object, ...]:
+    values = _decimal_values(case_id, count)
     if data_type is OnlyCalculationDataType.DECIMAL:
         return tuple(value - Decimal("3") for value in values)
     if data_type is OnlyCalculationDataType.INTEGER:
         return tuple(int(value) for value in values)
     if data_type is OnlyCalculationDataType.BOOLEAN:
-        return (True, False, True, False, True, False)
-    return tuple(f"v{index}" for index in range(len(values)))
+        return tuple(index % 2 == 0 for index in range(count))
+    return tuple(f"v{index}" for index in range(count))
 
 
 def _source_values(source: str | None, bars: tuple[OnlyBar, ...]) -> tuple[object, ...]:

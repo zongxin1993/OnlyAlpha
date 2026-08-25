@@ -86,6 +86,28 @@ class OnlyResearchCalculationExecution:
     research_implementation_bindings: tuple[OnlyResearchCalculationImplementationBinding, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _OnlyVerifiedResearchCalculationExecution:
+    """Module-sealed proof that the enclosed projection came from this executor."""
+
+    execution: OnlyResearchCalculationExecution
+    seal: object
+
+
+_VERIFIED_EXECUTION_SEAL = object()
+
+
+def _only_require_verified_research_calculation_execution(
+    value: object,
+) -> OnlyResearchCalculationExecution:
+    if not isinstance(value, _OnlyVerifiedResearchCalculationExecution) or value.seal is not _VERIFIED_EXECUTION_SEAL:
+        raise OnlyResearchCalculationError(
+            "RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED",
+            "Execution Evidence requires an actual sealed Research execution",
+        )
+    return value.execution
+
+
 class OnlyResearchCalculationExecutor:
     def __init__(
         self, store: OnlyResearchDatasetSnapshotStore, resolver: OnlyResearchCalculationBackendResolver
@@ -96,6 +118,13 @@ class OnlyResearchCalculationExecutor:
     def execute(
         self, snapshot_fingerprint: str, graph: OnlyCalculationGraphDefinition
     ) -> OnlyResearchCalculationExecution:
+        """Return a public execution projection without Evidence minting authority."""
+
+        return self._execute_verified(snapshot_fingerprint, graph).execution
+
+    def _execute_verified(
+        self, snapshot_fingerprint: str, graph: OnlyCalculationGraphDefinition
+    ) -> _OnlyVerifiedResearchCalculationExecution:
         plan = self.plan(graph)
         try:
             verified = self._store.load_verified_table(snapshot_fingerprint)
@@ -136,12 +165,15 @@ class OnlyResearchCalculationExecutor:
             for instrument_id in instrument_ids
             for node in graph.ordered_nodes
         )
-        return OnlyResearchCalculationExecution(
-            only_research_calculation_fingerprint(snapshot.snapshot_fingerprint, graph.fingerprint),
-            snapshot.snapshot_fingerprint,
-            graph.fingerprint,
-            results,
-            plan.implementation_bindings,
+        return _OnlyVerifiedResearchCalculationExecution(
+            OnlyResearchCalculationExecution(
+                only_research_calculation_fingerprint(snapshot.snapshot_fingerprint, graph.fingerprint),
+                snapshot.snapshot_fingerprint,
+                graph.fingerprint,
+                results,
+                plan.implementation_bindings,
+            ),
+            _VERIFIED_EXECUTION_SEAL,
         )
 
     def plan(self, graph: OnlyCalculationGraphDefinition) -> OnlyResearchCalculationExecutionPlan:

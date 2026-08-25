@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import NoReturn, Protocol
 
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.calculation.execution_evidence import (
     OnlyResearchCalculationExecutionEvidence,
 )
@@ -23,6 +22,7 @@ from onlyalpha.research.specification.resolver import (
 )
 from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
 from onlyalpha.strategy.errors import OnlyStrategyAdmissionError, OnlyStrategyFreezeError
+from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 from onlyalpha.strategy.revision import (
     OnlyStrategyMarketInputContract,
     OnlyStrategyRevision,
@@ -86,10 +86,10 @@ class OnlyStrategyFreezeRecord:
     actor: str
     created_at: datetime
     comment: str | None = None
-    schema_version: int = 3
+    schema_version: int = 4
 
     def __post_init__(self) -> None:
-        if self.schema_version != 3:
+        if self.schema_version != 4:
             raise ValueError("unsupported Strategy Freeze Record schema")
         for name in (
             "candidate_fingerprint",
@@ -122,7 +122,18 @@ class OnlyStrategyFreezeRecord:
 
     @property
     def record_fingerprint(self) -> str:
-        return only_canonical_fingerprint(self.to_dict(include_fingerprint=False))
+        return self.semantic_relation.relation_fingerprint
+
+    @property
+    def semantic_relation(self) -> OnlyStrategyFreezeRelation:
+        return OnlyStrategyFreezeRelation(
+            strategy_fingerprint=self.strategy_fingerprint,
+            candidate_fingerprint=self.candidate_fingerprint,
+            research_result_fingerprint=self.research_result_fingerprint,
+            research_execution_evidence_fingerprints=self.research_execution_evidence_fingerprints,
+            admission_evidence_fingerprint=self.admission_evidence_fingerprint,
+            equivalence_evidence_fingerprints=self.equivalence_evidence_fingerprints,
+        )
 
     def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -160,6 +171,62 @@ class OnlyStrategyFreezeOutcome:
     strategy_fingerprint: str
     disposition: OnlyStrategyFreezeDisposition
     freeze_record: OnlyStrategyFreezeRecord
+
+
+class OnlyStrategyFreezeProjectionReconciler:
+    """Converge PostgreSQL/catalog projection from verified immutable Freeze truth."""
+
+    def __init__(
+        self,
+        strategies: OnlyFrozenStrategyRevisionStore,
+        catalog: OnlyStrategyCatalogWriter,
+        audit_time: Callable[[], datetime],
+    ) -> None:
+        self._strategies = strategies
+        self._catalog = catalog
+        self._audit_time = audit_time
+
+    def reconcile(self, strategy_fingerprint: str) -> tuple[OnlyStrategyFreezeRecord, ...]:
+        try:
+            revision = self._strategies.load_verified(strategy_fingerprint)
+            relations = self._strategies.freeze_relations(strategy_fingerprint)
+            self._catalog.ensure_strategy(strategy_fingerprint, revision.schema_version)
+            records: list[OnlyStrategyFreezeRecord] = []
+            for relation in relations:
+                existing = self._catalog.find_freeze_relation(
+                    relation.candidate_fingerprint,
+                    relation.research_result_fingerprint,
+                    relation.strategy_fingerprint,
+                )
+                if existing is not None:
+                    if existing.semantic_relation != relation:
+                        raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_CONFLICT", relation.relation_fingerprint)
+                    records.append(existing)
+                    continue
+                projected_at = self._audit_time()
+                _utc(projected_at, "Strategy projection reconciliation time")
+                records.append(
+                    self._catalog.append_freeze_record(
+                        OnlyStrategyFreezeRecord(
+                            candidate_fingerprint=relation.candidate_fingerprint,
+                            research_result_fingerprint=relation.research_result_fingerprint,
+                            research_execution_evidence_fingerprints=(
+                                relation.research_execution_evidence_fingerprints
+                            ),
+                            strategy_fingerprint=relation.strategy_fingerprint,
+                            admission_evidence_fingerprint=relation.admission_evidence_fingerprint,
+                            equivalence_evidence_fingerprints=relation.equivalence_evidence_fingerprints,
+                            actor="onlyalpha-semantic-reconciler",
+                            created_at=projected_at,
+                            comment="reconstructed from verified immutable Freeze relation",
+                        )
+                    )
+                )
+            return tuple(records)
+        except OnlyStrategyFreezeError:
+            raise
+        except Exception as exc:
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_RECONCILIATION_FAILED", strategy_fingerprint) from exc
 
 
 class OnlyStrategyFreezeService:
@@ -321,7 +388,15 @@ class OnlyStrategyFreezeService:
             )
             fingerprint = str(revision.strategy_fingerprint)
             existed = self._strategies.exists(fingerprint)
-            self._strategy_publisher.publish_verified(_only_authorize_frozen_strategy_publication(revision))
+            relation = OnlyStrategyFreezeRelation(
+                strategy_fingerprint=fingerprint,
+                candidate_fingerprint=recomputed,
+                research_result_fingerprint=run.research_result_fingerprint,
+                research_execution_evidence_fingerprints=(execution_evidence.evidence_fingerprint,),
+                admission_evidence_fingerprint=admitted.admission_evidence_fingerprint,
+                equivalence_evidence_fingerprints=admitted.equivalence_evidence_fingerprints,
+            )
+            self._strategy_publisher.publish_verified(_only_authorize_frozen_strategy_publication(revision, relation))
             self._catalog.ensure_strategy(fingerprint, revision.schema_version)
             existing_relation = self._catalog.find_freeze_relation(
                 recomputed,
@@ -345,6 +420,8 @@ class OnlyStrategyFreezeService:
                     comment=request.comment,
                 )
             )
+            if record.semantic_relation != relation:
+                self._fail("STRATEGY_PROJECTION_CONFLICT", relation.relation_fingerprint)
             disposition = OnlyStrategyFreezeDisposition.REUSED if existed else OnlyStrategyFreezeDisposition.CREATED
             return OnlyStrategyFreezeOutcome(fingerprint, disposition, record)
         except OnlyStrategyFreezeError:
@@ -425,7 +502,7 @@ class OnlyInMemoryStrategyCatalog(OnlyStrategyCatalogWriter):
     def ensure_strategy(self, strategy_fingerprint: str, schema_version: int) -> None:
         existing = self.strategies.get(strategy_fingerprint)
         if existing is not None and existing != schema_version:
-            raise OnlyStrategyFreezeError("DETERMINISTIC_STRATEGY_CONFLICT", strategy_fingerprint)
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_CONFLICT", strategy_fingerprint)
         self.strategies[strategy_fingerprint] = schema_version
 
     def find_freeze_relation(
@@ -458,6 +535,8 @@ class OnlyInMemoryStrategyCatalog(OnlyStrategyCatalogWriter):
             record.strategy_fingerprint,
         )
         if relation is not None:
+            if relation.semantic_relation != record.semantic_relation:
+                raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_CONFLICT", record.record_fingerprint)
             return relation
         self.freeze_records[record.record_fingerprint] = record
         return record

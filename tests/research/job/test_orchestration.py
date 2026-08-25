@@ -25,9 +25,9 @@ class _CountingCalculationExecutor:
         self.delegate = delegate
         self.calls = 0
 
-    def execute(self, snapshot_fingerprint, graph):
+    def _execute_verified(self, snapshot_fingerprint, graph):
         self.calls += 1
-        return self.delegate.execute(snapshot_fingerprint, graph)
+        return self.delegate._execute_verified(snapshot_fingerprint, graph)
 
 
 class _StoreProxy:
@@ -180,7 +180,7 @@ class _FailingCalculationExecutor:
     def __init__(self) -> None:
         self.calls = 0
 
-    def execute(self, snapshot_fingerprint, graph):
+    def _execute_verified(self, snapshot_fingerprint, graph):
         self.calls += 1
         raise OnlyResearchCalculationError("RESEARCH_EXECUTION_FAILED", "injected")
 
@@ -271,7 +271,7 @@ class _UnexpectedFailureStore(_StoreProxy):
 
 
 class _UnexpectedFailureCalculationExecutor:
-    def execute(self, snapshot_fingerprint, graph):
+    def _execute_verified(self, snapshot_fingerprint, graph):
         raise ValueError("unexpected calculation failure")
 
 

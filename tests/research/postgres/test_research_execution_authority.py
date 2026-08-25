@@ -71,6 +71,7 @@ M7 = "0007_research_deployment_semantic_store_binding"
 M8 = "0008_strategy_revision_promotion_foundation"
 M9 = "0009_strategy_authority_closure"
 M10 = "0010_p9_0_closure_2_authority_hardening"
+M11 = "0011_p9_0_freeze_projection_convergence"
 EXECUTION_EVIDENCE = ("e" * 64,)
 WORKER_1 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000301")
 WORKER_2 = OnlyResearchWorkerInstanceId("00000000-0000-4000-8000-000000000302")
@@ -179,8 +180,8 @@ def test_existing_m1_m2_database_plans_exact_forward_suffix_and_preserves_run(
     assert OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate() == (M1, M2)
     run = _insert_legacy_queued(postgres_dsn, _queued(310))
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5, M6, M7, M8, M9, M10)
-    assert authority.migrate() == (M3, M4, M5, M6, M7, M8, M9, M10)
+    assert tuple(item.migration_id for item in authority.plan()) == (M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    assert authority.migrate() == (M3, M4, M5, M6, M7, M8, M9, M10, M11)
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
 

@@ -31,6 +31,8 @@ from onlyalpha.strategy.errors import OnlyStrategyFreezeError
 from onlyalpha.strategy.freeze import (
     OnlyInMemoryStrategyCatalog,
     OnlyStrategyFreezeDisposition,
+    OnlyStrategyFreezeProjectionReconciler,
+    OnlyStrategyFreezeRecord,
     OnlyStrategyFreezeRequest,
     OnlyStrategyFreezeService,
 )
@@ -209,3 +211,106 @@ def test_freeze_verified_authority_failure_has_stable_code_and_no_publication(
     assert error.value.code == code
     assert not catalog.strategies
     assert not (tmp_path / "semantic" / "strategy" / "frozen-revisions").exists()
+
+
+class _UnavailableProjection:
+    def ensure_strategy(self, strategy_fingerprint, schema_version):
+        del strategy_fingerprint, schema_version
+        raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_UNAVAILABLE", "simulated outage")
+
+    def find_freeze_relation(self, *args):
+        del args
+        raise AssertionError("projection lookup must follow ensure")
+
+    def append_freeze_record(self, record):
+        del record
+        raise AssertionError("projection append must follow ensure")
+
+
+def test_complete_semantic_freeze_survives_projection_outage_and_reconciles(tmp_path) -> None:
+    service, run, candidate, store, _ = _freeze_case(tmp_path)
+    service._catalog = _UnavailableProjection()  # type: ignore[attr-defined]
+    request = OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier")
+
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        service.freeze(request)
+    assert error.value.code == "STRATEGY_PROJECTION_UNAVAILABLE"
+
+    fingerprint = next((tmp_path / "semantic" / "strategy" / "frozen-revisions" / "sha256").glob("*/*")).name
+    assert store.load_verified(fingerprint).strategy_fingerprint.value == fingerprint
+    projection = OnlyInMemoryStrategyCatalog()
+    reconciler = OnlyStrategyFreezeProjectionReconciler(store, projection, lambda: NOW)
+    first = reconciler.reconcile(fingerprint)
+    second = reconciler.reconcile(fingerprint)
+    assert first == second
+    assert len(projection.strategies) == len(projection.freeze_records) == 1
+
+
+def test_conflicting_projection_fails_closed_without_semantic_rewrite(tmp_path) -> None:
+    service, run, candidate, store, catalog = _freeze_case(tmp_path)
+    outcome = service.freeze(OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier"))
+    original = outcome.freeze_record
+    conflict = OnlyStrategyFreezeRecord(
+        original.candidate_fingerprint,
+        original.research_result_fingerprint,
+        original.research_execution_evidence_fingerprints,
+        original.strategy_fingerprint,
+        "0" * 64,
+        original.equivalence_evidence_fingerprints,
+        "conflicting-projector",
+        NOW,
+    )
+    catalog.freeze_records = {"conflict": conflict}
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        OnlyStrategyFreezeProjectionReconciler(store, catalog, lambda: NOW).reconcile(outcome.strategy_fingerprint)
+    assert error.value.code == "STRATEGY_PROJECTION_CONFLICT"
+    assert store.load_verified(outcome.strategy_fingerprint).strategy_fingerprint.value == outcome.strategy_fingerprint
+
+
+def test_partially_projected_catalog_converges_idempotently_after_restart(tmp_path) -> None:
+    service, run, candidate, store, _ = _freeze_case(tmp_path)
+
+    class _PartialProjection(OnlyInMemoryStrategyCatalog):
+        unavailable = True
+
+        def append_freeze_record(self, record):
+            if self.unavailable:
+                raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_UNAVAILABLE", record.strategy_fingerprint)
+            return super().append_freeze_record(record)
+
+    projection = _PartialProjection()
+    service._catalog = projection  # type: ignore[attr-defined]
+    request = OnlyStrategyFreezeRequest(run.run_id, candidate.candidate_fingerprint, "certifier")
+    with pytest.raises(OnlyStrategyFreezeError) as error:
+        service.freeze(request)
+    assert error.value.code == "STRATEGY_PROJECTION_UNAVAILABLE"
+    assert len(projection.strategies) == 1
+    assert not projection.freeze_records
+
+    fingerprint = next((tmp_path / "semantic" / "strategy" / "frozen-revisions" / "sha256").glob("*/*")).name
+    projection.unavailable = False
+    reconciler = OnlyStrategyFreezeProjectionReconciler(store, projection, lambda: NOW)
+    assert reconciler.reconcile(fingerprint) == reconciler.reconcile(fingerprint)
+    assert len(projection.strategies) == len(projection.freeze_records) == 1
+
+
+def test_freeze_audit_metadata_does_not_change_semantic_relation_identity() -> None:
+    first = OnlyStrategyFreezeRecord(
+        "a" * 64,
+        "b" * 64,
+        ("c" * 64,),
+        "d" * 64,
+        "e" * 64,
+        ("f" * 64,),
+        "first-operator",
+        NOW,
+        "first comment",
+    )
+    second = replace(
+        first,
+        actor="second-operator",
+        created_at=NOW + timedelta(seconds=5),
+        comment="second comment",
+    )
+    assert first.semantic_relation == second.semantic_relation
+    assert first.record_fingerprint == second.record_fingerprint

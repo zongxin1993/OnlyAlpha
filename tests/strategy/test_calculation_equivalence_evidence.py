@@ -1,13 +1,17 @@
 from dataclasses import replace
+from decimal import Decimal
 from inspect import signature
 
 import pytest
+from onlyalpha_plugin_indicators.registration import TYPES, registrations, resolve_definition
 
 from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
+from onlyalpha.application.calculation_equivalence import _required_certification_horizon
 from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationEquivalenceError,
     OnlyCalculationEquivalenceEvidenceV2Store,
+    OnlyCalculationNodeDefinition,
     OnlyCalculationRegistry,
     only_required_calculation_equivalence_profile,
 )
@@ -130,3 +134,95 @@ def test_legacy_v1_is_load_only_and_cannot_satisfy_admission(tmp_path) -> None:
     assert not hasattr(reader, "require_verified")
     assert not hasattr(reader, "commit")
     assert not hasattr(reader, "publish")
+
+
+def _registry_with_late_trading_divergence(type_id: str, fail_at: int) -> OnlyCalculationRegistry:
+    registry = OnlyCalculationRegistry()
+    for registration in registrations():
+        if (
+            registration.backend is OnlyCalculationBackendKind.TRADING
+            and registration.type_definition.type_id == type_id
+        ):
+
+            class _LateDivergenceFactory:
+                def create(self, definition, request):
+                    del request
+
+                    class _LateDivergence:
+                        def __init__(self):
+                            self.values = []
+                            self.ema = None
+
+                        def update(self, inputs):
+                            value = Decimal(str(inputs["value"]))
+                            self.values.append(value)
+                            if definition.type_id.endswith(".ema"):
+                                alpha = Decimal(2) / Decimal(int(str(definition.parameters["period"])) + 1)
+                                self.ema = value if self.ema is None else self.ema + alpha * (value - self.ema)
+                                output = self.ema.quantize(Decimal("0.000000000001"))
+                            else:
+                                period = int(str(definition.parameters["period"]))
+                                output = (
+                                    None
+                                    if len(self.values) <= period or self.values[-period - 1] == 0
+                                    else (self.values[-1] / self.values[-period - 1] - 1).quantize(
+                                        Decimal("0.000000000001")
+                                    )
+                                )
+                            if len(self.values) == fail_at and output is not None:
+                                output += Decimal("0.000000000001")
+                            return {"value": output}
+
+                    return _LateDivergence()
+
+            registration = replace(registration, provider=_LateDivergenceFactory())
+        registry.register(registration)
+    return registry
+
+
+@pytest.mark.parametrize("fail_offset", (0, 1))
+def test_rolling_first_ready_and_eviction_late_divergence_fail_certification(tmp_path, fail_offset) -> None:
+    period = 20
+    definition = resolve_definition(
+        next(item for item in TYPES if item.type_id.endswith(".rolling_return")), {"period": period}
+    )
+    node = OnlyCalculationNodeDefinition(definition)
+    service = OnlyCalculationEquivalenceCertificationApplicationService(
+        _registry_with_late_trading_divergence(definition.type_id, period + 1 + fail_offset),
+        OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / f"semantic-{fail_offset}"),
+    )
+    with pytest.raises(OnlyCalculationEquivalenceError) as error:
+        service.certify(node)
+    assert error.value.code == "EQUIVALENCE_CERTIFICATION_FAILED"
+
+
+def test_recursive_late_divergence_after_warmup_fails_certification(tmp_path) -> None:
+    period = 20
+    definition = resolve_definition(next(item for item in TYPES if item.type_id.endswith(".ema")), {"period": period})
+    node = OnlyCalculationNodeDefinition(definition)
+    service = OnlyCalculationEquivalenceCertificationApplicationService(
+        _registry_with_late_trading_divergence(definition.type_id, period + 3),
+        OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / "semantic"),
+    )
+    with pytest.raises(OnlyCalculationEquivalenceError) as error:
+        service.certify(node)
+    assert error.value.code == "EQUIVALENCE_CERTIFICATION_FAILED"
+
+
+def test_exact_parameters_change_state_horizon_corpus_and_evidence(tmp_path) -> None:
+    rolling = next(item for item in TYPES if item.type_id.endswith(".rolling_return"))
+    short = OnlyCalculationNodeDefinition(resolve_definition(rolling, {"period": 2}))
+    long = OnlyCalculationNodeDefinition(resolve_definition(rolling, {"period": 20}))
+    assert short.fingerprint != long.fingerprint
+    assert _required_certification_horizon(short.definition).observation_count == 5
+    assert _required_certification_horizon(long.definition).observation_count == 23
+    registry = OnlyCalculationRegistry()
+    for registration in registrations():
+        registry.register(registration)
+    service = OnlyCalculationEquivalenceCertificationApplicationService(
+        registry, OnlyCalculationEquivalenceEvidenceV2Store(tmp_path / "semantic")
+    )
+    short_evidence = service.certify(short)
+    long_evidence = service.certify(long)
+    assert short_evidence.corpus_fingerprint != long_evidence.corpus_fingerprint
+    assert short_evidence.evidence_fingerprint != long_evidence.evidence_fingerprint

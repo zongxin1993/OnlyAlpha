@@ -66,9 +66,9 @@ class OnlyPostgresStrategyStore:
                     (strategy_fingerprint,),
                 ).fetchone()
         except psycopg.Error as exc:
-            raise OnlyStrategyFreezeError("STRATEGY_CATALOG_UNAVAILABLE", strategy_fingerprint) from exc
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_UNAVAILABLE", strategy_fingerprint) from exc
         if row is None or (str(row[0]), int(row[1])) != (self._namespace.value, schema_version):
-            raise OnlyStrategyFreezeError("DETERMINISTIC_STRATEGY_CONFLICT", strategy_fingerprint)
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_CONFLICT", strategy_fingerprint)
 
     def find_freeze_relation(
         self,
@@ -85,7 +85,7 @@ class OnlyPostgresStrategyStore:
                     (candidate_fingerprint, research_result_fingerprint, strategy_fingerprint),
                 ).fetchone()
         except psycopg.Error as exc:
-            raise OnlyStrategyFreezeError("STRATEGY_CATALOG_UNAVAILABLE", strategy_fingerprint) from exc
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_UNAVAILABLE", strategy_fingerprint) from exc
         return None if row is None else _freeze_record(row)
 
     def append_freeze_record(self, record: OnlyStrategyFreezeRecord) -> OnlyStrategyFreezeRecord:
@@ -120,12 +120,12 @@ class OnlyPostgresStrategyStore:
                     (record.candidate_fingerprint, record.research_result_fingerprint, record.strategy_fingerprint),
                 ).fetchone()
         except psycopg.Error as exc:
-            raise OnlyStrategyFreezeError("STRATEGY_CATALOG_UNAVAILABLE", record.strategy_fingerprint) from exc
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_UNAVAILABLE", record.strategy_fingerprint) from exc
         if row is None:
-            raise OnlyStrategyFreezeError("STRATEGY_CATALOG_UNAVAILABLE", record.strategy_fingerprint)
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_UNAVAILABLE", record.strategy_fingerprint)
         actual = _freeze_record(row)
         if actual.record_fingerprint != record.record_fingerprint:
-            raise OnlyStrategyFreezeError("DETERMINISTIC_STRATEGY_CONFLICT", record.strategy_fingerprint)
+            raise OnlyStrategyFreezeError("STRATEGY_PROJECTION_CONFLICT", record.strategy_fingerprint)
         return actual
 
     def records(self, strategy_fingerprint: str) -> tuple[OnlyStrategyPromotionRecord, ...]:

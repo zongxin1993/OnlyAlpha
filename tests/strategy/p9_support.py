@@ -20,6 +20,7 @@ from onlyalpha.research import (
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy import (
     OnlyFrozenStrategyRevisionStore,
+    OnlyStrategyFreezeRelation,
     OnlyStrategyMarketInputContract,
     OnlyStrategyRevision,
     OnlyStrategySignalBinding,
@@ -60,6 +61,25 @@ def publish_frozen_strategy_for_execution_test(root: Path, revision: OnlyStrateg
     """Pure execution fixture support; no equivalent publisher exists under src/onlyalpha."""
 
     fingerprint = str(revision.strategy_fingerprint)
+    relation = OnlyStrategyFreezeRelation(
+        fingerprint,
+        "a" * 64,
+        "b" * 64,
+        ("c" * 64,),
+        "d" * 64,
+        ("e" * 64,),
+    )
+    relation_target = (
+        root
+        / "strategy"
+        / "freeze-relations"
+        / "sha256"
+        / relation.relation_fingerprint[:2]
+        / relation.relation_fingerprint
+    )
+    if not relation_target.exists():
+        relation_target.mkdir(parents=True, exist_ok=False)
+        (relation_target / "manifest.json").write_text(only_canonical_json(relation.to_dict()), encoding="utf-8")
     target = root / "strategy" / "frozen-revisions" / "sha256" / fingerprint[:2] / fingerprint
     if target.is_dir():
         if OnlyFrozenStrategyRevisionStore(root).load_verified(fingerprint) != revision:
@@ -108,9 +128,9 @@ def p9_strategy_case(root: Path, *, values: tuple[OnlyBar, ...] | None = None) -
     revisions: list[OnlyStrategyRevision] = []
     execution_evidence: list[OnlyResearchCalculationExecutionEvidence] = []
     for selected in candidates:
-        execution = calculation.execute(committed.snapshot_fingerprint, selected.graph)
-        result = calculation_results.commit(execution, selected.graph)
-        provenance = evidence_store.commit_execution(execution, result)
+        verified_execution = calculation._execute_verified(committed.snapshot_fingerprint, selected.graph)
+        result = calculation_results.commit(verified_execution.execution, selected.graph)
+        provenance = evidence_store._publish_verified(verified_execution, result)
         execution_evidence.append(provenance)
         signals = tuple(
             item

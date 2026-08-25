@@ -28,6 +28,8 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 from onlyalpha.strategy.admission import OnlyStrategyTradingAdmissionService
 from onlyalpha.strategy.freeze import (
     OnlyStrategyFreezeOutcome,
+    OnlyStrategyFreezeProjectionReconciler,
+    OnlyStrategyFreezeRecord,
     OnlyStrategyFreezeRequest,
     OnlyStrategyFreezeService,
 )
@@ -155,6 +157,32 @@ class OnlyStrategyPromotionApplicationService:
         )
 
 
+class OnlyStrategyFreezeProjectionReconciliationApplicationService:
+    """Operator recovery boundary for deterministic semantic-to-PostgreSQL convergence."""
+
+    def __init__(self, reconciler: OnlyStrategyFreezeProjectionReconciler) -> None:
+        self._reconciler = reconciler
+
+    @classmethod
+    def compose(
+        cls,
+        *,
+        semantic_root: Path,
+        postgres_dsn: str,
+        semantic_namespace_id: OnlyResearchSemanticStoreId,
+        audit_time: Callable[[], datetime],
+    ) -> OnlyStrategyFreezeProjectionReconciliationApplicationService:
+        _assert_local_namespace(semantic_root, semantic_namespace_id)
+        catalog = OnlyPostgresStrategyStore(postgres_dsn, semantic_namespace_id)
+        catalog.assert_namespace()
+        return cls(
+            OnlyStrategyFreezeProjectionReconciler(OnlyFrozenStrategyRevisionStore(semantic_root), catalog, audit_time)
+        )
+
+    def reconcile(self, strategy_fingerprint: str) -> tuple[OnlyStrategyFreezeRecord, ...]:
+        return self._reconciler.reconcile(strategy_fingerprint)
+
+
 def _assert_local_namespace(
     semantic_root: Path,
     expected: OnlyResearchSemanticStoreId,
@@ -163,4 +191,8 @@ def _assert_local_namespace(
         raise OnlyResearchDeploymentError(OnlyResearchDeploymentErrorCode.SEMANTIC_STORE_IDENTITY_MISMATCH)
 
 
-__all__ = ["OnlyStrategyFreezeApplicationService", "OnlyStrategyPromotionApplicationService"]
+__all__ = [
+    "OnlyStrategyFreezeApplicationService",
+    "OnlyStrategyFreezeProjectionReconciliationApplicationService",
+    "OnlyStrategyPromotionApplicationService",
+]

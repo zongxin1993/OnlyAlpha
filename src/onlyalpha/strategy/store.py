@@ -12,6 +12,7 @@ from typing import Protocol
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.strategy.errors import OnlyStrategyStoreError
+from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 from onlyalpha.strategy.revision import OnlyStrategyFingerprint, OnlyStrategyRevision
 
 
@@ -70,10 +71,81 @@ class _StrategyRevisionReader:
 
 
 class OnlyFrozenStrategyRevisionStore(_StrategyRevisionReader):
-    """Runtime-readable frozen namespace; deliberately exposes no publication method."""
+    """Runtime reader requiring both exact Revision and a verified Freeze relation."""
 
     def __init__(self, semantic_root: Path) -> None:
         super().__init__(semantic_root / "strategy" / "frozen-revisions")
+        self._relations = _StrategyFreezeRelationReader(semantic_root)
+
+    def exists(self, strategy_fingerprint: OnlyStrategyFingerprint | str) -> bool:
+        try:
+            self.load_verified(strategy_fingerprint)
+        except OnlyStrategyStoreError as exc:
+            if exc.code in {"STRATEGY_NOT_FOUND", "STRATEGY_FREEZE_RELATION_NOT_FOUND"}:
+                return False
+            raise
+        return True
+
+    def load_verified(self, strategy_fingerprint: OnlyStrategyFingerprint | str) -> OnlyStrategyRevision:
+        revision = super().load_verified(strategy_fingerprint)
+        self._relations.require_for_strategy(str(revision.strategy_fingerprint))
+        return revision
+
+    def freeze_relations(
+        self, strategy_fingerprint: OnlyStrategyFingerprint | str
+    ) -> tuple[OnlyStrategyFreezeRelation, ...]:
+        fingerprint = _fingerprint(strategy_fingerprint)
+        super().load_verified(fingerprint)
+        return self._relations.require_for_strategy(fingerprint)
+
+
+class _StrategyFreezeRelationReader:
+    def __init__(self, semantic_root: Path) -> None:
+        self._root = semantic_root / "strategy" / "freeze-relations" / "sha256"
+
+    def load_verified(self, relation_fingerprint: str) -> OnlyStrategyFreezeRelation:
+        _require_sha(relation_fingerprint, "Freeze relation fingerprint")
+        target = self._root / relation_fingerprint[:2] / relation_fingerprint
+        if not target.is_dir():
+            raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_NOT_FOUND", relation_fingerprint)
+        try:
+            manifest = target / "manifest.json"
+            if target.is_symlink() or manifest.is_symlink():
+                raise ValueError("Strategy Freeze Relation may not contain symlinks")
+            if {item.name for item in target.iterdir()} != {"manifest.json"} or not manifest.is_file():
+                raise ValueError("unexpected Strategy Freeze Relation entries")
+            raw = manifest.read_text(encoding="utf-8")
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("Strategy Freeze Relation must be an object")
+            relation = OnlyStrategyFreezeRelation.from_dict(payload)
+            if relation.relation_fingerprint != relation_fingerprint or raw != only_canonical_json(payload):
+                raise ValueError("Strategy Freeze Relation path/content identity differs")
+            return relation
+        except OnlyStrategyStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_CORRUPT", relation_fingerprint) from exc
+
+    def require_for_strategy(self, strategy_fingerprint: str) -> tuple[OnlyStrategyFreezeRelation, ...]:
+        if not self._root.exists():
+            raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_NOT_FOUND", strategy_fingerprint)
+        matches: list[OnlyStrategyFreezeRelation] = []
+        try:
+            for prefix in sorted(self._root.iterdir(), key=lambda item: item.name):
+                if prefix.is_symlink() or not prefix.is_dir() or len(prefix.name) != 2:
+                    raise ValueError("unexpected Strategy Freeze Relation prefix")
+                for target in sorted(prefix.iterdir(), key=lambda item: item.name):
+                    relation = self.load_verified(target.name)
+                    if relation.strategy_fingerprint == strategy_fingerprint:
+                        matches.append(relation)
+        except OnlyStrategyStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_CORRUPT", strategy_fingerprint) from exc
+        if not matches:
+            raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_NOT_FOUND", strategy_fingerprint)
+        return tuple(sorted(matches, key=lambda item: item.relation_fingerprint))
 
 
 class _OnlyLegacyStrategyRevisionStore(_StrategyRevisionReader):
@@ -86,6 +158,7 @@ class _OnlyLegacyStrategyRevisionStore(_StrategyRevisionReader):
 @dataclass(frozen=True, slots=True)
 class _OnlyFrozenStrategyPublication:
     revision: OnlyStrategyRevision
+    relation: OnlyStrategyFreezeRelation
     seal: object
 
 
@@ -94,8 +167,11 @@ _FREEZE_PUBLICATION_SEAL = object()
 
 def _only_authorize_frozen_strategy_publication(
     revision: OnlyStrategyRevision,
+    relation: OnlyStrategyFreezeRelation,
 ) -> _OnlyFrozenStrategyPublication:
-    return _OnlyFrozenStrategyPublication(revision, _FREEZE_PUBLICATION_SEAL)
+    if relation.strategy_fingerprint != str(revision.strategy_fingerprint):
+        raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_CORRUPT", relation.relation_fingerprint)
+    return _OnlyFrozenStrategyPublication(revision, relation, _FREEZE_PUBLICATION_SEAL)
 
 
 class _OnlyFrozenStrategyPublisher:
@@ -113,6 +189,7 @@ class _OnlyFrozenStrategyPublisher:
                 "STRATEGY_PUBLICATION_UNAUTHORIZED", "Frozen publication requires verified Freeze authority"
             )
         revision = publication.revision
+        self._publish_relation(publication.relation)
         fingerprint = str(revision.strategy_fingerprint)
         target = self._reader._target(fingerprint)
         if target.exists() or target.is_symlink():
@@ -156,6 +233,56 @@ class _OnlyFrozenStrategyPublisher:
         finally:
             shutil.rmtree(stage, ignore_errors=True)
 
+    def _publish_relation(self, relation: OnlyStrategyFreezeRelation) -> OnlyStrategyFreezeRelation:
+        fingerprint = relation.relation_fingerprint
+        target = self._reader._relations._root / fingerprint[:2] / fingerprint
+        if target.exists() or target.is_symlink():
+            existing = self._reader._relations.load_verified(fingerprint)
+            if existing != relation:
+                raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_CORRUPT", fingerprint)
+            return existing
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging_root = self._reader._relations._root.parent / ".freeze-relation-staging"
+        staging_root.mkdir(parents=True, exist_ok=True)
+        stage = staging_root / f"stage-{uuid.uuid4().hex}"
+        try:
+            stage.mkdir()
+            path = stage / "manifest.json"
+            with path.open("x", encoding="utf-8") as stream:
+                stream.write(only_canonical_json(relation.to_dict()))
+                stream.flush()
+                os.fsync(stream.fileno())
+            # Validate the staged bytes directly before the atomic rename.
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if OnlyStrategyFreezeRelation.from_dict(payload) != relation:
+                raise ValueError("staged Strategy Freeze Relation differs")
+            directory = os.open(stage, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+            try:
+                os.rename(stage, target)
+            except OSError:
+                if not target.exists():
+                    raise
+                existing = self._reader._relations.load_verified(fingerprint)
+                if existing != relation:
+                    raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_CORRUPT", fingerprint) from None
+                return existing
+            parent = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(parent)
+            finally:
+                os.close(parent)
+            return self._reader._relations.load_verified(fingerprint)
+        except OnlyStrategyStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyStrategyStoreError("STRATEGY_FREEZE_RELATION_CORRUPT", fingerprint) from exc
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+
     def _resolve_existing(self, candidate: OnlyStrategyRevision) -> OnlyStrategyRevision:
         fingerprint = str(candidate.strategy_fingerprint)
         existing = self._reader.load_verified(fingerprint)
@@ -176,6 +303,11 @@ def _fingerprint(value: OnlyStrategyFingerprint | str) -> str:
         return str(value if isinstance(value, OnlyStrategyFingerprint) else OnlyStrategyFingerprint(value))
     except (TypeError, ValueError) as exc:
         raise OnlyStrategyStoreError("STRATEGY_NOT_FOUND", "invalid Strategy fingerprint") from exc
+
+
+def _require_sha(value: str, name: str) -> None:
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise ValueError(f"{name} must be a lower-case SHA256")
 
 
 __all__ = ["OnlyFrozenStrategyRevisionStore", "OnlyStrategyRevisionReader"]

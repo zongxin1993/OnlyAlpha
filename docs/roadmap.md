@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.0 Closure-2 — Authority Hardening & Final Certification / DONE / CERTIFIED
+Current Increment: P9.0 Closure-3 — Evidence Soundness & Publication Convergence / IMPLEMENTED / LOCAL DETERMINISTIC GATES PASS / REMOTE CERTIFICATION NOT RUN
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -33,7 +33,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: re-audit repository truth and plan P9.1 without expanding the certified P9.0 contract
+Next Semantic Direction: run the unavailable PostgreSQL gates and any separately authorized remote certification before planning P9.1
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。

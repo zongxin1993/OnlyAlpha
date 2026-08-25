@@ -89,6 +89,7 @@ M7 = "0007_research_deployment_semantic_store_binding"
 M8 = "0008_strategy_revision_promotion_foundation"
 M9 = "0009_strategy_authority_closure"
 M10 = "0010_p9_0_closure_2_authority_hardening"
+M11 = "0011_p9_0_freeze_projection_convergence"
 EXECUTION_EVIDENCE = ("e" * 64,)
 
 
@@ -330,11 +331,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         authority.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10)
+    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -418,8 +419,8 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7, M8, M9, M10)
-    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
@@ -808,7 +809,7 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
         assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
         assert metadata["postgres_server_version"].startswith("16.")
         assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 16.")
-        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M10
+        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M11
         assert "onlyalpha_test" not in metadata_path.read_text(encoding="utf-8")
         _restore_test(postgres_dsn, target_dsn, backup, run.run_id.value)
         assert OnlyPostgresResearchRunStore(target_dsn).load(run.run_id) == run

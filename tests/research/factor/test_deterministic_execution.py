@@ -241,9 +241,9 @@ def test_factor_result_store_and_job_converge_to_one_verified_authority(tmp_path
             self.delegate = delegate
             self.calls = 0
 
-        def execute(self, snapshot_fingerprint, graph):
+        def _execute_verified(self, snapshot_fingerprint, graph):
             self.calls += 1
-            return self.delegate.execute(snapshot_fingerprint, graph)
+            return self.delegate._execute_verified(snapshot_fingerprint, graph)
 
     counted = _CountingCalculation(calculation)
     job = research_job_executor(counted, result_store)
@@ -289,9 +289,9 @@ def test_corrupt_factor_result_fails_closed_without_reexecution(tmp_path) -> Non
         def __init__(self) -> None:
             self.calls = 0
 
-        def execute(self, snapshot_fingerprint, graph):
+        def _execute_verified(self, snapshot_fingerprint, graph):
             self.calls += 1
-            return calculation.execute(snapshot_fingerprint, graph)
+            return calculation._execute_verified(snapshot_fingerprint, graph)
 
     forbidden = _ForbiddenCalculation()
     with pytest.raises(OnlyResearchJobError, match="RESULT_CORRUPT"):

@@ -9,7 +9,7 @@ from onlyalpha.research.calculation.errors import (
     OnlyResearchCalculationError,
     OnlyResearchCalculationResultStoreError,
 )
-from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecution
+from onlyalpha.research.calculation.execution import _OnlyVerifiedResearchCalculationExecution
 from onlyalpha.research.calculation.execution_evidence import (
     OnlyResearchCalculationExecutionEvidence,
     OnlyResearchCalculationExecutionEvidenceStore,
@@ -23,11 +23,11 @@ from .plan import OnlyResearchJobPlan
 
 
 class _OnlyResearchCalculationExecutor(Protocol):
-    def execute(
+    def _execute_verified(
         self,
         snapshot_fingerprint: str,
         graph: OnlyCalculationGraphDefinition,
-    ) -> OnlyResearchCalculationExecution: ...
+    ) -> _OnlyVerifiedResearchCalculationExecution: ...
 
 
 class OnlyResearchJobExecutor:
@@ -76,7 +76,7 @@ class OnlyResearchJobExecutor:
             )
 
         try:
-            execution = self._calculation_executor.execute(
+            verified_execution = self._calculation_executor._execute_verified(
                 plan.dataset_snapshot_fingerprint,
                 plan.calculation_graph,
             )
@@ -95,7 +95,7 @@ class OnlyResearchJobExecutor:
             ) from exc
 
         try:
-            committed = self._result_store.commit(execution, plan.calculation_graph)
+            committed = self._result_store.commit(verified_execution.execution, plan.calculation_graph)
         except OnlyResearchCalculationResultStoreError as exc:
             raise _job_error(OnlyResearchJobPhase.RESULT_COMMIT, exc) from exc
         except Exception as exc:
@@ -105,7 +105,7 @@ class OnlyResearchJobExecutor:
                 str(exc),
             ) from exc
         try:
-            evidence = self._execution_evidence_store.commit_execution(execution, committed)
+            evidence = self._execution_evidence_store._publish_verified(verified_execution, committed)
         except OnlyResearchCalculationError as exc:
             raise _job_error(OnlyResearchJobPhase.RESULT_COMMIT, exc) from exc
         return _outcome(

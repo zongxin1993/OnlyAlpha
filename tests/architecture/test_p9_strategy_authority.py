@@ -202,3 +202,51 @@ def test_only_freeze_path_holds_internal_strategy_publication_capability() -> No
         source = path.read_text(encoding="utf-8")
         if "_OnlyFrozenStrategyPublisher" in source or "_only_authorize_frozen_strategy_publication" in source:
             assert path in allowed
+
+
+def test_public_research_execution_projection_cannot_mint_producer_evidence() -> None:
+    public = Path("src/onlyalpha/research/calculation/__init__.py").read_text(encoding="utf-8")
+    evidence = Path("src/onlyalpha/research/calculation/execution_evidence.py").read_text(encoding="utf-8")
+    assert "_OnlyVerifiedResearchCalculationExecution" not in public
+    assert "commit_execution" not in evidence
+    assert "def publish_verified(" not in evidence
+    assert "RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED" in Path(
+        "src/onlyalpha/research/calculation/execution.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_only_actual_research_execution_orchestration_uses_private_evidence_capability() -> None:
+    execution_users = []
+    publication_users = []
+    for path in Path("src/onlyalpha").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "._execute_verified(" in source:
+            execution_users.append(path)
+        if "._publish_verified(" in source:
+            publication_users.append(path)
+    assert set(execution_users) == {
+        Path("src/onlyalpha/research/calculation/execution.py"),
+        Path("src/onlyalpha/research/job/executor.py"),
+    }
+    assert publication_users == [Path("src/onlyalpha/research/job/executor.py")]
+
+
+def test_equivalence_corpus_is_exact_node_state_horizon_aware() -> None:
+    source = Path("src/onlyalpha/application/calculation_equivalence.py").read_text(encoding="utf-8")
+    assert "_required_certification_horizon(definition)" in source
+    assert "definition.warmup.minimum_observations" in source
+    assert 'parameters.get("warmup_bars"' in source
+    assert 'parameters.get("period"' in source
+    assert "boundary + 3" in source
+    assert "certify(self, node:" in source
+
+
+def test_runtime_reader_requires_semantic_freeze_relation_and_never_postgres_projection() -> None:
+    store = Path("src/onlyalpha/strategy/store.py").read_text(encoding="utf-8")
+    assert "require_for_strategy" in store
+    assert "STRATEGY_FREEZE_RELATION_NOT_FOUND" in store
+    for root in (Path("src/onlyalpha/runtime"), Path("src/onlyalpha/cluster")):
+        for path in root.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            assert "OnlyPostgresStrategyStore" not in source
+            assert "OnlyStrategyFreezeProjectionReconciler" not in source

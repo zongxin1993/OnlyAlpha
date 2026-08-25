@@ -24,6 +24,7 @@ from onlyalpha.strategy.execution import (
     only_strategy_observation_fingerprint,
     only_strategy_observation_key,
 )
+from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 
 # Freeze orchestration imports the Research product surface.  It deliberately
 # stays behind ``onlyalpha.strategy.freeze`` so importing the lightweight

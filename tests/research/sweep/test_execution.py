@@ -24,9 +24,9 @@ class _CountingCalculationExecutor:
         self.delegate = delegate
         self.calls = 0
 
-    def execute(self, snapshot_fingerprint, graph):
+    def _execute_verified(self, snapshot_fingerprint, graph):
         self.calls += 1
-        return self.delegate.execute(snapshot_fingerprint, graph)
+        return self.delegate._execute_verified(snapshot_fingerprint, graph)
 
 
 def _plan(snapshot_fingerprint: str, candidates=(1, 3, 4)):

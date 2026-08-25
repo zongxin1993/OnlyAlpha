@@ -13,7 +13,11 @@ from pathlib import Path
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 
 from .errors import OnlyResearchCalculationError
-from .execution import OnlyResearchCalculationExecution, OnlyResearchCalculationImplementationBinding
+from .execution import (
+    OnlyResearchCalculationImplementationBinding,
+    _only_require_verified_research_calculation_execution,
+    _OnlyVerifiedResearchCalculationExecution,
+)
 from .result import OnlyResearchCalculationResult
 
 
@@ -119,7 +123,7 @@ class OnlyResearchCalculationExecutionEvidence:
 
 
 class OnlyResearchCalculationExecutionEvidenceStore:
-    """Verified content-addressed evidence; callers cannot submit claimed provenance."""
+    """Public read authority with a seal-checked internal publication path."""
 
     def __init__(self, semantic_root: Path) -> None:
         self._root = semantic_root / "calculation-execution-evidence" / "sha256"
@@ -127,11 +131,12 @@ class OnlyResearchCalculationExecutionEvidenceStore:
     def exists(self, evidence_fingerprint: str) -> bool:
         return self._target(_fingerprint(evidence_fingerprint)).is_dir()
 
-    def commit_execution(
+    def _publish_verified(
         self,
-        execution: OnlyResearchCalculationExecution,
+        verified_execution: _OnlyVerifiedResearchCalculationExecution,
         result: OnlyResearchCalculationResult,
     ) -> OnlyResearchCalculationExecutionEvidence:
+        execution = _only_require_verified_research_calculation_execution(verified_execution)
         manifest = result.manifest
         graph_nodes = {item.fingerprint for item in manifest.calculation_graph.nodes}
         binding_nodes = {item.node_fingerprint for item in execution.research_implementation_bindings}
