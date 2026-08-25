@@ -391,11 +391,11 @@ def test_operator_explicitly_initializes_and_binds_new_semantic_store(
     assert json.loads(capsys.readouterr().out)["semantic_store_id"] == first["semantic_store_id"]
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10)
+    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -453,7 +453,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = authority.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10)
+    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -511,7 +511,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)]
     assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
 
 

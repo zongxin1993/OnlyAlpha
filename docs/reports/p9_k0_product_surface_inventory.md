@@ -224,3 +224,56 @@ K0.1.1 closes capability acquisition rather than adding product behavior:
 
 No `src/onlyalpha/kernel/` implementation, Product API endpoint, Strategy/Research/Runtime semantic change, persistence migration, or
 production source modification is part of K0.1.1.
+
+## P9.K.0.1.2 — Authority Guard Soundness & K1 Preflight Closure
+
+- Baseline SHA: `45ba7eb4a2dc8b4d3f5a7d541ac573d26b135748`
+- Implementation subject: `WORKTREE`
+- Closure date: `2026-08-25`
+- Relative import bypass: **CLOSED**
+- Worker broad-package bypass: **CLOSED**
+- Wildcard constructor bypass: **CLOSED**
+- API helper authority bypass: **CLOSED**
+- Unknown capability crossings: `0`
+- Canonical Architecture Gate in normal CI: **PASS**
+- P9.0 semantic changes: `0`
+- HTTP contract changes: `0`
+- Database schema changes: `0`
+- Production behavior changes: `0`
+- K1 implementation: **NOT STARTED**
+
+The canonical scanner now derives module identity from each guarded repository path, resolves relative imports at every supported depth,
+and raises on an unresolved guarded relative import. Worker guards reject the mixed `onlyalpha.application` aggregator, Strategy
+Freeze/Promotion namespaces, future `onlyalpha.kernel`, LIVE/Broker mutation, migration, and Strategy projection-writing capabilities
+while retaining the exact current Engine/Research execution dependencies. Constructor-owner metadata derives the protected module set;
+wildcard import from any such namespace fails closed, while explicit aliases preserve the same constructor identity.
+
+Every Python module in `onlyalpha_api` has an explicit role, and every direct API→Core crossing file has an exact canonical capability
+set. A new or changed crossing therefore fails independently of filename or route decoration. Composition roots remain exact inventories,
+not unrestricted exceptions; the current Definition Resolver adapter and all current routes remain admitted.
+
+Real PostgreSQL root-cause classification: **E — test-lane baseline defect**. Migration `0011_p9_0_freeze_projection_convergence` was
+already valid production/schema authority, but three migration-history assertions and the checksum-tamper fixture still ended at M10.
+That made the real database appear `AHEAD`, prevented the M11 tamper case, and left deterministic Strategy projection conflict/unbound
+branches outside the formal coverage owner. The correction changes only PostgreSQL tests: the exact baseline now includes M11 and the
+missing fail-closed projection branches are exercised. No persistence implementation or migration changed. A local preflight first
+exposed a separate environment mismatch (host `pg_dump` 14 versus required major 16); final proof used PostgreSQL server/client 16.10.
+
+Local deterministic verification:
+
+```text
+Targeted guard and lane-contract tests: 64 passed
+Canonical Architecture Gate:           413 passed
+Strategy lane:                           96 passed
+Research Execution lane:                 49 passed
+Research Command lane:                   42 passed
+Research Product Closure (PostgreSQL):    19 passed
+Research PostgreSQL coverage:             92 passed; total 82.19%, lines 84.58%, branches 71.25%
+import-linter contracts:                   3 kept, 0 broken
+ruff check .:                              PASS
+ruff format --check (changed Python):      PASS
+git diff --check:                          PASS
+```
+
+Remote quality CI and exact-final-SHA certification were not run. Verdict: **COMPLETE / LOCAL DETERMINISTIC GATES PASS**. Next:
+**P9.K.1 — Kernel Host & Lifecycle**.

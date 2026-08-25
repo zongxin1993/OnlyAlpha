@@ -13,6 +13,7 @@ from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentErrorCode,
     OnlyResearchSemanticStoreId,
 )
+from onlyalpha.strategy.errors import OnlyStrategyFreezeError
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRecord
 from onlyalpha.strategy.promotion import (
     OnlyStrategyPromotionDecision,
@@ -61,6 +62,15 @@ def test_strategy_catalog_and_freeze_provenance_are_idempotent_without_semantic_
         assert not {"strategy_json", "decision_graph", "universe_json"} & columns
 
 
+def test_strategy_projection_conflict_and_missing_relation_fail_closed(postgres_dsn: str) -> None:
+    store = _store(postgres_dsn)
+    store.ensure_strategy("a" * 64, 1)
+
+    assert store.find_freeze_relation("b" * 64, "c" * 64, "a" * 64) is None
+    with pytest.raises(OnlyStrategyFreezeError, match="STRATEGY_PROJECTION_CONFLICT"):
+        store.ensure_strategy("a" * 64, 2)
+
+
 def test_strategy_promotion_is_exact_append_only_chain(postgres_dsn: str) -> None:
     store = _store(postgres_dsn)
     store.ensure_strategy("a" * 64, 1)
@@ -106,3 +116,12 @@ def test_strategy_store_fails_closed_on_semantic_namespace_mismatch(postgres_dsn
     with pytest.raises(OnlyResearchDeploymentError) as error:
         mismatched.ensure_strategy("a" * 64, 1)
     assert error.value.code is OnlyResearchDeploymentErrorCode.SEMANTIC_STORE_IDENTITY_MISMATCH
+
+
+def test_strategy_store_fails_closed_when_semantic_namespace_is_unbound(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresStrategyStore(postgres_dsn, NAMESPACE)
+
+    with pytest.raises(OnlyResearchDeploymentError) as error:
+        store.ensure_strategy("a" * 64, 1)
+    assert error.value.code is OnlyResearchDeploymentErrorCode.DEPLOYMENT_BINDING_MISSING

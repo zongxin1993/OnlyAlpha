@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._p9_k0_guard_helpers import canonical_imports, module_name
+from tests.architecture._p9_k0_guard_helpers import canonical_imports, canonical_imports_for_path, module_name
 
 pytestmark = pytest.mark.architecture
 
@@ -37,6 +37,7 @@ CONSTRUCTOR_OWNERS = {
     "onlyalpha.runtime.research.OnlyResearchRuntime": "OnlyResearchRuntime",
     "onlyalpha.runtime.research.runtime.OnlyResearchRuntime": "OnlyResearchRuntime",
 }
+PROTECTED_CONSTRUCTOR_MODULES = frozenset(qualified.rpartition(".")[0] for qualified in CONSTRUCTOR_OWNERS)
 
 EXPECTED_CONSOLE_ENTRY_POINTS = {
     ("packages/api/onlyalpha-api/pyproject.toml", "onlyalpha-api", "onlyalpha_api.main:main"),
@@ -269,6 +270,14 @@ def _constructor_imports_in_source(source: str, *, module: str | None = None) ->
     return result
 
 
+def _protected_constructor_wildcards(source: str, *, module: str | None = None) -> set[str]:
+    return {
+        capability[1]
+        for capability in canonical_imports(source, module=module)
+        if capability[0] == "symbol" and capability[2] == "*" and capability[1] in PROTECTED_CONSTRUCTOR_MODULES
+    }
+
+
 def _constructor_import_owners() -> set[tuple[str, str]]:
     result: set[tuple[str, str]] = set()
     for root in (ROOT / "src", ROOT / "packages", ROOT / "scripts", ROOT / "examples"):
@@ -276,6 +285,12 @@ def _constructor_import_owners() -> set[tuple[str, str]]:
             if "tests" in path.relative_to(ROOT).parts:
                 continue
             source = path.read_text(encoding="utf-8")
+            imports = canonical_imports_for_path(path, ROOT)
+            assert not {
+                capability[1]
+                for capability in imports
+                if capability[0] == "symbol" and capability[2] == "*" and capability[1] in PROTECTED_CONSTRUCTOR_MODULES
+            }, f"{path.relative_to(ROOT)} wildcard-imports protected constructor authority"
             imported = _constructor_imports_in_source(source, module=module_name(path, ROOT))
             result.update((path.relative_to(ROOT).as_posix(), name) for name in imported)
     return result
@@ -373,6 +388,25 @@ def test_engine_assignment_alias_is_blocked_at_capability_import_boundary() -> N
 
 def test_engine_module_import_is_a_constructor_capability_acquisition() -> None:
     source = "import onlyalpha.engine as engine\nFactory = engine.OnlyEngine\n"
+    assert _constructor_imports_in_source(source) == {"OnlyEngine"}
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from onlyalpha import *\n",
+        "from onlyalpha.engine import *\n",
+        "from onlyalpha.runtime import *\n",
+        "from onlyalpha.runtime.backtest import *\n",
+    ),
+)
+def test_protected_constructor_wildcard_import_fails_closed(source: str) -> None:
+    assert _protected_constructor_wildcards(source)
+
+
+def test_explicit_constructor_alias_remains_deterministic() -> None:
+    source = "from onlyalpha.engine import OnlyEngine as Engine\n"
+    assert not _protected_constructor_wildcards(source)
     assert _constructor_imports_in_source(source) == {"OnlyEngine"}
 
 

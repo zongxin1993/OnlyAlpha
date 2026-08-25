@@ -46,7 +46,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.0.1.1 — Capability Guard Completeness & Closure Evidence Binding — DONE / LOCAL DETERMINISTIC GATES PASS |
+| Current increment | P9.K.0.1.2 — Authority Guard Soundness & K1 Preflight Closure — DONE / VERIFIED |
 | Next semantic direction | P9.K.1 — Kernel Host & Lifecycle; P9.1+ blocked until P9.K closure |
 | License | MIT |
 

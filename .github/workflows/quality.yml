@@ -42,6 +42,18 @@ jobs:
       - run: uv run lint-imports
       - run: uv run python scripts/version_sync.py check
 
+  architecture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run python scripts/test_suite.py architecture
+
   pr-lanes:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -288,12 +300,13 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, research-postgres, build, web]
+    needs: [static, architecture, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, research-postgres, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
         env:
           STATIC_RESULT: ${{ needs.static.result }}
+          ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
@@ -302,4 +315,4 @@ jobs:
           POSTGRES_RESULT: ${{ needs.research-postgres.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

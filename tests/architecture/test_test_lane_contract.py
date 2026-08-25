@@ -68,6 +68,12 @@ def test_architecture_lane_is_the_single_stable_repository_gate() -> None:
     assert lane.dist == "no"
 
 
+def test_normal_ci_directly_runs_the_canonical_architecture_gate() -> None:
+    workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
+    assert "- run: uv run python scripts/test_suite.py architecture" in workflow
+    assert "ARCHITECTURE_RESULT: ${{ needs.architecture.result }}" in workflow
+
+
 def test_research_job_lane_owns_application_contract_and_architecture_gate() -> None:
     lane = LANES[OnlyTestLane.RESEARCH_JOB]
     assert lane.paths == (
