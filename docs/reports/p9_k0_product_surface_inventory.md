@@ -228,7 +228,7 @@ production source modification is part of K0.1.1.
 ## P9.K.0.1.2 — Authority Guard Soundness & K1 Preflight Closure
 
 - Baseline SHA: `45ba7eb4a2dc8b4d3f5a7d541ac573d26b135748`
-- Implementation subject: `WORKTREE`
+- Implementation subject: `7ea8c2d53ac2106a6f1c85db5b284b36c1ec672a`
 - Closure date: `2026-08-25`
 - Relative import bypass: **CLOSED**
 - Worker broad-package bypass: **CLOSED**
@@ -277,3 +277,92 @@ git diff --check:                          PASS
 
 Remote quality CI and exact-final-SHA certification were not run. Verdict: **COMPLETE / LOCAL DETERMINISTIC GATES PASS**. Next:
 **P9.K.1 — Kernel Host & Lifecycle**.
+
+## P9.K.0 Final Authority Closure
+
+- Baseline SHA: `7ea8c2d53ac2106a6f1c85db5b284b36c1ec672a`
+- Implementation subject: `WORKTREE`
+- Closure date: `2026-08-25`
+- Authoritative facts: `13` (`F01`–`F13`)
+- Privileged capabilities: `18` (`C01`–`C18`)
+- Production actor classes: `16` (`A01`–`A16`)
+- Authority contract: `docs/architecture/p9_k0_authority_contract.toml`
+
+The TOML contract is the single primary authority matrix. Python tests load and validate it rather than restating a second matrix. Every
+fact has one identity authority and one mutation capability; every capability has one symbol binding and one exact production-holder
+set. Every sensitive or capability-bearing production Python path resolves to exactly one actor class. Missing and ambiguous
+classification both fail closed.
+
+The forward reachability proof resolves absolute imports, relative imports, aliases, wildcard imports, package re-exports, and
+aggregators. The independent reverse audit compares the complete discovered production-holder set with the contract for every
+capability; subset-only approval is insufficient. Exact privileged holder sets are:
+
+```text
+C01 Research Run mutation:             A03 A04 A05 A10 A16
+C02 Research Attempt/Lease mutation:   A05 A06 A16
+C03 Research execution:                A05 A06
+C04 Research semantic publication:     A15 A16
+C05 Strategy Revision read:            A01 A07 A08 A14 A15
+C06 Strategy Freeze:                   A14
+C07 Strategy Promotion:                A14
+C08 private Strategy publication:      A14
+C09 Strategy projection write:         A14
+C10 PostgreSQL schema verification:    A03 A05 A10 A16
+C11 PostgreSQL schema migration:       A10
+C12 Engine construction:               A01 A02 A06 A11 A15
+C13 Runtime construction:              A01 A07 A08 A09 A15
+C14 Runtime mutation:                  A01 A02 A06 A07 A08 A09 A11 A15
+C15 Broker mutation:                   none
+C16 LIVE execution:                    none
+C17 reserved Product lifecycle:        none
+C18 reserved Product command dispatch: none
+```
+
+Concrete-constructor ownership is also exact: Strategy Freeze, Promotion, private publication, projection reconciliation, database
+migration, Scheduler, Worker, Engine, and concrete Runtime construction sites have one explicit allowlist each. The future Kernel Host
+and Product Command Dispatcher constructor sets are empty.
+
+PostgreSQL schema capability is separated structurally:
+
+- `OnlyPostgresSchemaVerifier` exposes compatibility `status()` and `assert_compatible()` only;
+- `OnlyPostgresMigrationAuthority` exposes operator-only `plan()` and `migrate()` only;
+- API and Worker composition own only the verifier;
+- `scripts/database.py` is the sole production migration-authority constructor.
+
+This is an internal capability-interface refinement in production source, not a semantic no-op claim. It changes no migration SQL or
+database schema, Research/Strategy/Runtime business semantics, semantic identity, or HTTP route/DTO contract. P9.0 semantic changes,
+Research semantic changes, Runtime semantic changes, HTTP contract changes, and DB schema changes are all `0`. K1 implementation is
+**NOT STARTED**.
+
+Local exact verification:
+
+```text
+Focused final-authority tests:              36 passed
+Canonical Architecture Gate:               442 passed
+Strategy lane:                              96 passed
+Research Execution lane:                    49 passed
+Research Command lane:                      42 passed
+Research Product Closure (PostgreSQL):      19 passed
+Research PostgreSQL coverage:               92 passed; total 82.39%
+import-linter contracts:                      3 kept, 0 broken
+ruff check .:                                 PASS
+Core mypy (611 source files):                 PASS
+API mypy (17 source files):                   PASS
+ruff format --check (changed Python):         PASS
+git diff --check:                             PASS
+Unknown facts:                               0
+Unknown actors:                              0
+Ambiguous actors:                            0
+Unauthorized capability holdings:           0
+Unknown privileged reachability:             0
+Duplicate mutation authorities:              0
+Mixed capability violations:                 0
+```
+
+The real PostgreSQL proof used an isolated PostgreSQL server/client `16.10`; it includes backup/restore, API/Worker process boundaries,
+multi-worker claims, lease expiry/fencing, cancellation reconciliation, crash-boundary recovery, external plugin execution, and the
+real Chromium product vertical. No skip, xfail, retry, relaxed assertion, or business-semantic workaround was used. Remote quality CI
+and exact-final-SHA certification are **NOT RUN**; this local closure is not represented as remote certification.
+
+Verdict: **P9.K.0 CLOSED**. Next: **P9.K.1 — Kernel Host & Lifecycle — IMPLEMENTATION READY**. P9.K as a whole is not marked complete,
+and P9.1+ remains blocked until the required P9.K stages complete.

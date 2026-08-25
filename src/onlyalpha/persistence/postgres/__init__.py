@@ -6,9 +6,9 @@ from .migration import (
     DEFAULT_MIGRATION_ROOT as DEFAULT_MIGRATION_ROOT,
 )
 from .migration import OnlyPostgresMigration as OnlyPostgresMigration
-from .migration import OnlyPostgresMigrationAuthority as OnlyPostgresMigrationAuthority
 from .migration import OnlyPostgresSchemaStatus as OnlyPostgresSchemaStatus
 from .migration import OnlyPostgresSchemaVerdict as OnlyPostgresSchemaVerdict
+from .migration import OnlyPostgresSchemaVerifier as OnlyPostgresSchemaVerifier
 from .migration import only_discover_postgres_migrations as only_discover_postgres_migrations
 from .research_deployment_store import (
     OnlyPostgresResearchDeploymentStore as OnlyPostgresResearchDeploymentStore,
@@ -16,7 +16,6 @@ from .research_deployment_store import (
 from .research_execution_store import OnlyPostgresResearchExecutionStore as OnlyPostgresResearchExecutionStore
 from .research_operations_store import OnlyPostgresResearchOperationsStore as OnlyPostgresResearchOperationsStore
 from .research_run_store import OnlyPostgresResearchRunStore as OnlyPostgresResearchRunStore
-from .strategy_store import OnlyPostgresStrategyStore as OnlyPostgresStrategyStore
 from .version import ONLYALPHA_POSTGRES_CLIENT_MAJOR as ONLYALPHA_POSTGRES_CLIENT_MAJOR
 from .version import ONLYALPHA_POSTGRES_SERVER_MAJOR as ONLYALPHA_POSTGRES_SERVER_MAJOR
 from .version import OnlyPostgresServerVersion as OnlyPostgresServerVersion

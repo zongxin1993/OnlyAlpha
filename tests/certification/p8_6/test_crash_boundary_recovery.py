@@ -15,10 +15,10 @@ import pytest
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchRunStore,
 )
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.execution import (
     OnlyResearchExecutionClaim,
     OnlyResearchExecutionOwnershipLostError,

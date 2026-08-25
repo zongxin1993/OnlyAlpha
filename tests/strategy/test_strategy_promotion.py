@@ -5,14 +5,16 @@ import pytest
 
 from onlyalpha.strategy import (
     OnlyFrozenStrategyRevisionStore,
+    OnlyStrategyPromotionError,
+)
+from onlyalpha.strategy.promotion import (
     OnlyInMemoryStrategyPromotionLedger,
     OnlyStrategyPromotionDecision,
-    OnlyStrategyPromotionError,
     OnlyStrategyPromotionRecord,
     OnlyStrategyPromotionService,
     OnlyStrategyPromotionStage,
+    only_verified_strategy_promotion_chain,
 )
-from onlyalpha.strategy.promotion import only_verified_strategy_promotion_chain
 from tests.strategy.p9_support import p9_strategy_case, publish_frozen_strategy_for_execution_test
 
 

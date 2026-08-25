@@ -4,10 +4,10 @@ import psycopg
 import pytest
 
 from onlyalpha.persistence.postgres import (
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresResearchDeploymentStore,
-    OnlyPostgresStrategyStore,
 )
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
 from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentError,
     OnlyResearchDeploymentErrorCode,

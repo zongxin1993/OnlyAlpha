@@ -21,10 +21,10 @@ from psycopg import sql
 
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
 )
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research import (
     OnlyJsonResearchResultStore,
     OnlyParquetResearchCalculationResultStore,

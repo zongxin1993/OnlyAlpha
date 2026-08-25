@@ -15,7 +15,8 @@ from urllib.request import urlopen
 import pytest
 
 from onlyalpha.output import OnlyUserDataLayout
-from onlyalpha.persistence.postgres import OnlyPostgresMigrationAuthority, OnlyPostgresResearchRunStore
+from onlyalpha.persistence.postgres import OnlyPostgresResearchRunStore
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.run import OnlyResearchRunId
 from scripts.database import _initialize_deployment

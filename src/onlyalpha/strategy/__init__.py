@@ -30,14 +30,6 @@ from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 # stays behind ``onlyalpha.strategy.freeze`` so importing the lightweight
 # Strategy contract from the trading runtime cannot initialize Research and
 # form a Cluster -> Strategy -> Research -> MarketData -> Cluster cycle.
-from onlyalpha.strategy.promotion import (
-    OnlyInMemoryStrategyPromotionLedger,
-    OnlyStrategyPromotionDecision,
-    OnlyStrategyPromotionLedger,
-    OnlyStrategyPromotionRecord,
-    OnlyStrategyPromotionService,
-    OnlyStrategyPromotionStage,
-)
 from onlyalpha.strategy.revision import (
     STRATEGY_REVISION_SCHEMA_VERSION,
     OnlyStrategyDataKind,

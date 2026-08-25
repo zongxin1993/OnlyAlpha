@@ -15,11 +15,11 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchRunStore,
 )
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.artifact.store import OnlyParquetResearchArtifactStore
 from onlyalpha.research.calculation.execution_evidence import (
     OnlyResearchCalculationExecutionEvidenceStore,

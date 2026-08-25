@@ -21,12 +21,14 @@ from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     ONLYALPHA_POSTGRES_CLIENT_MAJOR,
     OnlyPostgresConfig,
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
+    OnlyPostgresSchemaVerifier,
     only_assert_supported_postgres_server,
+    only_discover_postgres_migrations,
 )
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreIdentity
 from onlyalpha.research.run import OnlyResearchRunId
 
@@ -35,8 +37,12 @@ def _authority(dsn: str) -> OnlyPostgresMigrationAuthority:
     return OnlyPostgresMigrationAuthority(dsn)
 
 
-def _status_payload(authority: OnlyPostgresMigrationAuthority) -> dict[str, object]:
-    status = authority.status()
+def _verifier(dsn: str) -> OnlyPostgresSchemaVerifier:
+    return OnlyPostgresSchemaVerifier(dsn)
+
+
+def _status_payload(verifier: OnlyPostgresSchemaVerifier) -> dict[str, object]:
+    status = verifier.status()
     return {
         "verdict": status.verdict.value,
         "compatible": status.compatible,
@@ -114,7 +120,7 @@ def _metadata_path(backup: Path) -> Path:
 
 
 def _backup(dsn: str, destination: Path) -> Path:
-    _authority(dsn).assert_compatible()
+    _verifier(dsn).assert_compatible()
     server = only_assert_supported_postgres_server(dsn)
     dump_version = _assert_client_major("pg_dump")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -123,7 +129,6 @@ def _backup(dsn: str, destination: Path) -> Path:
         env=_client_environment(dsn),
         check=True,
     )
-    authority = _authority(dsn)
     metadata = {
         "schema_version": 1,
         "backup_sha256": _sha256(destination),
@@ -134,7 +139,7 @@ def _backup(dsn: str, destination: Path) -> Path:
         "pg_dump_version": dump_version,
         "migrations": [
             {"migration_id": item.migration_id, "checksum_sha256": item.checksum_sha256}
-            for item in authority.migrations
+            for item in only_discover_postgres_migrations()
         ],
     }
     metadata_path = _metadata_path(destination)
@@ -170,16 +175,16 @@ def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | 
         env=_client_environment(target_dsn),
         check=True,
     )
-    _authority(target_dsn).assert_compatible()
+    _verifier(target_dsn).assert_compatible()
     if run_id is not None:
         selected = OnlyResearchRunId(run_id)
         OnlyPostgresResearchRunStore(target_dsn).load(selected)
         OnlyPostgresResearchOperationsStore(target_dsn).load_operational_snapshot(run_id=selected, limit=1)
-    _authority(source_dsn).assert_compatible()
+    _verifier(source_dsn).assert_compatible()
 
 
 def _validate(dsn: str, run_id: str | None) -> None:
-    _authority(dsn).assert_compatible()
+    _verifier(dsn).assert_compatible()
     only_assert_supported_postgres_server(dsn)
     selected = None if run_id is None else OnlyResearchRunId(run_id)
     snapshot = OnlyPostgresResearchOperationsStore(dsn).load_operational_snapshot(run_id=selected, limit=100)
@@ -188,7 +193,7 @@ def _validate(dsn: str, run_id: str | None) -> None:
 
 
 def _initialize_deployment(dsn: str, user_data_root: Path) -> str:
-    _authority(dsn).assert_compatible()
+    _verifier(dsn).assert_compatible()
     only_assert_supported_postgres_server(dsn)
     layout = OnlyUserDataLayout(user_data_root)
     identity = OnlyResearchSemanticStoreIdentity(layout.research_root).initialize()
@@ -224,9 +229,10 @@ def main() -> int:
     args = parser.parse_args()
     dsn = OnlyPostgresConfig.from_environment(args.dsn_env).dsn
     authority = _authority(dsn)
+    verifier = _verifier(dsn)
     if args.command == "status":
-        print(json.dumps(_status_payload(authority), sort_keys=True))
-        return 0 if authority.status().compatible else 2
+        print(json.dumps(_status_payload(verifier), sort_keys=True))
+        return 0 if verifier.status().compatible else 2
     if args.command == "plan":
         print(
             json.dumps(

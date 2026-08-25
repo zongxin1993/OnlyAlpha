@@ -17,11 +17,6 @@ from .runtime_inspection import (
     OnlyStreamingRuntimeInspectionSnapshot,
     OnlySubscriptionInspection,
 )
-from .strategy_authority import (
-    OnlyStrategyFreezeApplicationService,
-    OnlyStrategyFreezeProjectionReconciliationApplicationService,
-    OnlyStrategyPromotionApplicationService,
-)
 
 __all__ = [
     "OnlyEngineApplicationRunner",
@@ -32,9 +27,6 @@ __all__ = [
     "OnlyHistoricalWarmupInspection",
     "OnlyRuntimeLifecycleKind",
     "OnlyStreamingRuntimeInspectionSnapshot",
-    "OnlyStrategyFreezeApplicationService",
-    "OnlyStrategyFreezeProjectionReconciliationApplicationService",
-    "OnlyStrategyPromotionApplicationService",
     "OnlySubscriptionInspection",
     "only_engine_lifecycle_kind",
 ]

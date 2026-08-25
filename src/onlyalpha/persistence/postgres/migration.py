@@ -64,7 +64,7 @@ def only_discover_postgres_migrations(root: Path = DEFAULT_MIGRATION_ROOT) -> tu
     return migrations
 
 
-class OnlyPostgresMigrationAuthority:
+class _OnlyPostgresSchemaHistoryEvaluator:
     def __init__(self, dsn: str, *, migration_root: Path = DEFAULT_MIGRATION_ROOT) -> None:
         self._dsn = dsn
         self._migrations = only_discover_postgres_migrations(migration_root)
@@ -123,14 +123,47 @@ class OnlyPostgresMigrationAuthority:
         if not status.compatible:
             raise OnlyPostgresSchemaIncompatibleError(f"{status.verdict}: {status.detail}")
 
+    def _status(
+        self, verdict: OnlyPostgresSchemaVerdict, applied: tuple[tuple[str, str], ...], detail: str
+    ) -> OnlyPostgresSchemaStatus:
+        repository = tuple(item.migration_id for item in self._migrations)
+        return OnlyPostgresSchemaStatus(
+            verdict,
+            repository,
+            tuple(item[0] for item in applied),
+            repository[len(applied) :] if tuple(item[0] for item in applied) == repository[: len(applied)] else (),
+            detail,
+        )
+
+
+class OnlyPostgresSchemaVerifier:
+    """Read-only PostgreSQL schema compatibility capability."""
+
+    def __init__(self, dsn: str, *, migration_root: Path = DEFAULT_MIGRATION_ROOT) -> None:
+        self._history = _OnlyPostgresSchemaHistoryEvaluator(dsn, migration_root=migration_root)
+
+    def status(self) -> OnlyPostgresSchemaStatus:
+        return self._history.status()
+
+    def assert_compatible(self) -> None:
+        self._history.assert_compatible()
+
+
+class OnlyPostgresMigrationAuthority:
+    """Explicit operator-only PostgreSQL schema mutation capability."""
+
+    def __init__(self, dsn: str, *, migration_root: Path = DEFAULT_MIGRATION_ROOT) -> None:
+        self._dsn = dsn
+        self._history = _OnlyPostgresSchemaHistoryEvaluator(dsn, migration_root=migration_root)
+
     def plan(self) -> tuple[OnlyPostgresMigration, ...]:
-        status = self.status()
+        status = self._history.status()
         if status.verdict not in {OnlyPostgresSchemaVerdict.LEDGER_MISSING, OnlyPostgresSchemaVerdict.BEHIND}:
             if status.verdict is OnlyPostgresSchemaVerdict.COMPATIBLE:
                 return ()
             raise OnlyPostgresMigrationIntegrityError(status.detail)
         applied_count = len(status.applied_migrations)
-        return self._migrations[applied_count:]
+        return self._history.migrations[applied_count:]
 
     def migrate(self) -> tuple[str, ...]:
         try:
@@ -147,7 +180,7 @@ class OnlyPostgresMigrationAuthority:
                                 "INSERT INTO onlyalpha_schema_migration (migration_id, checksum_sha256) VALUES (%s, %s)",
                                 (migration.migration_id, migration.checksum_sha256),
                             )
-                    self.assert_compatible()
+                    self._history.assert_compatible()
                     return tuple(item.migration_id for item in pending)
                 finally:
                     connection.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
@@ -155,18 +188,6 @@ class OnlyPostgresMigrationAuthority:
             raise OnlyResearchRunStoreUnavailableError("PostgreSQL migration unavailable") from exc
         except psycopg.Error as exc:
             raise OnlyPostgresMigrationIntegrityError("PostgreSQL migration transaction failed") from exc
-
-    def _status(
-        self, verdict: OnlyPostgresSchemaVerdict, applied: tuple[tuple[str, str], ...], detail: str
-    ) -> OnlyPostgresSchemaStatus:
-        repository = tuple(item.migration_id for item in self._migrations)
-        return OnlyPostgresSchemaStatus(
-            verdict,
-            repository,
-            tuple(item[0] for item in applied),
-            repository[len(applied) :] if tuple(item[0] for item in applied) == repository[: len(applied)] else (),
-            detail,
-        )
 
 
 __all__ = [name for name in globals() if name.startswith(("Only", "only_", "DEFAULT_"))]

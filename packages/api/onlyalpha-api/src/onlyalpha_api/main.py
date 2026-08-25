@@ -17,10 +17,10 @@ from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
+    OnlyPostgresSchemaVerifier,
     only_assert_supported_postgres_server,
 )
 from onlyalpha.plugin.discovery import only_discover_plugins
@@ -66,7 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     operational_options = OnlyPostgresOperationalConnectionOptions()
     operational_dsn = postgres.operational_dsn(operational_options)
     only_assert_supported_postgres_server(operational_dsn)
-    OnlyPostgresMigrationAuthority(operational_dsn).assert_compatible()
+    schema = OnlyPostgresSchemaVerifier(operational_dsn)
+    schema.assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
     run_store = OnlyPostgresResearchRunStore(postgres.dsn, operational_options)
     calculations = _calculation_registry()
@@ -96,7 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         calculations,
         OnlyResearchDefinitionResolver(calculations, dataset_store),
         OnlyResearchServiceReadinessProbe(
-            schema_status=lambda: OnlyPostgresMigrationAuthority(operational_dsn).status(),
+            schema_status=schema.status,
             deployment_check=deployment.assert_compatible,
             required_roots=(
                 OnlyResearchRequiredRoot("artifact_root", layout.research_artifact_root, False),

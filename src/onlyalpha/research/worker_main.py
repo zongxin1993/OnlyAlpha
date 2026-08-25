@@ -17,12 +17,12 @@ from onlyalpha.core.clock import only_system_utc_now
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
+    OnlyPostgresSchemaVerifier,
     only_assert_supported_postgres_server,
 )
 from onlyalpha.research.artifact.reader import OnlyResearchArtifactProfileReader
@@ -79,8 +79,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     operational_options = OnlyPostgresOperationalConnectionOptions()
     operational_dsn = postgres.operational_dsn(operational_options)
     only_assert_supported_postgres_server(operational_dsn)
-    migrations = OnlyPostgresMigrationAuthority(operational_dsn)
-    migrations.assert_compatible()
+    schema = OnlyPostgresSchemaVerifier(operational_dsn)
+    schema.assert_compatible()
     layout = OnlyUserDataLayout(args.user_data_root)
     deployment = OnlyResearchDeploymentCoherenceVerifier(
         OnlyResearchSemanticStoreIdentity(layout.research_root),
@@ -97,7 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     services = only_default_engine_services(fail_fast=True)
     calculations = services.assembler.components.calculations
     readiness = OnlyResearchServiceReadinessProbe(
-        schema_status=migrations.status,
+        schema_status=schema.status,
         deployment_check=deployment.verify,
         required_roots=tuple(
             OnlyResearchRequiredRoot(name, path, True)

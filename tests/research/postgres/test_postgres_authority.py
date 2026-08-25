@@ -26,14 +26,15 @@ from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresConfig,
-    OnlyPostgresMigrationAuthority,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchExecutionStore,
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerdict,
+    OnlyPostgresSchemaVerifier,
 )
+from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.research.command import OnlyResearchRunPageCursor, OnlyResearchSubmissionKey
 from onlyalpha.research.execution import (
     OnlyResearchExecutionClaim,
@@ -329,14 +330,15 @@ def test_operator_cli_reads_deterministic_run_attempt_audit_without_secret(
 
 def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_dsn: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    before = authority.status()
+    verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
+    before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
     assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
-        authority.assert_compatible()
+        verifier.assert_compatible()
 
     assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
-    assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
+    assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
 
@@ -350,10 +352,10 @@ def test_operator_status_plan_and_migrate_are_explicit_and_secret_safe(
     assert "onlyalpha_test" not in capsys.readouterr().out
     monkeypatch.setattr("sys.argv", ["database.py", "plan"])
     assert database_main() == 0
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).status().verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
+    assert OnlyPostgresSchemaVerifier(postgres_dsn).status().verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
     monkeypatch.setattr("sys.argv", ["database.py", "migrate"])
     assert database_main() == 0
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
+    assert OnlyPostgresSchemaVerifier(postgres_dsn).status().compatible
 
 
 def test_operator_explicitly_initializes_and_binds_new_semantic_store(
@@ -399,7 +401,10 @@ def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Pat
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
-    assert tampered.status().verdict is OnlyPostgresSchemaVerdict.CHECKSUM_MISMATCH
+    assert (
+        OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=tmp_path).status().verdict
+        is OnlyPostgresSchemaVerdict.CHECKSUM_MISMATCH
+    )
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         tampered.plan()
 
@@ -409,7 +414,7 @@ def test_unknown_database_history_is_ahead(postgres_dsn: str) -> None:
     authority.migrate()
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("INSERT INTO onlyalpha_schema_migration VALUES (%s, %s)", ("9999_unknown", "f" * 64))
-    assert authority.status().verdict is OnlyPostgresSchemaVerdict.AHEAD
+    assert OnlyPostgresSchemaVerifier(postgres_dsn).status().verdict is OnlyPostgresSchemaVerdict.AHEAD
 
 
 def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_dsn: str, tmp_path: Path) -> None:
@@ -418,10 +423,11 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
     run = _insert_legacy_queued(postgres_dsn, _queued("00000000-0000-4000-8000-000000000020"))
 
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
-    assert authority.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
+    verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
+    assert verifier.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
     assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
-    assert authority.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
+    assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
 
 
@@ -448,10 +454,11 @@ def test_invalid_existing_m1_fact_blocks_m2_without_repair(postgres_dsn: str, tm
 
 def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_dsn: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
+    verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
     authority.migrate()
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
-    before = authority.status()
+    before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
     assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
     assert before.pending_migrations == ()
@@ -460,8 +467,8 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.migrate()
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
-        authority.assert_compatible()
-    assert authority.status() == before
+        verifier.assert_compatible()
+    assert verifier.status() == before
 
 
 def test_known_history_hole_diverges(postgres_dsn: str, tmp_path: Path) -> None:
@@ -471,7 +478,10 @@ def test_known_history_hole_diverges(postgres_dsn: str, tmp_path: Path) -> None:
     authority.migrate()
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M2,))
-    assert authority.status().verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
+    assert (
+        OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=tmp_path).status().verdict
+        is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
+    )
 
 
 def test_repository_prepend_before_applied_history_diverges(postgres_dsn: str, tmp_path: Path) -> None:
@@ -484,7 +494,7 @@ def test_repository_prepend_before_applied_history_diverges(postgres_dsn: str, t
     (changed_root / "0000_illegal_prepend.sql").write_text("SELECT 1;\n", encoding="utf-8")
     _copy_migrations(changed_root, M1)
     assert (
-        OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=changed_root).status().verdict
+        OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=changed_root).status().verdict
         is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
     )
 
@@ -496,7 +506,7 @@ def test_failed_migration_rolls_back_schema_and_ledger_atomically(postgres_dsn: 
     )
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
-    status = OnlyPostgresMigrationAuthority(postgres_dsn).status()
+    status = OnlyPostgresSchemaVerifier(postgres_dsn).status()
     assert status.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
     with psycopg.connect(postgres_dsn) as connection:
         assert connection.execute("SELECT to_regclass('public.must_rollback')").fetchone() == (None,)
@@ -512,7 +522,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
     assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)]
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).status().compatible
+    assert OnlyPostgresSchemaVerifier(postgres_dsn).status().compatible
 
 
 def test_create_reload_same_spec_multiple_runs_and_canonical_integrity(postgres_dsn: str) -> None:

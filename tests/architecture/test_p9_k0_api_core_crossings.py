@@ -83,10 +83,10 @@ EXPECTED_API_CORE_CROSSINGS = {
         onlyalpha.market.product.OnlyMarketProductFactoryRegistry
         onlyalpha.output.user_data.OnlyUserDataLayout
         onlyalpha.persistence.postgres.OnlyPostgresConfig
-        onlyalpha.persistence.postgres.OnlyPostgresMigrationAuthority
         onlyalpha.persistence.postgres.OnlyPostgresOperationalConnectionOptions
         onlyalpha.persistence.postgres.OnlyPostgresResearchDeploymentStore
         onlyalpha.persistence.postgres.OnlyPostgresResearchRunStore
+        onlyalpha.persistence.postgres.OnlyPostgresSchemaVerifier
         onlyalpha.persistence.postgres.only_assert_supported_postgres_server
         onlyalpha.plugin.discovery.only_discover_plugins
         onlyalpha.research.artifact.reader.OnlyResearchArtifactProfileReader

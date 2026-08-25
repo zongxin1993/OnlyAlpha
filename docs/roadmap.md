@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.0.1.2 — Authority Guard Soundness & K1 Preflight Closure — DONE / VERIFIED
+Current Increment: P9.K.0 — Architecture Freeze & Final Authority Closure — DONE / VERIFIED
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -33,7 +33,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.1 — Kernel Host & Lifecycle; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.1 — Kernel Host & Lifecycle — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -772,15 +772,16 @@ P9.0 exact subject `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` 已通过完整 Ta
 
 ### P9.K — Stateful Kernel & Protocol Boundary
 
-P9.0 semantic foundation 保持不变。**P9.K.0.1.2 — Authority Guard Soundness & K1 Preflight Closure** 已完成 K0.x
-最终机械封口：guarded repository scan 以路径解析 absolute/relative/alias import；Worker broad aggregator、protected constructor wildcard
-和全部 API→Core direct crossing 均 exact/fail-closed 冻结；真实 PostgreSQL 16.10 product/coverage baseline 已恢复，canonical Architecture
-Gate 已作为独立 normal CI 必需 job。该 closure 不实现 Kernel Host，不新增 Product API endpoint，也不修改 production semantic code、HTTP
-contract 或 database schema。
+P9.0 semantic foundation 保持不变。**P9.K.0 — Architecture Freeze & Final Authority Closure** 已完成并通过本地严格验证：单一 TOML
+authority contract 冻结 13 个事实、18 个 privileged capability 和 16 个 production actor class；forward reachability、reverse exact
+holder audit 与 concrete constructor ownership 均 fail closed。PostgreSQL schema verify/migrate capability 已结构性拆分，API/Worker
+只能验证，operator 是唯一 migration composer。真实 PostgreSQL 16.10 product/coverage、canonical Architecture Gate 及受影响语义 lane
+均通过。该 closure 不实现 Kernel Host，不新增 Product API endpoint，也不修改 P9.0/Research/Runtime 业务语义、HTTP contract 或 database
+schema；remote quality CI 与 Final-SHA certification 未运行。
 
 P9.K.0 的审计产物见
 [`reports/p9_k0_product_surface_inventory.md`](reports/p9_k0_product_surface_inventory.md)。唯一正式 Architecture Gate 由 canonical
-`architecture` lane 执行。下一 increment 是 **P9.K.1 — Kernel Host & Lifecycle**。原 P9.1+ production vertical 在 P9.K 完整闭环前
+`architecture` lane 执行。下一 increment 是 **P9.K.1 — Kernel Host & Lifecycle — IMPLEMENTATION READY**。P9.K 整体尚未完成；原 P9.1+ production vertical 在 P9.K 完整闭环前
 保持 blocked，不得绕过 Product Control Plane 方向继续增加 direct external mutation path。
 
 ### 长期 Strategy Product 参考方向
