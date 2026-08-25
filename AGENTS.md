@@ -288,9 +288,22 @@ OnlyAlpha 正式支持整个市场
 
 ---
 
-## 5. 唯一产品入口
+## 5. 当前内部执行入口与目标外部产品入口
 
-`OnlyEngine` 是唯一产品级运行入口。
+当前内部执行/Runtime 组合权威仍是 `OnlyEngine`。它是当前源码中唯一合法的内部 Engine 执行入口，但不再被定义为长期外部产品控制合同。
+
+目标唯一外部产品 mutation/control contract 是 versioned OpenAPI Product Control Plane：
+
+```text
+External Product Actor
+→ OpenAPI Product Contract
+→ HTTP Adapter
+→ Application Command / Query
+→ Stateful Kernel / Application Authority
+→ OnlyEngine / Runtime（内部执行与组合）
+```
+
+P9.K 迁移期间，已审计的 direct external `OnlyEngine` 使用属于有限 known migration debt；只能按 K6 迁移并在 K8 封口，不得新增等价的 direct Engine/Runtime 产品入口。P9.K.0 只冻结该边界，不实现 Kernel Host。
 
 正式产品调用链：
 
@@ -304,7 +317,7 @@ CLI / Application
 → OnlyCluster
 ```
 
-该调用链描述当前 Trading Runtime 产品入口。目标 Research Runtime 仍由 `OnlyEngine` 管理产品生命周期，但使用 Research Job / Plan，而不是伪造 Trading Cluster；在 Research 产品入口正式实现前不得据此新增生产框架。
+该调用链描述当前内部 Trading Runtime 执行/组合入口。目标 Research Runtime 仍由 `OnlyEngine` 管理内部产品生命周期，但使用 Research Job / Plan，而不是伪造 Trading Cluster；外部产品 Actor 最终必须经 Product Control Plane 提交 intent/query，不得据此新增 direct Engine/Runtime 生产框架。
 
 允许的主要入口：
 

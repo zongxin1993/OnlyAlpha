@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.0 Closure-3 — Evidence Soundness & Publication Convergence / IMPLEMENTED / LOCAL DETERMINISTIC GATES PASS / REMOTE CERTIFICATION NOT RUN
+Current Increment: P9.K.0 — Product Authority Surface Inventory & Architecture Freeze
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -33,7 +33,8 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: run the unavailable PostgreSQL gates and any separately authorized remote certification before planning P9.1
+Next Semantic Direction: P9.K.1 — Kernel Host & Lifecycle; P9.1+ blocked until P9.K closure
+P9.1+ Status: BLOCKED until P9.K closure
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -768,6 +769,17 @@ P9.0 exact subject `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` 已通过完整 Ta
 `ACCEPTED`。因此 P9.0 为 `DONE / CERTIFIED`，P9 整体仍为 `IN_PROGRESS`。后续 P9.1 必须从届时 Repository truth 重新审计，
 不得反向扩大本次认证的 P9.0 产品合同。详细证据见
 [`reports/p9_0_closure_2_authority_hardening_and_final_certification.md`](reports/p9_0_closure_2_authority_hardening_and_final_certification.md)。
+
+### P9.K — Stateful Kernel & Protocol Boundary
+
+P9.0 semantic foundation 保持不变。当前 architecture increment 是 **P9.K.0 — Product Authority Surface Inventory & Architecture
+Freeze**：审计并分类现存 Product/Control/Mutation、Operator/Infrastructure 与 Test surface，冻结 direct Engine/Runtime、console
+entrypoint、transport 和 publication capability 的已知集合；不实现 Kernel Host，也不新增 Product API endpoint。
+
+P9.K.0 的审计产物见
+[`reports/p9_k0_product_surface_inventory.md`](reports/p9_k0_product_surface_inventory.md)。下一 increment 是 **P9.K.1 — Kernel Host &
+Lifecycle**。原 P9.1+ production vertical 在 P9.K 完整闭环前保持 blocked，不得绕过 Product Control Plane 方向继续增加 direct external
+mutation path。
 
 ### 长期 Strategy Product 参考方向
 

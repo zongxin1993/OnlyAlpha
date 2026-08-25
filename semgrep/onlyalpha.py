@@ -1,7 +1,7 @@
-from datetime import datetime
 import os
 import random
 import time
+from datetime import datetime
 
 # ruleid: onlyalpha-xtquant-only-inside-miniqmt-adapter
 import xtquant
