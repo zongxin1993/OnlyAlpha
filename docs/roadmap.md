@@ -22,8 +22,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.3 — Unified Product HTTP Control Plane — DONE / VERIFIED (worktree)
-P9.K.3 Task Base: 7a80bb405c43f8662d253a2264c044bb30a4379c; closure SHA pending commit
+Current Increment: P9.K.4 — OpenAPI Contract Governance — DONE / VERIFIED (worktree)
+P9.K.4 Task Base: d9713159eeb2e3dcc294d1dbd456e7332ef2cbac; closure SHA pending commit
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -34,7 +34,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.4 — OpenAPI Contract Governance — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -814,6 +814,16 @@ Idempotency-Key、202/Location、分页、错误与 canonical OpenAPI 语义不�
 verified PostgreSQL 16.10 与未来 PostgreSQL 18.x target，迁移仍为 PLANNED / NOT YET VERIFIED。P9.K.3 为 **DONE / VERIFIED
 (worktree)**；P9.K.4 为 **IMPLEMENTATION READY**，P9.K 整体仍未完成。证据见
 [`reports/p9_k3_product_http_control_plane.md`](reports/p9_k3_product_http_control_plane.md)。
+
+**P9.K.4 — OpenAPI Contract Governance** 已在基于
+`d9713159eeb2e3dcc294d1dbd456e7332ef2cbac` 的 worktree 完成 Task Gate：FastAPI Routes + API DTO 保持唯一 authoring authority，
+canonical v2 projection 保持唯一且 bytes 不变；exact contract revision 使用 canonical SHA256，accepted baseline 只从 exact immutable
+Git revision 加载。单一 governance command 完成 deterministic render/check、structural/policy lint、old-client→new-server compatibility
+comparison 与 pinned generated TypeScript freshness；v2 breaking change、无效/缺失 baseline、stale projection/client 均 fail closed，且无
+waiver flag。独立 `openapi-contract` CI job 对 PR base 或 previous master 执行机械验证。Research/P9.0、HTTP、数据库 schema/migration、
+PostgreSQL 18、v3、K5/K6/K7 均未改变或启动。证据见
+[`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md)。P9.K.4 为 **DONE / VERIFIED
+(worktree)**；P9.K.5 为 **IMPLEMENTATION READY**。
 
 ### 长期 Strategy Product 参考方向
 

@@ -19,7 +19,7 @@ are canonical fixed strings or null. Query Core schema remains 1, while top-leve
 Error bodies are `{schema_version, code, detail}` with invalid query=400, missing identity=404, and corrupt verified Artifact=500.
 
 The deterministic OpenAPI contract is `contracts/research-api/v2/openapi.json`, generated from FastAPI by
-`scripts/export_research_openapi.py`. `apps/onlyalpha-web` generates compile-time transport types from it and separately performs
+`scripts/openapi_contract.py`. `apps/onlyalpha-web` generates compile-time transport types from it and separately performs
 strict Zod admission before mapping timestamps to `bigint`. There are no v1 product routes or compatibility wrapper.
 
 The API is read-only and exact-addressed. It has no catalog/search/latest endpoint, mutation, raw Parquet download, query cache,

@@ -1,72 +1,14 @@
+"""Backward-compatible wrapper for the single OpenAPI governance command."""
+
 from __future__ import annotations
 
-import argparse
-import json
 from collections.abc import Sequence
-from pathlib import Path
-from typing import cast
 
-from onlyalpha_api import create_research_app
-from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
-
-from onlyalpha.application.product_boundary import only_compose_research_product_boundary
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.kernel import OnlyAlphaKernelHost
-from onlyalpha.research.artifact.model import OnlyResearchArtifact
-from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
-from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
-from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
-
-ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = ROOT / "contracts/research-api/v2/openapi.json"
-
-
-class _ContractReader:
-    def load_verified(self, research_result_fingerprint: str) -> OnlyResearchArtifact:
-        raise RuntimeError(f"OpenAPI generation must not load Artifact {research_result_fingerprint}")
-
-
-class _ContractDatasetResolver:
-    def resolve_verified(self, definition: object) -> object:
-        raise RuntimeError(f"OpenAPI generation must not resolve Dataset {definition}")
-
-
-def rendered_contract() -> str:
-    calculations = OnlyCalculationRegistry()
-    kernel = OnlyAlphaKernelHost()
-    kernel.start()
-    try:
-        app = create_research_app(
-            _ContractReader(),
-            only_compose_research_product_boundary(
-                admission=kernel,
-                commands=cast(OnlyResearchCommandService, object()),
-                queries=cast(OnlyResearchRunQueryService, object()),
-            ),
-            calculations,
-            OnlyResearchDefinitionResolver(calculations, _ContractDatasetResolver()),  # type: ignore[arg-type]
-            OnlyKernelResearchReadinessProjection(
-                kernel,
-                OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ()),
-            ),
-        )
-        return json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    finally:
-        kernel.stop()
+from openapi_contract import main as governance_main
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("write", "check"))
-    args = parser.parse_args(argv)
-    rendered = rendered_contract()
-    if args.mode == "write":
-        CONTRACT.parent.mkdir(parents=True, exist_ok=True)
-        CONTRACT.write_text(rendered, encoding="utf-8")
-        return 0
-    if not CONTRACT.is_file() or CONTRACT.read_text(encoding="utf-8") != rendered:
-        raise SystemExit("Research API OpenAPI contract is stale; run export_research_openapi.py write")
-    return 0
+    return governance_main(argv)
 
 
 if __name__ == "__main__":

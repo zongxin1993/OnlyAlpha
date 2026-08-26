@@ -490,6 +490,9 @@ actor = "T01"
 pattern = "scripts/export_research_openapi.py"
 actor = "T02"
 [[actor_paths]]
+pattern = "scripts/openapi_contract.py"
+actor = "T02"
+[[actor_paths]]
 pattern = "scripts/pytest_metrics.py"
 actor = "T01"
 [[actor_paths]]
@@ -671,7 +674,7 @@ approved_paths = ["src/onlyalpha/runtime/sim/factory.py"]
 id = "K12"
 capability = "C17"
 symbol = "onlyalpha.kernel.host.OnlyAlphaKernelHost"
-approved_paths = ["packages/api/onlyalpha-api/src/onlyalpha_api/main.py", "scripts/export_research_openapi.py"]
+approved_paths = ["packages/api/onlyalpha-api/src/onlyalpha_api/main.py", "scripts/openapi_contract.py"]
 [[constructors]]
 id = "K13"
 capability = "C18"

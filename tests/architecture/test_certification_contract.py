@@ -142,10 +142,11 @@ def test_quality_and_certification_require_every_authoritative_lock_dependency_a
         assert 'scanner-version "2.5.0"' in workflow
         assert "continue-on-error" not in workflow
     assert (
-        "needs: [static, architecture, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, "
+        "needs: [static, architecture, openapi-contract, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, "
         "research-postgres, build, web]" in quality
     )
     assert '"$ARCHITECTURE_RESULT" = success' in quality
+    assert '"$OPENAPI_CONTRACT_RESULT" = success' in quality
     assert '"$DEPENDENCY_AUDIT_RESULT" = success' in quality
     assert (
         "needs: [subject, static, build, web, lanes, research-postgres, coverage, semgrep, dependency-audit, codeql]"

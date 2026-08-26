@@ -271,8 +271,16 @@ IMPACT_RULES = (
     ),
     VerificationImpactRule(
         "research-api-web-contract",
-        ("packages/api/onlyalpha-api/", "contracts/research-api/v2/"),
-        ("scripts/export_research_openapi.py",),
+        (
+            "packages/api/onlyalpha-api/",
+            "contracts/research-api/v2/",
+            "tests/contracts/",
+        ),
+        (
+            "scripts/export_research_openapi.py",
+            "scripts/openapi_contract.py",
+            "tests/architecture/test_p9_k4_openapi_governance.py",
+        ),
         (OnlyTestLane.RESEARCH_QUERY, OnlyTestLane.RESEARCH_COMMAND),
         WEB_CHECKS,
         VerificationEscalation.COMPONENT,

@@ -60,7 +60,7 @@ def test_kernel_host_and_product_dispatchers_have_exact_composition_sites() -> N
     lifecycle = next(item for item in CONTRACT.constructors.values() if item.capability == "C17")
     command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")
     production_path = "packages/api/onlyalpha-api/src/onlyalpha_api/main.py"
-    tooling_path = "scripts/export_research_openapi.py"
+    tooling_path = "scripts/openapi_contract.py"
     assert CONSTRUCTOR_SITES[lifecycle.id] == {production_path, tooling_path}
     assert CONTRACT.classify_path(production_path).production
     assert not CONTRACT.classify_path(tooling_path).production

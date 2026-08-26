@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED; K3 DONE / VERIFIED (worktree); K4 IMPLEMENTATION READY**
+> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED; K3 DONE / VERIFIED; K4 DONE / VERIFIED (worktree); K5 IMPLEMENTATION READY**
 
 ---
 
@@ -1065,6 +1065,23 @@ Turn OpenAPI from generated documentation into an explicit product compatibility
 ### Exit
 
 Public compatibility changes are mechanical and reviewable.
+
+### K4 implementation and closure evidence (2026-08-26)
+
+FastAPI Routes + API DTO remain the one public authoring authority. The one committed v2 projection remains
+`contracts/research-api/v2/openapi.json`; its exact revision is external SHA256 over deterministic canonical bytes. Historical accepted
+baseline is loaded only from `<BASE_SHA>:contracts/research-api/v2/openapi.json`, so candidate and baseline cannot be changed together.
+
+`scripts/openapi_contract.py` is the single governance implementation for write/check, structural and OnlyAlpha policy lint, immutable
+Git baseline loading, explicit old-client→new-server compatibility comparison and pinned Web client freshness. The old exporter is a thin
+delegating wrapper. v2 path/operation/request/response/`operationId`/strict response-enum breaks fail closed without a waiver flag. A
+dedicated CI job uses PR base SHA or previous master SHA; manual dispatch uses the explicit parent bootstrap baseline.
+
+K4 preserves canonical OpenAPI SHA256
+`c72395d6b9ba921c7e286f45e9b41ba0dbce7de3008fbdd76519d66d768f8b0e` and generated TypeScript SHA256
+`7f9be5af016ae6685a03818056027a1dee88a1ab37334f4f9d5530e3e16b13fd`. It changes no HTTP, Research/P9.0, database or PostgreSQL
+semantics and does not start v3 or K5/K6/K7. Task Gate and reverse-audit evidence is recorded in
+[`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md).
 
 ---
 

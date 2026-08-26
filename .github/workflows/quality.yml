@@ -54,6 +54,51 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: uv run python scripts/test_suite.py architecture
 
+  openapi-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/onlyalpha-web/package-lock.json
+      - run: uv sync --frozen --all-packages --all-groups
+      - run: npm ci
+        working-directory: apps/onlyalpha-web
+      - id: baseline
+        name: Select immutable compatibility baseline
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            base_sha="$PUSH_BEFORE_SHA"
+            if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+              echo "A master push without a previous revision has no accepted compatibility baseline" >&2
+              exit 1
+            fi
+          else
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+          case "$base_sha" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+            *) echo "Invalid OpenAPI compatibility baseline" >&2; exit 1 ;;
+          esac
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+      - run: uv run python scripts/openapi_contract.py verify --base "${{ steps.baseline.outputs.sha }}"
+      - run: uv run pytest tests/contracts/test_openapi_contract.py -q
+
   pr-lanes:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -300,13 +345,14 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, architecture, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, research-postgres, build, web]
+    needs: [static, architecture, openapi-contract, semgrep, dependency-audit, coverage, pr-lanes, main-lanes, research-postgres, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
+          OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
@@ -315,4 +361,4 @@ jobs:
           POSTGRES_RESULT: ${{ needs.research-postgres.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$COVERAGE_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)

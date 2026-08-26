@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -181,7 +182,15 @@ FORBIDDEN_ROOT_MUTATION_CAPABILITIES = {
 
 def _console_entry_points() -> set[tuple[str, str, str]]:
     result: set[tuple[str, str, str]] = set()
-    for path in sorted(ROOT.rglob("pyproject.toml")):
+    listed = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*pyproject.toml"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for relative_path in sorted(filter(None, listed.stdout.splitlines())):
+        path = ROOT / relative_path
         document = tomllib.loads(path.read_text(encoding="utf-8"))
         scripts = document.get("project", {}).get("scripts", {})
         assert isinstance(scripts, dict)

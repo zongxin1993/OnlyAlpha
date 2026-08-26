@@ -13,8 +13,9 @@ submission mapping. Run list pagination is deterministic keyset pagination. The 
 facts, returns Result/Artifact content, enables wildcard CORS, or performs database migration.
 
 The deterministic contract is generated at `contracts/research-api/v2/openapi.json` with
-`uv run python scripts/export_research_openapi.py write|check`. Browser transport types are generated from that file and admitted through
-strict Zod schemas before exact integers are converted to `bigint`.
+`uv run python scripts/openapi_contract.py write|check`. Formal compatibility verification uses
+`uv run python scripts/openapi_contract.py verify --base <immutable-git-sha>`; v2 breaking changes fail closed. Browser transport types
+are generated only from that canonical file and admitted through strict Zod schemas before exact integers are converted to `bigint`.
 
 Discovery endpoints are `GET /api/v2/research/catalog/calculations`, `/universes`, `/statistics`, and `/dataset-fields`.
 `POST /api/v2/research/definitions/resolve` maps the strict JSON contract to `OnlyResearchDefinitionResolver` and returns exact Dataset,
