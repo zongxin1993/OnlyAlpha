@@ -349,7 +349,7 @@ allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", 
 id = "T02"
 name = "CERTIFICATION"
 production = false
-allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16"]
+allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17"]
 
 [[actor_paths]]
 pattern = "src/onlyalpha/__init__.py"
@@ -650,7 +650,7 @@ approved_paths = ["src/onlyalpha/runtime/sim/factory.py"]
 id = "K12"
 capability = "C17"
 symbol = "onlyalpha.kernel.host.OnlyAlphaKernelHost"
-approved_paths = ["packages/api/onlyalpha-api/src/onlyalpha_api/main.py"]
+approved_paths = ["packages/api/onlyalpha-api/src/onlyalpha_api/main.py", "scripts/export_research_openapi.py"]
 [[constructors]]
 id = "K13"
 capability = "C18"

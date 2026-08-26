@@ -7,11 +7,14 @@ from pathlib import Path
 from typing import cast
 
 from onlyalpha_api import create_research_app
+from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/research-api/v2/openapi.json"
@@ -29,14 +32,23 @@ class _ContractDatasetResolver:
 
 def rendered_contract() -> str:
     calculations = OnlyCalculationRegistry()
-    app = create_research_app(
-        _ContractReader(),
-        cast(OnlyResearchCommandService, object()),
-        cast(OnlyResearchRunQueryService, object()),
-        calculations,
-        OnlyResearchDefinitionResolver(calculations, _ContractDatasetResolver()),  # type: ignore[arg-type]
-    )
-    return json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    try:
+        app = create_research_app(
+            _ContractReader(),
+            cast(OnlyResearchCommandService, object()),
+            cast(OnlyResearchRunQueryService, object()),
+            calculations,
+            OnlyResearchDefinitionResolver(calculations, _ContractDatasetResolver()),  # type: ignore[arg-type]
+            OnlyKernelResearchReadinessProjection(
+                kernel,
+                OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ()),
+            ),
+        )
+        return json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    finally:
+        kernel.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
