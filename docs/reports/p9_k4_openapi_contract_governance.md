@@ -3,9 +3,10 @@
 - Date: 2026-08-26
 - Environment: macOS arm64, Python 3.12, Node 24
 - `AUDIT_BASE_SHA`: `2dcb3997027e6c10c688c0cae2fc184375ff31c1`
-- `AUDIT_HEAD_SHA`: dirty Closure worktree based on `AUDIT_BASE_SHA`; immutable implementation SHA pending commit
+- `AUDIT_HEAD_SHA`: `47e12df6bb7119396bb3dcda4b3e4c8483efa066`
 - `K4_INITIAL_IMPLEMENTATION_SHA`: `2dcb3997027e6c10c688c0cae2fc184375ff31c1`
 - `K4_CLOSURE_TASK_BASE_SHA`: `2dcb3997027e6c10c688c0cae2fc184375ff31c1`
+- `K4_CLOSURE_IMPLEMENTATION_SHA`: `47e12df6bb7119396bb3dcda4b3e4c8483efa066`
 - `PUBLIC_API_COMPATIBILITY_BASE_SHA`: `d9713159eeb2e3dcc294d1dbd456e7332ef2cbac`
 - Gate: impact-aware Task Gate; no Final-SHA Certification requested or run
 - Scope: `scripts/openapi_contract.py`, contract characterization, and K4 status/evidence metadata
@@ -17,12 +18,12 @@ response compatibility remain directional old-client→new-server set relationsh
 `additionalProperties`, referenced composition semantics, recursive graphs, discriminators, constraints and the explicit schema
 vocabulary. Unknown schema semantics fail closed.
 
-Local Task Gate evidence is complete and both protected artifacts are byte-identical to the pre-fix baseline. The exact-SHA remote gates
-cannot run until an immutable implementation commit exists, so this worktree report truthfully keeps K4 on HOLD and K5 NOT READY.
+Local Task Gate evidence is complete and both protected artifacts are byte-identical to the pre-fix baseline. Direct remote gates for the
+exact immutable implementation SHA passed in Layered Quality run `32963766868`, so the Closure converges to GO.
 
 ```text
 BLOCKER: 0
-MAJOR: 1 pending direct exact-SHA remote evidence
+MAJOR: 0
 MINOR: 0
 SUGGESTION: 0
 ```
@@ -32,7 +33,7 @@ SUGGESTION: 0
 ### F-K4-001 — Compatibility engine incompleteness
 
 - Severity: MAJOR
-- Status: PARTIALLY_RESOLVED pending exact-SHA remote gates
+- Status: RESOLVED
 - Evidence: the pre-fix characterization run produced 15 failures, including silent `const`, `additionalProperties`, referenced component
   and discriminator compatibility misses, missing vocabulary governance, and `RecursionError` on a self-reference. The repaired suite is
   `40 passed`; the required local Task Gate is green.
@@ -42,7 +43,7 @@ SUGGESTION: 0
   unknown semantics fail closed.
 - Impact: an incompatible v2 server could pass the public contract gate or make its verdict unavailable through unbounded recursion.
 - Minimum required fix: strengthen only the existing comparator and prove it with characterization and exact-SHA gate evidence.
-- Blocking: YES until the direct exact-SHA remote gate passes.
+- Blocking: NO
 
 ### F-K4-002 — K4 evidence metadata drift
 
@@ -117,9 +118,12 @@ governance mypy:                   PASS
 import-linter:                     PASS — 3 kept / 0 broken
 version sync:                      PASS — 0.9.0
 git diff --check:                  PASS
-remote exact-SHA openapi-contract: NOT RUN — immutable Closure commit not yet available
-remote exact-SHA architecture:     NOT RUN — immutable Closure commit not yet available
-remote exact-SHA web:              NOT RUN — immutable Closure commit not yet available
+remote exact-SHA openapi-contract: PASS — Layered Quality run 32963766868
+remote exact-SHA architecture:     PASS — Layered Quality run 32963766868
+remote exact-SHA static:           PASS — Layered Quality run 32963766868
+remote exact-SHA web:              PASS — Layered Quality run 32963766868
+remote exact-SHA research-command: PASS — Layered Quality run 32963766868
+remote exact-SHA research-query:   PASS — Layered Quality run 32963766868
 ```
 
 Byte identity evidence:
@@ -153,17 +157,16 @@ theorem prover.
 ## Audit verdict
 
 ```text
-Verdict: NO-GO — P9.K.4 HOLD
-Blocking reason: direct exact-SHA remote openapi-contract evidence is not yet available.
-P9.K.5: NOT READY
+Verdict: GO — P9.K.4 DONE / VERIFIED
+P9.K.5: IMPLEMENTATION READY
 ```
 
 This is a Task Gate review verdict, not a fourth Gate and not Final-SHA Certification.
 
 ```text
-设计是否被正确实现？ YES（本地证据）
+设计是否被正确实现？ YES
 是否违反唯一性？     NO
 是否违反确定性？     NO
 是否违反 ADR/架构？  NO
-是否可进入下一阶段？ NO-GO（等待 exact-SHA remote gates）
+是否可进入下一阶段？ GO
 ```

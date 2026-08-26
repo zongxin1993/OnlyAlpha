@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED; K3 DONE / VERIFIED; K4 CLOSURE HOLD (exact-SHA remote gates pending); K5 NOT READY**
+> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED; K3 DONE / VERIFIED; K4 CLOSURE DONE / VERIFIED; K5 IMPLEMENTATION READY**
 
 ---
 
@@ -1087,8 +1087,8 @@ K4 preserves canonical OpenAPI SHA256
 semantics and does not start v3 or K5/K6/K7. Task Gate and reverse-audit evidence is recorded in
 [`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md).
 
-The local Closure Task Gate is complete. K4 remains on HOLD, and K5 remains NOT READY, until the direct exact-SHA remote
-`openapi-contract`, architecture and Web evidence is available.
+The local Closure Task Gate and implementation SHA `47e12df6bb7119396bb3dcda4b3e4c8483efa066` direct remote
+`openapi-contract`, architecture, static and Web gates passed. K4 is DONE / VERIFIED and K5 is IMPLEMENTATION READY.
 
 ---
 

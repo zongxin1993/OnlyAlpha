@@ -22,8 +22,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.4 Closure — Current-v2 Schema Compatibility Completeness — HOLD (exact-SHA remote gates pending)
-P9.K.4 Closure Task Base: 2dcb3997027e6c10c688c0cae2fc184375ff31c1; implementation SHA pending commit
+Current Increment: P9.K.4 Closure — Current-v2 Schema Compatibility Completeness — DONE / VERIFIED
+P9.K.4 Closure Implementation SHA: 47e12df6bb7119396bb3dcda4b3e4c8483efa066
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -34,7 +34,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — NOT READY until K4 Closure exact-SHA gates pass; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -824,8 +824,8 @@ comparison 与 pinned generated TypeScript freshness；current-v2 `const`、`add
 change、无效/缺失 baseline、stale projection/client 均 fail closed，且无 waiver flag。独立 `openapi-contract` CI job 对 PR base 或
 previous master 执行机械验证。Research/P9.0、HTTP、数据库 schema/migration、
 PostgreSQL 18、v3、K5/K6/K7 均未改变或启动。证据见
-[`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md)。P9.K.4 当前为 **HOLD（exact-SHA remote
-gates pending）**；P9.K.5 为 **NOT READY**。
+[`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md)。implementation SHA `47e12df…` 的 direct
+exact-SHA remote gates 已通过；P9.K.4 为 **DONE / VERIFIED**，P9.K.5 为 **IMPLEMENTATION READY**。
 
 ### 长期 Strategy Product 参考方向
 
