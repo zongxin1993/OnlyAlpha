@@ -26,7 +26,13 @@ def _imports(path: Path) -> frozenset[str]:
 
 
 def test_product_kernel_boundary_is_minimal_and_transport_neutral() -> None:
-    assert {path.name for path in KERNEL_ROOT.glob("*.py")} == {"__init__.py", "host.py", "lifecycle.py"}
+    assert {path.name for path in KERNEL_ROOT.glob("*.py")} == {
+        "__init__.py",
+        "command.py",
+        "host.py",
+        "lifecycle.py",
+        "query.py",
+    }
     forbidden = ("fastapi", "starlette", "pydantic", "uvicorn", "onlyalpha_api")
     for path in KERNEL_ROOT.glob("*.py"):
         assert not any(name.startswith(forbidden) for name in _imports(path)), path

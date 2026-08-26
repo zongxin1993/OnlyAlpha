@@ -22,8 +22,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.1 — Kernel Host & Lifecycle — DONE / VERIFIED
-P9.K.1 Closure Subject: 80ca2027ca2e28d050c9b87326062ac52be60cfe
+Current Increment: P9.K.2 — Product Command / Query Boundary — DONE / VERIFIED (worktree)
+P9.K.2 Task Base: 14a5726839f013e7567a1c19edfecfef3f749518; closure SHA pending commit
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -34,7 +34,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.2 — Product Command / Query Boundary — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.3 — Unified Product HTTP Control Plane — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -792,9 +792,19 @@ Kernel lifecycle。Product/Trading Kernel 保持分离，P9.0 semantics、databa
 canonical `kernel`、`architecture`、`research-command`、真实 PostgreSQL `research-postgres --coverage` 和
 `research-product-closure` lanes 均通过；closure 进一步修复 OpenAPI exporter 的 K1 composition，且 canonical OpenAPI、generated
 TypeScript contract 与 Web static gate 均保持确定且通过。P9.K.1 为 **DONE / VERIFIED**，但未执行 Final-SHA Certification，故不是
-`CERTIFIED / ACCEPTED`。P9.K.2 为 **IMPLEMENTATION READY**。详细证据见
-[`reports/p9_k1_kernel_host_lifecycle.md`](reports/p9_k1_kernel_host_lifecycle.md)。P9.K 整体尚未完成；K2/K3/K7 尚未开始；原 P9.1+ production vertical 在 P9.K 完整闭环前
-保持 blocked，不得绕过 Product Control Plane 方向继续增加 direct external mutation path。
+`CERTIFIED / ACCEPTED`。详细证据见
+[`reports/p9_k1_kernel_host_lifecycle.md`](reports/p9_k1_kernel_host_lifecycle.md)。
+
+**P9.K.2 — Product Command / Query Boundary** 已在当前基于
+`14a5726839f013e7567a1c19edfecfef3f749518` 的 worktree 完成 Task Gate：Kernel 内 Command/Query 分离、immutable exact-type
+binding、duplicate/unknown/subclass fail-closed、Command-first READY admission 与无 runtime registration 已机械验证。Research
+submit/cancel/get/list 仅通过薄 adapter 委托既有 Command/Query authority，语义等价测试通过；Query 依赖已收窄为 read-only Reader。
+C18 已激活，独立 C19 read capability 已建立，二者只有 Kernel 定义与唯一 Product composition owner；HTTP/Worker/Runtime/CLI 不持有。
+canonical `kernel`、`architecture`、`research-command`、`research-query`、OpenAPI freshness 与静态门禁通过，数据库、OpenAPI、P9.0
+语义均无变化。证据见
+[`reports/p9_k2_product_command_query_boundary.md`](reports/p9_k2_product_command_query_boundary.md)。该状态尚未绑定 commit 或执行
+Final-SHA Certification，因此不是 `CERTIFIED / ACCEPTED`。P9.K.3 为 **IMPLEMENTATION READY**；P9.K 整体仍未完成，K3/K7 尚未开始，
+原 P9.1+ production vertical 在 P9.K 完整闭环前保持 blocked。
 
 ### 长期 Strategy Product 参考方向
 

@@ -1,11 +1,12 @@
 contract_version = 1
 name = "P9.K Product Authority Contract"
 
-reserved_future_capabilities = ["C18"]
+reserved_future_capabilities = []
 sensitive_path_patterns = [
   "src/onlyalpha/__init__.py",
   "src/onlyalpha/cli.py",
   "src/onlyalpha/kernel/*.py",
+  "src/onlyalpha/application/product_boundary.py",
   "src/onlyalpha/application/strategy_authority.py",
   "src/onlyalpha/strategy/freeze.py",
   "src/onlyalpha/strategy/promotion.py",
@@ -123,9 +124,9 @@ semantic_persistence_relation = "deterministic in-memory lifecycle reconstructed
 [[facts]]
 id = "F12"
 name = "Product Command authoritative outcome"
-identity_authority = "reserved external command identity"
+identity_authority = "exact typed Product Command plus existing downstream authority identity"
 mutation_capability = "C18"
-semantic_persistence_relation = "reserved contract only; no current implementation"
+semantic_persistence_relation = "Dispatcher persists nothing; existing Research authority owns idempotency and durable outcome"
 
 [[facts]]
 id = "F13"
@@ -241,7 +242,12 @@ id = "C18"
 name = "PRODUCT_COMMAND_DISPATCH"
 kind = "EXECUTE"
 privileged = true
-reserved = true
+
+[[capabilities]]
+id = "C19"
+name = "PRODUCT_QUERY_DISPATCH"
+kind = "READ"
+privileged = true
 
 [[actors]]
 id = "A01"
@@ -313,7 +319,7 @@ allowed_capabilities = ["C12", "C14"]
 id = "A12"
 name = "KERNEL_COMPOSITION"
 production = true
-allowed_capabilities = ["C17"]
+allowed_capabilities = ["C17", "C18", "C19"]
 
 [[actors]]
 id = "A13"
@@ -338,6 +344,12 @@ id = "A16"
 name = "RESEARCH_APPLICATION"
 production = true
 allowed_capabilities = ["C01", "C02", "C03", "C04", "C10"]
+
+[[actors]]
+id = "A17"
+name = "PRODUCT_BOUNDARY_COMPOSITION"
+production = true
+allowed_capabilities = ["C01", "C18", "C19"]
 
 [[actors]]
 id = "T01"
@@ -408,6 +420,9 @@ actor = "A11"
 [[actor_paths]]
 pattern = "src/onlyalpha/application/strategy_authority.py"
 actor = "A14"
+[[actor_paths]]
+pattern = "src/onlyalpha/application/product_boundary.py"
+actor = "A17"
 [[actor_paths]]
 pattern = "src/onlyalpha/strategy/__init__.py"
 actor = "A14"
@@ -535,10 +550,13 @@ symbols = ["onlyalpha.kernel.host.OnlyAlphaKernelHost"]
 [[bindings]]
 capability = "C18"
 symbols = ["onlyalpha.kernel.command.OnlyProductCommandDispatcher"]
+[[bindings]]
+capability = "C19"
+symbols = ["onlyalpha.kernel.query.OnlyProductQueryDispatcher"]
 
 [[ownership]]
 capability = "C01"
-approved_production_holders = ["A03", "A04", "A05", "A10", "A16"]
+approved_production_holders = ["A03", "A04", "A05", "A10", "A16", "A17"]
 [[ownership]]
 capability = "C02"
 approved_production_holders = ["A05", "A06", "A16"]
@@ -589,7 +607,10 @@ capability = "C17"
 approved_production_holders = ["A03", "A12"]
 [[ownership]]
 capability = "C18"
-approved_production_holders = []
+approved_production_holders = ["A12", "A17"]
+[[ownership]]
+capability = "C19"
+approved_production_holders = ["A12", "A17"]
 
 [[constructors]]
 id = "K01"
@@ -655,7 +676,12 @@ approved_paths = ["packages/api/onlyalpha-api/src/onlyalpha_api/main.py", "scrip
 id = "K13"
 capability = "C18"
 symbol = "onlyalpha.kernel.command.OnlyProductCommandDispatcher"
-approved_paths = []
+approved_paths = ["src/onlyalpha/application/product_boundary.py"]
+[[constructors]]
+id = "K14"
+capability = "C19"
+symbol = "onlyalpha.kernel.query.OnlyProductQueryDispatcher"
+approved_paths = ["src/onlyalpha/application/product_boundary.py"]
 
 [[legacy_debts]]
 id = "D01"

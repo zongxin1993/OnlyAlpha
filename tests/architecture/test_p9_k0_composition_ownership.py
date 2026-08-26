@@ -56,7 +56,7 @@ def test_database_operator_is_only_production_migration_composer() -> None:
     assert constructor.approved_paths == {"scripts/database.py"}
 
 
-def test_kernel_host_has_one_production_composition_and_one_contract_tooling_site() -> None:
+def test_kernel_host_and_product_dispatchers_have_exact_composition_sites() -> None:
     lifecycle = next(item for item in CONTRACT.constructors.values() if item.capability == "C17")
     command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")
     production_path = "packages/api/onlyalpha-api/src/onlyalpha_api/main.py"
@@ -64,4 +64,8 @@ def test_kernel_host_has_one_production_composition_and_one_contract_tooling_sit
     assert CONSTRUCTOR_SITES[lifecycle.id] == {production_path, tooling_path}
     assert CONTRACT.classify_path(production_path).production
     assert not CONTRACT.classify_path(tooling_path).production
-    assert CONSTRUCTOR_SITES[command.id] == frozenset()
+    query = next(item for item in CONTRACT.constructors.values() if item.capability == "C19")
+    product_path = "src/onlyalpha/application/product_boundary.py"
+    assert CONSTRUCTOR_SITES[command.id] == {product_path}
+    assert CONSTRUCTOR_SITES[query.id] == {product_path}
+    assert CONTRACT.classify_path(product_path).production

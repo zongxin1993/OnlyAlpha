@@ -10,7 +10,15 @@ from onlyalpha.research.run.store import OnlyResearchRunStore
 from .model import OnlyResearchRunPageCursor, OnlyResearchSubmissionKey, OnlyResearchSubmissionRecord
 
 
-class OnlyResearchCommandStore(OnlyResearchRunStore, Protocol):
+class OnlyResearchRunReader(Protocol):
+    def list_recent(
+        self, *, limit: int, after: OnlyResearchRunPageCursor | None = None
+    ) -> tuple[OnlyResearchRun, ...]: ...
+
+    def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun: ...
+
+
+class OnlyResearchCommandStore(OnlyResearchRunStore, OnlyResearchRunReader, Protocol):
     def find_submission(self, submission_key: OnlyResearchSubmissionKey) -> OnlyResearchSubmissionRecord | None: ...
 
     def create_queued_submission(
@@ -20,11 +28,5 @@ class OnlyResearchCommandStore(OnlyResearchRunStore, Protocol):
         command_fingerprint: str,
     ) -> OnlyResearchSubmissionRecord: ...
 
-    def list_recent(
-        self, *, limit: int, after: OnlyResearchRunPageCursor | None = None
-    ) -> tuple[OnlyResearchRun, ...]: ...
 
-    def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun: ...
-
-
-__all__ = ["OnlyResearchCommandStore"]
+__all__ = ["OnlyResearchCommandStore", "OnlyResearchRunReader"]

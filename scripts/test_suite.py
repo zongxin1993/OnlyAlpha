@@ -79,7 +79,11 @@ class Lane:
 LANES = {
     OnlyTestLane.ARCHITECTURE: Lane(("tests/architecture",), "architecture", "0", "no"),
     OnlyTestLane.KERNEL: Lane(
-        ("tests/kernel", "tests/architecture/test_p9_k1_kernel_boundary.py"),
+        (
+            "tests/kernel",
+            "tests/architecture/test_p9_k1_kernel_boundary.py",
+            "tests/architecture/test_p9_k2_product_boundary.py",
+        ),
         "unit or architecture",
         "0",
         "no",

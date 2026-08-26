@@ -28,9 +28,9 @@ def test_repository_authority_contract_is_valid_and_finite() -> None:
     contract = load_authority_contract(CONTRACT_PATH)
     assert contract.version == 1
     assert tuple(contract.facts) == tuple(f"F{number:02d}" for number in range(1, 14))
-    assert tuple(contract.capabilities) == tuple(f"C{number:02d}" for number in range(1, 19))
-    assert len(contract.actors) == 18
-    assert contract.reserved_future_capabilities == {"C18"}
+    assert tuple(contract.capabilities) == tuple(f"C{number:02d}" for number in range(1, 20))
+    assert len(contract.actors) == 19
+    assert contract.reserved_future_capabilities == set()
 
 
 @pytest.mark.parametrize("section", ("facts", "capabilities", "actors"))
@@ -82,14 +82,24 @@ def test_privileged_capability_without_ownership_rule_fails_closed() -> None:
         authority_contract_from_document(document)
 
 
-def test_reserved_product_command_capability_cannot_gain_pre_k2_holder() -> None:
+def test_activated_product_boundaries_have_distinct_capabilities() -> None:
     document = _document()
-    ownership = document["ownership"]
-    assert isinstance(ownership, list)
-    reserved = next(item for item in ownership if item["capability"] == "C18")
-    reserved["approved_production_holders"] = ["A12"]
-    with pytest.raises(AuthorityContractError, match="reserved capability has production holders"):
-        authority_contract_from_document(document)
+    capabilities = document["capabilities"]
+    assert isinstance(capabilities, list)
+    command = next(item for item in capabilities if item["id"] == "C18")
+    query = next(item for item in capabilities if item["id"] == "C19")
+    assert command == {
+        "id": "C18",
+        "name": "PRODUCT_COMMAND_DISPATCH",
+        "kind": "EXECUTE",
+        "privileged": True,
+    }
+    assert query == {
+        "id": "C19",
+        "name": "PRODUCT_QUERY_DISPATCH",
+        "kind": "READ",
+        "privileged": True,
+    }
 
 
 def test_every_sensitive_repository_module_has_exactly_one_actor() -> None:

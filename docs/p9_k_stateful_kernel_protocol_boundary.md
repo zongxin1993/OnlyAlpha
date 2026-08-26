@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 IMPLEMENTATION READY**
+> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED (worktree); K3 IMPLEMENTATION READY**
 
 ---
 
@@ -938,6 +938,9 @@ Evidence status is `DONE / VERIFIED` for the immutable K1 closure subject. No Fi
 
 ## K2 — Product Command / Query Boundary
 
+> Implementation status: **DONE / VERIFIED in the current worktree based on
+> `14a5726839f013e7567a1c19edfecfef3f749518`**. The worktree has not been committed or Final-SHA certified.
+
 ### Goal
 
 Define one internal product-facing application contract.
@@ -973,6 +976,36 @@ Backtest/SIM lifecycle projections
 ### Exit
 
 All new product capabilities can be exposed through the Command/Query boundary without routes touching domain internals directly.
+
+### Implemented K2 closure
+
+The neutral Kernel now provides separate immutable-topology `OnlyProductCommandDispatcher` and
+`OnlyProductQueryDispatcher` boundaries. Both resolve only `type(value)`; duplicate exact types fail during construction, unknown exact
+types and unregistered subclasses fail closed, and no runtime registration surface exists. Command dispatch invokes the single narrow
+`assert_mutation_ready()` admission capability before lookup or handler invocation. The Dispatcher owns no persistence, retry,
+fingerprint, Research, Strategy, Engine, Runtime, or transport semantics.
+
+The canonical Research proof vertical is composed only in `onlyalpha.application.product_boundary`:
+
+```text
+OnlyCreateResearchRun  → OnlyResearchCommandService.submit_research_run
+OnlyCancelResearchRun  → OnlyResearchCommandService.request_research_run_cancellation
+OnlyGetResearchRun     → OnlyResearchRunQueryService.get_run
+OnlyListResearchRuns   → OnlyResearchRunQueryService.list_runs
+```
+
+Research submission identity/idempotency, cancellation CAS/state legality, Run persistence, query ordering and cursor semantics remain
+owned by the existing authorities. `OnlyResearchRunQueryService` now receives the narrow read-only `OnlyResearchRunReader` Protocol,
+not the mutation-capable command Store surface. `GetKernelStatus` is deliberately deferred: the current Host has not yet exposed a
+narrow status-only capability, and capturing the full Host in a Query handler would violate the K2 read-only capability rule.
+
+C18 `PRODUCT_COMMAND_DISPATCH` is active (`reserved=false`, privileged) and C19 `PRODUCT_QUERY_DISPATCH` is a distinct read-only
+capability. Both Dispatcher constructors have exactly one approved production composition path. Kernel definitions and the canonical
+Product composition are the only production holders; HTTP routes, Worker, Runtime, CLI and public root surfaces do not hold C18/C19.
+
+K2 adds no HTTP route/DTO/OpenAPI change, database schema/migration, global idempotency/recovery ledger, remote protocol, Strategy/P9.0
+semantic change, or second lifecycle/readiness authority. Canonical K2 verification and the reverse audit are recorded in
+[`reports/p9_k2_product_command_query_boundary.md`](reports/p9_k2_product_command_query_boundary.md).
 
 ---
 

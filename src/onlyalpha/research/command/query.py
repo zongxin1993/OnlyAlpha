@@ -6,14 +6,14 @@ from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 
 from .errors import OnlyResearchRunPageLimitError
 from .model import OnlyResearchRunPage, OnlyResearchRunPageCursor
-from .store import OnlyResearchCommandStore
+from .store import OnlyResearchRunReader
 
 MAX_RESEARCH_RUN_PAGE_SIZE = 100
 DEFAULT_RESEARCH_RUN_PAGE_SIZE = 50
 
 
 class OnlyResearchRunQueryService:
-    def __init__(self, store: OnlyResearchCommandStore) -> None:
+    def __init__(self, store: OnlyResearchRunReader) -> None:
         self._store = store
 
     def get_run(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:

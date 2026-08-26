@@ -6,7 +6,15 @@ from typing import cast
 
 import pytest
 
+from onlyalpha.application.product_boundary import (
+    OnlyCancelResearchRun,
+    OnlyCreateResearchRun,
+    OnlyGetResearchRun,
+    OnlyListResearchRuns,
+    only_compose_research_product_boundary,
+)
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.command import (
     OnlyResearchCancellationConflictError,
     OnlyResearchCommandConcurrencyError,
@@ -264,3 +272,35 @@ def test_cursor_round_trip_rejects_noncanonical_input_and_pages_stably() -> None
     )
     with pytest.raises(OnlyResearchRunPageLimitError):
         query.list_runs(limit=0)
+
+
+def test_product_boundary_is_semantically_equivalent_to_direct_research_authorities() -> None:
+    direct_store, boundary_store = _Store(), _Store()
+    direct_dataset, boundary_dataset = _DatasetStore(), _DatasetStore()
+    direct = _service(direct_store, direct_dataset)
+    delegated = _service(boundary_store, boundary_dataset)
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    boundary = only_compose_research_product_boundary(
+        admission=kernel,
+        commands=delegated,
+        queries=OnlyResearchRunQueryService(boundary_store),  # type: ignore[arg-type]
+    )
+    spec = specification()
+
+    direct_created = direct.submit_research_run(KEY, spec)
+    boundary_created = boundary.commands.dispatch(OnlyCreateResearchRun(KEY, spec))
+    assert boundary_created == direct_created
+    assert boundary_dataset.loads == direct_dataset.loads == 1
+
+    direct_get = OnlyResearchRunQueryService(direct_store).get_run(direct_created.run.run_id)  # type: ignore[arg-type]
+    boundary_get = boundary.queries.dispatch(OnlyGetResearchRun(direct_created.run.run_id))
+    assert boundary_get == direct_get
+
+    direct_page = OnlyResearchRunQueryService(direct_store).list_runs(limit=1)  # type: ignore[arg-type]
+    boundary_page = boundary.queries.dispatch(OnlyListResearchRuns(limit=1))
+    assert boundary_page == direct_page
+
+    direct_cancelled = direct.request_research_run_cancellation(direct_created.run.run_id)
+    boundary_cancelled = boundary.commands.dispatch(OnlyCancelResearchRun(direct_created.run.run_id))
+    assert boundary_cancelled == direct_cancelled
