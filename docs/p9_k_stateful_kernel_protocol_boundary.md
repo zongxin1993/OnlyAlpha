@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **K0 DONE / VERIFIED; K1 IMPLEMENTED IN WORKTREE / LOCAL DETERMINISTIC GATES PASS**
+> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 IMPLEMENTATION READY**
 
 ---
 
@@ -877,13 +877,14 @@ Create one long-lived composition/lifecycle authority without changing domain se
 
 Kernel can boot, verify, recover required current authorities and become READY deterministically.
 
-### K1 implementation evidence (2026-08-25)
+### K1 implementation and closure evidence (2026-08-26)
 
 Implementation subject:
 
 ```text
 TASK_BASE_SHA: 1c3be8823ba67c851b01e2c0c5ae93e39187f719
-SUBJECT:       uncommitted worktree on TASK_BASE_SHA
+INITIAL_K1_IMPLEMENTATION_SHA: 7950af055213506685de72eada13c3ebc8f57c51
+K1_CLOSURE_SHA:               80ca2027ca2e28d050c9b87326062ac52be60cfe
 ```
 
 The minimal Product Kernel boundary is:
@@ -904,6 +905,8 @@ The existing Research health DTO remains stable. The full Python app factory now
 Research-only probe cannot become a competing product mutation gate. Only `READY` admits product routes. A
 verification failure moves the Host to `FAILED`, preserves the existing stable Research readiness reason, keeps the HTTP diagnostics
 process live, and admits no mutation. `READY → DRAINING` closes admission before lifecycle-owned shutdown; `STOPPED` is not live or ready.
+The OpenAPI exporter now obeys the same full-app composition contract through a dependency-free real `OnlyAlphaKernelHost` lifecycle and
+is classified as non-production contract tooling. It does not add a second lifecycle authority or production holder.
 
 K1 holds only `OnlyPostgresSchemaVerifier`-derived read capability. Migration remains operator-only. It creates no recovery Store, Kernel
 snapshot, Product Command/Query dispatcher, HTTP route, persistence schema, Strategy/Research identity, or Trading Kernel semantic path.
@@ -917,16 +920,19 @@ architecture:              448 passed
 research-command:          44 passed
 research-postgres:         92 passed; coverage 82.39%
 research-product-closure:  19 passed
+export OpenAPI check:       PASS; canonical contract unchanged
+web static:                 PASS; generated TypeScript unchanged
 import-linter:              3 kept, 0 broken
 Core mypy:                  614 source files, PASS
-API mypy:                   17 source files, PASS
+API/exporter mypy:          18 source files, PASS
 ruff check .:               PASS
 changed-file format check:  PASS
 version graph 0.9.0:        PASS
 git diff --check:           PASS
 ```
 
-Evidence status is `LOCAL DETERMINISTIC GATES PASS`. No immutable Final SHA or certification artifact exists for this worktree.
+Evidence status is `DONE / VERIFIED` for the immutable K1 closure subject. No Final-SHA Certification was run, so this is not a
+`CERTIFIED / ACCEPTED` claim.
 
 ---
 

@@ -1,9 +1,10 @@
-# P9.K.1 Kernel Host & Lifecycle — Local Task Gate Evidence
+# P9.K.1 Kernel Host & Lifecycle — Immutable Task Gate Evidence
 
-- Date: 2026-08-25
+- Date: 2026-08-26
 - Task base SHA: `1c3be8823ba67c851b01e2c0c5ae93e39187f719`
-- Subject: uncommitted worktree on the task base SHA
-- Evidence status: `LOCAL DETERMINISTIC GATES PASS`
+- Initial K1 implementation SHA: `7950af055213506685de72eada13c3ebc8f57c51`
+- K1 closure SHA: `80ca2027ca2e28d050c9b87326062ac52be60cfe`
+- Evidence status: `P9.K.1 DONE / VERIFIED`
 - Release mapping: P9.K.1 retains the current `0.9.0` P9 architecture line; `version_sync.py check` passes. This task does not claim or
   allocate the later P9.1 release number.
 
@@ -70,11 +71,16 @@ The exported full-application Python composition factory now requires an `OnlyKe
 install a Research-only probe as an independent product mutation gate. This is a deliberate K1 composition-contract change. It does not
 change any HTTP path, method, request/response DTO, status code, OpenAPI schema, or Research business semantic.
 
+The closure migrated the remaining OpenAPI exporter composition to the same contract. Contract rendering starts and drains a real,
+dependency-free `OnlyAlphaKernelHost`, supplies deterministic static Research readiness evidence, and introduces no fake or second
+lifecycle authority. The C17 contract records the exporter as non-production certification tooling while retaining the API composition
+root as the only production Host constructor.
+
 ## Invariant Result
 
 | Invariant | Result | Evidence |
 |---|---|---|
-| One Product lifecycle authority | PASS | C17 binding/ownership and constructor set identify `OnlyAlphaKernelHost` and one API composition site |
+| One Product lifecycle authority | PASS | C17 identifies one production API constructor plus one explicitly non-production contract-tooling constructor of the same real Host |
 | Deterministic transition graph | PASS | lifecycle table plus legal/illegal/failure transition tests |
 | READY-only mutation gate | PASS | lifecycle and Host tests cover every state, drain ordering and FAILED/STOPPED rejection |
 | VERIFYING is read-only | PASS | API owns `OnlyPostgresSchemaVerifier`; migration surface remains operator-only |
@@ -90,6 +96,12 @@ change any HTTP path, method, request/response DTO, status code, OpenAPI schema,
 Final successful commands and outcomes:
 
 ```text
+uv run python scripts/export_research_openapi.py check
+→ PASS; canonical OpenAPI SHA-256 c72395d6b9ba921c7e286f45e9b41ba0dbce7de3008fbdd76519d66d768f8b0e unchanged
+
+uv run python scripts/web_suite.py static
+→ PASS; generated TypeScript SHA-256 7f9be5af016ae6685a03818056027a1dee88a1ab37334f4f9d5530e3e16b13fd unchanged
+
 uv run python scripts/test_suite.py kernel
 → 27 passed
 
@@ -117,8 +129,8 @@ uv run ruff format --check <changed Python files>
 uv run mypy src/onlyalpha
 → 614 source files; no issues
 
-uv run mypy --config-file packages/api/onlyalpha-api/pyproject.toml packages/api/onlyalpha-api/src/onlyalpha_api
-→ 17 source files; no issues
+uv run mypy --config-file packages/api/onlyalpha-api/pyproject.toml packages/api/onlyalpha-api/src/onlyalpha_api scripts/export_research_openapi.py
+→ 18 source files; no issues
 
 uv run python scripts/version_sync.py check
 → workspace release graph consistent at 0.9.0
@@ -127,9 +139,10 @@ git diff --check
 → PASS
 ```
 
-The PostgreSQL lanes used an isolated temporary PostgreSQL 16 container and PostgreSQL 16.15 client tools. The container was stopped and
-auto-removed after the gates. A pre-existing ignored local `env/` build tree was temporarily moved out of repository traversal for the
-canonical Architecture Gate and restored unchanged afterward.
+The PostgreSQL lanes above are the initial K1 implementation evidence at `7950af055213506685de72eada13c3ebc8f57c51`. The closure changed
+no PostgreSQL semantic, migration, schema, Store, or recovery path, so impact-aware closure verification did not repeat those heavy lanes.
+A pre-existing ignored local `env/` build tree was temporarily moved out of repository traversal for the canonical Architecture Gate and
+restored unchanged afterward.
 
 ## Scope Confirmation
 
@@ -142,6 +155,7 @@ K2 implementation:                     NOT STARTED
 K3 implementation:                     NOT STARTED
 K7 implementation:                     NOT STARTED
 Final-SHA Certification:               NOT EXECUTED
+Remote exact-SHA relevant gates:       NOT RUN; closure commit remains local and was not pushed
 ```
 
-No immutable final SHA exists for this worktree, so this report does not claim `VERIFIED`, `CERTIFIED`, or `ACCEPTED`.
+The immutable closure SHA supports `DONE / VERIFIED` under the Task Gate. This report does not claim `CERTIFIED` or `ACCEPTED`.
