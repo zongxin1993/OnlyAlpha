@@ -46,8 +46,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.4 Closure — Current-v2 Schema Compatibility Completeness — **DONE / VERIFIED** |
-| P9.K.4 Closure Implementation SHA | `47e12df6bb7119396bb3dcda4b3e4c8483efa066` |
+| Current increment | P9.K.4 Closure-2 — Response Compatibility Completeness — **DONE / VERIFIED** |
+| P9.K.4 Closure-2 Implementation SHA | `7c25a3cc42c7ea6e189044b5b8d8c62dc8b78d5f` |
 | Next semantic direction | P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
 | License | MIT |
 
@@ -68,8 +68,10 @@ baseline 只从 immutable Git revision 加载。`scripts/openapi_contract.py` �
 change 无 waiver 且 fail closed；current-v2 `const`、`additionalProperties` child schema、相同 composition references 的 component
 语义、recursive graph、`discriminator` 与完整 schema vocabulary 均已纳入 direction-aware、cycle-safe、deterministic governance，未知
 schema 语义 fail closed。现有 exporter 仅保留薄 wrapper。canonical OpenAPI 和 generated TypeScript bytes 均未改变，Research、P9.0
-与数据库语义亦未改变；local Task Gate 与 implementation SHA `47e12df…` 的 direct remote gates 均通过。K4 Task Gate 证据见
-[`docs/reports/p9_k4_openapi_contract_governance.md`](docs/reports/p9_k4_openapi_contract_governance.md)。
+与数据库语义亦未改变。Closure-2 进一步关闭 closed-response 新 named property、new response status 与 new response media type
+false-negative，并对 AP=false/true/missing/schema 完整矩阵与稳定 evidence 建立机械证明；local Task Gate 与 implementation SHA
+`7c25a3c…` 的 direct remote gates 均通过。K4 Closure-2 证据见
+[`docs/reports/p9_k4_closure_2_response_compatibility.md`](docs/reports/p9_k4_closure_2_response_compatibility.md)。
 
 ---
 

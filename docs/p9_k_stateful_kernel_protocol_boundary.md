@@ -1090,6 +1090,15 @@ semantics and does not start v3 or K5/K6/K7. Task Gate and reverse-audit evidenc
 The local Closure Task Gate and implementation SHA `47e12df6bb7119396bb3dcda4b3e4c8483efa066` direct remote
 `openapi-contract`, architecture, static and Web gates passed. K4 is DONE / VERIFIED and K5 is IMPLEMENTATION READY.
 
+Closure-2 repairs the previously hidden response traversal gaps in the same comparator. New-only named response properties are checked
+against the old `additionalProperties` policy, including direction-aware reuse of the existing schema comparator for AP schema values;
+new response statuses and media types are rejected under the frozen strict v2 policy. The AP=false/true/missing/schema matrix, existing
+property regression, status/media add-remove rules and stable sorted evidence are characterized. Canonical OpenAPI and generated
+TypeScript bytes remain unchanged, and no K5 or semantic source work started. The local Task Gate and implementation SHA
+`7c25a3cc42c7ea6e189044b5b8d8c62dc8b78d5f` direct remote `openapi-contract`, architecture, static, Web, research-command and
+research-query jobs passed. Evidence is recorded in
+[`reports/p9_k4_closure_2_response_compatibility.md`](reports/p9_k4_closure_2_response_compatibility.md).
+
 ---
 
 ## K5 — Idempotency, Long-running Operations & Recovery Closure

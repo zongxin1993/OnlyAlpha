@@ -11,6 +11,10 @@
 - Gate: impact-aware Task Gate; no Final-SHA Certification requested or run
 - Scope: `scripts/openapi_contract.py`, contract characterization, and K4 status/evidence metadata
 
+> Follow-up: Closure-2 found additional response-side evidence, so `F-K4-001` was `PARTIALLY_RESOLVED` after this historical report.
+> Its final `RESOLVED` status and current evidence are recorded in
+> [`p9_k4_closure_2_response_compatibility.md`](p9_k4_closure_2_response_compatibility.md).
+
 ## Executive summary
 
 The Closure repairs the existing compatibility authority without changing the K4 architecture or the public contract. Request and
