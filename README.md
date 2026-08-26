@@ -46,9 +46,9 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.4 — OpenAPI Contract Governance — **DONE / VERIFIED (worktree)** |
-| P9.K.4 Task Base | `d9713159eeb2e3dcc294d1dbd456e7332ef2cbac`; closure SHA pending commit |
-| Next semantic direction | P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
+| Current increment | P9.K.4 Closure — Current-v2 Schema Compatibility Completeness — **HOLD (exact-SHA remote gates pending)** |
+| P9.K.4 Closure Task Base | `2dcb3997027e6c10c688c0cae2fc184375ff31c1`; implementation SHA pending commit |
+| Next semantic direction | P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — **NOT READY** until K4 Closure exact-SHA gates pass; P9.1+ blocked until P9.K closure |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -65,8 +65,10 @@ execution path、显式 StrategyDecision handoff 与 predecessor-only Promotion 
 P9.K.4 已把 Research API v2 OpenAPI 收敛为受治理的 public compatibility artifact：FastAPI Routes + API DTO 仍是唯一 authoring
 authority，`contracts/research-api/v2/openapi.json` 是唯一 canonical projection，exact revision 为 canonical bytes SHA256，accepted
 baseline 只从 immutable Git revision 加载。`scripts/openapi_contract.py` 统一 render/check/lint/compatibility/client freshness，v2 breaking
-change 无 waiver 且 fail closed；现有 exporter 仅保留薄 wrapper。canonical OpenAPI 和 generated TypeScript bytes 均未改变，Research、
-P9.0 与数据库语义亦未改变。K4 Task Gate 证据见
+change 无 waiver 且 fail closed；current-v2 `const`、`additionalProperties` child schema、相同 composition references 的 component
+语义、recursive graph、`discriminator` 与完整 schema vocabulary 均已纳入 direction-aware、cycle-safe、deterministic governance，未知
+schema 语义 fail closed。现有 exporter 仅保留薄 wrapper。canonical OpenAPI 和 generated TypeScript bytes 均未改变，Research、P9.0
+与数据库语义亦未改变；local Task Gate 已通过，exact-SHA remote gates 尚待不可变提交。K4 Task Gate 证据见
 [`docs/reports/p9_k4_openapi_contract_governance.md`](docs/reports/p9_k4_openapi_contract_governance.md)。
 
 ---

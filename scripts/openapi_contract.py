@@ -33,6 +33,35 @@ OPENAPI_TYPESCRIPT = WEB / "node_modules/.bin/openapi-typescript"
 API_MAJOR = 2
 HTTP_METHODS = frozenset({"delete", "get", "head", "options", "patch", "post", "put", "trace"})
 GIT_SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+SUPPORTED_COMPATIBILITY_KEYWORDS = frozenset(
+    {
+        "$ref",
+        "additionalProperties",
+        "allOf",
+        "anyOf",
+        "const",
+        "discriminator",
+        "enum",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "items",
+        "maxItems",
+        "maxLength",
+        "maxProperties",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minProperties",
+        "minimum",
+        "not",
+        "oneOf",
+        "pattern",
+        "properties",
+        "required",
+        "type",
+    }
+)
+NON_SEMANTIC_SCHEMA_KEYWORDS = frozenset({"default", "deprecated", "description", "example", "examples", "title"})
 
 JsonObject = dict[str, Any]
 
@@ -47,6 +76,17 @@ class ContractChange(StrEnum):
 class CompatibilityResult:
     change: ContractChange
     breaking_changes: tuple[str, ...]
+
+
+class _AdditionalPropertiesKind(StrEnum):
+    ALLOW_ANY = "ALLOW_ANY"
+    FORBID = "FORBID"
+    SCHEMA = "SCHEMA"
+
+
+@dataclass(slots=True)
+class _ComparisonState:
+    visited: set[tuple[str, str, str]]
 
 
 class _ContractReader:
@@ -117,6 +157,95 @@ def _resolve_pointer(document: Mapping[str, Any], reference: str) -> Any:
     return value
 
 
+def _schema_roots(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    roots: list[Mapping[str, Any]] = []
+    components = document.get("components")
+    if isinstance(components, dict):
+        schemas = components.get("schemas")
+        if isinstance(schemas, dict):
+            roots.extend(value for _, value in sorted(schemas.items()) if isinstance(value, dict))
+
+    paths = document.get("paths")
+    if not isinstance(paths, dict):
+        return roots
+    for _, path_item in sorted(paths.items()):
+        if not isinstance(path_item, dict):
+            continue
+        path_parameters = path_item.get("parameters", [])
+        if isinstance(path_parameters, list):
+            roots.extend(
+                parameter["schema"]
+                for parameter in path_parameters
+                if isinstance(parameter, dict) and isinstance(parameter.get("schema"), dict)
+            )
+        for method, operation in sorted(path_item.items()):
+            if method not in HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            parameters = operation.get("parameters", [])
+            if isinstance(parameters, list):
+                roots.extend(
+                    parameter["schema"]
+                    for parameter in parameters
+                    if isinstance(parameter, dict) and isinstance(parameter.get("schema"), dict)
+                )
+            request_body = operation.get("requestBody")
+            if isinstance(request_body, dict):
+                content = request_body.get("content")
+                if isinstance(content, dict):
+                    roots.extend(
+                        media["schema"]
+                        for _, media in sorted(content.items())
+                        if isinstance(media, dict) and isinstance(media.get("schema"), dict)
+                    )
+            responses = operation.get("responses")
+            if isinstance(responses, dict):
+                for _, response in sorted(responses.items()):
+                    if not isinstance(response, dict):
+                        continue
+                    content = response.get("content")
+                    if isinstance(content, dict):
+                        roots.extend(
+                            media["schema"]
+                            for _, media in sorted(content.items())
+                            if isinstance(media, dict) and isinstance(media.get("schema"), dict)
+                        )
+    return roots
+
+
+def schema_vocabulary(document: Mapping[str, Any]) -> frozenset[str]:
+    vocabulary: set[str] = set()
+
+    def visit(schema: Any) -> None:
+        if not isinstance(schema, dict):
+            return
+        vocabulary.update(schema)
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for _, child in sorted(properties.items()):
+                visit(child)
+        visit(schema.get("items"))
+        additional_properties = schema.get("additionalProperties")
+        if isinstance(additional_properties, dict):
+            visit(additional_properties)
+        for keyword in ("allOf", "anyOf", "oneOf"):
+            children = schema.get(keyword)
+            if isinstance(children, list):
+                for child in children:
+                    visit(child)
+        visit(schema.get("not"))
+
+    for root in _schema_roots(document):
+        visit(root)
+    return frozenset(vocabulary)
+
+
+def validate_schema_vocabulary(document: Mapping[str, Any]) -> None:
+    unsupported = schema_vocabulary(document) - SUPPORTED_COMPATIBILITY_KEYWORDS - NON_SEMANTIC_SCHEMA_KEYWORDS
+    if unsupported:
+        keyword = sorted(unsupported)[0]
+        raise ValueError(f"unsupported schema compatibility keyword {keyword}")
+
+
 def lint_contract(document: Mapping[str, Any]) -> None:
     errors: list[str] = []
     openapi = document.get("openapi")
@@ -174,6 +303,10 @@ def lint_contract(document: Mapping[str, Any]) -> None:
                 inspect(child)
 
     inspect(document)
+    try:
+        validate_schema_vocabulary(document)
+    except ValueError as exc:
+        errors.append(str(exc))
     if errors:
         raise ValueError("OpenAPI lint failed:\n" + "\n".join(f"- {item}" for item in sorted(set(errors))))
 
@@ -186,7 +319,11 @@ def _resolved_schema(schema: Any, document: Mapping[str, Any]) -> Mapping[str, A
         resolved = _resolve_pointer(document, reference)
         if not isinstance(resolved, dict):
             raise ValueError(f"schema reference does not resolve to an object: {reference}")
-        return resolved
+        if len(schema) == 1:
+            return resolved
+        combined = dict(resolved)
+        combined.update((key, value) for key, value in schema.items() if key != "$ref")
+        return combined
     return schema
 
 
@@ -199,6 +336,57 @@ def _types(schema: Mapping[str, Any]) -> frozenset[str]:
     return frozenset()
 
 
+def _schema_identity(schema: Any) -> str:
+    if not isinstance(schema, dict):
+        return "empty"
+    reference = schema.get("$ref")
+    if isinstance(reference, str):
+        siblings = {key: value for key, value in schema.items() if key != "$ref"}
+        suffix = hashlib.sha256(canonical_bytes(siblings)).hexdigest() if siblings else ""
+        return f"ref:{reference}:{suffix}"
+    return f"schema:{hashlib.sha256(canonical_bytes(schema)).hexdigest()}"
+
+
+def _allowed_values(schema: Mapping[str, Any]) -> frozenset[str] | None:
+    values: set[str] | None = None
+    enum = schema.get("enum")
+    if isinstance(enum, list):
+        values = {json.dumps(item, sort_keys=True, ensure_ascii=False) for item in enum}
+    if "const" in schema:
+        const = {json.dumps(schema["const"], sort_keys=True, ensure_ascii=False)}
+        values = const if values is None else values & const
+    return None if values is None else frozenset(values)
+
+
+def _additional_properties(schema: Mapping[str, Any]) -> tuple[_AdditionalPropertiesKind, Any]:
+    value = schema.get("additionalProperties", True)
+    if value is True:
+        return _AdditionalPropertiesKind.ALLOW_ANY, None
+    if value is False:
+        return _AdditionalPropertiesKind.FORBID, None
+    if isinstance(value, dict):
+        return _AdditionalPropertiesKind.SCHEMA, value
+    raise ValueError("additionalProperties must be a boolean or schema object")
+
+
+def _constraint_change(
+    old: Mapping[str, Any], new: Mapping[str, Any], *, direction: str, keyword: str, lower: bool
+) -> bool:
+    old_present = keyword in old
+    new_present = keyword in new
+    if direction == "request":
+        if not new_present:
+            return False
+        if not old_present:
+            return True
+        return bool(new[keyword] > old[keyword] if lower else new[keyword] < old[keyword])
+    if not old_present:
+        return False
+    if not new_present:
+        return True
+    return bool(new[keyword] < old[keyword] if lower else new[keyword] > old[keyword])
+
+
 def _schema_changes(
     old_schema: Any,
     new_schema: Any,
@@ -207,7 +395,17 @@ def _schema_changes(
     *,
     direction: str,
     location: str,
+    state: _ComparisonState | None = None,
 ) -> list[str]:
+    if direction not in {"request", "response"}:
+        raise ValueError(f"unsupported schema compatibility direction {direction}")
+    if state is None:
+        state = _ComparisonState(set())
+    comparison = (_schema_identity(old_schema), _schema_identity(new_schema), direction)
+    if comparison in state.visited:
+        return []
+    state.visited.add(comparison)
+
     old = _resolved_schema(old_schema, old_document)
     new = _resolved_schema(new_schema, new_document)
     issues: list[str] = []
@@ -217,19 +415,21 @@ def _schema_changes(
         compatible = old_types <= new_types if direction == "request" else new_types <= old_types
         if not compatible:
             issues.append(f"{location}: {direction} type changed from {sorted(old_types)} to {sorted(new_types)}")
+    elif direction == "request" and not old_types and new_types:
+        issues.append(f"{location}: request type was newly constrained")
+    elif direction == "response" and old_types and not new_types:
+        issues.append(f"{location}: response type became unconstrained")
 
-    old_enum = old.get("enum")
-    new_enum = new.get("enum")
-    if isinstance(old_enum, list) and isinstance(new_enum, list):
-        old_values = {json.dumps(item, sort_keys=True) for item in old_enum}
-        new_values = {json.dumps(item, sort_keys=True) for item in new_enum}
+    old_values = _allowed_values(old)
+    new_values = _allowed_values(new)
+    if old_values is not None and new_values is not None:
         compatible = old_values <= new_values if direction == "request" else new_values <= old_values
         if not compatible:
-            issues.append(f"{location}: {direction} enum compatibility narrowed")
-    elif direction == "request" and old_enum is None and isinstance(new_enum, list):
-        issues.append(f"{location}: request enum was newly constrained")
-    elif direction == "response" and isinstance(old_enum, list) and new_enum is None:
-        issues.append(f"{location}: response enum became unconstrained")
+            issues.append(f"{location}: {direction} enum/const compatibility changed")
+    elif direction == "request" and old_values is None and new_values is not None:
+        issues.append(f"{location}: request enum/const was newly constrained")
+    elif direction == "response" and old_values is not None and new_values is None:
+        issues.append(f"{location}: response enum/const became unconstrained")
 
     old_required = {item for item in old.get("required", []) if isinstance(item, str)}
     new_required = {item for item in new.get("required", []) if isinstance(item, str)}
@@ -253,6 +453,7 @@ def _schema_changes(
                 new_document,
                 direction=direction,
                 location=f"{location}.{name}",
+                state=state,
             )
         )
 
@@ -265,20 +466,105 @@ def _schema_changes(
                 new_document,
                 direction=direction,
                 location=f"{location}[]",
+                state=state,
+            )
+        )
+    elif direction == "request" and "items" not in old and "items" in new:
+        issues.append(f"{location}[]: request items were newly constrained")
+    elif direction == "response" and "items" in old and "items" not in new:
+        issues.append(f"{location}[]: response items became unconstrained")
+
+    old_additional_kind, old_additional_schema = _additional_properties(old)
+    new_additional_kind, new_additional_schema = _additional_properties(new)
+    if (
+        old_additional_kind is _AdditionalPropertiesKind.SCHEMA
+        and new_additional_kind is _AdditionalPropertiesKind.SCHEMA
+    ):
+        issues.extend(
+            _schema_changes(
+                old_additional_schema,
+                new_additional_schema,
+                old_document,
+                new_document,
+                direction=direction,
+                location=f"{location}.*",
+                state=state,
+            )
+        )
+    elif direction == "request":
+        compatible_additional = (
+            old_additional_kind is _AdditionalPropertiesKind.FORBID
+            or new_additional_kind is _AdditionalPropertiesKind.ALLOW_ANY
+        )
+        if not compatible_additional:
+            issues.append(f"{location}.*: request additionalProperties narrowed")
+    else:
+        compatible_additional = (
+            old_additional_kind is _AdditionalPropertiesKind.ALLOW_ANY
+            or new_additional_kind is _AdditionalPropertiesKind.FORBID
+        )
+        if not compatible_additional:
+            issues.append(f"{location}.*: response additionalProperties broadened")
+
+    for keyword in ("anyOf", "oneOf", "allOf"):
+        if old.get(keyword) != new.get(keyword):
+            issues.append(f"{location}: {direction} schema composition {keyword} changed")
+            continue
+        old_composition = old.get(keyword)
+        new_composition = new.get(keyword)
+        if isinstance(old_composition, list) and isinstance(new_composition, list):
+            for index, (old_branch, new_branch) in enumerate(zip(old_composition, new_composition, strict=True)):
+                issues.extend(
+                    _schema_changes(
+                        old_branch,
+                        new_branch,
+                        old_document,
+                        new_document,
+                        direction=direction,
+                        location=f"{location}.{keyword}[{index}]",
+                        state=state,
+                    )
+                )
+
+    if old.get("not") != new.get("not"):
+        issues.append(f"{location}: {direction} schema composition not changed")
+    elif isinstance(old.get("not"), dict) and isinstance(new.get("not"), dict):
+        inverse_direction = "response" if direction == "request" else "request"
+        issues.extend(
+            _schema_changes(
+                old["not"],
+                new["not"],
+                old_document,
+                new_document,
+                direction=inverse_direction,
+                location=f"{location}.not",
+                state=state,
             )
         )
 
-    for keyword in ("anyOf", "oneOf", "allOf", "not"):
-        if old.get(keyword) != new.get(keyword):
-            issues.append(f"{location}: {direction} schema composition {keyword} changed")
+    if old.get("discriminator") != new.get("discriminator"):
+        issues.append(f"{location}: {direction} discriminator changed")
+
     for keyword in ("minimum", "exclusiveMinimum", "minLength", "minItems", "minProperties"):
-        if direction == "request" and keyword in new and (keyword not in old or new[keyword] > old[keyword]):
-            issues.append(f"{location}: request constraint {keyword} narrowed")
+        try:
+            changed = _constraint_change(old, new, direction=direction, keyword=keyword, lower=True)
+        except TypeError as exc:
+            raise ValueError(f"schema constraint {keyword} is not comparable") from exc
+        if changed:
+            issues.append(f"{location}: {direction} constraint {keyword} changed incompatibly")
     for keyword in ("maximum", "exclusiveMaximum", "maxLength", "maxItems", "maxProperties"):
-        if direction == "request" and keyword in new and (keyword not in old or new[keyword] < old[keyword]):
-            issues.append(f"{location}: request constraint {keyword} narrowed")
-    if direction == "request" and "pattern" in new and old.get("pattern") != new.get("pattern"):
-        issues.append(f"{location}: request pattern changed")
+        try:
+            changed = _constraint_change(old, new, direction=direction, keyword=keyword, lower=False)
+        except TypeError as exc:
+            raise ValueError(f"schema constraint {keyword} is not comparable") from exc
+        if changed:
+            issues.append(f"{location}: {direction} constraint {keyword} changed incompatibly")
+    if old.get("pattern") != new.get("pattern"):
+        compatible_pattern = (
+            direction == "request" and "pattern" not in new or direction == "response" and "pattern" not in old
+        )
+        if not compatible_pattern:
+            issues.append(f"{location}: {direction} pattern changed incompatibly")
     return issues
 
 
@@ -291,6 +577,8 @@ def _parameters(path_item: Mapping[str, Any], operation: Mapping[str, Any]) -> d
 
 
 def compare_contracts(old: Mapping[str, Any], new: Mapping[str, Any]) -> CompatibilityResult:
+    validate_schema_vocabulary(old)
+    validate_schema_vocabulary(new)
     old_raw = canonical_bytes(old)
     new_raw = canonical_bytes(new)
     if old_raw == new_raw:
