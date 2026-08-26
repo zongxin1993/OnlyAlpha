@@ -209,6 +209,128 @@ def test_missing_additional_properties_normalizes_to_allow_any() -> None:
     assert _comparison_with_schema(unconstrained, forbid, direction="response").change.value == "COMPATIBLE"
 
 
+@pytest.mark.parametrize("required", (False, True))
+def test_closed_response_rejects_new_named_property(required: bool) -> None:
+    old_schema: dict[str, object] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"status": {"type": "string"}},
+        "required": ["status"],
+    }
+    new_schema = copy.deepcopy(old_schema)
+    properties = cast(dict[str, object], new_schema["properties"])
+    properties["detail"] = {"type": "string"}
+    if required:
+        cast(list[str], new_schema["required"]).append("detail")
+
+    result = _comparison_with_schema(old_schema, new_schema, direction="response")
+
+    assert result.change.value == "BREAKING"
+    assert any(
+        "response property was added but old schema forbids additional properties" in issue
+        for issue in result.breaking_changes
+    )
+
+
+@pytest.mark.parametrize("old_additional", (True, None))
+def test_open_response_accepts_new_named_property(old_additional: object) -> None:
+    old_schema: dict[str, object] = {"type": "object"}
+    new_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"detail": {"type": "string"}},
+    }
+    if old_additional is not None:
+        old_schema["additionalProperties"] = old_additional
+        new_schema["additionalProperties"] = old_additional
+
+    assert _comparison_with_schema(old_schema, new_schema, direction="response").change.value == "COMPATIBLE"
+
+
+@pytest.mark.parametrize(
+    ("old_min_length", "new_min_length", "expected"),
+    ((1, 5, "COMPATIBLE"), (5, 1, "BREAKING")),
+)
+def test_response_named_property_is_checked_against_old_additional_properties_schema(
+    old_min_length: int, new_min_length: int, expected: str
+) -> None:
+    additional_schema = {"type": "string", "minLength": old_min_length}
+    old_schema: dict[str, object] = {
+        "type": "object",
+        "additionalProperties": additional_schema,
+    }
+    new_schema: dict[str, object] = {
+        "type": "object",
+        "additionalProperties": copy.deepcopy(additional_schema),
+        "properties": {"detail": {"type": "string", "minLength": new_min_length}},
+    }
+
+    assert _comparison_with_schema(old_schema, new_schema, direction="response").change.value == expected
+
+
+def test_existing_response_property_value_set_remains_directional() -> None:
+    old_schema = {"type": "object", "properties": {"status": {"enum": ["A", "B"]}}}
+    narrowed_schema = {"type": "object", "properties": {"status": {"enum": ["A"]}}}
+    broadened_schema = {"type": "object", "properties": {"status": {"enum": ["A", "B", "C"]}}}
+
+    assert _comparison_with_schema(old_schema, narrowed_schema, direction="response").change.value == "COMPATIBLE"
+    assert _comparison_with_schema(old_schema, broadened_schema, direction="response").change.value == "BREAKING"
+
+
+def test_response_status_addition_and_removal_are_breaking() -> None:
+    old = _fixture("base.json")
+    added = copy.deepcopy(old)
+    added_responses = cast(dict[str, object], added["paths"]["/api/v2/items"]["post"]["responses"])  # type: ignore[index]
+    added_responses["202"] = {"description": "accepted"}
+    removed = copy.deepcopy(old)
+    removed_responses = cast(dict[str, object], removed["paths"]["/api/v2/items"]["post"]["responses"])  # type: ignore[index]
+    del removed_responses["200"]
+
+    assert governance.compare_contracts(old, added).breaking_changes == (
+        "POST /api/v2/items: response status 202 was added",
+    )
+    assert governance.compare_contracts(old, removed).breaking_changes == (
+        "POST /api/v2/items: response status 200 was removed",
+    )
+
+
+def test_response_media_type_addition_and_removal_are_breaking() -> None:
+    old = _fixture("base.json")
+    added = copy.deepcopy(old)
+    added_content = cast(
+        dict[str, object],
+        added["paths"]["/api/v2/items"]["post"]["responses"]["200"]["content"],  # type: ignore[index]
+    )
+    added_content["application/problem+json"] = copy.deepcopy(added_content["application/json"])
+    removed = copy.deepcopy(old)
+    removed_content = cast(
+        dict[str, object],
+        removed["paths"]["/api/v2/items"]["post"]["responses"]["200"]["content"],  # type: ignore[index]
+    )
+    del removed_content["application/json"]
+
+    assert governance.compare_contracts(old, added).breaking_changes == (
+        "POST /api/v2/items: response 200 content type application/problem+json was added",
+    )
+    assert governance.compare_contracts(old, removed).breaking_changes == (
+        "POST /api/v2/items: response 200 content type application/json was removed",
+    )
+
+
+def test_response_compatibility_result_is_deduplicated_sorted_and_stable() -> None:
+    old = _fixture("base.json")
+    new = copy.deepcopy(old)
+    responses = cast(dict[str, object], new["paths"]["/api/v2/items"]["post"]["responses"])  # type: ignore[index]
+    responses["202"] = {"description": "accepted"}
+    content = cast(dict[str, object], responses["200"]["content"])  # type: ignore[index]
+    content["application/problem+json"] = copy.deepcopy(content["application/json"])
+
+    first = governance.compare_contracts(old, new)
+    second = governance.compare_contracts(old, new)
+
+    assert first == second
+    assert first.breaking_changes == tuple(sorted(set(first.breaking_changes)))
+
+
 def test_same_composition_references_compare_changed_component_semantics() -> None:
     old = _fixture("base.json")
     new = copy.deepcopy(old)

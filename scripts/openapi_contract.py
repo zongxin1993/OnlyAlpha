@@ -457,6 +457,27 @@ def _schema_changes(
             )
         )
 
+    old_additional_kind, old_additional_schema = _additional_properties(old)
+    new_additional_kind, new_additional_schema = _additional_properties(new)
+    if direction == "response":
+        for name in sorted(new_properties.keys() - old_properties.keys()):
+            if old_additional_kind is _AdditionalPropertiesKind.FORBID:
+                issues.append(
+                    f"{location}.{name}: response property was added but old schema forbids additional properties"
+                )
+            elif old_additional_kind is _AdditionalPropertiesKind.SCHEMA:
+                issues.extend(
+                    _schema_changes(
+                        old_additional_schema,
+                        new_properties[name],
+                        old_document,
+                        new_document,
+                        direction="response",
+                        location=f"{location}.{name}",
+                        state=state,
+                    )
+                )
+
     if "items" in old and "items" in new:
         issues.extend(
             _schema_changes(
@@ -474,8 +495,6 @@ def _schema_changes(
     elif direction == "response" and "items" in old and "items" not in new:
         issues.append(f"{location}[]: response items became unconstrained")
 
-    old_additional_kind, old_additional_schema = _additional_properties(old)
-    new_additional_kind, new_additional_schema = _additional_properties(new)
     if (
         old_additional_kind is _AdditionalPropertiesKind.SCHEMA
         and new_additional_kind is _AdditionalPropertiesKind.SCHEMA
@@ -662,6 +681,8 @@ def compare_contracts(old: Mapping[str, Any], new: Mapping[str, Any]) -> Compati
             old_responses = old_operation.get("responses", {})
             new_responses = new_operation.get("responses", {})
             if isinstance(old_responses, dict) and isinstance(new_responses, dict):
+                for status in sorted(new_responses.keys() - old_responses.keys()):
+                    issues.append(f"{location}: response status {status} was added")
                 for status, old_response in sorted(old_responses.items()):
                     if status not in new_responses:
                         issues.append(f"{location}: response status {status} was removed")
@@ -672,6 +693,8 @@ def compare_contracts(old: Mapping[str, Any], new: Mapping[str, Any]) -> Compati
                     old_content = old_response.get("content", {})
                     new_content = new_response.get("content", {})
                     if isinstance(old_content, dict) and isinstance(new_content, dict):
+                        for media_type in sorted(new_content.keys() - old_content.keys()):
+                            issues.append(f"{location}: response {status} content type {media_type} was added")
                         for media_type, old_media in sorted(old_content.items()):
                             if media_type not in new_content:
                                 issues.append(f"{location}: response {status} content type {media_type} was removed")
