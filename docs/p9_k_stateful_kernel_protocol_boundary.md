@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED (worktree); K3 IMPLEMENTATION READY**
+> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED; K3 DONE / VERIFIED (worktree); K4 IMPLEMENTATION READY**
 
 ---
 
@@ -1028,6 +1028,21 @@ Evolve the existing `onlyalpha-api` package into the unique product HTTP adapter
 ### Exit
 
 Web/product clients can control the currently supported product scope through one HTTP adapter with no second business path introduced.
+
+### K3 implementation and closure evidence (2026-08-26)
+
+The existing Research v2 Product server now composes the K2 `OnlyResearchProductBoundary` from the same started
+`OnlyAlphaKernelHost` that owns readiness and mutation admission. Create/Cancel construct explicit Product Commands; Get/List construct
+explicit Product Queries. The Run router has no direct `OnlyResearchCommandService` or `OnlyResearchRunQueryService` dependency and has
+no dispatcher-failure fallback. DTO, header, path, response and error mapping remain in the FastAPI adapter.
+
+The production console remains `onlyalpha-api` with one Host and no multi-worker option. `onlyalpha-artifact-api` is retained as
+read-only migration debt because it is an existing documented console contract; it has no Kernel Host, Product Command boundary, or
+mutation capability and is not a second Product Control Plane. Canonical Research OpenAPI and generated Web client semantics remain
+unchanged. Database schema/migrations and P9.0 Strategy semantics remain unchanged.
+
+ADR 0102 records PostgreSQL 16.10 as the current verified baseline and PostgreSQL 18.x as the future target. The PostgreSQL 18 migration
+is planned but not started or verified; K3 does not change CI images, client packages, SQL, migrations, or UUID semantics.
 
 ---
 

@@ -48,10 +48,9 @@ def _symbols(specification: str) -> frozenset[CanonicalImport]:
 EXPECTED_API_CORE_CROSSINGS = {
     "app.py": _symbols(
         """
+        onlyalpha.application.product_boundary.OnlyResearchProductBoundary
         onlyalpha.calculation.registry.OnlyCalculationRegistry
         onlyalpha.research.command.errors.OnlyResearchCommandError
-        onlyalpha.research.command.query.OnlyResearchRunQueryService
-        onlyalpha.research.command.service.OnlyResearchCommandService
         onlyalpha.research.definition.errors.OnlyResearchDefinitionError
         onlyalpha.research.definition.ports.OnlyResearchUniverseCatalog
         onlyalpha.research.definition.resolver.OnlyResearchDefinitionResolver
@@ -74,6 +73,7 @@ EXPECTED_API_CORE_CROSSINGS = {
     ),
     "main.py": _symbols(
         """
+        onlyalpha.application.product_boundary.only_compose_research_product_boundary
         onlyalpha.broker.factory.OnlyBrokerFactoryRegistry
         onlyalpha.calculation.registry.OnlyCalculationRegistry
         onlyalpha.core.clock.only_system_utc_now
@@ -181,12 +181,18 @@ EXPECTED_API_CORE_CROSSINGS = {
     ),
     "research/run_routes.py": _symbols(
         """
+        onlyalpha.application.product_boundary.OnlyCancelResearchRun
+        onlyalpha.application.product_boundary.OnlyCreateResearchRun
+        onlyalpha.application.product_boundary.OnlyGetResearchRun
+        onlyalpha.application.product_boundary.OnlyListResearchRuns
+        onlyalpha.application.product_boundary.OnlyResearchProductBoundary
         onlyalpha.research.command.errors.OnlyResearchCommandError
         onlyalpha.research.command.errors.OnlyResearchCommandPhase
+        onlyalpha.research.command.model.OnlyResearchRunPage
         onlyalpha.research.command.model.OnlyResearchSubmissionKey
+        onlyalpha.research.command.model.OnlyResearchSubmitOutcome
         onlyalpha.research.command.query.DEFAULT_RESEARCH_RUN_PAGE_SIZE
-        onlyalpha.research.command.query.OnlyResearchRunQueryService
-        onlyalpha.research.command.service.OnlyResearchCommandService
+        onlyalpha.research.run.model.OnlyResearchRun
         onlyalpha.research.run.model.OnlyResearchRunId
         onlyalpha.research.specification.model.OnlyResearchSpecification
         """

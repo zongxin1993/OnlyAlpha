@@ -46,9 +46,9 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.2 — Product Command / Query Boundary — **DONE / VERIFIED (worktree)** |
-| P9.K.2 Task Base | `14a5726839f013e7567a1c19edfecfef3f749518`; closure SHA pending commit |
-| Next semantic direction | P9.K.3 — Unified Product HTTP Control Plane — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
+| Current increment | P9.K.3 — Unified Product HTTP Control Plane — **DONE / VERIFIED (worktree)** |
+| P9.K.3 Task Base | `7a80bb405c43f8662d253a2264c044bb30a4379c`; closure SHA pending commit |
+| Next semantic direction | P9.K.4 — OpenAPI Contract Governance — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -61,6 +61,12 @@ execution path、显式 StrategyDecision handoff 与 predecessor-only Promotion 
 `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` 已在 Final-SHA Certification run `32728974966` 取得 artifact verdict
 `ACCEPTED`，因此 P9.0 为 `DONE / CERTIFIED`。详细证据见
 [`docs/reports/p9_0_closure_2_authority_hardening_and_final_certification.md`](docs/reports/p9_0_closure_2_authority_hardening_and_final_certification.md)。
+
+P9.K.3 已把 canonical Research Run HTTP Create/Cancel/Get/List 收敛到 K2 Product Command/Query Boundary。FastAPI 只保留 transport
+validation、显式 DTO mapping、HTTP response/error 与 OpenAPI projection；同一个 Product server 只构造一个 mutation-capable Kernel
+Host，且不提供 multi-worker 启动选项。现有 `onlyalpha-artifact-api` 只读入口暂列 migration debt，不具备 Product mutation capability。
+当前 PostgreSQL verified baseline 仍为 16.10；ADR 0102 仅冻结未来 PostgreSQL 18.x target，迁移尚未开始或验证。
+K3 Task Gate 证据见 [`docs/reports/p9_k3_product_http_control_plane.md`](docs/reports/p9_k3_product_http_control_plane.md)。
 
 ---
 

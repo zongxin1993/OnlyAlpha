@@ -22,8 +22,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.2 — Product Command / Query Boundary — DONE / VERIFIED (worktree)
-P9.K.2 Task Base: 14a5726839f013e7567a1c19edfecfef3f749518; closure SHA pending commit
+Current Increment: P9.K.3 — Unified Product HTTP Control Plane — DONE / VERIFIED (worktree)
+P9.K.3 Task Base: 7a80bb405c43f8662d253a2264c044bb30a4379c; closure SHA pending commit
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -34,7 +34,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.3 — Unified Product HTTP Control Plane — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.4 — OpenAPI Contract Governance — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -803,8 +803,17 @@ C18 已激活，独立 C19 read capability 已建立，二者只有 Kernel 定�
 canonical `kernel`、`architecture`、`research-command`、`research-query`、OpenAPI freshness 与静态门禁通过，数据库、OpenAPI、P9.0
 语义均无变化。证据见
 [`reports/p9_k2_product_command_query_boundary.md`](reports/p9_k2_product_command_query_boundary.md)。该状态尚未绑定 commit 或执行
-Final-SHA Certification，因此不是 `CERTIFIED / ACCEPTED`。P9.K.3 为 **IMPLEMENTATION READY**；P9.K 整体仍未完成，K3/K7 尚未开始，
-原 P9.1+ production vertical 在 P9.K 完整闭环前保持 blocked。
+Final-SHA Certification，因此不是 `CERTIFIED / ACCEPTED`。该 K2 closure 已成为 K3 HTTP migration 的内部边界基础。
+
+**P9.K.3 — Unified Product HTTP Control Plane** 已在基于
+`7a80bb405c43f8662d253a2264c044bb30a4379c` 的 worktree 完成 Task Gate 实现：唯一 production `onlyalpha-api` composition 使用同一个
+已启动 Kernel Host 组合 K2 Product Boundary；Research Run Create/Cancel 只 dispatch Product Command，Get/List 只 dispatch Product
+Query。Run Router 不再直接持有 Research mutation/query services，缺失 binding fail closed 且无 legacy fallback。Research v2 route、DTO、
+Idempotency-Key、202/Location、分页、错误与 canonical OpenAPI 语义不变；P9.0 与数据库 schema/migration 不变。现有
+`onlyalpha-artifact-api` 依据已发布 console/README 证据保留为零 mutation capability 的 read-only migration debt。ADR 0102 冻结当前
+verified PostgreSQL 16.10 与未来 PostgreSQL 18.x target，迁移仍为 PLANNED / NOT YET VERIFIED。P9.K.3 为 **DONE / VERIFIED
+(worktree)**；P9.K.4 为 **IMPLEMENTATION READY**，P9.K 整体仍未完成。证据见
+[`reports/p9_k3_product_http_control_plane.md`](reports/p9_k3_product_http_control_plane.md)。
 
 ### 长期 Strategy Product 参考方向
 

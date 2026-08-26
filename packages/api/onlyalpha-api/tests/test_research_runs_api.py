@@ -3,12 +3,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_research_app
 from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_api.research.run_errors import run_error_response
+from onlyalpha_api.research.run_routes import create_run_router
 
+from onlyalpha.application.product_boundary import (
+    OnlyCreateResearchRun,
+    OnlyResearchProductBoundary,
+    only_compose_research_product_boundary,
+)
 from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKernelLifecycleStep
+from onlyalpha.kernel.command import OnlyProductCommandBinding, OnlyProductCommandDispatcher
+from onlyalpha.kernel.query import OnlyProductQueryDispatcher
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactStoreError
 from onlyalpha.research.command import (
     OnlyResearchCommandService,
@@ -122,14 +131,16 @@ def _client(readiness_probe=None):  # type: ignore[no-untyped-def]
     command = OnlyResearchCommandService(admission=admission, store=store, now_utc=lambda: NOW)  # type: ignore[arg-type]
     query = OnlyResearchRunQueryService(store)  # type: ignore[arg-type]
     calculations = registry()
+    kernel = OnlyAlphaKernelHost()
+    kernel.start()
+    product = only_compose_research_product_boundary(admission=kernel, commands=command, queries=query)
     return (
         dataset,
         store,
         TestClient(  # type: ignore[arg-type]
             create_research_app(
                 _Reader(),
-                command,
-                query,
+                product,
                 calculations,
                 OnlyResearchDefinitionResolver(calculations, dataset),
                 readiness_probe or _ready_projection(),
@@ -272,3 +283,53 @@ def test_run_error_mapper_covers_stable_admission_persistence_and_internal_class
         assert status == expected_status
         assert body.error.code
         assert body.error.detail
+
+
+def test_product_dispatch_failure_is_closed_without_direct_service_fallback() -> None:
+    host = OnlyAlphaKernelHost()
+    host.start()
+    product = OnlyResearchProductBoundary(
+        commands=OnlyProductCommandDispatcher(host, ()),
+        queries=OnlyProductQueryDispatcher(()),
+    )
+    app = FastAPI()
+    app.include_router(create_run_router(product))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/v2/research/runs",
+        headers={"Idempotency-Key": KEY},
+        json={"specification": dict(specification().to_dict())},
+    )
+
+    assert response.status_code == 500
+
+
+def test_product_dispatcher_rejects_http_mutation_before_ready_without_handler_call() -> None:
+    calls = 0
+
+    def handle(_command: OnlyCreateResearchRun) -> object:
+        nonlocal calls
+        calls += 1
+        return object()
+
+    host = OnlyAlphaKernelHost()
+    product = OnlyResearchProductBoundary(
+        commands=OnlyProductCommandDispatcher(
+            host,
+            (OnlyProductCommandBinding(OnlyCreateResearchRun, handle),),
+        ),
+        queries=OnlyProductQueryDispatcher(()),
+    )
+    app = FastAPI()
+    app.include_router(create_run_router(product))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/v2/research/runs",
+        headers={"Idempotency-Key": KEY},
+        json={"specification": dict(specification().to_dict())},
+    )
+
+    assert response.status_code == 500
+    assert calls == 0

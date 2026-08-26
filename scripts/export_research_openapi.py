@@ -9,6 +9,7 @@ from typing import cast
 from onlyalpha_api import create_research_app
 from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 
+from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.artifact.model import OnlyResearchArtifact
@@ -37,8 +38,11 @@ def rendered_contract() -> str:
     try:
         app = create_research_app(
             _ContractReader(),
-            cast(OnlyResearchCommandService, object()),
-            cast(OnlyResearchRunQueryService, object()),
+            only_compose_research_product_boundary(
+                admission=kernel,
+                commands=cast(OnlyResearchCommandService, object()),
+                queries=cast(OnlyResearchRunQueryService, object()),
+            ),
             calculations,
             OnlyResearchDefinitionResolver(calculations, _ContractDatasetResolver()),  # type: ignore[arg-type]
             OnlyKernelResearchReadinessProjection(

@@ -8,10 +8,9 @@ from fastapi.params import Depends as DependsParam
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
+from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.research.command.errors import OnlyResearchCommandError
-from onlyalpha.research.command.query import OnlyResearchRunQueryService
-from onlyalpha.research.command.service import OnlyResearchCommandService
 from onlyalpha.research.definition.errors import OnlyResearchDefinitionError
 from onlyalpha.research.definition.ports import OnlyResearchUniverseCatalog
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
@@ -111,8 +110,7 @@ class _ResearchServiceNotReady(RuntimeError):
 
 def create_research_app(
     reader: OnlyResearchArtifactReader,
-    command_service: OnlyResearchCommandService,
-    run_query_service: OnlyResearchRunQueryService,
+    product_boundary: OnlyResearchProductBoundary,
     calculation_registry: OnlyCalculationRegistry,
     definition_resolver: OnlyResearchDefinitionResolver,
     readiness_probe: OnlyKernelResearchReadinessProjection,
@@ -174,7 +172,7 @@ def create_research_app(
 
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
     app.include_router(create_artifact_router(artifact_service), dependencies=readiness_dependencies)
-    app.include_router(create_run_router(command_service, run_query_service), dependencies=readiness_dependencies)
+    app.include_router(create_run_router(product_boundary), dependencies=readiness_dependencies)
     app.include_router(
         create_discovery_router(ResearchDiscoveryService(calculation_registry, universe_authority)),
         dependencies=readiness_dependencies,

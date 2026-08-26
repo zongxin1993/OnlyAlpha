@@ -6,11 +6,21 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Query, Response
 
+from onlyalpha.application.product_boundary import (
+    OnlyCancelResearchRun,
+    OnlyCreateResearchRun,
+    OnlyGetResearchRun,
+    OnlyListResearchRuns,
+    OnlyResearchProductBoundary,
+)
 from onlyalpha.research.command.errors import OnlyResearchCommandError, OnlyResearchCommandPhase
-from onlyalpha.research.command.model import OnlyResearchSubmissionKey
-from onlyalpha.research.command.query import DEFAULT_RESEARCH_RUN_PAGE_SIZE, OnlyResearchRunQueryService
-from onlyalpha.research.command.service import OnlyResearchCommandService
-from onlyalpha.research.run.model import OnlyResearchRunId
+from onlyalpha.research.command.model import (
+    OnlyResearchRunPage,
+    OnlyResearchSubmissionKey,
+    OnlyResearchSubmitOutcome,
+)
+from onlyalpha.research.command.query import DEFAULT_RESEARCH_RUN_PAGE_SIZE
+from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 from .run_schema import (
@@ -52,7 +62,13 @@ def _submission_key(value: str | None) -> OnlyResearchSubmissionKey:
         ) from exc
 
 
-def create_run_router(command: OnlyResearchCommandService, query: OnlyResearchRunQueryService) -> APIRouter:
+def _expected_result[ResultT](value: object, result_type: type[ResultT]) -> ResultT:
+    if not isinstance(value, result_type):
+        raise TypeError(f"Product dispatcher returned {type(value).__name__}; expected {result_type.__name__}")
+    return value
+
+
+def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
     router = APIRouter(prefix="/api/v2/research/runs", tags=[RUN_ROUTE_TAG])
 
     @router.post("", status_code=202, response_model=SubmitResearchRunResponse, responses=_ERROR_RESPONSES)
@@ -61,26 +77,34 @@ def create_run_router(command: OnlyResearchCommandService, query: OnlyResearchRu
         response: Response,
         idempotency_key: IdempotencyKeyHeader = None,
     ) -> SubmitResearchRunResponse:
-        outcome = command.submit_research_run(
-            _submission_key(idempotency_key),
-            OnlyResearchSpecification.from_dict(request.specification),
+        outcome = _expected_result(
+            product.commands.dispatch(
+                OnlyCreateResearchRun(
+                    _submission_key(idempotency_key),
+                    OnlyResearchSpecification.from_dict(request.specification),
+                )
+            ),
+            OnlyResearchSubmitOutcome,
         )
         response.headers["Location"] = f"/api/v2/research/runs/{outcome.run.run_id.value}"
         return SubmitResearchRunResponse.from_model(outcome)
 
     @router.get("/{run_id}", response_model=ResearchRunDto, responses=_ERROR_RESPONSES)
     def get_run(run_id: str) -> ResearchRunDto:
-        return ResearchRunDto.from_model(query.get_run(_run_id(run_id)))
+        result = product.queries.dispatch(OnlyGetResearchRun(_run_id(run_id)))
+        return ResearchRunDto.from_model(_expected_result(result, OnlyResearchRun))
 
     @router.get("", response_model=ResearchRunPageDto, responses=_ERROR_RESPONSES)
     def list_runs(
         limit: int = Query(default=DEFAULT_RESEARCH_RUN_PAGE_SIZE), cursor: str | None = Query(default=None)
     ) -> ResearchRunPageDto:
-        return ResearchRunPageDto.from_model(query.list_runs(limit=limit, cursor=cursor))
+        result = product.queries.dispatch(OnlyListResearchRuns(limit=limit, cursor=cursor))
+        return ResearchRunPageDto.from_model(_expected_result(result, OnlyResearchRunPage))
 
     @router.post("/{run_id}/cancellation", response_model=ResearchRunDto, responses=_ERROR_RESPONSES)
     def cancel_run(run_id: str) -> ResearchRunDto:
-        return ResearchRunDto.from_model(command.request_research_run_cancellation(_run_id(run_id)))
+        result = product.commands.dispatch(OnlyCancelResearchRun(_run_id(run_id)))
+        return ResearchRunDto.from_model(_expected_result(result, OnlyResearchRun))
 
     return router
 

@@ -265,13 +265,13 @@ allowed_capabilities = ["C01", "C05", "C12", "C14"]
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C10", "C17"]
+allowed_capabilities = ["C01", "C05", "C10", "C17", "C18", "C19"]
 
 [[actors]]
 id = "A04"
 name = "HTTP_TRANSPORT_ADAPTER"
 production = true
-allowed_capabilities = ["C01", "C05"]
+allowed_capabilities = ["C05", "C18", "C19"]
 
 [[actors]]
 id = "A05"
@@ -549,14 +549,14 @@ capability = "C17"
 symbols = ["onlyalpha.kernel.host.OnlyAlphaKernelHost"]
 [[bindings]]
 capability = "C18"
-symbols = ["onlyalpha.kernel.command.OnlyProductCommandDispatcher"]
+symbols = ["onlyalpha.kernel.command.OnlyProductCommandDispatcher", "onlyalpha.application.product_boundary.OnlyResearchProductBoundary"]
 [[bindings]]
 capability = "C19"
-symbols = ["onlyalpha.kernel.query.OnlyProductQueryDispatcher"]
+symbols = ["onlyalpha.kernel.query.OnlyProductQueryDispatcher", "onlyalpha.application.product_boundary.OnlyResearchProductBoundary"]
 
 [[ownership]]
 capability = "C01"
-approved_production_holders = ["A03", "A04", "A05", "A10", "A16", "A17"]
+approved_production_holders = ["A03", "A05", "A10", "A16", "A17"]
 [[ownership]]
 capability = "C02"
 approved_production_holders = ["A05", "A06", "A16"]
@@ -607,10 +607,10 @@ capability = "C17"
 approved_production_holders = ["A03", "A12"]
 [[ownership]]
 capability = "C18"
-approved_production_holders = ["A12", "A17"]
+approved_production_holders = ["A03", "A04", "A12", "A17"]
 [[ownership]]
 capability = "C19"
-approved_production_holders = ["A12", "A17"]
+approved_production_holders = ["A03", "A04", "A12", "A17"]
 
 [[constructors]]
 id = "K01"

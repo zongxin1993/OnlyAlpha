@@ -60,7 +60,7 @@ def test_research_query_service_receives_only_read_capability() -> None:
     }
 
 
-def test_research_product_composition_is_thin_and_k3_is_not_started() -> None:
+def test_research_product_composition_remains_thin_after_k3_http_adoption() -> None:
     source = PRODUCT_COMPOSITION.read_text(encoding="utf-8")
     assert source.count("OnlyProductCommandDispatcher(") == 1
     assert source.count("OnlyProductQueryDispatcher(") == 1
@@ -69,4 +69,3 @@ def test_research_product_composition_is_thin_and_k3_is_not_started() -> None:
     assert "get_run(" in source
     assert "list_runs(" in source
     assert not any(name.startswith(("fastapi", "pydantic", "onlyalpha_api")) for name in _imports(PRODUCT_COMPOSITION))
-    assert not list((ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api").glob("*product*"))

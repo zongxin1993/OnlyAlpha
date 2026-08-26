@@ -46,12 +46,18 @@ EXPECTED_ROUTE_ONLYALPHA_IMPORTS: dict[str, frozenset[CanonicalImport]] = {
     ),
     "packages/api/onlyalpha-api/src/onlyalpha_api/research/run_routes.py": frozenset(
         {
+            ("symbol", "onlyalpha.application.product_boundary", "OnlyCancelResearchRun"),
+            ("symbol", "onlyalpha.application.product_boundary", "OnlyCreateResearchRun"),
+            ("symbol", "onlyalpha.application.product_boundary", "OnlyGetResearchRun"),
+            ("symbol", "onlyalpha.application.product_boundary", "OnlyListResearchRuns"),
+            ("symbol", "onlyalpha.application.product_boundary", "OnlyResearchProductBoundary"),
             ("symbol", "onlyalpha.research.command.errors", "OnlyResearchCommandError"),
             ("symbol", "onlyalpha.research.command.errors", "OnlyResearchCommandPhase"),
+            ("symbol", "onlyalpha.research.command.model", "OnlyResearchRunPage"),
             ("symbol", "onlyalpha.research.command.model", "OnlyResearchSubmissionKey"),
+            ("symbol", "onlyalpha.research.command.model", "OnlyResearchSubmitOutcome"),
             ("symbol", "onlyalpha.research.command.query", "DEFAULT_RESEARCH_RUN_PAGE_SIZE"),
-            ("symbol", "onlyalpha.research.command.query", "OnlyResearchRunQueryService"),
-            ("symbol", "onlyalpha.research.command.service", "OnlyResearchCommandService"),
+            ("symbol", "onlyalpha.research.run.model", "OnlyResearchRun"),
             ("symbol", "onlyalpha.research.run.model", "OnlyResearchRunId"),
             ("symbol", "onlyalpha.research.specification.model", "OnlyResearchSpecification"),
         }

@@ -11,6 +11,7 @@ from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_api.research.definition_schema import ResearchDefinitionRequestDto
 from onlyalpha_api.research.run_schema import SubmitResearchRunRequest
 
+from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
@@ -65,8 +66,11 @@ def _case(tmp_path, universe_authority=None):  # type: ignore[no-untyped-def]
     kernel.start()
     app = create_research_app(
         cast(OnlyResearchArtifactReader, _Unused()),
-        cast(OnlyResearchCommandService, _Unused()),
-        cast(OnlyResearchRunQueryService, _Unused()),
+        only_compose_research_product_boundary(
+            admission=kernel,
+            commands=cast(OnlyResearchCommandService, _Unused()),
+            queries=cast(OnlyResearchRunQueryService, _Unused()),
+        ),
         calculations,
         resolver,
         OnlyKernelResearchReadinessProjection(

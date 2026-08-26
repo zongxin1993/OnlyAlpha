@@ -8,6 +8,7 @@ from pathlib import Path
 
 import uvicorn
 
+from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.core.clock import only_system_utc_now
@@ -153,10 +154,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             store=run_store,
             now_utc=only_system_utc_now,
         )
+        product_boundary = only_compose_research_product_boundary(
+            admission=kernel,
+            commands=command,
+            queries=OnlyResearchRunQueryService(run_store),
+        )
         app = create_research_app(
             OnlyResearchArtifactProfileReader(layout.research_artifact_root),
-            command,
-            OnlyResearchRunQueryService(run_store),
+            product_boundary,
             calculations,
             OnlyResearchDefinitionResolver(calculations, dataset_store),
             OnlyKernelResearchReadinessProjection(kernel, verification.evidence),
