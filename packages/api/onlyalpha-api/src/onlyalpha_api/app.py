@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 
 from onlyalpha.application.product_boundary import OnlyResearchProductBoundary
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.kernel import OnlyKernelAuthorityError, OnlyKernelMutationRejected
 from onlyalpha.research.command.errors import OnlyResearchCommandError
 from onlyalpha.research.definition.errors import OnlyResearchDefinitionError
 from onlyalpha.research.definition.ports import OnlyResearchUniverseCatalog
@@ -149,8 +150,30 @@ def create_research_app(
         status, body = run_error_response(error)
         return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
-    for error_type in (OnlyResearchCommandError, OnlyResearchRunError, OnlyResearchSpecificationError):
-        app.add_exception_handler(error_type, command_error_handler)
+    async def kernel_mutation_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        code = (
+            "PRODUCT_KERNEL_MUTATION_UNAVAILABLE"
+            if isinstance(error, OnlyKernelMutationRejected)
+            else "PRODUCT_KERNEL_AUTHORITY_UNAVAILABLE"
+        )
+        body = ResearchRunErrorEnvelopeDto(
+            error=ResearchRunErrorDto(
+                phase="OPERATIONAL",
+                code=code,
+                detail="Product Kernel mutation is unavailable",
+            )
+        )
+        return JSONResponse(status_code=503, content=body.model_dump(mode="json"))
+
+    for kernel_error_type in (OnlyKernelAuthorityError, OnlyKernelMutationRejected):
+        app.add_exception_handler(kernel_error_type, kernel_mutation_error_handler)
+
+    for command_error_type in (
+        OnlyResearchCommandError,
+        OnlyResearchRunError,
+        OnlyResearchSpecificationError,
+    ):
+        app.add_exception_handler(command_error_type, command_error_handler)
 
     async def definition_domain_error_handler(_request: Request, error: Exception) -> JSONResponse:
         assert isinstance(error, OnlyResearchDefinitionError)

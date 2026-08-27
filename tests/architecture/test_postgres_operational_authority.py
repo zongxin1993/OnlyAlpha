@@ -22,6 +22,7 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "strategy_catalog",
         "strategy_freeze_record",
         "strategy_promotion_record",
+        "product_command_receipt",
     ]
     for forbidden in (
         "dataset_row",

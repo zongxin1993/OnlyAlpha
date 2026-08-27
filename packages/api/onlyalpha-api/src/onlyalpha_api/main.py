@@ -9,6 +9,9 @@ from pathlib import Path
 import uvicorn
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
+from onlyalpha.application.strategy_authority import (
+    OnlyStrategyFreezeProjectionReconciliationApplicationService,
+)
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.core.clock import only_system_utc_now
@@ -19,6 +22,7 @@ from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     OnlyPostgresConfig,
+    OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
@@ -86,6 +90,16 @@ def _verify_calculation_registry(calculations: OnlyCalculationRegistry) -> None:
     calculations.type_definitions()
 
 
+def _reconcile_strategy_projections(layout: OnlyUserDataLayout, postgres_dsn: str) -> None:
+    semantic_namespace_id = OnlyResearchSemanticStoreIdentity(layout.research_root).load_verified()
+    OnlyStrategyFreezeProjectionReconciliationApplicationService.compose(
+        semantic_root=layout.research_root,
+        postgres_dsn=postgres_dsn,
+        semantic_namespace_id=semantic_namespace_id,
+        audit_time=only_system_utc_now,
+    ).reconcile_all()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="onlyalpha-api")
     parser.add_argument("--user-data-root", type=Path, required=True)
@@ -119,6 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
     kernel = OnlyAlphaKernelHost(
+        authority_guard=OnlyPostgresKernelAuthorityGuard(operational_dsn),
         booters=(
             OnlyKernelLifecycleStep(
                 "calculation_registry_composition",
@@ -131,6 +146,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 lambda: _verify_postgres_server(operational_dsn),
             ),
             OnlyKernelLifecycleStep("research_product_scope", verification.verify),
+        ),
+        recoverers=(
+            OnlyKernelLifecycleStep(
+                "strategy_projection_reconciliation",
+                lambda: _reconcile_strategy_projections(layout, postgres.dsn),
+            ),
         ),
     )
     try:

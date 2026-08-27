@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Lock
+from typing import Protocol
 
 from .lifecycle import (
     OnlyKernelFailure,
@@ -34,6 +35,23 @@ class OnlyKernelHostError(RuntimeError):
         super().__init__(f"Product Kernel {failure.phase} failed at {failure.step}: {failure.reason}")
 
 
+class OnlyKernelAuthorityError(RuntimeError):
+    """The mutation-capable Product Kernel authority is unavailable or lost."""
+
+
+class OnlyKernelAuthorityAlreadyHeld(OnlyKernelAuthorityError):
+    def __init__(self) -> None:
+        super().__init__("Product Kernel mutation authority is already held by another process")
+
+
+class OnlyKernelAuthorityGuard(Protocol):
+    def acquire(self) -> None: ...
+
+    def assert_held(self) -> None: ...
+
+    def release(self) -> None: ...
+
+
 class _OnlyKernelStepExecutionError(RuntimeError):
     def __init__(self, step: str, cause: Exception) -> None:
         self.step = step
@@ -51,11 +69,13 @@ class OnlyAlphaKernelHost:
         verifiers: tuple[OnlyKernelLifecycleStep, ...] = (),
         recoverers: tuple[OnlyKernelLifecycleStep, ...] = (),
         drainers: tuple[OnlyKernelLifecycleStep, ...] = (),
+        authority_guard: OnlyKernelAuthorityGuard | None = None,
     ) -> None:
         self._booters = _validated_steps("booters", booters)
         self._verifiers = _validated_steps("verifiers", verifiers)
         self._recoverers = _validated_steps("recoverers", recoverers)
         self._drainers = _validated_steps("drainers", drainers)
+        self._authority_guard = authority_guard
         self._lifecycle = OnlyKernelLifecycle()
         self._operation_lock = Lock()
         self._active_operation: str | None = None
@@ -82,6 +102,9 @@ class OnlyAlphaKernelHost:
             phase = OnlyKernelFailurePhase.RECOVERING
             step_name = "lifecycle-transition"
             self._lifecycle.transition(OnlyKernelState.RECOVERING)
+            step_name = "mutation-authority-acquire"
+            if self._authority_guard is not None:
+                self._authority_guard.acquire()
             self._execute(self._recoverers)
             self._lifecycle.transition(OnlyKernelState.READY)
             return self.status
@@ -91,6 +114,11 @@ class OnlyAlphaKernelHost:
             failure = OnlyKernelFailure(phase=phase, step=failed_step, reason=type(cause).__name__)
             if self.state is not OnlyKernelState.FAILED:
                 self._lifecycle.fail(failure)
+            if self._authority_guard is not None:
+                try:
+                    self._authority_guard.release()
+                except Exception:
+                    pass
             raise OnlyKernelHostError(failure) from cause
         finally:
             self._end_operation("start")
@@ -101,6 +129,10 @@ class OnlyAlphaKernelHost:
         try:
             self._lifecycle.transition(OnlyKernelState.DRAINING)
             self._execute(self._drainers)
+            step_name = "mutation-authority-release"
+            if self._authority_guard is not None:
+                self._authority_guard.release()
+            step_name = "lifecycle-transition"
             self._lifecycle.transition(OnlyKernelState.STOPPED)
             return self.status
         except Exception as error:
@@ -111,6 +143,11 @@ class OnlyAlphaKernelHost:
                 step=failed_step,
                 reason=type(cause).__name__,
             )
+            if self._authority_guard is not None:
+                try:
+                    self._authority_guard.release()
+                except Exception:
+                    pass
             if self.state is not OnlyKernelState.FAILED:
                 self._lifecycle.fail(failure)
             raise OnlyKernelHostError(failure) from cause
@@ -119,6 +156,8 @@ class OnlyAlphaKernelHost:
 
     def assert_mutation_ready(self) -> None:
         self._lifecycle.assert_mutation_ready()
+        if self._authority_guard is not None:
+            self._authority_guard.assert_held()
 
     def _begin_operation(self, operation: str, *, required_state: OnlyKernelState) -> None:
         with self._operation_lock:
@@ -158,4 +197,4 @@ def _validated_steps(label: str, steps: tuple[OnlyKernelLifecycleStep, ...]) -> 
     return steps
 
 
-__all__ = ["OnlyAlphaKernelHost", "OnlyKernelHostError", "OnlyKernelLifecycleStep"]
+__all__ = [name for name in globals() if name.startswith("Only")]

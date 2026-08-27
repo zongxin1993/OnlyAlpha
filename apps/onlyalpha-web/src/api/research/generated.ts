@@ -2447,7 +2447,9 @@ export interface operations {
     cancel_run_api_v2_research_runs__run_id__cancellation_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
             path: {
                 run_id: string;
             };

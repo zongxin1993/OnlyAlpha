@@ -1103,6 +1103,12 @@ research-query jobs passed. Evidence is recorded in
 
 ## K5 — Idempotency, Long-running Operations & Recovery Closure
 
+Implementation status (2026-08-27): implemented in the current worktree. Product Command Receipt is the sole active external retry
+authority; Create and keyed Cancel share atomic business-effect/Receipt transactions; optional v2 Cancel idempotency is projected into
+the governed OpenAPI; Strategy semantic inventory and `reconcile_all()` make RECOVERING operational; and the production Kernel uses a
+PostgreSQL session advisory guard. Local targeted evidence is recorded in the K5 implementation report. Real PostgreSQL and exact-SHA CI
+evidence remain required before `DONE / VERIFIED` may be claimed.
+
 ### Goal
 
 Make network retry and Kernel restart normal deterministic scenarios.

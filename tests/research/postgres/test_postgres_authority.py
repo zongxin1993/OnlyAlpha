@@ -11,7 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier, Event
+from threading import Barrier, Event, Thread
 from types import SimpleNamespace
 from urllib.request import urlopen
 
@@ -20,12 +20,27 @@ import pytest
 from psycopg import sql
 
 import onlyalpha.persistence.postgres.research_operations_store as research_operations_store_module
+from onlyalpha.application.product_boundary import OnlyCreateResearchRun
+from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandKind,
+    OnlyProductCommandOutcomeKind,
+    OnlyProductCommandOutcomeRef,
+    OnlyProductCommandReceipt,
+)
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.cli import main as onlyalpha_main
+from onlyalpha.kernel import (
+    OnlyAlphaKernelHost,
+    OnlyKernelAuthorityAlreadyHeld,
+    OnlyKernelLifecycleStep,
+    OnlyKernelMutationRejected,
+)
+from onlyalpha.kernel.command import OnlyProductCommandBinding, OnlyProductCommandDispatcher
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     DEFAULT_MIGRATION_ROOT,
     OnlyPostgresConfig,
+    OnlyPostgresKernelAuthorityGuard,
     OnlyPostgresOperationalConnectionOptions,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchExecutionStore,
@@ -91,7 +106,22 @@ M8 = "0008_strategy_revision_promotion_foundation"
 M9 = "0009_strategy_authority_closure"
 M10 = "0010_p9_0_closure_2_authority_hardening"
 M11 = "0011_p9_0_freeze_projection_convergence"
+M12 = "0012_product_command_receipt"
 EXECUTION_EVIDENCE = ("e" * 64,)
+
+
+def _create_receipt(
+    key: OnlyResearchSubmissionKey,
+    run: OnlyResearchRun,
+    fingerprint: str = "d" * 64,
+) -> OnlyProductCommandReceipt:
+    return OnlyProductCommandReceipt(
+        key,
+        OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+        fingerprint,
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, run.run_id.value),
+        run.queued_at,
+    )
 
 
 def test_deployment_binding_is_singleton_idempotent_and_cannot_rebind(postgres_dsn: str) -> None:
@@ -155,6 +185,57 @@ def _insert_legacy_queued(postgres_dsn: str, run: OnlyResearchRun) -> OnlyResear
             ),
         )
     return run
+
+
+def test_product_kernel_postgres_authority_guard_rejects_second_session_and_releases(postgres_dsn: str) -> None:
+    first = OnlyPostgresKernelAuthorityGuard(postgres_dsn)
+    second = OnlyPostgresKernelAuthorityGuard(postgres_dsn)
+    first.acquire()
+    first.assert_held()
+    with pytest.raises(OnlyKernelAuthorityAlreadyHeld):
+        second.acquire()
+    first.release()
+    second.acquire()
+    second.assert_held()
+    second.release()
+
+
+def test_recovering_mutation_rejection_has_zero_postgres_side_effect(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    entered = Event()
+    release = Event()
+    host = OnlyAlphaKernelHost(
+        recoverers=(
+            OnlyKernelLifecycleStep(
+                "postgres-recovery-barrier",
+                lambda: (entered.set(), release.wait(timeout=10)),
+            ),
+        )
+    )
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run = _queued("00000000-0000-4000-8000-000000000427")
+    key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000407")
+    dispatcher = OnlyProductCommandDispatcher(
+        host,
+        (
+            OnlyProductCommandBinding(
+                OnlyCreateResearchRun,
+                lambda _command: store.create_queued_with_receipt(run, _create_receipt(key, run)),
+            ),
+        ),
+    )
+    thread = Thread(target=host.start)
+    thread.start()
+    assert entered.wait(timeout=10)
+    with pytest.raises(OnlyKernelMutationRejected):
+        dispatcher.dispatch(OnlyCreateResearchRun(key, specification()))
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (0,)
+    release.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    host.stop()
 
 
 def _queued_v2(run_id: str) -> OnlyResearchRun:
@@ -333,11 +414,11 @@ def test_fresh_plan_migrate_noop_and_startup_compatibility_are_exact(postgres_ds
     verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
     before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.LEDGER_MISSING
-    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    assert tuple(item.migration_id for item in authority.plan()) == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)
     with pytest.raises(OnlyPostgresSchemaIncompatibleError):
         verifier.assert_compatible()
 
-    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    assert authority.migrate() == (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert authority.migrate() == ()
 
@@ -393,11 +474,11 @@ def test_operator_explicitly_initializes_and_binds_new_semantic_store(
     assert json.loads(capsys.readouterr().out)["semantic_store_id"] == first["semantic_store_id"]
 
 
-@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11])
+@pytest.mark.parametrize("tampered_id", [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12])
 def test_migration_checksum_tamper_fails_closed(postgres_dsn: str, tmp_path: Path, tampered_id: str) -> None:
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     authority.migrate()
-    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    _copy_migrations(tmp_path, M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)
     copied = tmp_path / f"{tampered_id}.sql"
     copied.write_bytes(copied.read_bytes() + b"\n-- tampered\n")
     tampered = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path)
@@ -425,10 +506,29 @@ def test_existing_m1_database_plans_and_applies_exact_forward_suffix(postgres_ds
     authority = OnlyPostgresMigrationAuthority(postgres_dsn)
     verifier = OnlyPostgresSchemaVerifier(postgres_dsn)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.BEHIND
-    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
-    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    assert tuple(item.migration_id for item in authority.plan()) == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)
+    assert authority.migrate() == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)
     assert verifier.status().verdict is OnlyPostgresSchemaVerdict.COMPATIBLE
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
+
+
+def test_m12_backfills_legacy_submission_exactly_and_retires_old_authority(postgres_dsn: str, tmp_path: Path) -> None:
+    for migration_id in (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11):
+        _copy_migrations(tmp_path, migration_id)
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=tmp_path).migrate()
+    run = OnlyPostgresResearchRunStore(postgres_dsn).create_queued(_queued("00000000-0000-4000-8000-000000000425"))
+    key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000405")
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "INSERT INTO research_run_submission (submission_key, command_fingerprint, run_id) VALUES (%s, %s, %s)",
+            (key.value, "d" * 64, run.run_id.value),
+        )
+
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (M12,)
+    receipt = OnlyPostgresResearchRunStore(postgres_dsn).find_product_command_receipt(key)
+    assert receipt == _create_receipt(key, run)
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT to_regclass('public.research_run_submission')").fetchone() == (None,)
 
 
 def test_invalid_existing_m1_fact_blocks_m2_without_repair(postgres_dsn: str, tmp_path: Path) -> None:
@@ -460,7 +560,7 @@ def test_known_non_prefix_histories_diverge_and_cannot_change_database(postgres_
         connection.execute("DELETE FROM onlyalpha_schema_migration WHERE migration_id = %s", (M1,))
     before = verifier.status()
     assert before.verdict is OnlyPostgresSchemaVerdict.HISTORY_DIVERGED
-    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)
+    assert before.applied_migrations == (M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)
     assert before.pending_migrations == ()
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
         authority.plan()
@@ -521,7 +621,7 @@ def test_migration_advisory_lock_serializes_two_operator_processes(postgres_dsn:
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = tuple(item.result() for item in (executor.submit(migrate), executor.submit(migrate)))
-    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11)]
+    assert sorted(outcomes) == [(), (M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12)]
     assert OnlyPostgresSchemaVerifier(postgres_dsn).status().compatible
 
 
@@ -553,8 +653,9 @@ def test_submission_transaction_is_atomic_concurrent_and_restart_safe(postgres_d
 
     def submit(run_id: str):  # type: ignore[no-untyped-def]
         barrier.wait()
-        return OnlyPostgresResearchRunStore(postgres_dsn).create_queued_submission(
-            _queued(run_id), key, command_fingerprint
+        run = _queued(run_id)
+        return OnlyPostgresResearchRunStore(postgres_dsn).create_queued_with_receipt(
+            run, _create_receipt(key, run, command_fingerprint)
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -568,45 +669,108 @@ def test_submission_transaction_is_atomic_concurrent_and_restart_safe(postgres_d
 
     assert outcomes[0] == outcomes[1]
     restarted = OnlyPostgresResearchRunStore(postgres_dsn)
-    assert restarted.find_submission(key) == outcomes[0]
-    assert restarted.load(outcomes[0].run_id).state is OnlyResearchRunState.QUEUED
+    assert restarted.find_product_command_receipt(key) == outcomes[0]
+    assert restarted.load(OnlyResearchRunId(outcomes[0].outcome_ref.outcome_id)).state is OnlyResearchRunState.QUEUED
     with psycopg.connect(postgres_dsn) as connection:
-        assert connection.execute("SELECT count(*) FROM research_run_submission").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (1,)
+        assert connection.execute("SELECT to_regclass('public.research_run_submission')").fetchone() == (None,)
+        assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (1,)
+
+
+def test_process_loss_after_create_commit_restarts_to_same_authoritative_run(postgres_dsn: str, tmp_path: Path) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    marker = tmp_path / "K5_CREATE_COMMITTED"
+    script = """
+import os
+import sys
+from pathlib import Path
+from threading import Event
+from onlyalpha.persistence.postgres import OnlyPostgresResearchRunStore
+from onlyalpha.research.command import OnlyResearchSubmissionKey
+from tests.research.postgres.test_postgres_authority import _create_receipt, _queued
+
+dsn = os.environ["ONLYALPHA_TEST_POSTGRES_DSN"]
+run = _queued("00000000-0000-4000-8000-000000000413")
+key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000404")
+OnlyPostgresResearchRunStore(dsn).create_queued_with_receipt(run, _create_receipt(key, run))
+Path(sys.argv[1]).write_text("K5_CREATE_COMMITTED", encoding="utf-8")
+Event().wait()
+"""
+    environment = dict(os.environ)
+    environment["ONLYALPHA_TEST_POSTGRES_DSN"] = postgres_dsn
+    child = subprocess.Popen([sys.executable, "-c", script, str(marker)], cwd=Path.cwd(), env=environment)
+    deadline = time.monotonic() + 10
+    while not marker.is_file() and child.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert marker.is_file(), f"child exited before K5 barrier: returncode={child.poll()}"
+    assert marker.read_text(encoding="utf-8") == "K5_CREATE_COMMITTED"
+    child.send_signal(signal.SIGKILL)
+    assert child.wait(timeout=10) == -signal.SIGKILL
+
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000404")
+    receipt = store.find_product_command_receipt(key)
+    assert receipt is not None
+    assert receipt.outcome_ref.outcome_id == "00000000-0000-4000-8000-000000000413"
+    assert store.load(OnlyResearchRunId(receipt.outcome_ref.outcome_id)).state is OnlyResearchRunState.QUEUED
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM research_run").fetchone() == (1,)
 
 
 def test_submission_identity_does_not_deduplicate_specification(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
-    first = store.create_queued_submission(
-        _queued("00000000-0000-4000-8000-000000000421"),
-        OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000401"),
-        "d" * 64,
+    first_run = _queued("00000000-0000-4000-8000-000000000421")
+    second_run = _queued("00000000-0000-4000-8000-000000000422")
+    first = store.create_queued_with_receipt(
+        first_run,
+        _create_receipt(OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000401"), first_run),
     )
-    second = store.create_queued_submission(
-        _queued("00000000-0000-4000-8000-000000000422"),
-        OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000402"),
-        "d" * 64,
+    second = store.create_queued_with_receipt(
+        second_run,
+        _create_receipt(OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000402"), second_run),
     )
-    assert first.run_id != second.run_id
-    assert store.load(first.run_id).specification_fingerprint == store.load(second.run_id).specification_fingerprint
+    assert first.outcome_ref.outcome_id != second.outcome_ref.outcome_id
+    assert (
+        store.load(first_run.run_id).specification_fingerprint
+        == store.load(second_run.run_id).specification_fingerprint
+    )
+
+
+def test_keyed_cancellation_commits_run_effect_and_receipt_atomically(postgres_dsn: str) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    store = OnlyPostgresResearchRunStore(postgres_dsn)
+    run = store.create_queued(_queued("00000000-0000-4000-8000-000000000426"))
+    key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000406")
+    receipt = OnlyProductCommandReceipt(
+        key,
+        OnlyProductCommandKind.CANCEL_RESEARCH_RUN,
+        "c" * 64,
+        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, run.run_id.value),
+        NOW + timedelta(seconds=1),
+    )
+
+    assert store.request_cancellation_with_receipt(run.run_id, receipt) == receipt
+    assert store.load(run.run_id).state is OnlyResearchRunState.CANCELLED
+    assert store.find_product_command_receipt(key) == receipt
 
 
 def test_submission_and_recent_read_adapter_reject_invalid_calls_without_partial_facts(postgres_dsn: str) -> None:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     store = OnlyPostgresResearchRunStore(postgres_dsn)
     key = OnlyResearchSubmissionKey("00000000-0000-4000-8000-000000000403")
-    assert store.find_submission(key) is None
+    assert store.find_product_command_receipt(key) is None
     with pytest.raises(ValueError, match="positive"):
         store.list_recent(limit=0)
 
     queued = store.create_queued(_queued("00000000-0000-4000-8000-000000000423"))
     running = queued.transition(OnlyResearchRunState.RUNNING, at=NOW + timedelta(seconds=1))
     with pytest.raises(OnlyResearchRunStateConflictError, match="revision-zero"):
-        store.create_queued_submission(running, key, "d" * 64)
+        store.create_queued_with_receipt(running, _create_receipt(key, running))
     with pytest.raises(OnlyResearchRunIntegrityError, match="identity already exists"):
-        store.create_queued_submission(queued, key, "d" * 64)
-    assert store.find_submission(key) is None
+        store.create_queued_with_receipt(queued, _create_receipt(key, queued))
+    assert store.find_product_command_receipt(key) is None
 
 
 def test_recent_keyset_order_is_stable_and_new_rows_do_not_duplicate_existing_cursor(
@@ -819,7 +983,7 @@ def test_backup_restore_to_isolated_database_preserves_exact_run_and_source(post
         assert metadata["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
         assert metadata["postgres_server_version"].startswith("16.")
         assert metadata["pg_dump_version"].startswith("pg_dump (PostgreSQL) 16.")
-        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M11
+        assert [item["migration_id"] for item in metadata["migrations"]][-1] == M12
         assert "onlyalpha_test" not in metadata_path.read_text(encoding="utf-8")
         _restore_test(postgres_dsn, target_dsn, backup, run.run_id.value)
         assert OnlyPostgresResearchRunStore(target_dsn).load(run.run_id) == run

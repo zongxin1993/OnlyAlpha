@@ -265,7 +265,7 @@ allowed_capabilities = ["C01", "C05", "C12", "C14"]
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C10", "C17", "C18", "C19"]
+allowed_capabilities = ["C01", "C05", "C09", "C10", "C17", "C18", "C19"]
 
 [[actors]]
 id = "A04"
@@ -583,7 +583,7 @@ capability = "C08"
 approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C09"
-approved_production_holders = ["A14"]
+approved_production_holders = ["A03", "A14"]
 [[ownership]]
 capability = "C10"
 approved_production_holders = ["A03", "A05", "A10", "A16"]

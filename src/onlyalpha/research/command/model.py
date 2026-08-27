@@ -4,33 +4,19 @@ from __future__ import annotations
 
 import base64
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import cast
 
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 
 from .errors import OnlyResearchRunCursorError
 
-
-@dataclass(frozen=True, order=True, slots=True)
-class OnlyResearchSubmissionKey:
-    value: str
-
-    def __post_init__(self) -> None:
-        try:
-            parsed = uuid.UUID(self.value)
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise ValueError("Research submission key must be a canonical UUID4") from exc
-        if parsed.version != 4 or str(parsed) != self.value:
-            raise ValueError("Research submission key must be a canonical UUID4")
-
-    def __str__(self) -> str:
-        return self.value
+OnlyResearchSubmissionKey = OnlyProductCommandId
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,13 +42,15 @@ class OnlyResearchSubmitOutcome:
 
 @dataclass(frozen=True, slots=True)
 class OnlyResearchSubmissionRecord:
+    """Compatibility projection; Product Command Receipt is the sole durable authority."""
+
     submission_key: OnlyResearchSubmissionKey
     command_fingerprint: str
     run_id: OnlyResearchRunId
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.submission_key, OnlyResearchSubmissionKey)
+            not isinstance(self.submission_key, OnlyProductCommandId)
             or not isinstance(self.command_fingerprint, str)
             or len(self.command_fingerprint) != 64
             or any(char not in "0123456789abcdef" for char in self.command_fingerprint)

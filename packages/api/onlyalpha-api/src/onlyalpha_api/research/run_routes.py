@@ -102,8 +102,13 @@ def create_run_router(product: OnlyResearchProductBoundary) -> APIRouter:
         return ResearchRunPageDto.from_model(_expected_result(result, OnlyResearchRunPage))
 
     @router.post("/{run_id}/cancellation", response_model=ResearchRunDto, responses=_ERROR_RESPONSES)
-    def cancel_run(run_id: str) -> ResearchRunDto:
-        result = product.commands.dispatch(OnlyCancelResearchRun(_run_id(run_id)))
+    def cancel_run(run_id: str, idempotency_key: IdempotencyKeyHeader = None) -> ResearchRunDto:
+        result = product.commands.dispatch(
+            OnlyCancelResearchRun(
+                _run_id(run_id),
+                None if idempotency_key is None else _submission_key(idempotency_key),
+            )
+        )
         return ResearchRunDto.from_model(_expected_result(result, OnlyResearchRun))
 
     return router

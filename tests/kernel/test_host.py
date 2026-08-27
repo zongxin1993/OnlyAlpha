@@ -15,6 +15,25 @@ from onlyalpha.kernel import (
 )
 
 
+class _Guard:
+    def __init__(self) -> None:
+        self.held = False
+        self.calls: list[str] = []
+
+    def acquire(self) -> None:
+        self.calls.append("acquire")
+        self.held = True
+
+    def assert_held(self) -> None:
+        self.calls.append("assert")
+        if not self.held:
+            raise RuntimeError("lost")
+
+    def release(self) -> None:
+        self.calls.append("release")
+        self.held = False
+
+
 def _step(name: str, action: Callable[[], None]) -> OnlyKernelLifecycleStep:
     return OnlyKernelLifecycleStep(name, action)
 
@@ -45,6 +64,44 @@ def test_successful_startup_uses_exact_explicit_order() -> None:
     ]
     assert status.state is OnlyKernelState.READY
     host.assert_mutation_ready()
+
+
+def test_authority_guard_is_acquired_before_recovery_checked_for_mutation_and_released_last() -> None:
+    guard = _Guard()
+    observations: list[tuple[OnlyKernelState, bool]] = []
+    host: OnlyAlphaKernelHost
+    host = OnlyAlphaKernelHost(
+        authority_guard=guard,
+        recoverers=(_step("recover", lambda: observations.append((host.state, guard.held))),),
+        drainers=(_step("drain", lambda: observations.append((host.state, guard.held))),),
+    )
+
+    host.start()
+    host.assert_mutation_ready()
+    host.stop()
+
+    assert observations == [
+        (OnlyKernelState.RECOVERING, True),
+        (OnlyKernelState.DRAINING, True),
+    ]
+    assert guard.calls == ["acquire", "assert", "release"]
+    assert not guard.held
+
+
+def test_authority_guard_acquisition_failure_closes_recovering_and_releases() -> None:
+    class _UnavailableGuard(_Guard):
+        def acquire(self) -> None:
+            self.calls.append("acquire")
+            raise RuntimeError("held elsewhere")
+
+    guard = _UnavailableGuard()
+    host = OnlyAlphaKernelHost(authority_guard=guard)
+    with pytest.raises(OnlyKernelHostError) as error:
+        host.start()
+    assert error.value.failure.phase is OnlyKernelFailurePhase.RECOVERING
+    assert error.value.failure.step == "mutation-authority-acquire"
+    assert host.state is OnlyKernelState.FAILED
+    assert guard.calls == ["acquire", "release"]
 
 
 def test_verification_failure_is_explainable_and_skips_recovery() -> None:

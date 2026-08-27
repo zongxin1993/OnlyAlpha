@@ -524,6 +524,18 @@ admission evidence，并只通过 `OnlyEngine -> OnlyResearchRuntime` 执行。R
 Factor/node/progress checkpoint、第二套 Research Result truth 或 in-memory durable queue。Heartbeat/数据库不可用意味着 ownership
 uncertain，Worker 不得继续 operational finalization。HTTP command/Web control 仍不属于该执行协议。
 
+外部 Product mutation retry 的唯一 durable authority 是 PostgreSQL `ProductCommandReceipt`。全局 canonical UUID4 Command ID 绑定 exact
+Command kind、operational command fingerprint 与当前 authoritative resource reference；Receipt 不是 lifecycle state machine。Create
+Research Run 的历史 `{specification: ...}` fingerprint bytes 保持不变，Cancel 只以 exact `run_id` 形成 operational fingerprint，任何
+transport/actor/API metadata 均不得进入 semantic identity。Create 的 `ResearchRun + Receipt` 与 keyed Cancel 的 accepted Run effect +
+Receipt 必须在一个事务提交；retry 通过 Receipt 重载当前 Run，mismatch、dangling 或 corruption fail closed。v2 Cancel 的
+`Idempotency-Key` 仍为 optional，无 key 时保留自然 Run-state idempotency。
+
+Product Kernel 在 production startup verification 后、RECOVERING 前取得专用 PostgreSQL session advisory guard，并在 mutation admission
+关闭、draining 完成后释放；第二个 mutation-capable Kernel 必须启动失败。RECOVERING 通过 verified sorted frozen Strategy inventory 调用
+既有 Freeze Projection Reconciler，使 immutable Strategy truth 单向收敛 PostgreSQL projection。Research Worker Attempt/Lease/Fencing 恢复
+仍由 ADR 0090 的执行协议拥有，不进入 Kernel Host。
+
 Cancellation recovery 必须遵守 semantic-fact-first：lease expiry 只证明 Attempt ownership 丢失，不能自行把
 `CANCEL_REQUESTED` 投影为 `CANCELLED`。无 ACTIVE Attempt 后，Application reconciliation 必须从 canonical Specification resolution
 推导 exact Research Result Plan，并通过 read-only `load_verified()` 同时证明 exact Research Result 与 exact Artifact。完整证据在

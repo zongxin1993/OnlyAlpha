@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.kernel.command import (
     OnlyProductCommand,
     OnlyProductCommandBinding,
@@ -31,6 +32,7 @@ class OnlyCreateResearchRun(OnlyProductCommand):
 @dataclass(frozen=True, slots=True)
 class OnlyCancelResearchRun(OnlyProductCommand):
     run_id: OnlyResearchRunId
+    command_id: OnlyProductCommandId | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +64,7 @@ def only_compose_research_product_boundary(
         return commands.submit_research_run(command.submission_key, command.specification)
 
     def cancel(command: OnlyCancelResearchRun) -> OnlyResearchRun:
-        return commands.request_research_run_cancellation(command.run_id)
+        return commands.request_research_run_cancellation(command.run_id, command.command_id)
 
     def get(query: OnlyGetResearchRun) -> OnlyResearchRun:
         return queries.get_run(query.run_id)

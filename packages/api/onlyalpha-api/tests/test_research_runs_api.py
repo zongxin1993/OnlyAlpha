@@ -9,13 +9,19 @@ from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_research_app
 from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_api.research.run_errors import run_error_response
 from onlyalpha_api.research.run_routes import create_run_router
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from onlyalpha.application.product_boundary import (
     OnlyCreateResearchRun,
     OnlyResearchProductBoundary,
     only_compose_research_product_boundary,
 )
-from onlyalpha.kernel import OnlyAlphaKernelHost, OnlyKernelHostError, OnlyKernelLifecycleStep
+from onlyalpha.application.product_command_receipt import OnlyProductCommandReceipt
+from onlyalpha.kernel import (
+    OnlyAlphaKernelHost,
+    OnlyKernelHostError,
+    OnlyKernelLifecycleStep,
+)
 from onlyalpha.kernel.command import OnlyProductCommandBinding, OnlyProductCommandDispatcher
 from onlyalpha.kernel.query import OnlyProductQueryDispatcher
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactStoreError
@@ -24,7 +30,6 @@ from onlyalpha.research.command import (
     OnlyResearchRunPageCursor,
     OnlyResearchRunQueryService,
     OnlyResearchSubmissionKey,
-    OnlyResearchSubmissionRecord,
 )
 from onlyalpha.research.definition import OnlyResearchDefinitionResolver
 from onlyalpha.research.operations.readiness import (
@@ -70,25 +75,44 @@ class _Dataset:
 class _Store:
     def __init__(self) -> None:
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
-        self.submissions: dict[OnlyResearchSubmissionKey, OnlyResearchSubmissionRecord] = {}
+        self.receipts: dict[OnlyResearchSubmissionKey, OnlyProductCommandReceipt] = {}
 
     def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
         self.runs[run.run_id] = run
         return run
 
-    def find_submission(self, key: OnlyResearchSubmissionKey) -> OnlyResearchSubmissionRecord | None:
-        return self.submissions.get(key)
+    def find_product_command_receipt(self, key: OnlyResearchSubmissionKey) -> OnlyProductCommandReceipt | None:
+        return self.receipts.get(key)
 
-    def create_queued_submission(
-        self, run: OnlyResearchRun, key: OnlyResearchSubmissionKey, fingerprint: str
-    ) -> OnlyResearchSubmissionRecord:
-        existing = self.submissions.get(key)
+    def create_queued_with_receipt(
+        self, run: OnlyResearchRun, receipt: OnlyProductCommandReceipt
+    ) -> OnlyProductCommandReceipt:
+        existing = self.receipts.get(receipt.command_id)
         if existing is not None:
             return existing
-        record = OnlyResearchSubmissionRecord(key, fingerprint, run.run_id)
         self.runs[run.run_id] = run
-        self.submissions[key] = record
-        return record
+        self.receipts[receipt.command_id] = receipt
+        return receipt
+
+    def request_cancellation_with_receipt(
+        self, run_id: OnlyResearchRunId, receipt: OnlyProductCommandReceipt
+    ) -> OnlyProductCommandReceipt:
+        existing = self.receipts.get(receipt.command_id)
+        if existing is not None:
+            return existing
+        current = self.runs[run_id]
+        target = current.state if current.state.value in {"CANCEL_REQUESTED", "CANCELLED"} else None
+        if target is None:
+            from onlyalpha.research.run import OnlyResearchRunState
+
+            target = (
+                OnlyResearchRunState.CANCELLED
+                if current.state is OnlyResearchRunState.QUEUED
+                else OnlyResearchRunState.CANCEL_REQUESTED
+            )
+            self.runs[run_id] = current.transition(target, at=receipt.accepted_at)
+        self.receipts[receipt.command_id] = receipt
+        return receipt
 
     def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
         try:
@@ -105,6 +129,29 @@ class _Store:
         if after is not None:
             runs = [item for item in runs if (item.queued_at, item.run_id) < (after.queued_at, after.run_id)]
         return tuple(runs[:limit])
+
+
+class _DropOneHttpResponseAfterApplicationCommit:
+    """Test-only ASGI boundary that loses one response after the handler returns."""
+
+    def __init__(self, app: ASGIApp, path: str) -> None:
+        self._app = app
+        self._path = path
+        self._dropped = False
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("path") != self._path or self._dropped:
+            await self._app(scope, receive, send)
+            return
+        messages: list[Message] = []
+
+        async def capture(message: Message) -> None:
+            messages.append(message)
+
+        await self._app(scope, receive, capture)
+        assert messages and messages[-1]["type"] == "http.response.body"
+        self._dropped = True
+        raise ConnectionError("test-only HTTP response loss after application commit")
 
 
 def _ready_projection() -> OnlyKernelResearchReadinessProjection:
@@ -199,6 +246,52 @@ def test_submit_replay_get_list_and_cancel_contract() -> None:
     assert cancelled.status_code == 200
     assert cancelled.json()["state"] == "CANCELLED"
     assert cancelled.json()["revision"] == "1"
+
+
+def test_cancel_idempotency_header_is_optional_and_keyed_retry_is_strong() -> None:
+    _, store, client = _client()
+    payload = {"specification": dict(specification().to_dict())}
+    created = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
+    run_id = created.json()["run"]["run_id"]
+    cancel_key = "00000000-0000-4000-8000-000000000502"
+
+    first = client.post(
+        f"/api/v2/research/runs/{run_id}/cancellation",
+        headers={"Idempotency-Key": cancel_key},
+    )
+    replay = client.post(
+        f"/api/v2/research/runs/{run_id}/cancellation",
+        headers={"Idempotency-Key": cancel_key},
+    )
+
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["run_id"] == replay.json()["run_id"] == run_id
+    assert len(store.receipts) == 2
+
+
+def test_create_and_keyed_cancel_converge_after_asgi_response_loss() -> None:
+    _, store, client = _client()
+    payload = {"specification": dict(specification().to_dict())}
+    create_loss = TestClient(_DropOneHttpResponseAfterApplicationCommit(client.app, "/api/v2/research/runs"))
+    with pytest.raises(ConnectionError, match="response loss"):
+        create_loss.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
+
+    retried = client.post("/api/v2/research/runs", headers={"Idempotency-Key": KEY}, json=payload)
+    assert retried.status_code == 202
+    assert retried.json()["submission_disposition"] == "REUSED"
+    run_id = retried.json()["run"]["run_id"]
+    assert len(store.runs) == len(store.receipts) == 1
+
+    cancel_key = "00000000-0000-4000-8000-000000000502"
+    cancel_path = f"/api/v2/research/runs/{run_id}/cancellation"
+    cancel_loss = TestClient(_DropOneHttpResponseAfterApplicationCommit(client.app, cancel_path))
+    with pytest.raises(ConnectionError, match="response loss"):
+        cancel_loss.post(cancel_path, headers={"Idempotency-Key": cancel_key})
+    replay = client.post(cancel_path, headers={"Idempotency-Key": cancel_key})
+    assert replay.status_code == 200
+    assert replay.json()["state"] == "CANCELLED"
+    assert len(store.runs) == 1
+    assert len(store.receipts) == 2
 
 
 def test_run_http_validation_and_errors_are_stable() -> None:

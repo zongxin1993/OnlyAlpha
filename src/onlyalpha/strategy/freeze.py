@@ -186,6 +186,10 @@ class OnlyStrategyFreezeProjectionReconciler:
         self._catalog = catalog
         self._audit_time = audit_time
 
+    @property
+    def strategies(self) -> OnlyFrozenStrategyRevisionStore:
+        return self._strategies
+
     def reconcile(self, strategy_fingerprint: str) -> tuple[OnlyStrategyFreezeRecord, ...]:
         try:
             revision = self._strategies.load_verified(strategy_fingerprint)

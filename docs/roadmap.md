@@ -827,6 +827,15 @@ PostgreSQL 18、v3、K5/K6/K7 均未改变或启动。证据见
 [`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md)。implementation SHA `47e12df…` 的 direct
 exact-SHA remote gates 已通过；P9.K.4 为 **DONE / VERIFIED**，P9.K.5 为 **IMPLEMENTATION READY**。
 
+**P9.K.5 — Idempotency, Long-running Operations & Recovery Closure** 已在基于
+`7ee4a6f3661802f8121d084f2836df02128dc372` 的当前 worktree 完成实现：全局 Product Command ID 只绑定一份 PostgreSQL Receipt；0012
+deterministic backfill 后退役 active `research_run_submission`；Create 与 keyed Cancel 分别在单事务中提交 Run/accepted state effect +
+Receipt；v2 Cancel 的 `Idempotency-Key` 保持 optional；retry 重载当前 authoritative Run，mismatch/dangling/corruption fail closed。
+Strategy startup inventory 使用 verified sorted traversal 并经既有 reconciler 执行 `reconcile_all()`；production Kernel 在 RECOVERING
+前取得 PostgreSQL session advisory guard，第二 authority fail closed。Research Worker Attempt/Lease/Fencing 不变。Targeted Local PASS、
+OpenAPI compatibility PASS；真实 PostgreSQL、budgeted impact 与 exact implementation SHA CI evidence 尚待关闭，因此当前状态为
+**IMPLEMENTED / CI REQUIRED**，不得声明 `DONE / VERIFIED`，P9.K.6 仍未开始。
+
 ### 长期 Strategy Product 参考方向
 
 在不冻结 milestone 编号的前提下，OnlyAlpha 已明确一个长期产品方向：Research 中验证过的候选策略应能通过显式 Freeze 形成 immutable Strategy Revision，并以同一策略语义自然进入 Backtest、Sim、Live。

@@ -13,6 +13,10 @@ from onlyalpha.application.product_boundary import (
     OnlyListResearchRuns,
     only_compose_research_product_boundary,
 )
+from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandKind,
+    OnlyProductCommandReceipt,
+)
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.research.command import (
@@ -33,6 +37,7 @@ from onlyalpha.research.run import (
     OnlyResearchRunAdmissionError,
     OnlyResearchRunAdmissionService,
     OnlyResearchRunId,
+    OnlyResearchRunIntegrityError,
     OnlyResearchRunRevisionConflictError,
     OnlyResearchRunState,
 )
@@ -59,29 +64,52 @@ class _DatasetStore:
 class _Store:
     def __init__(self) -> None:
         self.runs: dict[OnlyResearchRunId, OnlyResearchRun] = {}
-        self.submissions: dict[OnlyResearchSubmissionKey, OnlyResearchSubmissionRecord] = {}
+        self.receipts: dict[OnlyResearchSubmissionKey, OnlyProductCommandReceipt] = {}
         self.conflicts = 0
 
     def create_queued(self, run: OnlyResearchRun) -> OnlyResearchRun:
         self.runs[run.run_id] = run
         return run
 
-    def find_submission(self, key: OnlyResearchSubmissionKey) -> OnlyResearchSubmissionRecord | None:
-        return self.submissions.get(key)
+    def find_product_command_receipt(self, key: OnlyResearchSubmissionKey) -> OnlyProductCommandReceipt | None:
+        return self.receipts.get(key)
 
-    def create_queued_submission(
-        self, run: OnlyResearchRun, key: OnlyResearchSubmissionKey, command_fingerprint: str
-    ) -> OnlyResearchSubmissionRecord:
-        existing = self.submissions.get(key)
+    def create_queued_with_receipt(
+        self, run: OnlyResearchRun, receipt: OnlyProductCommandReceipt
+    ) -> OnlyProductCommandReceipt:
+        existing = self.receipts.get(receipt.command_id)
         if existing is not None:
             return existing
         self.runs[run.run_id] = run
-        record = OnlyResearchSubmissionRecord(key, command_fingerprint, run.run_id)
-        self.submissions[key] = record
-        return record
+        self.receipts[receipt.command_id] = receipt
+        return receipt
+
+    def request_cancellation_with_receipt(
+        self, run_id: OnlyResearchRunId, receipt: OnlyProductCommandReceipt
+    ) -> OnlyProductCommandReceipt:
+        existing = self.receipts.get(receipt.command_id)
+        if existing is not None:
+            return existing
+        current = self.runs[run_id]
+        if current.state in {OnlyResearchRunState.COMPLETED, OnlyResearchRunState.FAILED}:
+            raise OnlyResearchCancellationConflictError()
+        if current.state not in {OnlyResearchRunState.CANCEL_REQUESTED, OnlyResearchRunState.CANCELLED}:
+            target = (
+                OnlyResearchRunState.CANCELLED
+                if current.state is OnlyResearchRunState.QUEUED
+                else OnlyResearchRunState.CANCEL_REQUESTED
+            )
+            self.runs[run_id] = current.transition(target, at=receipt.accepted_at)
+        self.receipts[receipt.command_id] = receipt
+        return receipt
 
     def load(self, run_id: OnlyResearchRunId) -> OnlyResearchRun:
-        return self.runs[run_id]
+        try:
+            return self.runs[run_id]
+        except KeyError as exc:
+            from onlyalpha.research.run import OnlyResearchRunNotFoundError
+
+            raise OnlyResearchRunNotFoundError(run_id.value) from exc
 
     def commit_transition(self, previous: OnlyResearchRun, transitioned: OnlyResearchRun) -> OnlyResearchRun:
         if self.conflicts:
@@ -146,9 +174,15 @@ def test_command_constructor_record_and_cursor_evidence_fail_closed() -> None:
 
 def test_submission_detects_conflicting_record_created_by_store() -> None:
     class ConflictingStore(_Store):
-        def create_queued_submission(self, run, key, command_fingerprint):  # type: ignore[no-untyped-def]
+        def create_queued_with_receipt(self, run, receipt):  # type: ignore[no-untyped-def]
             self.runs[run.run_id] = run
-            return OnlyResearchSubmissionRecord(key, "f" * 64, run.run_id)
+            return OnlyProductCommandReceipt(
+                receipt.command_id,
+                receipt.command_kind,
+                "f" * 64,
+                receipt.outcome_ref,
+                receipt.accepted_at,
+            )
 
     with pytest.raises(OnlyResearchSubmissionConflictError):
         _service(ConflictingStore(), _DatasetStore()).submit_research_run(KEY, specification())
@@ -168,6 +202,17 @@ def test_submit_replay_is_durable_and_skips_environment_dependent_admission() ->
     assert len(store.runs) == 1
 
 
+def test_dangling_receipt_fails_closed_without_creating_replacement_run() -> None:
+    store, dataset = _Store(), _DatasetStore()
+    service = _service(store, dataset)
+    created = service.submit_research_run(KEY, specification())
+    del store.runs[created.run.run_id]
+
+    with pytest.raises(OnlyResearchRunIntegrityError, match="missing Research Run"):
+        service.submit_research_run(KEY, specification())
+    assert len(store.receipts) == 1
+
+
 def test_same_key_different_command_conflicts_but_different_keys_create_distinct_runs() -> None:
     store, dataset = _Store(), _DatasetStore()
     service = _service(
@@ -179,8 +224,14 @@ def test_same_key_different_command_conflicts_but_different_keys_create_distinct
     first = service.submit_research_run(KEY, spec)
     second = service.submit_research_run(OTHER_KEY, spec)
     assert first.run.run_id != second.run.run_id
-    record = store.submissions[KEY]
-    store.submissions[KEY] = OnlyResearchSubmissionRecord(KEY, "f" * 64, record.run_id)
+    record = store.receipts[KEY]
+    store.receipts[KEY] = OnlyProductCommandReceipt(
+        KEY,
+        OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+        "f" * 64,
+        record.outcome_ref,
+        record.accepted_at,
+    )
     with pytest.raises(OnlyResearchSubmissionConflictError):
         service.submit_research_run(KEY, spec)
 
@@ -190,7 +241,27 @@ def test_admission_failure_persists_nothing() -> None:
     with pytest.raises(OnlyResearchRunAdmissionError):
         _service(store, _DatasetStore(fail=True)).submit_research_run(KEY, specification())
     assert store.runs == {}
-    assert store.submissions == {}
+    assert store.receipts == {}
+
+
+def test_keyed_cancellation_uses_global_command_identity_and_replays_current_run() -> None:
+    store, dataset = _Store(), _DatasetStore()
+    service = _service(store, dataset)
+    queued = service.submit_research_run(KEY, specification()).run
+    cancel_key = OTHER_KEY
+
+    cancelled = service.request_research_run_cancellation(queued.run_id, cancel_key)
+    assert cancelled.state is OnlyResearchRunState.CANCELLED
+    assert service.request_research_run_cancellation(queued.run_id, cancel_key) == cancelled
+    assert len(store.receipts) == 2
+
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        service.request_research_run_cancellation(
+            OnlyResearchRunId("00000000-0000-4000-8000-000000000099"),
+            cancel_key,
+        )
+    with pytest.raises(OnlyResearchSubmissionConflictError):
+        service.request_research_run_cancellation(queued.run_id, KEY)
 
 
 def test_cancellation_state_matrix_and_idempotency() -> None:

@@ -30,7 +30,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.9.0` |
+| Version | `0.9.5` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |

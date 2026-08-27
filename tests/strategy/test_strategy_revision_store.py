@@ -101,6 +101,29 @@ def test_distinct_candidates_can_publish_relations_for_one_strategy_identity(tmp
     )
 
 
+def test_frozen_strategy_inventory_is_verified_sorted_and_empty_safe(tmp_path) -> None:
+    root = tmp_path / "semantic"
+    store = OnlyFrozenStrategyRevisionStore(root)
+    assert store.frozen_strategy_fingerprints() == ()
+    revisions = (
+        p9_strategy_case(tmp_path / "case-a").revision,
+        p9_strategy_case(tmp_path / "case-b").revision,
+    )
+    for revision in reversed(revisions):
+        publish_frozen_strategy_for_execution_test(root, revision)
+    expected = tuple(sorted({str(item.strategy_fingerprint) for item in revisions}))
+    assert store.frozen_strategy_fingerprints() == expected
+
+
+def test_frozen_strategy_inventory_fails_closed_on_unexpected_prefix(tmp_path) -> None:
+    root = tmp_path / "semantic"
+    inventory = root / "strategy" / "frozen-revisions" / "sha256"
+    (inventory / "unexpected").mkdir(parents=True)
+    with pytest.raises(OnlyStrategyStoreError) as error:
+        OnlyFrozenStrategyRevisionStore(root).frozen_strategy_fingerprints()
+    assert error.value.code == "STRATEGY_CORRUPT"
+
+
 @pytest.mark.parametrize("corruption", ["manifest", "unexpected", "path", "symlink"])
 def test_frozen_strategy_reader_fails_closed_on_corruption(tmp_path, corruption) -> None:
     revision = p9_strategy_case(tmp_path / "case").revision

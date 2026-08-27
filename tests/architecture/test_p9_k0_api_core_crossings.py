@@ -50,6 +50,8 @@ EXPECTED_API_CORE_CROSSINGS = {
         """
         onlyalpha.application.product_boundary.OnlyResearchProductBoundary
         onlyalpha.calculation.registry.OnlyCalculationRegistry
+        onlyalpha.kernel.OnlyKernelAuthorityError
+        onlyalpha.kernel.OnlyKernelMutationRejected
         onlyalpha.research.command.errors.OnlyResearchCommandError
         onlyalpha.research.definition.errors.OnlyResearchDefinitionError
         onlyalpha.research.definition.ports.OnlyResearchUniverseCatalog
@@ -74,6 +76,7 @@ EXPECTED_API_CORE_CROSSINGS = {
     "main.py": _symbols(
         """
         onlyalpha.application.product_boundary.only_compose_research_product_boundary
+        onlyalpha.application.strategy_authority.OnlyStrategyFreezeProjectionReconciliationApplicationService
         onlyalpha.broker.factory.OnlyBrokerFactoryRegistry
         onlyalpha.calculation.registry.OnlyCalculationRegistry
         onlyalpha.core.clock.only_system_utc_now
@@ -86,6 +89,7 @@ EXPECTED_API_CORE_CROSSINGS = {
         onlyalpha.market.product.OnlyMarketProductFactoryRegistry
         onlyalpha.output.user_data.OnlyUserDataLayout
         onlyalpha.persistence.postgres.OnlyPostgresConfig
+        onlyalpha.persistence.postgres.OnlyPostgresKernelAuthorityGuard
         onlyalpha.persistence.postgres.OnlyPostgresOperationalConnectionOptions
         onlyalpha.persistence.postgres.OnlyPostgresResearchDeploymentStore
         onlyalpha.persistence.postgres.OnlyPostgresResearchRunStore

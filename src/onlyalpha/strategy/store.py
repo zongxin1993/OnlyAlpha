@@ -98,6 +98,43 @@ class OnlyFrozenStrategyRevisionStore(_StrategyRevisionReader):
         super().load_verified(fingerprint)
         return self._relations.require_for_strategy(fingerprint)
 
+    def frozen_strategy_fingerprints(self) -> tuple[str, ...]:
+        """Enumerate every verified frozen Strategy in canonical identity order."""
+
+        root = self._root / "sha256"
+        if root.is_symlink():
+            raise OnlyStrategyStoreError("STRATEGY_CORRUPT", "frozen Strategy inventory")
+        if not root.exists():
+            return ()
+        fingerprints: list[str] = []
+        try:
+            if root.is_symlink() or not root.is_dir():
+                raise ValueError("frozen Strategy inventory root is invalid")
+            for prefix in sorted(root.iterdir(), key=lambda item: item.name):
+                if (
+                    prefix.is_symlink()
+                    or not prefix.is_dir()
+                    or len(prefix.name) != 2
+                    or any(char not in "0123456789abcdef" for char in prefix.name)
+                ):
+                    raise ValueError("unexpected frozen Strategy prefix")
+                for target in sorted(prefix.iterdir(), key=lambda item: item.name):
+                    _require_sha(target.name, "frozen Strategy fingerprint")
+                    if target.name[:2] != prefix.name or target.is_symlink() or not target.is_dir():
+                        raise ValueError("frozen Strategy path identity is invalid")
+                    revision = self.load_verified(target.name)
+                    fingerprint = str(revision.strategy_fingerprint)
+                    if fingerprint != target.name:
+                        raise ValueError("frozen Strategy inventory identity differs")
+                    fingerprints.append(fingerprint)
+        except OnlyStrategyStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyStrategyStoreError("STRATEGY_CORRUPT", "frozen Strategy inventory") from exc
+        if len(fingerprints) != len(set(fingerprints)):
+            raise OnlyStrategyStoreError("STRATEGY_CORRUPT", "duplicate frozen Strategy identity")
+        return tuple(sorted(fingerprints))
+
 
 class _StrategyFreezeRelationReader:
     def __init__(self, semantic_root: Path) -> None:

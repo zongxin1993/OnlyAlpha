@@ -182,6 +182,12 @@ class OnlyStrategyFreezeProjectionReconciliationApplicationService:
     def reconcile(self, strategy_fingerprint: str) -> tuple[OnlyStrategyFreezeRecord, ...]:
         return self._reconciler.reconcile(strategy_fingerprint)
 
+    def reconcile_all(self) -> tuple[OnlyStrategyFreezeRecord, ...]:
+        records: list[OnlyStrategyFreezeRecord] = []
+        for strategy_fingerprint in self._reconciler.strategies.frozen_strategy_fingerprints():
+            records.extend(self._reconciler.reconcile(strategy_fingerprint))
+        return tuple(records)
+
 
 def _assert_local_namespace(
     semantic_root: Path,

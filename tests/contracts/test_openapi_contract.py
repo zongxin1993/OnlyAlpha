@@ -122,7 +122,13 @@ def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(m
     ).stdout.strip()
     exact, document, raw = governance.load_git_baseline(base_sha)
     assert exact == base_sha
-    assert raw == (ROOT / "contracts/research-api/v2/openapi.json").read_bytes()
+    committed = subprocess.run(
+        ["git", "show", f"{base_sha}:contracts/research-api/v2/openapi.json"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert raw == committed
     assert governance.contract_sha256(raw) == governance.contract_sha256(governance.canonical_bytes(document))
     assert governance.compare_contracts(document, _fixture("breaking_remove_path.json")).change.value == "BREAKING"
     with pytest.raises(ValueError, match="full lowercase Git object ID"):

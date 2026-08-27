@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from onlyalpha.application.product_command_receipt import OnlyProductCommandId, OnlyProductCommandReceipt
 from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunId
 from onlyalpha.research.run.store import OnlyResearchRunStore
 
-from .model import OnlyResearchRunPageCursor, OnlyResearchSubmissionKey, OnlyResearchSubmissionRecord
+from .model import OnlyResearchRunPageCursor
 
 
 class OnlyResearchRunReader(Protocol):
@@ -19,14 +20,19 @@ class OnlyResearchRunReader(Protocol):
 
 
 class OnlyResearchCommandStore(OnlyResearchRunStore, OnlyResearchRunReader, Protocol):
-    def find_submission(self, submission_key: OnlyResearchSubmissionKey) -> OnlyResearchSubmissionRecord | None: ...
+    def find_product_command_receipt(self, command_id: OnlyProductCommandId) -> OnlyProductCommandReceipt | None: ...
 
-    def create_queued_submission(
+    def create_queued_with_receipt(
         self,
         run: OnlyResearchRun,
-        submission_key: OnlyResearchSubmissionKey,
-        command_fingerprint: str,
-    ) -> OnlyResearchSubmissionRecord: ...
+        receipt: OnlyProductCommandReceipt,
+    ) -> OnlyProductCommandReceipt: ...
+
+    def request_cancellation_with_receipt(
+        self,
+        run_id: OnlyResearchRunId,
+        receipt: OnlyProductCommandReceipt,
+    ) -> OnlyProductCommandReceipt: ...
 
 
 __all__ = ["OnlyResearchCommandStore", "OnlyResearchRunReader"]

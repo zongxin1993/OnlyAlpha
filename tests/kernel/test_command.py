@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Event, Thread
 
 import pytest
 
@@ -82,6 +83,31 @@ def test_non_ready_states_reject_before_handler_invocation() -> None:
         binding(failed).dispatch(_CommandA("failed"))
 
     assert calls == []
+
+
+def test_recovering_rejects_mutation_with_zero_handler_side_effect() -> None:
+    entered = Event()
+    release = Event()
+    calls: list[_CommandA] = []
+
+    def recover() -> None:
+        entered.set()
+        assert release.wait(timeout=10)
+
+    host = OnlyAlphaKernelHost(recoverers=(OnlyKernelLifecycleStep("barrier", recover),))
+    dispatcher = OnlyProductCommandDispatcher(
+        host,
+        (OnlyProductCommandBinding(_CommandA, lambda command: calls.append(command)),),
+    )
+    thread = Thread(target=host.start)
+    thread.start()
+    assert entered.wait(timeout=10)
+    with pytest.raises(OnlyKernelMutationRejected):
+        dispatcher.dispatch(_CommandA("recovering"))
+    assert calls == []
+    release.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
 
 
 def test_unknown_and_unregistered_subclass_fail_closed_without_fallback() -> None:
