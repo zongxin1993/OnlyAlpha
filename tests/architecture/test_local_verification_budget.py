@@ -141,14 +141,3 @@ def test_policy_vocabulary_cannot_claim_certification_authority() -> None:
     assert "LOCAL_EXECUTION_POLICY_ONLY" in payload
     assert "CERTIFIED" not in payload
     assert "ACCEPTED" not in payload
-
-
-def test_debug_ruff_format_diff() -> None:
-    completed = subprocess.run(
-        ["ruff", "format", "--diff", "scripts/local_verify.py"],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert not completed.stdout, completed.stdout
