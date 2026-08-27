@@ -302,3 +302,152 @@ Correctness before elegance.
 Minimum sufficient mechanism before architectural complexity.
 A completed audit must converge.
 ```
+
+---
+
+## 12. Agent 本地验证执行合同
+
+本节是所有实现、修复、重构和测试任务的默认执行规则。详细机制见：
+
+```text
+docs/adr/0078-impact-aware-local-verification.md
+docs/engineering/local-verification-execution-policy.md
+```
+
+正式质量层级仍只有：
+
+```text
+Task Gate
+Phase Gate
+Certification Gate
+```
+
+以下只是执行策略，不是新的 Gate。
+
+### 12.1 默认顺序
+
+Agent 修改代码后必须优先：
+
+```text
+1. targeted direct tests
+2. targeted Ruff / Mypy / contract checks
+3. impact plan
+4. budgeted local verification
+5. PR / GitHub CI for deferred heavy proof
+```
+
+Targeted pytest 默认使用：
+
+```bash
+uv run pytest <targets> -q --tb=short --maxfail=1
+```
+
+Impact-aware 本地入口统一为：
+
+```bash
+uv run python scripts/local_verify.py plan --base <TASK_BASE_SHA>
+uv run python scripts/local_verify.py run --base <TASK_BASE_SHA>
+```
+
+不得自行维护第二套 changed-file → test-lane 映射；impact authority 仍只来自：
+
+```text
+scripts/verify.py
+```
+
+canonical lane semantics 仍只来自：
+
+```text
+scripts/test_suite.py
+```
+
+### 12.2 默认禁止重型本地全套验证
+
+除非用户显式要求、Task Contract 明确要求、需要复现 CI-only failure，或显式使用 `--full-local`，Agent **不得默认本地运行**：
+
+```text
+scripts/test_suite.py release
+core-full
+core-full --coverage
+all Research lanes bundle
+recovery + sim-recovery routine pair
+exhaustive
+mutation
+performance
+full Playwright E2E
+Final-SHA Certification
+```
+
+这不是降低测试要求，而是把昂贵证明放到 GitHub CI / Nightly / Final-SHA authority boundary。
+
+### 12.3 Local Budget 不能减少 Required Impact
+
+当完整 impact plan 超过本地预算时：
+
+```text
+required plan remains unchanged
++
+low-cost local preflight may run
++
+remaining commands are CI_REQUIRED
+```
+
+Agent 必须保留并报告全部 `deferred_to_ci`，不得把它们写成 PASS。
+
+`scripts/local_verify.py run` 返回：
+
+```text
+0 = all required local impact commands passed inside budget
+1 = local failure
+2 = invalid plan/input
+3 = CI_REQUIRED
+```
+
+Exit code `3` 不是 PASS。
+
+收到 `3` 时，Agent 可以在 targeted/local evidence 已准备好的前提下创建或更新 PR，让 GitHub CI 完成重型证明；在 CI 真正 PASS 前，不得声称这些 gate 已通过。
+
+### 12.4 Full Local 必须显式 Opt-in
+
+完整本地 impact plan 只能显式执行：
+
+```bash
+uv run python scripts/local_verify.py run \
+  --base <TASK_BASE_SHA> \
+  --full-local
+```
+
+`--full-local` 不得成为 Codex/Agent 默认命令。
+
+### 12.5 Coverage 与日志
+
+本地 inner loop 默认不运行 whole-repository coverage。生产代码只有在 Task Contract 要求时运行 affected package/lane coverage；`core-full --coverage` 默认交给 CI。
+
+成功测试日志不得大量复制进 Agent 上下文。完整日志写入 `test-results/verification/`；失败时只展示：
+
+```text
+gate
+command
+exit code
+short diagnostic
+full log path
+```
+
+### 12.6 最终报告
+
+Agent 最终报告必须显式区分：
+
+```text
+Local PASS
+CI PASS
+NOT EXECUTED
+CI REQUIRED
+```
+
+只要存在未由 CI 关闭的 `CI_REQUIRED`，就不得使用：
+
+```text
+all tests passed
+```
+
+未知 impact 和 verification infrastructure self-change 仍由 `scripts/verify.py` fail closed 到 broad/full **required plan**；本地预算只改变执行位置，不改变 required proof。
