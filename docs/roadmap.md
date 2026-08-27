@@ -22,8 +22,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.4 Closure — Current-v2 Schema Compatibility Completeness — DONE / VERIFIED
-P9.K.4 Closure Implementation SHA: 47e12df6bb7119396bb3dcda4b3e4c8483efa066
+Current Increment: P9.K.4 Closure-2 — Response Compatibility Completeness — DONE / VERIFIED
+P9.K.4 Closure-2 Implementation SHA: 7c25a3cc42c7ea6e189044b5b8d8c62dc8b78d5f
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
