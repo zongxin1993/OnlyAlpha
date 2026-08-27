@@ -136,6 +136,10 @@ LANES = {
             "tests/research/factor",
             "packages/factor/onlyalpha-plugin-factors/tests",
             "tests/research/calculation/test_execution.py",
+            (
+                "tests/research/calculation/test_execution_evidence.py"
+                "::test_execution_evidence_rejects_graph_binding_set_mismatch"
+            ),
             "tests/architecture/test_research_factor_boundaries.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
         ),
