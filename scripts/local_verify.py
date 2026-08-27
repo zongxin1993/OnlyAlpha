@@ -133,8 +133,7 @@ def build_execution_plan(
         raise ValueError("budget_units must be >= 0")
 
     required = tuple(
-        LocalVerificationCommand(gate, command, gate_cost_units(gate))
-        for gate, command in verification_commands(plan)
+        LocalVerificationCommand(gate, command, gate_cost_units(gate)) for gate, command in verification_commands(plan)
     )
     estimated_units = sum(item.cost_units for item in required)
 
@@ -282,11 +281,7 @@ def run_budgeted_plan(
         final_state = "LOCAL_VERIFICATION_FAILED"
         exit_code = 1
     else:
-        final_state = (
-            "LOCAL_PASS_CI_REQUIRED"
-            if execution_plan.local
-            else "LOCAL_DEFERRED_TO_CI"
-        )
+        final_state = "LOCAL_PASS_CI_REQUIRED" if execution_plan.local else "LOCAL_DEFERRED_TO_CI"
         exit_code = CI_REQUIRED_EXIT_CODE
 
     manifest = {
@@ -328,9 +323,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("plan", "run"):
         child = subparsers.add_parser(command)
-        child.add_argument(
-            "--base", required=True, help="explicit commit used as the change-set base"
-        )
+        child.add_argument("--base", required=True, help="explicit commit used as the change-set base")
         child.add_argument(
             "--budget-units",
             type=int,
