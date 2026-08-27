@@ -328,7 +328,9 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("plan", "run"):
         child = subparsers.add_parser(command)
-        child.add_argument("--base", required=True, help="explicit commit used as the change-set base")
+        child.add_argument(
+            "--base", required=True, help="explicit commit used as the change-set base"
+        )
         child.add_argument(
             "--budget-units",
             type=int,
