@@ -98,7 +98,6 @@ EXPECTED_CONSTRUCTOR_IMPORT_OWNERS = {
     ("src/onlyalpha/engine/engine.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/engine/engine.py", "OnlyRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
-    ("src/onlyalpha/runtime/backtest/__init__.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/backtest/driver.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/backtest/run_plan.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",

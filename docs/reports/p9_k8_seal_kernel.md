@@ -191,3 +191,180 @@ P9.K.8 = TASK COMPLETE / VERIFIED
 P9.K   = CLOSED
 P9.1   = MAY START / IMPLEMENTATION READY
 ```
+
+## Post-commit Closure Fix — Runtime Bootstrap / Checkpoint Observation / K7 Interval
+
+- Date: 2026-08-28
+- `FIX_BASE_SHA`: `8c9046696c7ea687a55f4ac8e68f5263eb5daf4a`
+- Final implementation: `8c9046696c7ea687a55f4ac8e68f5263eb5daf4a + dirty closure-fix worktree`
+- Gate: P9.K.8 corrective Task Gate; no Phase Gate or Final-SHA Certification claim
+
+The committed K8 subject had three concrete post-commit findings. Project state was first reopened through the repository-owned atomic
+state/projection writer as `K7 VERIFIED / K8 IN_PROGRESS / P9.1 BLOCKED`. It was restored through the guarded
+`project_state.py transition verify` path only after the applicable closure evidence passed.
+
+### Previous findings status
+
+```text
+F-K8-01  Runtime bootstrap circular import       RESOLVED
+F-K8-01B SIM checkpoint completion observation  RESOLVED
+F-K8-02  K7 historical verification scope       RESOLVED
+```
+
+### F-K8-01 — Fresh-process Runtime bootstrap
+
+The pre-fix clean-interpreter traceback was:
+
+```text
+runtime.sim.__init__
+→ runtime.sim.factory
+→ runtime.sim.runtime
+→ runtime.streaming.runtime
+→ runtime.trading_facade
+→ runtime.backtest.checkpoint
+→ runtime.backtest.__init__
+→ runtime.backtest.runtime
+→ partially initialized runtime.trading_facade
+```
+
+Backtest alone imported successfully, while SIM failed, proving import-order-dependent bootstrap. The Backtest package keeps its existing
+sub-package export but resolves only `OnlyBacktestRuntime` lazily. Concrete implementation imports remain leaf-to-leaf; no Runtime
+package move, dependency-injection layer, lifecycle change or business-semantic change was introduced. The K0 exact constructor-import
+owner inventory was narrowed by the removed eager aggregator owner.
+
+A permanent K8 architecture test launches clean subprocess interpreters for both concrete SIM and Backtest Runtime imports. The original
+cross-process SIM recovery helper also now boots successfully.
+
+### F-K8-01B — SIM checkpoint completion classification
+
+Classification matrix before the observation fix:
+
+| Matrix | Result | Evidence |
+|---|---|---|
+| failing test alone | PASS | 1 pass, 5.50 s |
+| repeated serial | PASS | 10/10, 4.79–5.36 s |
+| canonical xdist load | checkpoint test PASS | 5.51 s; lane failed only at the independent fresh-process import |
+| known-good K7 closure `f74ddd2...` | PASS | 1 pass, 5.38 s |
+
+Classification: **test observation race**.
+
+The Runtime transition was already causal:
+
+```text
+committed execution
+→ projection_ready contiguous prefix
+→ Streaming semantic action completion
+→ checkpoint create_verified()
+→ durable read-back verification
+```
+
+The old test observed `OrderStatus.FILLED` from another thread while that same semantic action could still be creating the checkpoint,
+then polled for up to three seconds. The correction uses the existing `OnlyStreamingSemanticLane.execute()` barrier after the worker has
+admitted the exact Bar. Once that barrier returns, the prior semantic action is complete; the test directly asserts Accepted/Filled,
+projection-ready coverage and the durable checkpoint's exact covered execution sequence (`1`, then `2`). No production synchronization,
+checkpoint authority, timeout, sleep, retry, persistence schema or durable table changed.
+
+After the fix the checkpoint test passed 10/10 serial runs (4.84–5.44 s), and the canonical four-worker sim-recovery lane passed all 38
+tests. The complete canonical recovery lane passed all 334 tests.
+
+### F-K8-02 — Immutable K7 historical evidence
+
+The old contract incorrectly compared:
+
+```text
+baa91014ec4e0197ac5c34f41138abc68c18471a → current worktree / every future HEAD
+```
+
+Repository history and the K7 closure report confirm the immutable verified interval:
+
+```text
+K7_TASK_BASE_SHA       = baa91014ec4e0197ac5c34f41138abc68c18471a
+K7_VERIFIED_CLOSURE_SHA = f74ddd273f600ef076b459a500b6073d2ab0cb78
+```
+
+The historical test now reads OpenAPI bytes from both commits and diffs protected semantic paths only across that closed interval. Future
+legal Runtime/Application/Research/Execution changes no longer redefine K7 history. Current Gateway compatibility remains solely owned by
+`scripts/gateway_protocol.py verify`; the closure changed no Proto bytes or compatibility logic.
+
+### Closure invariant matrix
+
+| Invariant | Status | Evidence |
+|---|---|---|
+| INV-FIX-01 unique Product mutation authority | PASS | K0/K6/K8 exact gates: 32 passed; no Product surface restored |
+| INV-FIX-02 fresh-process bootstrap determinism | PASS | SIM and Backtest clean interpreters plus cross-process SIM recovery |
+| INV-FIX-03 aggregators are not hidden bootstrap containers | PASS | Backtest Runtime eager owner removed; narrow lazy export only |
+| INV-FIX-04 no broad rewrite | PASS | one import-boundary correction and exact inventory update |
+| INV-FIX-05 causal checkpoint completion | PASS | semantic-lane barrier followed by exact durable coverage assertions |
+| INV-FIX-06 no timeout inflation | PASS | timeout values unchanged |
+| INV-FIX-07 frozen K7 interval | PASS | exact `baa9101... → f74ddd2...` Git objects required fail-closed |
+| INV-FIX-08 one current Gateway authority | PASS | `gateway_protocol.py verify` compatible; Gateway tests 28 passed |
+| INV-FIX-09 future legal development not frozen | PASS | historical test never reads current HEAD/worktree content |
+| INV-FIX-10 semantic preservation | PASS | OpenAPI/Strategy/Research/Proto/schema/fingerprint deltas zero |
+| INV-FIX-11 project state follows evidence | PASS | K8 reopened before fixes and re-verified only after evidence |
+
+Applicable uniqueness, deterministic bootstrap, single authority, immutability, dependency direction, Runtime boundary, persistence,
+retry/recovery idempotency, public contract/schema, fail-closed and provenance axes are PASS. No identity or persistence authority was
+modified.
+
+### Verification evidence
+
+Local PASS:
+
+```text
+fresh-process SIM / Backtest imports:               PASS
+focused bootstrap/K7/checkpoint/recovery targets:   7 passed
+checkpoint completion repeated after fix:          10/10 passed
+K0/K6/K8 architecture targets:                      32 passed
+canonical Architecture lane:                       509 passed
+canonical Sim-Recovery lane:                        38 passed
+canonical Recovery lane:                           334 passed
+Gateway current compatibility:                     PASS; descriptor 5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e
+Gateway contract + K7 history + remote integration: 28 passed
+Ruff / Ruff format:                                PASS; 1492 files
+Core mypy:                                         PASS; 619 source files
+Import Linter:                                     PASS; 3 kept, 0 broken; 655 files
+all-package build:                                 PASS; 12 packages at 0.9.8
+version sync / project-state / git diff check:      PASS
+```
+
+Budgeted impact verification returned exit code `3` (`LOCAL_PASS_CI_REQUIRED`): 10 local static commands passed and 31 required commands
+remain explicit under `deferred_to_ci` in
+`test-results/verification/local-budget/20260828T073913Z-8c9046696c7e-38649/manifest.json`. Architecture, Recovery, Sim-Recovery, build
+and version checks were also executed directly and passed as listed above; this does not rewrite the other deferred Web, Kernel,
+Strategy, Research, Core, A-share and MiniQMT commands as PASS. Phase Gate and Final-SHA Certification were **NOT EXECUTED**.
+
+### Semantic delta proof
+
+```text
+Product OpenAPI delta:              0; SHA256 6a66fde2dba23fe6770bc5b27031337d95bf4b987b0ca946903c1a7c89b95d1e
+Strategy/P9.0 semantic delta:       0
+Research identity/authority delta:  0
+Gateway Proto delta:                0
+database migration/schema delta:    0
+semantic fingerprint delta:         0
+```
+
+### Convergent closure re-audit
+
+```text
+AUDIT_BASE_SHA: 8c9046696c7ea687a55f4ac8e68f5263eb5daf4a
+AUDIT_HEAD_SHA: 8c9046696c7ea687a55f4ac8e68f5263eb5daf4a + dirty closure-fix worktree
+Scope: P9.K.8 Closure Fix Task Gate
+
+BLOCKER:    0
+MAJOR:      0
+MINOR:      0
+SUGGESTION: 0
+
+Verdict: GO
+
+设计是否被正确实现？ YES
+是否违反唯一性？     NO
+是否违反确定性？     NO
+是否违反 ADR/架构？  NO
+是否可进入下一阶段？ GO
+
+P9.K.8 = TASK COMPLETE / VERIFIED
+P9.K   = CLOSED
+P9.1   = IMPLEMENTATION READY
+```

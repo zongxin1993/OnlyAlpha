@@ -367,23 +367,22 @@ def test_engine_sim_filled_trading_world_is_identical_after_new_instance_restart
     runtime = cast(OnlySimRuntime, first.runtimes[0])
     _publish_and_wait_received(runtime, feed, clock, 37)
     _publish_and_wait_received(runtime, feed, clock, 38)
-    _wait_until(
-        lambda: len(runtime.order_snapshots) == 1 and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED,
-        "checkpoint SIM did not commit Accepted",
+    accepted_barrier = runtime._semantic_lane.execute(  # type: ignore[attr-defined]
+        lambda: runtime._checkpoint_query.latest_checkpoint(OnlyRuntimeId(runtime.runtime_id))  # type: ignore[attr-defined]
     )
+    assert accepted_barrier.started
+    assert len(runtime.order_snapshots) == 1
+    assert runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED
+    assert accepted_barrier.result is not None
+    assert accepted_barrier.result.header.covered_execution_sequence == 1
     _publish_and_wait_received(runtime, feed, clock, 39)
-    _wait_until(
-        lambda: runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED,
-        "checkpoint SIM did not commit Fill",
+    filled_barrier = runtime._semantic_lane.execute(  # type: ignore[attr-defined]
+        lambda: runtime._checkpoint_query.latest_checkpoint(OnlyRuntimeId(runtime.runtime_id))  # type: ignore[attr-defined]
     )
-    _wait_until(
-        lambda: (
-            (checkpoint := runtime._checkpoint_query.latest_checkpoint(OnlyRuntimeId(runtime.runtime_id)))  # type: ignore[attr-defined]
-            is not None
-            and checkpoint.header.covered_execution_sequence == 2
-        ),
-        "checkpoint SIM did not advertise the filled canonical world",
-    )
+    assert filled_barrier.started
+    assert runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED
+    assert filled_barrier.result is not None
+    assert filled_barrier.result.header.covered_execution_sequence == 2
     expected = (
         runtime.order_snapshots,
         runtime.position_manager.snapshot_all(),

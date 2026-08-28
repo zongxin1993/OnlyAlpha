@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import importlib
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -24,6 +26,29 @@ ROOT = Path(__file__).parents[2]
 API_SOURCE = ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api"
 CLIENT_SOURCE = ROOT / "packages/client/onlyalpha-client/src/onlyalpha_client"
 WEB_SOURCE = ROOT / "apps/onlyalpha-web/src"
+
+
+@pytest.mark.parametrize(
+    ("statement", "sentinel"),
+    (
+        ("from onlyalpha.runtime.sim.runtime import OnlySimRuntime", "SIM_IMPORT_OK"),
+        ("from onlyalpha.runtime.backtest.runtime import OnlyBacktestRuntime", "BACKTEST_IMPORT_OK"),
+    ),
+)
+def test_concrete_trading_runtime_bootstrap_is_fresh_process_deterministic(
+    statement: str,
+    sentinel: str,
+) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", f'{statement}; print("{sentinel}")'],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == sentinel
 
 
 def _imports(path: Path) -> frozenset[str]:
