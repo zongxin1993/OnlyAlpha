@@ -28,6 +28,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 ## 当前状态
 
+当前工程控制状态由根目录 [`project-state.toml`](project-state.toml) 唯一 author；本节的 milestone/increment 字段是其确定性投影，使用 `uv run python scripts/project_state.py render` 更新。
+
 | 项目 | 状态 |
 |---|---|
 | Version | `0.9.5` |
@@ -46,9 +48,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.4 Closure-2 — Response Compatibility Completeness — **DONE / VERIFIED** |
-| P9.K.4 Closure-2 Implementation SHA | `7c25a3cc42c7ea6e189044b5b8d8c62dc8b78d5f` |
-| Next semantic direction | P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
+| Current increment | P9.K.5 Closure — Functional Correctness / Coverage Evidence Separation — **TASK COMPLETE / VERIFIED** |
+| Next semantic direction | P9.K.6 — External Client Migration — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
