@@ -1,4 +1,4 @@
-"""Run one public Engine configuration and inspect committed execution projections."""
+"""INTERNAL: run Engine composition and inspect committed execution projections."""
 
 from __future__ import annotations
 

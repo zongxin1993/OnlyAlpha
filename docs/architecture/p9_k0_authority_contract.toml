@@ -29,7 +29,7 @@ sensitive_path_patterns = [
   "packages/api/onlyalpha-api/src/onlyalpha_api/research/*.py",
   "scripts/database.py",
   "scripts/regenerate_*.py",
-  "examples/committed_execution_report.py",
+  "examples/internal/committed_execution_report.py",
 ]
 
 [[facts]]
@@ -367,7 +367,7 @@ allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", 
 pattern = "src/onlyalpha/__init__.py"
 actor = "A01"
 [[actor_paths]]
-pattern = "examples/committed_execution_report.py"
+pattern = "examples/internal/committed_execution_report.py"
 actor = "A01"
 [[actor_paths]]
 pattern = "src/onlyalpha/cli.py"
@@ -654,7 +654,7 @@ approved_paths = ["src/onlyalpha/research/worker_main.py"]
 id = "K08"
 capability = "C12"
 symbol = "onlyalpha.engine.engine.OnlyEngine"
-approved_paths = ["examples/committed_execution_report.py", "scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/cli.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
+approved_paths = ["examples/internal/committed_execution_report.py", "scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/cli.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
 [[constructors]]
 id = "K09"
 capability = "C13"
@@ -699,5 +699,5 @@ capabilities = ["C12", "C14"]
 [[legacy_debts]]
 id = "D03"
 description = "committed execution example directly constructs Engine"
-paths = ["examples/committed_execution_report.py"]
+paths = ["examples/internal/committed_execution_report.py"]
 capabilities = ["C12", "C14"]

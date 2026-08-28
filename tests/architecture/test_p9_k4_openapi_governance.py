@@ -62,14 +62,17 @@ def test_core_domain_has_no_api_contract_tooling_dependency() -> None:
         assert not (_imports(path) & forbidden), path
 
 
-def test_k4_does_not_start_v3_k5_k6_or_k7() -> None:
+def test_k4_contract_governance_does_not_start_v3_or_remote_protocol_work() -> None:
     assert not (ROOT / "contracts/research-api/v3").exists()
-    assert not (ROOT / "packages/client/onlyalpha-client").exists()
+    client_generation = (ROOT / "scripts/openapi_clients.py").read_text(encoding="utf-8")
+    assert '"contracts/research-api/v2/openapi.json"' in client_generation
+    assert "openapi_contract" not in client_generation
     changed = "\n".join(path.as_posix() for path in ROOT.rglob("*"))
     assert "scripts/openapi_contract.py" in changed
     source = GOVERNANCE.read_text(encoding="utf-8")
     for forbidden in ("grpc", "protobuf", "asyncapi", "kafka", "nats", "idempotency ledger"):
         assert forbidden not in source.lower()
+        assert forbidden not in client_generation.lower()
 
 
 def test_contract_metadata_does_not_enter_semantic_identity_code() -> None:

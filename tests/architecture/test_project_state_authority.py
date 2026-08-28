@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from scripts.project_state import (
     PROJECTION_PATHS,
     ROOT,
+    ProjectState,
     ProjectStateError,
     load_state,
     projection_drift,
@@ -14,6 +16,21 @@ from scripts.project_state import (
 )
 
 pytestmark = pytest.mark.architecture
+
+
+def _k6_ready_state() -> ProjectState:
+    return replace(
+        load_state(),
+        last_verified_increment="P9.K.5",
+        last_verified_name="Closure — Functional Correctness / Coverage Evidence Separation",
+        last_verified_state="TASK COMPLETE / VERIFIED",
+        active_increment="",
+        active_name="",
+        active_state="",
+        next_authorized_increment="P9.K.6",
+        next_authorized_name="External Client Migration",
+        next_authorized_state="IMPLEMENTATION READY",
+    )
 
 
 def test_project_state_authority_is_valid_and_all_projections_are_exact() -> None:
@@ -42,7 +59,7 @@ def test_project_state_authority_is_the_only_machine_writable_current_state() ->
 
 
 def test_only_exactly_authorized_next_increment_can_start() -> None:
-    state = load_state()
+    state = _k6_ready_state()
 
     with pytest.raises(ProjectStateError, match="next authorized increment"):
         start_increment(state, "P9.K.7")
@@ -57,7 +74,7 @@ def test_only_exactly_authorized_next_increment_can_start() -> None:
 
 
 def test_only_active_increment_can_be_verified_and_authorize_successor() -> None:
-    started = start_increment(load_state(), "P9.K.6")
+    started = start_increment(_k6_ready_state(), "P9.K.6")
 
     with pytest.raises(ProjectStateError, match="active increment"):
         verify_increment(started, "P9.K.7", next_id="P9.K.8", next_name="Seal Kernel")

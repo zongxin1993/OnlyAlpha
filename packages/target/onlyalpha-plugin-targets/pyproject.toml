@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-plugin-targets"
-version = "0.9.5"
+version = "0.9.6"
 description = "Official Research Evaluation Target calculations for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.5"]
+dependencies = ["onlyalpha==0.9.6"]
 
 [project.entry-points."onlyalpha.calculations"]
 official-targets = "onlyalpha_plugin_targets.registration:registrations"

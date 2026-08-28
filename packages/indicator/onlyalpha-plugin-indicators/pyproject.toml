@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-plugin-indicators"
-version = "0.9.5"
+version = "0.9.6"
 description = "Canonical trading Indicator backends for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.5"]
+dependencies = ["onlyalpha==0.9.6"]
 
 [project.entry-points."onlyalpha.calculations"]
 standard-indicators = "onlyalpha_plugin_indicators.registration:registrations"

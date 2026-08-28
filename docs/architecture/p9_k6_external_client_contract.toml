@@ -1,0 +1,274 @@
+schema_version = 1
+task = "P9.K.6"
+canonical_openapi = "contracts/research-api/v2/openapi.json"
+python_client_package = "packages/client/onlyalpha-client"
+product_example_roots = ["examples/product"]
+operator_direct_access_allowlist = [
+  "scripts/database.py",
+  "src/onlyalpha/cli.py:operations",
+  "src/onlyalpha/research/worker_main.py",
+  "packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt/doctor.py",
+  "packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare/doctor.py",
+]
+
+[artifact_http]
+entrypoint = "onlyalpha-artifact-api"
+decision = "READ_ONLY_COMPATIBILITY_SURFACE"
+mutation_capability = false
+removal_owner = "P9.K.8"
+
+[[documentation]]
+path = "README.md"
+classification = "PRODUCT"
+action = "Teach onlyalpha-client and Product HTTP control; identify K8 debt explicitly"
+
+[[documentation]]
+path = "docs/cli.md"
+classification = "PRODUCT"
+action = "Classify every retained CLI family and teach onlyalpha-client Product commands"
+
+[[documentation]]
+path = "docs/backtest.md"
+classification = "INTERNAL"
+action = "Label direct Engine composition as internal and unsupported as an external Product path"
+
+[[documentation]]
+path = "docs/results_framework.md"
+classification = "INTERNAL"
+action = "Label legacy Engine CLI result behavior as K8 debt"
+
+[[documentation]]
+path = "docs/operations/research-service.md"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Retain API/Worker/database operating procedure"
+
+[[external_surfaces]]
+id = "K6-S001"
+source_ids = ["K0-S001"]
+location = "src/onlyalpha/__init__.py and public Engine/Runtime modules"
+actor = "PUBLIC_PYTHON"
+classification = "LEGACY_K8_TARGET"
+action = "Normal Product usage migrates to onlyalpha-client; temporary imports remain for K8 sealing"
+k8_debt = true
+
+[[external_surfaces]]
+id = "K6-S002"
+source_ids = ["K0-S002"]
+location = "onlyalpha run and onlyalpha snapshot"
+actor = "CLI"
+classification = "LEGACY_K8_TARGET"
+action = "Stop documenting as Product UX; do not add Engine-shaped HTTP endpoints"
+k8_debt = true
+
+[[external_surfaces]]
+id = "K6-S003"
+source_ids = ["K0-S003", "K0-S028"]
+location = "onlyalpha scenario validate/run and onlyalpha.scenario"
+actor = "TEST"
+classification = "TEST / SCENARIO"
+action = "Retain deterministic test composition outside Product semantics"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S004"
+source_ids = ["K0-S004"]
+location = "onlyalpha operations status/run"
+actor = "OPERATOR"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Retain exact read-only PostgreSQL operational diagnostics"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S005"
+source_ids = ["K0-S005", "K0-S019"]
+location = "onlyalpha-research-worker"
+actor = "WORKER"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Retain Attempt/Lease/Fencing execution agent boundary"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S006"
+source_ids = ["K0-S006", "K0-S010", "K0-S011", "K0-S012", "K0-S013", "K0-S014"]
+location = "onlyalpha-api and /api/v2 Research routes"
+actor = "INFRASTRUCTURE"
+classification = "PRODUCT_CONTROL_PLANE"
+action = "Retain as the single governed Product HTTP adapter"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S007"
+source_ids = ["K0-S007"]
+location = "onlyalpha-artifact-api"
+actor = "INFRASTRUCTURE"
+classification = "READ_ONLY_COMPATIBILITY_SURFACE"
+action = "Retain temporarily with mutation capability mechanically fixed at zero"
+k8_debt = true
+
+[[external_surfaces]]
+id = "K6-S008"
+source_ids = ["K0-S008"]
+location = "onlyalpha-miniqmt and onlyalpha-tushare"
+actor = "OPERATOR"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Retain provider-local environment diagnostics"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S009"
+source_ids = ["K0-S009"]
+location = "apps/onlyalpha-web"
+actor = "WEB"
+classification = "PRODUCT_API_CLIENT"
+action = "Retain canonical OpenAPI generated TypeScript plus strict admission path"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S010"
+source_ids = ["K0-S029"]
+location = "examples/internal/committed_execution_report.py"
+actor = "INTERNAL"
+classification = "INTERNAL"
+action = "Relocate and label direct Engine execution as internal engineering composition"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S011"
+source_ids = ["K0-S030", "K0-S031"]
+location = "maintenance scripts and tests"
+actor = "TEST"
+classification = "TEST / SCENARIO"
+action = "Retain direct composition for fixture generation and proving tests"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S012"
+source_ids = []
+location = "packages/client/onlyalpha-client"
+actor = "PUBLIC_PYTHON"
+classification = "PRODUCT_API_CLIENT"
+action = "Official OpenAPI-derived HTTPS/JSON Product client for Python, Agent, automation and notebooks"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S013"
+source_ids = []
+location = "onlyalpha-client research create/get/list/cancel"
+actor = "CLI"
+classification = "PRODUCT_API_CLIENT"
+action = "Official Product CLI delegates only to onlyalpha-client"
+k8_debt = false
+
+[[external_surfaces]]
+id = "K6-S014"
+source_ids = []
+location = "examples/product/research_client.py"
+actor = "EXAMPLE"
+classification = "PRODUCT"
+action = "Teach onlyalpha-client without local Engine ownership"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha run"
+actor = "CLI"
+classification = "LEGACY_K8_TARGET"
+action = "Retain temporarily; remove from Product documentation"
+k8_debt = true
+
+[[cli_commands]]
+command = "onlyalpha snapshot"
+actor = "CLI"
+classification = "LEGACY_K8_TARGET"
+action = "Retain temporarily; remove from Product documentation"
+k8_debt = true
+
+[[cli_commands]]
+command = "onlyalpha scenario validate"
+actor = "TEST"
+classification = "TEST / SCENARIO"
+action = "Retain"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha scenario run"
+actor = "TEST"
+classification = "TEST / SCENARIO"
+action = "Retain"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha operations status"
+actor = "OPERATOR"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Retain read-only diagnostics"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha operations run"
+actor = "OPERATOR"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Retain exact Run diagnostics"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-client research create"
+actor = "CLI"
+classification = "PRODUCT_API_CLIENT"
+action = "Create through Product HTTP API with caller-supplied idempotency key"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-client research get"
+actor = "CLI"
+classification = "PRODUCT_API_CLIENT"
+action = "Query through Product HTTP API"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-client research list"
+actor = "CLI"
+classification = "PRODUCT_API_CLIENT"
+action = "Query through Product HTTP API"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-client research cancel"
+actor = "CLI"
+classification = "PRODUCT_API_CLIENT"
+action = "Cancel through Product HTTP API with optional caller-supplied idempotency key"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-api"
+actor = "INFRASTRUCTURE"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Run the Product HTTP adapter"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-artifact-api"
+actor = "INFRASTRUCTURE"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Run the read-only compatibility adapter"
+k8_debt = true
+
+[[cli_commands]]
+command = "onlyalpha-research-worker"
+actor = "WORKER"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Run the fenced Research execution agent"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-miniqmt"
+actor = "OPERATOR"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Provider diagnostics"
+k8_debt = false
+
+[[cli_commands]]
+command = "onlyalpha-tushare"
+actor = "OPERATOR"
+classification = "OPERATOR / INFRASTRUCTURE"
+action = "Provider diagnostics"
+k8_debt = false

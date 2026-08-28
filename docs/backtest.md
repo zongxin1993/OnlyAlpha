@@ -1,11 +1,14 @@
-﻿# Product Backtest
+﻿# Internal Backtest Engine Contract
+
+> 本文描述 Kernel 内部 Backtest Engine/Runtime 组合，不是外部 Product client 使用指南。当前尚无 governed Backtest Product API；
+> 下述 direct `OnlyEngine` 代码只作为 `LEGACY_K8_TARGET` 的内部工程事实保留，外部用户不得据此绕过 Product Control Plane。
 
 内建 `scenario-exact` 通过 DataSource SPI 和正式 Historical Replay 提供 exact bars；Action Strategy 只经 `ctx.orders` 下单。
 
 Deterministic Scenario 是 Backtest 外层消费者，不是 Backtest 专用 API。人工 Bar 仍须走 DataSource、Replay、Pipeline 和
 Strategy dispatch；Action 仍经公共 `ctx.orders`。当前 Scenario Runner 尚未接通，禁止以 `process_bar()` 组件测试宣称完成。
 
-## Product API
+## Internal Engine composition
 
 ```python
 engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("onlyalpha"), Path("user_data")))
@@ -14,7 +17,7 @@ result = engine.run()
 ```
 
 `OnlyClusterRunConfig` parses common fields and Cluster-owned Strategy/Factor import specs. Runtime-specific, Synthetic and Virtual Broker
-parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the sole product boundary; Backtest `run()` owns
+parameters are parsed by their concrete factories；Indicator 参数由 Factor Config 解析。`OnlyEngine` is the sole internal execution boundary; Backtest `run()` owns
 historical replay and final invariant evaluation, while `OnlyEngineResultExporter` writes through `OnlyUserDataLayout`.
 
 ## Fixed workflow

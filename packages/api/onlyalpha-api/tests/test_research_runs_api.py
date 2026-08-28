@@ -9,6 +9,7 @@ from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_research_app
 from onlyalpha_api.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_api.research.run_errors import run_error_response
 from onlyalpha_api.research.run_routes import create_run_router
+from onlyalpha_client import OnlyAlphaApiError, OnlyAlphaClient, OnlyAlphaTransportError
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from onlyalpha.application.product_boundary import (
@@ -292,6 +293,54 @@ def test_create_and_keyed_cancel_converge_after_asgi_response_loss() -> None:
     assert replay.json()["state"] == "CANCELLED"
     assert len(store.runs) == 1
     assert len(store.receipts) == 2
+
+
+def test_external_python_client_create_get_list_cancel_and_retry_converge() -> None:
+    _, store, server = _client()
+    client = OnlyAlphaClient(base_url="http://testserver", transport=server)
+    payload = dict(specification().to_dict())
+
+    created = client.research.create(specification=payload, idempotency_key=KEY)  # type: ignore[arg-type]
+    run_id = created["run"]["run_id"]
+    assert client.research.get(run_id)["run_id"] == run_id
+    assert client.research.list(limit=50)["runs"][0]["run_id"] == run_id
+
+    cancel_key = "00000000-0000-4000-8000-000000000502"
+    cancelled = client.research.cancel(run_id, idempotency_key=cancel_key)
+    replay = client.research.cancel(run_id, idempotency_key=cancel_key)
+    assert cancelled["state"] == replay["state"] == "CANCELLED"
+    assert len(store.runs) == 1
+    assert len(store.receipts) == 2
+
+
+def test_external_python_client_response_loss_reuses_same_command_identity() -> None:
+    _, store, server = _client()
+    payload = dict(specification().to_dict())
+    lost = OnlyAlphaClient(
+        base_url="http://testserver",
+        transport=TestClient(_DropOneHttpResponseAfterApplicationCommit(server.app, "/api/v2/research/runs")),
+    )
+    with pytest.raises(OnlyAlphaTransportError):
+        lost.research.create(specification=payload, idempotency_key=KEY)  # type: ignore[arg-type]
+
+    retry = OnlyAlphaClient(base_url="http://testserver", transport=server)
+    replay = retry.research.create(specification=payload, idempotency_key=KEY)  # type: ignore[arg-type]
+    assert replay["submission_disposition"] == "REUSED"
+    assert len(store.runs) == len(store.receipts) == 1
+
+
+def test_external_python_client_same_key_different_command_conflicts() -> None:
+    _, store, server = _client()
+    client = OnlyAlphaClient(base_url="http://testserver", transport=server)
+    created = client.research.create(
+        specification=dict(specification().to_dict()),  # type: ignore[arg-type]
+        idempotency_key=KEY,
+    )
+    with pytest.raises(OnlyAlphaApiError) as raised:
+        client.research.cancel(created["run"]["run_id"], idempotency_key=KEY)
+    assert raised.value.status_code == 409
+    assert raised.value.code == "RESEARCH_SUBMISSION_KEY_CONFLICT"
+    assert len(store.runs) == len(store.receipts) == 1
 
 
 def test_run_http_validation_and_errors_are_stable() -> None:

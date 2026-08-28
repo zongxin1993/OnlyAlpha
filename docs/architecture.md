@@ -554,23 +554,31 @@ Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提
 
 ## 18. Public vs Internal API
 
-稳定使用入口优先为：
+正式外部 Product 使用入口为：
 
 ```text
-onlyalpha.engine
-onlyalpha.config
-onlyalpha.domain.*
-onlyalpha.strategy
-onlyalpha.factor
-onlyalpha.indicator
-onlyalpha.plugin.api
+Web / Python / Agent / Automation / Notebook / Product CLI
+→ canonical OpenAPI-derived client
+→ HTTPS / JSON
+→ onlyalpha-api
+→ Product Command / Query
+→ Stateful Kernel / Application authority
 ```
+
+Python 的唯一正式 Product client package 是 `onlyalpha-client`。它不依赖 `onlyalpha` Core，transport projection 只由
+`contracts/research-api/v2/openapi.json` 经 `scripts/openapi_clients.py` 确定性生成；client facade 只拥有 URL、HTTP、header、timeout、
+transport/protocol error normalization，不拥有 Research admission、command identity、lifecycle 或 retry authority。Mutation 不隐式 retry。
+
+`onlyalpha.engine`、`onlyalpha.config`、`onlyalpha.domain.*`、`onlyalpha.strategy`、`onlyalpha.factor`、`onlyalpha.indicator` 与
+`onlyalpha.plugin.api` 是内部工程组合或插件边界，不再作为外部 Product control contract。根包的 Engine/Runtime/Cluster 导出与
+`onlyalpha run/snapshot` 在 K6 后仅是显式 `LEGACY_K8_TARGET`；P9.K.8 负责 hard seal。
 
 Runtime Planner、Environment Builder、Assembly Plan、Assembler、Session、Manager、Registry 内部容器、ExecutionProcessor 内部步骤、Projection applier、Recovery orchestration state 和 persistence schema 属于内部实现。
 
 当前根包和 `onlyalpha.runtime` 仍导出部分具体目标 Runtime 类；`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster`
-仍导出 `OnlyClusterManager`。这些是当前可导入事实和待收紧 API debt，不自动构成长久稳定合同。历史 Paper/Shadow Runtime
-导出已删除，不存在 compatibility alias。
+仍导出 `OnlyClusterManager`。这些是当前可导入事实和 K8 待收紧债务，不构成长久稳定 Product 合同。直接 Engine 示例只允许位于
+`examples/internal/` 并显式标记内部用途；`examples/product/` 必须只使用 Product API/client。历史 Paper/Shadow Runtime 导出已删除，
+不存在 compatibility alias。
 
 ## 19. Dependency Direction
 
@@ -585,9 +593,13 @@ MarketData, Market Rule, Risk, Order, Execution authorities
         ↑
 Trading Runtime orchestration      Research Runtime orchestration
         ↑                                  ↑
-OnlyEngine planning / lifecycle / aggregation
+OnlyEngine planning / lifecycle / aggregation (internal)
         ↑
-Application / CLI / API
+Stateful Kernel / Application Command + Query
+        ↑
+Product HTTP Adapter
+        ↑
+OpenAPI-derived Web / Python / Product CLI
 
 Concrete plugins → public Plugin API / Ports
 ```

@@ -2,8 +2,9 @@
 
 ## 唯一入口原则
 
-同一业务能力只能有一个正式入口。OnlyAlpha 产品运行唯一链路是
-`OnlyEngine(OnlyEngineConfig) → add_cluster → validate/initialize/start/run/stop`。
+同一业务能力只能有一个正式入口。外部 Product 链路是
+`OpenAPI-derived client → HTTPS/JSON → Product HTTP Adapter → Product Command/Query → Stateful Kernel`；
+`OnlyEngine(OnlyEngineConfig) → add_cluster → validate/initialize/start/run/stop` 只描述 Kernel 内部执行组合，不是外部 Product contract。
 
 ## 禁止兼容层原则
 

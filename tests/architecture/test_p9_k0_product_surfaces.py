@@ -41,6 +41,11 @@ CONSTRUCTOR_OWNERS = {
 PROTECTED_CONSTRUCTOR_MODULES = frozenset(qualified.rpartition(".")[0] for qualified in CONSTRUCTOR_OWNERS)
 
 EXPECTED_CONSOLE_ENTRY_POINTS = {
+    (
+        "packages/client/onlyalpha-client/pyproject.toml",
+        "onlyalpha-client",
+        "onlyalpha_client.cli:main",
+    ),
     ("packages/api/onlyalpha-api/pyproject.toml", "onlyalpha-api", "onlyalpha_api.main:main"),
     (
         "packages/api/onlyalpha-api/pyproject.toml",
@@ -65,7 +70,7 @@ EXPECTED_CONSOLE_ENTRY_POINTS = {
 # operator/test tooling, examples, and known migration debt. Any new construction
 # site requires an explicit architecture-contract update.
 EXPECTED_DIRECT_CONSTRUCTION_SITES = {
-    ("examples/committed_execution_report.py", "OnlyEngine"),
+    ("examples/internal/committed_execution_report.py", "OnlyEngine"),
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"),
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"),
     ("src/onlyalpha/cli.py", "OnlyEngine"),
@@ -77,7 +82,7 @@ EXPECTED_DIRECT_CONSTRUCTION_SITES = {
 }
 
 EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
-    ("examples/committed_execution_report.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
+    ("examples/internal/committed_execution_report.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
     ("src/onlyalpha/cli.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
@@ -89,7 +94,7 @@ EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
 }
 
 EXPECTED_CONSTRUCTOR_IMPORT_OWNERS = {
-    ("examples/committed_execution_report.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
+    ("examples/internal/committed_execution_report.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("scripts/pytest_metrics.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",

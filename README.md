@@ -32,7 +32,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.9.5` |
+| Version | `0.9.6` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |
@@ -48,8 +48,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.5 Closure — Functional Correctness / Coverage Evidence Separation — **TASK COMPLETE / VERIFIED** |
-| Next semantic direction | P9.K.6 — External Client Migration — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
+| Current increment | P9.K.6 External Client Migration — **TASK COMPLETE / VERIFIED** |
+| Next semantic direction | P9.K.7 — Remote Protocol Foundation — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -601,8 +601,32 @@ Research API：
 
 ```bash
 ONLYALPHA_POSTGRES_DSN='postgresql://...' uv run onlyalpha-api --user-data-root <USER_DATA_ROOT>
-uv run onlyalpha-artifact-api --artifact-root <USER_DATA_ROOT>/research/artifacts
 ```
+
+Python / Agent / Automation / Notebook 的正式产品入口是独立的 `onlyalpha-client`，它只通过受治理 OpenAPI 的 HTTPS/JSON
+边界调用 Product Control Plane，不导入 Core、Engine、Runtime 或 persistence authority：
+
+```python
+from onlyalpha_client import OnlyAlphaClient
+
+with OnlyAlphaClient(base_url="http://127.0.0.1:8000") as client:
+    accepted = client.research.create(
+        specification=specification,
+        idempotency_key="00000000-0000-4000-8000-000000000001",
+    )
+    run = client.research.get(accepted["run"]["run_id"])
+```
+
+Mutation 不做隐式 retry；响应结果不确定时，由调用方保留并显式复用同一个 idempotency key。Product CLI 同样经该客户端：
+
+```bash
+uv run onlyalpha-client research create specification.json \
+  --idempotency-key 00000000-0000-4000-8000-000000000001
+```
+
+历史 `onlyalpha run/snapshot` 暂时只是 P9.K.8 hard-seal 债务，不是正式外部 Product Control Plane。直接 Engine 示例只保留在
+`examples/internal/` 并明确用于内部工程组合。`onlyalpha-artifact-api` 暂时保留为只读 compatibility surface，mutation capability
+固定为 0；正常 Product 部署使用 `onlyalpha-api`。
 
 Research Web 已支持 `New Research / Runs / Results`：浏览器只保存临时 Draft 和 presentation state，exact Specification 只来自最新权威
 Resolution；pending Run submission 在不确定重试间复用该 Resolution identity 对应的 Idempotency Key，Run state 只来自 PostgreSQL
