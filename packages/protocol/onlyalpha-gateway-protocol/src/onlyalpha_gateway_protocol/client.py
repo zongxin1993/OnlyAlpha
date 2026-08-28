@@ -9,7 +9,7 @@ import grpc
 
 from .constants import PROTOCOL_MAJOR
 from .identity import canonical_test_mutation_fingerprint
-from .v1 import common_pb2, gateway_pb2, stream_pb2
+from .v1 import common_pb2, error_pb2, gateway_pb2, stream_pb2
 
 
 class OnlyGatewayConnectionState(StrEnum):
@@ -213,8 +213,10 @@ class OnlyGatewayClient:
             for raw in responses:
                 item = raw
                 if item.HasField("error"):
-                    if item.error.code:
+                    if item.error.code == error_pb2.RESYNC_REQUIRED:
                         raise OnlyGatewayResyncRequired(item.error.message)
+                    if item.error.code:
+                        raise OnlyGatewayApplicationError(item.error.code, item.error.message)
                     raise OnlyGatewayProtocolError("stream returned an unspecified error")
                 if not item.HasField("event"):
                     raise OnlyGatewayProtocolError("stream item contains neither event nor error")

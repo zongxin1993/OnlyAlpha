@@ -273,3 +273,149 @@ P9.K.7 Remote Protocol Foundation — TASK COMPLETE / VERIFIED
 P9.K.8 Seal Kernel — IMPLEMENTATION READY
 P9.1+ — BLOCKED until P9.K closure
 ```
+
+## Post-Commit Closure Correction
+
+- Original P9.K.7 Task Base SHA: `baa91014ec4e0197ac5c34f41138abc68c18471a`
+- Original K7 implementation/verified SHA: `25077159ab50a42d5125195cf82731543f37a8f7`
+- Closure-fix base SHA: `25077159ab50a42d5125195cf82731543f37a8f7`
+- Closure-fix implementation/worktree SHA: `25077159ab50a42d5125195cf82731543f37a8f7 + dirty closure-fix worktree`
+- Gate: P9.K.7 Closure Task Gate only; no Phase Gate or Final-SHA Certification claim
+
+The original committed K7 HEAD exposed a post-commit evidence defect. The canonical shallow-checkout Architecture job failed after
+`498 passed` because `test_product_openapi_and_p9_semantic_sources_are_unchanged_from_task_base` tried to resolve the historical K7 Task
+Base Git object. The current architecture facts were correct, but their verdict accidentally depended on undeclared clone history.
+
+The closure correction separates the two verification responsibilities:
+
+```text
+current-tree architecture invariants
+→ tests/architecture/test_p9_k7_remote_protocol_boundary.py
+→ shallow-checkout Architecture lane
+
+historical K7 scope preservation
+→ tests/contracts/test_p9_k7_task_delta.py
+→ full-history gateway-protocol lane
+```
+
+The dedicated task-delta authority owns the sole `P9_K7_TASK_BASE_SHA` constant. It first requires the baseline with
+`git cat-file -e <sha>^{commit}` and fails with an explicit assertion when unavailable; it never skips or xfails. With the baseline
+available, exact verification records:
+
+```text
+Product OpenAPI byte delta:       0
+protected P9 semantic path delta: 0 changed files
+```
+
+The stream client now maps only `GatewayErrorCode.RESYNC_REQUIRED` to `OnlyGatewayResyncRequired`. Every other specified non-zero stream
+application code maps to `OnlyGatewayApplicationError(code, message)`; transport `grpc.RpcError` remains
+`OnlyGatewayTransportError`, and code zero remains an unspecified protocol error. A deterministic TEST-ONLY `--stream-error` fixture
+option proves `INTERNAL_ERROR` preserves the generic application-error type while the existing bounded-history test continues to prove
+the exact RESYNC mapping.
+
+The original exact Protobuf pin, `6.31.0`, produced two High findings in the committed-HEAD OSV-Scanner 2.5.0 artifact:
+
+```text
+CVE-2025-4565 / GHSA-8qvm-5x2c-j2w7
+CVE-2026-0994 / GHSA-7gcm-g887-7qv7
+```
+
+The closure selects exact `protobuf==6.33.5`. It is the smallest compatible 6.x version that is outside both current affected ranges:
+the first advisory is fixed by `6.31.1`, while the second affects `6.30.0rc1` through `6.33.4` and is fixed by `6.33.5`. A current direct
+OSV API query for PyPI `protobuf` `6.33.5` returned no vulnerabilities. `grpcio-tools==1.73.1` and `grpcio==1.73.1` remain unchanged and
+exactly pinned. `uv lock` updated only the Protobuf resolution from `6.31.0` to `6.33.5`.
+
+Canonical `.proto` bytes and protocol v1 semantics remain unchanged. Regeneration under the secure exact runtime produced no generated
+file delta and no descriptor delta:
+
+```text
+old descriptor SHA256: 5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e
+new descriptor SHA256: 5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e
+protocol package major: onlyalpha.gateway.v1
+canonical Proto semantic delta: 0
+```
+
+### Closure verification evidence
+
+Local PASS:
+
+```text
+project-state consistency:                         PASS
+Gateway write/check:                               PASS; descriptor unchanged
+Gateway compatibility vs original K7 Task Base:   PASS (bootstrap)
+Gateway compatibility vs closure base:            PASS; no errors
+fixed command-fingerprint vector:                  PASS; 1 passed
+Gateway contract + historical task-delta:          11 passed
+remote Gateway cross-process integration:          12 passed
+canonical Architecture lane:                       498 passed
+protocol-package strict mypy:                      PASS; 15 source files
+repository Ruff check / format:                    PASS; 1491 files
+Import Linter:                                     PASS; 3 kept, 0 broken
+version graph:                                     PASS; 0.9.7
+all-package source/wheel build:                    PASS
+git diff --check:                                  PASS
+OSV API query for protobuf 6.33.5:                 PASS; zero findings
+```
+
+Budgeted impact-aware verification passed all 10 locally scheduled static commands and returned exit code `3`
+(`LOCAL_PASS_CI_REQUIRED`) because verification-infrastructure changes expand the required plan beyond the local budget. Manifest:
+
+```text
+test-results/verification/local-budget/20260828T041347Z-25077159ab50-1500/manifest.json
+```
+
+The plan retains 31 `deferred_to_ci` commands. The directly applicable version check and all-package build were executed separately and
+passed, but the impact manifest's remaining Web, Kernel, Research, Core, Recovery, A-share and MiniQMT commands stay `CI REQUIRED`; they
+are not rewritten as PASS by those direct checks.
+
+The cross-process integration test required authorized localhost binding after the default sandbox rejected `127.0.0.1:0`; no external
+provider, account, or network service was contacted. The current GitHub run for the original committed SHA is retained as historical
+evidence: `static`, `gateway-protocol`, and `build` succeeded, while `architecture` and `dependency-audit` failed for the two closure
+findings above. The closure-fix worktree is not yet an immutable remote CI subject, so committed-HEAD closure CI remains `CI REQUIRED`
+and is not represented as PASS.
+
+### Closure invariant matrix
+
+| Invariant | Status | Evidence |
+|---|---|---|
+| architecture is a current-tree property | PASS | history comparison removed; canonical Architecture 498 passed |
+| historical K7 delta has one authority | PASS | dedicated contract test and sole baseline constant |
+| missing required baseline fails closed | PASS | explicit negative helper test |
+| Product OpenAPI and protected P9 semantics unchanged | PASS | exact bytes / empty protected-path diff |
+| canonical Proto and v1 topology unchanged | PASS | zero source/generated/descriptor delta; compatibility PASS |
+| command identity/replay remains deterministic | PASS | existing cross-process replay/conflict/response-loss tests PASS |
+| stream continuity and error taxonomy are exact | PASS | ordering/duplicate/gap/resume/resync/restart and non-resync tests PASS |
+| transport failures remain separate | PASS | response-loss transport uncertainty test PASS |
+| toolchain is exact, deterministic, and clears known K7 Protobuf findings | PASS | exact pin, fresh generation, current OSV query |
+| no new business or persistence authority | PASS | reverse audit and zero protected semantic/database delta |
+
+### Closure reverse audit
+
+```text
+new Product API authority?                 NO
+new Product route?                         NO
+new Gateway production RPC?                NO
+new protocol major?                        NO
+canonical Proto semantic change?           NO
+new business mutation authority?           NO
+new Strategy identity?                     NO
+new Portfolio authority?                   NO
+new Risk authority?                        NO
+new persistence authority?                 NO
+new provider-specific protocol?            NO
+QMT implementation started?                NO
+CTP implementation started?                NO
+K8 started?                                NO
+P9.1 started?                              NO
+semantic dependency on Git clone depth?    NO
+semantic dependency on network timing?     NO
+```
+
+All three closure findings are resolved in the current worktree and all locally executable closure invariants pass. Final closure remains
+`CI REQUIRED` until the correction is committed and the required committed-HEAD `static`, `architecture`, `gateway-protocol`, `build`,
+and `dependency-audit` jobs succeed. Until then the strict closure verdict is:
+
+```text
+P9.K.7 Closure Fix = NOT CLOSED
+P9.K.8 = DO NOT START
+```

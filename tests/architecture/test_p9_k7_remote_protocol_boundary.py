@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import subprocess
 import tomllib
 from pathlib import Path
 
@@ -115,36 +113,3 @@ def test_gateway_v1_proto_authority_is_unique_and_provider_neutral() -> None:
 @pytest.mark.architecture
 def test_generated_gateway_projection_is_fresh() -> None:
     assert gateway_protocol.check() == "5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e"
-
-
-@pytest.mark.architecture
-def test_product_openapi_and_p9_semantic_sources_are_unchanged_from_task_base() -> None:
-    base = "baa91014ec4e0197ac5c34f41138abc68c18471a"
-    openapi = ROOT / "contracts/research-api/v2/openapi.json"
-    baseline = subprocess.run(
-        ["git", "show", f"{base}:contracts/research-api/v2/openapi.json"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    ).stdout
-    assert hashlib.sha256(openapi.read_bytes()).digest() == hashlib.sha256(baseline).digest()
-    changed = subprocess.run(
-        [
-            "git",
-            "diff",
-            "--name-only",
-            base,
-            "--",
-            "src/onlyalpha/research",
-            "src/onlyalpha/strategy",
-            "src/onlyalpha/application",
-            "src/onlyalpha/kernel",
-            "src/onlyalpha/runtime",
-            "src/onlyalpha/execution",
-        ],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    assert changed == ""

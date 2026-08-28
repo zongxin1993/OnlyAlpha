@@ -31,7 +31,7 @@ GENERATED_SUFFIXES = ("_pb2.py", "_pb2.pyi", "_pb2_grpc.py")
 PROTOCOL_PACKAGE = "onlyalpha.gateway.v1"
 GRPCIO_TOOLS_VERSION = "1.73.1"
 GRPCIO_VERSION = "1.73.1"
-PROTOBUF_VERSION = "6.31.0"
+PROTOBUF_VERSION = "6.33.5"
 
 
 def _require_toolchain() -> None:

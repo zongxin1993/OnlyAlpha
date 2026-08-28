@@ -39,12 +39,14 @@ class _TestGateway(gateway_pb2_grpc.GatewayServiceServicer, stream_pb2_grpc.Gate
         events: tuple[int, ...],
         history_limit: int,
         response_loss_command_id: str | None,
+        stream_error: int | None,
     ) -> None:
         self.gateway_id = gateway_id
         self.gateway_instance_id = str(uuid.uuid4())
         self.capabilities = capabilities
         self.events = events[-history_limit:]
         self.response_loss_command_id = response_loss_command_id
+        self.stream_error = stream_error
         self._response_lost = False
         self._receipts: dict[str, _Receipt] = {}
         self._lock = threading.Lock()
@@ -136,6 +138,11 @@ class _TestGateway(gateway_pb2_grpc.GatewayServiceServicer, stream_pb2_grpc.Gate
         if request.gateway_instance_id != self.gateway_instance_id:
             yield _resync("gateway instance changed; re-handshake is required")
             return
+        if self.stream_error is not None:
+            yield stream_pb2.TestStreamItem(
+                error=error_pb2.GatewayError(code=self.stream_error, message="deterministic injected stream error")
+            )
+            return
         remaining = tuple(sequence for sequence in self.events if sequence > request.resume_after)
         if remaining and remaining[0] != request.resume_after + 1:
             yield _resync("bounded stream history cannot satisfy exact continuation")
@@ -177,6 +184,16 @@ def _events(value: str) -> tuple[int, ...]:
     return result
 
 
+def _stream_error(value: str) -> int:
+    try:
+        code = error_pb2.GatewayErrorCode.Value(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"unknown Gateway stream error: {value}") from exc
+    if code == error_pb2.GATEWAY_ERROR_CODE_UNSPECIFIED:
+        raise argparse.ArgumentTypeError("stream error must be a specified Gateway error code")
+    return code
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the TEST ONLY K7 remote Gateway fixture")
     parser.add_argument("--gateway-id", default="test-gateway")
@@ -184,6 +201,7 @@ def main() -> int:
     parser.add_argument("--events", type=_events, default=(1, 2, 3, 4))
     parser.add_argument("--history-limit", type=int, default=16)
     parser.add_argument("--response-loss-command-id")
+    parser.add_argument("--stream-error", type=_stream_error)
     args = parser.parse_args()
     if args.history_limit <= 0:
         parser.error("--history-limit must be positive")
@@ -193,6 +211,7 @@ def main() -> int:
         events=args.events,
         history_limit=args.history_limit,
         response_loss_command_id=args.response_loss_command_id,
+        stream_error=args.stream_error,
     )
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     gateway_pb2_grpc.add_GatewayServiceServicer_to_server(gateway, server)

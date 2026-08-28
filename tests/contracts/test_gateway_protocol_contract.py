@@ -115,10 +115,9 @@ def test_silent_protocol_package_major_change_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.contract
-def test_verify_uses_immutable_git_baseline_and_bootstraps_k7() -> None:
-    identity, errors = gateway_protocol.verify("baa91014ec4e0197ac5c34f41138abc68c18471a")
-    assert identity == "5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e"
-    assert errors == ()
+def test_verify_requires_an_immutable_git_sha() -> None:
+    with pytest.raises(ValueError, match="immutable 40-character lowercase Git SHA"):
+        gateway_protocol.verify("HEAD")
 
 
 def teardown_module() -> None:

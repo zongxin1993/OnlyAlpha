@@ -181,6 +181,19 @@ def test_bounded_history_returns_explicit_resync_required() -> None:
 
 
 @pytest.mark.integration
+def test_non_resync_stream_application_error_preserves_gateway_error_taxonomy() -> None:
+    with (
+        _gateway("--stream-error", "INTERNAL_ERROR") as gateway,
+        _connect(gateway, common_pb2.TEST_STREAM) as client,
+    ):
+        with pytest.raises(OnlyGatewayApplicationError, match="deterministic injected stream error") as captured:
+            client.watch_test_events(stream_id="test-stream", resume_after=0)
+        assert captured.value.code == error_pb2.INTERNAL_ERROR
+        assert not isinstance(captured.value, OnlyGatewayResyncRequired)
+        assert client.state is OnlyGatewayConnectionState.READY
+
+
+@pytest.mark.integration
 def test_gateway_restart_changes_instance_and_requires_new_handshake() -> None:
     with _gateway() as first_gateway:
         with _connect(first_gateway, common_pb2.TEST_STREAM) as client:

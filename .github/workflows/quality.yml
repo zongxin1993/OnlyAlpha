@@ -136,7 +136,12 @@ jobs:
           esac
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
       - run: uv run python scripts/gateway_protocol.py verify --base "${{ steps.baseline.outputs.sha }}"
-      - run: uv run pytest tests/contracts/test_gateway_protocol_contract.py tests/integration/test_remote_gateway_protocol.py -q
+      - run: >-
+          uv run pytest
+          tests/contracts/test_gateway_protocol_contract.py
+          tests/contracts/test_p9_k7_task_delta.py
+          tests/integration/test_remote_gateway_protocol.py
+          -q
 
   pr-lanes:
     if: github.event_name == 'pull_request'
