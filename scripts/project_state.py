@@ -151,12 +151,16 @@ def _readme_current_increment(state: ProjectState) -> str:
     return f"{state.current_increment} {state.current_name} — **{state.current_state}**"
 
 
+def _p9_1_plus_sentence(state: ProjectState) -> str:
+    return re.sub(r"^BLOCKED\b", "blocked", state.p9_1_plus_status)
+
+
 def _plain_next_direction(state: ProjectState) -> str:
     if not state.next_authorized_increment:
         return state.p9_1_plus_status
     return (
         f"{state.next_authorized_increment} — {state.next_authorized_name} — "
-        f"{state.next_authorized_state}; P9.1+ {state.p9_1_plus_status.lower()}"
+        f"{state.next_authorized_state}; P9.1+ {_p9_1_plus_sentence(state)}"
     )
 
 
@@ -165,7 +169,7 @@ def _readme_next_direction(state: ProjectState) -> str:
         return state.p9_1_plus_status
     return (
         f"{state.next_authorized_increment} — {state.next_authorized_name} — "
-        f"**{state.next_authorized_state}**; P9.1+ {state.p9_1_plus_status.lower()}"
+        f"**{state.next_authorized_state}**; P9.1+ {_p9_1_plus_sentence(state)}"
     )
 
 
