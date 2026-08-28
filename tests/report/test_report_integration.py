@@ -1,7 +1,8 @@
-import json
 from pathlib import Path
 
-from onlyalpha.cli import main
+import pytest
+
+from onlyalpha.cli import only_parse_args
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
@@ -44,16 +45,14 @@ def test_engine_publishes_concise_reports_without_recalculating(tmp_path: Path) 
         assert f"## {heading}" in report
 
 
-def test_cli_keeps_single_json_line_and_adds_report_fields(tmp_path: Path, capsys: object) -> None:
+def test_removed_root_product_cli_cannot_publish_report_or_manifest(tmp_path: Path) -> None:
     config = only_write_migrated_cluster_config(CONFIG, tmp_path)
-    assert main(["run", "--config", str(config), "--user-data", str(tmp_path)]) == 0
-
-    payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
-    assert payload["status"] == "COMPLETED"
-    assert payload["cluster_count"] == 1
-    assert payload["trade_count"] == 0
-    assert Path(payload["report_path"]).is_file()
-    assert Path(payload["manifest_path"]).is_file()
+    manifests_before = tuple(tmp_path.rglob("manifest.json"))
+    with pytest.raises(SystemExit) as exc_info:
+        only_parse_args(["run", "--config", str(config), "--user-data", str(tmp_path)])
+    assert exc_info.value.code == 2
+    assert not tuple(tmp_path.rglob("report.md"))
+    assert tuple(tmp_path.rglob("manifest.json")) == manifests_before
 
 
 def test_report_module_has_no_runtime_service_or_plugin_dependencies() -> None:

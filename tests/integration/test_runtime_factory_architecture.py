@@ -44,10 +44,12 @@ def test_core_does_not_import_virtual_broker_plugin() -> None:
         assert "onlyalpha.broker.virtual" not in source, path
 
 
-def test_product_entry_uses_only_engine_public_api() -> None:
+def test_root_cli_has_no_product_engine_mutation_capability() -> None:
     source = Path("src/onlyalpha/cli.py").read_text(encoding="utf-8")
-    assert "OnlyEngine" in source
-    assert "add_cluster_from_file" in source
+    assert "OnlyEngine" not in source
+    assert "add_cluster_from_file" not in source
+    assert 'subparsers.add_parser("run")' not in source
+    assert 'subparsers.add_parser("snapshot")' not in source
     assert "only_default_run_service" not in source
     assert "OnlyBacktestRuntime" not in source
     assert ".from_config(" not in source
