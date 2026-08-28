@@ -13,8 +13,10 @@ members = [
     "onlyalpha-api",
     "onlyalpha-client",
     "onlyalpha-gateway-protocol",
+    "onlyalpha-market-binance-spot",
     "onlyalpha-market-cn-ashare",
     "onlyalpha-market-generic-t0-cash",
+    "onlyalpha-plugin-binance",
     "onlyalpha-plugin-broker-virtual",
     "onlyalpha-plugin-factors",
     "onlyalpha-plugin-indicators",
@@ -1026,6 +1028,17 @@ requires-dist = [
 ]
 
 [[package]]
+name = "onlyalpha-market-binance-spot"
+version = "0.9.8"
+source = { editable = "packages/market/onlyalpha-market-binance-spot" }
+dependencies = [
+    { name = "onlyalpha" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "onlyalpha", editable = "." }]
+
+[[package]]
 name = "onlyalpha-market-cn-ashare"
 version = "0.9.8"
 source = { editable = "packages/market/onlyalpha-market-cn-ashare" }
@@ -1077,6 +1090,21 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.11" },
+]
+
+[[package]]
+name = "onlyalpha-plugin-binance"
+version = "0.9.8"
+source = { editable = "packages/provider/onlyalpha-plugin-binance" }
+dependencies = [
+    { name = "onlyalpha" },
+    { name = "onlyalpha-market-binance-spot" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-market-binance-spot", editable = "packages/market/onlyalpha-market-binance-spot" },
 ]
 
 [[package]]

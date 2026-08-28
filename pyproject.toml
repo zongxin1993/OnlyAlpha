@@ -50,7 +50,9 @@ members = [
     "packages/fake/onlyalpha-plugin-broker-virtual",
     "packages/market/onlyalpha-market-generic-t0-cash",
     "packages/market/onlyalpha-market-cn-ashare",
+    "packages/market/onlyalpha-market-binance-spot",
     "packages/provider/onlyalpha-plugin-tushare",
+    "packages/provider/onlyalpha-plugin-binance",
     "packages/provider/onlyalpha-plugin-miniqmt",
     "packages/indicator/onlyalpha-plugin-indicators",
     "packages/factor/onlyalpha-plugin-factors",
@@ -94,6 +96,8 @@ files = [
     "packages/api/onlyalpha-api/src/onlyalpha_api",
     "packages/client/onlyalpha-client/src/onlyalpha_client",
     "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
+    "packages/market/onlyalpha-market-binance-spot/src/onlyalpha_market_binance_spot",
+    "packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance",
 ]
 
 [[tool.mypy.overrides]]
@@ -108,12 +112,16 @@ onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-api = { workspace = true }
 onlyalpha-client = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
+onlyalpha-market-binance-spot = { workspace = true }
+onlyalpha-plugin-binance = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
     "packages/market/onlyalpha-market-generic-t0-cash/tests",
     "packages/market/onlyalpha-market-cn-ashare/tests",
+    "packages/market/onlyalpha-market-binance-spot/tests",
+    "packages/provider/onlyalpha-plugin-binance/tests",
     "packages/provider/onlyalpha-plugin-tushare/tests",
     "packages/provider/onlyalpha-plugin-miniqmt/tests",
     "packages/indicator/onlyalpha-plugin-indicators/tests",
@@ -138,6 +146,7 @@ markers = [
     "miniqmt: MiniQMT adapter or environment test",
     "requires_network: requires network access",
     "requires_tushare: requires Tushare token",
+    "requires_binance_public: requires Binance public API",
     "requires_local_qmt: requires local MiniQMT client",
     "requires_broker_account: may access or submit to a real broker account",
     "windows: Windows-only test",
@@ -197,6 +206,8 @@ forbidden_modules = [
     "onlyalpha_plugin_tushare",
     "onlyalpha_market_cn_ashare",
     "onlyalpha_market_generic_t0_cash",
+    "onlyalpha_market_binance_spot",
+    "onlyalpha_plugin_binance",
     "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_factors",
     "onlyalpha_plugin_targets",

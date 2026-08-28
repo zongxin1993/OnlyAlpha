@@ -5,6 +5,8 @@
 from onlyalpha.canonical import only_canonical_fingerprint as only_canonical_fingerprint
 from onlyalpha.domain.enums import OnlyAssetClass as OnlyAssetClass
 from onlyalpha.domain.enums import OnlyOrderSide as OnlyOrderSide
+from onlyalpha.domain.enums import OnlyOrderType as OnlyOrderType
+from onlyalpha.domain.enums import OnlyTimeInForce as OnlyTimeInForce
 from onlyalpha.domain.identifiers import OnlyInstrumentId as OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay as OnlyTradingDay
 from onlyalpha.domain.value import OnlyCurrency as OnlyCurrency

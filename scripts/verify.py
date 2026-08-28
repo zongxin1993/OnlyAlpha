@@ -577,6 +577,18 @@ IMPACT_RULES = (
         "Tushare historical normalization feeds Dataset materialization",
     ),
     VerificationImpactRule(
+        "binance-spot-reference",
+        (
+            "packages/market/onlyalpha-market-binance-spot/",
+            "packages/provider/onlyalpha-plugin-binance/",
+        ),
+        (),
+        (OnlyTestLane.CORE_FULL,),
+        STATIC,
+        VerificationEscalation.COMPONENT,
+        "Binance Spot immutable reference and Market Product contract affect plugin composition",
+    ),
+    VerificationImpactRule(
         "strategy-product",
         (
             "src/onlyalpha/strategy/",

@@ -10,6 +10,8 @@ PRODUCT_ROOT = Path("src/onlyalpha/market/product")
 CORE_ROOT = Path("src/onlyalpha")
 GENERIC_ROOT = Path("packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash")
 CN_ASHARE_ROOT = Path("packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare")
+BINANCE_SPOT_ROOT = Path("packages/market/onlyalpha-market-binance-spot/src/onlyalpha_market_binance_spot")
+BINANCE_PROVIDER_ROOT = Path("packages/provider/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance")
 FORMAL_IDENTITY = Path("src/onlyalpha/identity.py")
 
 
@@ -103,7 +105,12 @@ def test_core_does_not_import_concrete_market_product_plugins() -> None:
         for imported in _imports(path)
         if any(
             imported == package or imported.startswith(f"{package}.")
-            for package in ("onlyalpha_market_generic_t0_cash", "onlyalpha_market_cn_ashare")
+            for package in (
+                "onlyalpha_market_generic_t0_cash",
+                "onlyalpha_market_cn_ashare",
+                "onlyalpha_market_binance_spot",
+                "onlyalpha_plugin_binance",
+            )
         )
     ]
     assert not violations
@@ -177,6 +184,28 @@ def test_cn_ashare_product_has_no_runtime_or_mutable_trading_authority_dependenc
     assert not violations
 
 
+def test_binance_packages_do_not_reverse_core_or_cross_trading_boundaries() -> None:
+    forbidden = (
+        "onlyalpha.runtime",
+        "onlyalpha.broker",
+        "onlyalpha.risk",
+        "onlyalpha.order",
+        "onlyalpha.position",
+        "onlyalpha.account",
+        "onlyalpha.execution",
+        "onlyalpha.transaction",
+        "onlyalpha.market.runtime_rules",
+    )
+    violations = [
+        f"{path}: import {imported}"
+        for root in (BINANCE_SPOT_ROOT, BINANCE_PROVIDER_ROOT)
+        for path in sorted(root.rglob("*.py"))
+        for imported in _imports(path)
+        if any(imported == item or imported.startswith(f"{item}.") for item in forbidden)
+    ]
+    assert not violations
+
+
 def test_retired_core_market_authorities_have_zero_active_implementation() -> None:
     text = "\n".join(path.read_text(encoding="utf-8") for path in CORE_ROOT.rglob("*.py"))
     assert "OnlyAshare" not in text
@@ -232,6 +261,7 @@ def test_market_economic_identity_sources_have_no_runtime_mode_vocabulary() -> N
     paths = list(PRODUCT_ROOT.glob("*.py"))
     paths.extend(GENERIC_ROOT.glob("*.py"))
     paths.extend(CN_ASHARE_ROOT.glob("*.py"))
+    paths.extend(BINANCE_SPOT_ROOT.glob("*.py"))
     violations = [
         f"{path}: {token}"
         for path in sorted(paths)
