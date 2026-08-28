@@ -8,7 +8,9 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **K0 DONE / VERIFIED; K1 DONE / VERIFIED; K2 DONE / VERIFIED; K3 DONE / VERIFIED; K4 CLOSURE DONE / VERIFIED; K5 IMPLEMENTATION READY**
+> Implementation progress: **P9.K.5 Closure — Functional Correctness / Coverage Evidence Separation — TASK COMPLETE / VERIFIED; P9.K.6 — External Client Migration — IMPLEMENTATION READY**
+>
+> Current implementation progress is a deterministic projection of the repository-root `project-state.toml`; do not maintain a second current-state authority here.
 
 ---
 
@@ -1103,11 +1105,13 @@ research-query jobs passed. Evidence is recorded in
 
 ## K5 — Idempotency, Long-running Operations & Recovery Closure
 
-Implementation status (2026-08-27): implemented in the current worktree. Product Command Receipt is the sole active external retry
-authority; Create and keyed Cancel share atomic business-effect/Receipt transactions; optional v2 Cancel idempotency is projected into
-the governed OpenAPI; Strategy semantic inventory and `reconcile_all()` make RECOVERING operational; and the production Kernel uses a
-PostgreSQL session advisory guard. Local targeted evidence is recorded in the K5 implementation report. Real PostgreSQL and exact-SHA CI
-evidence remain required before `DONE / VERIFIED` may be claimed.
+Implementation status (2026-08-28): **TASK COMPLETE / VERIFIED at the P9.K.5 Task Gate**. Product Command Receipt remains the sole active
+external retry authority; Create and keyed Cancel share atomic business-effect/Receipt transactions; optional v2 Cancel idempotency is
+projected into the governed OpenAPI; Strategy semantic inventory and `reconcile_all()` make RECOVERING operational; and the production
+Kernel uses a PostgreSQL session advisory guard. The Closure additionally moves guard acquisition to `VERIFYING`, before the transition
+to `RECOVERING`, so recovery work cannot run without exclusive mutation authority. Functional correctness evidence and coverage evidence
+are explicitly separate: the K5 functional/architecture evidence is PASS, while historical coverage shortfall remains open only for a
+higher-level Gate that requires it. No Final-SHA Certification is claimed here. Detailed evidence remains in the K5 implementation report.
 
 ### Goal
 
