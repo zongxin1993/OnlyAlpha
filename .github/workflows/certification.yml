@@ -338,6 +338,7 @@ jobs:
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
+        # Coverage gate argument is intentionally disabled together with the coverage job.
         run: |
           python scripts/certification.py \
             --subject-sha "$SUBJECT_SHA" \
@@ -349,7 +350,6 @@ jobs:
             --gate "web=$WEB_RESULT" \
             --gate "lanes=$LANES_RESULT" \
             --gate "research-postgres=$POSTGRES_RESULT" \
-            # --gate "coverage=$COVERAGE_RESULT" \
             --gate "semgrep=$SEMGREP_RESULT" \
             --gate "dependency-audit=$DEPENDENCY_AUDIT_RESULT" \
             --gate "codeql=$CODEQL_RESULT" \
