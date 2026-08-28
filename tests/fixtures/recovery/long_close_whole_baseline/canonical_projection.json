@@ -7426,7 +7426,7 @@
     ],
     "compiled_market_rules": [
       {
-        "compiled_rules_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "compiled_rules_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "instrument_id": "TESTETF.XSHG",
         "product_id": "GENERIC_T0_CASH",
         "product_version": "1",
@@ -8293,7 +8293,7 @@
         "broker_fee_schedule_versions": [],
         "cluster_id": "macd-demo",
         "commission": "0.00",
-        "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "contract_multiplier": "1",
         "execution_id": "EXEC-424462e00a9239575a427f42cae1a6b82707fe4f4c9a257d4058a75826d0df86",
         "fee_application_id": "465873818daaa48a513051668fd5a59a9d3e5a996c1e70dd820e907af77e384b",
@@ -8343,12 +8343,12 @@
         "request_id": "scenario-macd-demo:OPEN",
         "runtime_id": "backtest-2d18c07709ac9b21",
         "sequence": 5,
-        "settlement_instruction_id": "SINS-6a52058864d45c0ad9708b88caf1f7eb26790dad63761f317407a80dd8ffb1e5",
+        "settlement_instruction_id": "SINS-e3f4b22ea332e82bd61fde200294170eea762d453e655d394a9a925e7d485af5",
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
         "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
-        "trade_instruction_id": "TINSTR-ccbeb1a5a3de3f1b2dc3548377c0deedb166b2d2ab9ef2b92452fd186e81c0b6",
+        "trade_instruction_id": "TINSTR-a293bfab19decb933e79c02ee9bc398da44521b21764d9ddf8d62f11351c27f0",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:32:00Z",
         "turnover": "10000.00",
@@ -8366,7 +8366,7 @@
         "broker_fee_schedule_versions": [],
         "cluster_id": "macd-demo",
         "commission": "0.00",
-        "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "contract_multiplier": "1",
         "execution_id": "EXEC-b508751722361a4baf07f276a8634877856d15151c723bac733c7a3e8340e7ce",
         "fee_application_id": "08c05147001a760c569925eeddd687eb74cead56d8789c0f9dd7005dca4e7ace",
@@ -8416,12 +8416,12 @@
         "request_id": "scenario-macd-demo:CLOSE",
         "runtime_id": "backtest-2d18c07709ac9b21",
         "sequence": 6,
-        "settlement_instruction_id": "SINS-2405d5828e973f2bd64e11ef8a03978ac3bf6712dd492e56e36008aaf0713882",
+        "settlement_instruction_id": "SINS-60f9121e8c7e51d699e196062f6e4f464ca5ba293cd797f2c42332ff816a3f01",
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
         "strategy_id": "ca94500eefad898f564defc84563d9c55df3903f41a4e8c0a088554d530efdd5",
-        "trade_instruction_id": "TINSTR-dd033537f7b76d49fac3f4e7ed1c85c6669bbddeeeffabe6e87cc14926ec7c93",
+        "trade_instruction_id": "TINSTR-b47e7ebcb7242518dd51887c2ad30009c23f3091b6707a002940f620d37c8304",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:36:00Z",
         "turnover": "10.00",
@@ -8495,7 +8495,7 @@
       {
         "account_id": "backtest-account",
         "decision": "ACCEPTED",
-        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":\"REALTIME_QUOTE_AUTHORITY_UNAVAILABLE\",\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_EVALUATED\"}]",
+        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MINIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MAXIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_APPLICABLE\"}]",
         "instrument_id": "TESTETF.XSHG",
         "limit_rate": null,
         "lower_limit": null,
@@ -8507,7 +8507,7 @@
         "quantity_policy": "{\"buy_quantity_increment\":\"100\",\"minimum_buy_quantity\":\"100\",\"sell_quantity_increment\":\"100\"}",
         "reason": null,
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "rule_set_id": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "rule_type": "OnlyMarketOrderDecision",
         "sequence": 58,
         "side": "BUY",
@@ -8520,7 +8520,7 @@
       {
         "account_id": "backtest-account",
         "decision": "ACCEPTED",
-        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":\"REALTIME_QUOTE_AUTHORITY_UNAVAILABLE\",\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_EVALUATED\"}]",
+        "evaluations": "[{\"inputs\":[[\"reference_fingerprint\",\"5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93\"]],\"reason_code\":null,\"rule_code\":\"REFERENCE_COVERAGE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"REFERENCE_EFFECTIVE_RANGE\",\"status\":\"PASSED\"},{\"inputs\":[[\"policy_fingerprint\",\"7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f\"]],\"reason_code\":null,\"rule_code\":\"EFFECTIVE_MARKET_POLICY_RESOLUTION\",\"status\":\"PASSED\"},{\"inputs\":[[\"phase\",\"CONTINUOUS\"]],\"reason_code\":null,\"rule_code\":\"TRADING_PHASE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUSPENSION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"INSTRUMENT_LIFECYCLE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SUPPORTED_ORDER_TYPE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SIDE_POSITION_EFFECT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"BUY_SELL_MINIMUM\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"QUANTITY_INCREMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"ODD_LOT_LIQUIDATION\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_POSITIVE\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PRICE_TICK_ALIGNMENT\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"PREVIOUS_CLOSE_SEMANTICS\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_UPPER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DAILY_LOWER_LIMIT\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MINIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"NOTIONAL_MAXIMUM\",\"status\":\"NOT_APPLICABLE\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"SELLABLE_POSITION\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"AVAILABLE_CASH\",\"status\":\"PASSED\"},{\"inputs\":[],\"reason_code\":null,\"rule_code\":\"DYNAMIC_PRICE_CAGE\",\"status\":\"NOT_APPLICABLE\"}]",
         "instrument_id": "TESTETF.XSHG",
         "limit_rate": null,
         "lower_limit": null,
@@ -8532,7 +8532,7 @@
         "quantity_policy": "{\"buy_quantity_increment\":\"100\",\"minimum_buy_quantity\":\"100\",\"sell_quantity_increment\":\"100\"}",
         "reason": null,
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
-        "rule_set_id": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "rule_type": "OnlyMarketOrderDecision",
         "sequence": 59,
         "side": "SELL",
@@ -8683,9 +8683,9 @@
         "cash_trade_available_on": "2026-01-05",
         "cash_withdrawable_on": "2026-01-05",
         "cluster_id": "macd-demo",
-        "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "gross_notional": "10.00",
-        "instruction_id": "SINS-2405d5828e973f2bd64e11ef8a03978ac3bf6712dd492e56e36008aaf0713882",
+        "instruction_id": "SINS-60f9121e8c7e51d699e196062f6e4f464ca5ba293cd797f2c42332ff816a3f01",
         "instrument_id": "TESTETF.XSHG",
         "legal_settlement_on": "2026-01-05",
         "net_cash_flow": "9.99",
@@ -8711,9 +8711,9 @@
         "cash_trade_available_on": "2026-01-05",
         "cash_withdrawable_on": "2026-01-05",
         "cluster_id": "macd-demo",
-        "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+        "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "gross_notional": "10000.00",
-        "instruction_id": "SINS-6a52058864d45c0ad9708b88caf1f7eb26790dad63761f317407a80dd8ffb1e5",
+        "instruction_id": "SINS-e3f4b22ea332e82bd61fde200294170eea762d453e655d394a9a925e7d485af5",
         "instrument_id": "TESTETF.XSHG",
         "legal_settlement_on": "2026-01-05",
         "net_cash_flow": "-10010.00",
@@ -11140,7 +11140,7 @@
           "precision": 2
         }
       },
-      "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+      "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
       "contract_multiplier": {
         "precision": 0,
         "value": "1"
@@ -11518,7 +11518,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "SINS-6a52058864d45c0ad9708b88caf1f7eb26790dad63761f317407a80dd8ffb1e5",
+      "settlement_instruction_id": "SINS-e3f4b22ea332e82bd61fde200294170eea762d453e655d394a9a925e7d485af5",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "0.00",
@@ -11560,7 +11560,7 @@
       "trade_id": {
         "value": "virtual-trade-00000001"
       },
-      "trade_instruction_id": "TINSTR-ccbeb1a5a3de3f1b2dc3548377c0deedb166b2d2ab9ef2b92452fd186e81c0b6",
+      "trade_instruction_id": "TINSTR-a293bfab19decb933e79c02ee9bc398da44521b21764d9ddf8d62f11351c27f0",
       "trading_day": {
         "value": "2026-01-05"
       },
@@ -11680,7 +11680,7 @@
           "precision": 2
         }
       },
-      "compiled_rule_fingerprint": "051d73c6eb3d0f7da52704c1a581a04a29b86e0a859f8ebbc2ae25622b6a3cd4",
+      "compiled_rule_fingerprint": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
       "contract_multiplier": {
         "precision": 0,
         "value": "1"
@@ -12058,7 +12058,7 @@
           "precision": 2
         }
       },
-      "settlement_instruction_id": "SINS-2405d5828e973f2bd64e11ef8a03978ac3bf6712dd492e56e36008aaf0713882",
+      "settlement_instruction_id": "SINS-60f9121e8c7e51d699e196062f6e4f464ca5ba293cd797f2c42332ff816a3f01",
       "settlement_status": "SETTLED",
       "slippage": {
         "amount": "-0.00",
@@ -12100,7 +12100,7 @@
       "trade_id": {
         "value": "virtual-trade-00000002"
       },
-      "trade_instruction_id": "TINSTR-dd033537f7b76d49fac3f4e7ed1c85c6669bbddeeeffabe6e87cc14926ec7c93",
+      "trade_instruction_id": "TINSTR-b47e7ebcb7242518dd51887c2ad30009c23f3091b6707a002940f620d37c8304",
       "trading_day": {
         "value": "2026-01-05"
       },
