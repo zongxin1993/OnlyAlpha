@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha"
-version = "0.9.6"
+version = "0.9.7"
 description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
@@ -29,6 +29,10 @@ dev = [
     "onlyalpha-plugin-targets",
     "onlyalpha-api",
     "onlyalpha-client",
+    "onlyalpha-gateway-protocol",
+    "grpcio-tools==1.73.1",
+    "types-grpcio==1.0.0.20250703",
+    "types-protobuf==6.30.2.20250809",
     "import-linter>=2.13",
     "hypothesis>=6.165.5",
     "crosshair-tool>=0.0.109",
@@ -53,6 +57,7 @@ members = [
     "packages/target/onlyalpha-plugin-targets",
     "packages/api/onlyalpha-api",
     "packages/client/onlyalpha-client",
+    "packages/protocol/onlyalpha-gateway-protocol",
 ]
 
 [build-system]
@@ -66,6 +71,11 @@ packages = ["src/onlyalpha"]
 line-length = 120
 target-version = "py312"
 indent-width = 4
+extend-exclude = [
+    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.py",
+    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.pyi",
+    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2_grpc.py",
+]
 
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B"]
@@ -83,7 +93,12 @@ files = [
     "packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
     "packages/api/onlyalpha-api/src/onlyalpha_api",
     "packages/client/onlyalpha-client/src/onlyalpha_client",
+    "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
 ]
+
+[[tool.mypy.overrides]]
+module = ["onlyalpha_gateway_protocol.v1.*"]
+ignore_errors = true
 
 [tool.uv.sources]
 onlyalpha-test-plugin = { path = "tests/fixtures/external_plugins/onlyalpha_test_plugin", editable = true }
@@ -92,6 +107,7 @@ onlyalpha-plugin-factors = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-api = { workspace = true }
 onlyalpha-client = { workspace = true }
+onlyalpha-gateway-protocol = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -105,6 +121,7 @@ testpaths = [
     "packages/target/onlyalpha-plugin-targets/tests",
     "packages/api/onlyalpha-api/tests",
     "packages/client/onlyalpha-client/tests",
+    "packages/protocol/onlyalpha-gateway-protocol/tests",
 ]
 markers = [
     "unit: isolated unit test",

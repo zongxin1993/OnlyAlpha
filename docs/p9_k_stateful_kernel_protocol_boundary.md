@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **P9.K.6 External Client Migration — TASK COMPLETE / VERIFIED; P9.K.7 — Remote Protocol Foundation — IMPLEMENTATION READY**
+> Implementation progress: **P9.K.7 Remote Protocol Foundation — TASK COMPLETE / VERIFIED; P9.K.8 — Seal Kernel — IMPLEMENTATION READY**
 >
 > Current implementation progress is a deterministic projection of the repository-root `project-state.toml`; do not maintain a second current-state authority here.
 

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package onlyalpha.gateway.v1;
+
+import "onlyalpha_gateway_protocol/v1/error.proto";
+
+service GatewayStreamService {
+  rpc WatchTestEvents(WatchTestEventsRequest) returns (stream TestStreamItem);
+}
+
+message WatchTestEventsRequest {
+  string gateway_instance_id = 1;
+  string stream_id = 2;
+  uint64 resume_after = 3;
+}
+
+message TestEvent {
+  string stream_id = 1;
+  string gateway_instance_id = 2;
+  uint64 sequence = 3;
+  string event_id = 4;
+  int64 observed_at_unix_nanos = 5;
+  string payload = 6;
+}
+
+message TestStreamItem {
+  oneof item {
+    TestEvent event = 1;
+    GatewayError error = 2;
+  }
+}

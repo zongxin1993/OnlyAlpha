@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package onlyalpha.gateway.v1;
+
+message GatewayIdentity {
+  string gateway_id = 1;
+  string gateway_instance_id = 2;
+}
+
+message RemoteCommandIdentity {
+  string command_id = 1;
+  string command_fingerprint = 2;
+  string correlation_id = 3;
+}

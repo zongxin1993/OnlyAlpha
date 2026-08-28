@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package onlyalpha.gateway.v1;
+
+enum GatewayErrorCode {
+  GATEWAY_ERROR_CODE_UNSPECIFIED = 0;
+  INVALID_REQUEST = 1;
+  PROTOCOL_MISMATCH = 2;
+  UNSUPPORTED_CAPABILITY = 3;
+  NOT_READY = 4;
+  COMMAND_CONFLICT = 5;
+  PROVIDER_UNAVAILABLE = 6;
+  PROVIDER_REJECTED = 7;
+  DEADLINE_EXCEEDED = 8;
+  RESYNC_REQUIRED = 9;
+  INTERNAL_ERROR = 10;
+}
+
+message GatewayError {
+  GatewayErrorCode code = 1;
+  string message = 2;
+  string provider_code = 3;
+  string provider_message = 4;
+}

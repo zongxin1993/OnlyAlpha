@@ -62,6 +62,7 @@ jobs:
       - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+      - run: uv run mypy --config-file packages/protocol/onlyalpha-gateway-protocol/pyproject.toml packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol
       - run: uv run lint-imports
       - run: uv run python scripts/version_sync.py check
 

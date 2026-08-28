@@ -39,6 +39,7 @@ jobs:
       - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
       - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
+      - run: uv run mypy --config-file packages/protocol/onlyalpha-gateway-protocol/pyproject.toml packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol
       - run: uv run lint-imports
       - run: uv run python scripts/version_sync.py check
 
@@ -98,6 +99,44 @@ jobs:
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
       - run: uv run python scripts/openapi_contract.py verify --base "${{ steps.baseline.outputs.sha }}"
       - run: uv run pytest tests/contracts/test_openapi_contract.py -q
+
+  gateway-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --all-packages --all-groups
+      - id: baseline
+        name: Select immutable Gateway compatibility baseline
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            base_sha="$PUSH_BEFORE_SHA"
+            if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+              echo "A master push without a previous revision has no Gateway compatibility baseline" >&2
+              exit 1
+            fi
+          else
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+          case "$base_sha" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+            *) echo "Invalid Gateway compatibility baseline" >&2; exit 1 ;;
+          esac
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+      - run: uv run python scripts/gateway_protocol.py verify --base "${{ steps.baseline.outputs.sha }}"
+      - run: uv run pytest tests/contracts/test_gateway_protocol_contract.py tests/integration/test_remote_gateway_protocol.py -q
 
   pr-lanes:
     if: github.event_name == 'pull_request'

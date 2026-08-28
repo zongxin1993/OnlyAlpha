@@ -21,6 +21,7 @@ WORKSPACE_TESTS = (
     "packages/factor/onlyalpha-plugin-factors/tests",
     "packages/target/onlyalpha-plugin-targets/tests",
     "packages/api/onlyalpha-api/tests",
+    "packages/protocol/onlyalpha-gateway-protocol/tests",
 )
 
 
@@ -377,6 +378,14 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
         "--config-file",
         "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
         "packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt",
+    ),
+    (
+        "uv",
+        "run",
+        "mypy",
+        "--config-file",
+        "packages/protocol/onlyalpha-gateway-protocol/pyproject.toml",
+        "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     ),
     ("uv", "run", "python", "scripts/version_sync.py", "check"),
 )

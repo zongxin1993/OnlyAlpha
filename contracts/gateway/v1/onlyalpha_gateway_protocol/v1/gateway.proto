@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package onlyalpha.gateway.v1;
+
+import "onlyalpha_gateway_protocol/v1/common.proto";
+import "onlyalpha_gateway_protocol/v1/error.proto";
+import "onlyalpha_gateway_protocol/v1/identity.proto";
+
+service GatewayService {
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+  rpc ApplyTestMutation(ApplyTestMutationRequest) returns (ApplyTestMutationResponse);
+}
+
+message HandshakeRequest {
+  uint32 protocol_major = 1;
+  repeated Capability required_capabilities = 2;
+  string correlation_id = 3;
+}
+
+message HandshakeResponse {
+  GatewayIdentity identity = 1;
+  uint32 protocol_major = 2;
+  string contract_sha256 = 3;
+  string implementation_version = 4;
+  repeated Capability capabilities = 5;
+  GatewayError error = 6;
+}
+
+message ApplyTestMutationRequest {
+  RemoteCommandIdentity identity = 1;
+  string payload = 2;
+}
+
+message ApplyTestMutationResponse {
+  string command_id = 1;
+  string outcome_id = 2;
+  uint64 execution_count = 3;
+  bool replayed = 4;
+  GatewayError error = 5;
+}

@@ -11,14 +11,14 @@ milestone = "P9"
 milestone_state = "IN_PROGRESS"
 
 [development]
-last_verified_increment = "P9.K.6"
-last_verified_name = "External Client Migration"
+last_verified_increment = "P9.K.7"
+last_verified_name = "Remote Protocol Foundation"
 last_verified_state = "TASK COMPLETE / VERIFIED"
 active_increment = ""
 active_name = ""
 active_state = ""
-next_authorized_increment = "P9.K.7"
-next_authorized_name = "Remote Protocol Foundation"
+next_authorized_increment = "P9.K.8"
+next_authorized_name = "Seal Kernel"
 next_authorized_state = "IMPLEMENTATION READY"
 p9_1_plus_status = "BLOCKED until P9.K closure"
 

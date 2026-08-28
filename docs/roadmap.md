@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.6 External Client Migration — TASK COMPLETE / VERIFIED
+Current Increment: P9.K.7 Remote Protocol Foundation — TASK COMPLETE / VERIFIED
 P9.K.5 Closure Base SHA: 12cb8dcfa145cdf887d75c7618c9318c086b387d
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
@@ -34,7 +34,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.7 — Remote Protocol Foundation — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.8 — Seal Kernel — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 

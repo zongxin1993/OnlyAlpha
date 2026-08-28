@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package onlyalpha.gateway.v1;
+
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  TEST_UNARY = 1;
+  TEST_STREAM = 2;
+}

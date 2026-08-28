@@ -1,0 +1,25 @@
+[project]
+name = "onlyalpha-gateway-protocol"
+version = "0.9.7"
+description = "Provider-neutral OnlyAlpha remote Gateway protocol bindings"
+requires-python = ">=3.12.0, <3.13.0"
+dependencies = [
+    "grpcio==1.73.1",
+    "protobuf==6.31.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_gateway_protocol"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/onlyalpha_gateway_protocol"]
+
+[[tool.mypy.overrides]]
+module = ["onlyalpha_gateway_protocol.v1.*"]
+ignore_errors = true
