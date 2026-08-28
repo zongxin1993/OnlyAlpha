@@ -50,6 +50,12 @@ _KNOWN_ORDER_TYPES = {
     "LIMIT_MAKER",
 }
 _KNOWN_STP_MODES = {"NONE", "EXPIRE_MAKER", "EXPIRE_TAKER", "EXPIRE_BOTH", "DECREMENT", "TRANSFER"}
+_EXCHANGE_FILTER_CATEGORY = {
+    "EXCHANGE_MAX_NUM_ORDERS": "CAPACITY",
+    "EXCHANGE_MAX_ALGO_ORDERS": "CAPACITY",
+    "EXCHANGE_MAX_NUM_ICEBERG_ORDERS": "CAPACITY",
+    "EXCHANGE_MAX_NUM_ORDER_LISTS": "CAPACITY",
+}
 
 
 def _decimal(value: object, label: str) -> Decimal:
@@ -87,6 +93,8 @@ def only_normalize_binance_spot_reference(
             or not isinstance(item.get("rules"), list)
         ):
             raise OnlyBinanceSchemaError("EXECUTION_RULE_SYMBOL_INVALID")
+        if item["symbol"] in execution_by_symbol:
+            raise OnlyBinanceSchemaError("EXECUTION_RULE_SYMBOL_DUPLICATE")
         execution_by_symbol[item["symbol"]] = item["rules"]
     references = tuple(
         _symbol(item, execution_by_symbol.get(item.get("symbol"), []), observed_at, raw_fingerprints)
@@ -94,7 +102,22 @@ def only_normalize_binance_spot_reference(
     )
     if not references:
         raise OnlyBinanceSchemaError("BINANCE_SPOT_SYMBOLS_EMPTY")
-    return OnlyBinanceSpotReferenceAuthority.create(references)
+    exchange_filters = exchange.get("exchangeFilters")
+    if not isinstance(exchange_filters, list):
+        raise OnlyBinanceSchemaError("EXCHANGE_FILTERS_INVALID")
+    exchange_rules: list[OnlyBinanceSpotRule] = []
+    for item in exchange_filters:
+        if not isinstance(item, dict) or not isinstance(item.get("filterType"), str):
+            raise OnlyBinanceSchemaError("EXCHANGE_FILTER_INVALID")
+        kind = item["filterType"]
+        exchange_rules.append(
+            OnlyBinanceSpotRule(
+                kind,
+                _EXCHANGE_FILTER_CATEGORY.get(kind, "UNKNOWN_CRITICAL"),
+                tuple(sorted((key, _canonical_value(value)) for key, value in item.items() if key != "filterType")),
+            )
+        )
+    return OnlyBinanceSpotReferenceAuthority.create(references, tuple(exchange_rules))
 
 
 def _symbol(
@@ -167,7 +190,7 @@ def _symbol(
     if price is None or lot is None:
         raise OnlyBinanceSchemaError("REQUIRED_STATIC_FILTER_MISSING")
     market_lot = filters.get("MARKET_LOT_SIZE")
-    notional = filters.get("NOTIONAL") or filters.get("MIN_NOTIONAL")
+    minimum_notional, maximum_notional, minimum_applies, maximum_applies, reference_window = _notional_policy(filters)
     permission_sets = raw["permissionSets"]
     if not isinstance(permission_sets, list) or not all(
         isinstance(x, list) and all(isinstance(y, str) for y in x) for x in permission_sets
@@ -219,16 +242,17 @@ def _symbol(
         market_maximum_quantity=None
         if market_lot is None
         else (_decimal(market_lot["maxQty"], "MARKET_MAX_QTY") or None),
-        minimum_notional=None if notional is None else _decimal(notional.get("minNotional"), "MIN_NOTIONAL"),
-        maximum_notional=None
-        if notional is None or "maxNotional" not in notional
-        else (_decimal(notional["maxNotional"], "MAX_NOTIONAL") or None),
+        minimum_notional=minimum_notional,
+        maximum_notional=maximum_notional,
+        minimum_notional_applies_to_market=minimum_applies,
+        maximum_notional_applies_to_market=maximum_applies,
+        notional_reference_window_minutes=reference_window,
         venue_order_types=tuple(sorted(raw["orderTypes"])),
         time_in_force=tuple(item.value for item in map(only_map_time_in_force, ("GTC", "IOC", "FOK"))),
         order_group_capabilities=groups,
         default_stp_mode=raw["defaultSelfTradePreventionMode"],
         allowed_stp_modes=tuple(sorted(stp)),
-        permission_sets=tuple(tuple(sorted(x)) for x in permission_sets),
+        permission_sets=tuple(sorted(tuple(sorted(x)) for x in permission_sets)),
         capabilities=capabilities,
         rules=tuple(sorted(rules)),
         source_raw_fingerprints=tuple(sorted(raw_fingerprints)),
@@ -237,3 +261,50 @@ def _symbol(
         else OnlyBinanceSpotCompatibilityStatus.INCOMPATIBLE,
         observed_at=observed_at,
     )
+
+
+def _notional_policy(
+    filters: dict[str, dict[str, Any]],
+) -> tuple[Decimal, Decimal | None, bool, bool, int]:
+    minimum_filter = filters.get("MIN_NOTIONAL")
+    notional_filter = filters.get("NOTIONAL")
+    if minimum_filter is None and notional_filter is None:
+        raise OnlyBinanceSchemaError("REQUIRED_NOTIONAL_FILTER_MISSING")
+
+    def boolean(raw: dict[str, Any], name: str) -> bool:
+        value = raw.get(name)
+        if not isinstance(value, bool):
+            raise OnlyBinanceSchemaError(f"{name.upper()}_BOOLEAN_REQUIRED")
+        return value
+
+    def integer(raw: dict[str, Any], name: str) -> int:
+        value = raw.get(name)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise OnlyBinanceSchemaError(f"{name.upper()}_NON_NEGATIVE_INTEGER_REQUIRED")
+        return value
+
+    if notional_filter is not None:
+        minimum = _decimal(notional_filter.get("minNotional"), "MIN_NOTIONAL")
+        maximum_value = _decimal(notional_filter.get("maxNotional"), "MAX_NOTIONAL")
+        maximum = maximum_value or None
+        minimum_applies = boolean(notional_filter, "applyMinToMarket")
+        maximum_applies = boolean(notional_filter, "applyMaxToMarket")
+        window = integer(notional_filter, "avgPriceMins")
+    else:
+        if minimum_filter is None:
+            raise AssertionError("notional filter branch must exist")
+        minimum = _decimal(minimum_filter.get("minNotional"), "MIN_NOTIONAL")
+        maximum = None
+        minimum_applies = boolean(minimum_filter, "applyToMarket")
+        maximum_applies = False
+        window = integer(minimum_filter, "avgPriceMins")
+
+    if minimum_filter is not None and notional_filter is not None:
+        legacy = (
+            _decimal(minimum_filter.get("minNotional"), "MIN_NOTIONAL"),
+            boolean(minimum_filter, "applyToMarket"),
+            integer(minimum_filter, "avgPriceMins"),
+        )
+        if legacy != (minimum, minimum_applies, window):
+            raise OnlyBinanceSchemaError("BINANCE_NOTIONAL_FILTER_CONFLICT")
+    return minimum, maximum, minimum_applies, maximum_applies, window

@@ -35,6 +35,10 @@ from onlyalpha.identity import OnlyCanonicalIdentityProvider as OnlyCanonicalIde
 from onlyalpha.identity import only_identity_fingerprint as only_identity_fingerprint
 from onlyalpha.identity import only_identity_json as only_identity_json
 from onlyalpha.identity import only_identity_payload as only_identity_payload
+from onlyalpha.market.models import (
+    OnlyCompiledDynamicPriceRequirement as OnlyCompiledDynamicPriceRequirement,
+)
+from onlyalpha.market.models import OnlyCompiledNotionalPolicy as OnlyCompiledNotionalPolicy
 from onlyalpha.market.models import OnlyCompiledPriceBandPolicy as OnlyCompiledPriceBandPolicy
 from onlyalpha.market.models import OnlyCompiledQuantityPolicy as OnlyCompiledQuantityPolicy
 from onlyalpha.market.models import OnlyMarketPositionMode as OnlyMarketPositionMode

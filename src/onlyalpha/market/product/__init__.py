@@ -1,5 +1,9 @@
 """Public Core contract for Trading Market Product plugins."""
 
+from onlyalpha.market.models import (
+    OnlyCompiledDynamicPriceRequirement as OnlyCompiledDynamicPriceRequirement,
+)
+from onlyalpha.market.models import OnlyCompiledNotionalPolicy as OnlyCompiledNotionalPolicy
 from onlyalpha.market.product.binding import OnlyResolvedMarketProductBinding as OnlyResolvedMarketProductBinding
 from onlyalpha.market.product.config import (
     OnlyCanonicalMarketProductConfig as OnlyCanonicalMarketProductConfig,

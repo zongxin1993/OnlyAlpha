@@ -122,7 +122,7 @@ class OnlyCnAsharePolicyCompiler:
         )
 
     def compile(self, request: OnlyMarketPolicyCompilationRequest) -> OnlyCompiledMarketPolicy:
-        reference = request.reference_authority.resolve(request.instrument_id, request.trading_day)
+        reference = request.reference_authority.resolve(request.instrument_id, request.trading_day, as_of=request.as_of)
         if not isinstance(reference, OnlyCnAshareInstrumentReference):
             raise TypeError("CN_A_SHARE_REFERENCE_TYPE_REQUIRED")
         rate = _PRICE_LIMITS[self.product_version][reference.board, reference.st_status]

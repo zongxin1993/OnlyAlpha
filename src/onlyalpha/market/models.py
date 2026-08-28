@@ -252,6 +252,50 @@ class OnlyCompiledQuantityPolicy:
     odd_lot_liquidation_allowed: bool
     maximum_limit_order_quantity: Decimal | None
     allow_fractional: bool
+    market_minimum_quantity: Decimal | None = None
+    market_quantity_increment: Decimal | None = None
+    market_maximum_quantity: Decimal | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyCompiledNotionalPolicy:
+    minimum_notional: Decimal | None
+    maximum_notional: Decimal | None
+    minimum_applies_to_market: bool
+    maximum_applies_to_market: bool
+    market_reference_window_minutes: int
+
+    def __post_init__(self) -> None:
+        if self.minimum_notional is not None and self.minimum_notional < 0:
+            raise ValueError("minimum notional cannot be negative")
+        if self.maximum_notional is not None and self.maximum_notional <= 0:
+            raise ValueError("maximum notional must be positive")
+        if (
+            self.minimum_notional is not None
+            and self.maximum_notional is not None
+            and self.maximum_notional < self.minimum_notional
+        ):
+            raise ValueError("maximum notional cannot be less than minimum notional")
+        if self.market_reference_window_minutes < 0:
+            raise ValueError("market reference window cannot be negative")
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class OnlyCompiledDynamicPriceRequirement:
+    rule_id: str
+    side_specific: bool
+    reference_kind: str
+    reference_window_minutes: int | None
+    bounds: tuple[tuple[str, Decimal], ...]
+    evaluation_authority: str
+
+    def __post_init__(self) -> None:
+        if not self.rule_id or not self.reference_kind or not self.evaluation_authority:
+            raise ValueError("dynamic price requirement identity cannot be empty")
+        if self.reference_window_minutes is not None and self.reference_window_minutes < 0:
+            raise ValueError("dynamic price reference window cannot be negative")
+        if not self.bounds or any(not name or value <= 0 for name, value in self.bounds):
+            raise ValueError("dynamic price requirement bounds must be positive")
 
 
 @dataclass(frozen=True, slots=True)

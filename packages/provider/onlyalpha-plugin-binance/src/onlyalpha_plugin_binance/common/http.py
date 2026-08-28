@@ -10,11 +10,23 @@ from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
 
 class OnlyBinancePublicHttpClient:
-    def __init__(self, base_url: str, *, timeout_seconds: float = 10.0) -> None:
-        if not base_url.startswith("https://") or timeout_seconds <= 0 or timeout_seconds > 30:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        timeout_seconds: float = 10.0,
+        max_response_bytes: int = 8 * 1024 * 1024,
+    ) -> None:
+        if (
+            not base_url.startswith("https://")
+            or timeout_seconds <= 0
+            or timeout_seconds > 30
+            or max_response_bytes <= 0
+        ):
             raise ValueError("BINANCE_PUBLIC_HTTP_CONFIGURATION_INVALID")
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
+        self._max_response_bytes = max_response_bytes
 
     def get_json(self, path: str, parameters: Mapping[str, str] | None = None) -> bytes:
         query = "" if not parameters else "?" + urlencode(parameters)
@@ -23,7 +35,25 @@ class OnlyBinancePublicHttpClient:
             with urlopen(request, timeout=self._timeout) as response:  # noqa: S310 -- URL is constructor-validated HTTPS
                 if response.status != 200:
                     raise OnlyBinanceError(f"BINANCE_HTTP_STATUS: {response.status}")
-                payload = bytes(response.read())
+                content_type = response.headers.get("Content-Type", "")
+                media_type = content_type.split(";", 1)[0].strip().lower()
+                if media_type != "application/json" and not (
+                    media_type.startswith("application/") and media_type.endswith("+json")
+                ):
+                    raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_MEDIA_TYPE_INVALID")
+                content_length = response.headers.get("Content-Length")
+                if content_length is not None:
+                    try:
+                        declared_length = int(content_length)
+                    except ValueError as exc:
+                        raise OnlyBinanceError("BINANCE_PUBLIC_CONTENT_LENGTH_INVALID") from exc
+                    if declared_length < 0:
+                        raise OnlyBinanceError("BINANCE_PUBLIC_CONTENT_LENGTH_INVALID")
+                    if declared_length > self._max_response_bytes:
+                        raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_TOO_LARGE")
+                payload = bytes(response.read(self._max_response_bytes + 1))
+                if len(payload) > self._max_response_bytes:
+                    raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_TOO_LARGE")
         except (HTTPError, URLError, TimeoutError) as exc:
             raise OnlyBinanceError(f"BINANCE_PUBLIC_REQUEST_FAILED: {type(exc).__name__}") from exc
         try:

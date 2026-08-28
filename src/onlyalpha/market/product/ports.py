@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol, Self
@@ -12,6 +13,8 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
 from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha.market.models import (
+    OnlyCompiledDynamicPriceRequirement,
+    OnlyCompiledNotionalPolicy,
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
     OnlyMarginModel,
@@ -87,6 +90,8 @@ class OnlyCompiledMarketPolicy:
     short_policy: OnlyShortSellingRule
     settlement_policy: OnlySettlementModel
     margin_policy: OnlyMarginModel | None
+    notional_policy: OnlyCompiledNotionalPolicy | None
+    dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...]
 
     @classmethod
     def create(
@@ -104,6 +109,8 @@ class OnlyCompiledMarketPolicy:
         short_policy: OnlyShortSellingRule,
         settlement_policy: OnlySettlementModel,
         margin_policy: OnlyMarginModel | None,
+        notional_policy: OnlyCompiledNotionalPolicy | None = None,
+        dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...] = (),
     ) -> Self:
         policies = (
             instrument_terms,
@@ -114,6 +121,8 @@ class OnlyCompiledMarketPolicy:
             short_policy,
             settlement_policy,
             margin_policy,
+            notional_policy,
+            dynamic_price_requirements,
         )
         identity = OnlyCompiledMarketPolicyIdentity(
             instrument_id,
@@ -132,6 +141,8 @@ class OnlyCompiledMarketPolicy:
             short_policy,
             settlement_policy,
             margin_policy,
+            notional_policy,
+            dynamic_price_requirements,
         )
 
     def __post_init__(self) -> None:
@@ -145,6 +156,8 @@ class OnlyCompiledMarketPolicy:
                 self.short_policy,
                 self.settlement_policy,
                 self.margin_policy,
+                self.notional_policy,
+                self.dynamic_price_requirements,
             )
         )
         if self.identity.policy_fingerprint != expected:
@@ -160,6 +173,8 @@ class OnlyCompiledMarketPolicy:
             self.short_policy,
             self.settlement_policy,
             self.margin_policy,
+            self.notional_policy,
+            self.dynamic_price_requirements,
         )
 
 
@@ -174,7 +189,13 @@ class OnlyMarketReferenceAuthority(Protocol):
     @property
     def identity(self) -> OnlyMarketProductAuthorityIdentity: ...
 
-    def resolve(self, instrument_id: OnlyInstrumentId, trading_day: OnlyTradingDay) -> OnlyMarketPolicyReference: ...
+    def resolve(
+        self,
+        instrument_id: OnlyInstrumentId,
+        trading_day: OnlyTradingDay,
+        *,
+        as_of: datetime | None = None,
+    ) -> OnlyMarketPolicyReference: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +203,13 @@ class OnlyMarketPolicyCompilationRequest:
     instrument_id: OnlyInstrumentId
     trading_day: OnlyTradingDay
     reference_authority: OnlyMarketReferenceAuthority
+    as_of: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.as_of is not None:
+            if self.as_of.tzinfo is None or self.as_of.utcoffset() is None:
+                raise ValueError("MARKET_POLICY_AS_OF_UTC_REQUIRED")
+            object.__setattr__(self, "as_of", self.as_of.astimezone(UTC))
 
 
 class OnlyMarketPolicyCompiler(Protocol):
@@ -202,6 +230,8 @@ def _policy_identity_payload(
     short_policy: OnlyShortSellingRule,
     settlement_policy: OnlySettlementModel,
     margin_policy: OnlyMarginModel | None,
+    notional_policy: OnlyCompiledNotionalPolicy | None,
+    dynamic_price_requirements: tuple[OnlyCompiledDynamicPriceRequirement, ...],
 ) -> tuple[object, ...]:
     sessions = tuple(
         (
@@ -243,6 +273,9 @@ def _policy_identity_payload(
             quantity_policy.odd_lot_liquidation_allowed,
             quantity_policy.maximum_limit_order_quantity,
             quantity_policy.allow_fractional,
+            quantity_policy.market_minimum_quantity,
+            quantity_policy.market_quantity_increment,
+            quantity_policy.market_maximum_quantity,
         ),
         (position_policy.mode, position_policy.allow_flip),
         (short_policy.mode,),
@@ -254,6 +287,28 @@ def _policy_identity_payload(
             (settlement_policy.cash_availability.timing, settlement_policy.cash_availability.lag),
         ),
         margin,
+        (
+            None
+            if notional_policy is None
+            else (
+                notional_policy.minimum_notional,
+                notional_policy.maximum_notional,
+                notional_policy.minimum_applies_to_market,
+                notional_policy.maximum_applies_to_market,
+                notional_policy.market_reference_window_minutes,
+            )
+        ),
+        tuple(
+            (
+                item.rule_id,
+                item.side_specific,
+                item.reference_kind,
+                item.reference_window_minutes,
+                item.bounds,
+                item.evaluation_authority,
+            )
+            for item in dynamic_price_requirements
+        ),
     )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from onlyalpha.plugin.api import (
@@ -216,6 +216,8 @@ class OnlyGenericT0CashReferenceAuthority:
         self,
         instrument_id: OnlyInstrumentId,
         trading_day: OnlyTradingDay,
+        *,
+        as_of: datetime | None = None,
     ) -> OnlyGenericT0CashReference:
         matches = tuple(
             item
