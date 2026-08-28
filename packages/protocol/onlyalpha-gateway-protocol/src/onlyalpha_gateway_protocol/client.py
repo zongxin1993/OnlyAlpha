@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -103,6 +104,8 @@ class OnlyGatewayClient:
     ) -> OnlyGatewayHandshake:
         if self._state is not OnlyGatewayConnectionState.DISCONNECTED:
             raise OnlyGatewayProtocolError(f"cannot connect from {self._state}")
+        if not correlation_id:
+            raise OnlyGatewayProtocolError("handshake correlation_id must not be empty")
         self._state = OnlyGatewayConnectionState.CONNECTING
         channel = grpc.insecure_channel(self._target)
         self._channel = channel
@@ -139,6 +142,12 @@ class OnlyGatewayClient:
         if not identity.gateway_id or not identity.gateway_instance_id:
             self.close()
             raise OnlyGatewayProtocolError("Gateway returned an incomplete identity")
+        if re.fullmatch(r"[0-9a-f]{64}", response.contract_sha256) is None:
+            self.close()
+            raise OnlyGatewayProtocolError("Gateway returned an invalid contract descriptor identity")
+        if not response.implementation_version.strip():
+            self.close()
+            raise OnlyGatewayProtocolError("Gateway returned an empty implementation version")
         self._handshake = OnlyGatewayHandshake(
             gateway_id=identity.gateway_id,
             gateway_instance_id=identity.gateway_instance_id,

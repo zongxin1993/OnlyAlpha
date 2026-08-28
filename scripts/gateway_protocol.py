@@ -188,8 +188,26 @@ def _walk_messages(
     return result
 
 
+def _walk_enums(file: descriptor_pb2.FileDescriptorProto) -> dict[str, descriptor_pb2.EnumDescriptorProto]:
+    result = {f"{file.package}.{enum.name}": enum for enum in file.enum_type}
+
+    def visit_message(prefix: str, message: descriptor_pb2.DescriptorProto) -> None:
+        name = f"{prefix}.{message.name}"
+        result.update({f"{name}.{enum.name}": enum for enum in message.enum_type})
+        for nested in message.nested_type:
+            visit_message(name, nested)
+
+    for message in file.message_type:
+        visit_message(file.package, message)
+    return result
+
+
 def _reserved_numbers(message: descriptor_pb2.DescriptorProto) -> set[int]:
     return {number for item in message.reserved_range for number in range(item.start, item.end)}
+
+
+def _reserved_enum_numbers(enum: descriptor_pb2.EnumDescriptorProto) -> set[int]:
+    return {number for item in enum.reserved_range for number in range(item.start, item.end + 1)}
 
 
 def compatibility_errors(
@@ -235,6 +253,38 @@ def compatibility_errors(
                 errors.append(f"reserved field name reused: {name}.{field.name}")
             if field.number in old_reserved_numbers:
                 errors.append(f"reserved field number reused: {name}.{field.number}")
+
+    old_enums = {name: enum for item in baseline.file for name, enum in _walk_enums(item).items()}
+    new_enums = {name: enum for item in candidate.file for name, enum in _walk_enums(item).items()}
+    for name, old in sorted(old_enums.items()):
+        current = new_enums.get(name)
+        if current is None:
+            errors.append(f"enum removed: {name}")
+            continue
+        current_by_name = {value.name: value for value in current.value}
+        current_by_number: dict[int, list[str]] = {}
+        for value in current.value:
+            current_by_number.setdefault(value.number, []).append(value.name)
+        for value in old.value:
+            replacement = current_by_name.get(value.name)
+            if replacement is None:
+                reused = current_by_number.get(value.number)
+                if reused is None:
+                    errors.append(f"enum value removed: {name}.{value.name} ({value.number})")
+                else:
+                    errors.append(
+                        f"enum value number reused: {name}.{value.name} ({value.number}) -> {sorted(reused)!r}"
+                    )
+                continue
+            if replacement.number != value.number:
+                errors.append(f"enum value number changed: {name}.{value.name} {value.number} -> {replacement.number}")
+        old_reserved_names = set(old.reserved_name)
+        old_reserved_numbers = _reserved_enum_numbers(old)
+        for value in current.value:
+            if value.name in old_reserved_names:
+                errors.append(f"reserved enum value name reused: {name}.{value.name}")
+            if value.number in old_reserved_numbers:
+                errors.append(f"reserved enum value number reused: {name}.{value.number}")
 
     for file_name, old_file in sorted(old_files.items()):
         current_file = new_files.get(file_name)

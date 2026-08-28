@@ -40,6 +40,8 @@ class _TestGateway(gateway_pb2_grpc.GatewayServiceServicer, stream_pb2_grpc.Gate
         history_limit: int,
         response_loss_command_id: str | None,
         stream_error: int | None,
+        omit_contract_identity: bool,
+        omit_implementation_version: bool,
     ) -> None:
         self.gateway_id = gateway_id
         self.gateway_instance_id = str(uuid.uuid4())
@@ -51,7 +53,8 @@ class _TestGateway(gateway_pb2_grpc.GatewayServiceServicer, stream_pb2_grpc.Gate
         self._receipts: dict[str, _Receipt] = {}
         self._lock = threading.Lock()
         descriptor = files("onlyalpha_gateway_protocol.v1").joinpath("descriptor.pb").read_bytes()
-        self.contract_sha256 = hashlib.sha256(descriptor).hexdigest()
+        self.contract_sha256 = "" if omit_contract_identity else hashlib.sha256(descriptor).hexdigest()
+        self.implementation_version = "" if omit_implementation_version else "K7_TEST_FIXTURE_V1"
 
     def Handshake(
         self,
@@ -78,7 +81,7 @@ class _TestGateway(gateway_pb2_grpc.GatewayServiceServicer, stream_pb2_grpc.Gate
             ),
             protocol_major=PROTOCOL_MAJOR,
             contract_sha256=self.contract_sha256,
-            implementation_version="K7_TEST_FIXTURE_V1",
+            implementation_version=self.implementation_version,
             capabilities=sorted(self.capabilities),
             error=error,
         )
@@ -202,6 +205,8 @@ def main() -> int:
     parser.add_argument("--history-limit", type=int, default=16)
     parser.add_argument("--response-loss-command-id")
     parser.add_argument("--stream-error", type=_stream_error)
+    parser.add_argument("--omit-contract-identity", action="store_true")
+    parser.add_argument("--omit-implementation-version", action="store_true")
     args = parser.parse_args()
     if args.history_limit <= 0:
         parser.error("--history-limit must be positive")
@@ -212,6 +217,8 @@ def main() -> int:
         history_limit=args.history_limit,
         response_loss_command_id=args.response_loss_command_id,
         stream_error=args.stream_error,
+        omit_contract_identity=args.omit_contract_identity,
+        omit_implementation_version=args.omit_implementation_version,
     )
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     gateway_pb2_grpc.add_GatewayServiceServicer_to_server(gateway, server)

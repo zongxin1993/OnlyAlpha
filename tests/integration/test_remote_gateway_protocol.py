@@ -13,6 +13,7 @@ from onlyalpha_gateway_protocol import (
     OnlyGatewayApplicationError,
     OnlyGatewayClient,
     OnlyGatewayConnectionState,
+    OnlyGatewayProtocolError,
     OnlyGatewayResyncRequired,
     OnlyGatewayTransportError,
 )
@@ -73,8 +74,17 @@ def test_handshake_proves_identity_instance_protocol_and_capabilities() -> None:
         assert handshake.gateway_instance_id == gateway.gateway_instance_id
         assert handshake.protocol_major == 1
         assert handshake.contract_sha256 == "5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e"
+        assert handshake.implementation_version == "K7_TEST_FIXTURE_V1"
         assert handshake.capabilities == frozenset((common_pb2.TEST_UNARY, common_pb2.TEST_STREAM))
         assert client.state is OnlyGatewayConnectionState.READY
+
+
+@pytest.mark.integration
+def test_empty_handshake_correlation_identity_fails_before_transport() -> None:
+    client = OnlyGatewayClient("127.0.0.1:1")
+    with pytest.raises(OnlyGatewayProtocolError, match="correlation_id must not be empty"):
+        client.connect(required_capabilities=(), correlation_id="")
+    assert client.state is OnlyGatewayConnectionState.DISCONNECTED
 
 
 @pytest.mark.integration
@@ -94,6 +104,22 @@ def test_missing_required_capability_fails_closed_without_side_effect() -> None:
         with pytest.raises(OnlyGatewayApplicationError) as captured:
             client.connect(required_capabilities=(common_pb2.TEST_UNARY,), correlation_id="capability")
         assert captured.value.code == error_pb2.UNSUPPORTED_CAPABILITY
+        assert client.state is OnlyGatewayConnectionState.DISCONNECTED
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("server_argument", "message"),
+    (
+        ("--omit-contract-identity", "invalid contract descriptor identity"),
+        ("--omit-implementation-version", "empty implementation version"),
+    ),
+)
+def test_missing_handshake_evidence_fails_closed_before_ready(server_argument: str, message: str) -> None:
+    with _gateway(server_argument) as gateway:
+        client = OnlyGatewayClient(gateway.target)
+        with pytest.raises(OnlyGatewayProtocolError, match=message):
+            client.connect(required_capabilities=(), correlation_id="handshake-evidence")
         assert client.state is OnlyGatewayConnectionState.DISCONNECTED
 
 

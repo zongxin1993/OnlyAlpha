@@ -37,7 +37,8 @@ package onlyalpha.gateway.v1;
 
 Generated Python messages/stubs and `descriptor.pb` in `onlyalpha-gateway-protocol` are deterministic projections, not another contract.
 The descriptor SHA256 is diagnostic/deployment evidence only. Within v1, existing field number/type/removal or reserved reuse, RPC
-removal/signature changes, and package-major drift fail closed. Breaking semantics require a new `v2` namespace.
+removal/signature changes, enum removal/value renumbering/reserved reuse, and package-major drift fail closed. Breaking semantics require
+a new `v2` namespace.
 
 Generation is pinned to:
 
@@ -88,8 +89,10 @@ TEST_UNARY
 TEST_STREAM
 ```
 
-Protocol mismatch or an absent required capability fails before `READY`. A new `gateway_instance_id` means the process restarted and
-invalidates prior capability/session/stream assumptions even when TCP reconnect succeeds.
+Protocol mismatch or an absent required capability fails before `READY`. Missing identities, a malformed descriptor SHA256, or an empty
+implementation version also fail closed before `READY`; the descriptor hash remains diagnostic rather than a second compatibility
+authority. A new `gateway_instance_id` means the process restarted and invalidates prior capability/session/stream assumptions even when
+TCP reconnect succeeds.
 
 The infrastructure connection lifecycle is:
 

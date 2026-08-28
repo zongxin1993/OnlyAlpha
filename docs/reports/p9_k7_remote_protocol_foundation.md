@@ -468,3 +468,91 @@ P9.K.7 = TASK COMPLETE / VERIFIED
 P9.K.8 = MAY START / IMPLEMENTATION READY
 P9.1+  = remains blocked until P9.K closure
 ```
+
+## Current-HEAD Prompt Re-execution Closure
+
+- Date: 2026-08-28
+- Task/Audit Base SHA: `4b8d2ef08b996cdecf724d19dfd26e822c04b6e5`
+- Audit Head: `4b8d2ef08b996cdecf724d19dfd26e822c04b6e5 + dirty K7 closure worktree`
+- Scope: P9.K.7 Task Gate only; no Phase Gate or Final-SHA Certification claim
+
+Re-executing the complete K7 prompt against current source found two previously hidden contract-proof gaps. They were not visible in the
+prior closure because compatibility tests covered fields/RPCs but not enums, and handshake integration covered valid evidence but did not
+inject missing descriptor/implementation evidence.
+
+```text
+F-K7-R1  PREVIOUSLY_HIDDEN / RESOLVED
+verify --base did not compare enum removal, value renumbering, or reserved value reuse.
+The repository-owned compatibility authority now rejects those breaking v1 changes, including nested enums.
+
+F-K7-R2  PREVIOUSLY_HIDDEN / RESOLVED
+the client could enter READY with missing/invalid descriptor identity or an empty implementation version.
+Handshake now validates correlation identity and fails closed on malformed/missing diagnostic evidence.
+```
+
+Canonical `.proto` bytes, generated projections, descriptor identity, protocol major, Product OpenAPI, protected P9 semantics, database
+schema, and provider scope are unchanged.
+
+### Current verification evidence
+
+Local PASS:
+
+```text
+Gateway generation freshness:                         PASS
+Gateway compatibility vs immutable current base:      PASS
+Gateway contract + fingerprint tests:                  11 passed
+K7 architecture + historical task-delta tests:         9 passed
+remote Gateway cross-process integration:             15 passed
+canonical Architecture lane:                         498 passed
+protocol-package strict mypy:                          PASS; 15 source files
+impact-budget local static checks:                     PASS; 10/10
+repository Ruff check / format:                        PASS
+Import Linter:                                         PASS; 3 kept, 0 broken
+version graph / project-state consistency:             PASS; 0.9.7 / K7 VERIFIED
+all-package source/wheel build:                        PASS
+```
+
+Budgeted impact-aware verification returned exit code `3` (`LOCAL_PASS_CI_REQUIRED`) because unknown/shared verification paths preserve
+the broad required plan. Manifest:
+
+```text
+test-results/verification/local-budget/20260828T051829Z-4b8d2ef08b99-12626/manifest.json
+```
+
+The 31 deferred Web, Kernel, Strategy, Research, Core, Recovery, A-share, MiniQMT, version, and build commands remain `CI REQUIRED` in
+that manifest. The directly applicable version check and all-package build were executed separately and passed; this does not rewrite the
+remaining deferred commands as PASS.
+
+### Current invariant matrix and verdict
+
+| Invariant | Status | Evidence |
+|---|---|---|
+| canonical protocol and provider-neutral v1 namespace | PASS | unchanged exact Proto set; freshness/architecture gates |
+| deterministic generation and descriptor identity | PASS | `check` and immutable-base `verify`; descriptor unchanged |
+| v1 compatibility fail-closed | PASS | fields/RPCs/package plus enum removal/renumber/reserved-reuse tests |
+| explicit handshake identity/evidence | PASS | valid cross-process handshake plus missing-evidence rejection |
+| command uniqueness and retry convergence | PASS | replay/conflict/response-loss tests unchanged and passing |
+| transport vs application error separation | PASS | typed transport/application/resync integration tests |
+| stream ordering/resume/restart | PASS | sequence/duplicate/gap/exact-resume/bounded-history/restart tests |
+| architecture dependency direction | PASS | canonical Architecture 498 passed; Import Linter kept |
+| Product/Strategy/Research/persistence authority preservation | PASS | historical task-delta and reverse audit |
+| fail-closed known failure state | PASS | incompatibility and incomplete handshake evidence reject explicitly |
+
+```text
+BLOCKER:    0
+MAJOR:      0
+MINOR:      0
+SUGGESTION: 0
+
+Task Gate verdict: GO
+
+设计是否被正确实现？ YES
+是否违反唯一性？     NO
+是否违反确定性？     NO
+是否违反 ADR/架构？  NO
+是否可进入下一阶段？ GO
+
+P9.K.7 = TASK COMPLETE / VERIFIED
+P9.K.8 = MAY START / IMPLEMENTATION READY
+P9.1+  = remains blocked until P9.K closure
+```

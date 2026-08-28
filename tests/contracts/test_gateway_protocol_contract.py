@@ -76,6 +76,44 @@ def test_reserved_field_number_and_name_reuse_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.contract
+def test_existing_enum_value_removal_and_number_change_fail(tmp_path: Path) -> None:
+    baseline = _compile(
+        tmp_path,
+        "old",
+        _contract("enum Result { RESULT_UNSPECIFIED = 0; ACCEPTED = 1; REJECTED = 2; }"),
+    )
+    removed = _compile(
+        tmp_path,
+        "removed",
+        _contract("enum Result { RESULT_UNSPECIFIED = 0; ACCEPTED = 1; }"),
+    )
+    renumbered = _compile(
+        tmp_path,
+        "renumbered",
+        _contract("enum Result { RESULT_UNSPECIFIED = 0; ACCEPTED = 2; REJECTED = 1; }"),
+    )
+    assert "enum value removed" in "\n".join(gateway_protocol.compatibility_errors(baseline, removed))
+    assert "enum value number changed" in "\n".join(gateway_protocol.compatibility_errors(baseline, renumbered))
+
+
+@pytest.mark.contract
+def test_reserved_enum_value_number_and_name_reuse_fails(tmp_path: Path) -> None:
+    baseline = _compile(
+        tmp_path,
+        "old",
+        _contract('enum Result { reserved 2; reserved "RETIRED"; RESULT_UNSPECIFIED = 0; ACCEPTED = 1; }'),
+    )
+    candidate = _compile(
+        tmp_path,
+        "new",
+        _contract("enum Result { RESULT_UNSPECIFIED = 0; ACCEPTED = 1; RETIRED = 2; }"),
+    )
+    errors = "\n".join(gateway_protocol.compatibility_errors(baseline, candidate))
+    assert "reserved enum value name reused" in errors
+    assert "reserved enum value number reused" in errors
+
+
+@pytest.mark.contract
 def test_rpc_removal_fails(tmp_path: Path) -> None:
     body = "message Request {} message Response {}"
     baseline = _compile(
