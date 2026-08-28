@@ -7,10 +7,10 @@
 - Migration: `0012_product_command_receipt`
 - API compatibility baseline: `d9713159eeb2e3dcc294d1dbd456e7332ef2cbac`
 - Release version: `0.9.5`
-- Current status: `IMPLEMENTED / LOCAL PASS / CI REQUIRED`
+- Current status: `TASK COMPLETE / VERIFIED — HIGHER-LEVEL COVERAGE AND DEFERRED CI EVIDENCE OPEN`
 
-This report records implementation evidence only. It does not claim `DONE / VERIFIED`, Final-SHA Certification, or permission to enter
-K6 while the real PostgreSQL and deferred impact evidence remain open.
+The original sections below preserve the 2026-08-27 implementation evidence and its then-current classification. The Closure audit at
+the end records the current Task-Gate verdict. It does not claim Final-SHA Certification or that deferred CI evidence passed.
 
 ## Authority map
 
@@ -136,5 +136,89 @@ CI REQUIRED.
 
 ## Remaining status
 
-No K6/K7/K8 work was introduced. The implementation is ready for the deferred CI proof and exact implementation SHA convergent audit;
-it is not yet eligible for `P9.K.5 DONE / VERIFIED`.
+This was the pre-Closure implementation status on 2026-08-27. No K6/K7/K8 work was introduced, and the listed deferred evidence was not
+fabricated as PASS.
+
+## 2026-08-28 Closure — Functional Correctness / Coverage Evidence Separation
+
+- Closure base SHA: `12cb8dcfa145cdf887d75c7618c9318c086b387d`
+- Audit head SHA: `12cb8dcfa145cdf887d75c7618c9318c086b387d` plus the recorded dirty Closure worktree
+- Closure implementation: `WORKTREE — NOT YET IMMUTABLE`
+- Audit scope: `P9.K.5 Closure Task Gate`
+- Release version: `0.9.5` (version graph PASS)
+
+### Previous findings status
+
+| Finding | Status | Closure |
+|---|---|---|
+| F-K5-001 — coverage / Layered Quality failure | PARTIALLY_RESOLVED | Historical coverage shortfall remains open and is not claimed as PASS. Its classification as a K5 Task correctness blocker is resolved: coverage blocks only a Gate where that threshold is mandatory. |
+| F-K5-002 — authority acquired after entering RECOVERING | RESOLVED | `OnlyAlphaKernelHost.start()` now acquires the guard after verifiers while state remains `VERIFYING`, then transitions to `RECOVERING`. Deterministic tests prove ordering and zero recovery work on acquisition failure. |
+
+### Functional correctness evidence
+
+```text
+targeted Host/lifecycle/K5 architecture: 29 passed — LOCAL PASS
+kernel canonical functional lane:         45 passed — LOCAL PASS
+research-command functional lane:         54 passed — LOCAL PASS
+```
+
+`research-product-closure` was attempted without coverage. Eight environment-independent tests passed; eleven PostgreSQL-backed tests
+were `NOT EXECUTED` because `ONLYALPHA_TEST_POSTGRES_DSN` was unavailable. The PostgreSQL adapter, migration and transaction paths were not
+modified by this Closure, so the missing environment is not reclassified as a K5 lifecycle functional failure and is not reported as
+PASS.
+
+### Static and impact-aware evidence
+
+```text
+changed Python Ruff / format:              LOCAL PASS
+Core mypy:                                 LOCAL PASS — 619 source files
+version graph 0.9.5:                       LOCAL PASS
+budgeted local verification static checks: 10 LOCAL PASS
+budgeted local verification result:        CI REQUIRED — exit code 3 semantics
+```
+
+Impact manifest:
+`test-results/verification/local-budget/20260828T000811Z-12cb8dcfa145-58427/manifest.json`.
+The fail-closed unknown-path plan retained 30 broad commands under `deferred_to_ci`; none is reported as PASS. Directly applicable K5
+functional evidence was executed separately above.
+
+### Coverage evidence
+
+No coverage command was run for this Closure. The historical Research Command / Research PostgreSQL coverage shortfall remains
+`OPEN` for a Phase/Certification Gate that mandates it. Passing functional assertions remain `PASS`; coverage does not retroactively
+rewrite them as functional failure. Remote exact-SHA Certification is `NOT EXECUTED / NOT CLAIMED`.
+
+### Closure invariant matrix
+
+| Invariant | Status | Evidence |
+|---|---|---|
+| authority acquired after verification and before RECOVERING | PASS | temporal Host regression test observes `acquire` in `VERIFYING` |
+| RECOVERING implies guard held | PASS | recoverer observes `RECOVERING` and held guard |
+| acquisition failure executes no recovery and reaches FAILED | PASS | zero recoverer calls; `RECOVERING / mutation-authority-acquire` failure evidence |
+| recovery failure releases authority | PASS | existing Kernel functional regression |
+| draining retains authority until drainers finish | PASS | drainer and release observations both occur in `DRAINING`, held before release |
+| Kernel remains infrastructure-neutral | PASS | targeted K5 architecture test and kernel lane |
+| Product Command / ResearchRun / Worker / Strategy authorities unchanged | PASS | no production change outside Kernel lifecycle; research-command lane PASS |
+| uniqueness chain unchanged | PASS | no command identity, Receipt, persistence constraint or semantic identity change |
+| deterministic recovery traversal unchanged | PASS | no inventory/reconciler change; K5 architecture evidence PASS |
+| public API / schema unchanged | PASS | no API DTO, OpenAPI, migration or persistence adapter change |
+| higher-level coverage threshold | NOT_VERIFIED | not executed; historical shortfall remains open |
+| exact-SHA Certification | NOT_VERIFIED | not executed and not claimed |
+
+### Focused convergent audit verdict
+
+```text
+BLOCKER:   0
+MAJOR:     0
+MINOR:     0
+SUGGESTION: 0
+
+GO — P9.K.6 may begin.
+```
+
+No new findings were identified. There is no non-blocking implementation debt introduced by this Closure; the historical higher-level
+coverage evidence and the broad budget-deferred CI plan remain explicitly tracked as open evidence, not defects in the exercised K5
+behavior. No K6/K7/K8 functionality, PostgreSQL adapter/migration, Product Command identity, Strategy identity, Research Worker protocol,
+public API, coverage threshold, lane, workflow or version change was introduced.
+
+This is a Task-Gate review verdict, not a fourth Gate and not Final-SHA `ACCEPTED`.

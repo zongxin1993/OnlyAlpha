@@ -65,12 +65,17 @@ _LEGAL_TRANSITIONS: dict[OnlyKernelState, frozenset[OnlyKernelState]] = {
     OnlyKernelState.STOPPED: frozenset(),
     OnlyKernelState.FAILED: frozenset(),
 }
-_FAILURE_PHASE_BY_STATE = {
-    OnlyKernelState.BOOTING: OnlyKernelFailurePhase.BOOTING,
-    OnlyKernelState.VERIFYING: OnlyKernelFailurePhase.VERIFYING,
-    OnlyKernelState.RECOVERING: OnlyKernelFailurePhase.RECOVERING,
-    OnlyKernelState.READY: OnlyKernelFailurePhase.READY,
-    OnlyKernelState.DRAINING: OnlyKernelFailurePhase.DRAINING,
+_FAILURE_PHASES_BY_STATE = {
+    OnlyKernelState.BOOTING: frozenset({OnlyKernelFailurePhase.BOOTING}),
+    OnlyKernelState.VERIFYING: frozenset(
+        {
+            OnlyKernelFailurePhase.VERIFYING,
+            OnlyKernelFailurePhase.RECOVERING,
+        }
+    ),
+    OnlyKernelState.RECOVERING: frozenset({OnlyKernelFailurePhase.RECOVERING}),
+    OnlyKernelState.READY: frozenset({OnlyKernelFailurePhase.READY}),
+    OnlyKernelState.DRAINING: frozenset({OnlyKernelFailurePhase.DRAINING}),
 }
 
 
@@ -113,8 +118,8 @@ class OnlyKernelLifecycle:
             raise TypeError("Kernel lifecycle failure must be OnlyKernelFailure")
         with self._lock:
             current = self._state
-            expected_phase = _FAILURE_PHASE_BY_STATE.get(current)
-            if expected_phase is None or failure.phase is not expected_phase:
+            expected_phases = _FAILURE_PHASES_BY_STATE.get(current, frozenset())
+            if failure.phase not in expected_phases:
                 raise OnlyKernelLifecycleError(
                     f"Illegal Product Kernel failure transition: {current} -> {OnlyKernelState.FAILED}"
                 )

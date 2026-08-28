@@ -66,14 +66,25 @@ def test_successful_startup_uses_exact_explicit_order() -> None:
     host.assert_mutation_ready()
 
 
-def test_authority_guard_is_acquired_before_recovery_checked_for_mutation_and_released_last() -> None:
-    guard = _Guard()
-    observations: list[tuple[OnlyKernelState, bool]] = []
+def test_authority_is_acquired_before_entering_recovering_and_released_after_draining() -> None:
+    observations: list[tuple[str, OnlyKernelState, bool]] = []
     host: OnlyAlphaKernelHost
+
+    class _ObservedGuard(_Guard):
+        def acquire(self) -> None:
+            observations.append(("acquire", host.state, self.held))
+            super().acquire()
+
+        def release(self) -> None:
+            observations.append(("release", host.state, self.held))
+            super().release()
+
+    guard = _ObservedGuard()
     host = OnlyAlphaKernelHost(
         authority_guard=guard,
-        recoverers=(_step("recover", lambda: observations.append((host.state, guard.held))),),
-        drainers=(_step("drain", lambda: observations.append((host.state, guard.held))),),
+        verifiers=(_step("verify", lambda: observations.append(("verify", host.state, guard.held))),),
+        recoverers=(_step("recover", lambda: observations.append(("recover", host.state, guard.held))),),
+        drainers=(_step("drain", lambda: observations.append(("drain", host.state, guard.held))),),
     )
 
     host.start()
@@ -81,26 +92,44 @@ def test_authority_guard_is_acquired_before_recovery_checked_for_mutation_and_re
     host.stop()
 
     assert observations == [
-        (OnlyKernelState.RECOVERING, True),
-        (OnlyKernelState.DRAINING, True),
+        ("verify", OnlyKernelState.VERIFYING, False),
+        ("acquire", OnlyKernelState.VERIFYING, False),
+        ("recover", OnlyKernelState.RECOVERING, True),
+        ("drain", OnlyKernelState.DRAINING, True),
+        ("release", OnlyKernelState.DRAINING, True),
     ]
     assert guard.calls == ["acquire", "assert", "release"]
     assert not guard.held
 
 
 def test_authority_guard_acquisition_failure_closes_recovering_and_releases() -> None:
+    acquire_states: list[OnlyKernelState] = []
+    host: OnlyAlphaKernelHost
+
     class _UnavailableGuard(_Guard):
         def acquire(self) -> None:
+            acquire_states.append(host.state)
             self.calls.append("acquire")
             raise RuntimeError("held elsewhere")
 
     guard = _UnavailableGuard()
-    host = OnlyAlphaKernelHost(authority_guard=guard)
+    recoverer_calls = 0
+
+    def recover() -> None:
+        nonlocal recoverer_calls
+        recoverer_calls += 1
+
+    host = OnlyAlphaKernelHost(
+        authority_guard=guard,
+        recoverers=(_step("recover", recover),),
+    )
     with pytest.raises(OnlyKernelHostError) as error:
         host.start()
     assert error.value.failure.phase is OnlyKernelFailurePhase.RECOVERING
     assert error.value.failure.step == "mutation-authority-acquire"
     assert host.state is OnlyKernelState.FAILED
+    assert acquire_states == [OnlyKernelState.VERIFYING]
+    assert recoverer_calls == 0
     assert guard.calls == ["acquire", "release"]
 
 
@@ -131,12 +160,14 @@ def test_verification_failure_is_explainable_and_skips_recovery() -> None:
 
 def test_recovery_failure_is_fail_closed() -> None:
     calls: list[str] = []
+    guard = _Guard()
 
     def recovery_failure() -> None:
         calls.append("recover")
         raise LookupError("corrupt durable authority")
 
     host = OnlyAlphaKernelHost(
+        authority_guard=guard,
         verifiers=(_step("verify", lambda: calls.append("verify")),),
         recoverers=(_step("unfinished-runs", recovery_failure),),
     )
@@ -148,6 +179,8 @@ def test_recovery_failure_is_fail_closed() -> None:
     assert captured.value.failure.phase is OnlyKernelFailurePhase.RECOVERING
     assert captured.value.failure.step == "unfinished-runs"
     assert host.state is OnlyKernelState.FAILED
+    assert guard.calls == ["acquire", "release"]
+    assert not guard.held
 
 
 def test_draining_closes_mutation_before_owned_resources_stop() -> None:

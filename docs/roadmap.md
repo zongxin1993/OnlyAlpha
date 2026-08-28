@@ -22,8 +22,8 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.4 Closure-2 — Response Compatibility Completeness — DONE / VERIFIED
-P9.K.4 Closure-2 Implementation SHA: 7c25a3cc42c7ea6e189044b5b8d8c62dc8b78d5f
+Current Increment: P9.K.5 Closure — Functional Correctness / Coverage Evidence Separation — TASK COMPLETE / VERIFIED
+P9.K.5 Closure Base SHA: 12cb8dcfa145cdf887d75c7618c9318c086b387d
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
@@ -34,7 +34,7 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.5 — Idempotency, Long-running Operations & Recovery Closure — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
+Next Semantic Direction: P9.K.6 — External Client Migration — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
 P9.1+ Status: BLOCKED until P9.K closure
 ```
 
@@ -825,16 +825,22 @@ change、无效/缺失 baseline、stale projection/client 均 fail closed，且�
 previous master 执行机械验证。Research/P9.0、HTTP、数据库 schema/migration、
 PostgreSQL 18、v3、K5/K6/K7 均未改变或启动。证据见
 [`reports/p9_k4_openapi_contract_governance.md`](reports/p9_k4_openapi_contract_governance.md)。implementation SHA `47e12df…` 的 direct
-exact-SHA remote gates 已通过；P9.K.4 为 **DONE / VERIFIED**，P9.K.5 为 **IMPLEMENTATION READY**。
+exact-SHA remote gates 已通过；P9.K.4 为 **DONE / VERIFIED**，并已为随后完成的 P9.K.5 提供实施前提。
 
 **P9.K.5 — Idempotency, Long-running Operations & Recovery Closure** 已在基于
-`7ee4a6f3661802f8121d084f2836df02128dc372` 的当前 worktree 完成实现：全局 Product Command ID 只绑定一份 PostgreSQL Receipt；0012
+`7ee4a6f3661802f8121d084f2836df02128dc372` 的实现中建立全局 Product Command ID 只绑定一份 PostgreSQL Receipt；0012
 deterministic backfill 后退役 active `research_run_submission`；Create 与 keyed Cancel 分别在单事务中提交 Run/accepted state effect +
 Receipt；v2 Cancel 的 `Idempotency-Key` 保持 optional；retry 重载当前 authoritative Run，mismatch/dangling/corruption fail closed。
 Strategy startup inventory 使用 verified sorted traversal 并经既有 reconciler 执行 `reconcile_all()`；production Kernel 在 RECOVERING
-前取得 PostgreSQL session advisory guard，第二 authority fail closed。Research Worker Attempt/Lease/Fencing 不变。Targeted Local PASS、
-OpenAPI compatibility PASS；真实 PostgreSQL、budgeted impact 与 exact implementation SHA CI evidence 尚待关闭，因此当前状态为
-**IMPLEMENTED / CI REQUIRED**，不得声明 `DONE / VERIFIED`，P9.K.6 仍未开始。
+前取得 PostgreSQL session advisory guard，第二 authority fail closed。Research Worker Attempt/Lease/Fencing 不变。
+
+P9.K.5 Closure 在 `12cb8dcfa145cdf887d75c7618c9318c086b387d` 基线上修复了 guard acquisition 晚于进入 `RECOVERING`
+的 lifecycle violation：verification 完成后，Host 仍在 `VERIFYING` 时取得 authority，随后才进入 `RECOVERING`；acquisition failure
+直接 fail closed，执行零 recovery work。Kernel 与 Research Command functional lanes、定向 K5 architecture evidence 和受影响静态检查
+均通过。Functional correctness evidence 与 Coverage evidence 已按现有 Task / Phase / Certification Gate 明确分离：历史 coverage
+shortfall 仍是 applicable higher-level Gate 的 open evidence，不追溯否定已通过的 functional assertions，也不阻塞本次 K5 Task Gate。
+未执行 remote exact-SHA Certification，budgeted broad impact plan 的 deferred CI evidence 仍如实标记为 `CI REQUIRED`，不得据此声明
+`CERTIFIED / ACCEPTED`。P9.K.5 当前为 **TASK COMPLETE / VERIFIED**；P9.K.6 为 **IMPLEMENTATION READY**。
 
 ### 长期 Strategy Product 参考方向
 

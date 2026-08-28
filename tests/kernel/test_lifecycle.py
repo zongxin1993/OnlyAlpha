@@ -81,6 +81,21 @@ def test_relevant_active_phases_have_explicit_failure_transition(
     assert status.live
 
 
+def test_recovery_authority_failure_can_fail_closed_before_recovering_transition() -> None:
+    lifecycle = OnlyKernelLifecycle()
+    _advance(lifecycle, OnlyKernelState.VERIFYING)
+    failure = OnlyKernelFailure(
+        OnlyKernelFailurePhase.RECOVERING,
+        "mutation-authority-acquire",
+        "Unavailable",
+    )
+
+    status = lifecycle.fail(failure)
+
+    assert status.state is OnlyKernelState.FAILED
+    assert status.failure == failure
+
+
 @pytest.mark.parametrize(
     ("before", "target"),
     (

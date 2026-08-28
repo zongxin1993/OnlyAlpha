@@ -176,6 +176,12 @@ Same semantic input
 
 ## 7. Finding 严重度
 
+Finding severity 必须相对于本次 Audit Scope 对应的现有 Gate 及其 mandatory evidence 判断。`当前 Gate 无法安全通过` 只指当前
+scope 的 applicable Gate，不指任意其他 Gate 或 GitHub Actions 中存在红色 job。Phase/Certification 的 mandatory coverage failure
+不得在 coverage 非当前 Task acceptance criterion 时升级为 Task correctness `BLOCKER`；通过的 functional/invariant test 仍是正向
+correctness evidence，即使独立 coverage threshold 失败。该 coverage failure 应如实保留为其适用 Phase/Certification Gate 的
+`FAIL / OPEN` evidence。
+
 所有 Finding 只能使用以下四级：
 
 ### BLOCKER

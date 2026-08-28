@@ -486,6 +486,23 @@ GitHub CI 自动运行哪些 jobs，不直接决定单 Task 的 Acceptance Bound
 
 完整 branch coverage 是系统级质量证明，不是普通局部开发反馈。
 
+Functional correctness evidence 与 Coverage evidence 是现有 Gate 内两个不同的 evidence dimension，不是新的 Gate。行为、
+invariant、contract、determinism、failure-path 以及必要的真实 persistence/concurrency 测试通过其 assertions 证明被测行为正确；
+coverage 只证明测试执行触达了哪些实现路径。通过的 functional/invariant assertions 保持 `PASS`，不会因为独立 coverage percentage
+低于阈值而被追溯改写为 functional correctness failure。
+
+因此：
+
+```text
+functional lane PASS + coverage threshold FAIL
+=
+functional correctness evidence PASS + coverage evidence FAIL / OPEN
+```
+
+Coverage failure 只阻塞明确把该 coverage 作为 mandatory evidence 的当前 Gate。Phase/Certification coverage failure 不得在 coverage
+并非 acceptance criterion 的普通 Task Gate 中被解释为 Task correctness failure；同样，Task Complete 不表示后续 Phase 或
+Certification coverage 已通过。
+
 因此所有：
 
 `scripts/test_suite.py <lane> --coverage`
@@ -506,6 +523,10 @@ GitHub CI 自动运行哪些 jobs，不直接决定单 Task 的 Acceptance Bound
 
 即使如此，也应优先执行最小适用 coverage scope，
 而不是默认运行全部 repository coverage。
+
+普通 Task 的 repair inner loop 默认使用最小充分的 targeted functional tests、affected canonical lanes 与静态检查，不以 broad
+coverage calculation 作为迭代反馈。昂贵的 exact-SHA remote CI / Certification 是其所属 higher-level Gate 的正式证据，不是普通本地
+修复循环；未执行它不得伪造成 PASS，但在它不属于当前 Task Gate 必须项时也不阻塞该 Task 的 functional correctness 结论。
 
 ---
 

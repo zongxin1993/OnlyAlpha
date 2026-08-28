@@ -100,11 +100,11 @@ class OnlyAlphaKernelHost:
             self._lifecycle.transition(OnlyKernelState.VERIFYING)
             self._execute(self._verifiers)
             phase = OnlyKernelFailurePhase.RECOVERING
-            step_name = "lifecycle-transition"
-            self._lifecycle.transition(OnlyKernelState.RECOVERING)
             step_name = "mutation-authority-acquire"
             if self._authority_guard is not None:
                 self._authority_guard.acquire()
+            step_name = "lifecycle-transition"
+            self._lifecycle.transition(OnlyKernelState.RECOVERING)
             self._execute(self._recoverers)
             self._lifecycle.transition(OnlyKernelState.READY)
             return self.status
