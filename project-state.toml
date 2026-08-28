@@ -1,0 +1,30 @@
+# OnlyAlpha current engineering control state.
+#
+# This file is the sole authoring authority for the current milestone/increment
+# progression rendered into README.md, docs/roadmap.md and the P9.K plan.
+# Do not hand-edit those projections. Use scripts/project_state.py.
+
+schema_version = 1
+
+[project]
+milestone = "P9"
+milestone_state = "IN_PROGRESS"
+
+[development]
+last_verified_increment = "P9.K.5"
+last_verified_name = "Closure — Functional Correctness / Coverage Evidence Separation"
+last_verified_state = "TASK COMPLETE / VERIFIED"
+active_increment = ""
+active_name = ""
+active_state = ""
+next_authorized_increment = "P9.K.6"
+next_authorized_name = "External Client Migration"
+next_authorized_state = "IMPLEMENTATION READY"
+p9_1_plus_status = "BLOCKED until P9.K closure"
+
+[certification]
+latest_increment = "P9.0"
+latest_state = "DONE / CERTIFIED"
+latest_subject_sha = "ab07a7c82823b7b1d10b95023413a7d83bad8e"
+latest_run = 32728974966
+latest_verdict = "ACCEPTED"
