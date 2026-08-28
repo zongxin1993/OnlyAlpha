@@ -4,9 +4,9 @@ import argparse
 import re
 import sys
 import tomllib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Mapping, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTHORITY_PATH = Path("project-state.toml")
@@ -344,9 +344,7 @@ def start_increment(state: ProjectState, increment: str) -> ProjectState:
 
 def verify_increment(state: ProjectState, increment: str, *, next_id: str, next_name: str) -> ProjectState:
     if state.active_increment != increment:
-        raise ProjectStateError(
-            f"cannot verify {increment}: active increment is {state.active_increment or 'NONE'}"
-        )
+        raise ProjectStateError(f"cannot verify {increment}: active increment is {state.active_increment or 'NONE'}")
     if not next_id.strip() or not next_name.strip():
         raise ProjectStateError("verification transition requires a non-empty next increment id and name")
     if next_id == increment:
