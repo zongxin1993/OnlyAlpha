@@ -15,6 +15,7 @@ CLIENT = ROOT / "packages/client/onlyalpha-client"
 CLIENT_SOURCE = CLIENT / "src/onlyalpha_client"
 CONTRACT_PATH = ROOT / "docs/architecture/p9_k6_external_client_contract.toml"
 ALLOWED_CLASSIFICATIONS = {
+    "CLOSED",
     "INTERNAL",
     "LEGACY_K8_TARGET",
     "OPERATOR / INFRASTRUCTURE",
@@ -132,16 +133,14 @@ def test_artifact_http_executable_is_read_only_compatibility_surface() -> None:
         "decision": "READ_ONLY_COMPATIBILITY_SURFACE",
         "mutation_capability": False,
         "removal_owner": "P9.K.8",
+        "closure": "REMOVED",
     }
     app = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/app.py").read_text(encoding="utf-8")
-    artifact_main = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/artifact_main.py").read_text(encoding="utf-8")
-    router = (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/research/routes.py").read_text(encoding="utf-8")
-    assert "create_artifact_query_app" in artifact_main
-    assert (
-        "create_run_router"
-        not in app[app.index("def create_artifact_query_app") : app.index("class _ResearchServiceNotReady")]
-    )
-    assert "@router.post" not in router
+    metadata = tomllib.loads((ROOT / "packages/api/onlyalpha-api/pyproject.toml").read_text(encoding="utf-8"))
+    assert "onlyalpha-artifact-api" not in metadata["project"]["scripts"]
+    assert not (ROOT / "packages/api/onlyalpha-api/src/onlyalpha_api/artifact_main.py").exists()
+    assert "create_artifact_query_app" not in app
+    assert "create_artifact_router(artifact_service)" in app
 
 
 def test_external_actor_and_cli_classification_is_complete() -> None:
@@ -159,14 +158,16 @@ def test_external_actor_and_cli_classification_is_complete() -> None:
         assert item["action"]
 
 
-def test_root_product_cli_commands_remain_explicit_k8_debt_not_api_fallbacks() -> None:
+def test_root_product_cli_commands_are_closed_without_api_or_local_fallbacks() -> None:
     root_cli = (ROOT / "src/onlyalpha/cli.py").read_text(encoding="utf-8")
     assert "OnlyAlphaClient" not in root_cli
     command_contract = {
         item["command"]: item["classification"]
         for item in _contract()["cli_commands"]  # type: ignore[index]
     }
-    assert command_contract["onlyalpha run"] == "LEGACY_K8_TARGET"
-    assert command_contract["onlyalpha snapshot"] == "LEGACY_K8_TARGET"
+    assert command_contract["onlyalpha run"] == "CLOSED"
+    assert command_contract["onlyalpha snapshot"] == "CLOSED"
     assert command_contract["onlyalpha operations status"] == "OPERATOR / INFRASTRUCTURE"
     assert command_contract["onlyalpha scenario run"] == "TEST / SCENARIO"
+    assert not any(item["classification"] == "LEGACY_K8_TARGET" for item in _contract()["external_surfaces"])
+    assert not any(item["k8_debt"] for item in _contract()["external_surfaces"])

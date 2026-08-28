@@ -6,7 +6,8 @@ from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus
 
 from onlyalpha.domain.enums import OnlyOrderSide, OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.execution import OnlyCommittedExecutionFact
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.position.enums import OnlyPositionReservationState

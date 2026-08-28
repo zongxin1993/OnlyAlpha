@@ -3,7 +3,8 @@ from decimal import Decimal
 from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerGateway
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore
 from onlyalpha.transaction import OnlyRuntimeOperationKind

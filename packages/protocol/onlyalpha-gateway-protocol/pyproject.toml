@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha-gateway-protocol"
-version = "0.9.7"
+version = "0.9.8"
 description = "Provider-neutral OnlyAlpha remote Gateway protocol bindings"
 requires-python = ">=3.12.0, <3.13.0"
 dependencies = [

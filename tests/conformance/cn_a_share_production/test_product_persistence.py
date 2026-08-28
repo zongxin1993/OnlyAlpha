@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig, OnlyEngineRunResult
+from onlyalpha.engine import OnlyEngineConfig, OnlyEngineRunResult
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.conformance.cn_a_share_production.support import (

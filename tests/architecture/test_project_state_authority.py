@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from scripts.project_state import (
+    P9_K_CLOSED_STATUS,
     PROJECTION_PATHS,
     ROOT,
     ProjectState,
@@ -93,3 +94,31 @@ def test_only_active_increment_can_be_verified_and_authorize_successor() -> None
     assert verified.next_authorized_increment == "P9.K.7"
     assert verified.next_authorized_name == "Remote Protocol Foundation"
     assert verified.next_authorized_state == "IMPLEMENTATION READY"
+
+
+def test_k8_verification_closes_p9_k_and_unblocks_p9_1() -> None:
+    active = replace(
+        load_state(),
+        last_verified_increment="P9.K.7",
+        last_verified_name="Remote Protocol Foundation",
+        last_verified_state="TASK COMPLETE / VERIFIED",
+        active_increment="P9.K.8",
+        active_name="Seal Kernel",
+        active_state="IN_PROGRESS",
+        next_authorized_increment="",
+        next_authorized_name="",
+        next_authorized_state="",
+        p9_1_plus_status="BLOCKED until P9.K closure",
+    )
+
+    verified = verify_increment(
+        active,
+        "P9.K.8",
+        next_id="P9.1",
+        next_name="Crypto Market Product & Binance Reference Authority",
+    )
+
+    assert verified.last_verified_increment == "P9.K.8"
+    assert verified.next_authorized_increment == "P9.1"
+    assert verified.next_authorized_name == "Crypto Market Product & Binance Reference Authority"
+    assert verified.p9_1_plus_status == P9_K_CLOSED_STATUS

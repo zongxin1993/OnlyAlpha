@@ -5,7 +5,8 @@ from onlyalpha_test_plugin.data_source import OnlyExternalTestDataSourceFactory,
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.plugin import OnlyPluginLifecycleState
 from tests.runtime_runner import only_migrate_cluster_to_strategy
 

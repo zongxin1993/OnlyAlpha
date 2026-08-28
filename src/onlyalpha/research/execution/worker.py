@@ -12,7 +12,8 @@ from threading import Event, Thread
 from typing import Protocol, cast
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
 from onlyalpha.research.operations.logging import only_log_research_operational_event
 from onlyalpha.research.run.errors import OnlyResearchRunStoreUnavailableError

@@ -48,11 +48,6 @@ EXPECTED_CONSOLE_ENTRY_POINTS = {
     ),
     ("packages/api/onlyalpha-api/pyproject.toml", "onlyalpha-api", "onlyalpha_api.main:main"),
     (
-        "packages/api/onlyalpha-api/pyproject.toml",
-        "onlyalpha-artifact-api",
-        "onlyalpha_api.artifact_main:main",
-    ),
-    (
         "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
         "onlyalpha-miniqmt",
         "onlyalpha_plugin_miniqmt.doctor:main",
@@ -73,7 +68,6 @@ EXPECTED_DIRECT_CONSTRUCTION_SITES = {
     ("examples/internal/committed_execution_report.py", "OnlyEngine"),
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"),
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"),
-    ("src/onlyalpha/cli.py", "OnlyEngine"),
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"),
     ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"),
     ("src/onlyalpha/runtime/research/factory.py", "OnlyResearchRuntime"),
@@ -85,7 +79,6 @@ EXPECTED_DIRECT_CONSTRUCTION_CLASSIFICATION = {
     ("examples/internal/committed_execution_report.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
-    ("src/onlyalpha/cli.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
     ("src/onlyalpha/runtime/backtest/factory.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/runtime/research/factory.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
@@ -98,17 +91,10 @@ EXPECTED_CONSTRUCTOR_IMPORT_OWNERS = {
     ("scripts/pytest_metrics.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_recovery_baselines.py", "OnlyEngine"): "TEST TOOLING",
     ("scripts/regenerate_result_fixtures.py", "OnlyEngine"): "TEST TOOLING",
-    ("src/onlyalpha/__init__.py", "OnlyBacktestRuntime"): "KNOWN MIGRATION DEBT",
-    ("src/onlyalpha/__init__.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
-    ("src/onlyalpha/__init__.py", "OnlyLiveRuntime"): "KNOWN MIGRATION DEBT",
-    ("src/onlyalpha/__init__.py", "OnlyResearchRuntime"): "KNOWN MIGRATION DEBT",
-    ("src/onlyalpha/__init__.py", "OnlyRuntime"): "KNOWN MIGRATION DEBT",
     ("src/onlyalpha/application/engine_inspection.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("src/onlyalpha/application/engine_runner.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("src/onlyalpha/application/engine_runner.py", "OnlyRuntime"): "ALLOWED INTERNAL",
-    ("src/onlyalpha/cli.py", "OnlyEngine"): "KNOWN MIGRATION DEBT",
     ("src/onlyalpha/collector/backtest.py", "OnlyBacktestRuntime"): "ALLOWED INTERNAL",
-    ("src/onlyalpha/engine/__init__.py", "OnlyEngine"): "ALLOWED INTERNAL",
     ("src/onlyalpha/engine/engine.py", "OnlyResearchRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/engine/engine.py", "OnlyRuntime"): "ALLOWED INTERNAL",
     ("src/onlyalpha/research/execution/worker.py", "OnlyEngine"): "OPERATOR / INFRASTRUCTURE",
@@ -154,7 +140,7 @@ ROOT_PUBLIC_VALUE_READ_ONLY = {
     "OnlyQuantity",
 }
 
-ROOT_KNOWN_MIGRATION_DEBT = {
+HISTORICAL_ROOT_MIGRATION_DEBT = {
     "OnlyBacktestRuntime",
     "OnlyCluster",
     "OnlyClusterConfig",
@@ -169,9 +155,13 @@ ROOT_KNOWN_MIGRATION_DEBT = {
     "OnlyResearchRuntime",
     "OnlyRuntime",
 }
+ROOT_KNOWN_MIGRATION_DEBT: frozenset[str] = frozenset()
 
 EXPECTED_TOP_LEVEL_EXPORTS = ROOT_PUBLIC_CONTRACT | ROOT_KNOWN_MIGRATION_DEBT
-EXPECTED_TOP_LEVEL_BINDINGS = EXPECTED_TOP_LEVEL_EXPORTS | ROOT_PUBLIC_VALUE_READ_ONLY
+EXPECTED_TOP_LEVEL_BINDINGS = (EXPECTED_TOP_LEVEL_EXPORTS | ROOT_PUBLIC_VALUE_READ_ONLY) - {
+    "OnlyRuntimeState",
+    "OnlyRuntimeStatus",
+}
 
 FORBIDDEN_ROOT_MUTATION_CAPABILITIES = {
     "OnlyPostgresMigrationAuthority",
@@ -388,7 +378,6 @@ def test_engine_and_runtime_constructor_import_ownership_is_frozen() -> None:
     assert _constructor_import_owners() == set(EXPECTED_CONSTRUCTOR_IMPORT_OWNERS)
     assert set(EXPECTED_CONSTRUCTOR_IMPORT_OWNERS.values()) == {
         "ALLOWED INTERNAL",
-        "KNOWN MIGRATION DEBT",
         "OPERATOR / INFRASTRUCTURE",
         "TEST TOOLING",
     }
@@ -428,6 +417,8 @@ def test_top_level_python_surface_is_frozen() -> None:
     assert ROOT_PUBLIC_CONTRACT.isdisjoint(ROOT_PUBLIC_VALUE_READ_ONLY)
     assert ROOT_PUBLIC_CONTRACT.isdisjoint(ROOT_KNOWN_MIGRATION_DEBT)
     assert ROOT_PUBLIC_VALUE_READ_ONLY.isdisjoint(ROOT_KNOWN_MIGRATION_DEBT)
+    assert ROOT_KNOWN_MIGRATION_DEBT == frozenset()
+    assert len(HISTORICAL_ROOT_MIGRATION_DEBT) == 13
     assert _top_level_exports() == EXPECTED_TOP_LEVEL_EXPORTS
     source = (ROOT / "src/onlyalpha/__init__.py").read_text(encoding="utf-8")
     assert _top_level_bindings(source) == EXPECTED_TOP_LEVEL_BINDINGS

@@ -5,7 +5,8 @@ from onlyalpha_test_plugin.broker import OnlyExternalTestBrokerGateway
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.event.bus import OnlyEventCapacityError
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter

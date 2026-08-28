@@ -12,7 +12,7 @@ from onlyalpha.application.runtime_inspection import (
     OnlySubscriptionInspection,
 )
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.engine import OnlyEngine
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.position.enums import OnlyPositionReservationState
 from onlyalpha.risk.enums import OnlyRiskReservationState
 from onlyalpha.runtime.streaming.runtime import OnlyStreamingRuntime

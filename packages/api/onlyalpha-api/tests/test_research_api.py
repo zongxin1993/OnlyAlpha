@@ -5,19 +5,20 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION, create_artifact_query_app
+from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION
 from onlyalpha_api.research.schema import ResearchCandidateGraphDto
 from pydantic import ValidationError
 
 from onlyalpha.research import MAX_PAGE_SIZE, RESEARCH_QUERY_SCHEMA_VERSION
 from tests.research.artifact.support import scientific_artifact_case
 from tests.research.query.support import query_case
+from tests.support.research_artifact_http import create_test_artifact_query_app
 
 
 def _client(tmp_path):  # type: ignore[no-untyped-def]
     *_, candidate, store, _ = query_case(tmp_path)
     artifact = store.load_verified(candidate.research_result_fingerprint)
-    return candidate, store, artifact, TestClient(create_artifact_query_app(store))
+    return candidate, store, artifact, TestClient(create_test_artifact_query_app(store))
 
 
 def test_three_versioned_get_endpoints_return_exact_read_dtos(tmp_path) -> None:
@@ -184,7 +185,7 @@ def test_candidate_graph_is_an_exact_strict_nested_read_projection(tmp_path) -> 
     identity = candidate.result.manifest.research_result_fingerprint
     artifact = store.load_verified(identity)
     selected = artifact.manifest.plan.candidates[0]
-    client = TestClient(create_artifact_query_app(store))
+    client = TestClient(create_test_artifact_query_app(store))
     base = f"/api/v2/research/artifacts/{identity}"
     url = f"/api/v2/research/artifacts/{identity}/candidates/{selected.candidate_fingerprint}/graph"
 

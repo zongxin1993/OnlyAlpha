@@ -22,7 +22,7 @@ LIVE      Realtime + Event-driven + Real Broker + Full Trading Kernel
 ```text
 Current Milestone: P9
 Milestone State: IN_PROGRESS
-Current Increment: P9.K.7 Remote Protocol Foundation — TASK COMPLETE / VERIFIED
+Current Increment: P9.K.8 Seal Kernel — TASK COMPLETE / VERIFIED
 P9.K.5 Closure Base SHA: 12cb8dcfa145cdf887d75c7618c9318c086b387d
 Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
@@ -34,8 +34,8 @@ P8 Final Certification Verdict: ACCEPTED
 P9.0 Final Certification Subject: ab07a7c828bd23b7b1d10b95023413a7d83bad8e
 P9.0 Final Certification Run: 32728974966
 P9.0 Final Certification Verdict: ACCEPTED
-Next Semantic Direction: P9.K.8 — Seal Kernel — IMPLEMENTATION READY; P9.1+ blocked until P9.K closure
-P9.1+ Status: BLOCKED until P9.K closure
+Next Semantic Direction: P9.1 — Crypto Market Product & Binance Reference Authority — IMPLEMENTATION READY; P9.1+ P9.K = CLOSED; P9.1+ = UNBLOCKED
+P9.1+ Status: P9.K = CLOSED; P9.1+ = UNBLOCKED
 ```
 
 `VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
@@ -810,7 +810,8 @@ Final-SHA Certification，因此不是 `CERTIFIED / ACCEPTED`。该 K2 closure �
 已启动 Kernel Host 组合 K2 Product Boundary；Research Run Create/Cancel 只 dispatch Product Command，Get/List 只 dispatch Product
 Query。Run Router 不再直接持有 Research mutation/query services，缺失 binding fail closed 且无 legacy fallback。Research v2 route、DTO、
 Idempotency-Key、202/Location、分页、错误与 canonical OpenAPI 语义不变；P9.0 与数据库 schema/migration 不变。现有
-`onlyalpha-artifact-api` 依据已发布 console/README 证据保留为零 mutation capability 的 read-only migration debt。ADR 0102 冻结当前
+K3 当时依据已发布 console/README 证据保留 `onlyalpha-artifact-api` 为零 mutation capability 的 read-only migration debt；该重复 surface
+后续已由 K8 移除。ADR 0102 冻结当前
 verified PostgreSQL 16.10 与未来 PostgreSQL 18.x target，迁移仍为 PLANNED / NOT YET VERIFIED。P9.K.3 为 **DONE / VERIFIED
 (worktree)**；P9.K.4 为 **IMPLEMENTATION READY**，P9.K 整体仍未完成。证据见
 [`reports/p9_k3_product_http_control_plane.md`](reports/p9_k3_product_http_control_plane.md)。

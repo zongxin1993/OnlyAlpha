@@ -7,7 +7,8 @@ from onlyalpha.cluster.base import OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterManager
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.event.bus import OnlyEventCapacityError
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase, OnlyRuntimeEventRouter

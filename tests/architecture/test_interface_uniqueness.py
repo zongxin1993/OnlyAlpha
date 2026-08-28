@@ -8,7 +8,7 @@ import pytest
 
 import onlyalpha
 from onlyalpha.config import OnlyOutputConfig
-from onlyalpha.engine import OnlyEngine
+from onlyalpha.engine.engine import OnlyEngine
 
 
 def test_engine_requires_engine_config_and_string_constructor_is_removed() -> None:

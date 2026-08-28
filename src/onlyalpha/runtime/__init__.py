@@ -5,9 +5,6 @@ from importlib import import_module
 _EXPORTS = {
     "OnlyRuntimeContext": "onlyalpha.runtime.context",
     "OnlyRuntimeContextView": "onlyalpha.runtime.context",
-    "OnlyBacktestRuntime": "onlyalpha.runtime.backtest.runtime",
-    "OnlyLiveRuntime": "onlyalpha.runtime.live.runtime",
-    "OnlyResearchRuntime": "onlyalpha.runtime.research.runtime",
     "OnlyResearchRuntimeEnvironmentIdentity": "onlyalpha.runtime.research.environment",
     "OnlyResearchRuntimeError": "onlyalpha.runtime.research.errors",
     "OnlyResearchRuntimePhase": "onlyalpha.runtime.research.errors",
@@ -17,8 +14,6 @@ _EXPORTS = {
     "OnlyFiniteRuntime": "onlyalpha.runtime.product",
     "OnlyRuntimeProduct": "onlyalpha.runtime.product",
     "OnlyWaitableRuntime": "onlyalpha.runtime.product",
-    "OnlySimRuntime": "onlyalpha.runtime.sim.runtime",
-    "OnlyRuntime": "onlyalpha.runtime.runtime",
     "OnlyRuntimeOutboxDeliveryError": "onlyalpha.runtime.runtime",
     "OnlyRuntimeRecoveryError": "onlyalpha.runtime.runtime",
     "OnlyRuntimeState": "onlyalpha.runtime.runtime",

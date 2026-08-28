@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import uvicorn  # noqa: E402
-from onlyalpha_api import create_artifact_query_app  # noqa: E402
 
 from tests.research.query.support import query_case  # noqa: E402
+from tests.support.research_artifact_http import create_test_artifact_query_app  # noqa: E402
 
 
 def main() -> int:
@@ -24,7 +24,7 @@ def main() -> int:
                 source.rename(root / f"unavailable-{name}")
         if not artifact.rows:
             raise RuntimeError("E2E fixture must contain exact Statistics rows")
-        uvicorn.run(create_artifact_query_app(store), host="127.0.0.1", port=8000)
+        uvicorn.run(create_test_artifact_query_app(store), host="127.0.0.1", port=8000)
     return 0
 
 

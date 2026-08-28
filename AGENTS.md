@@ -847,10 +847,9 @@ packages/provider/onlyalpha-plugin-miniqmt/
 
 ## 10. 公共 API 与内部边界
 
-外部用户和插件应优先使用：
+外部 Product actor 使用 `onlyalpha-client` / canonical Product HTTP contract。插件与内部工程组合按职责使用：
 
 ```text
-onlyalpha.engine
 onlyalpha.config
 onlyalpha.domain.*
 onlyalpha.strategy
@@ -872,7 +871,9 @@ onlyalpha.plugin.api
 - Projection Applier；
 - 内部 Audit Store。
 
-当前根包/`onlyalpha.runtime` 仍导出部分具体 Runtime 类，`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster` 仍导出 `OnlyClusterManager`。这是当前可导入事实和 API 收紧债务；不得谎称已经不可导入，也不得据此把已删除的 legacy `PAPER/SHADOW` 或内部编排对象升级为长期兼容合同。
+P9.K.8 已从根包及 broad `onlyalpha.engine/runtime/cluster` aggregators 移除 mutation constructors。具体 Engine/Runtime/Cluster
+implementation modules 只允许内部、测试、scenario、operator 或 composition owner 使用；`onlyalpha.config` 的 Assembly DTO 仍是内部组合值。
+不得据此把已删除的 legacy `PAPER/SHADOW` 或内部编排对象升级为长期兼容合同。
 
 规则：
 

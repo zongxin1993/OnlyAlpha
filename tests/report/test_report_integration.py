@@ -3,7 +3,8 @@ from pathlib import Path
 
 from onlyalpha.cli import main
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from tests.runtime_runner import only_write_migrated_cluster_config
 
 CONFIG = "tests/fixtures/legacy_macd/cluster.json"

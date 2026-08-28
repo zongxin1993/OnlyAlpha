@@ -32,7 +32,7 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 
 | 项目 | 状态 |
 |---|---|
-| Version | `0.9.7` |
+| Version | `0.9.8` |
 | Python | `>=3.12, <3.13` |
 | Product stage | Alpha |
 | Architecture | Modular Monolith |
@@ -48,8 +48,8 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | P9.0 | **DONE / CERTIFIED** — Strategy Revision & Promotion Foundation |
 | P9.0 Final SHA | `ab07a7c828bd23b7b1d10b95023413a7d83bad8e` |
 | P9.0 Final-SHA Certification | run `32728974966` — **ACCEPTED** |
-| Current increment | P9.K.7 Remote Protocol Foundation — **TASK COMPLETE / VERIFIED** |
-| Next semantic direction | P9.K.8 — Seal Kernel — **IMPLEMENTATION READY**; P9.1+ blocked until P9.K closure |
+| Current increment | P9.K.8 Seal Kernel — **TASK COMPLETE / VERIFIED** |
+| Next semantic direction | P9.1 — Crypto Market Product & Binance Reference Authority — **IMPLEMENTATION READY**; P9.1+ P9.K = CLOSED; P9.1+ = UNBLOCKED |
 | License | MIT |
 
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
@@ -411,8 +411,9 @@ P8.2 已建立独立 UUID4 Attempt/Worker identity、PostgreSQL transactional de
 
 P8.3 已建立 transport-neutral Research Command/Application boundary、UUID4 `Idempotency-Key`、同事务 Run + submission mapping、
 `queued_at DESC, run_id DESC` keyset pagination 与有界 cancellation CAS re-interpretation。完整 `/api/v2/research/runs` API 只在
-PostgreSQL durable commit 后返回 accepted Run；portable `onlyalpha-artifact-api` 继续只依赖 Artifact Reader。OpenAPI、Web generated
-contract/Zod admission 与 exact `bigint` revision 已同步，但没有新增 P8.4 页面、Worker 启动或 Artifact content response。
+PostgreSQL durable commit 后返回 accepted Run；当时 portable Artifact executable 只依赖 Artifact Reader，后续已由 P9.K.8 移除重复
+standalone surface，Artifact routes 保留在唯一 `onlyalpha-api`。OpenAPI、Web generated contract/Zod admission 与 exact `bigint`
+revision 已同步，但没有新增 P8.4 页面、Worker 启动或 Artifact content response。
 
 P8.4.0 已实现 programmatic Research Definition foundation：Universe/Data intent、registered Calculation Instance、全局有限 Sweep、typed Eligibility/Entry/Exit AST、internal RESEARCH Predicate lowering，以及现有 Specification/Workload 闭环。P8.4.3 已让用户从 Web 选择并提交这些正式语义；P8.4.4 已通过 Artifact-only Query evidence 完成 K-line、Published Variable、Signal/买卖点、Statistics、Candidate comparison、Exact Data 与只读 Graph Inspector。完整 embedded IDE、LLM Agent code authoring 与 immutable Strategy Revision Promotion 默认仍属于 P8 之后重新规划的长期方向。
 
@@ -624,9 +625,9 @@ uv run onlyalpha-client research create specification.json \
   --idempotency-key 00000000-0000-4000-8000-000000000001
 ```
 
-历史 `onlyalpha run/snapshot` 暂时只是 P9.K.8 hard-seal 债务，不是正式外部 Product Control Plane。直接 Engine 示例只保留在
-`examples/internal/` 并明确用于内部工程组合。`onlyalpha-artifact-api` 暂时保留为只读 compatibility surface，mutation capability
-固定为 0；正常 Product 部署使用 `onlyalpha-api`。
+P9.K.8 已移除历史 `onlyalpha run/snapshot`、根/broad aggregator mutation constructors 与重复的
+`onlyalpha-artifact-api` standalone surface。直接 Engine 示例只保留在 `examples/internal/` 并明确用于内部工程组合；正常 Product
+部署与 Artifact query 均使用唯一 `onlyalpha-api`，正式 Product CLI 使用 `onlyalpha-client`。
 
 Research Web 已支持 `New Research / Runs / Results`：浏览器只保存临时 Draft 和 presentation state，exact Specification 只来自最新权威
 Resolution；pending Run submission 在不确定重试间复用该 Resolution identity 对应的 Idempotency Key，Run state 只来自 PostgreSQL

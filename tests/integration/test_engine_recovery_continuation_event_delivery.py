@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore

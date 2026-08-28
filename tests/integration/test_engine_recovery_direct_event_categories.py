@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.event.model import OnlyEvent
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.runtime.persistence.store import OnlySqliteRuntimePersistenceStore

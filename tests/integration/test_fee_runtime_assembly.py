@@ -8,7 +8,8 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.config.document import OnlyClusterConfigError
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.fee.reconciliation_policy import (
     OnlyFeeReconciliationAction,
     OnlyFeeReconciliationPolicy,

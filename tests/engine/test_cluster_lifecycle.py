@@ -14,7 +14,8 @@ from onlyalpha.config import (
 from onlyalpha.core.errors import OnlyDuplicateIdError
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.engine import OnlyClusterLoadError, OnlyClusterRemovalPolicy, OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyClusterLoadError, OnlyClusterRemovalPolicy, OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.engine.infrastructure import OnlyResourceConfigurationConflict
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContract
 from onlyalpha.fee.models import OnlyBrokerFeeAccountScope, OnlyBrokerFeeAccountScopeType

@@ -1,4 +1,4 @@
-"""Dependency-injected portable and full Research FastAPI factories."""
+"""Dependency-injected Product Research FastAPI factory."""
 
 from __future__ import annotations
 
@@ -84,23 +84,6 @@ def _request_route_tag(request: Request) -> str | None:
         tag for tag in tags if tag in {RUN_ROUTE_TAG, ARTIFACT_ROUTE_TAG, DEFINITION_ROUTE_TAG, DISCOVERY_ROUTE_TAG}
     )
     return known[0] if len(known) == 1 else None
-
-
-def create_artifact_query_app(reader: OnlyResearchArtifactReader) -> FastAPI:
-    app = FastAPI(title="OnlyAlpha Research Artifact Query API", version=str(RESEARCH_API_SCHEMA_VERSION))
-    service = OnlyResearchQueryService(reader)
-
-    @app.exception_handler(OnlyResearchQueryError)
-    async def query_error_handler(_request: Request, error: OnlyResearchQueryError) -> JSONResponse:
-        status, body = research_error_response(error)
-        return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
-
-    @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(_request: Request, _error: RequestValidationError) -> JSONResponse:
-        return _artifact_validation_error_response()
-
-    app.include_router(create_artifact_router(service))
-    return app
 
 
 class _ResearchServiceNotReady(RuntimeError):
@@ -208,4 +191,4 @@ def create_research_app(
     return app
 
 
-__all__ = ["create_artifact_query_app", "create_research_app"]
+__all__ = ["create_research_app"]

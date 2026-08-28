@@ -1,6 +1,7 @@
-"""OnlyAlpha Engine public API."""
+"""Engine composition values; the concrete Engine constructor is internal."""
 
-from onlyalpha.engine.engine import OnlyEngine
+from importlib import import_module as _import_module
+
 from onlyalpha.engine.models import (
     OnlyClusterHandle,
     OnlyClusterLoadError,
@@ -13,7 +14,6 @@ from onlyalpha.engine.models import (
     OnlyEngineState,
     OnlyEngineValidationResult,
 )
-from onlyalpha.runtime.research import OnlyResearchWorkloadPlan
 
 __all__ = [
     "OnlyClusterHandle",
@@ -21,7 +21,6 @@ __all__ = [
     "OnlyClusterOperationResult",
     "OnlyClusterRemovalPolicy",
     "OnlyClusterRemovalResult",
-    "OnlyEngine",
     "OnlyEngineConfig",
     "OnlyEngineRunResult",
     "OnlyEngineSnapshot",
@@ -29,3 +28,15 @@ __all__ = [
     "OnlyEngineValidationResult",
     "OnlyResearchWorkloadPlan",
 ]
+
+_LAZY_EXPORTS = {"OnlyResearchWorkloadPlan": "onlyalpha.runtime.research.plan"}
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    value: object = getattr(_import_module(module_name), name)
+    globals()[name] = value
+    return value

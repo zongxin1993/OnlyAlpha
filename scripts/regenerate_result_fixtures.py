@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT))
 from onlyalpha.config import OnlyClusterCapitalConfig, OnlyClusterCapitalMode, OnlyClusterRunConfig  # noqa: E402
 from onlyalpha.domain.identifiers import OnlyEngineId  # noqa: E402
 from onlyalpha.domain.value import OnlyMoney  # noqa: E402
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig  # noqa: E402
+from onlyalpha.engine import OnlyEngineConfig  # noqa: E402
+from onlyalpha.engine.engine import OnlyEngine  # noqa: E402
 from onlyalpha.result import only_backtest_business_projection, only_result_fingerprint  # noqa: E402
 from tests.integration.test_engine_multi_cluster_close_cost_authority import _configs  # noqa: E402
 from tests.integration.virtual_multi_fill_support import only_virtual_multi_fill_config  # noqa: E402

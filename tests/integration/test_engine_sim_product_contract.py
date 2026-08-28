@@ -8,7 +8,8 @@ import pytest
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 
 
 def _sim_config() -> OnlyClusterRunConfig:

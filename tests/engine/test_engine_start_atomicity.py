@@ -4,7 +4,8 @@ from unittest.mock import Mock, call
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId, OnlyRuntimeId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.engine.models import (
     OnlyClusterHandle,
     OnlyClusterSession,

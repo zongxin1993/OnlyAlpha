@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **P9.K.7 Remote Protocol Foundation — TASK COMPLETE / VERIFIED; P9.K.8 — Seal Kernel — IMPLEMENTATION READY**
+> Implementation progress: **P9.K.8 Seal Kernel — TASK COMPLETE / VERIFIED; P9.1 — Crypto Market Product & Binance Reference Authority — IMPLEMENTATION READY**
 >
 > Current implementation progress is a deterministic projection of the repository-root `project-state.toml`; do not maintain a second current-state authority here.
 
@@ -1195,6 +1195,22 @@ Remove the temporary direct product authorities after clients have migrated.
 ### Exit
 
 The Product Control Plane is the only supported external mutation path.
+
+### K8 implementation and closure evidence (2026-08-28)
+
+P9.K.8 removed the 13 root migration-debt constructor exports, concrete Engine/Runtime/Cluster constructors from broad aggregators,
+root Product `run/snapshot`, and the duplicate `onlyalpha-artifact-api` executable/standalone app factory. `onlyalpha-client` remains the
+only Product Python/CLI client; `onlyalpha-api` remains the one Product HTTP adapter and still serves Artifact query routes. Internal
+Worker, Scenario, test, maintenance and composition owners use concrete implementation modules and remain explicitly classified.
+
+K0 `legacy_debts`, K6 `LEGACY_K8_TARGET`, K6 `k8_debt`, standalone compatibility debt and Product-space direct constructor owners are all
+zero. The permanent K8 architecture gate discovers route modules structurally and rejects raw Engine/Runtime/Kernel/persistence/Strategy/
+Gateway capabilities while continuing to allow the explicit API composition root. Canonical Product OpenAPI, P9.0 Strategy sources,
+Gateway Proto, database migrations and semantic fingerprint implementations are unchanged. Detailed Task-Gate and audit evidence is in
+[`reports/p9_k8_seal_kernel.md`](reports/p9_k8_seal_kernel.md).
+
+P9.K.8 is **TASK COMPLETE / VERIFIED**, P9.K is **CLOSED**, and P9.1 is **IMPLEMENTATION READY**. This is Task-Gate evidence, not
+Final-SHA Certification.
 
 ---
 

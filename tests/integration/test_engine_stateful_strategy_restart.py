@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.result import only_backtest_business_projection
 from tests.integration.test_engine_continuous_restart import (
     _sqlite_config,

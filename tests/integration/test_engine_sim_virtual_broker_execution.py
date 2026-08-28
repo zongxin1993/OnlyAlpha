@@ -37,7 +37,8 @@ from onlyalpha.domain.enums import OnlyOrderStatus, OnlyRuntimeMode
 from onlyalpha.domain.execution import OnlyOrderRequest
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState

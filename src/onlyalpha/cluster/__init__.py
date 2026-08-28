@@ -4,11 +4,7 @@ from importlib import import_module
 
 _EXPORTS = {
     "OnlyBarContext": "onlyalpha.cluster.bar_context",
-    "OnlyCluster": "onlyalpha.cluster.base",
-    "OnlyClusterConfig": "onlyalpha.cluster.base",
-    "OnlyClusterContext": "onlyalpha.cluster.base",
     "OnlyClusterState": "onlyalpha.cluster.base",
-    "OnlyClusterManager": "onlyalpha.cluster.manager",
     "OnlyClusterStatus": "onlyalpha.cluster.manager",
 }
 

@@ -9,7 +9,8 @@ from onlyalpha.config import OnlyBrokerFeeContractConfig, OnlyClusterRunConfig, 
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.execution import (
     OnlyExecutionEventDeliveryMode,
     OnlyExecutionMutationStatus,

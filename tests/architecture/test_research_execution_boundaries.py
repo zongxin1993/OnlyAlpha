@@ -30,7 +30,7 @@ def test_attempt_domain_policy_and_port_do_not_depend_on_postgres_or_engine() ->
 
 def test_worker_enters_semantic_execution_only_through_engine_runtime_contract() -> None:
     worker = Path("src/onlyalpha/research/execution/worker.py").read_text()
-    assert "from onlyalpha.engine import OnlyEngine" in worker
+    assert "from onlyalpha.engine.engine import OnlyEngine" in worker
     assert "engine.add_research_workload" in worker
     assert "engine.run_runtime" in worker
     for forbidden in (

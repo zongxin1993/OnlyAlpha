@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha-client"
-version = "0.9.7"
+version = "0.9.8"
 description = "OpenAPI-derived Python client for the OnlyAlpha Product Control Plane"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

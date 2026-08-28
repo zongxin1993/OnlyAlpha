@@ -59,7 +59,8 @@ class OnlyMarketScenarioRunner:
             raise OnlyScenarioError(issue.code, issue.message, path=issue.path)
         output = request.output_root.resolve()
         from onlyalpha.domain.identifiers import OnlyEngineId
-        from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+        from onlyalpha.engine import OnlyEngineConfig
+        from onlyalpha.engine.engine import OnlyEngine
 
         engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(f"scenario-{scenario.scenario_id}"), output))
         engine.add_cluster(scenario.engine_config)

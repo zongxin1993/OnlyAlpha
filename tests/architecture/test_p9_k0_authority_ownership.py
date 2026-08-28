@@ -66,19 +66,11 @@ EXPECTED_ROUTE_ONLYALPHA_IMPORTS: dict[str, frozenset[CanonicalImport]] = {
 
 EXPECTED_CLI_ONLYALPHA_IMPORTS: frozenset[CanonicalImport] = frozenset(
     {
-        ("symbol", "onlyalpha.application", "OnlyEngineInspectionService"),
-        ("symbol", "onlyalpha.application.engine_runner", "OnlyEngineApplicationRunner"),
-        ("symbol", "onlyalpha.application.engine_runner", "OnlyRuntimeLifecycleKind"),
-        ("symbol", "onlyalpha.application.engine_runner", "only_engine_lifecycle_kind"),
         ("symbol", "onlyalpha.core.errors", "OnlyError"),
-        ("symbol", "onlyalpha.domain.identifiers", "OnlyEngineId"),
-        ("symbol", "onlyalpha.engine", "OnlyEngine"),
-        ("symbol", "onlyalpha.engine", "OnlyEngineConfig"),
         ("symbol", "onlyalpha.persistence.postgres", "OnlyPostgresConfig"),
         ("symbol", "onlyalpha.persistence.postgres", "OnlyPostgresResearchOperationsStore"),
         ("symbol", "onlyalpha.research.operations.diagnostics", "OnlyResearchOperationalDiagnosticService"),
         ("symbol", "onlyalpha.research.run", "OnlyResearchRunId"),
-        ("symbol", "onlyalpha.runtime.defaults", "only_default_engine_services"),
         ("symbol", "onlyalpha.scenario", "OnlyMarketScenarioParser"),
         ("symbol", "onlyalpha.scenario", "OnlyMarketScenarioRunRequest"),
         ("symbol", "onlyalpha.scenario", "OnlyMarketScenarioRunner"),

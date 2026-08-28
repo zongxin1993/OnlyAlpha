@@ -188,7 +188,7 @@ def _git_value(*args: str) -> str:
 
 
 def _instrument_test_costs() -> None:
-    from onlyalpha.engine import OnlyEngine
+    from onlyalpha.engine.engine import OnlyEngine
 
     original_run = OnlyEngine.run
 

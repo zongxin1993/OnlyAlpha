@@ -15,7 +15,8 @@ from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.identifiers import OnlyEngineId, OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.runtime.sim.runtime import OnlySimRuntime
 from onlyalpha.strategy.adapter import OnlyRevisionStrategyAdapter
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRequest

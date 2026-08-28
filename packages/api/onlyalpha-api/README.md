@@ -1,12 +1,10 @@
 # onlyalpha-api
 
-HTTP transport for deliberately separate Research boundaries:
+HTTP transport for the unified Research Product boundary:
 
 - `onlyalpha-api --user-data-root ...`: full local Research API. It reads `ONLYALPHA_POSTGRES_DSN`, checks migration compatibility,
   exposes read-only Discovery, authoritative Definition resolution, durable Run submit/get/list/cancellation plus Artifact GET routes, and binds
-  loopback by default.
-- `onlyalpha-artifact-api --artifact-root ...`: portable Artifact Query API. It needs no PostgreSQL and exposes only exact-identity
-  Artifact GET routes.
+  loopback by default. Artifact GET routes are served by this same Product API.
 
 Run submission requires a canonical UUID4 `Idempotency-Key`; `202 Accepted` is returned only after PostgreSQL commits the Run and
 submission mapping. Run list pagination is deterministic keyset pagination. The API never starts a Worker/Engine, changes Attempt/lease

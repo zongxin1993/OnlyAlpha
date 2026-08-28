@@ -56,8 +56,8 @@ Artifact 先写 staging、读回验证，再发布 Manifest；失败不留下宣
 
 ## Reports and CLI
 
-本节描述内部/legacy Engine CLI 的结果投影。迁移期 `onlyalpha run` 输出单行简洁 JSON，不包含巨大订单或净值列表；该命令是
-`LEGACY_K8_TARGET`，不是正式 Product Control Plane。使用 `--console-report` 可在 JSON 前显示 Run、Trading、Performance 和 Artifact 摘要。
+本节描述内部 Engine composition 的结果投影。P9.K.8 已删除 legacy `onlyalpha run` Product CLI；内部测试、scenario 与明确 internal
+tooling 仍可消费同一 Result/Report authority，但不得作为外部 Product Control Plane。
 `report.md` 包含 Run、Data、Strategy、Order、Execution、Trade、Performance、Final Account/Positions、Diagnostics、Artifacts 与 Fingerprints。
 
 ## Fingerprints

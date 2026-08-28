@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.research import (
     OnlyParquetResearchArtifactStore,

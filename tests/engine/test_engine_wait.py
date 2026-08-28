@@ -7,7 +7,8 @@ from unittest.mock import Mock
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.engine.models import OnlyEngineState
 
 

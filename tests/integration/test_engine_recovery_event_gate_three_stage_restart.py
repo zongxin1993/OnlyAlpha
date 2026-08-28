@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.events import OnlyRuntimeEventGatePhase

@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.result import only_backtest_business_projection
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.execution.support.execution_fault_injection import OnlyTestRuntimePersistenceFault

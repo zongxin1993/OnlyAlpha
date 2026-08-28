@@ -1,7 +1,7 @@
 {
     "name": "onlyalpha-web",
     "private": true,
-    "version": "0.9.7",
+    "version": "0.9.8",
     "type": "module",
     "engines": {
         "node": ">=24 <25"

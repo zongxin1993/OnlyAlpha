@@ -53,11 +53,8 @@ def test_run_http_adapter_cannot_start_execution_or_modify_attempt_authority() -
         assert forbidden not in source
 
 
-def test_portable_artifact_composition_has_no_postgres_or_run_dependency() -> None:
-    source = Path("packages/api/onlyalpha-api/src/onlyalpha_api/artifact_main.py").read_text()
-    assert "postgres" not in source.lower()
-    assert "OnlyResearchCommand" not in source
-    assert "OnlyResearchRun" not in source
+def test_standalone_artifact_composition_is_absent() -> None:
+    assert not Path("packages/api/onlyalpha-api/src/onlyalpha_api/artifact_main.py").exists()
 
 
 def test_command_api_does_not_return_artifact_or_result_content() -> None:

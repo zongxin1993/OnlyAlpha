@@ -16,7 +16,8 @@ from onlyalpha.domain.identifiers import (
     OnlyEngineId,
 )
 from onlyalpha.domain.time import OnlyTimestamp
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig, OnlyEngineRunResult
+from onlyalpha.engine import OnlyEngineConfig, OnlyEngineRunResult
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.runtime.backtest.result import OnlyBacktestResult
 from onlyalpha.runtime.defaults import OnlyEngineServices
 from onlyalpha.transaction import OnlyCommittedRuntimeTransaction

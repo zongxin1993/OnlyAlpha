@@ -1,5 +1,7 @@
 """Public Runtime checkpoint infrastructure."""
 
+from importlib import import_module as _import_module
+
 from .codec import (
     only_canonical_checkpoint_payload,
     only_checkpoint_payload_hash,
@@ -24,7 +26,6 @@ from .participant import (
     OnlyStatelessRuntimeCheckpointParticipant,
 )
 from .registry import OnlyRuntimeCheckpointParticipantRegistry
-from .service import OnlyRuntimeCheckpointService
 
 __all__ = [
     "ONLY_RUNTIME_CHECKPOINT_SCHEMA_VERSION",
@@ -47,3 +48,15 @@ __all__ = [
     "only_seal_runtime_checkpoint",
     "only_validate_runtime_checkpoint",
 ]
+
+_LAZY_EXPORTS = {"OnlyRuntimeCheckpointService": "onlyalpha.runtime.checkpoint.service"}
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    value: object = getattr(_import_module(module_name), name)
+    globals()[name] = value
+    return value

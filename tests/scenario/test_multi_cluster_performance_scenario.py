@@ -7,7 +7,8 @@ from typing import cast
 from onlyalpha.config import OnlyClusterRunConfig, OnlyStrategyReferenceConfig
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.strategy import (
     OnlyStrategyMarketInputContract,
     OnlyStrategyUniverse,

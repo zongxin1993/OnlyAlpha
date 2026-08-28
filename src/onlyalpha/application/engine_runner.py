@@ -7,7 +7,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import cast
 
-from onlyalpha.engine import OnlyEngine
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.runtime.runtime import OnlyRuntime
 
 from .stop_controller import (

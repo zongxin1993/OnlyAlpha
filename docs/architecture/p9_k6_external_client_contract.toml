@@ -16,6 +16,7 @@ entrypoint = "onlyalpha-artifact-api"
 decision = "READ_ONLY_COMPATIBILITY_SURFACE"
 mutation_capability = false
 removal_owner = "P9.K.8"
+closure = "REMOVED"
 
 [[documentation]]
 path = "README.md"
@@ -47,18 +48,18 @@ id = "K6-S001"
 source_ids = ["K0-S001"]
 location = "src/onlyalpha/__init__.py and public Engine/Runtime modules"
 actor = "PUBLIC_PYTHON"
-classification = "LEGACY_K8_TARGET"
-action = "Normal Product usage migrates to onlyalpha-client; temporary imports remain for K8 sealing"
-k8_debt = true
+classification = "CLOSED"
+action = "K8 removed root and broad-aggregator mutation constructors; concrete modules remain internal/test/operator composition"
+k8_debt = false
 
 [[external_surfaces]]
 id = "K6-S002"
 source_ids = ["K0-S002"]
 location = "onlyalpha run and onlyalpha snapshot"
 actor = "CLI"
-classification = "LEGACY_K8_TARGET"
-action = "Stop documenting as Product UX; do not add Engine-shaped HTTP endpoints"
-k8_debt = true
+classification = "CLOSED"
+action = "K8 removed both commands without replacement or local fallback"
+k8_debt = false
 
 [[external_surfaces]]
 id = "K6-S003"
@@ -101,9 +102,9 @@ id = "K6-S007"
 source_ids = ["K0-S007"]
 location = "onlyalpha-artifact-api"
 actor = "INFRASTRUCTURE"
-classification = "READ_ONLY_COMPATIBILITY_SURFACE"
-action = "Retain temporarily with mutation capability mechanically fixed at zero"
-k8_debt = true
+classification = "CLOSED"
+action = "K8 removed the duplicate executable and standalone app composition; artifact routes remain in onlyalpha-api"
+k8_debt = false
 
 [[external_surfaces]]
 id = "K6-S008"
@@ -171,16 +172,16 @@ k8_debt = false
 [[cli_commands]]
 command = "onlyalpha run"
 actor = "CLI"
-classification = "LEGACY_K8_TARGET"
-action = "Retain temporarily; remove from Product documentation"
-k8_debt = true
+classification = "CLOSED"
+action = "Removed by K8"
+k8_debt = false
 
 [[cli_commands]]
 command = "onlyalpha snapshot"
 actor = "CLI"
-classification = "LEGACY_K8_TARGET"
-action = "Retain temporarily; remove from Product documentation"
-k8_debt = true
+classification = "CLOSED"
+action = "Removed by K8"
+k8_debt = false
 
 [[cli_commands]]
 command = "onlyalpha scenario validate"
@@ -248,9 +249,9 @@ k8_debt = false
 [[cli_commands]]
 command = "onlyalpha-artifact-api"
 actor = "INFRASTRUCTURE"
-classification = "OPERATOR / INFRASTRUCTURE"
-action = "Run the read-only compatibility adapter"
-k8_debt = true
+classification = "CLOSED"
+action = "Historical executable removed by K8; entry retained only as closure evidence"
+k8_debt = false
 
 [[cli_commands]]
 command = "onlyalpha-research-worker"

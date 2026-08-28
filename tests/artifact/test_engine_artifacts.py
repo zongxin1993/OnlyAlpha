@@ -5,7 +5,8 @@ import pyarrow.parquet as pq
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.engine.models import OnlyEngineRunResult
 from tests.runtime_runner import only_migrate_cluster_to_strategy
 

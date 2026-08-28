@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.plugin import OnlyPluginHealthStatus, OnlyPluginLifecycleState
 from onlyalpha.runtime.defaults import only_default_engine_services
 from tests.runtime_runner import only_write_migrated_cluster_config

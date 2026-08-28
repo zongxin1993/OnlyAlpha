@@ -20,7 +20,6 @@ DTO_ERROR_MAPPER = "DTO / ERROR / MAPPER"
 
 API_MODULE_ROLES = {
     "app.py": COMPOSITION_ROOT,
-    "artifact_main.py": COMPOSITION_ROOT,
     "health.py": TRANSPORT_ROUTE,
     "main.py": COMPOSITION_ROOT,
     "research/definition_errors.py": DTO_ERROR_MAPPER,
@@ -65,7 +64,6 @@ EXPECTED_API_CORE_CROSSINGS = {
         onlyalpha.research.specification.errors.OnlyResearchSpecificationError
         """
     ),
-    "artifact_main.py": _symbols("onlyalpha.research.artifact.reader.OnlyResearchArtifactProfileReader"),
     "health.py": _symbols(
         """
         onlyalpha.research.operations.readiness.OnlyResearchReadiness

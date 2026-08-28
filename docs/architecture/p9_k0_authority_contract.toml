@@ -2,6 +2,7 @@ contract_version = 1
 name = "P9.K Product Authority Contract"
 
 reserved_future_capabilities = []
+legacy_debts = []
 sensitive_path_patterns = [
   "src/onlyalpha/__init__.py",
   "src/onlyalpha/cli.py",
@@ -253,13 +254,13 @@ privileged = true
 id = "A01"
 name = "PUBLIC_PYTHON_SURFACE"
 production = true
-allowed_capabilities = ["C05", "C12", "C13", "C14"]
+allowed_capabilities = []
 
 [[actors]]
 id = "A02"
-name = "PRODUCT_CLI"
+name = "ROOT_OPERATOR_SCENARIO_CLI"
 production = true
-allowed_capabilities = ["C01", "C05", "C12", "C14"]
+allowed_capabilities = ["C01", "C05"]
 
 [[actors]]
 id = "A03"
@@ -368,7 +369,7 @@ pattern = "src/onlyalpha/__init__.py"
 actor = "A01"
 [[actor_paths]]
 pattern = "examples/internal/committed_execution_report.py"
-actor = "A01"
+actor = "A15"
 [[actor_paths]]
 pattern = "src/onlyalpha/cli.py"
 actor = "A02"
@@ -380,9 +381,6 @@ pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/app.py"
 actor = "A03"
 [[actor_paths]]
 pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/main.py"
-actor = "A03"
-[[actor_paths]]
-pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/artifact_main.py"
 actor = "A03"
 [[actor_paths]]
 pattern = "packages/api/onlyalpha-api/src/onlyalpha_api/__init__.py"
@@ -571,7 +569,7 @@ capability = "C04"
 approved_production_holders = ["A15", "A16"]
 [[ownership]]
 capability = "C05"
-approved_production_holders = ["A01", "A07", "A08", "A14", "A15"]
+approved_production_holders = ["A07", "A08", "A14", "A15"]
 [[ownership]]
 capability = "C06"
 approved_production_holders = ["A14"]
@@ -592,13 +590,13 @@ capability = "C11"
 approved_production_holders = ["A10"]
 [[ownership]]
 capability = "C12"
-approved_production_holders = ["A01", "A02", "A06", "A11", "A15"]
+approved_production_holders = ["A06", "A11", "A15"]
 [[ownership]]
 capability = "C13"
-approved_production_holders = ["A01", "A07", "A08", "A09", "A15"]
+approved_production_holders = ["A07", "A08", "A09", "A15"]
 [[ownership]]
 capability = "C14"
-approved_production_holders = ["A01", "A02", "A06", "A07", "A08", "A09", "A11", "A15"]
+approved_production_holders = ["A06", "A07", "A08", "A09", "A11", "A15"]
 [[ownership]]
 capability = "C15"
 approved_production_holders = []
@@ -654,7 +652,7 @@ approved_paths = ["src/onlyalpha/research/worker_main.py"]
 id = "K08"
 capability = "C12"
 symbol = "onlyalpha.engine.engine.OnlyEngine"
-approved_paths = ["examples/internal/committed_execution_report.py", "scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/cli.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
+approved_paths = ["examples/internal/committed_execution_report.py", "scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
 [[constructors]]
 id = "K09"
 capability = "C13"
@@ -685,19 +683,3 @@ id = "K14"
 capability = "C19"
 symbol = "onlyalpha.kernel.query.OnlyProductQueryDispatcher"
 approved_paths = ["src/onlyalpha/application/product_boundary.py"]
-
-[[legacy_debts]]
-id = "D01"
-description = "root public Engine Runtime and Cluster construction surface"
-paths = ["src/onlyalpha/__init__.py"]
-capabilities = ["C12", "C13", "C14"]
-[[legacy_debts]]
-id = "D02"
-description = "product CLI directly constructs and controls Engine"
-paths = ["src/onlyalpha/cli.py"]
-capabilities = ["C12", "C14"]
-[[legacy_debts]]
-id = "D03"
-description = "committed execution example directly constructs Engine"
-paths = ["examples/internal/committed_execution_report.py"]
-capabilities = ["C12", "C14"]

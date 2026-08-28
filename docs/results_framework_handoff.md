@@ -2,7 +2,7 @@
 
 ## Stable public behavior
 
-- legacy `onlyalpha run` 默认仍输出单行 JSON；旧字段未删除。它是 P9.K.8 hard-seal debt，不是正式 Product client contract。
+- P9.K.8 已删除 legacy `onlyalpha run`；Result DTO/Artifact contract 本身未改变，内部 composition 继续消费既有结果字段。
 - `OnlyBacktestResult` 的旧构造参数保持不变，新字段均有默认值。
 - Strategy 自定义 Result Extension 继续保留，标准 Signal 通过 `ctx.results.record_signal()` 记录。
 - 旧 Run Manifest 和 determinism fingerprint 保留；新增三层结果指纹。

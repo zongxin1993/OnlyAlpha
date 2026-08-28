@@ -69,12 +69,9 @@ def test_no_dispatch_failure_fallback_or_direct_mutation_call_exists() -> None:
     assert ".request_research_run_cancellation(" not in source
 
 
-def test_artifact_console_is_explicitly_read_only_and_not_a_product_control_plane() -> None:
-    source = (API / "artifact_main.py").read_text(encoding="utf-8")
-    assert "create_artifact_query_app" in source
-    assert "create_research_app" not in source
-    assert "OnlyAlphaKernelHost" not in source
-    assert "OnlyResearchProductBoundary" not in source
+def test_standalone_artifact_console_is_no_longer_a_product_surface() -> None:
+    assert not (API / "artifact_main.py").exists()
+    assert "create_artifact_query_app" not in APP.read_text(encoding="utf-8")
 
 
 def test_core_and_product_intents_remain_http_transport_neutral() -> None:

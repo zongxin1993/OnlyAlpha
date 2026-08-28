@@ -1,9 +1,9 @@
 # Research HTTP APIs V2
 
-The portable Artifact API only supports an exact lower-case Research Result SHA256. Configure it explicitly:
+Artifact queries are served by the unique Product API. Configure it explicitly:
 
 ```bash
-onlyalpha-artifact-api --artifact-root /absolute/path/to/research-artifacts
+ONLYALPHA_POSTGRES_DSN='postgresql://...' onlyalpha-api --user-data-root /absolute/path/to/user-data
 ```
 
 It binds `127.0.0.1:8000` by default and exposes:
@@ -22,7 +22,7 @@ The deterministic OpenAPI contract is `contracts/research-api/v2/openapi.json`, 
 `scripts/openapi_contract.py`. `apps/onlyalpha-web` generates compile-time transport types from it and separately performs
 strict Zod admission before mapping timestamps to `bigint`. There are no v1 product routes or compatibility wrapper.
 
-The API is read-only and exact-addressed. It has no catalog/search/latest endpoint, mutation, raw Parquet download, query cache,
+The Artifact query family is read-only and exact-addressed. It has no catalog/search/latest endpoint, mutation, raw Parquet download, query cache,
 semantic recomputation, authentication, Trading endpoint, or Runtime control. The read-only Research Web consumer uses only these
 same-origin endpoints and never reads Artifact filesystem layout or execution Stores.
 

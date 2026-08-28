@@ -15,6 +15,7 @@ PROJECTION_PATHS = (
     Path("docs/roadmap.md"),
     Path("docs/p9_k_stateful_kernel_protocol_boundary.md"),
 )
+P9_K_CLOSED_STATUS = "P9.K = CLOSED; P9.1+ = UNBLOCKED"
 
 
 class ProjectStateError(RuntimeError):
@@ -128,6 +129,12 @@ def _validate_state(state: ProjectState) -> None:
     )
     if any(next_values) and not all(next_values):
         raise ProjectStateError("next authorized increment fields must be either all empty or all non-empty")
+    if (
+        state.last_verified_increment == "P9.K.8"
+        and state.next_authorized_increment == "P9.1"
+        and state.p9_1_plus_status != P9_K_CLOSED_STATUS
+    ):
+        raise ProjectStateError("verified P9.K.8 must close P9.K and unblock P9.1+")
 
     if state.active_increment and state.active_increment == state.last_verified_increment:
         raise ProjectStateError("active increment must differ from last verified increment")
@@ -349,6 +356,7 @@ def verify_increment(state: ProjectState, increment: str, *, next_id: str, next_
         raise ProjectStateError("verification transition requires a non-empty next increment id and name")
     if next_id == increment:
         raise ProjectStateError("next authorized increment must differ from the verified increment")
+    closes_p9_k = increment == "P9.K.8" and next_id.strip() == "P9.1"
     return replace(
         state,
         last_verified_increment=state.active_increment,
@@ -360,6 +368,7 @@ def verify_increment(state: ProjectState, increment: str, *, next_id: str, next_
         next_authorized_increment=next_id.strip(),
         next_authorized_name=next_name.strip(),
         next_authorized_state="IMPLEMENTATION READY",
+        p9_1_plus_status=P9_K_CLOSED_STATUS if closes_p9_k else state.p9_1_plus_status,
     )
 
 

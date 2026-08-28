@@ -17,7 +17,8 @@ from onlyalpha.config import (
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyClusterId, OnlyEngineId
 from onlyalpha.domain.value import OnlyMoney
-from onlyalpha.engine import OnlyEngine, OnlyEngineConfig
+from onlyalpha.engine import OnlyEngineConfig
+from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.market.product import OnlyResolvedMarketProductBinding
 from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.factory import OnlyRuntimeBuildResult

@@ -570,15 +570,15 @@ Python 的唯一正式 Product client package 是 `onlyalpha-client`。它不依
 transport/protocol error normalization，不拥有 Research admission、command identity、lifecycle 或 retry authority。Mutation 不隐式 retry。
 
 `onlyalpha.engine`、`onlyalpha.config`、`onlyalpha.domain.*`、`onlyalpha.strategy`、`onlyalpha.factor`、`onlyalpha.indicator` 与
-`onlyalpha.plugin.api` 是内部工程组合或插件边界，不再作为外部 Product control contract。根包的 Engine/Runtime/Cluster 导出与
-`onlyalpha run/snapshot` 在 K6 后仅是显式 `LEGACY_K8_TARGET`；P9.K.8 负责 hard seal。
+`onlyalpha.plugin.api` 是内部工程组合或插件边界，不作为外部 Product control contract。P9.K.8 已从根包及 broad
+`onlyalpha.engine/runtime/cluster` aggregators 移除 mutation constructors，并删除 `onlyalpha run/snapshot`。
 
 Runtime Planner、Environment Builder、Assembly Plan、Assembler、Session、Manager、Registry 内部容器、ExecutionProcessor 内部步骤、Projection applier、Recovery orchestration state 和 persistence schema 属于内部实现。
 
-当前根包和 `onlyalpha.runtime` 仍导出部分具体目标 Runtime 类；`onlyalpha.config` 仍导出 Assembly DTO，`onlyalpha.cluster`
-仍导出 `OnlyClusterManager`。这些是当前可导入事实和 K8 待收紧债务，不构成长久稳定 Product 合同。直接 Engine 示例只允许位于
-`examples/internal/` 并显式标记内部用途；`examples/product/` 必须只使用 Product API/client。历史 Paper/Shadow Runtime 导出已删除，
-不存在 compatibility alias。
+具体 Engine/Runtime/Cluster implementation modules 只供内部、测试、scenario、operator 或 composition owner 使用；broad aggregators
+不再提供这些 mutation constructors。`onlyalpha.config` 的 Assembly DTO 仍是内部组合值，不是外部 Product mutation contract。直接 Engine
+示例只允许位于 `examples/internal/` 并显式标记内部用途；`examples/product/` 必须只使用 Product API/client。历史 Paper/Shadow
+Runtime 导出已删除，不存在 compatibility alias。
 
 ## 19. Dependency Direction
 
