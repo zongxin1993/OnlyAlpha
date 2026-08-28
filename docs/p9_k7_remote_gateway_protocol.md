@@ -44,8 +44,11 @@ Generation is pinned to:
 ```text
 grpcio-tools 1.73.1
 grpcio       1.73.1
-protobuf     6.31.0
+protobuf     6.33.5
 ```
+
+The protobuf pin was updated to 6.33.5 by the P9.K.7 post-commit security closure; canonical `.proto` bytes, protocol major,
+generated descriptor identity, and Gateway business semantics remained unchanged.
 
 The generation input excludes timestamps, hostnames, absolute paths, Git SHA, random values, and build numbers. Governance commands are:
 

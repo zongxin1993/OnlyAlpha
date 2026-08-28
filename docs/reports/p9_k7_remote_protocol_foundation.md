@@ -419,3 +419,52 @@ and `dependency-audit` jobs succeed. Until then the strict closure verdict is:
 P9.K.7 Closure Fix = NOT CLOSED
 P9.K.8 = DO NOT START
 ```
+
+## Committed-HEAD Final Closure Verification
+
+- Original P9.K.7 Task Base SHA: `baa91014ec4e0197ac5c34f41138abc68c18471a`
+- Original K7 implementation SHA: `25077159ab50a42d5125195cf82731543f37a8f7`
+- Closure-fix base SHA: `25077159ab50a42d5125195cf82731543f37a8f7`
+- Closure-fix committed SHA: `dfebfd4eeafe8aaa187133e6437e97d879de9f13`
+- Current documentation-closure task base SHA: `dfebfd4eeafe8aaa187133e6437e97d879de9f13`
+- Current documentation-closure task final SHA/worktree: `dfebfd4eeafe8aaa187133e6437e97d879de9f13 + dirty documentation-closure worktree`
+- Gate: P9.K.7 Final Evidence / Documentation Closure Task Gate only; no Phase Gate or Final-SHA Certification claim
+
+The immutable closure-fix subject `dfebfd4eeafe8aaa187133e6437e97d879de9f13` passed the five required committed-HEAD CI jobs:
+
+```text
+static            PASS
+architecture      PASS
+gateway-protocol  PASS
+build             PASS
+dependency-audit  PASS
+```
+
+That committed evidence proves the three post-commit closure corrections:
+
+1. Architecture current-tree verification no longer depends on undeclared clone history.
+2. Historical K7 task delta has one explicit full-history authority and fails closed if its baseline is missing.
+3. Stream application error taxonomy is exact and Protobuf is safely pinned to 6.33.5.
+
+The closure preserves the frozen semantic boundaries:
+
+```text
+Product OpenAPI semantic delta = 0
+protected P9 semantic delta    = 0
+canonical Proto semantic delta = 0
+protocol major                 = onlyalpha.gateway.v1
+business persistence delta     = 0
+```
+
+Final Task-Gate verdict:
+
+```text
+P9.K.7 Final Evidence / Documentation Closure = CLOSED
+
+BLOCKER = 0
+MAJOR   = 0
+
+P9.K.7 = TASK COMPLETE / VERIFIED
+P9.K.8 = MAY START / IMPLEMENTATION READY
+P9.1+  = remains blocked until P9.K closure
+```
