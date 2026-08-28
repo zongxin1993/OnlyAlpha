@@ -5,8 +5,10 @@ from datetime import time
 from decimal import Decimal
 
 from onlyalpha.plugin.api import (
+    OnlyCompiledDynamicPriceRequirement,
     OnlyCompiledInstrumentMarketTerms,
     OnlyCompiledMarketPolicy,
+    OnlyCompiledNotionalPolicy,
     OnlyCompiledPriceBandPolicy,
     OnlyCompiledQuantityPolicy,
     OnlyInstrumentTradingStatus,
@@ -51,12 +53,12 @@ class OnlyBinanceSpotPolicyCompiler:
     )
 
     def compile(self, request: OnlyMarketPolicyCompilationRequest) -> OnlyCompiledMarketPolicy:
-        reference = request.reference_authority.resolve(request.instrument_id, request.trading_day)
+        reference = request.reference_authority.resolve(request.instrument_id, request.trading_day, as_of=request.as_of)
         if not isinstance(reference, OnlyBinanceSpotReference):
             raise TypeError("BINANCE_SPOT_REFERENCE_TYPE_REQUIRED")
         status = (
             OnlyInstrumentTradingStatus.TRADABLE
-            if reference.trade_eligible
+            if reference.market_product_eligible
             else (
                 OnlyInstrumentTradingStatus.SUSPENDED
                 if reference.provider_status in {"HALT", "BREAK"}
@@ -87,12 +89,74 @@ class OnlyBinanceSpotPolicyCompiler:
                 False,
                 reference.maximum_quantity,
                 True,
+                reference.market_minimum_quantity,
+                reference.market_quantity_step,
+                reference.market_maximum_quantity,
             ),
             position_policy=_POSITION,
             short_policy=_SHORT,
             settlement_policy=_SETTLEMENT,
             margin_policy=None,
+            notional_policy=OnlyCompiledNotionalPolicy(
+                reference.minimum_notional,
+                reference.maximum_notional,
+                reference.minimum_notional_applies_to_market,
+                reference.maximum_notional_applies_to_market,
+                reference.notional_reference_window_minutes,
+            ),
+            dynamic_price_requirements=_dynamic_requirements(reference),
         )
+
+
+def _dynamic_requirements(
+    reference: OnlyBinanceSpotReference,
+) -> tuple[OnlyCompiledDynamicPriceRequirement, ...]:
+    requirements: list[OnlyCompiledDynamicPriceRequirement] = []
+    for rule in reference.rules:
+        if rule.rule_type not in {"PERCENT_PRICE", "PERCENT_PRICE_BY_SIDE", "PRICE_RANGE"}:
+            continue
+        values = dict(rule.values)
+        names: tuple[str, ...]
+        if rule.rule_type == "PERCENT_PRICE":
+            names = ("multiplierDown", "multiplierUp")
+            side_specific = False
+            reference_kind = "VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE"
+            window = _integer(values, "avgPriceMins")
+        elif rule.rule_type == "PERCENT_PRICE_BY_SIDE":
+            names = ("askMultiplierDown", "askMultiplierUp", "bidMultiplierDown", "bidMultiplierUp")
+            side_specific = True
+            reference_kind = "VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE"
+            window = _integer(values, "avgPriceMins")
+        else:
+            names = ("askLimitMultDown", "askLimitMultUp", "bidLimitMultDown", "bidLimitMultUp")
+            side_specific = True
+            reference_kind = "VENUE_REFERENCE_PRICE"
+            window = None
+        requirements.append(
+            OnlyCompiledDynamicPriceRequirement(
+                rule.rule_type,
+                side_specific,
+                reference_kind,
+                window,
+                tuple((name, Decimal(_text(values, name))) for name in names),
+                "REALTIME_MARKET_REFERENCE",
+            )
+        )
+    return tuple(sorted(requirements))
+
+
+def _text(values: dict[str, str | bool | int], name: str) -> str:
+    value = values.get(name)
+    if not isinstance(value, str):
+        raise ValueError(f"BINANCE_SPOT_DYNAMIC_RULE_{name.upper()}_INVALID")
+    return value
+
+
+def _integer(values: dict[str, str | bool | int], name: str) -> int:
+    value = values.get(name)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"BINANCE_SPOT_DYNAMIC_RULE_{name.upper()}_INVALID")
+    return value
 
 
 __all__ = ["OnlyBinanceSpotPolicyCompiler"]

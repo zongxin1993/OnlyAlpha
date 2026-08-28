@@ -6,10 +6,16 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from onlyalpha_api import RESEARCH_API_SCHEMA_VERSION
-from onlyalpha_api.research.schema import ResearchCandidateGraphDto
+from onlyalpha_api.research.schema import ResearchCandidateGraphDto, ResearchScientificSeriesPageDto
 from pydantic import ValidationError
 
 from onlyalpha.research import MAX_PAGE_SIZE, RESEARCH_QUERY_SCHEMA_VERSION
+from onlyalpha.research.query import (
+    OnlyResearchMarketPoint,
+    OnlyResearchScientificSeriesPage,
+    OnlyResearchSignalPoint,
+    OnlyResearchVariablePoint,
+)
 from tests.research.artifact.support import scientific_artifact_case
 from tests.research.query.support import query_case
 from tests.support.research_artifact_http import create_test_artifact_query_app
@@ -19,6 +25,35 @@ def _client(tmp_path):  # type: ignore[no-untyped-def]
     *_, candidate, store, _ = query_case(tmp_path)
     artifact = store.load_verified(candidate.research_result_fingerprint)
     return candidate, store, artifact, TestClient(create_test_artifact_query_app(store))
+
+
+def test_scientific_series_transport_preserves_every_typed_point_and_cursor() -> None:
+    model = OnlyResearchScientificSeriesPage(
+        research_result_fingerprint="a" * 64,
+        points=(
+            OnlyResearchMarketPoint(
+                "BTCUSDT.BINANCE",
+                1,
+                Decimal("1.0"),
+                Decimal("2.0"),
+                Decimal("0.5"),
+                Decimal("1.5"),
+                Decimal("10.0"),
+            ),
+            OnlyResearchVariablePoint("BTCUSDT.BINANCE", 2, "DECIMAL", "1.25", None, None, None),
+            OnlyResearchSignalPoint("BTCUSDT.BINANCE", 3, True),
+        ),
+        has_more=True,
+        next_after_ts_event_ns=3,
+    )
+
+    transported = ResearchScientificSeriesPageDto.from_model(model).model_dump()
+
+    assert [item["ts_event_ns"] for item in transported["points"]] == ["1", "2", "3"]
+    assert transported["points"][0]["close"] == "1.5"
+    assert transported["points"][1]["decimal_value"] == "1.25"
+    assert transported["points"][2]["value"] is True
+    assert transported["next_after_ts_event_ns"] == "3"
 
 
 def test_three_versioned_get_endpoints_return_exact_read_dtos(tmp_path) -> None:

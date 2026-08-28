@@ -80,7 +80,7 @@ class OnlyGenericT0CashPolicyCompiler:
     )
 
     def compile(self, request: OnlyMarketPolicyCompilationRequest) -> OnlyCompiledMarketPolicy:
-        reference = request.reference_authority.resolve(request.instrument_id, request.trading_day)
+        reference = request.reference_authority.resolve(request.instrument_id, request.trading_day, as_of=request.as_of)
         if not isinstance(reference, OnlyGenericT0CashReference):
             raise TypeError("GENERIC_T0_CASH_REFERENCE_TYPE_REQUIRED")
         if reference.instrument_id != request.instrument_id:

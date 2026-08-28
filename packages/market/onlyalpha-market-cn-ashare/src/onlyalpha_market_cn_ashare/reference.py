@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
@@ -246,7 +246,13 @@ class OnlyCnAshareReferenceAuthority:
         ).hexdigest()
         return cls(ordered, OnlyMarketProductAuthorityIdentity("REFERENCE", "CN_A_SHARE", "1", fingerprint))
 
-    def resolve(self, instrument_id: OnlyInstrumentId, trading_day: OnlyTradingDay) -> OnlyCnAshareInstrumentReference:
+    def resolve(
+        self,
+        instrument_id: OnlyInstrumentId,
+        trading_day: OnlyTradingDay,
+        *,
+        as_of: datetime | None = None,
+    ) -> OnlyCnAshareInstrumentReference:
         matches = tuple(
             item
             for item in self.references

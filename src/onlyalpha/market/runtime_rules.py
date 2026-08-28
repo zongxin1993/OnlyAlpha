@@ -49,6 +49,8 @@ _PRE_TRADE_RULE_ORDER = (
     "PREVIOUS_CLOSE_SEMANTICS",
     "DAILY_UPPER_LIMIT",
     "DAILY_LOWER_LIMIT",
+    "NOTIONAL_MINIMUM",
+    "NOTIONAL_MAXIMUM",
     "SELLABLE_POSITION",
     "AVAILABLE_CASH",
     "DYNAMIC_PRICE_CAGE",
@@ -184,7 +186,13 @@ class OnlyTradeInstructionPort(Protocol):
 
     def build_trade_instruction(self, request: OnlyTradeApplicationRequest) -> OnlyTradeApplicationInstruction: ...
 
-    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketPolicy: ...
+    def compiled_rules(
+        self,
+        instrument_id: str,
+        trading_day: OnlyTradingDay,
+        *,
+        as_of: datetime | None = None,
+    ) -> OnlyCompiledMarketPolicy: ...
 
 
 class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort):
@@ -198,7 +206,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
     ) -> None:
         self._binding = binding
         self._advance_trading_day = advance_trading_day
-        self._cache: dict[tuple[str, object], OnlyCompiledMarketPolicy] = {}
+        self._cache: dict[tuple[str, object, str], OnlyCompiledMarketPolicy] = {}
         self._decisions: list[OnlyMarketOrderDecision] = []
 
     @property
@@ -222,16 +230,25 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         """Stable public query projection for collectors and artifacts."""
         return tuple(item.identity for _, item in sorted(self._cache.items(), key=lambda pair: pair[0]))
 
-    def compiled_rules(self, instrument_id: str, trading_day: OnlyTradingDay) -> OnlyCompiledMarketPolicy:
-        key = (instrument_id, trading_day.value)
+    def compiled_rules(
+        self,
+        instrument_id: str,
+        trading_day: OnlyTradingDay,
+        *,
+        as_of: datetime | None = None,
+    ) -> OnlyCompiledMarketPolicy:
+        compiled = self._binding.policy_compiler.compile(
+            OnlyMarketPolicyCompilationRequest(
+                OnlyInstrumentId.parse(instrument_id),
+                trading_day,
+                self._binding.reference_authority,
+                as_of,
+            )
+        )
+        key = (instrument_id, trading_day.value, compiled.identity.reference_fingerprint)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        compiled = self._binding.policy_compiler.compile(
-            OnlyMarketPolicyCompilationRequest(
-                OnlyInstrumentId.parse(instrument_id), trading_day, self._binding.reference_authority
-            )
-        )
         self._cache[key] = compiled
         return compiled
 
@@ -297,12 +314,13 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         if payload.get("market_composition_fingerprint") != self._binding.composition_identity.fingerprint:
             raise ValueError("MARKET_COMPOSITION_FINGERPRINT_MISMATCH")
 
-        def identity(raw: object) -> OnlyCompiledMarketPolicyIdentity:
+        def identity(raw: object, *, as_of: datetime) -> OnlyCompiledMarketPolicyIdentity:
             if not isinstance(raw, dict):
                 raise ValueError("Market Rule decision identity must be an object")
             expected = self.compiled_rules(
                 str(raw["instrument_id"]),
                 OnlyTradingDay(date.fromisoformat(str(raw["trading_day"]))),
+                as_of=as_of,
             ).identity
             if expected.reference_fingerprint != str(raw["reference_fingerprint"]):
                 raise ValueError("REFERENCE_FINGERPRINT_MISMATCH: compiled Reference differs")
@@ -314,8 +332,9 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         for raw in payload["decisions"]:
             if not isinstance(raw, dict):
                 raise ValueError("Market Rule decision must be an object")
-            compiled_identity = identity(raw["compiled_identity"])
             if raw["kind"] == "ORDER":
+                decision_timestamp = datetime.fromisoformat(str(raw["timestamp"]))
+                compiled_identity = identity(raw["compiled_identity"], as_of=decision_timestamp)
                 evaluation_payload = raw.get("evaluations")
                 if not isinstance(evaluation_payload, list):
                     raise ValueError("Market order decision evaluations must be an array")
@@ -343,7 +362,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
                         tuple(evaluations),
                         OnlyTradingDay(date.fromisoformat(str(raw["trading_day"]))),
                         OnlyTradingPhase(str(raw["trading_phase"])),
-                        datetime.fromisoformat(str(raw["timestamp"])),
+                        decision_timestamp,
                         OnlyOrderSide(str(raw["side"])),
                         Decimal(str(raw["normalized_price"])),
                         Decimal(str(raw["normalized_quantity"])),
@@ -373,7 +392,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
 
     def evaluate_pre_trade(self, context: OnlyPreTradeMarketContext) -> OnlyMarketOrderDecision:
         try:
-            rules = self.compiled_rules(context.instrument_id, context.trading_day)
+            rules = self.compiled_rules(context.instrument_id, context.trading_day, as_of=context.timestamp)
         except (KeyError, ValueError) as exc:
             return self._reference_failure_decision(context, exc)
         session = rules.session_policy.state_at(context.timestamp.astimezone(ZoneInfo(rules.session_policy.timezone)))
@@ -548,6 +567,23 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             not_applicable if lower is None else passed if above_lower else failed_status,
             None if above_lower else "PRICE_BELOW_DAILY_LIMIT",
         )
+        notional_policy = rules.notional_policy
+        minimum_notional = None if notional_policy is None else notional_policy.minimum_notional
+        minimum_notional_valid = minimum_notional is None or notional >= minimum_notional
+        record(
+            "NOTIONAL_MINIMUM",
+            not_applicable if minimum_notional is None else passed if minimum_notional_valid else failed_status,
+            None if minimum_notional_valid else "NOTIONAL_BELOW_MINIMUM",
+            () if minimum_notional is None else (("notional", str(notional)), ("minimum", str(minimum_notional))),
+        )
+        maximum_notional = None if notional_policy is None else notional_policy.maximum_notional
+        maximum_notional_valid = maximum_notional is None or notional <= maximum_notional
+        record(
+            "NOTIONAL_MAXIMUM",
+            not_applicable if maximum_notional is None else passed if maximum_notional_valid else failed_status,
+            None if maximum_notional_valid else "NOTIONAL_ABOVE_MAXIMUM",
+            () if maximum_notional is None else (("notional", str(notional)), ("maximum", str(maximum_notional))),
+        )
         position_available = required_position <= context.unreserved_sellable_quantity
         record(
             "SELLABLE_POSITION",
@@ -563,10 +599,15 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             passed if capital_available else failed_status,
             None if capital_available else capital_reason,
         )
+        dynamic_status = (
+            OnlyMarketRuleEvaluationStatus.NOT_EVALUATED
+            if rules.dynamic_price_requirements
+            else OnlyMarketRuleEvaluationStatus.NOT_APPLICABLE
+        )
         record(
             "DYNAMIC_PRICE_CAGE",
-            OnlyMarketRuleEvaluationStatus.NOT_EVALUATED,
-            "REALTIME_QUOTE_AUTHORITY_UNAVAILABLE",
+            dynamic_status,
+            "REALTIME_QUOTE_AUTHORITY_UNAVAILABLE" if rules.dynamic_price_requirements else None,
         )
         reason = next(
             (item.reason_code for item in evaluations if item.status is OnlyMarketRuleEvaluationStatus.FAILED),
@@ -594,7 +635,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
             minimum_buy_quantity=rules.quantity_policy.minimum_buy_quantity,
             buy_quantity_increment=rules.quantity_policy.buy_quantity_increment,
             sell_quantity_increment=rules.quantity_policy.sell_quantity_increment,
-            dynamic_price_cage_status=OnlyMarketRuleEvaluationStatus.NOT_EVALUATED,
+            dynamic_price_cage_status=dynamic_status,
             compiled_identity=rules.identity,
         )
         self._decisions.append(decision)
@@ -657,7 +698,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
         return self.compiled_rules(instrument_id, trading_day).position_policy.mode
 
     def build_trade_instruction(self, request: OnlyTradeApplicationRequest) -> OnlyTradeApplicationInstruction:
-        rules = self.compiled_rules(request.instrument_id, request.trading_day)
+        rules = self.compiled_rules(request.instrument_id, request.trading_day, as_of=request.timestamp)
         effect = request.position_effect
         if effect is OnlyPositionEffect.AUTO:
             effect = OnlyPositionEffect.OPEN if request.side is OnlyOrderSide.BUY else OnlyPositionEffect.CLOSE
@@ -728,7 +769,7 @@ class OnlyMarketRuleEngine(OnlyPreTradeMarketRulePort, OnlyTradeInstructionPort)
     ) -> OnlyMarginInstruction | None:
         """Build a submission-time reservation from the compiled margin policy."""
 
-        rules = self.compiled_rules(request.instrument_id, request.trading_day)
+        rules = self.compiled_rules(request.instrument_id, request.trading_day, as_of=request.timestamp)
         if rules.margin_policy is None or request.position_effect is not OnlyPositionEffect.OPEN:
             return None
         requirement = rules.margin_policy.requirement(

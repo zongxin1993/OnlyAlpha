@@ -1,24 +1,23 @@
 from pathlib import Path
 
-from onlyalpha.cli import main
+import pytest
+
+from onlyalpha.cli import only_parse_args
 from tests.runtime_runner import only_write_migrated_cluster_config
 
 
-def test_external_plugin_dry_run_reports_discovery_and_does_not_create_run(tmp_path: Path, capsys: object) -> None:
+def test_external_plugin_dry_run_cannot_reintroduce_removed_root_product_cli(tmp_path: Path) -> None:
     config = only_write_migrated_cluster_config("tests/fixtures/legacy_macd/cluster_external_plugins.yaml", tmp_path)
-    exit_code = main(
-        [
-            "run",
-            "--config",
-            str(config),
-            "--user-data",
-            str(tmp_path),
-            "--dry-run",
-        ]
-    )
-    output = capsys.readouterr().out  # type: ignore[attr-defined]
-    assert exit_code == 0
-    assert "test-external-data" in output
-    assert "test-external-broker" in output
-    assert "binding=data_source:external-test-data->test-external-data" in output
+    with pytest.raises(SystemExit) as exc_info:
+        only_parse_args(
+            [
+                "run",
+                "--config",
+                str(config),
+                "--user-data",
+                str(tmp_path),
+                "--dry-run",
+            ]
+        )
+    assert exc_info.value.code == 2
     assert not (tmp_path / "runs").exists()

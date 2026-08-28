@@ -26,7 +26,11 @@ class OnlyBinanceSpotExchangeInfo:
     @classmethod
     def parse(cls, payload: bytes) -> OnlyBinanceSpotExchangeInfo:
         raw = _object(payload, "EXCHANGE_INFO")
-        if not isinstance(raw.get("timezone"), str) or not isinstance(raw.get("symbols"), list):
+        if (
+            not isinstance(raw.get("timezone"), str)
+            or not isinstance(raw.get("symbols"), list)
+            or not isinstance(raw.get("exchangeFilters"), list)
+        ):
             raise OnlyBinanceSchemaError("EXCHANGE_INFO_REQUIRED_FIELD_INVALID")
         return cls(raw)
 

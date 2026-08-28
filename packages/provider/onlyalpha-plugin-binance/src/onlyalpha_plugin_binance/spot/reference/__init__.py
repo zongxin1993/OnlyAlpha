@@ -1,4 +1,10 @@
 from onlyalpha_plugin_binance.spot.reference.capture import (
+    OnlyBinanceSpotCaptureProvenance as OnlyBinanceSpotCaptureProvenance,
+)
+from onlyalpha_plugin_binance.spot.reference.capture import (
+    OnlyBinanceSpotRawEvidence as OnlyBinanceSpotRawEvidence,
+)
+from onlyalpha_plugin_binance.spot.reference.capture import (
     OnlyBinanceSpotReferenceCapture as OnlyBinanceSpotReferenceCapture,
 )
 from onlyalpha_plugin_binance.spot.reference.capture import (
