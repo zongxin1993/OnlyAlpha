@@ -8,7 +8,7 @@
 >
 > Execution order: **P9.0 closure → P9.K → existing P9.1+ production vertical**
 >
-> Implementation progress: **P9.K.8 Seal Kernel — TASK COMPLETE / VERIFIED; P9.1 — Crypto Market Product & Binance Reference Authority — IMPLEMENTATION READY**
+> Implementation progress: **P9.1 Crypto Market Product & Binance Reference Authority — TASK COMPLETE / VERIFIED; P9.2 — Binance Spot Historical & Realtime DataSource — IMPLEMENTATION READY**
 >
 > Current implementation progress is a deterministic projection of the repository-root `project-state.toml`; do not maintain a second current-state authority here.
 

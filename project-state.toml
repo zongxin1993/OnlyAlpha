@@ -11,14 +11,14 @@ milestone = "P9"
 milestone_state = "IN_PROGRESS"
 
 [development]
-last_verified_increment = "P9.K.8"
-last_verified_name = "Seal Kernel"
+last_verified_increment = "P9.1"
+last_verified_name = "Crypto Market Product & Binance Reference Authority"
 last_verified_state = "TASK COMPLETE / VERIFIED"
 active_increment = ""
 active_name = ""
 active_state = ""
-next_authorized_increment = "P9.1"
-next_authorized_name = "Crypto Market Product & Binance Reference Authority"
+next_authorized_increment = "P9.2"
+next_authorized_name = "Binance Spot Historical & Realtime DataSource"
 next_authorized_state = "IMPLEMENTATION READY"
 p9_1_plus_status = "P9.K = CLOSED; P9.1+ = UNBLOCKED"
 
