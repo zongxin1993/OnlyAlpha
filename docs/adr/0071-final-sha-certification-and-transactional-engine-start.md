@@ -1,5 +1,7 @@
 # ADR 0071 — Final-SHA Certification and Transactional Engine Start
 
+> Final-SHA repository certification was retired by ADR 0104. The transactional Engine-start and bounded diagnostic decisions remain active.
+
 ## Context
 
 The development quality workflow could accept a master push while branch coverage was skipped, and a repository report could not truthfully contain future CI results for its own commit without creating a self-referential commit cycle. Separately, `OnlyEngine.start()` could leave an earlier Runtime running when a later Runtime failed to start. Streaming processing results were retained in an unbounded diagnostic list.

@@ -3,17 +3,17 @@
 - Task base: `0364b423e98d44ed2919db68c3e86a51284c4aec`
 - Closure candidate HEAD: pending final CI-backed commit
 - Scope: Binance Spot public reference, BTCUSDT and ETHUSDT, offline Market Product composition
-- Status: C1-C8 and verification authority convergence IMPLEMENTED; local canonical evidence PASS; required remote proof CI REQUIRED
+- Status: TASK COMPLETE / VERIFIED; P9.2 IMPLEMENTATION READY
 
 ## Verification authority convergence
 
-P9.1 final closure now uses `quality-policy.toml` schema version 1 as the single machine-readable authority for mandatory gate identity,
-manual coverage mode and historical evidence ownership. Coverage commands and thresholds remain supported but are not regular CI or
-Final-SHA mandatory gates. Certification evidence schema version 2 records the policy schema version.
+P9.1 final closure established `quality-policy.toml` as the single machine-readable authority for quality gate identity, manual coverage
+mode and historical evidence ownership. ADR 0104 subsequently retired the duplicate Final-SHA Certification authority; current policy schema
+version 2 contains no certification gate set.
 
 Root `pyproject.toml` now owns broad pytest discovery and root mypy discovery. `core-full` therefore includes the Binance Market Product and
 offline provider tests without a second workspace list, while the public network contract remains excluded. The `gateway-protocol` lane is
-the exclusive full-history owner for K7 evidence and is consumed by both quality and Final-SHA verdicts.
+the exclusive full-history owner for K7 evidence and is consumed by the quality verdict.
 
 ## Capture and semantic identity model
 
@@ -141,6 +141,11 @@ CI REQUIRED:
 - `scripts/local_verify.py run` returned `LOCAL_PASS_CI_REQUIRED` / exit code `3`; this is not PASS.
 - GitHub CI has not yet closed this evidence; the local `gh` token is invalid and no signed-in browser session is available.
 
+Subsequent CI PASS:
+
+- Layered Quality run `33224243747`: all required jobs and `quality-gate` PASS; the event-inapplicable PR lane was skipped.
+- CodeQL run `33224243764`: PASS.
+
 CI PASS: NOT EXECUTED for this closure candidate.
 
 ## Deferred scope
@@ -153,4 +158,5 @@ No Historical Kline/WebSocket/DataSource, database/WAL, private API, Broker, Run
 
 ## Closure state
 
-C1-C8 are implemented and locally evidenced. P9.1 remains **NOT VERIFIED** until all required CI gates pass on the final closure SHA. `project-state.toml` therefore remains unchanged and P9.2 is not yet authorized.
+C1-C8, verification authority convergence and regular required CI are complete. `project-state.toml` records P9.1 as
+**TASK COMPLETE / VERIFIED** and P9.2 as **IMPLEMENTATION READY**. No Final-SHA verdict is required after ADR 0104.

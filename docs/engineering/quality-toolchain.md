@@ -7,7 +7,6 @@ OnlyAlpha 的质量验证按**反馈速度、影响范围和计算成本**分层
 * 开发阶段尽快否定错误修改；
 * Task Gate 对明确的 Impact Scope 提供充分局部证据；
 * Phase Gate 对阶段内所有修改组合后的系统完整性提供仓库级证据；
-* Certification Gate 对不可变 Final SHA 提供正式、可追溯的认证证据。
 
 本文主要描述：
 
@@ -15,7 +14,7 @@ OnlyAlpha 的质量验证按**反馈速度、影响范围和计算成本**分层
 
 本文**不单独定义普通开发任务的完成条件**。
 
-Task Gate / Phase Gate / Certification Gate 的正式验收语义、Impact Scope 原则和任务完成定义，以：
+Task Gate / Phase Gate 的正式验收语义、Impact Scope 原则和任务完成定义，以：
 
 `docs/engineering/quality-system.md`
 
@@ -91,7 +90,7 @@ GitHub CI 是持续质量信号。
 
 ### 1.4 重型验证低频执行
 
-以下验证默认属于 Phase Gate、Certification Gate、Nightly 或 Release：
+以下验证默认属于 Phase Gate、Nightly 或 Release：
 
 * repository-wide branch coverage；
 * full repository regression；
@@ -102,7 +101,6 @@ GitHub CI 是持续质量信号。
 * dependency vulnerability audit；
 * cross-platform distribution smoke；
 * release build certification；
-* Final-SHA Certification。
 
 普通 Task 不应机械执行这些验证。
 
@@ -110,7 +108,7 @@ GitHub CI 是持续质量信号。
 
 ## 2. 执行矩阵
 
-| Tool               | Purpose                    |                   Local / Task |                 PR / Master |                  Nightly | Phase / Certification / Release |
+| Tool               | Purpose                    |                   Local / Task |                 PR / Master |                  Nightly | Phase / Release |
 | ------------------ | -------------------------- | -----------------------------: | --------------------------: | -----------------------: | ------------------------------: |
 | pytest             | Unit / Contract / Scenario |                 affected scope |              selected lanes | heavy/exhaustive subsets |             full required lanes |
 | Ruff               | Lint                       |       changed / affected scope |                        full |                          |                            full |
@@ -123,8 +121,8 @@ GitHub CI 是持续质量信号。
 | Branch Coverage    | Test path completeness     |         explicit manual opt-in |                       manual |                          |       manual, thresholds retained |
 | CrossHair          | Formal contracts           |                      selective |                             |                        ✓ |                        critical |
 | mutmut             | Test strength              |                                |                             |                        ✓ |                 critical subset |
-| CodeQL             | Static/security            |                                |         automated/scheduled |                scheduled |                   certification |
-| Dependency Audit   | Supply chain               |                                |                   automated |                          |                   certification |
+| CodeQL             | Static/security            |                                |         automated/scheduled |                scheduled |                            Phase |
+| Dependency Audit   | Supply chain               |                                |                   automated |                          |                            Phase |
 | pytest-benchmark   | Micro performance          |                      selective |                             |                        ✓ |                release-critical |
 | ASV                | Historical performance     |        `asv check` when needed |                             |                        ✓ |                         release |
 | Build              | Packaging correctness      | targeted when package affected |                           ✓ |                          |                            full |
@@ -176,7 +174,7 @@ uv run python scripts/test_suite.py architecture
 
 `scripts/verify.py` 的 component plan 对 Ruff、Format 和 Mypy 使用 affected targets；architecture boundary 才要求 Import Linter，
 package/build metadata 才要求 version sync 与 targeted build。Unknown impact 和 verification infrastructure 仍 fail closed 到
-FULL_LOCAL。Coverage 默认属于 Phase/Certification，不因 lane 已注册就自动进入普通 Task Gate。
+FULL_LOCAL。Coverage 只在 Task/Phase Contract 显式选择时运行，不因 lane 已注册就自动进入普通 Task Gate。
 
 Web 不被塞入 pytest lane。`scripts/web_suite.py` 拥有 `static/unit/build/e2e/all` 明确证据；Node 24 + `npm ci` + checked-in
 `package-lock.json` 是 CI contract。Web-only impact 选择 web-static/unit/build/e2e 并止于 Research API boundary；API/OpenAPI transport
@@ -333,7 +331,7 @@ uv run python scripts/test_suite.py <lane> --coverage
 ```
 
 所有 `--coverage` 类型验证都是显式手工能力；只有当前 Task/Phase Contract 明确选择时才成为其 required evidence。它们不是 regular
-GitHub CI 或 Final-SHA Certification 的 mandatory gate。
+GitHub CI 的 implicit mandatory gate。
 
 普通 Task 可以在以下情况下显式使用局部 coverage：
 
@@ -353,7 +351,7 @@ OnlyAlpha 当前通过 `scripts/test_suite.py` 管理稳定测试 lane。
 
 * Task Impact Scope 扩大的稳定边界；
 * Phase Gate 的主要组成部分；
-* Certification 的正式验证输入。
+* Phase Gate 的正式验证输入。
 
 当前主要 lane 包括：
 
@@ -552,45 +550,6 @@ Phase Gate 的作用是发现：
 
 ---
 
-## 9. Certification Gate
-
-Phase Gate 通过后，冻结最终 commit SHA。
-
-Final-SHA Certification 只针对这个不可变 SHA。
-
-Certification 的作用不是开发反馈，而是留下正式版本证据。
-
-当前 Certification 应消费适用的：
-
-* static verification；
-* canonical lanes；
-* build；
-* Semgrep；
-* dependency audit；
-* CodeQL；
-* certification evidence；
-* final verdict。
-
-流程：
-
-```text
-Task Complete x N
-        ↓
-Phase Gate
-        ↓
-Phase Complete
-        ↓
-Freeze Final SHA
-        ↓
-Final-SHA Certification
-        ↓
-Certified
-```
-
-普通 Task 不运行 Final-SHA Certification。
-
----
-
 ## 10. Hypothesis
 
 Hypothesis 按验证层级使用不同 profile。
@@ -631,7 +590,7 @@ Semgrep 用于表达 Python 类型系统、Unit Test 和 Import Linter 难以表
 semgrep scan --config semgrep/onlyalpha.yml src/onlyalpha/domain
 ```
 
-PR / Certification 可以执行完整：
+PR / Phase Gate 可以执行完整：
 
 ```text
 src
@@ -654,7 +613,7 @@ CrossHair 用于验证适合形式化分析的纯函数或 contract。
 uv run crosshair check tests/formal/contracts.py
 ```
 
-CrossHair 全量验证属于 Nightly / critical certification scope。
+CrossHair 全量验证属于 Nightly / critical Phase scope。
 
 ---
 
@@ -693,7 +652,6 @@ CodeQL 应由：
 
 * GitHub automated workflow；
 * scheduled analysis；
-* Final-SHA Certification；
 
 承担。
 
@@ -711,7 +669,7 @@ CodeQL 应由：
 * lockfile 同步；
 * package/build 可用。
 
-完整 vulnerability audit 由 GitHub 自动化和 Certification 负责。
+完整 vulnerability audit 由 GitHub 自动化和 Phase Gate 负责。
 
 普通 Task 不需要等待完整 dependency audit 才能 `Task Complete`。
 
@@ -761,7 +719,7 @@ Package build 属于重要质量证据，但验证强度需要分层。
 
 自动执行 workspace build，发现明显 packaging regression。
 
-### Phase / Certification
+### Phase / Release
 
 执行正式 build，并在需要时进行：
 
@@ -806,7 +764,7 @@ Release 验证针对正式发布要求。
 * distribution build；
 * clean install；
 * release-specific smoke；
-* required certification evidence。
+* required release evidence。
 
 Release 不是普通开发 Task 的验收层。
 
@@ -835,7 +793,7 @@ Validation Boundary
 Codex 应按声明范围实现和验证。
 
 实现前还必须记录 `TASK_BASE_SHA`、Expected Acceptance Tests 与 Expansion Triggers；完成时记录 actual changed/impact scope、
-实际执行的检查、扩张理由以及明确未执行的 Phase/Certification 项。
+实际执行的检查、扩张理由以及明确未执行的 Phase 项。
 
 不得在任务完成阶段自行把：
 
@@ -846,7 +804,7 @@ Task Gate
 扩大成：
 
 ```text
-full repository certification
+full repository Phase Gate
 ```
 
 如果实现过程中发现新的真实依赖：
@@ -866,7 +824,6 @@ Extend to nearest affected subsystem/lane
 * 修改 CI；
 * 修改 test layering；
 * 修改 quality framework；
-* 运行 Final-SHA Certification。
 
 质量体系变更必须作为独立工程问题处理。
 
@@ -954,11 +911,11 @@ asv check
 * benchmark；
 * ASV；
 * security scan evidence；
-* certification evidence。
+* historical certification evidence（仅历史 artifact）。
 
 机器相关 cache、临时虚拟环境、绝对路径和本地执行中间文件不得提交。
 
-正式 Certification evidence 是否需要作为 GitHub Artifact 或其他长期证据保存，由对应 Certification workflow 定义。
+新的工程验收不生成 certification evidence；历史 artifact 的保存策略不改变。
 
 ---
 
@@ -979,9 +936,6 @@ Phase Gate
     ↓
 阶段级完整回归、build、functional scenario（coverage 仅显式 opt-in）
 
-Certification Gate
-    ↓
-不可变 Final SHA 正式认证
 ```
 
 因此：
@@ -993,7 +947,5 @@ Certification Gate
 > **本次修改以及其实际 Impact Scope 正确。**
 
 而 Repository 级完整性由 Phase Gate 验证。
-
-最终不可变版本的正式可信度由 Certification Gate 验证。
 
 通过这种分层，OnlyAlpha 在不降低最终正确性、架构一致性、可验证性和可恢复性的前提下，避免在每个小任务上重复消耗完整仓库验证成本。

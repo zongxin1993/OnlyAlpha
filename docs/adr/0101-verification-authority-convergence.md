@@ -1,6 +1,6 @@
 # ADR 0101 — Verification Authority Convergence
 
-- Status: Accepted
+- Status: Superseded for Final-SHA authority by ADR 0104; remaining quality-policy decisions stay Accepted
 - Date: 2026-08-29
 - Scope: engineering verification control plane
 

@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 coverage_mode = "manual"
 
 [quality]
@@ -16,20 +16,6 @@ required_gates = [
 event_lane_gates = [
     "pr-lanes",
     "main-lanes",
-]
-
-[certification]
-required_gates = [
-    "subject",
-    "static",
-    "build",
-    "web",
-    "lanes",
-    "research-postgres",
-    "gateway-protocol",
-    "semgrep",
-    "dependency-audit",
-    "codeql",
 ]
 
 [historical_evidence]

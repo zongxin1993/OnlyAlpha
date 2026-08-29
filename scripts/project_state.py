@@ -37,11 +37,6 @@ class ProjectState:
     next_authorized_name: str
     next_authorized_state: str
     p9_1_plus_status: str
-    latest_certified_increment: str
-    latest_certified_state: str
-    latest_certified_subject_sha: str
-    latest_certified_run: int
-    latest_certified_verdict: str
 
     @property
     def current_increment(self) -> str:
@@ -82,19 +77,13 @@ def load_state(root: Path = ROOT) -> ProjectState:
         raise ProjectStateError(f"cannot load {AUTHORITY_PATH}: {exc}") from exc
 
     schema_version = document.get("schema_version")
-    if schema_version != 1:
-        raise ProjectStateError("project-state schema_version must be exactly 1")
+    if schema_version != 2:
+        raise ProjectStateError("project-state schema_version must be exactly 2")
 
     project = _require_table(document, "project")
     development = _require_table(document, "development")
-    certification = _require_table(document, "certification")
-
-    latest_run = certification.get("latest_run")
-    if not isinstance(latest_run, int) or latest_run <= 0:
-        raise ProjectStateError("project-state certification.latest_run must be a positive integer")
-
     state = ProjectState(
-        schema_version=1,
+        schema_version=2,
         milestone=_require_string(project, "milestone"),
         milestone_state=_require_string(project, "milestone_state"),
         last_verified_increment=_require_string(development, "last_verified_increment"),
@@ -107,11 +96,6 @@ def load_state(root: Path = ROOT) -> ProjectState:
         next_authorized_name=_require_string(development, "next_authorized_name", allow_empty=True),
         next_authorized_state=_require_string(development, "next_authorized_state", allow_empty=True),
         p9_1_plus_status=_require_string(development, "p9_1_plus_status"),
-        latest_certified_increment=_require_string(certification, "latest_increment"),
-        latest_certified_state=_require_string(certification, "latest_state"),
-        latest_certified_subject_sha=_require_string(certification, "latest_subject_sha"),
-        latest_certified_run=latest_run,
-        latest_certified_verdict=_require_string(certification, "latest_verdict"),
     )
     _validate_state(state)
     return state
@@ -143,11 +127,6 @@ def _validate_state(state: ProjectState) -> None:
         state.active_increment,
     }:
         raise ProjectStateError("next authorized increment must be distinct from verified/active increments")
-
-    if not re.fullmatch(r"[0-9a-f]{40}", state.latest_certified_subject_sha):
-        raise ProjectStateError("latest certified subject SHA must be 40 lowercase hexadecimal characters")
-    if state.latest_certified_verdict != "ACCEPTED":
-        raise ProjectStateError("latest certified verdict must be ACCEPTED")
 
 
 def _plain_current_increment(state: ProjectState) -> str:
@@ -213,10 +192,6 @@ def render_projection(path: Path, text: str, state: ProjectState) -> str:
             (r"^Current Milestone: .+$", f"Current Milestone: {state.milestone}"),
             (r"^Milestone State: .+$", f"Milestone State: {state.milestone_state}"),
             (r"^Current Increment: .+$", f"Current Increment: {_plain_current_increment(state)}"),
-            (
-                r"^Latest Certified Increment: .+$",
-                f"Latest Certified Increment: {state.latest_certified_increment} — {state.latest_certified_state}",
-            ),
             (r"^Next Semantic Direction: .+$", f"Next Semantic Direction: {_plain_next_direction(state)}"),
             (r"^P9\.1\+ Status: .+$", f"P9.1+ Status: {state.p9_1_plus_status}"),
         )
@@ -281,7 +256,7 @@ def serialize_state(state: ProjectState) -> str:
             "# progression rendered into README.md, docs/roadmap.md and the P9.K plan.",
             "# Do not hand-edit those projections. Use scripts/project_state.py.",
             "",
-            "schema_version = 1",
+            "schema_version = 2",
             "",
             "[project]",
             f"milestone = {_quote_toml(state.milestone)}",
@@ -298,13 +273,6 @@ def serialize_state(state: ProjectState) -> str:
             f"next_authorized_name = {_quote_toml(state.next_authorized_name)}",
             f"next_authorized_state = {_quote_toml(state.next_authorized_state)}",
             f"p9_1_plus_status = {_quote_toml(state.p9_1_plus_status)}",
-            "",
-            "[certification]",
-            f"latest_increment = {_quote_toml(state.latest_certified_increment)}",
-            f"latest_state = {_quote_toml(state.latest_certified_state)}",
-            f"latest_subject_sha = {_quote_toml(state.latest_certified_subject_sha)}",
-            f"latest_run = {state.latest_certified_run}",
-            f"latest_verdict = {_quote_toml(state.latest_certified_verdict)}",
             "",
         )
     )

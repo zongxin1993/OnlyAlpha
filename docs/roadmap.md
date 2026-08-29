@@ -24,7 +24,6 @@ Current Milestone: P9
 Milestone State: IN_PROGRESS
 Current Increment: P9.1 Crypto Market Product & Binance Reference Authority — TASK COMPLETE / VERIFIED
 P9.K.5 Closure Base SHA: 12cb8dcfa145cdf887d75c7618c9318c086b387d
-Latest Certified Increment: P9.0 — DONE / CERTIFIED
 P7 Final Certification Subject: 6b051705c7638dc3acb02dde430c3c2348121811
 P7 Final Certification Run: 31986131977
 P7 Final Certification Verdict: ACCEPTED
@@ -38,7 +37,8 @@ Next Semantic Direction: P9.2 — Binance Spot Historical & Realtime DataSource 
 P9.1+ Status: P9.K = CLOSED; P9.1+ = UNBLOCKED
 ```
 
-`VERIFIED` 只表示某个 implementation increment 已完成其 targeted/affected Task Gate；`CERTIFIED` 只表示 exact immutable SHA 的正式 Final-SHA Certification artifact 给出 `ACCEPTED`。Major Milestone 只有在 Phase Gate 完成并对冻结 Final SHA 取得 `ACCEPTED` 后才能宣告 `DONE / CERTIFIED`。
+`VERIFIED` 表示 implementation increment 已完成其 targeted/affected Task Gate；Major Milestone 在 Phase Gate 完成后标记为
+`PHASE COMPLETE`。历史 `CERTIFIED / ACCEPTED` 记录只描述当时已执行的 workflow evidence，不再是当前状态或推进 authority。
 
 ---
 
@@ -909,4 +909,4 @@ Same Strategy Revision
 - Web/Manual/Liquidation 不绕过 Engine、Risk、Broker 或 Durable Transaction；
 - 不新增 `PAPER` 或 standalone `SHADOW` 产品依赖；
 - 不以永久兼容层代替迁移和删除；
-- Major Milestone 只有 exact Final-SHA certification artifact 为 `ACCEPTED` 才能声明 `DONE / CERTIFIED`。
+- Major Milestone 只有 composed Phase Gate 通过后才能声明 `PHASE COMPLETE`。

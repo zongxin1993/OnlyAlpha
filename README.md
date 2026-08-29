@@ -52,6 +52,9 @@ OnlyAlpha 的目标不是维护四套 Runtime-specific 策略，而是让同一�
 | Next semantic direction | P9.2 — Binance Spot Historical & Realtime DataSource — **IMPLEMENTATION READY**; P9.1+ P9.K = CLOSED; P9.1+ = UNBLOCKED |
 | License | MIT |
 
+表中的 P6/P7/P8/P9.0 `DONE / CERTIFIED` 与 Final-SHA run 是历史完成记录。ADR 0104 已退役该工程认证机制；它们不再是当前
+状态、后续推进或新 milestone 完成的判断 authority。
+
 P7 的 exact Final-SHA Certification 已完成。认证 subject `6b051705c7638dc3acb02dde430c3c2348121811` 的 mandatory static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p7_final_certification.md`](docs/reports/p7_final_certification.md)。
 
 P8 的 exact Final-SHA Certification 也已完成。认证 subject `88e616c52fb6c3085e7c64d73f174257bf2d002e` 的 deployment coherence、real Browser product E2E、SIGKILL recovery、restore、static、build、Web、canonical lanes、coverage、Semgrep、dependency audit 与 Python/TypeScript CodeQL 全部成功，最终 certification artifact verdict 为 `ACCEPTED`。详细证据见 [`docs/reports/p8_6_product_closure_and_final_certification.md`](docs/reports/p8_6_product_closure_and_final_certification.md)。
@@ -514,12 +517,11 @@ OnlyAlpha 自己计算得到的 exact Indicator/Factor Result 首先仍属于 im
 
 ## 工程质量体系
 
-OnlyAlpha 只有三种正式质量层级：
+OnlyAlpha 只有两种正式质量层级：
 
 ```text
 Task Gate
 Phase Gate
-Certification Gate
 ```
 
 普通任务先冻结：
@@ -535,18 +537,14 @@ Expansion Triggers
 Out of Scope
 ```
 
-Task Gate 运行最小但充分的 impact-aware verification；`core-full --coverage`、repository-wide coverage、全部 canonical lanes 和 Final-SHA Certification 不属于每个普通小节的默认验收。
+Task Gate 运行最小但充分的 impact-aware verification；`core-full --coverage`、repository-wide coverage 和全部 canonical lanes 不属于每个普通小节的默认验收。
 
 完整 Major Milestone 的顺序：
 
 ```text
 Task Complete x N
 → Phase Gate
-→ Phase Complete
-→ Freeze Final SHA
-→ Final-SHA Certification
-→ ACCEPTED
-→ DONE / CERTIFIED
+→ PHASE COMPLETE
 ```
 
 质量制度见：

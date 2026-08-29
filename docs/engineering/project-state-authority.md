@@ -10,7 +10,6 @@ The repository-root `project-state.toml` is the sole authoring authority for cur
 - last verified increment;
 - active increment, if any;
 - next authorized increment, if any;
-- latest certified increment metadata.
 
 `README.md`, `docs/roadmap.md` and `docs/p9_k_stateful_kernel_protocol_boundary.md` are deterministic projections of that authority for their current-status fields. They must not independently author those facts.
 
@@ -63,9 +62,11 @@ Historical report
 != current project-state authority
 
 Task Gate evidence
-!= Final-SHA Certification evidence
+!= Phase Gate evidence
 ```
 
 Do not add a second manually maintained current-state file. Do not solve projection drift by weakening the architecture check. Change the authority, render the projections, and review the resulting diff.
 
-The authority deliberately remains small. Git history, ADRs, implementation reports, test results and certification artifacts continue to own historical/design/evidence facts; they must not be duplicated into `project-state.toml` merely for convenience.
+The authority deliberately remains small. Git history, ADRs, implementation reports and test/CI results continue to own
+historical/design/evidence facts; they must not be duplicated into `project-state.toml` merely for convenience. Historical certification
+artifacts remain historical records only and are never current progression inputs.

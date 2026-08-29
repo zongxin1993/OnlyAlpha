@@ -57,6 +57,8 @@ def test_project_state_authority_is_the_only_machine_writable_current_state() ->
     assert "last_verified_increment" in source
     assert "active_increment" in source
     assert "next_authorized_increment" in source
+    assert "[certification]" not in source
+    assert "latest_verdict" not in source
 
 
 def test_only_exactly_authorized_next_increment_can_start() -> None:

@@ -4,7 +4,7 @@
 # progression rendered into README.md, docs/roadmap.md and the P9.K plan.
 # Do not hand-edit those projections. Use scripts/project_state.py.
 
-schema_version = 1
+schema_version = 2
 
 [project]
 milestone = "P9"
@@ -21,10 +21,3 @@ next_authorized_increment = "P9.2"
 next_authorized_name = "Binance Spot Historical & Realtime DataSource"
 next_authorized_state = "IMPLEMENTATION READY"
 p9_1_plus_status = "P9.K = CLOSED; P9.1+ = UNBLOCKED"
-
-[certification]
-latest_increment = "P9.0"
-latest_state = "DONE / CERTIFIED"
-latest_subject_sha = "ab07a7c828bd23b7b1d10b95023413a7d83bad8e"
-latest_run = 32728974966
-latest_verdict = "ACCEPTED"

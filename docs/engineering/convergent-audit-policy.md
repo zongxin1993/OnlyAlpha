@@ -15,7 +15,6 @@ OnlyAlpha 正式质量层级仍然只有：
 ```text
 Task Gate
 Phase Gate
-Certification Gate
 ```
 
 其验收语义继续由 `docs/engineering/quality-system.md` 定义。本政策只规定 Reviewer / Agent 如何进行一致、可收敛、可追踪的审计，并为现有 Gate 提供 review evidence。
@@ -177,9 +176,9 @@ Same semantic input
 ## 7. Finding 严重度
 
 Finding severity 必须相对于本次 Audit Scope 对应的现有 Gate 及其 mandatory evidence 判断。`当前 Gate 无法安全通过` 只指当前
-scope 的 applicable Gate，不指任意其他 Gate 或 GitHub Actions 中存在红色 job。Phase/Certification 的 mandatory coverage failure
+scope 的 applicable Gate，不指任意其他 Gate 或 GitHub Actions 中存在红色 job。Phase 的 required coverage failure
 不得在 coverage 非当前 Task acceptance criterion 时升级为 Task correctness `BLOCKER`；通过的 functional/invariant test 仍是正向
-correctness evidence，即使独立 coverage threshold 失败。该 coverage failure 应如实保留为其适用 Phase/Certification Gate 的
+correctness evidence，即使独立 coverage threshold 失败。该 coverage failure 应如实保留为其适用 Phase Gate 的
 `FAIL / OPEN` evidence。
 
 所有 Finding 只能使用以下四级：
@@ -390,7 +389,7 @@ corrupt authority → fail closed
 
 关键 persistence / concurrency invariant 不能只由 mock repository 单元测试证明。
 
-测试范围必须遵守现有 impact-aware Task / Phase / Certification Gate，不得因为“审计更严格”自动要求 repository-wide release 或 Final-SHA Certification。
+测试范围必须遵守现有 impact-aware Task / Phase Gate，不得因为“审计更严格”自动要求 repository-wide release。
 
 ---
 
@@ -428,7 +427,7 @@ MINOR 与 SUGGESTION 不阻塞 GO，应进入 technical debt / follow-up backlog
 
 NO-GO 必须只列真正阻塞项，不得把 MINOR / SUGGESTION 混入 blocking list。
 
-`GO / NO-GO` 是本次审计对现有 Gate 的 review verdict，不创建新的质量层级，也不能替代 Final-SHA Certification 的 `ACCEPTED / REJECTED`。
+`GO / NO-GO` 是本次审计对现有 Gate 的 review verdict，不创建新的质量层级。
 
 ---
 

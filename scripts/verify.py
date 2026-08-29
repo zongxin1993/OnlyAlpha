@@ -418,14 +418,13 @@ IMPACT_RULES = (
         (
             "quality-policy.toml",
             "scripts/test_suite.py",
-            "scripts/certification.py",
             "scripts/quality_policy.py",
             "scripts/dependency_audit.py",
             "scripts/verify.py",
             "scripts/web_suite.py",
             "tests/conftest.py",
             "tests/architecture/test_test_lane_contract.py",
-            "tests/architecture/test_certification_contract.py",
+            "tests/architecture/test_quality_policy_contract.py",
             "tests/architecture/test_dependency_audit_contract.py",
         ),
         RELEASE_LANES,
@@ -950,7 +949,7 @@ def _print_plan(plan: VerificationPlan, output: TextIO = sys.stdout) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Conservative local development verification; never certification authority"
+        description="Conservative local development verification; never Phase Gate authority"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("plan", "agent"):

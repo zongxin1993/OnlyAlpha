@@ -25,7 +25,7 @@ OnlyAlpha 的长期目标不是“功能可以运行”，而是建立一个：
 
 ```text
 Machine policy authority  → quality-policy.toml
-Executable projections    → .github/workflows/quality.yml / certification.yml
+Executable projection     → .github/workflows/quality.yml
 Narrative projection      → docs/engineering/quality-system.md
 Canonical test discovery  → pyproject.toml [tool.pytest.ini_options].testpaths
 Canonical root typecheck  → pyproject.toml [tool.mypy].files
@@ -58,35 +58,35 @@ Research Calculation 使用 `python scripts/test_suite.py research-calculation` 
 contracts、verified Dataset admission、instrument/DAG determinism、Result logical identity、immutable Store admission/atomicity、
 idempotency/deterministic conflict、manifest/partition corruption、fresh-process verified reload、architecture firewall 和官方
 Indicator Trading↔Research characterization。`research-calculation --coverage` 对 Core Research Calculation package 执行独立
-branch coverage threshold；P7.3 沿用该 functional lane。Coverage 仍受支持，但不属于 regular CI 或 Final-SHA mandatory gate。
+branch coverage threshold；P7.3 沿用该 functional lane。Coverage 仍受支持，但不是隐式 mandatory gate。
 
 Research Job 使用 `python scripts/test_suite.py research-job` 作为独立 canonical application lane；它覆盖 exact resolved Plan、
 verified reuse-or-execute、corruption fail-closed、re-entry recovery、same-job concurrency、fresh-process reuse、显式 Outcome 与
 Research/Trading architecture firewall。`research-job --coverage` 可手工统计 `onlyalpha.research.job`；functional lane 进入 PR、master、
-release 与 Final-SHA Certification mandatory gates。
+release 与 Phase Gate required lanes。
 
 Research Factor 使用 `python scripts/test_suite.py research-factor` 作为 semantic/execution closure lane；它覆盖 official
 Momentum/Percentile backends、canonical Factor Graph、semantic-node-first TIME_SERIES/CROSS_SECTION execution、physical
 order/partition/fresh-process determinism、旧 Indicator identity regression、Calculation Result/Research Job integration 与
 Research/Trading architecture firewall。`research-factor --coverage` 对 P7.5 execution module 与 official Factor plugin 执行
-100% line/branch coverage threshold；functional lane 进入 PR、master、release 与 Final-SHA Certification mandatory gates。
+100% line/branch coverage threshold；functional lane 进入 PR、master、release 与 Phase Gate required lanes。
 
 Research Sweep 使用 `python scripts/test_suite.py research-sweep` 作为 canonical composition lane；它覆盖 backend-neutral Definition
 re-materialization、Template/schema、typed candidate/dimension ordering、Cartesian planning、topological Graph materialization、identity
 propagation、fresh-process/hash-seed determinism、JobExecutor-only sequential execution、reuse/partial re-entry/corruption/fail-fast 和
 Research/Trading firewall。`research-sweep --coverage` 独立统计 `onlyalpha.research.sweep`，要求至少 90% line 与 85% branch，并进入 PR、
-master、release 与 Final-SHA Certification mandatory gates；coverage command 保持手工可用。
+master、release 与 Phase Gate required lanes；coverage command 保持手工可用。
 
 Research Specification 使用 `python scripts/test_suite.py research-specification` 作为 canonical compiler lane；它覆盖 strict
 schema/serialization/request identity、exact type/backend admission、candidate/Statistics lineage、Specification architecture boundary，以及
 manual P7 Workload 与 Specification-resolved Workload 的完整 Runtime semantic equivalence。`research-specification --coverage` 只统计
 `onlyalpha.research.specification`，要求 100% line 与 100% branch；Sweep Materializer 继续由 `research-sweep` coverage 拥有。该 lane 进入
-PR、master、release 与 Final-SHA Certification mandatory gates；coverage 本身不是 mandatory gate。
+PR、master、release 与 Phase Gate required lanes；coverage 本身不是 implicit mandatory gate。
 
 Finite Research Runtime 使用 `python scripts/test_suite.py research-runtime` 作为 canonical product-orchestration lane；它覆盖 Runtime
 product/capability boundary、完整 workload closure、Research-only Engine lifecycle、Dataset→Job/Sweep→Statistics→Result→Artifact 产品链、
 fresh-process deterministic re-entry、corruption fail-closed 与 Trading authority firewall。`research-runtime --coverage` 对新 Runtime product
-package 保留至少 95% line / 90% branch threshold；functional lane 进入 PR、master、release 与 Final-SHA Certification mandatory gates。
+package 保留至少 95% line / 90% branch threshold；functional lane 进入 PR、master、release 与 Phase Gate required lanes。
 
 Research Execution 使用 `python scripts/test_suite.py research-execution` 作为 canonical operational application lane；它覆盖 Attempt/
 Worker identity、lease/retry policy、finite Scheduler、周期 heartbeat、fenced Worker outcome、cooperative cancellation、graceful stop、
@@ -94,7 +94,7 @@ Engine-only Runtime entry 与 execution architecture firewall。`research-execut
 `onlyalpha.research.execution`，要求至少 95% line / 85% branch。真实 PostgreSQL migration、row-lock claim、lease CAS、stale fencing、
 concurrency 与 Artifact-commit crash recovery 继续由串行 `research-postgres` lane 拥有。P8.3 的 `research-command` lane 独立覆盖
 idempotent submit、cancellation CAS、Run query、HTTP contract 与 architecture firewall。这些 lane 均进入 release、普通 CI 与
-Final-SHA mandatory matrix。
+Phase Gate matrix。
 
 ### 2.1 Repository Is the Source of Truth
 
@@ -173,11 +173,10 @@ Domain、Strategy、Risk、Execution 的核心语义应尽可能共享。
 
 ### 2.7 Quality Acceptance Model
 
-OnlyAlpha 的工程验证只定义三个正式质量层级：
+OnlyAlpha 的工程验证只定义两个正式质量层级：
 
 1. Task Gate
 2. Phase Gate
-3. Certification Gate
 
 三个层级回答不同的问题，不得相互混用。
 
@@ -188,10 +187,6 @@ Task Gate 回答：
 Phase Gate 回答：
 
 > 本阶段所有 Task 组合后，OnlyAlpha 整体功能、架构与关键不变量是否仍然正确？
-
-Certification Gate 回答：
-
-> 某个不可变 Final SHA 是否已经通过正式、可追溯的工程认证？
 
 不得因为某个 Task 需要额外验证而创造新的正式 Gate 层级。
 
@@ -234,7 +229,7 @@ Task Gate 的验证范围必须由 Impact Scope 决定，而不是由仓库总�
 
 Task Complete 表示当前修改已经获得足够的局部工程证据。
 
-Task Complete 不表示整个 Repository 已经完成 Phase Certification。
+Task Complete 不表示整个 Repository 已经完成 Phase Gate。
 
 正式编号 Task / Increment 的 closure 还必须完成 release version alignment。默认映射为 `Pn.m -> 0.n.m`，例如
 `P8.2 -> 0.8.2`、`P8.3 -> 0.8.3`、`P8.4 -> 0.8.4`；属于同一 Increment 的 correctness closure 仍使用该 Increment
@@ -255,7 +250,6 @@ graph；不得人工逐文件同步版本。
 - dependency audit；
 - CodeQL；
 - cross-platform distribution certification；
-- Final-SHA Certification；
 - 等待 GitHub 全量 CI 完成。
 
 ---
@@ -434,40 +428,6 @@ Phase Gate 失败时：
 
 ---
 
-### 2.13 Certification Gate
-
-Certification Gate 面向一个不可变 Final SHA。
-
-它的目标不是开发反馈，而是留下正式、可追溯的版本质量证据。
-
-Certification 应消费当前 Repository 定义的正式认证能力，包括适用的：
-
-- static verification；
-- canonical lanes；
-- machine policy 声明的 mandatory gate set；
-- build；
-- semantic guardrails；
-- dependency audit；
-- CodeQL；
-- certification evidence。
-
-Certification Gate 不应在每个普通 Task 后运行。
-
-流程应为：
-
-`Task Complete x N`
-`-> Phase Gate`
-`-> Phase Complete`
-`-> Freeze Final SHA`
-`-> Final-SHA Certification`
-`-> Certified`
-
-只有 Certification Gate 通过的 immutable SHA 才标记：
-
-`Certified`
-
----
-
 ### 2.14 GitHub CI Semantics
 
 GitHub 自动 CI 与 Task Gate 是两个不同概念。
@@ -503,7 +463,7 @@ coverage_mode = manual
 ```
 
 Coverage implementation、`--coverage` commands、pytest-cov、JSON/XML 输出和既有 thresholds 均保留。低于 threshold 的实际
-coverage run 仍然 FAIL；但 regular GitHub CI 和 Final-SHA Certification 不把 coverage 作为 mandatory gate。启用方式与 threshold
+coverage run 仍然 FAIL；但 regular GitHub CI 不把 coverage 作为 implicit mandatory gate。启用方式与 threshold
 由 `scripts/test_suite.py` 和 `pyproject.toml` 拥有，mandatory membership 只由 `quality-policy.toml` 拥有。
 
 Functional correctness evidence 与 Coverage evidence 是现有 Gate 内两个不同的 evidence dimension，不是新的 Gate。行为、
@@ -529,7 +489,7 @@ acceptance criterion 的 Task Gate 中被解释为 Task correctness failure；�
 默认属于：
 
 - Phase Gate；或
-- Certification Gate。
+- Phase Gate。
 
 普通 Task 可以新增、维护和执行测试，
 但无需在每个 Task 后重新计算 repository-wide coverage。
@@ -544,7 +504,7 @@ acceptance criterion 的 Task Gate 中被解释为 Task correctness failure；�
 而不是默认运行全部 repository coverage。
 
 普通 Task 的 repair inner loop 默认使用最小充分的 targeted functional tests、affected canonical lanes 与静态检查，不以 broad
-coverage calculation 作为迭代反馈。昂贵的 exact-SHA remote CI / Certification 是其所属 higher-level Gate 的正式证据，不是普通本地
+coverage calculation 作为迭代反馈。昂贵的 remote CI / Phase Gate 是其所属 higher-level Gate 的正式证据，不是普通本地
 修复循环；未执行它不得伪造成 PASS，但在它不属于当前 Task Gate 必须项时也不阻塞该 Task 的 functional correctness 结论。
 
 ---
@@ -559,14 +519,13 @@ coverage calculation 作为迭代反馈。昂贵的 exact-SHA remote CI / Certif
 - false positive；
 - 无法验证新的关键系统不变量；
 - 新架构边界无法由现有机制表达；
-- certification evidence 本身不可靠；
+- Phase Gate evidence 本身不可靠；
 
 否则不得因为单次任务开发便利性修改：
 
 - Gate 层级；
 - Task Complete 定义；
 - Phase Complete 定义；
-- Certification 定义；
 - CI architecture；
 - coverage architecture；
 - test layering architecture。
@@ -597,7 +556,7 @@ coverage calculation 作为迭代反馈。昂贵的 exact-SHA remote CI / Certif
 
 其中 Validation Boundary 应明确：
 
-- 当前任务是 Task Gate 还是 Phase/Certification task；
+- 当前任务是 Task Gate 还是 Phase Gate task；
 - 哪些测试是 Task Complete 的必要证据；
 - 哪些 repository-wide checks 明确不属于本次任务；
 - 当发现额外真实依赖时最多扩大到哪个 subsystem/lane。
@@ -905,30 +864,22 @@ ADR-0002-xxx.md
 质量状态必须按工程粒度区分，不得把 implementation increment 与 major milestone 混为同一 gate：
 
 - P7.x 等同一 Major Milestone 内的 **Implementation Increment** 只使用 `PLANNED / IMPLEMENTED / VERIFIED / BLOCKED`；
-- P6、P7、P8 等 **Major Milestone** 使用 `IN_PROGRESS / CONDITIONALLY_ACCEPTED / ACCEPTED / REJECTED`。
+- P6、P7、P8 等 **Major Milestone** 使用 `IN_PROGRESS / PHASE COMPLETE / BLOCKED`。
 
 同一 Major Milestone 内，前一个 increment 达到 `VERIFIED` 后即可进入下一个 increment。`VERIFIED` 至少要求实现完整、required
 targeted tests 与 affected canonical lanes 通过、architecture invariants 通过、impact-aware local verification 通过、适用时
 Layered Quality 通过、Independent Review 完成、无未解决 Critical / High，且相关文档足以解释当前实现。
 
-只有 `ACCEPTED` 的 Major Milestone 才默认允许进入下一个 Major Milestone。因此 P7.x → 下一个 P7.x 要求前一个 increment
-`VERIFIED`；P7 → P8 仍要求 P7 Final Closure 对 exact immutable SHA 完成 Final-SHA Certification 并取得 `ACCEPTED` artifact。
+只有 `PHASE COMPLETE` 的 Major Milestone 才默认允许进入下一个 Major Milestone。因此 increment 之间要求前一个达到
+`VERIFIED`；跨 Major Milestone 要求 composed Phase Gate 通过。
 
-### 8.1 Certification Cadence
+### 8.1 Phase Gate Cadence
 
-Final-SHA Certification 是 Repository 唯一正式 exact immutable SHA final certification authority，但它不要求在每个
-implementation increment 后执行。默认 cadence 是 Major Milestone Final Closure；普通 increment 通过 affected verification
-取得 `VERIFIED`。Release/tag、Live deployment、重大 persistence migration、Runtime/Recovery authority 重构、已知 nondeterminism
-incident closure、高风险架构 baseline freeze 或长周期 milestone 中间冻结，可以显式建立 certification checkpoint。显式 checkpoint
-仍必须执行完整且未裁剪的 Final-SHA mandatory gates。
+Major Milestone Final Closure 执行 composed Phase Gate；普通 increment 通过 affected verification 取得 `VERIFIED`。Release/tag、Live
+deployment、重大 persistence migration、Runtime/Recovery authority 重构或 nondeterminism incident closure 可以显式扩大 Phase Gate，
+但不得创建新的 certification authority。
 
-### 8.2 Development Gate 与 Certification Gate
-
-普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
-
-Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Mandatory membership 由 `quality-policy.toml` 唯一定义，当前包括 Static、all-package build、Web、canonical lanes、Research PostgreSQL、Gateway historical protocol evidence、Semgrep、dependency audit 与 CodeQL；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。Coverage mode 是 manual，不属于该 mandatory matrix。最终 verdict 由 `scripts/certification.py` 读取同一 policy 并生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
-
-Streaming/async certification test 必须等待正式 state/revision/continuity evidence；bounded timeout 只能是统一、可解释的
+Streaming/async Phase test 必须等待正式 state/revision/continuity evidence；bounded timeout 只能是统一、可解释的
 deadlock watchdog。watchdog failure 必须输出 immutable diagnostics，至少覆盖 phase/revision、recovery generation/stage/plan、
 Semantic Lane cutoff、worker/source、continuity frontier 与 buffered suffix。禁止用 sleep、rerun、flaky marker、lane removal 或散落的
 timeout inflation 改变 verdict。
@@ -937,29 +888,25 @@ timeout inflation 改变 verdict。
 
 - `IMPLEMENTED`：代码实现完成；
 - `VERIFIED`：指定本地或远端门禁已有实际证据；
-- `CERTIFIED / ACCEPTED`：外部 certification artifact 对同一个 immutable subject SHA 给出接受结论。
+- `PHASE COMPLETE`：Major Milestone 的 composed Phase Gate 已通过。
 
-Implementation Increment 可以依据上述实际 development evidence 达到 `VERIFIED`，但不得据此声明 `CERTIFIED / ACCEPTED`。在
-Major Milestone Final Closure 或显式 certification checkpoint 中，没有 exact-SHA remote artifact 时只能是
-`CONDITIONALLY_ACCEPTED` 或 `REJECTED`，不得预判远端 PASS。
+Implementation Increment 依据实际 evidence 达到 `VERIFIED`；Major Milestone 依据 Phase Gate 达到 `PHASE COMPLETE`。
 
 ### 8.3 Impact-Aware Local Verification
 
 Agent 的默认开发验证顺序是 targeted test、affected canonical lane、impact-aware local gate；increment closure 以这些实际 evidence
-取得 `VERIFIED`。只有 Major Milestone Final Closure 或显式 certification checkpoint 在形成 immutable final SHA 后进入完整
-Final-SHA Certification。`scripts/verify.py plan --base <sha>` 以显式 base、HEAD 和完整 dirty worktree 解析 change set，
+取得 `VERIFIED`。Major Milestone Final Closure 执行 Phase Gate。`scripts/verify.py plan --base <sha>` 以显式 base、HEAD 和完整 dirty worktree 解析 change set，
 用 typed explicit rules 产生可解释的 deterministic union。Unknown impact 必须 fail closed；verification infrastructure change 必须
 执行完整 local release check/lane/build 集合，不能用新工具自证一个狭窄子集。
 
 Impact planner 不是 test semantics authority。Canonical lane paths、marker expressions、worker strategy、coverage 和 release 顺序仍只由
 `scripts/test_suite.py` 管理；planner 只能引用 lane/check identity。Local runner 顺序执行所选 gate，将完整输出和 machine-readable
 manifest 保存到 `test-results/verification/<verification-id>/`，成功 console 只输出 gate summary，失败输出有界诊断和完整日志路径。
-Manifest 的 authority 固定为 `LOCAL_DEVELOPMENT_VERIFICATION_ONLY`，`VERIFICATION_PASSED` 不等于 `CERTIFIED` 或 `ACCEPTED`。
+Manifest 的 authority 固定为 `LOCAL_DEVELOPMENT_VERIFICATION_ONLY`，`VERIFICATION_PASSED` 不等于 Phase Gate 已通过。
 
-Coverage 不属于默认 inner loop，也不属于当前 Final-SHA mandatory matrix。Final-SHA workflow 仍完整执行 machine policy 声明的
-exact-SHA static、build、canonical lanes、Gateway historical evidence、Semgrep、dependency audit、CodeQL、Web static/unit/build/E2E 和
-fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。Web evidence 使用 Node 24、
-`npm ci`、strict TypeScript/ESLint/Prettier/Vitest/Playwright；它是现有 Task/Phase/Certification Gate 中的 evidence，不创建第四种 Gate。
+Coverage 不属于默认 inner loop。Phase Gate 按当前 contract 执行 machine policy 声明的 static、build、canonical lanes、Gateway
+historical evidence、Semgrep、dependency audit、CodeQL 和 Web evidence；changed-file impact plan 不得缩窄 Phase Gate。Web evidence
+使用 Node 24、`npm ci`、strict TypeScript/ESLint/Prettier/Vitest/Playwright；它是 Task/Phase Gate 中的 evidence，不创建第三种 Gate。
 
 成功的长时间运行日志默认保存在 evidence 文件中，不重复加载进 Agent context；console 与最终报告只保留 gate、exit code 和简短摘要，
 仅在失败诊断时读取有界的相关日志。

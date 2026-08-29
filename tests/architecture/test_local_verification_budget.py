@@ -134,10 +134,9 @@ def test_local_budget_does_not_copy_canonical_lane_semantics() -> None:
     assert "verification_commands(plan)" in source
 
 
-def test_policy_vocabulary_cannot_claim_certification_authority() -> None:
+def test_policy_vocabulary_cannot_claim_phase_gate_authority() -> None:
     verification_plan = _plan("src/onlyalpha/execution/processor.py")
     payload = json.dumps(local_verify.build_execution_plan(verification_plan).as_json())
 
     assert "LOCAL_EXECUTION_POLICY_ONLY" in payload
-    assert "CERTIFIED" not in payload
-    assert "ACCEPTED" not in payload
+    assert "PHASE COMPLETE" not in payload

@@ -1795,28 +1795,26 @@ Fake SDK 通过只能证明 Contract，不等于真实产品通过。
 
 ### 26.4 Agent Impact-Aware Verification
 
-Agent 必须区分 inner loop、P7 implementation increment closure 与 P7 Major Milestone closure：
+Agent 必须区分 inner loop、implementation increment closure 与 Major Milestone closure：
 
 ```text
 Inner loop
 → targeted tests
 
-P7.x Increment Closure
+Increment Closure
 → affected canonical lanes
 → impact-aware local gate
 → VERIFIED
 
-P7 Final Closure / explicit certification checkpoint
-→ exact immutable SHA
-→ complete Final-SHA Certification
-→ ACCEPTED
+Major Milestone Closure
+→ composed Phase Gate
+→ PHASE COMPLETE
 ```
 
-同一 P7 Major Milestone 内，前一个 increment 达到 `VERIFIED` 后即可进入下一个 P7.x；不得默认要求每个 P7.x 单独执行
-Final-SHA Certification。`VERIFIED` 必须有实现完整、required targeted/affected tests、architecture invariants、impact-aware verification、
-适用的 Layered Quality、Independent Review 和无未解决 Critical / High 的实际 evidence。P7 → P8 仍必须在 P7 Final Closure 对 exact
-immutable SHA 取得完整 Final-SHA `ACCEPTED` artifact。Release/tag、Live deployment、重大 persistence 或 Runtime/Recovery authority
-变更、nondeterminism incident closure 等高风险边界可以显式建立中间 certification checkpoint；其 mandatory matrix 不得裁剪。
+同一 Major Milestone 内，前一个 increment 达到 `VERIFIED` 后即可进入下一个 increment。`VERIFIED` 必须有实现完整、required
+targeted/affected tests、architecture invariants、impact-aware verification、适用的 Layered Quality、Independent Review 和无未解决
+Critical / High 的实际 evidence。跨 Major Milestone 只要求当前 Phase Gate 完整通过并达到 `PHASE COMPLETE`，不再存在 Final-SHA
+Certification 或独立 certification checkpoint。
 
 `scripts/verify.py` 只用于本地开发验证。必须显式提供 base revision：
 
@@ -1835,22 +1833,20 @@ Rule 合并必须单调且确定，未知 path fail closed，verification infras
 - Targeted 与 impact-aware 结果只是 local development evidence；
 - inner loop 默认不收集 coverage，也不在每次小改动后运行 `release`；
 - `release` 的正式重型本地语义不变；
-- Impact plan 不得控制 Final-SHA workflow 的 job/lane/coverage omission；
-- 只有 exact immutable SHA 的全部 mandatory certification gates 成功且 artifact verdict 为 `ACCEPTED`，才能声明
-  `CERTIFIED / ACCEPTED`；
-- 远端 workflow 未完成时只能记录 `REMOTE CERTIFICATION PENDING`，不得高频轮询或预判 PASS。
+- Impact plan 不得缩窄 Phase Gate 的 required job/lane/coverage evidence；
+- 历史 `CERTIFIED / ACCEPTED` artifact 只作为历史记录，不再是当前状态或推进 authority；
 - 成功的长时间运行日志默认只保存在 evidence 文件中，Agent context 与最终报告只记录 compact summary；仅在失败诊断时读取有界日志。
 
 ### 26.5 Quality Acceptance Contract
 
-OnlyAlpha 只有 `Task Gate / Phase Gate / Certification Gate` 三种正式验收层级。普通 implementation task 默认只执行 Task Gate；
+OnlyAlpha 只有 `Task Gate / Phase Gate` 两种正式验收层级。普通 implementation task 默认只执行 Task Gate；
 Implementation Block 不是 Gate。开始前必须冻结 `TASK_BASE_SHA`、Goal、Modification Scope、Impact Scope、Required Behavior、
 Expected Acceptance Tests、Expansion Triggers 与 Out of Scope。上游传播到已有正式 contract 保护的 stable authority boundary 后停止；
 底层 public authority 修改则沿正式 consumer rules 扩张，Impact union 不得缩小。Task-level Ruff、Format、Mypy、Import Linter、
 version sync 与 build 同样必须 impact-aware。
 
-普通 Task 不得仅为“保险”默认执行 `release`、`core-full --coverage`、repository-wide coverage、Nightly 或 Final-SHA
-Certification；只有真实 Impact Scope、verification infrastructure 自改或当前 Gate 类型明确要求时才执行。验收语义唯一权威是
+普通 Task 不得仅为“保险”默认执行 `release`、`core-full --coverage`、repository-wide coverage 或 Nightly；只有真实 Impact Scope、
+verification infrastructure 自改或当前 Gate 类型明确要求时才执行。验收语义唯一权威是
 `docs/engineering/quality-system.md`，工具执行方式以 `docs/engineering/quality-toolchain.md` 为准；
 `docs/engineering/task-gate-template.md` 只用于记录，不建立第二份质量政策。
 

@@ -7,7 +7,6 @@ Formal acceptance levels remain:
 ```text
 Task Gate
 Phase Gate
-Certification Gate
 ```
 
 The source of canonical lane semantics remains:
@@ -40,13 +39,11 @@ Affected local proof when affordable
 Required heavy proof in GitHub CI
 +
 Nightly heavy quality
-+
-Final-SHA Certification
 ```
 
 A required test that is deferred to CI is not considered passed locally. It must remain explicit as `CI_REQUIRED` until GitHub provides real evidence.
 
-## 2. Five execution levels
+## 2. Four execution levels
 
 These are execution levels, not five formal quality gates.
 
@@ -120,12 +117,6 @@ long integration matrices
 
 These jobs are not ordinary local completion criteria unless the task explicitly changes their authority or the user explicitly requests them.
 
-### Level 4 — Final-SHA Certification
-
-Certification remains full, immutable and exact-SHA based.
-
-Impact-aware planning and local budgets must never make Final-SHA Certification skip a mandatory job.
-
 ## 3. Default prohibitions for agents
 
 Agents must not run the following locally by default:
@@ -140,7 +131,6 @@ exhaustive
 mutation
 performance
 full Playwright E2E
-Final-SHA Certification
 ```
 
 These may be run locally only when one of the following is true:
@@ -261,5 +251,4 @@ This policy must preserve:
 - required impact union is never reduced by a budget;
 - unknown impact is never interpreted as no impact;
 - local defer is explicit and machine-readable;
-- CI/Certification evidence is never fabricated from local planning;
-- Final-SHA Certification remains unaffected.
+- CI/Phase evidence is never fabricated from local planning.
