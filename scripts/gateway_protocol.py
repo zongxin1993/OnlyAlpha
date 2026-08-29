@@ -362,6 +362,27 @@ def verify(base: str) -> tuple[str, tuple[str, ...]]:
     return identity, compatibility_errors(baseline, current)
 
 
+def verify_lane(base: str) -> str:
+    identity, errors = verify(base)
+    if errors:
+        raise ValueError("incompatible Gateway protocol:\n" + "\n".join(f"- {item}" for item in errors))
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "tests/contracts/test_gateway_protocol_contract.py",
+        "tests/contracts/test_p9_k7_task_delta.py",
+        "tests/integration/test_remote_gateway_protocol.py",
+        "-q",
+        "--tb=short",
+        "--maxfail=1",
+    ]
+    completed = subprocess.run(command, cwd=ROOT, check=False)
+    if completed.returncode:
+        raise ValueError(f"Gateway protocol test lane failed with exit code {completed.returncode}")
+    return identity
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Govern the canonical OnlyAlpha Gateway protocol")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -369,6 +390,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers.add_parser("check")
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("--base", required=True)
+    lane_parser = subparsers.add_parser("verify-lane")
+    lane_parser.add_argument("--base", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "write":
@@ -377,11 +400,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"GATEWAY PROTOCOL WRITTEN: {identity}")
         elif args.command == "check":
             print(f"GATEWAY PROTOCOL CURRENT: {check()}")
-        else:
+        elif args.command == "verify":
             identity, errors = verify(args.base)
             if errors:
                 raise ValueError("incompatible Gateway protocol:\n" + "\n".join(f"- {item}" for item in errors))
             print(f"GATEWAY PROTOCOL COMPATIBLE: {identity}")
+        else:
+            print(f"GATEWAY PROTOCOL LANE PASSED: {verify_lane(args.base)}")
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"GATEWAY PROTOCOL FAILED: {exc}\n")
     return 0

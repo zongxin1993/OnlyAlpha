@@ -118,6 +118,7 @@ onlyalpha-plugin-binance = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
+    "packages/fake/onlyalpha-plugin-broker-virtual/tests",
     "packages/market/onlyalpha-market-generic-t0-cash/tests",
     "packages/market/onlyalpha-market-cn-ashare/tests",
     "packages/market/onlyalpha-market-binance-spot/tests",
@@ -152,6 +153,7 @@ markers = [
     "windows: Windows-only test",
     "slow: slow test",
     "postgres: requires the pinned real PostgreSQL integration service",
+    "historical_git: requires immutable Git history and may only run in an explicitly history-capable verification lane",
 ]
 
 [tool.importlinter]

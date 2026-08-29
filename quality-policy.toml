@@ -1,0 +1,36 @@
+schema_version = 1
+coverage_mode = "manual"
+
+[quality]
+required_gates = [
+    "static",
+    "architecture",
+    "openapi-contract",
+    "gateway-protocol",
+    "semgrep",
+    "dependency-audit",
+    "research-postgres",
+    "build",
+    "web",
+]
+event_lane_gates = [
+    "pr-lanes",
+    "main-lanes",
+]
+
+[certification]
+required_gates = [
+    "subject",
+    "static",
+    "build",
+    "web",
+    "lanes",
+    "research-postgres",
+    "gateway-protocol",
+    "semgrep",
+    "dependency-audit",
+    "codeql",
+]
+
+[historical_evidence]
+exclusive_owner = "gateway-protocol"

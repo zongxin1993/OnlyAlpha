@@ -3,7 +3,17 @@
 - Task base: `0364b423e98d44ed2919db68c3e86a51284c4aec`
 - Closure candidate HEAD: pending final CI-backed commit
 - Scope: Binance Spot public reference, BTCUSDT and ETHUSDT, offline Market Product composition
-- Status: C1-C8 IMPLEMENTED; targeted/local evidence PASS; required broad proof CI REQUIRED
+- Status: C1-C8 and verification authority convergence IMPLEMENTED; local canonical evidence PASS; required remote proof CI REQUIRED
+
+## Verification authority convergence
+
+P9.1 final closure now uses `quality-policy.toml` schema version 1 as the single machine-readable authority for mandatory gate identity,
+manual coverage mode and historical evidence ownership. Coverage commands and thresholds remain supported but are not regular CI or
+Final-SHA mandatory gates. Certification evidence schema version 2 records the policy schema version.
+
+Root `pyproject.toml` now owns broad pytest discovery and root mypy discovery. `core-full` therefore includes the Binance Market Product and
+offline provider tests without a second workspace list, while the public network contract remains excluded. The `gateway-protocol` lane is
+the exclusive full-history owner for K7 evidence and is consumed by both quality and Final-SHA verdicts.
 
 ## Capture and semantic identity model
 
@@ -114,12 +124,22 @@ Local PASS:
 - Workspace release graph `0.9.8`: PASS.
 - `git diff --check`: PASS.
 - Budgeted local verification: 10 static gates PASS; manifest `test-results/verification/local-budget/20260828T123220Z-0364b423e98d-85079/manifest.json`.
+- Verification-authority regression tests: `65 passed`.
+- Architecture lane: `520 passed`.
+- Gateway protocol/history owner lane: `28 passed`.
+- Canonical `core-full`: `2698 passed`, `1 skipped`; K7 `historical_git` tests were not collected there.
+- Binance canonical offline surface: `36 passed`; public network contract deselected.
+- Root mypy authority: `692 source files`, no issues; package-local mypy exceptions PASS.
+- All-package sdist/wheel build: PASS for 14 workspace distributions.
+- Current budgeted local verification: 10 static gates PASS; 30 heavy commands remain explicitly `CI_REQUIRED` in
+  `test-results/verification/local-budget/20260829T003032Z-d4b5d3b021e0-91487/manifest.json`.
 
 CI REQUIRED:
 
-- The fail-closed impact plan contains 31 deferred gates, including Web, Core/Research/Recovery/A-share/MiniQMT lanes and all-package build.
+- The current fail-closed impact plan contains 30 deferred commands after 10 local static preflights, including Web,
+  Research/PostgreSQL/Recovery/A-share/MiniQMT lanes and CI security evidence.
 - `scripts/local_verify.py run` returned `LOCAL_PASS_CI_REQUIRED` / exit code `3`; this is not PASS.
-- GitHub CI has not yet closed this evidence because the local `gh` authentication token is invalid and no in-app browser session is available.
+- GitHub CI has not yet closed this evidence; the local `gh` token is invalid and no signed-in browser session is available.
 
 CI PASS: NOT EXECUTED for this closure candidate.
 

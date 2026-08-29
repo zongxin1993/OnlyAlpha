@@ -416,8 +416,10 @@ IMPACT_RULES = (
         "verification-infrastructure",
         ("scripts/pytest_", "tests/architecture/test_agent_verification", ".github/workflows/"),
         (
+            "quality-policy.toml",
             "scripts/test_suite.py",
             "scripts/certification.py",
+            "scripts/quality_policy.py",
             "scripts/dependency_audit.py",
             "scripts/verify.py",
             "scripts/web_suite.py",

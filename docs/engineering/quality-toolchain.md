@@ -120,7 +120,7 @@ GitHub CI 是持续质量信号。
 | Architecture Tests | Dependency invariants      |              affected boundary |              selected lanes |                          |               full relevant set |
 | Hypothesis         | Properties                 |                    dev profile | ci profile where applicable |               exhaustive |                        critical |
 | Semgrep            | Project semantic rules     |                      selective |                           ✓ |                          |                               ✓ |
-| Branch Coverage    | Test path completeness     |         exceptional/local only |    automated quality signal |                          |         mandatory full coverage |
+| Branch Coverage    | Test path completeness     |         explicit manual opt-in |                       manual |                          |       manual, thresholds retained |
 | CrossHair          | Formal contracts           |                      selective |                             |                        ✓ |                        critical |
 | mutmut             | Test strength              |                                |                             |                        ✓ |                 critical subset |
 | CodeQL             | Static/security            |                                |         automated/scheduled |                scheduled |                   certification |
@@ -332,12 +332,8 @@ uv run python scripts/test_suite.py core-full --coverage
 uv run python scripts/test_suite.py <lane> --coverage
 ```
 
-所有 `--coverage` 类型完整覆盖率验证，默认属于：
-
-* Phase Gate；
-* Certification Gate；
-
-而不是普通 Task Gate。
+所有 `--coverage` 类型验证都是显式手工能力；只有当前 Task/Phase Contract 明确选择时才成为其 required evidence。它们不是 regular
+GitHub CI 或 Final-SHA Certification 的 mandatory gate。
 
 普通 Task 可以在以下情况下显式使用局部 coverage：
 
@@ -400,7 +396,6 @@ GitHub `quality.yml` 负责提供比单个 Task 更广的持续质量信号。
 * version synchronization；
 * Semgrep；
 * selected product / research lanes；
-* branch coverage；
 * build；
 * dependency audit。
 
@@ -451,13 +446,13 @@ test-results/coverage/
 
 本地产生的 coverage 文件不应提交。
 
-完整：
+当前 machine policy 是 `coverage_mode = manual`。完整命令：
 
 ```bash
 uv run python scripts/test_suite.py core-full --coverage
 ```
 
-默认只在 Phase Gate 或 Certification Gate 执行。
+只在人工明确请求或当前 Task/Phase Contract 明确选择时执行。
 
 各专项：
 
@@ -472,7 +467,7 @@ uv run python scripts/test_suite.py research-execution --coverage
 uv run python scripts/test_suite.py research-dataset --coverage
 ```
 
-同样默认属于系统级质量验证。
+同样属于显式手工质量验证。
 
 不得在每个普通 P7.x / P8.x Task 后重复运行。
 
@@ -517,15 +512,15 @@ miniqmt-contract
 
 具体 canonical set 以当前 Repository 为准。
 
-### Coverage
+### Optional Manual Coverage
 
-执行完整 branch coverage，包括适用的：
+当当前 Phase Contract 明确选择 coverage evidence 时，可执行：
 
 ```bash
 uv run python scripts/test_suite.py core-full --coverage
 ```
 
-以及阶段内存在独立 coverage requirement 的正式模块。
+以及该 Phase 明确列出的正式模块。未选择时 coverage 不是 Phase 完成的隐式 mandatory evidence。
 
 ### Functional Scenario
 
@@ -569,7 +564,6 @@ Certification 的作用不是开发反馈，而是留下正式版本证据。
 
 * static verification；
 * canonical lanes；
-* mandatory branch coverage；
 * build；
 * Semgrep；
 * dependency audit；
@@ -903,7 +897,7 @@ uv run python scripts/test_suite.py recovery
 uv run python scripts/test_suite.py sim-recovery
 ```
 
-### Phase / Certification Coverage
+### Manual Coverage
 
 ```bash
 uv run python scripts/test_suite.py core-full --coverage
@@ -983,7 +977,7 @@ Impact Scope 内充分验证
 
 Phase Gate
     ↓
-阶段级完整回归、coverage、build、functional scenario
+阶段级完整回归、build、functional scenario（coverage 仅显式 opt-in）
 
 Certification Gate
     ↓

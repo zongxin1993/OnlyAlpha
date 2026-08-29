@@ -21,6 +21,18 @@ OnlyAlpha 的长期目标不是“功能可以运行”，而是建立一个：
 
 的量化交易基础设施。
 
+当前质量控制面的权威关系是：
+
+```text
+Machine policy authority  → quality-policy.toml
+Executable projections    → .github/workflows/quality.yml / certification.yml
+Narrative projection      → docs/engineering/quality-system.md
+Canonical test discovery  → pyproject.toml [tool.pytest.ini_options].testpaths
+Canonical root typecheck  → pyproject.toml [tool.mypy].files
+```
+
+Workflow、认证脚本、架构测试和本文不得各自维护 mandatory gate membership。
+
 工程质量优先级：
 
 1. 正确性；
@@ -38,43 +50,43 @@ OnlyAlpha 的长期目标不是“功能可以运行”，而是建立一个：
 ## 2. 核心原则
 
 Calculation Foundation 使用 `python scripts/test_suite.py calculation` 作为 canonical lane；它覆盖 Core definition/schema/
-DAG/registry/discovery/architecture tests 和 official Indicator package characterization。`calculation --coverage` 独立统计
-官方 Indicator plugin，Core `core-full --coverage` 的既有 82% gate 保持不变。Core、Indicator plugin 与 Factor plugin
+DAG/registry/discovery/architecture tests 和 official Indicator package characterization。`calculation --coverage` 可手工统计
+官方 Indicator plugin，Core `core-full --coverage` 的既有 82% threshold 保持不变。Core、Indicator plugin 与 Factor plugin
 均须进入 mypy；P7.5 official Factor provider 的 RESEARCH-only registrations 同样进入 discovery、类型和构建门禁。
 
 Research Calculation 使用 `python scripts/test_suite.py research-calculation` 作为 canonical lane；它覆盖 exact backend/source
 contracts、verified Dataset admission、instrument/DAG determinism、Result logical identity、immutable Store admission/atomicity、
 idempotency/deterministic conflict、manifest/partition corruption、fresh-process verified reload、architecture firewall 和官方
 Indicator Trading↔Research characterization。`research-calculation --coverage` 对 Core Research Calculation package 执行独立
-branch coverage gate；P7.3 沿用该 mandatory lane，Final-SHA Certification 已消费该 lane 与 coverage gate。
+branch coverage threshold；P7.3 沿用该 functional lane。Coverage 仍受支持，但不属于 regular CI 或 Final-SHA mandatory gate。
 
 Research Job 使用 `python scripts/test_suite.py research-job` 作为独立 canonical application lane；它覆盖 exact resolved Plan、
 verified reuse-or-execute、corruption fail-closed、re-entry recovery、same-job concurrency、fresh-process reuse、显式 Outcome 与
-Research/Trading architecture firewall。`research-job --coverage` 独立统计 `onlyalpha.research.job`，并进入 PR、master、release
-与 Final-SHA Certification mandatory gates。
+Research/Trading architecture firewall。`research-job --coverage` 可手工统计 `onlyalpha.research.job`；functional lane 进入 PR、master、
+release 与 Final-SHA Certification mandatory gates。
 
 Research Factor 使用 `python scripts/test_suite.py research-factor` 作为 semantic/execution closure lane；它覆盖 official
 Momentum/Percentile backends、canonical Factor Graph、semantic-node-first TIME_SERIES/CROSS_SECTION execution、physical
 order/partition/fresh-process determinism、旧 Indicator identity regression、Calculation Result/Research Job integration 与
 Research/Trading architecture firewall。`research-factor --coverage` 对 P7.5 execution module 与 official Factor plugin 执行
-100% line/branch coverage gate，并进入 PR、master、release 与 Final-SHA Certification mandatory gates。
+100% line/branch coverage threshold；functional lane 进入 PR、master、release 与 Final-SHA Certification mandatory gates。
 
 Research Sweep 使用 `python scripts/test_suite.py research-sweep` 作为 canonical composition lane；它覆盖 backend-neutral Definition
 re-materialization、Template/schema、typed candidate/dimension ordering、Cartesian planning、topological Graph materialization、identity
 propagation、fresh-process/hash-seed determinism、JobExecutor-only sequential execution、reuse/partial re-entry/corruption/fail-fast 和
 Research/Trading firewall。`research-sweep --coverage` 独立统计 `onlyalpha.research.sweep`，要求至少 90% line 与 85% branch，并进入 PR、
-master、release 与未来 P7 Final-SHA Certification mandatory gates。
+master、release 与 Final-SHA Certification mandatory gates；coverage command 保持手工可用。
 
 Research Specification 使用 `python scripts/test_suite.py research-specification` 作为 canonical compiler lane；它覆盖 strict
 schema/serialization/request identity、exact type/backend admission、candidate/Statistics lineage、Specification architecture boundary，以及
 manual P7 Workload 与 Specification-resolved Workload 的完整 Runtime semantic equivalence。`research-specification --coverage` 只统计
 `onlyalpha.research.specification`，要求 100% line 与 100% branch；Sweep Materializer 继续由 `research-sweep` coverage 拥有。该 lane 进入
-PR、master、release 与 Final-SHA Certification mandatory gates。
+PR、master、release 与 Final-SHA Certification mandatory gates；coverage 本身不是 mandatory gate。
 
 Finite Research Runtime 使用 `python scripts/test_suite.py research-runtime` 作为 canonical product-orchestration lane；它覆盖 Runtime
 product/capability boundary、完整 workload closure、Research-only Engine lifecycle、Dataset→Job/Sweep→Statistics→Result→Artifact 产品链、
 fresh-process deterministic re-entry、corruption fail-closed 与 Trading authority firewall。`research-runtime --coverage` 对新 Runtime product
-package 执行至少 95% line / 90% branch 门禁，并进入 PR、master、release 与 Final-SHA Certification mandatory gates。
+package 保留至少 95% line / 90% branch threshold；functional lane 进入 PR、master、release 与 Final-SHA Certification mandatory gates。
 
 Research Execution 使用 `python scripts/test_suite.py research-execution` 作为 canonical operational application lane；它覆盖 Attempt/
 Worker identity、lease/retry policy、finite Scheduler、周期 heartbeat、fenced Worker outcome、cooperative cancellation、graceful stop、
@@ -396,11 +408,11 @@ Phase Gate 应根据当前 Repository 的正式质量工具链执行：
 - canonical regression lanes；
 - architecture verification；
 - recovery / conformance verification；
-- full branch coverage；
+- 当前 Phase Contract 显式选择的手工 coverage evidence；
 - build verification；
 - 本阶段新增功能的端到端 functional scenarios。
 
-`--coverage` 类型的完整覆盖率验证默认属于 Phase Gate。
+`--coverage` 类型的完整覆盖率验证是受支持的手工/本地证据；只有当前 Phase Contract 显式选择时才成为该 Phase 的 required evidence。
 
 例如：
 
@@ -432,7 +444,7 @@ Certification 应消费当前 Repository 定义的正式认证能力，包括适
 
 - static verification；
 - canonical lanes；
-- mandatory coverage；
+- machine policy 声明的 mandatory gate set；
 - build；
 - semantic guardrails；
 - dependency audit；
@@ -484,7 +496,15 @@ GitHub CI 自动运行哪些 jobs，不直接决定单 Task 的 Acceptance Bound
 
 ### 2.15 Coverage Placement
 
-完整 branch coverage 是系统级质量证明，不是普通局部开发反馈。
+当前 machine policy 冻结：
+
+```text
+coverage_mode = manual
+```
+
+Coverage implementation、`--coverage` commands、pytest-cov、JSON/XML 输出和既有 thresholds 均保留。低于 threshold 的实际
+coverage run 仍然 FAIL；但 regular GitHub CI 和 Final-SHA Certification 不把 coverage 作为 mandatory gate。启用方式与 threshold
+由 `scripts/test_suite.py` 和 `pyproject.toml` 拥有，mandatory membership 只由 `quality-policy.toml` 拥有。
 
 Functional correctness evidence 与 Coverage evidence 是现有 Gate 内两个不同的 evidence dimension，不是新的 Gate。行为、
 invariant、contract、determinism、failure-path 以及必要的真实 persistence/concurrency 测试通过其 assertions 证明被测行为正确；
@@ -499,9 +519,8 @@ functional lane PASS + coverage threshold FAIL
 functional correctness evidence PASS + coverage evidence FAIL / OPEN
 ```
 
-Coverage failure 只阻塞明确把该 coverage 作为 mandatory evidence 的当前 Gate。Phase/Certification coverage failure 不得在 coverage
-并非 acceptance criterion 的普通 Task Gate 中被解释为 Task correctness failure；同样，Task Complete 不表示后续 Phase 或
-Certification coverage 已通过。
+Coverage failure 只阻塞明确把该 coverage 作为 required evidence 的当前手工任务或 Phase Contract。它不得在 coverage 并非
+acceptance criterion 的 Task Gate 中被解释为 Task correctness failure；同样，Task Complete 不表示任何未执行的手工 coverage 已通过。
 
 因此所有：
 
@@ -907,7 +926,7 @@ incident closure、高风险架构 baseline freeze 或长周期 milestone 中间
 
 普通 `Layered Quality` 是 Development Quality Gate，用于 PR 与主干反馈；事件条件允许某些互斥 lane 被显式跳过，因此它的绿色结果不能单独证明 Final-SHA Certification。
 
-Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Static、all-package build、当前 canonical lanes（包括 `research-specification`、`research-run`、`research-command`、`research-execution`、`research-postgres`、`research-runtime`、`research-sweep`、`research-factor`、`research-job`、`research-calculation`、`calculation`、`research-dataset`、`core-full`、`recovery`、`sim-recovery`、`ashare`、`miniqmt-contract`）、branch coverage、Semgrep 与 CodeQL 都是 mandatory；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。最终 verdict 由 `scripts/certification.py` 生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
+Repository 的唯一 Final-SHA Certification Authority 是手工触发的 `Final-SHA Certification` workflow。触发者必须提供不可变的 40 字符 `subject_sha`，每个 job 都 checkout 并验证该 SHA。Mandatory membership 由 `quality-policy.toml` 唯一定义，当前包括 Static、all-package build、Web、canonical lanes、Research PostgreSQL、Gateway historical protocol evidence、Semgrep、dependency audit 与 CodeQL；任何 missing、skipped、cancelled 或 failure 都产生 `REJECTED`。Coverage mode 是 manual，不属于该 mandatory matrix。最终 verdict 由 `scripts/certification.py` 读取同一 policy 并生成结构化 workflow artifact，因而不要求被认证 commit 保存尚未发生的未来 CI 结果。
 
 Streaming/async certification test 必须等待正式 state/revision/continuity evidence；bounded timeout 只能是统一、可解释的
 deadlock watchdog。watchdog failure 必须输出 immutable diagnostics，至少覆盖 phase/revision、recovery generation/stage/plan、
@@ -937,8 +956,9 @@ Impact planner 不是 test semantics authority。Canonical lane paths、marker e
 manifest 保存到 `test-results/verification/<verification-id>/`，成功 console 只输出 gate summary，失败输出有界诊断和完整日志路径。
 Manifest 的 authority 固定为 `LOCAL_DEVELOPMENT_VERIFICATION_ONLY`，`VERIFICATION_PASSED` 不等于 `CERTIFIED` 或 `ACCEPTED`。
 
-Coverage 不属于默认 inner loop。Final-SHA workflow 仍完整执行 exact-SHA static、build、canonical lanes、mandatory coverage、Semgrep、
-CodeQL、Web static/unit/build/E2E 和 fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。Web evidence 使用 Node 24、
+Coverage 不属于默认 inner loop，也不属于当前 Final-SHA mandatory matrix。Final-SHA workflow 仍完整执行 machine policy 声明的
+exact-SHA static、build、canonical lanes、Gateway historical evidence、Semgrep、dependency audit、CodeQL、Web static/unit/build/E2E 和
+fail-closed verdict；changed-file impact plan 永不参与该 mandatory matrix。Web evidence 使用 Node 24、
 `npm ci`、strict TypeScript/ESLint/Prettier/Vitest/Playwright；它是现有 Task/Phase/Certification Gate 中的 evidence，不创建第四种 Gate。
 
 成功的长时间运行日志默认保存在 evidence 文件中，不重复加载进 Agent context；console 与最终报告只保留 gate、exit code 和简短摘要，

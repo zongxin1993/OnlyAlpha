@@ -30,18 +30,7 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run ruff check src tests examples packages scripts
-      - run: uv run ruff format --check src tests examples packages scripts
-      - run: uv run mypy src/onlyalpha
-      - run: uv run mypy packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets
-      - run: uv run mypy --config-file packages/api/onlyalpha-api/pyproject.toml packages/api/onlyalpha-api/src/onlyalpha_api
-      - run: uv run mypy --config-file packages/market/onlyalpha-market-generic-t0-cash/pyproject.toml packages/market/onlyalpha-market-generic-t0-cash/src/onlyalpha_market_generic_t0_cash
-      - run: uv run mypy --config-file packages/market/onlyalpha-market-cn-ashare/pyproject.toml packages/market/onlyalpha-market-cn-ashare/src/onlyalpha_market_cn_ashare
-      - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-tushare/pyproject.toml packages/provider/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
-      - run: uv run mypy --config-file packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
-      - run: uv run mypy --config-file packages/protocol/onlyalpha-gateway-protocol/pyproject.toml packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol
-      - run: uv run lint-imports
-      - run: uv run python scripts/version_sync.py check
+      - run: uv run python scripts/test_suite.py release-static
 
   architecture:
     runs-on: ubuntu-latest
@@ -135,13 +124,7 @@ jobs:
             *) echo "Invalid Gateway compatibility baseline" >&2; exit 1 ;;
           esac
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-      - run: uv run python scripts/gateway_protocol.py verify --base "${{ steps.baseline.outputs.sha }}"
-      - run: >-
-          uv run pytest
-          tests/contracts/test_gateway_protocol_contract.py
-          tests/contracts/test_p9_k7_task_delta.py
-          tests/integration/test_remote_gateway_protocol.py
-          -q
+      - run: uv run python scripts/gateway_protocol.py verify-lane --base "${{ steps.baseline.outputs.sha }}"
 
   pr-lanes:
     if: github.event_name == 'pull_request'
@@ -164,64 +147,6 @@ jobs:
         with:
           name: ${{ matrix.lane }}-metrics
           path: test-results/metrics/*.json
-
-  # Coverage job temporarily disabled in GitHub CI.
-  # Local/manual coverage configuration remains unchanged.
-  # coverage:
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 60
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #       with:
-  #         fetch-depth: 0
-  #     - uses: astral-sh/setup-uv@v7
-  #       with:
-  #         version: "0.10.5"
-  #         python-version: ${{ env.PYTHON_VERSION }}
-  #     - run: uv sync --frozen --all-packages --all-groups
-  #     - name: Core tests, Hypothesis CI profile, and branch coverage
-  #       env:
-  #         HYPOTHESIS_PROFILE: ci
-  #       run: uv run python scripts/test_suite.py core-full --coverage
-  #     - name: Official Calculation plugin branch coverage
-  #       run: uv run python scripts/test_suite.py calculation --coverage
-  #     - name: Research Calculation branch coverage
-  #       run: uv run python scripts/test_suite.py research-calculation --coverage
-  #     - name: Research Definition branch coverage
-  #       run: uv run python scripts/test_suite.py research-definition --coverage
-  #     - name: Research Factor branch coverage
-  #       run: uv run python scripts/test_suite.py research-factor --coverage
-  #     - name: Research Evaluation branch coverage
-  #       env:
-  #         HYPOTHESIS_PROFILE: ci
-  #       run: uv run python scripts/test_suite.py research-evaluation --coverage
-  #     - name: Research Result branch coverage
-  #       run: uv run python scripts/test_suite.py research-result --coverage
-  #     - name: Research Artifact branch coverage
-  #       run: uv run python scripts/test_suite.py research-artifact --coverage
-  #     - name: Research Query branch coverage
-  #       run: uv run python scripts/test_suite.py research-query --coverage
-  #     - name: Research Command branch coverage
-  #       run: uv run python scripts/test_suite.py research-command --coverage
-  #     - name: Research Runtime branch coverage
-  #       run: uv run python scripts/test_suite.py research-runtime --coverage
-  #     - name: Research Specification branch coverage
-  #       run: uv run python scripts/test_suite.py research-specification --coverage
-  #     - name: Research Run branch coverage
-  #       run: uv run python scripts/test_suite.py research-run --coverage
-  #     - name: Research Execution branch coverage
-  #       run: uv run python scripts/test_suite.py research-execution --coverage
-  #     - name: Research Job branch coverage
-  #       run: uv run python scripts/test_suite.py research-job --coverage
-  #     - name: Research Sweep branch coverage
-  #       run: uv run python scripts/test_suite.py research-sweep --coverage
-  #     - name: Research Dataset branch coverage
-  #       run: uv run python scripts/test_suite.py research-dataset --coverage
-  #     - uses: actions/upload-artifact@v6
-  #       if: always()
-  #       with:
-  #         name: branch-coverage
-  #         path: test-results/coverage/
 
   main-lanes:
     if: github.event_name != 'pull_request'
@@ -294,8 +219,6 @@ jobs:
         working-directory: apps/onlyalpha-web
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
       - run: uv run python scripts/test_suite.py research-product-closure
-      # Coverage execution is disabled in CI; retain the functional PostgreSQL suite.
-      # - run: uv run python scripts/test_suite.py research-postgres --coverage
       - run: uv run python scripts/test_suite.py research-postgres
 
   web:
@@ -395,8 +318,7 @@ jobs:
 
   quality-gate:
     if: always()
-    # Coverage is intentionally excluded while CI coverage execution is disabled.
-    needs: [static, architecture, openapi-contract, semgrep, dependency-audit, pr-lanes, main-lanes, research-postgres, build, web]
+    needs: [static, architecture, openapi-contract, gateway-protocol, semgrep, dependency-audit, pr-lanes, main-lanes, research-postgres, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -404,13 +326,12 @@ jobs:
           STATIC_RESULT: ${{ needs.static.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
           OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
+          GATEWAY_PROTOCOL_RESULT: ${{ needs.gateway-protocol.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
-          # COVERAGE_RESULT: ${{ needs.coverage.result }}
-          PR_RESULT: ${{ needs.pr-lanes.result }}
-          MAIN_RESULT: ${{ needs.main-lanes.result }}
-          POSTGRES_RESULT: ${{ needs.research-postgres.result }}
+          PR_LANES_RESULT: ${{ needs.pr-lanes.result }}
+          MAIN_LANES_RESULT: ${{ needs.main-lanes.result }}
+          RESEARCH_POSTGRES_RESULT: ${{ needs.research-postgres.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        # Coverage result check is intentionally disabled together with the coverage job.
-        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_RESULT" = success -o "$PR_RESULT" = skipped \) -a \( "$MAIN_RESULT" = success -o "$MAIN_RESULT" = skipped \)
+        run: test "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$SEMGREP_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_POSTGRES_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)

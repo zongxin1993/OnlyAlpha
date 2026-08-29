@@ -3,23 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-REQUIRED_GATES = frozenset(
-    {
-        "subject",
-        "static",
-        "build",
-        "web",
-        "lanes",
-        "research-postgres",
-        "coverage",
-        "semgrep",
-        "dependency-audit",
-        "codeql",
-    }
-)
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.quality_policy import load_quality_policy  # noqa: E402
+
+QUALITY_POLICY = load_quality_policy()
+REQUIRED_GATES = QUALITY_POLICY.certification_required_gates
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -48,7 +43,8 @@ def build_evidence(
         )
     passed = all(gates[name] == "success" for name in REQUIRED_GATES)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "quality_policy_schema_version": QUALITY_POLICY.schema_version,
         "subject_sha": subject_sha,
         "workflow_run": workflow_run,
         "workflow_url": workflow_url,

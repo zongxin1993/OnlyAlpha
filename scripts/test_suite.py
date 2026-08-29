@@ -5,24 +5,33 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKSPACE_TESTS = (
-    "tests",
-    "packages/fake/onlyalpha-plugin-broker-virtual/tests",
-    "packages/market/onlyalpha-market-generic-t0-cash/tests",
-    "packages/market/onlyalpha-market-cn-ashare/tests",
-    "packages/provider/onlyalpha-plugin-tushare/tests",
-    "packages/provider/onlyalpha-plugin-miniqmt/tests",
-    "packages/indicator/onlyalpha-plugin-indicators/tests",
-    "packages/factor/onlyalpha-plugin-factors/tests",
-    "packages/target/onlyalpha-plugin-targets/tests",
-    "packages/api/onlyalpha-api/tests",
-    "packages/protocol/onlyalpha-gateway-protocol/tests",
-)
+
+
+def workspace_test_paths(pyproject: Path = ROOT / "pyproject.toml") -> tuple[str, ...]:
+    document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    try:
+        configured = document["tool"]["pytest"]["ini_options"]["testpaths"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError("pyproject.toml must define tool.pytest.ini_options.testpaths") from exc
+    if (
+        not isinstance(configured, list)
+        or not configured
+        or not all(isinstance(path, str) and path for path in configured)
+    ):
+        raise ValueError("tool.pytest.ini_options.testpaths must be a non-empty string array")
+    paths = tuple(str(path) for path in configured)
+    if len(paths) != len(set(paths)):
+        raise ValueError("tool.pytest.ini_options.testpaths contains duplicate paths")
+    return paths
+
+
+WORKSPACE_TESTS = workspace_test_paths()
 
 
 class OnlyTestLane(StrEnum):
@@ -286,7 +295,7 @@ LANES = {
     ),
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
-        "(unit or contract or architecture) and not (recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
+        "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or performance or exhaustive or slow)",
         "8",
         "worksteal",
     ),
@@ -319,7 +328,7 @@ LANES = {
     ),
     OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
-        "not (recovery or sim_recovery or conformance or external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
+        "not (historical_git or recovery or sim_recovery or conformance or external or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or performance or exhaustive or slow)",
         "8",
         "worksteal",
         100,
@@ -330,22 +339,14 @@ LANES = {
 RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("uv", "run", "ruff", "check", "src", "tests", "examples", "packages", "scripts"),
     ("uv", "run", "ruff", "format", "--check", "src", "tests", "examples", "packages", "scripts"),
-    ("uv", "run", "mypy", "src/onlyalpha"),
-    (
-        "uv",
-        "run",
-        "mypy",
-        "packages/indicator/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
-        "packages/factor/onlyalpha-plugin-factors/src/onlyalpha_plugin_factors",
-        "packages/target/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
-    ),
+    ("uv", "run", "mypy"),
     (
         "uv",
         "run",
         "mypy",
         "--config-file",
-        "packages/api/onlyalpha-api/pyproject.toml",
-        "packages/api/onlyalpha-api/src/onlyalpha_api",
+        "packages/fake/onlyalpha-plugin-broker-virtual/pyproject.toml",
+        "packages/fake/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual",
     ),
     (
         "uv",
@@ -379,14 +380,7 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
         "packages/provider/onlyalpha-plugin-miniqmt/pyproject.toml",
         "packages/provider/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt",
     ),
-    (
-        "uv",
-        "run",
-        "mypy",
-        "--config-file",
-        "packages/protocol/onlyalpha-gateway-protocol/pyproject.toml",
-        "packages/protocol/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
-    ),
+    ("uv", "run", "lint-imports"),
     ("uv", "run", "python", "scripts/version_sync.py", "check"),
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
@@ -433,16 +427,23 @@ def release_check_commands(check: OnlyReleaseCheck) -> tuple[tuple[str, ...], ..
     return (BUILD_COMMAND,)
 
 
+def execute_release_check(check: OnlyReleaseCheck) -> int:
+    for command in release_check_commands(check):
+        code = run(list(command))
+        if code:
+            return code
+    return 0
+
+
 def run(command: list[str], env: dict[str, str] | None = None) -> int:
     print("> " + subprocess.list2cmdline(command), flush=True)
     return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
 
 
 def release(args: argparse.Namespace) -> int:
-    for command in release_check_commands(OnlyReleaseCheck.STATIC):
-        code = run(list(command))
-        if code:
-            return code
+    code = execute_release_check(OnlyReleaseCheck.STATIC)
+    if code:
+        return code
     for check in (
         OnlyReleaseCheck.WEB_STATIC,
         OnlyReleaseCheck.WEB_UNIT,
@@ -713,7 +714,9 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("lane", choices=[lane.value for lane in OnlyTestLane])
+    parser.add_argument(
+        "lane", choices=[lane.value for lane in OnlyTestLane] + [check.value for check in OnlyReleaseCheck]
+    )
     parser.add_argument("--workers")
     parser.add_argument("--dist", choices=("load", "loadscope", "loadfile", "worksteal"))
     parser.add_argument("--durations", type=int)
@@ -724,6 +727,8 @@ def main() -> int:
         help="collect branch coverage once for this lane; disables xdist for deterministic data",
     )
     args = parser.parse_args()
+    if args.lane in {check.value for check in OnlyReleaseCheck}:
+        return execute_release_check(OnlyReleaseCheck(args.lane))
     lane = OnlyTestLane(args.lane)
     return release(args) if lane is OnlyTestLane.RELEASE else execute(lane, args)
 

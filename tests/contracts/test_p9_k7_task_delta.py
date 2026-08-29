@@ -18,6 +18,8 @@ PROTECTED_P9_SEMANTIC_PATHS = (
     "src/onlyalpha/execution",
 )
 
+pytestmark = [pytest.mark.contract, pytest.mark.historical_git]
+
 
 def _require_commit(revision: str) -> None:
     completed = subprocess.run(
@@ -31,13 +33,11 @@ def _require_commit(revision: str) -> None:
         raise AssertionError(f"required P9.K.7 audit commit is unavailable: {revision}")
 
 
-@pytest.mark.contract
 def test_missing_required_k7_task_baseline_fails_closed() -> None:
     with pytest.raises(AssertionError, match="required P9.K.7 audit commit is unavailable"):
         _require_commit("0" * 40)
 
 
-@pytest.mark.contract
 def test_product_openapi_was_byte_identical_during_k7() -> None:
     _require_commit(P9_K7_TASK_BASE_SHA)
     _require_commit(P9_K7_VERIFIED_CLOSURE_SHA)
@@ -56,7 +56,6 @@ def test_product_openapi_was_byte_identical_during_k7() -> None:
     assert closure == baseline
 
 
-@pytest.mark.contract
 def test_protected_p9_semantic_sources_were_unchanged_during_k7() -> None:
     _require_commit(P9_K7_TASK_BASE_SHA)
     _require_commit(P9_K7_VERIFIED_CLOSURE_SHA)

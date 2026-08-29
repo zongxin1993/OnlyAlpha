@@ -7,7 +7,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.pytest_layering import path_concerns, path_layer  # noqa: E402
-from scripts.test_suite import LANES, RELEASE_LANES, WORKSPACE_TESTS, OnlyTestLane  # noqa: E402
+from scripts.test_suite import (  # noqa: E402
+    LANES,
+    RELEASE_LANES,
+    RELEASE_STATIC_COMMANDS,
+    WORKSPACE_TESTS,
+    OnlyTestLane,
+    workspace_test_paths,
+)
 
 
 def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
@@ -17,6 +24,45 @@ def test_core_full_lane_covers_every_workspace_test_distribution() -> None:
     assert "recovery" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "conformance" in LANES[OnlyTestLane.CORE_FULL].expression
     assert "exhaustive" in LANES[OnlyTestLane.CORE_FULL].expression
+    assert "historical_git" in LANES[OnlyTestLane.CORE_FULL].expression
+
+
+def test_workspace_tests_are_derived_from_root_pytest_testpaths(tmp_path: Path) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool.pytest.ini_options]\ntestpaths = ["tests", "packages/new/tests"]\n')
+
+    assert workspace_test_paths(pyproject) == ("tests", "packages/new/tests")
+
+
+def test_binance_offline_packages_are_in_core_full_and_network_contract_is_excluded() -> None:
+    assert "packages/market/onlyalpha-market-binance-spot/tests" in WORKSPACE_TESTS
+    assert "packages/provider/onlyalpha-plugin-binance/tests" in WORKSPACE_TESTS
+    assert "external" in LANES[OnlyTestLane.CORE_FULL].expression
+    assert "requires_network" in LANES[OnlyTestLane.CORE_FULL].expression
+    public_contract = (ROOT / "packages/provider/onlyalpha-plugin-binance/tests/test_public_contract.py").read_text()
+    assert "pytest.mark.external" in public_contract
+    assert "pytest.mark.requires_network" in public_contract
+
+
+def test_historical_git_contract_has_one_explicit_history_capable_owner() -> None:
+    historical = (ROOT / "tests/contracts/test_p9_k7_task_delta.py").read_text()
+    assert "pytest.mark.historical_git" in historical
+    assert "historical_git" in LANES[OnlyTestLane.FAST].expression
+    assert "historical_git" in LANES[OnlyTestLane.CORE_FULL].expression
+
+
+def test_release_static_uses_root_mypy_authority_and_package_local_exceptions() -> None:
+    assert ("uv", "run", "mypy") in RELEASE_STATIC_COMMANDS
+    joined = {" ".join(command) for command in RELEASE_STATIC_COMMANDS}
+    assert not any(command.startswith("uv run mypy src/onlyalpha") for command in joined)
+    for package in (
+        "onlyalpha-plugin-broker-virtual",
+        "onlyalpha-market-generic-t0-cash",
+        "onlyalpha-market-cn-ashare",
+        "onlyalpha-plugin-tushare",
+        "onlyalpha-plugin-miniqmt",
+    ):
+        assert any("packages/" in command and package in command for command in joined)
 
 
 def test_external_and_real_order_tests_are_excluded_from_offline_lanes() -> None:
