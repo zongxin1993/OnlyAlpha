@@ -38,15 +38,21 @@ def _result_variable(gate: str) -> str:
     return gate.replace("-", "_").upper() + "_RESULT"
 
 
-def test_only_task_and_phase_gate_authorities_remain() -> None:
+def test_quality_policy_is_ci_and_phase_gate_policy_not_progress_state() -> None:
     root = Path(".")
     assert not (root / ".github/workflows/certification.yml").exists()
     assert not (root / "scripts/certification.py").exists()
-    assert "certification" not in (root / "quality-policy.toml").read_text(encoding="utf-8")
-    assert "[certification]" not in (root / "project-state.toml").read_text(encoding="utf-8")
+    assert not (root / "project-state.toml").exists()
+    assert not (root / "scripts/project_state.py").exists()
+
+    policy_source = (root / "quality-policy.toml").read_text(encoding="utf-8")
+    assert "certification" not in policy_source
+    assert "historical_evidence" not in policy_source
+    assert "verified" not in policy_source.lower()
+    assert "authorized" not in policy_source.lower()
 
 
-def test_machine_policy_is_the_only_quality_gate_authority() -> None:
+def test_machine_policy_projects_exactly_to_quality_gate() -> None:
     quality = _workflow()
     quality_gate = quality["quality-gate"]
     needs = quality_gate.get("needs")
@@ -92,17 +98,32 @@ def test_commented_yaml_cannot_satisfy_an_active_job_contract() -> None:
 def test_quality_policy_rejects_duplicate_gate_identity(tmp_path: Path) -> None:
     policy = tmp_path / "quality-policy.toml"
     policy.write_text(
-        """schema_version = 2
+        """schema_version = 3
 coverage_mode = "manual"
 [quality]
 required_gates = ["gateway-protocol", "gateway-protocol"]
 event_lane_gates = ["pr-lanes"]
-[historical_evidence]
-exclusive_owner = "gateway-protocol"
 """,
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="duplicate gates"):
+        load_quality_policy(policy)
+
+
+def test_quality_policy_rejects_progress_or_evidence_tables(tmp_path: Path) -> None:
+    policy = tmp_path / "quality-policy.toml"
+    policy.write_text(
+        """schema_version = 3
+coverage_mode = "manual"
+[quality]
+required_gates = ["static"]
+event_lane_gates = ["pr-lanes"]
+[historical_evidence]
+exclusive_owner = "static"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="unsupported top-level entries"):
         load_quality_policy(policy)
 
 
@@ -119,8 +140,8 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
         assert f"uv run python scripts/web_suite.py {command}" in _runs(jobs["web"])
 
 
-def test_gateway_protocol_is_the_only_history_owner() -> None:
-    gateway = _workflow()[POLICY.historical_evidence_owner]
+def test_gateway_protocol_history_is_scoped_to_protocol_compatibility() -> None:
+    gateway = _workflow()["gateway-protocol"]
     checkout = next(step for step in _steps(gateway) if step.get("uses") == "actions/checkout@v6")
     checkout_with = checkout.get("with")
     assert isinstance(checkout_with, dict)

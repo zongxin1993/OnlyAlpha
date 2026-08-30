@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 coverage_mode = "manual"
 
 [quality]
@@ -17,6 +17,3 @@ event_lane_gates = [
     "pr-lanes",
     "main-lanes",
 ]
-
-[historical_evidence]
-exclusive_owner = "gateway-protocol"
