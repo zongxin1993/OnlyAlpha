@@ -3,7 +3,12 @@
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
-from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId, OnlyMarketDataUpdateId
+from onlyalpha.data.identifiers import (
+    OnlyDataSequence,
+    OnlyDataSequenceScope,
+    OnlyDataVersion,
+    OnlyMarketDataSourceId,
+)
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
@@ -87,10 +92,15 @@ class OnlyStreamingRecoveryLoader:
         updates = tuple(
             replace(
                 by_end[boundary.unix_nanos],
-                update_id=OnlyMarketDataUpdateId(f"recovery-{self._runtime_id}-{plan.generation}-{offset}"),
                 runtime_id=self._runtime_id,
                 source_id=self._source_id,
                 source_sequence=OnlyDataSequence(accepted_sequence + offset),
+                sequence_scope=OnlyDataSequenceScope(
+                    self._source_id,
+                    plan.instrument_id,
+                    by_end[boundary.unix_nanos].data_type,
+                    plan.bar_type,
+                ),
                 metadata=by_end[boundary.unix_nanos].metadata
                 + (
                     ("provider_sequence", str(int(by_end[boundary.unix_nanos].source_sequence))),

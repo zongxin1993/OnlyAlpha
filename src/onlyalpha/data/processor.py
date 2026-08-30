@@ -5,12 +5,21 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
 
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.audit import OnlyMarketDataAuditRecord, OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataQualityFlag, OnlyMarketDataType
-from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
+from onlyalpha.data.enums import (
+    OnlyDataSequenceSemantics,
+    OnlyMarketDataProcessingStatus,
+    OnlyMarketDataQualityFlag,
+    OnlyMarketDataType,
+)
+from onlyalpha.data.identifiers import (
+    OnlyDataSequenceScope,
+    OnlyDataVersion,
+    OnlyMarketDataSourceId,
+    OnlyMarketDataUpdateId,
+)
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyMarketDataFailure,
@@ -30,53 +39,35 @@ from onlyalpha.market_data.pipeline import OnlyMarketDataPipeline, OnlyMarketDat
 
 class OnlyMarketDataDeduplicator:
     def __init__(self) -> None:
-        self._keys: set[tuple[object, ...]] = set()
-
-    @staticmethod
-    def _key(update: OnlyMarketDataInboundUpdate) -> tuple[object, ...]:
-        if isinstance(update.payload, OnlyBarUpdate):
-            return (
-                update.source_id,
-                update.instrument_id,
-                update.payload.bar.bar_type,
-                update.ts_event.unix_nanos,
-                update.data_version,
-            )
-        return (update.source_id, update.instrument_id, update.data_type, update.source_sequence)
+        self._keys: set[OnlyMarketDataUpdateId] = set()
+        self._legacy_bar_keys: set[tuple[object, ...]] = set()
 
     def contains(self, update: OnlyMarketDataInboundUpdate) -> bool:
-        return self._key(update) in self._keys
+        legacy_key = (
+            update.source_id,
+            update.instrument_id,
+            update.bar_type,
+            update.ts_event.unix_nanos,
+            update.data_version,
+        )
+        return update.update_id in self._keys or legacy_key in self._legacy_bar_keys
 
     def remember(self, update: OnlyMarketDataInboundUpdate) -> None:
-        self._keys.add(self._key(update))
+        self._keys.add(update.update_id)
 
     def capture_checkpoint(self) -> object:
-        records: list[dict[str, object]] = []
-        for key in self._keys:
-            if (
-                len(key) != 5
-                or not isinstance(key[0], OnlyMarketDataSourceId)
-                or not isinstance(key[1], OnlyInstrumentId)
-                or not isinstance(key[2], OnlyBarType)
-                or not isinstance(key[3], int)
-                or not isinstance(key[4], OnlyDataVersion)
-            ):
-                raise ValueError("unsupported MarketData dedup checkpoint key")
-            records.append(
-                {
-                    "bar_type": key[2].to_json(),
-                    "data_version": str(key[4]),
-                    "instrument_id": key[1].to_json(),
-                    "source_id": str(key[0]),
-                    "ts_event_ns": key[3],
-                }
-            )
-        return sorted(records, key=lambda item: (str(item["source_id"]), str(item["ts_event_ns"])))
+        records = [{"schema_version": 2, "update_id": str(key)} for key in self._keys]
+        return sorted(records, key=lambda item: str(item["update_id"]))
 
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, list):
             raise ValueError("MarketData dedup checkpoint must be a list")
         self._keys = {
+            OnlyMarketDataUpdateId(str(item["update_id"]))
+            for item in payload
+            if isinstance(item, dict) and "update_id" in item
+        }
+        self._legacy_bar_keys = {
             (
                 OnlyMarketDataSourceId(str(item["source_id"])),
                 OnlyInstrumentId.from_json(str(item["instrument_id"])),
@@ -85,7 +76,7 @@ class OnlyMarketDataDeduplicator:
                 OnlyDataVersion(str(item["data_version"])),
             )
             for item in payload
-            if isinstance(item, dict)
+            if isinstance(item, dict) and "update_id" not in item
         }
 
 
@@ -97,42 +88,69 @@ class OnlyMarketDataSequenceAssessment:
 
 class OnlyMarketDataSequenceTracker:
     def __init__(self) -> None:
-        self._last: dict[tuple[object, ...], int] = {}
+        self._last: dict[OnlyDataSequenceScope, int] = {}
+        self._legacy_last: dict[tuple[OnlyMarketDataSourceId, OnlyMarketDataType], int] = {}
 
     def assess(self, update: OnlyMarketDataInboundUpdate) -> OnlyMarketDataSequenceAssessment:
-        key = (update.source_id, update.data_type)
+        if update.sequence_semantics is OnlyDataSequenceSemantics.UNKNOWN:
+            return OnlyMarketDataSequenceAssessment(stale=False, gap=False)
+        key = update.sequence_scope
+        if key is None:
+            raise ValueError("market-data update is missing sequence scope")
         current = int(update.source_sequence)
         previous = self._last.get(key)
+        if previous is None:
+            previous = self._legacy_last.get((update.source_id, update.data_type))
         if previous is not None and current <= previous:
             return OnlyMarketDataSequenceAssessment(stale=True, gap=False)
-        gap = previous is not None and current > previous + 1
+        gap = (
+            update.sequence_semantics is OnlyDataSequenceSemantics.CONTIGUOUS
+            and previous is not None
+            and current > previous + 1
+        )
         return OnlyMarketDataSequenceAssessment(stale=False, gap=gap)
 
     def commit(self, update: OnlyMarketDataInboundUpdate) -> None:
-        key = (update.source_id, update.data_type)
+        if update.sequence_semantics is OnlyDataSequenceSemantics.UNKNOWN:
+            return
+        key = update.sequence_scope
+        if key is None:
+            raise ValueError("market-data update is missing sequence scope")
         current = int(update.source_sequence)
         self._last[key] = current
+        self._legacy_last.pop((update.source_id, update.data_type), None)
 
     def capture_checkpoint(self) -> object:
-        return [
+        scoped = [
             {
-                "data_type": cast(OnlyMarketDataType, key[1]).value,
+                "scope": key.to_dict(),
                 "sequence": value,
-                "source_id": str(key[0]),
             }
-            for key, value in sorted(self._last.items(), key=lambda item: tuple(str(value) for value in item[0]))
+            for key, value in sorted(self._last.items(), key=lambda item: str(item[0].to_dict()))
         ]
+        legacy = [
+            {"source_id": str(key[0]), "data_type": key[1].value, "sequence": value}
+            for key, value in sorted(self._legacy_last.items(), key=lambda item: (str(item[0][0]), item[0][1].value))
+        ]
+        return [*scoped, *legacy]
 
     def restore_checkpoint(self, payload: object) -> None:
         if not isinstance(payload, list):
             raise ValueError("MarketData sequence checkpoint must be a list")
+        from onlyalpha.data.identifiers import OnlyDataSequenceScope
+
         self._last = {
+            OnlyDataSequenceScope.from_dict(item["scope"]): int(item["sequence"])
+            for item in payload
+            if isinstance(item, dict) and isinstance(item.get("scope"), dict)
+        }
+        self._legacy_last = {
             (
                 OnlyMarketDataSourceId(str(item["source_id"])),
                 OnlyMarketDataType(str(item["data_type"])),
             ): int(item["sequence"])
             for item in payload
-            if isinstance(item, dict)
+            if isinstance(item, dict) and "scope" not in item
         }
 
 

@@ -66,8 +66,8 @@ def test_loader_validates_and_normalizes_immutable_external_facts(runtime_calend
     assert batch.plan is plan
     assert tuple(int(item.source_sequence) for item in batch.updates) == (11, 12)
     assert tuple(str(item.update_id) for item in batch.updates) == (
-        "recovery-runtime-3-1",
-        "recovery-runtime-3-2",
+        "provider-80",
+        "provider-90",
     )
     assert tuple(item.payload.bar for item in batch.updates) == (first, second)
     assert dict(batch.updates[0].metadata) == {

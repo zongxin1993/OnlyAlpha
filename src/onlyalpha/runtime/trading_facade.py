@@ -27,15 +27,20 @@ from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
 from onlyalpha.core.clock import OnlyBacktestClock, OnlyClock, OnlyClockView, OnlyTimerEvent, OnlyTimerHandle
 from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.data.audit import OnlyMarketDataAuditStore, OnlyMarketDataEventPublisher
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataQualityFlag, OnlyMarketDataType
+from onlyalpha.data.enums import (
+    OnlyDataSequenceSemantics,
+    OnlyMarketDataProcessingStatus,
+    OnlyMarketDataQualityFlag,
+    OnlyMarketDataType,
+)
 from onlyalpha.data.gateway import OnlyInMemoryMarketDataGateway
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyDataVersion,
     OnlyMarketDataGatewayId,
     OnlyMarketDataSourceId,
-    OnlyMarketDataUpdateId,
 )
+from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
@@ -1693,10 +1698,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             source_id = self._services.historical_data_source.source_id
             data_version = OnlyDataVersion("runtime-local-v1")
             inbound = OnlyMarketDataInboundUpdate(
-                OnlyMarketDataUpdateId(
-                    f"MD-{self.config.runtime_id}-{self._legacy_market_data_sequence:012d}-"
-                    f"{OnlyTimestamp.from_datetime(bar.ts_event).unix_nanos}"
-                ),
+                only_bar_update_id(source_id, bar.instrument_id, bar.bar_type, bar.bar_start, data_version),
                 OnlyRuntimeId(str(self.config.runtime_id)),
                 source_id,
                 OnlyDataSequence(self._legacy_market_data_sequence),
@@ -1707,6 +1709,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
                 OnlyTimestamp.from_datetime(bar.ts_event),
                 OnlyTimestamp.from_datetime(bar.ts_init),
                 OnlyMarketDataQuality(frozenset({OnlyMarketDataQualityFlag.UNADJUSTED})),
+                sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
             )
             source = OnlyInMemoryHistoricalDataSource(source_id, (inbound,))
             request = OnlyHistoricalBarRequest(

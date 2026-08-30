@@ -15,8 +15,9 @@ from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
 from onlyalpha.config.persistence import OnlyRuntimePersistenceConfig
 from onlyalpha.core.clock import OnlyLiveClock, OnlyTimerEvent, OnlyTimerHandle, OnlyTimerId
-from onlyalpha.data.enums import OnlyMarketDataProcessingStatus, OnlyMarketDataType
-from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataUpdateId
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataProcessingStatus, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion
+from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyMarketDataInboundUpdate,
@@ -707,7 +708,9 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         source_id = self._driver.source.source_id  # type: ignore[union-attr]
         records = tuple(
             OnlyMarketDataInboundUpdate(
-                OnlyMarketDataUpdateId(f"warmup-{self.runtime_id}-{sequence}"),
+                only_bar_update_id(
+                    source_id, bar.instrument_id, bar.bar_type, bar.bar_start, self._streaming_data_version
+                ),
                 OnlyRuntimeId(self.runtime_id),
                 source_id,
                 OnlyDataSequence(sequence),
@@ -718,6 +721,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 OnlyTimestamp.from_datetime(bar.ts_event),
                 OnlyTimestamp.from_datetime(bar.ts_init),
                 metadata=(("warmup", "historical"),),
+                sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
             )
             for sequence, bar in enumerate(ordered, start=1)
         )

@@ -8,6 +8,7 @@ from datetime import datetime
 
 from onlyalpha.core.clock import OnlyTimeAdvanceResult
 from onlyalpha.data.enums import (
+    OnlyDataSequenceSemantics,
     OnlyHistoricalMergePolicy,
     OnlyHistoricalReplayState,
     OnlyMarketDataConnectionState,
@@ -19,13 +20,20 @@ from onlyalpha.data.enums import (
 )
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
+    OnlyDataSequenceScope,
     OnlyDataVersion,
     OnlyMarketDataGatewayId,
     OnlyMarketDataSourceId,
     OnlyMarketDataUpdateId,
 )
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyQuoteTick, OnlyTradeTick
+from onlyalpha.domain.market import (
+    OnlyBar,
+    OnlyBarType,
+    OnlyMarketReferenceTick,
+    OnlyQuoteTick,
+    OnlyTradeTick,
+)
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
 
 
@@ -56,6 +64,11 @@ class OnlyTradeTickUpdate:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyMarketReferenceUpdate:
+    reference: OnlyMarketReferenceTick
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyInstrumentStatusUpdate:
     instrument_id: OnlyInstrumentId
     status: str
@@ -65,7 +78,9 @@ class OnlyInstrumentStatusUpdate:
             raise ValueError("instrument status cannot be blank")
 
 
-OnlyMarketDataPayload = OnlyBarUpdate | OnlyQuoteTickUpdate | OnlyTradeTickUpdate | OnlyInstrumentStatusUpdate
+OnlyMarketDataPayload = (
+    OnlyBarUpdate | OnlyQuoteTickUpdate | OnlyTradeTickUpdate | OnlyMarketReferenceUpdate | OnlyInstrumentStatusUpdate
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +98,8 @@ class OnlyMarketDataInboundUpdate:
     quality: OnlyMarketDataQuality = OnlyMarketDataQuality()
     correlation_id: str | None = None
     metadata: tuple[tuple[str, str], ...] = ()
+    sequence_scope: OnlyDataSequenceScope | None = None
+    sequence_semantics: OnlyDataSequenceSemantics = OnlyDataSequenceSemantics.CONTIGUOUS
 
     def __post_init__(self) -> None:
         if self.ts_init.unix_nanos < self.ts_event.unix_nanos:
@@ -94,6 +111,8 @@ class OnlyMarketDataInboundUpdate:
             if isinstance(self.payload, OnlyQuoteTickUpdate)
             else self.payload.trade.instrument_id
             if isinstance(self.payload, OnlyTradeTickUpdate)
+            else self.payload.reference.instrument_id
+            if isinstance(self.payload, OnlyMarketReferenceUpdate)
             else self.payload.instrument_id
         )
         if payload_instrument != self.instrument_id:
@@ -102,10 +121,21 @@ class OnlyMarketDataInboundUpdate:
             OnlyBarUpdate: OnlyMarketDataType.BAR,
             OnlyQuoteTickUpdate: OnlyMarketDataType.QUOTE,
             OnlyTradeTickUpdate: OnlyMarketDataType.TRADE,
+            OnlyMarketReferenceUpdate: OnlyMarketDataType.MARKET_REFERENCE,
             OnlyInstrumentStatusUpdate: OnlyMarketDataType.INSTRUMENT_STATUS,
         }[type(self.payload)]
         if self.data_type is not expected:
             raise ValueError("market-data envelope type does not match payload")
+        expected_scope = OnlyDataSequenceScope(
+            self.source_id,
+            self.instrument_id,
+            self.data_type,
+            self.bar_type,
+        )
+        if self.sequence_scope is None:
+            object.__setattr__(self, "sequence_scope", expected_scope)
+        elif self.sequence_scope != expected_scope:
+            raise ValueError("market-data sequence scope does not match envelope")
 
     @property
     def bar_type(self) -> OnlyBarType | None:
@@ -119,10 +149,12 @@ class OnlyMarketDataInboundUpdate:
             payload = {"kind": "QUOTE", "value": self.payload.quote.to_dict()}
         elif isinstance(self.payload, OnlyTradeTickUpdate):
             payload = {"kind": "TRADE", "value": self.payload.trade.to_dict()}
+        elif isinstance(self.payload, OnlyMarketReferenceUpdate):
+            payload = {"kind": "MARKET_REFERENCE", "value": self.payload.reference.to_dict()}
         else:
             payload = {"kind": "INSTRUMENT_STATUS", "status": self.payload.status}
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "update_id": str(self.update_id),
             "runtime_id": str(self.runtime_id),
             "source_id": str(self.source_id),
@@ -136,6 +168,8 @@ class OnlyMarketDataInboundUpdate:
             "quality_flags": sorted(item.value for item in self.quality.flags),
             "correlation_id": self.correlation_id,
             "metadata": [list(item) for item in self.metadata],
+            "sequence_scope": self.sequence_scope.to_dict() if self.sequence_scope is not None else None,
+            "sequence_semantics": self.sequence_semantics.value,
         }
 
     @classmethod
@@ -152,6 +186,8 @@ class OnlyMarketDataInboundUpdate:
             payload = OnlyQuoteTickUpdate(OnlyQuoteTick.from_dict(value))
         elif kind == "TRADE" and isinstance(value, Mapping):
             payload = OnlyTradeTickUpdate(OnlyTradeTick.from_dict(value))
+        elif kind == "MARKET_REFERENCE" and isinstance(value, Mapping):
+            payload = OnlyMarketReferenceUpdate(OnlyMarketReferenceTick.from_dict(value))
         elif kind == "INSTRUMENT_STATUS":
             payload = OnlyInstrumentStatusUpdate(instrument_id, str(payload_raw["status"]))
         else:
@@ -165,20 +201,30 @@ class OnlyMarketDataInboundUpdate:
             if not isinstance(item, list) or len(item) != 2:
                 raise ValueError("metadata entries must be pairs")
             metadata.append((str(item[0]), str(item[1])))
+        schema_version = int(str(raw.get("schema_version", 1)))
+        if schema_version not in {1, 2}:
+            raise ValueError("unsupported market-data envelope schema version")
+        scope_raw = raw.get("sequence_scope")
         return cls(
-            OnlyMarketDataUpdateId(str(raw["update_id"])),
-            OnlyRuntimeId(str(raw["runtime_id"])),
-            OnlyMarketDataSourceId(str(raw["source_id"])),
-            OnlyDataSequence(int(str(raw["source_sequence"]))),
-            OnlyDataVersion(str(raw["data_version"])),
-            instrument_id,
-            OnlyMarketDataType(str(raw["data_type"])),
-            payload,
-            OnlyTimestamp.from_unix_nanos(int(str(raw["ts_event"]))),
-            OnlyTimestamp.from_unix_nanos(int(str(raw["ts_init"]))),
-            OnlyMarketDataQuality(frozenset(OnlyMarketDataQualityFlag(str(item)) for item in quality_raw)),
-            None if raw.get("correlation_id") is None else str(raw["correlation_id"]),
-            tuple(metadata),
+            update_id=OnlyMarketDataUpdateId(str(raw["update_id"])),
+            runtime_id=OnlyRuntimeId(str(raw["runtime_id"])),
+            source_id=OnlyMarketDataSourceId(str(raw["source_id"])),
+            source_sequence=OnlyDataSequence(int(str(raw["source_sequence"]))),
+            data_version=OnlyDataVersion(str(raw["data_version"])),
+            instrument_id=instrument_id,
+            data_type=OnlyMarketDataType(str(raw["data_type"])),
+            payload=payload,
+            ts_event=OnlyTimestamp.from_unix_nanos(int(str(raw["ts_event"]))),
+            ts_init=OnlyTimestamp.from_unix_nanos(int(str(raw["ts_init"]))),
+            quality=OnlyMarketDataQuality(frozenset(OnlyMarketDataQualityFlag(str(item)) for item in quality_raw)),
+            correlation_id=None if raw.get("correlation_id") is None else str(raw["correlation_id"]),
+            metadata=tuple(metadata),
+            sequence_scope=(
+                OnlyDataSequenceScope.from_dict(dict(scope_raw)) if isinstance(scope_raw, Mapping) else None
+            ),
+            sequence_semantics=OnlyDataSequenceSemantics(
+                str(raw.get("sequence_semantics", OnlyDataSequenceSemantics.CONTIGUOUS.value))
+            ),
         )
 
 

@@ -1,6 +1,10 @@
 """Reusable historical market-data cache API."""
 
-from onlyalpha.cache.historical.api import OnlyHistoricalCacheProvider, OnlyHistoricalCacheStore
+from onlyalpha.cache.historical.api import (
+    OnlyHistoricalCacheProvider,
+    OnlyHistoricalCacheStore,
+    OnlyHistoricalTradeCacheProvider,
+)
 from onlyalpha.cache.historical.models import *  # noqa: F403
 from onlyalpha.cache.historical.service import OnlyHistoricalCacheError, OnlyHistoricalCacheService
 from onlyalpha.cache.historical.store import OnlyParquetHistoricalCacheStore
@@ -10,5 +14,6 @@ __all__ = [
     "OnlyHistoricalCacheProvider",
     "OnlyHistoricalCacheService",
     "OnlyHistoricalCacheStore",
+    "OnlyHistoricalTradeCacheProvider",
     "OnlyParquetHistoricalCacheStore",
 ]

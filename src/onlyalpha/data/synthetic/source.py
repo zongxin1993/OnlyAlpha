@@ -7,13 +7,18 @@ from datetime import datetime, timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
 
-from onlyalpha.data.enums import OnlyMarketDataCapability, OnlyMarketDataQualityFlag, OnlyMarketDataType
+from onlyalpha.data.enums import (
+    OnlyDataSequenceSemantics,
+    OnlyMarketDataCapability,
+    OnlyMarketDataQualityFlag,
+    OnlyMarketDataType,
+)
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyDataVersion,
     OnlyMarketDataSourceId,
-    OnlyMarketDataUpdateId,
 )
+from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
@@ -311,7 +316,13 @@ class OnlySyntheticHistoricalDataSource:
             timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
             updates.append(
                 OnlyMarketDataInboundUpdate(
-                    OnlyMarketDataUpdateId(f"SYN-{self.source_id}-{bar_index + 1:012d}-{timestamp.unix_nanos}"),
+                    only_bar_update_id(
+                        self.source_id,
+                        config.instrument.instrument_id,
+                        config.bar_type,
+                        bar.bar_start,
+                        self.config.data_version,
+                    ),
                     self.config.runtime_id,
                     self.source_id,
                     OnlyDataSequence(bar_index + 1),
@@ -326,6 +337,7 @@ class OnlySyntheticHistoricalDataSource:
                         ("generator", "OnlySyntheticHistoricalDataSource"),
                         ("random_seed", str(self.config.random_seed)),
                     ),
+                    sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
                 )
             )
             previous = close
@@ -340,9 +352,8 @@ class OnlySyntheticHistoricalDataSource:
         return OnlyMarketDataType.BAR
 
     def _with_sequence(self, update: OnlyMarketDataInboundUpdate, sequence: int) -> OnlyMarketDataInboundUpdate:
-        timestamp = update.ts_event.unix_nanos
         return OnlyMarketDataInboundUpdate(
-            OnlyMarketDataUpdateId(f"SYN-{self.source_id}-{sequence:012d}-{timestamp}"),
+            update.update_id,
             update.runtime_id,
             update.source_id,
             OnlyDataSequence(sequence),
@@ -355,6 +366,7 @@ class OnlySyntheticHistoricalDataSource:
             update.quality,
             update.correlation_id,
             update.metadata,
+            sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
         )
 
     @staticmethod

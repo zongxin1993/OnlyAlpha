@@ -10,7 +10,7 @@ from enum import StrEnum
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyTradeTick
 
 type OnlyJsonValue = str | int | bool | None | list[OnlyJsonValue] | dict[str, OnlyJsonValue]
 
@@ -59,6 +59,26 @@ class OnlyDataQualityReport:
 @dataclass(frozen=True, slots=True)
 class OnlyHistoricalFetchResult:
     records: tuple[OnlyBar, ...]
+    resolved_ranges: tuple[OnlyTimeRange, ...]
+    observed_ranges: tuple[OnlyTimeRange, ...]
+    quality_report: OnlyDataQualityReport
+    source_metadata: Mapping[str, OnlyJsonValue]
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyHistoricalTradeDataRequest:
+    instrument_id: OnlyInstrumentId
+    time_range: OnlyTimeRange
+    metadata: Mapping[str, OnlyJsonValue] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.metadata is None:
+            object.__setattr__(self, "metadata", {})
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyHistoricalTradeFetchResult:
+    records: tuple[OnlyTradeTick, ...]
     resolved_ranges: tuple[OnlyTimeRange, ...]
     observed_ranges: tuple[OnlyTimeRange, ...]
     quality_report: OnlyDataQualityReport

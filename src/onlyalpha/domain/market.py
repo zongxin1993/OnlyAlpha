@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import StrEnum
 
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
@@ -66,6 +67,16 @@ class OnlyQuoteTick(OnlyTick):
             raise OnlyValidationError("quote prices must share precision")
         if self.bid_quantity.value < 0 or self.ask_quantity.value < 0:
             raise OnlyValidationError("quote quantities cannot be negative")
+
+
+class OnlyMarketReferenceKind(StrEnum):
+    VENUE_REFERENCE_PRICE = "VENUE_REFERENCE_PRICE"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyMarketReferenceTick(OnlyTick):
+    reference_kind: OnlyMarketReferenceKind
+    price: OnlyPrice | None
 
 
 @dataclass(frozen=True, slots=True)

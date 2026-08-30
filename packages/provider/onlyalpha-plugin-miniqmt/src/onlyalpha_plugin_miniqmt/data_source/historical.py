@@ -3,8 +3,9 @@ from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from onlyalpha.data.enums import OnlyMarketDataType
-from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence
+from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import OnlyBarUpdate, OnlyHistoricalBarRequest, OnlyMarketDataInboundUpdate
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlySessionType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
@@ -29,7 +30,13 @@ def load_bars(
     bars = load_normalized_bars(xtdata, create_request.instruments, request)
     return tuple(
         OnlyMarketDataInboundUpdate(
-            update_id=OnlyMarketDataUpdateId(f"miniqmt-{sequence}"),
+            update_id=only_bar_update_id(
+                create_request.source_id,
+                bar.instrument_id,
+                bar.bar_type,
+                bar.bar_start,
+                request.data_version,
+            ),
             runtime_id=create_request.runtime_id,
             source_id=create_request.source_id,
             source_sequence=OnlyDataSequence(sequence),
@@ -39,6 +46,7 @@ def load_bars(
             payload=OnlyBarUpdate(bar),
             ts_event=OnlyTimestamp.from_datetime(bar.ts_event),
             ts_init=OnlyTimestamp.from_datetime(bar.ts_init),
+            sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
         )
         for sequence, bar in enumerate(bars, start=1)
     )

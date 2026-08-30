@@ -8,8 +8,9 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 
-from onlyalpha.data.enums import OnlyMarketDataCapability, OnlyMarketDataType
-from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataCapability, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence
+from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.data.ports import OnlyMarketDataCapabilities
 from onlyalpha.data.sources import OnlyInMemoryHistoricalDataSource
@@ -153,7 +154,7 @@ class OnlyScenarioDataSourceFactory:
             session_type=OnlySessionType.CONTINUOUS,
         )
         return OnlyMarketDataInboundUpdate(
-            OnlyMarketDataUpdateId(f"scenario-{sequence}"),
+            only_bar_update_id(request.source_id, instrument_id, bar_type, bar.bar_start, request.data_version),
             request.runtime_id,
             request.source_id,
             OnlyDataSequence(sequence),
@@ -163,4 +164,5 @@ class OnlyScenarioDataSourceFactory:
             OnlyBarUpdate(bar),
             ts_event,
             ts_init,
+            sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
         )

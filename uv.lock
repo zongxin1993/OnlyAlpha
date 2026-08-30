@@ -1099,12 +1099,14 @@ source = { editable = "packages/provider/onlyalpha-plugin-binance" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-market-binance-spot" },
+    { name = "websocket-client" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
     { name = "onlyalpha-market-binance-spot", editable = "packages/market/onlyalpha-market-binance-spot" },
+    { name = "websocket-client", specifier = ">=1.8,<2" },
 ]
 
 [[package]]

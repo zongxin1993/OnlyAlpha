@@ -1,6 +1,6 @@
 """Strict semantic validation for ordered normalized historical Bars."""
 
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyTradeTick
 
 from .models import OnlyDataQualityIssue, OnlyDataQualityReport, OnlyDataQualitySeverity
 
@@ -29,5 +29,34 @@ def only_validate_historical_bars(
                     "INVALID_BAR", OnlyDataQualitySeverity.ERROR, reason, bar.instrument_id, bar.ts_event
                 )
             )
+        previous = marker
+    return OnlyDataQualityReport(not issues, tuple(issues))
+
+
+def only_validate_historical_trades(
+    instrument_id: object,
+    records: tuple[OnlyTradeTick, ...],
+) -> OnlyDataQualityReport:
+    issues: list[OnlyDataQualityIssue] = []
+    previous: tuple[object, str] | None = None
+    seen_ids: set[str] = set()
+    for trade in records:
+        marker = (trade.ts_event, str(trade.trade_id))
+        reason = None
+        if trade.instrument_id != instrument_id:
+            reason = "Trade identity does not match historical request"
+        elif trade.price.value <= 0 or trade.quantity.value <= 0:
+            reason = "Trade price and quantity must be positive"
+        elif str(trade.trade_id) in seen_ids:
+            reason = "Trade venue identity must be unique"
+        elif previous is not None and marker <= previous:
+            reason = "Trades must be strictly ordered by event time and venue identity"
+        if reason:
+            issues.append(
+                OnlyDataQualityIssue(
+                    "INVALID_TRADE", OnlyDataQualitySeverity.ERROR, reason, trade.instrument_id, trade.ts_event
+                )
+            )
+        seen_ids.add(str(trade.trade_id))
         previous = marker
     return OnlyDataQualityReport(not issues, tuple(issues))

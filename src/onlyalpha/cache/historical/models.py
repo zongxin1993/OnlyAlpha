@@ -11,7 +11,7 @@ from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import models as historical_models
 from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.identifiers import OnlyInstrumentId
-from onlyalpha.domain.market import OnlyBar, OnlyBarType
+from onlyalpha.domain.market import OnlyBar, OnlyBarType, OnlyTradeTick
 
 type OnlyJsonValue = str | int | bool | None | list[OnlyJsonValue] | dict[str, OnlyJsonValue]
 
@@ -28,7 +28,7 @@ class OnlyBarTimestampSemantics(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class OnlyHistoricalCacheKey:
+class OnlyHistoricalBarCacheKey:
     source_id: str
     dataset_type: str
     instrument_id: OnlyInstrumentId
@@ -39,11 +39,33 @@ class OnlyHistoricalCacheKey:
     time_semantics_version: int = 1
     data_version: str | None = None
     compatibility_profile_id: str | None = None
+    timestamp_semantics: OnlyBarTimestampSemantics = OnlyBarTimestampSemantics.BAR_CLOSE
+
+
+OnlyHistoricalCacheKey = OnlyHistoricalBarCacheKey
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyHistoricalTradeCacheKey:
+    source_id: str
+    dataset_type: str
+    instrument_id: OnlyInstrumentId
+    data_version: str
+    schema_version: int = 1
+    time_semantics_version: int = 1
+    compatibility_profile_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.data_version.strip():
+            raise ValueError("historical Trade cache key requires data_version")
+
+
+type OnlyTypedHistoricalCacheKey = OnlyHistoricalBarCacheKey | OnlyHistoricalTradeCacheKey
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyCacheManifest:
-    key: OnlyHistoricalCacheKey
+    key: OnlyTypedHistoricalCacheKey
     resolved_ranges: tuple[OnlyTimeRange, ...]
     observed_ranges: tuple[OnlyTimeRange, ...]
     row_count: int
@@ -60,7 +82,7 @@ class OnlyCacheManifest:
 class OnlyCacheInspection:
     exists: bool
     valid: bool
-    key: OnlyHistoricalCacheKey
+    key: OnlyTypedHistoricalCacheKey
     resolved_ranges: tuple[OnlyTimeRange, ...]
     observed_ranges: tuple[OnlyTimeRange, ...]
     missing_ranges: tuple[OnlyTimeRange, ...]
@@ -82,6 +104,14 @@ class OnlyCacheStatistics:
 @dataclass(frozen=True, slots=True)
 class OnlyHistoricalDataResult:
     records: tuple[OnlyBar, ...]
+    manifest: OnlyCacheManifest
+    quality_report: historical_models.OnlyDataQualityReport
+    statistics: OnlyCacheStatistics
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyHistoricalTradeDataResult:
+    records: tuple[OnlyTradeTick, ...]
     manifest: OnlyCacheManifest
     quality_report: historical_models.OnlyDataQualityReport
     statistics: OnlyCacheStatistics

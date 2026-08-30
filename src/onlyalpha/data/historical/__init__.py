@@ -6,6 +6,8 @@ from .models import (
     OnlyDataQualitySeverity,
     OnlyHistoricalDataRequest,
     OnlyHistoricalFetchResult,
+    OnlyHistoricalTradeDataRequest,
+    OnlyHistoricalTradeFetchResult,
     OnlyJsonValue,
 )
 from .ports import (
@@ -13,7 +15,7 @@ from .ports import (
     OnlyHistoricalDataProviderCreateRequest,
     OnlyHistoricalDataProviderFactory,
 )
-from .validation import only_validate_historical_bars
+from .validation import only_validate_historical_bars, only_validate_historical_trades
 
 __all__ = [
     "OnlyDataQualityIssue",
@@ -24,6 +26,9 @@ __all__ = [
     "OnlyHistoricalDataProviderFactory",
     "OnlyHistoricalDataRequest",
     "OnlyHistoricalFetchResult",
+    "OnlyHistoricalTradeDataRequest",
+    "OnlyHistoricalTradeFetchResult",
     "OnlyJsonValue",
     "only_validate_historical_bars",
+    "only_validate_historical_trades",
 ]

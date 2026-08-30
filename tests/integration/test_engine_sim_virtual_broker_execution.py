@@ -816,7 +816,7 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         _wait_until(
             lambda: any(
                 result.status is OnlyMarketDataProcessingStatus.APPLIED
-                and str(result.update_id).startswith("miniqmt-live-")
+                and str(result.update_id).startswith("market-fact:provisional_bar:")
                 for result in runtime.processing_results
             ),
             "pre-gap Worker callback did not complete",
@@ -834,13 +834,11 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
             OnlyMarketDataProcessingStatus.GAP_DETECTED,
             OnlyMarketDataProcessingStatus.APPLIED,
         )
-        recovery_statuses = tuple(
-            item.status for item in audit if str(item.update_id).startswith(f"recovery-{runtime.runtime_id}-1-")
-        )
+        recovery_statuses = tuple(item.status for item in audit if str(item.update_id).startswith("fixture-recovery-"))
         assert recovery_statuses == (OnlyMarketDataProcessingStatus.APPLIED,) * 4
         audit_ids = tuple(str(item.update_id) for item in audit)
-        assert sum(item.startswith("fixture-recovery-") for item in audit_ids) == 0
-        assert sum(item.startswith(f"recovery-{runtime.runtime_id}-1-") for item in audit_ids) == 4
+        assert sum(item.startswith("fixture-recovery-") for item in audit_ids) == 4
+        assert sum(item.startswith(f"recovery-{runtime.runtime_id}-1-") for item in audit_ids) == 0
         assert runtime.recovery_failure is None
         assert runtime.recovery_plan is None
         assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.CONTINUITY_VERIFIED
@@ -885,7 +883,10 @@ def test_engine_sim_incomplete_gap_recovery_fails_closed(
             "pre-gap confirmed frontier did not reach 01:37",
         )
         _wait_until(
-            lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
+            lambda: any(
+                str(result.update_id).startswith("market-fact:provisional_bar:")
+                for result in runtime.processing_results
+            ),
             "pre-gap Worker callback did not complete",
         )
         _publish_closed_gap_trigger(runtime, clock, 42)
@@ -907,8 +908,7 @@ def test_engine_sim_incomplete_gap_recovery_fails_closed(
         )
         assert trigger_statuses == (OnlyMarketDataProcessingStatus.GAP_DETECTED,)
         assert not any(
-            str(item.update_id).startswith(f"recovery-{runtime.runtime_id}-")
-            for item in runtime.market_data_audit_store.records()
+            str(item.update_id).startswith("fixture-recovery-") for item in runtime.market_data_audit_store.records()
         )
     finally:
         engine.stop()
@@ -937,7 +937,10 @@ def test_engine_sim_secondary_gap_during_suffix_reconciliation_fails_closed(
         _publish_and_wait_received(runtime, xtdata, clock, 37)
         _publish_and_wait_received(runtime, xtdata, clock, 38)
         _wait_until(
-            lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
+            lambda: any(
+                str(result.update_id).startswith("market-fact:provisional_bar:")
+                for result in runtime.processing_results
+            ),
             "pre-gap Worker callback did not complete",
         )
         before = runtime.streaming_phase_snapshot
@@ -992,7 +995,9 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
         "pre-gap confirmed frontier did not reach 01:37",
     )
     _wait_until(
-        lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
+        lambda: any(
+            str(result.update_id).startswith("market-fact:provisional_bar:") for result in runtime.processing_results
+        ),
         "pre-gap Worker callback did not complete",
     )
     before = runtime.streaming_phase_snapshot
@@ -1059,7 +1064,9 @@ def test_engine_sim_stop_during_buffered_suffix_catch_up_prevents_late_processin
     _publish_and_wait_received(runtime, xtdata, clock, 37)
     _publish_and_wait_received(runtime, xtdata, clock, 38)
     _wait_until(
-        lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
+        lambda: any(
+            str(result.update_id).startswith("market-fact:provisional_bar:") for result in runtime.processing_results
+        ),
         "pre-gap Worker callback did not complete",
     )
     _publish_closed_gap_trigger(runtime, clock, 42)
@@ -1102,7 +1109,10 @@ def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
         _publish_and_wait_received(runtime, xtdata, clock, 37)
         _publish_and_wait_received(runtime, xtdata, clock, 38)
         _wait_until(
-            lambda: any(str(result.update_id).startswith("miniqmt-live-") for result in runtime.processing_results),
+            lambda: any(
+                str(result.update_id).startswith("market-fact:provisional_bar:")
+                for result in runtime.processing_results
+            ),
             "pre-disconnect Worker callback did not complete",
         )
         before = runtime.streaming_phase_snapshot
@@ -1121,7 +1131,7 @@ def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
             tuple(
                 item.status
                 for item in runtime.market_data_audit_store.records()
-                if str(item.update_id).startswith(f"recovery-{runtime.runtime_id}-1-")
+                if str(item.update_id).startswith("fixture-recovery-")
             )
             == (OnlyMarketDataProcessingStatus.APPLIED,) * 5
         )

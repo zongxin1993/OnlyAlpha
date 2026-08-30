@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from onlyalpha.data.enums import OnlyMarketDataType
-from onlyalpha.data.identifiers import OnlyDataSequence, OnlyMarketDataUpdateId
+from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
+from onlyalpha.data.identifiers import OnlyDataSequence
+from onlyalpha.data.identity import only_provisional_bar_update_id, only_quote_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyMarketDataInboundUpdate,
@@ -110,8 +111,13 @@ class OnlyMiniQmtLiveNormalizer:
     ) -> OnlyMarketDataInboundUpdate:
         self._sequence += 1
         stamp = OnlyTimestamp.from_datetime(event)
+        update_id = (
+            only_provisional_bar_update_id(self._request.source_id, payload.bar, self._request.data_version)
+            if isinstance(payload, OnlyBarUpdate)
+            else only_quote_update_id(self._request.source_id, payload.quote, self._request.data_version)
+        )
         return OnlyMarketDataInboundUpdate(
-            update_id=OnlyMarketDataUpdateId(f"miniqmt-live-{self._sequence}"),
+            update_id=update_id,
             runtime_id=self._request.runtime_id,
             source_id=self._request.source_id,
             source_sequence=OnlyDataSequence(self._sequence),
@@ -121,6 +127,7 @@ class OnlyMiniQmtLiveNormalizer:
             payload=payload,
             ts_event=stamp,
             ts_init=stamp,
+            sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
         )
 
     @staticmethod

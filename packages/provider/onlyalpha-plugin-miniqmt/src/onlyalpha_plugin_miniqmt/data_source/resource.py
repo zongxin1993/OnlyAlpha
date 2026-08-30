@@ -6,6 +6,7 @@ from typing import Any
 
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import (
+    OnlyDataSequenceSemantics,
     OnlyMarketDataCapability,
     OnlyMarketDataConnectionState,
     OnlyMarketDataRequestStatus,
@@ -16,8 +17,8 @@ from onlyalpha.data.identifiers import (
     OnlyDataSequence,
     OnlyMarketDataGatewayId,
     OnlyMarketDataSourceId,
-    OnlyMarketDataUpdateId,
 )
+from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
     OnlyBarUpdate,
     OnlyHistoricalBarRequest,
@@ -191,7 +192,13 @@ class OnlyMiniQmtDataSource:
                     timestamp = OnlyTimestamp.from_datetime(bar.ts_event)
                     updates.append(
                         OnlyMarketDataInboundUpdate(
-                            OnlyMarketDataUpdateId(f"miniqmt-cache-{sequence}"),
+                            only_bar_update_id(
+                                self._request.source_id,
+                                bar.instrument_id,
+                                bar.bar_type,
+                                bar.bar_start,
+                                request.data_version,
+                            ),
                             self._request.runtime_id,
                             self._request.source_id,
                             OnlyDataSequence(sequence),
@@ -207,6 +214,7 @@ class OnlyMiniQmtDataSource:
                                     result.manifest.content_fingerprint,
                                 ),
                             ),
+                            sequence_semantics=OnlyDataSequenceSemantics.MONOTONIC,
                         )
                     )
             return OnlyHistoricalDataStream(tuple(updates), request.batch_size)
