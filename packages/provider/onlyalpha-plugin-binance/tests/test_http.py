@@ -56,3 +56,18 @@ def test_non_json_media_type_fails_before_body_interpretation(monkeypatch) -> No
     client = OnlyBinancePublicHttpClient("https://api.binance.com")
     with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_MEDIA_TYPE_INVALID"):
         client.get_json("/api/v3/ping")
+
+
+def test_raw_response_is_observed_before_json_interpretation(monkeypatch) -> None:
+    response = _Response(b"{invalid", {"Content-Type": "application/json"})
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", lambda *args, **kwargs: response)
+    observed = []
+    client = OnlyBinancePublicHttpClient(
+        "https://api.binance.com",
+        response_observer=lambda path, parameters, payload: observed.append((path, parameters, payload)),
+    )
+
+    with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_NOT_JSON"):
+        client.get_json("/api/v3/klines", {"symbol": "BTCUSDT"})
+
+    assert observed == [("/api/v3/klines", {"symbol": "BTCUSDT"}, b"{invalid")]

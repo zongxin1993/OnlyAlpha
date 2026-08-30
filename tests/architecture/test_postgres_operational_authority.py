@@ -23,6 +23,16 @@ def test_postgres_schema_is_minimal_operational_authority_not_semantic_store() -
         "strategy_freeze_record",
         "strategy_promotion_record",
         "product_command_receipt",
+        "market_source",
+        "market_capture_session",
+        "market_ingest_segment",
+        "market_segment_state_event",
+        "market_coverage_manifest",
+        "market_coverage_manifest_segment",
+        "market_data_revision",
+        "market_revision_segment",
+        "market_revision_seal",
+        "market_recovery_event",
     ]
     for forbidden in (
         "dataset_row",

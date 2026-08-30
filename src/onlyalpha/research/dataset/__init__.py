@@ -6,6 +6,10 @@ from .definition import (
     OnlyResearchDatasetType,
 )
 from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
+from .market_data_materializer import (
+    OnlySealedMarketDataDatasetMaterializer,
+    OnlySealedMarketDataMaterializationPlan,
+)
 from .materializer import OnlyResearchDatasetMaterializer
 from .parquet_store import (
     OnlyParquetResearchDatasetSnapshotStore,
@@ -34,5 +38,7 @@ __all__ = [
     "OnlyResearchDatasetStoreError",
     "OnlyResearchDatasetType",
     "OnlyResearchDatasetVerification",
+    "OnlySealedMarketDataDatasetMaterializer",
+    "OnlySealedMarketDataMaterializationPlan",
     "OnlyVerifiedResearchDataset",
 ]

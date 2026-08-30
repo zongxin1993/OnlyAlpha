@@ -11,6 +11,7 @@ from typing import Protocol
 from onlyalpha.cache.historical.service import OnlyHistoricalCacheService
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig, OnlyUniverseConfig
 from onlyalpha.core.clock import OnlyClock
+from onlyalpha.data.evidence import OnlyProviderEvidenceSink
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.ports import (
     OnlyHistoricalDataSource,
@@ -49,6 +50,7 @@ class OnlyDataSourceCreateRequest:
     market_data_sink: OnlyMarketDataUpdateSink | None = None
     historical_cache_service: OnlyHistoricalCacheService | None = None
     runtime_state_root: Path | None = None
+    provider_evidence_sink: OnlyProviderEvidenceSink | None = None
 
 
 class OnlyDataSource(

@@ -29,7 +29,7 @@ def test_repository_authority_contract_is_valid_and_finite() -> None:
     assert contract.version == 1
     assert tuple(contract.facts) == tuple(f"F{number:02d}" for number in range(1, 14))
     assert tuple(contract.capabilities) == tuple(f"C{number:02d}" for number in range(1, 20))
-    assert len(contract.actors) == 19
+    assert len(contract.actors) == 20
     assert contract.reserved_future_capabilities == set()
 
 

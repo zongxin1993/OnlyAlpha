@@ -24,7 +24,7 @@ from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
-from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest, OnlyMarketReferenceUpdate
+from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest, OnlyMarketReferenceUpdate, OnlyTradeTickUpdate
 from onlyalpha.domain.enums import (
     OnlyAggregationSource,
     OnlyAssetClass,
@@ -246,3 +246,68 @@ def test_avg_price_event_cannot_become_venue_reference_price(tmp_path: Path) -> 
         resource.ingest_websocket_message(b'{"e":"avgPrice","s":"BTCUSDT","i":"5m","w":"10.00","T":1767225600123}')
         == ()
     )
+
+
+def test_websocket_raw_evidence_is_preserved_before_canonical_delivery(tmp_path: Path) -> None:
+    observed = []
+    request = replace(_request(tmp_path), provider_evidence_sink=lambda raw, update: observed.append((raw, update)))
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+    payload = b'{"e":"trade","E":1767225600124,"s":"BTCUSDT","t":123,"p":"10.00","q":"100","T":1767225600123,"m":false}'
+
+    with pytest.raises(OnlyBinanceError, match="CONTINUITY_NOT_READY"):
+        resource.ingest_websocket_message(payload)
+
+    [(raw, update)] = observed
+    assert raw.payload == payload
+    assert raw.provider_event_id == "123"
+    assert raw.ts_event_ns == 1_767_225_600_124_000_000
+    assert update is not None
+    assert isinstance(update.payload, OnlyTradeTickUpdate)
+    assert update.update_id == only_trade_update_id(
+        resource.source_id, update.instrument_id, update.payload.trade.trade_id, update.data_version
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "error", "stream"),
+    (
+        (b"not-json", "BINANCE_WEBSOCKET_FRAME_INVALID", "UNKNOWN"),
+        (b"[]", "BINANCE_WEBSOCKET_FRAME_INVALID", "UNKNOWN"),
+        (b'{"data":[]}', "BINANCE_WEBSOCKET_EVENT_INVALID", "UNKNOWN"),
+        (
+            b'{"e":"trade","E":"invalid","s":"BTCUSDT","t":"invalid"}',
+            "BINANCE_WEBSOCKET_NORMALIZATION_FAILED",
+            "trade",
+        ),
+    ),
+)
+def test_invalid_websocket_payload_is_preserved_as_raw_evidence(
+    tmp_path: Path, payload: bytes, error: str, stream: str
+) -> None:
+    observed = []
+    request = replace(_request(tmp_path), provider_evidence_sink=lambda raw, update: observed.append((raw, update)))
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+
+    with pytest.raises(OnlyBinanceError, match=error):
+        resource.ingest_websocket_message(payload)
+
+    [(raw, update)] = observed
+    assert raw.payload == payload
+    assert raw.stream == stream
+    assert raw.provider_event_type == stream
+    assert update is None
+
+
+def test_rest_response_raw_evidence_links_all_canonical_facts(tmp_path: Path) -> None:
+    observed = []
+    request = replace(_request(tmp_path), provider_evidence_sink=lambda raw, update: observed.append((raw, update)))
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+    payload = b'[[1767225600000,"10.00","11.00","9.00","10.50","100",1767225659999,"1050",42,"0","0"]]'
+
+    resource._observe_rest_response("/api/v3/klines", {"symbol": "BTCUSDT"}, payload)
+
+    [(raw, updates)] = observed
+    assert raw.payload == payload
+    assert raw.provenance == "REST_BACKFILL"
+    assert isinstance(updates, tuple) and len(updates) == 1
+    assert updates[0].data_type is OnlyMarketDataType.BAR

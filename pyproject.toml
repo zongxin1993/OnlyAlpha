@@ -153,6 +153,7 @@ markers = [
     "windows: Windows-only test",
     "slow: slow test",
     "postgres: requires the pinned real PostgreSQL integration service",
+    "clickhouse: requires the supported real ClickHouse integration service",
     "historical_git: requires immutable Git history and may only run in an explicitly history-capable verification lane",
 ]
 

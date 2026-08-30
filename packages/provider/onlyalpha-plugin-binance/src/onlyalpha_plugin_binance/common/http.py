@@ -1,7 +1,7 @@
 """Small bounded public JSON transport with no credential surface."""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -16,6 +16,7 @@ class OnlyBinancePublicHttpClient:
         *,
         timeout_seconds: float = 10.0,
         max_response_bytes: int = 8 * 1024 * 1024,
+        response_observer: Callable[[str, Mapping[str, str], bytes], None] | None = None,
     ) -> None:
         if (
             not base_url.startswith("https://")
@@ -27,6 +28,7 @@ class OnlyBinancePublicHttpClient:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._max_response_bytes = max_response_bytes
+        self._response_observer = response_observer or (lambda _path, _parameters, _payload: None)
 
     def get_json(self, path: str, parameters: Mapping[str, str] | None = None) -> bytes:
         query = "" if not parameters else "?" + urlencode(parameters)
@@ -56,6 +58,7 @@ class OnlyBinancePublicHttpClient:
                     raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_TOO_LARGE")
         except (HTTPError, URLError, TimeoutError) as exc:
             raise OnlyBinanceError(f"BINANCE_PUBLIC_REQUEST_FAILED: {type(exc).__name__}") from exc
+        self._response_observer(path, parameters or {}, payload)
         try:
             parsed = json.loads(payload)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:

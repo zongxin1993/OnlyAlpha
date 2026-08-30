@@ -176,6 +176,13 @@ def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | 
         check=True,
     )
     _verifier(target_dsn).assert_compatible()
+    with psycopg.connect(target_dsn) as connection:
+        catalog = connection.execute(
+            "SELECT count(*) FROM market_data_revision r LEFT JOIN market_revision_seal s USING(revision_id) "
+            "WHERE s.revision_id IS NULL"
+        ).fetchone()
+        if catalog is None or catalog[0] != 0:
+            raise RuntimeError("restored market-data catalog integrity failed")
     if run_id is not None:
         selected = OnlyResearchRunId(run_id)
         OnlyPostgresResearchRunStore(target_dsn).load(selected)
@@ -190,6 +197,12 @@ def _validate(dsn: str, run_id: str | None) -> None:
     snapshot = OnlyPostgresResearchOperationsStore(dsn).load_operational_snapshot(run_id=selected, limit=100)
     if selected is not None and not snapshot.runs:
         raise RuntimeError("selected Research Run does not exist")
+    with psycopg.connect(dsn) as connection:
+        catalog = connection.execute(
+            "SELECT to_regclass('public.market_data_revision'), to_regclass('public.market_revision_seal')"
+        ).fetchone()
+        if catalog is None or any(item is None for item in catalog):
+            raise RuntimeError("market-data catalog schema is missing")
 
 
 def _initialize_deployment(dsn: str, user_data_root: Path) -> str:

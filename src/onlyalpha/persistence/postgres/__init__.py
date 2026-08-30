@@ -3,6 +3,7 @@
 from .config import OnlyPostgresConfig as OnlyPostgresConfig
 from .config import OnlyPostgresOperationalConnectionOptions as OnlyPostgresOperationalConnectionOptions
 from .kernel_authority import OnlyPostgresKernelAuthorityGuard as OnlyPostgresKernelAuthorityGuard
+from .market_data_catalog import OnlyPostgresMarketDataCatalog as OnlyPostgresMarketDataCatalog
 from .migration import (
     DEFAULT_MIGRATION_ROOT as DEFAULT_MIGRATION_ROOT,
 )

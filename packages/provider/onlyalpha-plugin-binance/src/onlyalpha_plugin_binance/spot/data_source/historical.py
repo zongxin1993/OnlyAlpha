@@ -37,8 +37,11 @@ class OnlyBinanceSpotHistoricalClient:
     def __init__(self, http: OnlyBinancePublicHttpClient) -> None:
         self._http = http
 
+    def _get_json(self, endpoint: str, params: Mapping[str, str]) -> bytes:
+        return self._http.get_json(endpoint, params)
+
     def klines(self, symbol: str, start_ms: int, end_ms: int, limit: int) -> Sequence[Sequence[object]]:
-        raw = self._http.get_json(
+        raw = self._get_json(
             "/api/v3/klines",
             {
                 "symbol": symbol,
@@ -54,7 +57,7 @@ class OnlyBinanceSpotHistoricalClient:
         return value
 
     def aggregate_trade_locator(self, symbol: str, start_ms: int, end_ms: int) -> Sequence[Mapping[str, object]]:
-        raw = self._http.get_json(
+        raw = self._get_json(
             "/api/v3/aggTrades",
             {"symbol": symbol, "startTime": str(start_ms), "endTime": str(end_ms - 1), "limit": "1"},
         )
@@ -64,7 +67,7 @@ class OnlyBinanceSpotHistoricalClient:
         return value
 
     def historical_trades(self, symbol: str, from_id: int, limit: int) -> Sequence[Mapping[str, object]]:
-        raw = self._http.get_json(
+        raw = self._get_json(
             "/api/v3/historicalTrades",
             {"symbol": symbol, "fromId": str(from_id), "limit": str(limit)},
         )
@@ -74,7 +77,7 @@ class OnlyBinanceSpotHistoricalClient:
         return value
 
     def reference_price(self, symbol: str) -> Mapping[str, object] | None:
-        value = json.loads(self._http.get_json("/api/v3/referencePrice", {"symbol": symbol}))
+        value = json.loads(self._get_json("/api/v3/referencePrice", {"symbol": symbol}))
         if not isinstance(value, dict):
             raise OnlyBinanceError("BINANCE_REFERENCE_PRICE_RESPONSE_INVALID")
         if value.get("code") == -2043:
@@ -84,7 +87,7 @@ class OnlyBinanceSpotHistoricalClient:
         return value
 
     def recent_trades(self, symbol: str, limit: int = 1) -> Sequence[Mapping[str, object]]:
-        value = json.loads(self._http.get_json("/api/v3/trades", {"symbol": symbol, "limit": str(limit)}))
+        value = json.loads(self._get_json("/api/v3/trades", {"symbol": symbol, "limit": str(limit)}))
         if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
             raise OnlyBinanceError("BINANCE_RECENT_TRADES_RESPONSE_INVALID")
         return value

@@ -16,6 +16,7 @@ from onlyalpha.data.enums import (
     OnlyMarketDataRequestStatus,
     OnlyMarketDataType,
 )
+from onlyalpha.data.evidence import OnlyRawProviderObservation
 from onlyalpha.data.historical import OnlyHistoricalDataRequest, OnlyHistoricalTradeDataRequest
 from onlyalpha.data.identifiers import (
     OnlyDataSequence,
@@ -55,8 +56,20 @@ from ...descriptor import DATA_DESCRIPTOR
 from .config import OnlyBinanceSpotDataSourceConfig
 from .continuity import OnlyBinanceSpotContinuityCoordinator
 from .historical import OnlyBinanceSpotHistoricalClient, OnlyBinanceSpotHistoricalProvider
-from .normalize import only_normalize_reference_price, only_normalize_ws_kline, only_normalize_ws_trade
+from .normalize import (
+    only_normalize_reference_price,
+    only_normalize_rest_kline,
+    only_normalize_ws_kline,
+    only_normalize_ws_trade,
+)
 from .websocket import OnlyBinanceWebSocketTransport
+
+
+def _optional_int(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 class OnlyBinanceSpotDataSource:
@@ -76,6 +89,7 @@ class OnlyBinanceSpotDataSource:
             config.environment.rest_base_url,
             timeout_seconds=config.timeout_seconds,
             max_response_bytes=config.max_response_bytes,
+            response_observer=self._observe_rest_response,
         )
         self._historical = historical_client or OnlyBinanceSpotHistoricalClient(http)
         self._websocket = websocket_transport or OnlyBinanceWebSocketTransport(
@@ -252,19 +266,118 @@ class OnlyBinanceSpotDataSource:
         return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, request.subscription_id)
 
     def ingest_websocket_message(self, payload: bytes) -> tuple[OnlyMarketDataInboundUpdate, ...]:
-        raw = json.loads(payload)
+        receive_ns = self._request.clock.timestamp_ns()
+        unknown_observation = OnlyRawProviderObservation(
+            source_id=str(self.source_id),
+            capture_session_id=f"binance-spot:{self._request.runtime_id}:realtime",
+            provider="BINANCE",
+            venue="BINANCE",
+            market="SPOT",
+            stream="UNKNOWN",
+            provider_event_type="UNKNOWN",
+            ts_receive_ns=receive_ns,
+            payload=payload,
+        )
+        try:
+            raw = json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self._record_evidence(unknown_observation, None)
+            raise OnlyBinanceError("BINANCE_WEBSOCKET_FRAME_INVALID") from exc
         if not isinstance(raw, dict):
+            self._record_evidence(unknown_observation, None)
             raise OnlyBinanceError("BINANCE_WEBSOCKET_FRAME_INVALID")
         event = raw.get("data", raw)
         if not isinstance(event, dict):
+            self._record_evidence(unknown_observation, None)
             raise OnlyBinanceError("BINANCE_WEBSOCKET_EVENT_INVALID")
-        update = self._normalize_event(event)
+        event_type = str(event.get("e", "UNKNOWN"))
+        provider_id = event.get("t")
+        if event_type == "kline" and isinstance(event.get("k"), dict):
+            provider_id = event["k"].get("t")
+        event_time_ms = _optional_int(event.get("E"))
+        observation = OnlyRawProviderObservation(
+            source_id=str(self.source_id),
+            capture_session_id=f"binance-spot:{self._request.runtime_id}:realtime",
+            provider="BINANCE",
+            venue="BINANCE",
+            market="SPOT",
+            stream=event_type,
+            provider_event_type=event_type,
+            provider_event_id=None if provider_id is None else str(provider_id),
+            provider_sequence=_optional_int(provider_id),
+            ts_event_ns=None if event_time_ms is None else event_time_ms * 1_000_000,
+            ts_receive_ns=receive_ns,
+            payload=payload,
+        )
+        try:
+            update = self._normalize_event(event)
+        except Exception as exc:
+            self._record_evidence(observation, None)
+            if isinstance(exc, OnlyBinanceError):
+                raise
+            raise OnlyBinanceError("BINANCE_WEBSOCKET_NORMALIZATION_FAILED") from exc
+        self._record_evidence(observation, update)
         if update is None:
             return ()
         accepted = self._continuity.accept(update, self._recover)
         for item in accepted:
             self._publish(item)
         return accepted
+
+    def _record_evidence(
+        self,
+        observation: OnlyRawProviderObservation,
+        update: OnlyMarketDataInboundUpdate | tuple[OnlyMarketDataInboundUpdate, ...] | None,
+    ) -> None:
+        sink = self._request.provider_evidence_sink
+        if sink is not None:
+            sink(observation, update)
+
+    def _observe_rest_response(self, endpoint: str, params: Mapping[str, str], payload: bytes) -> None:
+        receive_ns = self._request.clock.timestamp_ns()
+        observation = OnlyRawProviderObservation(
+            source_id=str(self.source_id),
+            capture_session_id=f"binance-spot:{self._request.runtime_id}:rest",
+            provider="BINANCE",
+            venue="BINANCE",
+            market="SPOT",
+            stream=endpoint,
+            provider_event_type=endpoint.rsplit("/", 1)[-1],
+            ts_receive_ns=receive_ns,
+            payload=payload,
+            provenance="REST_BACKFILL",
+        )
+        try:
+            decoded = json.loads(payload)
+            symbol = str(params.get("symbol", "")).upper()
+            instrument = self._symbol_map[symbol]
+            updates: tuple[OnlyMarketDataInboundUpdate, ...]
+            if endpoint == "/api/v3/klines" and isinstance(decoded, list):
+                updates = tuple(
+                    self._bar_update(
+                        only_normalize_rest_kline(row, instrument, self._request.bar_types[instrument.instrument_id]),
+                        self._request.data_version,
+                    )
+                    for row in decoded
+                )
+            elif endpoint in {"/api/v3/historicalTrades", "/api/v3/trades"} and isinstance(decoded, list):
+                from .normalize import only_normalize_rest_trade
+
+                updates = tuple(
+                    self._trade_update(only_normalize_rest_trade(row, instrument), self._request.data_version)
+                    for row in decoded
+                )
+            elif endpoint == "/api/v3/referencePrice" and isinstance(decoded, dict) and decoded.get("code") != -2043:
+                updates = (
+                    self._reference_update(
+                        only_normalize_reference_price(decoded, instrument), self._request.data_version
+                    ),
+                )
+            else:
+                updates = ()
+        except Exception:
+            updates = ()
+        self._record_evidence(observation, updates)
 
     def instrument(self, instrument_id: OnlyInstrumentId) -> OnlyInstrument | None:
         return self._request.instruments.get(instrument_id)

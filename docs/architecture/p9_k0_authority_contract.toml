@@ -24,6 +24,7 @@ sensitive_path_patterns = [
   "src/onlyalpha/research/command/*.py",
   "src/onlyalpha/scenario/runner.py",
   "src/onlyalpha/persistence/postgres/migration.py",
+  "src/onlyalpha/persistence/postgres/market_data_catalog.py",
   "src/onlyalpha/persistence/postgres/strategy_store.py",
   "src/onlyalpha/persistence/postgres/research_*_store.py",
   "packages/api/onlyalpha-api/src/onlyalpha_api/*.py",
@@ -353,6 +354,12 @@ production = true
 allowed_capabilities = ["C01", "C18", "C19"]
 
 [[actors]]
+id = "A18"
+name = "MARKET_DATA_APPLICATION"
+production = true
+allowed_capabilities = ["C10"]
+
+[[actors]]
 id = "T01"
 name = "TEST"
 production = false
@@ -412,6 +419,9 @@ actor = "A10"
 [[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/migration.py"
 actor = "A10"
+[[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/market_data_catalog.py"
+actor = "A18"
 [[actor_paths]]
 pattern = "src/onlyalpha/scenario/runner.py"
 actor = "A11"
@@ -584,7 +594,7 @@ capability = "C09"
 approved_production_holders = ["A03", "A14"]
 [[ownership]]
 capability = "C10"
-approved_production_holders = ["A03", "A05", "A10", "A16"]
+approved_production_holders = ["A03", "A05", "A10", "A16", "A18"]
 [[ownership]]
 capability = "C11"
 approved_production_holders = ["A10"]
