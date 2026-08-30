@@ -7,9 +7,11 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from onlyalpha_plugin_binance.errors import OnlyBinanceError
 from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.spot.data_source.normalize import (
+    only_normalize_reference_price,
     only_normalize_rest_kline,
     only_normalize_rest_trade,
     only_normalize_ws_kline,
@@ -19,9 +21,10 @@ from onlyalpha_plugin_binance.spot.data_source.normalize import (
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
 from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.data.enums import OnlyMarketDataRequestStatus
+from onlyalpha.data.enums import OnlyMarketDataRequestStatus, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
+from onlyalpha.data.models import OnlyMarketDataSubscriptionRequest, OnlyMarketReferenceUpdate
 from onlyalpha.domain.enums import (
     OnlyAggregationSource,
     OnlyAssetClass,
@@ -66,7 +69,7 @@ def _bar_type() -> tuple[OnlyInstrument, OnlyBarType]:
 
 
 def _request(tmp_path: Path, *, plugin_config: object | None = None) -> OnlyDataSourceCreateRequest:
-    instrument, bar_type = _bar_type()
+    instrument, requested_bar_type = _bar_type()
     return OnlyDataSourceCreateRequest(
         OnlyMarketDataSourceId("binance"),
         OnlyBinanceSpotDataSourceConfig() if plugin_config is None else plugin_config,
@@ -81,7 +84,7 @@ def _request(tmp_path: Path, *, plugin_config: object | None = None) -> OnlyData
         OnlyBacktestClock(datetime(2026, 1, 1, tzinfo=UTC)),
         OnlyEventBus(),
         {instrument.instrument_id: instrument},
-        {instrument.instrument_id: bar_type},
+        {instrument.instrument_id: requested_bar_type},
         {},
         (),
         OnlyDataSourceCoverageConfig(instrument_ids=(instrument.instrument_id,)),
@@ -132,7 +135,7 @@ def test_factory_requires_live_sink_and_historical_cache(tmp_path: Path) -> None
 
 
 def test_rest_and_websocket_closed_kline_converge_and_open_kline_is_not_canonical() -> None:
-    instrument, bar_type = _bar_type()
+    instrument, requested_bar_type = _bar_type()
     open_ms = 1_767_225_600_000
     rest = [open_ms, "10.00", "11.00", "9.00", "10.50", "100", open_ms + 59_999, "1050", 42, "0", "0"]
     ws = {
@@ -148,22 +151,22 @@ def test_rest_and_websocket_closed_kline_converge_and_open_kline_is_not_canonica
         "n": 42,
         "x": True,
     }
-    rest_bar = only_normalize_rest_kline(rest, instrument, bar_type)
-    ws_bar = only_normalize_ws_kline(ws, instrument, bar_type)
+    rest_bar = only_normalize_rest_kline(rest, instrument, requested_bar_type)
+    ws_bar = only_normalize_ws_kline(ws, instrument, requested_bar_type)
     assert ws_bar == rest_bar
     assert rest_bar.bar_end == datetime(2026, 1, 1, 0, 1, tzinfo=UTC)
     source = OnlyMarketDataSourceId("binance")
     version = OnlyDataVersion("binance-spot-v1")
     assert only_bar_update_id(
-        source, instrument.instrument_id, bar_type, rest_bar.bar_start, version
+        source, instrument.instrument_id, requested_bar_type, rest_bar.bar_start, version
     ) == only_bar_update_id(
         source,
         instrument.instrument_id,
-        bar_type,
+        requested_bar_type,
         ws_bar.bar_start,
         version,  # type: ignore[union-attr]
     )
-    assert only_normalize_ws_kline({**ws, "x": False}, instrument, bar_type) is None
+    assert only_normalize_ws_kline({**ws, "x": False}, instrument, requested_bar_type) is None
 
 
 def test_rest_websocket_and_recovery_raw_trade_converge() -> None:
@@ -190,4 +193,56 @@ def test_rest_websocket_and_recovery_raw_trade_converge() -> None:
     version = OnlyDataVersion("binance-spot-v1")
     assert only_trade_update_id(source, instrument.instrument_id, historical.trade_id, version) == only_trade_update_id(
         source, instrument.instrument_id, realtime.trade_id, version
+    )
+
+
+def test_rest_and_websocket_reference_price_converge_and_preserve_explicit_unavailable() -> None:
+    instrument, _ = _bar_type()
+    timestamp = 1_767_225_600_123
+    rest = only_normalize_reference_price(
+        {"symbol": "BTCUSDT", "referencePrice": "10.00", "timestamp": timestamp}, instrument
+    )
+    websocket = only_normalize_reference_price(
+        {"e": "referencePrice", "s": "BTCUSDT", "r": "10.00", "t": timestamp}, instrument
+    )
+    unavailable = only_normalize_reference_price(
+        {"e": "referencePrice", "s": "BTCUSDT", "r": None, "t": timestamp}, instrument
+    )
+
+    assert rest == websocket
+    assert unavailable.price is None
+    with pytest.raises(OnlyBinanceError, match="REFERENCE_PRICE_SYMBOL_MISMATCH"):
+        only_normalize_reference_price(
+            {"symbol": "ETHUSDT", "referencePrice": "10.00", "timestamp": timestamp}, instrument
+        )
+
+
+def test_avg_price_event_cannot_become_venue_reference_price(tmp_path: Path) -> None:
+    resource = OnlyBinanceSpotDataSourceFactory().create(_request(tmp_path))
+    instrument, _ = _bar_type()
+
+    streams = resource._streams(  # noqa: SLF001 -- exact provider protocol contract
+        OnlyMarketDataSubscriptionRequest(
+            "reference",
+            resource.source_id,
+            frozenset({instrument.instrument_id}),
+            frozenset({OnlyMarketDataType.MARKET_REFERENCE}),
+        )
+    )
+
+    assert streams == ("btcusdt@referencePrice",)
+    reference = resource._normalize_event(  # noqa: SLF001 -- exact provider dispatch contract
+        {
+            "e": "referencePrice",
+            "s": "BTCUSDT",
+            "r": "10.00",
+            "t": 1_767_225_600_123,
+        }
+    )
+    assert reference is not None
+    assert isinstance(reference.payload, OnlyMarketReferenceUpdate)
+    assert reference.payload.reference.price is not None
+    assert (
+        resource.ingest_websocket_message(b'{"e":"avgPrice","s":"BTCUSDT","i":"5m","w":"10.00","T":1767225600123}')
+        == ()
     )

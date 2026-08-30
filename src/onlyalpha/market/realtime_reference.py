@@ -33,12 +33,25 @@ class OnlyRealtimeMarketReferenceAuthority:
         self._references: dict[OnlyInstrumentId, list[OnlyMarketReferenceTick]] = {}
         self._trades: dict[OnlyInstrumentId, dict[str, OnlyTradeTick]] = {}
         self._trade_coverage: dict[OnlyInstrumentId, tuple[OnlyTimeRange, ...]] = {}
+        self._stale_references: set[OnlyInstrumentId] = set()
+        self._disconnected_transports: set[OnlyInstrumentId] = set()
 
     def ingest_reference(self, reference: OnlyMarketReferenceTick) -> None:
         values = self._references.setdefault(reference.instrument_id, [])
         if reference not in values:
             values.append(reference)
             values.sort(key=lambda item: (item.ts_event, item.sequence))
+        self._stale_references.discard(reference.instrument_id)
+        self._disconnected_transports.discard(reference.instrument_id)
+
+    def mark_reference_stale(self, instrument_id: OnlyInstrumentId) -> None:
+        self._stale_references.add(instrument_id)
+
+    def mark_transport_connected(self, instrument_id: OnlyInstrumentId) -> None:
+        self._disconnected_transports.discard(instrument_id)
+
+    def mark_transport_disconnected(self, instrument_id: OnlyInstrumentId) -> None:
+        self._disconnected_transports.add(instrument_id)
 
     def ingest_trade(self, trade: OnlyTradeTick) -> None:
         values = self._trades.setdefault(trade.instrument_id, {})
@@ -64,6 +77,10 @@ class OnlyRealtimeMarketReferenceAuthority:
             (item for item in reversed(self._references.get(instrument_id, [])) if item.ts_event <= as_of),
             None,
         )
+        if instrument_id in self._disconnected_transports:
+            return self._unavailable(as_of, "market reference transport is disconnected")
+        if reference is not None and instrument_id in self._stale_references:
+            return self._unavailable(as_of, "venue reference fact is stale")
         if reference is not None and reference.price is not None:
             return OnlyRealtimeMarketReferenceResolution(
                 reference.price.value,
@@ -71,12 +88,10 @@ class OnlyRealtimeMarketReferenceAuthority:
                 None,
                 as_of,
             )
+        if reference is None:
+            return self._unavailable(as_of, "venue reference fact is unavailable")
         if requirement.reference_kind == "VENUE_REFERENCE_PRICE":
-            reason = (
-                "venue reference explicitly reports no price"
-                if reference is not None
-                else "venue reference fact is unavailable"
-            )
+            reason = "venue reference explicitly reports no price"
             return self._unavailable(as_of, reason)
         if requirement.reference_kind != "VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE":
             return self._unavailable(as_of, "unsupported market reference requirement")

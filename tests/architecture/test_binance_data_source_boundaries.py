@@ -5,6 +5,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE = ROOT / "src" / "onlyalpha"
+BINANCE_DATA_SOURCE = (
+    ROOT
+    / "packages"
+    / "provider"
+    / "onlyalpha-plugin-binance"
+    / "src"
+    / "onlyalpha_plugin_binance"
+    / "spot"
+    / "data_source"
+)
 
 
 def test_core_does_not_import_binance_provider_adapter() -> None:
@@ -30,6 +40,21 @@ def test_core_business_code_does_not_hard_code_p9_2_symbols() -> None:
         if "BTCUSDT" in path.read_text(encoding="utf-8") or "ETHUSDT" in path.read_text(encoding="utf-8")
     ]
     assert violations == []
+
+
+def test_binance_avg_price_cannot_enter_venue_reference_semantics() -> None:
+    production = "\n".join(path.read_text(encoding="utf-8") for path in BINANCE_DATA_SOURCE.rglob("*.py"))
+
+    assert "/api/v3/avgPrice" not in production
+    assert 'event_type == "avgPrice"' not in production
+    assert 'MARKET_REFERENCE: "avgPrice"' not in production
+
+
+def test_core_has_no_binance_reference_price_protocol_fields() -> None:
+    production = "\n".join(path.read_text(encoding="utf-8") for path in CORE.rglob("*.py"))
+
+    assert '"referencePrice"' not in production
+    assert '"avgPrice"' not in production
 
 
 def test_binance_data_source_is_discoverable_through_existing_spi() -> None:

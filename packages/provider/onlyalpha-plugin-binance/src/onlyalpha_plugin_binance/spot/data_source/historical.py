@@ -73,10 +73,14 @@ class OnlyBinanceSpotHistoricalClient:
             raise OnlyBinanceError("BINANCE_HISTORICAL_TRADES_RESPONSE_INVALID")
         return value
 
-    def average_price(self, symbol: str) -> Mapping[str, object]:
-        value = json.loads(self._http.get_json("/api/v3/avgPrice", {"symbol": symbol}))
+    def reference_price(self, symbol: str) -> Mapping[str, object] | None:
+        value = json.loads(self._http.get_json("/api/v3/referencePrice", {"symbol": symbol}))
         if not isinstance(value, dict):
-            raise OnlyBinanceError("BINANCE_AVERAGE_PRICE_RESPONSE_INVALID")
+            raise OnlyBinanceError("BINANCE_REFERENCE_PRICE_RESPONSE_INVALID")
+        if value.get("code") == -2043:
+            return None
+        if not {"symbol", "referencePrice", "timestamp"} <= value.keys():
+            raise OnlyBinanceError("BINANCE_REFERENCE_PRICE_RESPONSE_INVALID")
         return value
 
     def recent_trades(self, symbol: str, limit: int = 1) -> Sequence[Mapping[str, object]]:

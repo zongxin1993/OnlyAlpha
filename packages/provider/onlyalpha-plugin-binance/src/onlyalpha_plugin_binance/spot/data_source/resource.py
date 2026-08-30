@@ -55,7 +55,7 @@ from ...descriptor import DATA_DESCRIPTOR
 from .config import OnlyBinanceSpotDataSourceConfig
 from .continuity import OnlyBinanceSpotContinuityCoordinator
 from .historical import OnlyBinanceSpotHistoricalClient, OnlyBinanceSpotHistoricalProvider
-from .normalize import only_normalize_reference, only_normalize_ws_kline, only_normalize_ws_trade
+from .normalize import only_normalize_reference_price, only_normalize_ws_kline, only_normalize_ws_trade
 from .websocket import OnlyBinanceWebSocketTransport
 
 
@@ -88,7 +88,6 @@ class OnlyBinanceSpotDataSource:
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
         self._websocket_url: str | None = None
-        self._ever_ready = False
         self._symbol_map = {str(item.raw_symbol).upper(): item for item in request.instruments.values()}
 
     @property
@@ -225,20 +224,21 @@ class OnlyBinanceSpotDataSource:
         subscription_id = f"BINANCE-{request.request_id}"
         self._subscriptions[subscription_id] = request
         streams = self._streams(request)
-        self._continuity.begin_recovery()
         self._websocket_url = f"{self._config.environment.websocket_base_url}/stream?streams={'/'.join(streams)}"
         self._websocket.connect(self._websocket_url)
+        self._continuity.subscription_established()
+        self._continuity.begin_recovery()
         self._stop.clear()
         self._worker = threading.Thread(target=self._run_worker, name=f"{subscription_id}-ws", daemon=True)
         self._worker.start()
         try:
             baselines = self._initial_baselines(request)
             for update in baselines:
-                self._continuity.accept_baseline(update)
+                for accepted in self._continuity.accept_baseline(update, self._recover):
+                    self._publish(accepted)
+            self._continuity.establish_empty_baseline()
+            for update in self._continuity.complete_recovery(self._recover):
                 self._publish(update)
-            for update in self._continuity.ready(self._recover):
-                self._publish(update)
-            self._ever_ready = True
         except Exception:
             self._continuity.fail()
             raise
@@ -260,9 +260,6 @@ class OnlyBinanceSpotDataSource:
             raise OnlyBinanceError("BINANCE_WEBSOCKET_EVENT_INVALID")
         update = self._normalize_event(event)
         if update is None:
-            return ()
-        if self._continuity.state is OnlyMarketDataConnectionState.RECOVERING:
-            self._continuity.buffer(update)
             return ()
         accepted = self._continuity.accept(update, self._recover)
         for item in accepted:
@@ -288,7 +285,7 @@ class OnlyBinanceSpotDataSource:
                 if self._stop.is_set():
                     return
                 self._request.logger.error("Binance WebSocket worker failed: %s", type(exc).__name__)
-                self._continuity.begin_recovery()
+                self._continuity.disconnected()
                 self._websocket.close()
                 if self._stop.wait(backoff):
                     return
@@ -297,19 +294,19 @@ class OnlyBinanceSpotDataSource:
                     if self._websocket_url is None:
                         raise OnlyBinanceError("BINANCE_WEBSOCKET_URL_MISSING")
                     self._websocket.connect(self._websocket_url)
+                    self._continuity.connected()
+                    self._continuity.subscription_established()
+                    self._continuity.begin_recovery()
                     requests = tuple(self._subscriptions.values())
                     baselines = tuple(update for request in requests for update in self._initial_baselines(request))
                     for update in sorted(baselines, key=self._order_key):
-                        if self._ever_ready:
-                            for accepted in self._continuity.accept(update, self._recover):
-                                self._publish(accepted)
-                        else:
-                            self._continuity.accept_baseline(update)
-                            self._publish(update)
-                    for update in self._continuity.ready(self._recover):
+                        for accepted in self._continuity.accept_baseline(update, self._recover):
+                            self._publish(accepted)
+                    self._continuity.establish_empty_baseline()
+                    for update in self._continuity.complete_recovery(self._recover):
                         self._publish(update)
-                    self._ever_ready = True
                 except Exception as recovery_exc:
+                    self._continuity.fail()
                     self._request.logger.error("Binance WebSocket recovery failed: %s", type(recovery_exc).__name__)
 
     def _initial_baselines(self, request: OnlyMarketDataSubscriptionRequest) -> tuple[OnlyMarketDataInboundUpdate, ...]:
@@ -342,12 +339,14 @@ class OnlyBinanceSpotDataSource:
                     self._trade_update(only_normalize_rest_trade(trade_rows[0], instrument), self._request.data_version)
                 )
             if OnlyMarketDataType.MARKET_REFERENCE in request.data_types:
-                updates.append(
-                    self._reference_update(
-                        only_normalize_reference(self._historical.average_price(symbol), instrument),
-                        self._request.data_version,
+                reference_payload = self._historical.reference_price(symbol)
+                if reference_payload is not None:
+                    updates.append(
+                        self._reference_update(
+                            only_normalize_reference_price(reference_payload, instrument),
+                            self._request.data_version,
+                        )
                     )
-                )
         return tuple(sorted(updates, key=self._order_key))
 
     def _normalize_event(self, raw: Mapping[str, object]) -> OnlyMarketDataInboundUpdate | None:
@@ -370,8 +369,10 @@ class OnlyBinanceSpotDataSource:
             raise OnlyBinanceError("BINANCE_EVENT_SYMBOL_NOT_REQUESTED")
         if event_type == "trade":
             return self._trade_update(only_normalize_ws_trade(raw, event_instrument), self._request.data_version)
-        if event_type == "avgPrice":
-            return self._reference_update(only_normalize_reference(raw, event_instrument), self._request.data_version)
+        if event_type == "referencePrice":
+            return self._reference_update(
+                only_normalize_reference_price(raw, event_instrument), self._request.data_version
+            )
         return None
 
     def _recover(
@@ -505,7 +506,7 @@ class OnlyBinanceSpotDataSource:
         suffixes = {
             OnlyMarketDataType.BAR: "kline_1m",
             OnlyMarketDataType.TRADE: "trade",
-            OnlyMarketDataType.MARKET_REFERENCE: "avgPrice",
+            OnlyMarketDataType.MARKET_REFERENCE: "referencePrice",
         }
         return tuple(
             f"{str(self._request.instruments[instrument_id].raw_symbol).lower()}@{suffixes[data_type]}"

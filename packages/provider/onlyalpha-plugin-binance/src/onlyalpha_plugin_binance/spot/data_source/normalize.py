@@ -153,11 +153,22 @@ def _trade(
     )
 
 
-def only_normalize_reference(raw: Mapping[str, object], instrument: OnlyInstrument) -> OnlyMarketReferenceTick:
-    event_raw = raw.get("T", raw.get("closeTime"))
-    price_raw = raw.get("w", raw.get("price"))
-    if event_raw is None:
-        raise OnlyBinanceError("BINANCE_REFERENCE_TIMESTAMP_MISSING")
+def only_normalize_reference_price(raw: Mapping[str, object], instrument: OnlyInstrument) -> OnlyMarketReferenceTick:
+    """Normalize only Binance's declared reference-price REST/stream fact."""
+    if raw.get("e") == "referencePrice":
+        if "s" not in raw or "r" not in raw or "t" not in raw:
+            raise OnlyBinanceError("BINANCE_REFERENCE_PRICE_EVENT_INVALID")
+        symbol_raw = raw["s"]
+        event_raw = raw["t"]
+        price_raw = raw["r"]
+    elif "e" not in raw and {"symbol", "referencePrice", "timestamp"} <= raw.keys():
+        symbol_raw = raw["symbol"]
+        event_raw = raw["timestamp"]
+        price_raw = raw["referencePrice"]
+    else:
+        raise OnlyBinanceError("BINANCE_REFERENCE_PRICE_PAYLOAD_INVALID")
+    if str(symbol_raw).upper() != str(instrument.raw_symbol).upper():
+        raise OnlyBinanceError("BINANCE_REFERENCE_PRICE_SYMBOL_MISMATCH")
     ts_event = only_binance_milliseconds(event_raw)
     return OnlyMarketReferenceTick(
         instrument_id=instrument.instrument_id,

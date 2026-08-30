@@ -53,6 +53,17 @@ def test_venue_reference_and_complete_trade_vwap_are_distinct_evidence() -> None
                 trade_id=OnlyTradeId(f"trade-{offset}"),
             )
         )
+    fallback.ingest_reference(
+        OnlyMarketReferenceTick(
+            instrument,
+            NOW,
+            NOW,
+            1,
+            "provider",
+            OnlyMarketReferenceKind.VENUE_REFERENCE_PRICE,
+            None,
+        )
+    )
     window = OnlyTimeRange(NOW - timedelta(minutes=1), NOW)
     assert not fallback.resolve(_requirement("VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE", 1), instrument, NOW).resolved
     fallback.prove_trade_coverage(instrument, window)
@@ -65,6 +76,17 @@ def test_zero_minute_fallback_uses_previous_trade() -> None:
     authority = OnlyRealtimeMarketReferenceAuthority()
     trade = build_trade_tick()
     authority.ingest_trade(trade)
+    authority.ingest_reference(
+        OnlyMarketReferenceTick(
+            trade.instrument_id,
+            NOW,
+            NOW,
+            1,
+            "provider",
+            OnlyMarketReferenceKind.VENUE_REFERENCE_PRICE,
+            None,
+        )
+    )
     result = authority.resolve(_requirement("VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE", 0), trade.instrument_id, NOW)
     assert result.price == trade.price.value
     assert result.evidence_kind == "PREVIOUS_TRADE"
@@ -91,3 +113,52 @@ def test_explicit_unavailable_reference_is_distinct_from_missing_fact() -> None:
     assert not missing.resolved and not explicit.resolved
     assert missing.reason == "venue reference fact is unavailable"
     assert explicit.reason == "venue reference explicitly reports no price"
+
+
+def test_only_explicit_unavailable_reference_allows_trade_fallback() -> None:
+    instrument = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
+    trade = replace(build_trade_tick(), instrument_id=instrument)
+    missing = OnlyRealtimeMarketReferenceAuthority()
+    missing.ingest_trade(trade)
+    assert not missing.resolve(_requirement("VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE", 0), instrument, NOW).resolved
+
+    explicit = OnlyRealtimeMarketReferenceAuthority()
+    explicit.ingest_trade(trade)
+    explicit.ingest_reference(
+        OnlyMarketReferenceTick(
+            instrument,
+            NOW,
+            NOW,
+            1,
+            "provider",
+            OnlyMarketReferenceKind.VENUE_REFERENCE_PRICE,
+            None,
+        )
+    )
+    assert (
+        explicit.resolve(_requirement("VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE", 0), instrument, NOW).evidence_kind
+        == "PREVIOUS_TRADE"
+    )
+
+
+def test_stale_and_disconnected_reference_are_not_explicit_unavailable() -> None:
+    instrument = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
+    authority = OnlyRealtimeMarketReferenceAuthority()
+    authority.ingest_reference(
+        OnlyMarketReferenceTick(
+            instrument,
+            NOW,
+            NOW,
+            1,
+            "provider",
+            OnlyMarketReferenceKind.VENUE_REFERENCE_PRICE,
+            None,
+        )
+    )
+    authority.mark_reference_stale(instrument)
+    stale = authority.resolve(_requirement("VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE", 0), instrument, NOW)
+    authority.mark_transport_disconnected(instrument)
+    disconnected = authority.resolve(_requirement("VENUE_REFERENCE_PRICE_OR_TRADE_AVERAGE", 0), instrument, NOW)
+
+    assert stale.reason == "venue reference fact is stale"
+    assert disconnected.reason == "market reference transport is disconnected"

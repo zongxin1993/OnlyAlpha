@@ -3,7 +3,57 @@
 - Task base SHA: `5176c722a28097b1ea9edd589731c887303908e9`
 - Implementation HEAD: `5176c722a28097b1ea9edd589731c887303908e9` (working-tree implementation; no commit was requested)
 - Scope: Binance Spot public BTCUSDT/ETHUSDT 1m closed Bars, raw Trades, realtime venue reference facts, in-process continuity/recovery, and typed verified acquisition cache
-- Status: implementation complete; required CI proof remains pending
+- Status: correctness closure implemented locally; exact-SHA Layered Quality remains `CI REQUIRED`
+
+## Correctness closure — 2026-08-30
+
+- Closure task base SHA: `5d0db9c51c88be36fe4f76708c8d39da28468868`
+- Closure SHA: `NOT AVAILABLE` (working tree is not committed)
+- Environment: macOS arm64, Python 3.12, uv workspace
+- Scope: exact venue-reference semantics, atomic continuity mutation authority, and canonical Binance test collection only
+
+### Root causes closed in the working tree
+
+- Semantic authority drift: Binance `/api/v3/avgPrice` and `@avgPrice` were incorrectly normalized as `VENUE_REFERENCE_PRICE`.
+- Multi-writer continuity authority: lifecycle, WebSocket, and recovery threads could observe and mutate coordinator state across non-atomic calls.
+- Hidden test import dependency: two Binance tests imported `_bar_type` from a sibling test module and failed under importlib collection.
+
+### Fixes
+
+- REST now uses `/api/v3/referencePrice`; WebSocket subscribes to and dispatches only `@referencePrice`; one strict `only_normalize_reference_price()` maps the REST and stream contracts.
+- Explicit reference null remains a canonical unavailable venue fact. Missing, stale, and disconnected evidence remain distinct and cannot trigger Trade fallback. Only explicit unavailable may use the existing Core Trade/VWAP authority, and incomplete Trade coverage still fails closed.
+- One coordinator-level reentrant lock protects the complete semantic transition: connection/subscription/baseline evidence, state, buffer, dedup, sequence, gap recovery, failure, and derived READY proof. `ready()` was removed; `complete_recovery()` reaches READY only after its invariant is proven.
+- Shared Binance test constructors now come from `conftest.py`; no test module imports another test module.
+
+### Local verification evidence
+
+- Targeted semantic/continuity/architecture closure: `26 passed`.
+- Binance importlib collect-only: `47 collected`, PASS.
+- Binance offline suite: `46 passed, 1 external deselected`.
+- Canonical workspace importlib collection: `3314 collected`, PASS.
+- Multi-market/core offline regression: `105 passed, 2 external/environment tests deselected`.
+- Architecture lane: `513 passed`.
+- Recovery lane: `334 passed`.
+- SIM recovery lane: `38 passed`.
+- A-share lane: `24 passed`.
+- MiniQMT contract lane: `34 passed`.
+- Release static: Ruff, Ruff format, root/package Mypy, import contracts, and version graph PASS; root Mypy checked `702 source files`.
+- Binance package sdist/wheel build: PASS at workspace version `0.9.8`.
+- Budgeted impact run: `LOCAL_PASS_CI_REQUIRED`, 10 local checks PASS, 30 commands deferred, exit code `3` as required. Manifest: `test-results/verification/local-budget/20260830T103017Z-5d0db9c51c88-11281/manifest.json`.
+
+### Bounded independent review
+
+Scope was limited to the closure delta and directly touched Core reference authority. Applicable semantic uniqueness, deterministic normalization, state ownership, fail-closed recovery, provider isolation, and canonical collection invariants have local PASS evidence. No P9.3/P9.4 capability was introduced.
+
+- Critical: `0`
+- High: `0`
+- Verdict on implementation delta: `GO`
+
+### Remaining closure authority
+
+GitHub authentication is currently invalid, so no exact closure commit or Layered Quality run can be created/observed from this workspace. Current machine policy has no CodeQL gate; CodeQL is therefore `NOT APPLICABLE`, not a fabricated PASS. The impact plan's remaining commands stay `CI REQUIRED`.
+
+Because exact-SHA CI evidence is absent, this report does not declare P9.2 verified and `project-state.toml` remains at P9.1 verified / P9.2 authorized. The canonical P9.2 → P9.3 transition must occur only after Layered Quality succeeds for the final closure SHA.
 
 ## Core changes
 
