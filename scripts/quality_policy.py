@@ -15,7 +15,6 @@ class QualityPolicy:
     coverage_mode: str
     quality_required_gates: frozenset[str]
     quality_event_lane_gates: frozenset[str]
-    historical_evidence_owner: str
 
 
 def _require_table(document: dict[str, object], name: str) -> dict[str, object]:
@@ -38,16 +37,14 @@ def _require_gate_set(table: dict[str, object], name: str) -> frozenset[str]:
 def load_quality_policy(path: Path = QUALITY_POLICY_PATH) -> QualityPolicy:
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     configured_schema_version = document.get("schema_version")
-    if configured_schema_version != 2:
+    if configured_schema_version != 3:
         raise ValueError(f"unsupported quality policy schema_version: {configured_schema_version!r}")
-    schema_version = 2
+
     configured_coverage_mode = document.get("coverage_mode")
     if configured_coverage_mode != "manual":
         raise ValueError(f"unsupported quality policy coverage_mode: {configured_coverage_mode!r}")
-    coverage_mode = "manual"
 
     quality = _require_table(document, "quality")
-    historical = _require_table(document, "historical_evidence")
     quality_required = _require_gate_set(quality, "required_gates")
     event_lanes = _require_gate_set(quality, "event_lane_gates")
     if quality_required & event_lanes:
@@ -55,16 +52,14 @@ def load_quality_policy(path: Path = QUALITY_POLICY_PATH) -> QualityPolicy:
     if "coverage" in quality_required:
         raise ValueError("manual coverage cannot be a mandatory workflow gate")
 
-    owner = historical.get("exclusive_owner")
-    if not isinstance(owner, str) or not owner:
-        raise ValueError("quality policy historical_evidence.exclusive_owner must be a non-empty string")
-    if owner not in quality_required:
-        raise ValueError("historical evidence owner must be mandatory in quality")
+    unexpected_tables = set(document) - {"schema_version", "coverage_mode", "quality"}
+    if unexpected_tables:
+        names = ", ".join(sorted(unexpected_tables))
+        raise ValueError(f"quality policy contains unsupported top-level entries: {names}")
 
     return QualityPolicy(
-        schema_version=schema_version,
-        coverage_mode=coverage_mode,
+        schema_version=3,
+        coverage_mode="manual",
         quality_required_gates=quality_required,
         quality_event_lane_gates=event_lanes,
-        historical_evidence_owner=owner,
     )
