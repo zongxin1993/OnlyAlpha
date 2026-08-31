@@ -1,0 +1,42 @@
+name: Governance Constitution
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  constitution:
+    name: Constitution integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify pinned constitution and AGENTS contract
+        run: python scripts/check_constitution.py
+
+      - name: Reject ordinary changes to frozen constitution
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="origin/${GITHUB_BASE_REF}"
+
+          # Bootstrap is allowed only when the base branch does not yet contain
+          # the founding Constitution. After the bootstrap PR is merged, both
+          # the Constitution and its fingerprint are immutable in ordinary PRs.
+          if git cat-file -e "${BASE}:PROJECT_CONSTITUTION.md" 2>/dev/null; then
+            git diff --exit-code "${BASE}" -- \
+              PROJECT_CONSTITUTION.md \
+              docs/governance/PROJECT_CONSTITUTION.sha256
+          else
+            echo "Founding Constitution bootstrap detected; immutability activates after merge."
+          fi
