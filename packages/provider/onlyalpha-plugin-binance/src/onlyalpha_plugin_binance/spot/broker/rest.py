@@ -25,10 +25,20 @@ class OnlyBinanceSpotPrivateRestClient:
         return self.authenticate_account()
 
     def submit_order(self, request: OnlyBrokerOrderRequest) -> bytes:
-        return self._http.request_json("POST", "/api/v3/order", only_binance_spot_order_parameters(request))
+        return self._http.request_json(
+            "POST",
+            "/api/v3/order",
+            only_binance_spot_order_parameters(request),
+            side_effecting=True,
+        )
 
     def cancel_order(self, request: OnlyBrokerCancelRequest, *, symbol: str) -> bytes:
-        return self._http.request_json("DELETE", "/api/v3/order", only_binance_spot_cancel_parameters(request, symbol))
+        return self._http.request_json(
+            "DELETE",
+            "/api/v3/order",
+            only_binance_spot_cancel_parameters(request, symbol),
+            side_effecting=True,
+        )
 
     def query_order(
         self,

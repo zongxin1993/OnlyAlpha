@@ -20,6 +20,10 @@ from onlyalpha.broker.execution import OnlyBrokerExecutionService
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue, OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
+from onlyalpha.broker.reconciliation import (
+    OnlyBrokerFactApplicationReceipt,
+    OnlyBrokerFactApplicationStatus,
+)
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
 from onlyalpha.cluster.base import OnlyCluster, OnlyClusterState
 from onlyalpha.cluster.manager import OnlyClusterExecutionResult, OnlyClusterManager
@@ -1806,9 +1810,26 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
     def drain_broker_inbound(self) -> tuple[object, ...]:
         """Drain FIFO updates through the Runtime-owned sole business processor."""
 
+        results, _receipts = self._drain_broker_inbound_batch()
+        return results
+
+    def drain_broker_inbound_with_receipts(self) -> tuple[OnlyBrokerFactApplicationReceipt, ...]:
+        """Process Broker facts and return ACKs backed by canonical durable application."""
+
+        results, receipts = self._drain_broker_inbound_batch()
+        if len(receipts) != len(results):
+            raise OnlyRuntimeError("BROKER_FACT_APPLICATION_NOT_ACKNOWLEDGEABLE")
+        return receipts
+
+    def _drain_broker_inbound_batch(
+        self,
+    ) -> tuple[tuple[OnlyExecutionProcessingResult, ...], tuple[OnlyBrokerFactApplicationReceipt, ...]]:
+        """One implementation for normal draining and reconciliation ACK production."""
+
         if self._state is not OnlyRuntimeState.RUNNING:
             raise OnlyLifecycleError("Runtime accepts Broker updates only while RUNNING")
         results: list[OnlyExecutionProcessingResult] = []
+        receipts: list[OnlyBrokerFactApplicationReceipt] = []
         for update in self._services.broker_inbound.drain():
             processing = self._services.execution_processor.process(update)
             delivery = self._services.execution_delivery_coordinator.deliver(
@@ -1817,9 +1838,21 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             )
             self._record_execution_delivery(processing.sequence, delivery)
             results.append(processing)
+            if processing.status in {
+                OnlyExecutionProcessingStatus.APPLIED,
+                OnlyExecutionProcessingStatus.DUPLICATE,
+            }:
+                receipts.append(
+                    OnlyBrokerFactApplicationReceipt(
+                        update.update_id,
+                        OnlyBrokerFactApplicationStatus.APPLIED
+                        if processing.status is OnlyExecutionProcessingStatus.APPLIED
+                        else OnlyBrokerFactApplicationStatus.DUPLICATE,
+                    )
+                )
         self._broker_results.extend(results)
         self._services.event_bus.drain()
-        return tuple(results)
+        return tuple(results), tuple(receipts)
 
     def receive_broker_update(self, update: OnlyBrokerInboundUpdate) -> None:
         """Runtime management inbound Port used by Gateways and explicit fault adapters."""

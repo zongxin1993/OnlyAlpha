@@ -279,11 +279,12 @@ class OnlyBinanceSpotUserStreamNormalizer:
             return OnlyBrokerOrderRejectedUpdate(
                 **fields,
                 rejection=OnlyOrderRejection(str(raw.get("r", "VENUE_REJECTED")), "Binance rejected order"),
+                venue_order_id=venue_order_id,
             )
         if execution_type == "CANCELED":
-            return OnlyBrokerOrderCancelledUpdate(**fields)
+            return OnlyBrokerOrderCancelledUpdate(**fields, venue_order_id=venue_order_id)
         if execution_type in {"EXPIRED", "TRADE_PREVENTION"}:
-            return OnlyBrokerOrderExpiredUpdate(**fields)
+            return OnlyBrokerOrderExpiredUpdate(**fields, venue_order_id=venue_order_id)
         if execution_type == "TRADE":
             quantity = _decimal(raw.get("l"), "BINANCE_LAST_EXECUTED_QUANTITY")
             price = _decimal(raw.get("L"), "BINANCE_LAST_EXECUTED_PRICE")

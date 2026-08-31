@@ -43,7 +43,12 @@ def only_reduce_order_accepted(
         raise ValueError("Accepted update scope disagrees with Order")
     if before.venue_order_id not in {None, update.venue_order_id}:
         raise ValueError("Accepted Venue Order identity conflicts with Order")
-    if before.last_external_sequence is not None and update.source_sequence <= before.last_external_sequence:
+    sequence_unavailable = "PROVIDER_SEQUENCE_UNAVAILABLE" in update.quality_flags
+    if (
+        not sequence_unavailable
+        and before.last_external_sequence is not None
+        and update.source_sequence <= before.last_external_sequence
+    ):
         raise ValueError("Accepted Broker sequence must advance")
     if before.status not in {
         OnlyOrderStatus.SUBMITTED,
@@ -59,7 +64,7 @@ def only_reduce_order_accepted(
         accepted_at=update.ts_init if before.status is OnlyOrderStatus.SUBMITTED else before.accepted_at,
         updated_at=max(before.updated_at, update.ts_init),
         version=before.version + 1,
-        last_external_sequence=update.source_sequence,
+        last_external_sequence=(before.last_external_sequence if sequence_unavailable else update.source_sequence),
     )
 
 
@@ -71,6 +76,8 @@ def only_reduce_order_terminal(
     status = authority.terminal_status
     if update.order_id != before.order_id or update.runtime_id != before.runtime_id:
         raise ValueError("Terminal update scope disagrees with Order")
+    if update.venue_order_id is not None and before.venue_order_id not in {None, update.venue_order_id}:
+        raise ValueError("Terminal Venue Order identity conflicts with Order")
     allowed = {
         OnlyOrderStatus.SUBMITTED,
         OnlyOrderStatus.ACCEPTED,
@@ -81,10 +88,16 @@ def only_reduce_order_terminal(
         allowed.remove(OnlyOrderStatus.SUBMITTED)
     if before.status not in allowed:
         raise ValueError("Order state does not accept this terminal operation")
-    if before.last_external_sequence is not None and update.source_sequence <= before.last_external_sequence:
+    sequence_unavailable = "PROVIDER_SEQUENCE_UNAVAILABLE" in update.quality_flags
+    if (
+        not sequence_unavailable
+        and before.last_external_sequence is not None
+        and update.source_sequence <= before.last_external_sequence
+    ):
         raise ValueError("Terminal Broker sequence must advance")
     return replace(
         before,
+        venue_order_id=update.venue_order_id or before.venue_order_id,
         status=status,
         updated_at=update.ts_event,
         cancelled_at=update.ts_event if status is OnlyOrderStatus.CANCELLED else before.cancelled_at,
@@ -92,7 +105,7 @@ def only_reduce_order_terminal(
         expired_at=update.ts_event if status is OnlyOrderStatus.EXPIRED else before.expired_at,
         rejection=update.rejection if isinstance(update, OnlyBrokerOrderRejectedUpdate) else before.rejection,
         version=before.version + 1,
-        last_external_sequence=update.source_sequence,
+        last_external_sequence=(before.last_external_sequence if sequence_unavailable else update.source_sequence),
     )
 
 

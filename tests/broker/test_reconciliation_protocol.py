@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
@@ -113,6 +114,34 @@ def test_durable_command_evidence_is_append_only_restartable_and_conflict_checke
     path.write_bytes(path.read_bytes() + b"{partial")
     with pytest.raises(ValueError, match="CORRUPT"):
         OnlyDurableBrokerCommandEvidenceStore(path).load()
+
+
+def test_durable_command_evidence_reads_legacy_schema_one_as_submit(tmp_path: Path) -> None:
+    _, created_order = _created()
+    order = created_order.snapshot
+    path = (tmp_path / "legacy-commands.jsonl").resolve()
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "evidence_id": f"{order.order_id}:00000001:UNKNOWN",
+                "kind": "UNKNOWN",
+                "order_id": str(order.order_id),
+                "client_order_id": str(order.client_order_id),
+                "venue_order_id": None,
+                "occurred_at_unix_nanos": 1,
+                "detail_code": "legacy",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = OnlyDurableBrokerCommandEvidenceStore(path).load()
+    assert len(loaded) == 1
+    assert loaded[0].operation.value == "SUBMIT"
+    assert loaded[0].command_id == ""
+    assert loaded[0].request_payload == ""
 
 
 def test_readiness_requires_every_barrier_and_revokes_on_stream_loss() -> None:

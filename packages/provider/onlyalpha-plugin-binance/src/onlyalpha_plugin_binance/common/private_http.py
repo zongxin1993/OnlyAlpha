@@ -131,6 +131,7 @@ class OnlyBinancePrivateHttpClient:
         parameters: Mapping[str, str] | None = None,
         *,
         signed: bool = True,
+        side_effecting: bool = False,
     ) -> bytes:
         if method not in {"GET", "POST", "DELETE", "PUT"} or not path.startswith("/"):
             raise ValueError("BINANCE_PRIVATE_REQUEST_INVALID")
@@ -154,7 +155,9 @@ class OnlyBinancePrivateHttpClient:
                 self._timeout_seconds,
                 self._max_response_bytes,
             )
-        except OnlyBinancePrivateRequestError:
+        except OnlyBinancePrivateRequestError as exc:
+            if side_effecting and exc.code == "BINANCE_PRIVATE_RESPONSE_TOO_LARGE":
+                raise OnlyBinancePrivateRequestError(exc.code, OnlyBinanceDispatchKnowledge.UNKNOWN) from exc
             raise
         except Exception as exc:
             raise OnlyBinancePrivateRequestError(
@@ -162,12 +165,17 @@ class OnlyBinancePrivateHttpClient:
                 OnlyBinanceDispatchKnowledge.UNKNOWN,
             ) from exc
         self._response_observer(method, path, response.status, response.payload)
+        if side_effecting and (response.status >= 500 or response.status == 409):
+            raise OnlyBinancePrivateRequestError(
+                f"BINANCE_PRIVATE_EXECUTION_UNKNOWN: HTTP_{response.status}",
+                OnlyBinanceDispatchKnowledge.UNKNOWN,
+            )
         try:
             decoded = json.loads(response.payload)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise OnlyBinancePrivateRequestError(
                 "BINANCE_PRIVATE_RESPONSE_NOT_JSON",
-                OnlyBinanceDispatchKnowledge.KNOWN_RESULT,
+                OnlyBinanceDispatchKnowledge.UNKNOWN if side_effecting else OnlyBinanceDispatchKnowledge.KNOWN_RESULT,
             ) from exc
         if not isinstance(decoded, (dict, list)):
             raise OnlyBinancePrivateRequestError(
@@ -177,9 +185,18 @@ class OnlyBinancePrivateHttpClient:
         if response.status < 200 or response.status >= 300:
             provider_code = decoded.get("code") if isinstance(decoded, dict) else None
             safe_code = str(provider_code) if isinstance(provider_code, int | str) else "UNKNOWN"
+            knowledge = (
+                OnlyBinanceDispatchKnowledge.UNKNOWN
+                if side_effecting and safe_code in {"-1006", "-1007"}
+                else OnlyBinanceDispatchKnowledge.KNOWN_RESULT
+            )
             raise OnlyBinancePrivateRequestError(
-                f"BINANCE_PRIVATE_KNOWN_ERROR: {safe_code}",
-                OnlyBinanceDispatchKnowledge.KNOWN_RESULT,
+                (
+                    f"BINANCE_PRIVATE_EXECUTION_UNKNOWN: {safe_code}"
+                    if knowledge is OnlyBinanceDispatchKnowledge.UNKNOWN
+                    else f"BINANCE_PRIVATE_KNOWN_ERROR: {safe_code}"
+                ),
+                knowledge,
             )
         return response.payload
 

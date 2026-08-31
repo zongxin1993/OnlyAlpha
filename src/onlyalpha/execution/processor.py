@@ -437,7 +437,8 @@ class OnlyExecutionProcessor:
                 update, context, OnlyExecutionProcessingStatus.DUPLICATE, position_scope=position_scope
             )
         sequence_scope = self._sequence_scope(update)
-        stale = self._sequences.is_stale(sequence_scope, update.source_sequence)
+        sequence_unavailable = "PROVIDER_SEQUENCE_UNAVAILABLE" in update.quality_flags
+        stale = not sequence_unavailable and self._sequences.is_stale(sequence_scope, update.source_sequence)
         if stale and isinstance(update, OnlyBrokerOrderAcceptedUpdate):
             self._deduplicator.remember(update.update_id)
             return self._terminal(

@@ -18,6 +18,7 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderRejection, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha_plugin_binance.spot.broker.codec import only_binance_client_order_id
 from onlyalpha_plugin_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
 from onlyalpha_plugin_binance.spot.broker.normalize import only_normalize_binance_spot_order
 from onlyalpha_plugin_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
@@ -48,20 +49,29 @@ class OnlyBinanceSpotVenueDiscovery:
         request = self._request(order)
         self._gateway.restore_order_request(request)
         venue = self._query_order(request)
+        self._gateway.resolve_order_identity(
+            only_binance_client_order_id(order.client_order_id),
+            str(venue.venue_order_id),
+        )
         common = {
             "runtime_id": self._runtime_id,
             "gateway_id": self._gateway_id,
             "account_id": self._account_id,
-            "source_sequence": venue.source_sequence,
+            # REST order snapshots do not expose a total provider event sequence.
+            # Zero is a sentinel paired with an explicit quality flag; the Core
+            # must not interpret it as fabricated provider history.
+            "source_sequence": 0,
             "ts_event": venue.updated_at,
             "ts_init": self._now(),
             "correlation_id": str(order.client_order_id),
             "causation_id": "binance-reconciliation",
             "order_id": order.order_id,
-            "quality_flags": ("RECONCILIATION_DISCOVERY",),
+            "quality_flags": ("RECONCILIATION_DISCOVERY", "PROVIDER_SEQUENCE_UNAVAILABLE"),
         }
         updates: list[OnlyBrokerInboundUpdate] = []
-        if venue.status not in {OnlyOrderStatus.REJECTED, OnlyOrderStatus.EXPIRED}:
+        if venue.status in {OnlyOrderStatus.ACCEPTED, OnlyOrderStatus.PARTIALLY_FILLED} and (
+            order.status is OnlyOrderStatus.SUBMITTED or order.venue_order_id is None
+        ):
             updates.append(
                 OnlyBrokerOrderAcceptedUpdate(
                     **common,  # type: ignore[arg-type]
@@ -77,12 +87,15 @@ class OnlyBinanceSpotVenueDiscovery:
                         gateway_id=self._gateway_id,
                         account_id=self._account_id,
                         update_id=OnlyBrokerUpdateId(str(trade.fill.external_event_id)),
-                        source_sequence=self._next_sequence(),
+                        source_sequence=trade.source_sequence,
                         ts_event=trade.fill.ts_event,
                         ts_init=trade.fill.ts_init,
                         correlation_id=str(order.client_order_id),
                         causation_id="binance-reconciliation",
-                        quality_flags=("RECONCILIATION_DISCOVERY",),
+                        quality_flags=(
+                            "RECONCILIATION_DISCOVERY",
+                            *(("PROVIDER_SEQUENCE_UNAVAILABLE",) if trade.source_sequence == 0 else ()),
+                        ),
                         order_id=order.order_id,
                         fill=trade.fill,
                     )
@@ -96,6 +109,7 @@ class OnlyBinanceSpotVenueDiscovery:
                 terminal(
                     **common,  # type: ignore[arg-type]
                     update_id=OnlyBrokerUpdateId(f"binance-order:{venue.venue_order_id}:{venue.status.value}"),
+                    venue_order_id=venue.venue_order_id,
                 )
             )
         elif venue.status is OnlyOrderStatus.REJECTED:
@@ -104,6 +118,7 @@ class OnlyBinanceSpotVenueDiscovery:
                     **common,  # type: ignore[arg-type]
                     update_id=OnlyBrokerUpdateId(f"binance-order:{venue.venue_order_id}:rejected"),
                     rejection=OnlyOrderRejection("VENUE_REJECTED", "Binance rejected order"),
+                    venue_order_id=venue.venue_order_id,
                 )
             )
         return tuple(updates)

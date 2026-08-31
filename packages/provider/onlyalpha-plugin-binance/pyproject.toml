@@ -13,6 +13,9 @@ dependencies = [
 [project.entry-points."onlyalpha.data_sources"]
 binance = "onlyalpha_plugin_binance.spot.data_source.factory:factory"
 
+[project.entry-points."onlyalpha.brokers"]
+binance-spot = "onlyalpha_plugin_binance.spot.broker_factory:OnlyBinanceSpotBrokerFactory"
+
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"

@@ -280,17 +280,19 @@ def test_unknown_dispatch_crash_recovers_same_external_order_and_identity(
     recovered_manager.begin_submission_reconciliation(order.order_id)
     updates = coordinator.reconcile_unknown(recovered_order)
     assert updates == inbound.drain()
-    accepted = next(item for item in updates if isinstance(item, OnlyBrokerOrderAcceptedUpdate))
-    accepted_result = recovered_manager.apply_accepted(
-        accepted.order_id,
-        accepted.ts_init,
-        accepted.venue_order_id,
-        external_sequence=accepted.source_sequence,
-        external_event_id=str(accepted.update_id),
-        event_time=accepted.ts_event,
-    )
-    assert accepted_result.changed
-    receipts = [OnlyBrokerFactApplicationReceipt(accepted.update_id, OnlyBrokerFactApplicationStatus.APPLIED)]
+    accepted_updates = tuple(item for item in updates if isinstance(item, OnlyBrokerOrderAcceptedUpdate))
+    receipts = []
+    for accepted in accepted_updates:
+        accepted_result = recovered_manager.apply_accepted(
+            accepted.order_id,
+            accepted.ts_init,
+            accepted.venue_order_id,
+            external_sequence=accepted.source_sequence,
+            external_event_id=str(accepted.update_id),
+            event_time=accepted.ts_event,
+        )
+        assert accepted_result.changed
+        receipts.append(OnlyBrokerFactApplicationReceipt(accepted.update_id, OnlyBrokerFactApplicationStatus.APPLIED))
     for trade in (item for item in updates if isinstance(item, OnlyBrokerTradeUpdate)):
         trade_result = recovered_manager.apply_fill(trade.fill)
         assert trade_result.changed
@@ -309,6 +311,7 @@ def test_unknown_dispatch_crash_recovers_same_external_order_and_identity(
     assert converged.client_order_id == order.client_order_id
     assert str(converged.venue_order_id) == "9001"
     assert converged.status is (OnlyOrderStatus.FILLED if symbol == "BTCUSDT" else OnlyOrderStatus.ACCEPTED)
+    assert bool(accepted_updates) is (symbol == "ETHUSDT")
     assert rest.submit_count == 1
     assert rest.query_clients and set(rest.query_clients) == {only_binance_client_order_id(order.client_order_id)}
     assert recovered_gateway.connection_snapshot().state is OnlyBrokerConnectionState.READY

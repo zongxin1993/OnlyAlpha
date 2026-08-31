@@ -169,6 +169,39 @@ def test_known_provider_error_is_sanitized_and_transport_uncertainty_is_explicit
     assert "credentials" not in str(unknown.value) and "secret-value" not in str(unknown.value)
 
 
+@pytest.mark.parametrize(
+    ("status", "payload"),
+    (
+        (500, b'{"code":-1000,"msg":"internal"}'),
+        (503, b'{"code":-1000,"msg":"unavailable"}'),
+        (400, b'{"code":-1007,"msg":"timeout"}'),
+        (400, b'{"code":-1006,"msg":"unexpected"}'),
+    ),
+)
+def test_side_effecting_ambiguous_responses_are_execution_unknown(status: int, payload: bytes) -> None:
+    with pytest.raises(OnlyBinancePrivateRequestError) as caught:
+        _client(_Transport(OnlyBinanceHttpResponse(status, {}, payload))).request_json(
+            "POST",
+            "/api/v3/order",
+            {"symbol": "BTCUSDT"},
+            side_effecting=True,
+        )
+    assert caught.value.knowledge is OnlyBinanceDispatchKnowledge.UNKNOWN
+
+
+def test_side_effecting_definitive_request_rejection_is_known() -> None:
+    with pytest.raises(OnlyBinancePrivateRequestError) as caught:
+        _client(
+            _Transport(OnlyBinanceHttpResponse(400, {}, b'{"code":-1102,"msg":"mandatory parameter missing"}'))
+        ).request_json(
+            "POST",
+            "/api/v3/order",
+            {"symbol": "BTCUSDT"},
+            side_effecting=True,
+        )
+    assert caught.value.knowledge is OnlyBinanceDispatchKnowledge.KNOWN_RESULT
+
+
 def test_recorded_private_payloads_normalize_at_plugin_boundary() -> None:
     currencies = {
         "BTC": OnlyCurrency("BTC", 8, OnlyCurrencyType.CRYPTO),

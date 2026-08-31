@@ -107,6 +107,11 @@ class OnlyOrderTradeReducer:
             raise ValueError("Fill quantity precision disagrees with Order")
         if trade.quantity.value > before.remaining_quantity.value:
             raise ValueError("Fill exceeds Order remaining quantity")
+        if trade.fill.venue_order_id is not None and before.venue_order_id not in {
+            None,
+            trade.fill.venue_order_id,
+        }:
+            raise ValueError("Fill Venue Order identity conflicts with Order")
         new_filled_value = before.filled_quantity.value + trade.quantity.value
         new_remaining_value = before.quantity.value - new_filled_value
         if new_remaining_value == 0:
@@ -133,6 +138,7 @@ class OnlyOrderTradeReducer:
         )
         after = replace(
             before,
+            venue_order_id=trade.fill.venue_order_id or before.venue_order_id,
             status=status,
             filled_quantity=OnlyQuantity(new_filled_value, before.quantity.precision),
             remaining_quantity=OnlyQuantity(new_remaining_value, before.quantity.precision),

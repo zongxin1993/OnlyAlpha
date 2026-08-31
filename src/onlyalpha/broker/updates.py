@@ -49,16 +49,19 @@ class OnlyBrokerOrderAcceptedUpdate(OnlyBrokerInboundUpdate):
 class OnlyBrokerOrderRejectedUpdate(OnlyBrokerInboundUpdate):
     order_id: OnlyOrderId
     rejection: OnlyOrderRejection
+    venue_order_id: OnlyVenueOrderId | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyBrokerOrderCancelledUpdate(OnlyBrokerInboundUpdate):
     order_id: OnlyOrderId
+    venue_order_id: OnlyVenueOrderId | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyBrokerOrderExpiredUpdate(OnlyBrokerInboundUpdate):
     order_id: OnlyOrderId
+    venue_order_id: OnlyVenueOrderId | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

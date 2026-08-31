@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -29,9 +30,14 @@ class OnlyBrokerCommandEvidenceKind(StrEnum):
     RESOLVED = "RESOLVED"
 
 
+class OnlyBrokerCommandOperation(StrEnum):
+    SUBMIT = "SUBMIT"
+    CANCEL = "CANCEL"
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerCommandEvidence(OnlyDomainModel):
-    schema_version = 1
+    schema_version = 2
 
     evidence_id: str
     kind: OnlyBrokerCommandEvidenceKind
@@ -40,10 +46,22 @@ class OnlyBrokerCommandEvidence(OnlyDomainModel):
     venue_order_id: OnlyVenueOrderId | None
     occurred_at: OnlyTimestamp
     detail_code: str = ""
+    operation: OnlyBrokerCommandOperation = OnlyBrokerCommandOperation.SUBMIT
+    command_id: str = ""
+    request_payload: str = ""
+    request_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         if not self.evidence_id or any(character.isspace() for character in self.evidence_id):
             raise ValueError("BROKER_COMMAND_EVIDENCE_ID_INVALID")
+        if self.command_id and any(character.isspace() for character in self.command_id):
+            raise ValueError("BROKER_COMMAND_ID_INVALID")
+        if self.request_payload:
+            fingerprint = hashlib.sha256(self.request_payload.encode("utf-8")).hexdigest()
+            if self.request_fingerprint != fingerprint:
+                raise ValueError("BROKER_COMMAND_REQUEST_FINGERPRINT_INVALID")
+        elif self.request_fingerprint:
+            raise ValueError("BROKER_COMMAND_REQUEST_PAYLOAD_MISSING")
 
 
 class OnlyBrokerCommandEvidenceStore(Protocol):
@@ -92,18 +110,34 @@ class OnlyDurableBrokerCommandEvidenceStore:
                     "venue_order_id": None if evidence.venue_order_id is None else str(evidence.venue_order_id),
                     "occurred_at_unix_nanos": evidence.occurred_at.unix_nanos,
                     "detail_code": evidence.detail_code,
+                    "operation": evidence.operation.value,
+                    "command_id": evidence.command_id,
+                    "request_payload": evidence.request_payload,
+                    "request_fingerprint": evidence.request_fingerprint,
                 },
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
             + b"\n"
         )
+        created = not self._path.exists()
         descriptor = os.open(self._path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
         try:
-            os.write(descriptor, payload)
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("BROKER_COMMAND_EVIDENCE_SHORT_WRITE")
+                remaining = remaining[written:]
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+        if created:
+            directory = os.open(self._path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
 
     def load(self) -> tuple[OnlyBrokerCommandEvidence, ...]:
         if not self._path.exists():
@@ -112,6 +146,9 @@ class OnlyDurableBrokerCommandEvidenceStore:
         for line_number, line in enumerate(self._path.read_bytes().splitlines(), 1):
             try:
                 raw = json.loads(line)
+                schema_version = int(raw.get("schema_version", 1))
+                if schema_version not in {1, 2}:
+                    raise ValueError("BROKER_COMMAND_EVIDENCE_SCHEMA_UNSUPPORTED")
                 records.append(
                     OnlyBrokerCommandEvidence(
                         str(raw["evidence_id"]),
@@ -121,6 +158,10 @@ class OnlyDurableBrokerCommandEvidenceStore:
                         None if raw.get("venue_order_id") is None else OnlyVenueOrderId(str(raw["venue_order_id"])),
                         OnlyTimestamp.from_unix_nanos(int(raw["occurred_at_unix_nanos"])),
                         str(raw.get("detail_code", "")),
+                        OnlyBrokerCommandOperation(str(raw.get("operation", "SUBMIT"))),
+                        str(raw.get("command_id", "")),
+                        str(raw.get("request_payload", "")),
+                        str(raw.get("request_fingerprint", "")),
                     )
                 )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -136,6 +177,7 @@ class OnlyDurableBrokerCommandEvidenceStore:
         client_by_order: dict[OnlyOrderId, OnlyClientOrderId] = {}
         order_by_client: dict[OnlyClientOrderId, OnlyOrderId] = {}
         order_by_venue: dict[OnlyVenueOrderId, OnlyOrderId] = {}
+        payload_by_command: dict[tuple[OnlyBrokerCommandOperation, str], tuple[str, str]] = {}
         for item in records:
             if client_by_order.setdefault(item.order_id, item.client_order_id) != item.client_order_id:
                 raise ValueError("BROKER_COMMAND_EVIDENCE_ORDER_CLIENT_CONFLICT")
@@ -146,6 +188,14 @@ class OnlyDurableBrokerCommandEvidenceStore:
                 and order_by_venue.setdefault(item.venue_order_id, item.order_id) != item.order_id
             ):
                 raise ValueError("BROKER_COMMAND_EVIDENCE_VENUE_ORDER_CONFLICT")
+            command_id = item.command_id or f"SUBMIT:{item.order_id}"
+            command_key = item.operation, command_id
+            payload = item.request_payload, item.request_fingerprint
+            prior_payload = payload_by_command.get(command_key)
+            if prior_payload is None and item.request_payload:
+                payload_by_command[command_key] = payload
+            elif item.request_payload and prior_payload != payload:
+                raise ValueError("BROKER_COMMAND_EVIDENCE_REQUEST_CONFLICT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +240,7 @@ class OnlyBrokerReadinessAuthority:
         self._account = False
         self._discovery = False
         self._converged = False
-        self._unknown: set[OnlyOrderId] = set()
+        self._unknown: set[str] = set()
         self._identity_conflict = False
         self._stream = False
 
@@ -226,14 +276,16 @@ class OnlyBrokerReadinessAuthority:
             raise RuntimeError("BROKER_DISCOVERY_WITHOUT_ACCOUNT_SCOPE")
         self._discovery = True
 
-    def mark_unknown(self, order_id: OnlyOrderId) -> None:
-        self._unknown.add(order_id)
+    def mark_unknown(self, command_identity: OnlyOrderId | str) -> None:
+        identity = f"SUBMIT:{command_identity}" if isinstance(command_identity, OnlyOrderId) else str(command_identity)
+        self._unknown.add(identity)
         self._converged = False
 
-    def resolve_unknown(self, order_id: OnlyOrderId) -> None:
-        if order_id not in self._unknown:
+    def resolve_unknown(self, command_identity: OnlyOrderId | str) -> None:
+        identity = f"SUBMIT:{command_identity}" if isinstance(command_identity, OnlyOrderId) else str(command_identity)
+        if identity not in self._unknown:
             raise RuntimeError("BROKER_UNKNOWN_RESOLUTION_UNPROVEN")
-        self._unknown.remove(order_id)
+        self._unknown.remove(identity)
 
     def reconciliation_converged(self) -> None:
         if not self._discovery or self._unknown or self._identity_conflict:
@@ -286,12 +338,18 @@ class OnlyBrokerReconciliationCoordinator:
         self._evidence = evidence
         self._now = now
         self._sequence = len(evidence.load())
-        self._pending: dict[OnlyOrderId, tuple[OnlyBrokerInboundUpdate, ...]] = {}
+        self._pending: dict[tuple[OnlyOrderId, OnlyBrokerCommandOperation], tuple[OnlyBrokerInboundUpdate, ...]] = {}
 
-    def reconcile_unknown(self, order: OnlyOrderSnapshot) -> tuple[OnlyBrokerInboundUpdate, ...]:
-        if order.order_id in self._pending:
+    def reconcile_unknown(
+        self,
+        order: OnlyOrderSnapshot,
+        *,
+        operation: OnlyBrokerCommandOperation = OnlyBrokerCommandOperation.SUBMIT,
+    ) -> tuple[OnlyBrokerInboundUpdate, ...]:
+        key = order.order_id, operation
+        if key in self._pending:
             raise RuntimeError("BROKER_RECONCILIATION_FACTS_AWAITING_ACK")
-        self._append(OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED, order)
+        self._append(OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED, order, operation=operation)
         updates = self._discovery.discover_order(order)
         if not updates:
             return ()
@@ -300,41 +358,71 @@ class OnlyBrokerReconciliationCoordinator:
             if update_order_id != order.order_id:
                 self._readiness.identity_conflict()
                 raise ValueError("BROKER_RECONCILIATION_ORDER_IDENTITY_CONFLICT")
+            update_venue_order_id = getattr(update, "venue_order_id", None)
+            fill = getattr(update, "fill", None)
+            if update_venue_order_id is None and fill is not None:
+                update_venue_order_id = getattr(fill, "venue_order_id", None)
+            if (
+                order.venue_order_id is not None
+                and update_venue_order_id is not None
+                and update_venue_order_id != order.venue_order_id
+            ):
+                self._readiness.identity_conflict()
+                raise ValueError("BROKER_RECONCILIATION_VENUE_IDENTITY_CONFLICT")
             self._inbound.put(update)
-        self._pending[order.order_id] = updates
+        self._pending[key] = updates
         return updates
 
     def acknowledge_unknown(
         self,
         order: OnlyOrderSnapshot,
         receipts: tuple[OnlyBrokerFactApplicationReceipt, ...],
+        *,
+        operation: OnlyBrokerCommandOperation = OnlyBrokerCommandOperation.SUBMIT,
     ) -> None:
-        pending = self._pending.get(order.order_id)
+        key = order.order_id, operation
+        pending = self._pending.get(key)
         if pending is None:
             raise RuntimeError("BROKER_RECONCILIATION_ACK_WITHOUT_PENDING_FACTS")
         expected = tuple(update.update_id for update in pending)
         received = tuple(receipt.update_id for receipt in receipts)
         if len(set(received)) != len(received) or set(received) != set(expected):
             raise RuntimeError("BROKER_RECONCILIATION_ACK_SET_MISMATCH")
+        if any(
+            receipt.status not in {OnlyBrokerFactApplicationStatus.APPLIED, OnlyBrokerFactApplicationStatus.DUPLICATE}
+            for receipt in receipts
+        ):
+            raise RuntimeError("BROKER_RECONCILIATION_FACT_NOT_DURABLY_APPLIED")
         if not self._discovery.verify_order(order):
             raise RuntimeError("BROKER_RECONCILIATION_CONVERGENCE_UNPROVEN")
-        self._readiness.resolve_unknown(order.order_id)
+        self._readiness.resolve_unknown(f"{operation.value}:{order.order_id}")
         venue_order_id = next(
             (
                 value
-                for value in (getattr(update, "venue_order_id", None) for update in pending)
+                for update in pending
+                for value in (
+                    getattr(update, "venue_order_id", None),
+                    getattr(getattr(update, "fill", None), "venue_order_id", None),
+                )
                 if isinstance(value, OnlyVenueOrderId)
             ),
             None,
         )
-        self._append(OnlyBrokerCommandEvidenceKind.RESOLVED, order, venue_order_id)
-        del self._pending[order.order_id]
+        self._append(
+            OnlyBrokerCommandEvidenceKind.RESOLVED,
+            order,
+            venue_order_id,
+            operation=operation,
+        )
+        del self._pending[key]
 
     def _append(
         self,
         kind: OnlyBrokerCommandEvidenceKind,
         order: OnlyOrderSnapshot,
         venue_order_id: OnlyVenueOrderId | None = None,
+        *,
+        operation: OnlyBrokerCommandOperation = OnlyBrokerCommandOperation.SUBMIT,
     ) -> None:
         self._sequence += 1
         self._evidence.append(
@@ -345,6 +433,8 @@ class OnlyBrokerReconciliationCoordinator:
                 order.client_order_id,
                 venue_order_id,
                 self._now(),
+                operation=operation,
+                command_id=f"{operation.value}:{order.order_id}",
             )
         )
 

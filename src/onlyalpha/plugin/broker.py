@@ -10,6 +10,7 @@ from typing import Protocol
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
 from onlyalpha.broker.ports import OnlyBrokerGateway
+from onlyalpha.broker.reconciliation import OnlyBrokerCommandEvidenceStore
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.market import OnlyBar
@@ -33,6 +34,7 @@ class OnlyBrokerCreateRequest:
     account_id: OnlyAccountId
     initial_cash: OnlyMoney
     logger: Logger
+    command_evidence_store: OnlyBrokerCommandEvidenceStore | None = None
 
 
 class OnlyDeterministicBrokerDriver(Protocol):

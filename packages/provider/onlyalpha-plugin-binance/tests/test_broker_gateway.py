@@ -5,18 +5,21 @@ from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from onlyalpha_plugin_binance.common.private_http import (
     OnlyBinanceDispatchKnowledge,
     OnlyBinancePrivateRequestError,
 )
+from onlyalpha_plugin_binance.spot.broker.codec import only_binance_client_order_id
 from onlyalpha_plugin_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
 
 from onlyalpha.broker.enums import OnlyBrokerConnectionState, OnlyBrokerOperationStatus
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerRequestId
-from onlyalpha.broker.models import OnlyBrokerOrderRequest
+from onlyalpha.broker.models import OnlyBrokerCancelRequest, OnlyBrokerOrderRequest
 from onlyalpha.broker.reconciliation import (
     OnlyBrokerCommandEvidence,
     OnlyBrokerCommandEvidenceKind,
+    OnlyBrokerCommandOperation,
     OnlyBrokerReadinessAuthority,
     OnlyDurableBrokerCommandEvidenceStore,
 )
@@ -114,6 +117,40 @@ class _QueryRest:
         ).encode()
 
 
+class _FailingEvidenceStore:
+    def load(self):
+        return ()
+
+    def append(self, _evidence) -> None:
+        raise OSError("controlled durable commit failure")
+
+
+class _CancelRest:
+    def __init__(self, *, lose_cancel: bool = False) -> None:
+        self.submit_count = 0
+        self.cancel_count = 0
+        self.lose_cancel = lose_cancel
+
+    def submit_order(self, request) -> bytes:
+        self.submit_count += 1
+        return json.dumps(
+            {
+                "orderId": 1,
+                "clientOrderId": only_binance_client_order_id(request.client_order_id),
+            }
+        ).encode()
+
+    def cancel_order(self, _request, *, symbol: str) -> bytes:
+        assert symbol == "BTCUSDT"
+        self.cancel_count += 1
+        if self.lose_cancel:
+            raise OnlyBinancePrivateRequestError(
+                "BINANCE_PRIVATE_EXECUTION_UNKNOWN: controlled",
+                OnlyBinanceDispatchKnowledge.UNKNOWN,
+            )
+        return b'{"orderId":1,"status":"CANCELED"}'
+
+
 def _ready(readiness: OnlyBrokerReadinessAuthority) -> None:
     readiness.transport_connected()
     readiness.authenticated()
@@ -145,9 +182,13 @@ def test_gateway_unknown_is_durable_and_same_semantic_submit_never_dispatches_tw
     assert first.client_order_id == second.client_order_id == request.client_order_id
     assert rest.submit_count == 1
     assert [item.kind for item in store.load()] == [
+        OnlyBrokerCommandEvidenceKind.INTENT_DURABLE,
         OnlyBrokerCommandEvidenceKind.DISPATCHED,
         OnlyBrokerCommandEvidenceKind.UNKNOWN,
     ]
+    intent = store.load()[0]
+    assert intent.operation is OnlyBrokerCommandOperation.SUBMIT
+    assert OnlyBrokerOrderRequest.from_json(intent.request_payload) == request
     assert readiness.snapshot.unresolved_unknown_count == 1
     assert gateway.connection_snapshot().state is OnlyBrokerConnectionState.CONNECTED
 
@@ -283,3 +324,233 @@ def test_trade_and_fee_queries_prove_exact_order_identity_for_same_symbol(tmp_pa
         OnlyVenueOrderId("101"),
         OnlyVenueOrderId("202"),
     ]
+
+
+def test_durable_submit_intent_failure_prevents_external_dispatch() -> None:
+    rest = _LostRest()
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=OnlyAccountId("spot-testnet"),
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=_FailingEvidenceStore(),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+
+    with pytest.raises(OSError, match="durable commit failure"):
+        gateway.submit_order(_order("BTCUSDT"))
+    assert rest.submit_count == 0
+
+
+def test_crash_after_durable_intent_before_dispatch_recovers_exact_request(tmp_path: Path) -> None:
+    rest = _LostRest()
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    path = (tmp_path / "commands.jsonl").resolve()
+    request = _order("BTCUSDT")
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=request.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore(path),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+        before_dispatch=lambda _operation, _order_id: (_ for _ in ()).throw(RuntimeError("controlled crash")),
+    )
+    with pytest.raises(RuntimeError, match="controlled crash"):
+        gateway.submit_order(request)
+    assert rest.submit_count == 0
+    evidence = OnlyDurableBrokerCommandEvidenceStore(path).load()
+    assert [item.kind for item in evidence] == [OnlyBrokerCommandEvidenceKind.INTENT_DURABLE]
+    assert OnlyBrokerOrderRequest.from_json(evidence[0].request_payload) == request
+
+
+def test_crash_after_dispatch_marker_never_resubmits_same_semantic_order(tmp_path: Path) -> None:
+    class _CrashAfterDispatch:
+        def __init__(self) -> None:
+            self.submit_count = 0
+
+        def submit_order(self, _request) -> bytes:
+            self.submit_count += 1
+            raise RuntimeError("process crash before response handling")
+
+    rest = _CrashAfterDispatch()
+    path = (tmp_path / "commands.jsonl").resolve()
+    request = _order("BTCUSDT")
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=request.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore(path),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+    with pytest.raises(RuntimeError, match="process crash"):
+        gateway.submit_order(request)
+    recovered_readiness = OnlyBrokerReadinessAuthority()
+    _ready(recovered_readiness)
+    recovered = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=request.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=recovered_readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore(path),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(11),
+    )
+    assert recovered.submit_order(request).status is OnlyBrokerOperationStatus.UNKNOWN
+    assert rest.submit_count == 1
+    assert recovered_readiness.snapshot.unresolved_unknown_count == 1
+
+
+def test_cancel_uncertainty_is_durable_and_suppresses_second_cancel(tmp_path: Path) -> None:
+    rest = _CancelRest(lose_cancel=True)
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    store = OnlyDurableBrokerCommandEvidenceStore((tmp_path / "commands.jsonl").resolve())
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=OnlyAccountId("spot-testnet"),
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=store,
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+    order = _order("BTCUSDT")
+    assert gateway.submit_order(order).status is OnlyBrokerOperationStatus.RECEIVED
+    cancel = OnlyBrokerCancelRequest(
+        OnlyBrokerRequestId("cancel-BTCUSDT"),
+        order.account_id,
+        order.order_id,
+        OnlyVenueOrderId("1"),
+        OnlyTimestamp.from_unix_nanos(20),
+        order.client_order_id,
+    )
+    assert gateway.cancel_order(cancel).status is OnlyBrokerOperationStatus.UNKNOWN
+    assert gateway.cancel_order(cancel).status is OnlyBrokerOperationStatus.UNKNOWN
+    assert rest.cancel_count == 1
+    cancel_evidence = [item for item in store.load() if item.operation is OnlyBrokerCommandOperation.CANCEL]
+    assert [item.kind for item in cancel_evidence] == [
+        OnlyBrokerCommandEvidenceKind.INTENT_DURABLE,
+        OnlyBrokerCommandEvidenceKind.DISPATCHED,
+        OnlyBrokerCommandEvidenceKind.UNKNOWN,
+    ]
+    assert OnlyBrokerCancelRequest.from_json(cancel_evidence[0].request_payload) == cancel
+    recovered_readiness = OnlyBrokerReadinessAuthority()
+    _ready(recovered_readiness)
+    recovered = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=order.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=recovered_readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore((tmp_path / "commands.jsonl").resolve()),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(30),
+    )
+    assert recovered.cancel_order(cancel).status is OnlyBrokerOperationStatus.UNKNOWN
+    assert rest.cancel_count == 1
+    assert recovered_readiness.snapshot.unresolved_unknown_count == 1
+
+
+def test_durable_cancel_intent_failure_prevents_external_dispatch() -> None:
+    rest = _CancelRest()
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    order = _order("BTCUSDT")
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=order.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=_FailingEvidenceStore(),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+    gateway.restore_order_request(order)
+    with pytest.raises(OSError, match="durable commit failure"):
+        gateway.cancel_order(
+            OnlyBrokerCancelRequest(
+                OnlyBrokerRequestId("cancel-BTCUSDT"),
+                order.account_id,
+                order.order_id,
+                None,
+                OnlyTimestamp.from_unix_nanos(20),
+                order.client_order_id,
+            )
+        )
+    assert rest.cancel_count == 0
+
+
+def test_successful_submit_ack_binds_venue_identity_and_conflict_fails_closed(tmp_path: Path) -> None:
+    rest = _CancelRest()
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    request = _order("BTCUSDT")
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=request.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore((tmp_path / "commands.jsonl").resolve()),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+
+    assert gateway.submit_order(request).status is OnlyBrokerOperationStatus.RECEIVED
+    assert gateway.submit_order(request).status is OnlyBrokerOperationStatus.RECEIVED
+    assert rest.submit_count == 1
+    cancel = OnlyBrokerCancelRequest(
+        OnlyBrokerRequestId("cancel-BTCUSDT"),
+        request.account_id,
+        request.order_id,
+        OnlyVenueOrderId("1"),
+        OnlyTimestamp.from_unix_nanos(20),
+        request.client_order_id,
+    )
+    assert gateway.cancel_order(cancel).status is OnlyBrokerOperationStatus.RECEIVED
+    assert gateway.cancel_order(cancel).status is OnlyBrokerOperationStatus.RECEIVED
+    assert rest.cancel_count == 1
+    with pytest.raises(ValueError, match="VENUE_ORDER_IDENTITY_CONFLICT"):
+        gateway.resolve_order_identity(
+            only_binance_client_order_id(request.client_order_id),
+            "2",
+        )
+    assert readiness.snapshot.identity_conflict
+    assert readiness.snapshot.state is OnlyBrokerConnectionState.FAILED
+
+
+def test_semantically_malformed_submit_ack_is_unknown_and_never_reposts(tmp_path: Path) -> None:
+    class _MalformedAckRest:
+        def __init__(self) -> None:
+            self.submit_count = 0
+
+        def submit_order(self, _request) -> bytes:
+            self.submit_count += 1
+            return b"{}"
+
+    rest = _MalformedAckRest()
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    request = _order("BTCUSDT")
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=request.account_id,
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore((tmp_path / "commands.jsonl").resolve()),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+
+    assert gateway.submit_order(request).status is OnlyBrokerOperationStatus.UNKNOWN
+    assert gateway.submit_order(request).status is OnlyBrokerOperationStatus.UNKNOWN
+    assert rest.submit_count == 1
+    assert readiness.snapshot.unresolved_unknown_count == 1
