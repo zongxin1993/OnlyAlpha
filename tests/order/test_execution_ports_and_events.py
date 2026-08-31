@@ -13,12 +13,14 @@ from onlyalpha.order.execution.gateway import OnlyTradeGateway
 from onlyalpha.order.execution.models import (
     OnlyExecutionCancelResult,
     OnlyExecutionSubmissionOutcome,
+    OnlyExecutionSubmitResult,
     OnlyGatewayOrderAcceptedUpdate,
     OnlyGatewayOrderFillUpdate,
 )
 from onlyalpha.order.execution.placeholder import OnlyPlaceholderExecutionService, OnlyPlaceholderTradeGateway
 from onlyalpha.order.execution.processor import OnlyOrderUpdateProcessor
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
+from onlyalpha.order.intent import OnlyOrderIntentDurabilityResult, OnlyRuntimeIntentReference
 from onlyalpha.order.manager import OnlyOrderManager
 from onlyalpha.order.publisher import OnlyInMemoryOrderEventPublisher
 from onlyalpha.order.service import OnlyOrderService
@@ -117,6 +119,80 @@ class _ResponseLostExecution:
 
     def cancel_order(self, _request) -> OnlyExecutionCancelResult:
         return OnlyExecutionCancelResult(True, "recorded")
+
+
+class _DurableBoundaryExecution:
+    requires_durable_intent = True
+
+    def __init__(self) -> None:
+        self.submission_count = 0
+        self.reference = None
+
+    def record_runtime_intent(self, _order_id, reference) -> None:
+        self.reference = reference
+
+    def submit_order(self, _order) -> OnlyExecutionSubmitResult:
+        self.submission_count += 1
+        return OnlyExecutionSubmitResult(True, "known", OnlyExecutionSubmissionOutcome.KNOWN_RESULT)
+
+    def cancel_order(self, _request) -> OnlyExecutionCancelResult:
+        return OnlyExecutionCancelResult(True, "known")
+
+
+class _IntentDurability:
+    def __init__(self, ready: bool) -> None:
+        self.ready = ready
+
+    def begin(self, request, cluster_id, account_id, prepared_at):
+        return request, cluster_id, account_id, prepared_at
+
+    def commit(self, _token, _order) -> OnlyOrderIntentDurabilityResult:
+        return OnlyOrderIntentDurabilityResult(
+            self.ready,
+            OnlyRuntimeIntentReference("OINT-test", "0" * 64) if self.ready else None,
+            None if self.ready else "injected durable commit/projection failure",
+        )
+
+
+def test_real_execution_never_dispatches_until_runtime_intent_is_projection_ready(
+    order_manager, order_request, risk_service
+) -> None:
+    blocked_execution = _DurableBoundaryExecution()
+    blocked = OnlyOrderService(
+        order_manager,
+        blocked_execution,
+        OnlyInMemoryOrderEventPublisher(),
+        lambda: OnlyTimestamp.from_unix_nanos(1),
+        risk_service,
+        risk_service.make_evaluation_context,
+        fee_contract_factory=only_test_zero_fee_contract,
+        intent_durability=_IntentDurability(False),
+        intent_reference_sink=blocked_execution,
+    ).submit(order_request, OnlyClusterId("cluster-a"), OnlyAccountId("account"))
+    assert blocked.submission_outcome is OnlyExecutionSubmissionOutcome.NOT_DISPATCHED
+    assert blocked_execution.submission_count == 0
+
+    second_manager = OnlyOrderManager(
+        OnlyEngineId("engine"),
+        OnlyRuntimeId("runtime"),
+        OnlySequenceOrderIdGenerator(OnlyRuntimeId("runtime")),
+        OnlySequenceClientOrderIdGenerator(OnlyRuntimeId("runtime")),
+    )
+    ready_execution = _DurableBoundaryExecution()
+    ready = OnlyOrderService(
+        second_manager,
+        ready_execution,
+        OnlyInMemoryOrderEventPublisher(),
+        lambda: OnlyTimestamp.from_unix_nanos(1),
+        risk_service,
+        risk_service.make_evaluation_context,
+        fee_contract_factory=only_test_zero_fee_contract,
+        intent_durability=_IntentDurability(True),
+        intent_reference_sink=ready_execution,
+    ).submit(order_request, OnlyClusterId("cluster-a"), OnlyAccountId("account"))
+    assert ready.submission_outcome is OnlyExecutionSubmissionOutcome.KNOWN_RESULT
+    assert ready_execution.submission_count == 1
+    assert ready_execution.reference == OnlyRuntimeIntentReference("OINT-test", "0" * 64)
 
 
 def test_unknown_submit_is_orthogonal_durable_and_cannot_blindly_resubmit(

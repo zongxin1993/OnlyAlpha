@@ -54,6 +54,7 @@ from onlyalpha.transaction.projection import (
     OnlyOrderAcceptedExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
+    OnlyOrderIntentExecutionProjection,
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
@@ -96,6 +97,7 @@ from .execution_state import (
     only_strategy_cash_reservation_execution_state,
     only_strategy_ledger_execution_state,
 )
+from .order_intent_fact import OnlyCommittedOrderIntentFact
 from .terminal_fact import OnlyCommittedTerminalExecutionFact
 
 
@@ -317,6 +319,7 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
                 projection,
                 OnlyOrderAcceptedExecutionProjection
                 | OnlyOrderExecutionProjection
+                | OnlyOrderIntentExecutionProjection
                 | OnlyOrderTerminalExecutionProjection,
             )
             else None
@@ -327,15 +330,25 @@ class OnlyOrderExecutionProjectionTarget(_OnlyProjectionTargetBase):
             return prepared
         assert isinstance(
             projection,
-            OnlyOrderAcceptedExecutionProjection | OnlyOrderExecutionProjection | OnlyOrderTerminalExecutionProjection,
+            OnlyOrderAcceptedExecutionProjection
+            | OnlyOrderExecutionProjection
+            | OnlyOrderIntentExecutionProjection
+            | OnlyOrderTerminalExecutionProjection,
         )
         snapshot = _order_snapshot(projection.after)
         if not isinstance(
             context.fact,
-            OnlyCommittedOrderAcceptedFact | OnlyCommittedExecutionFact | OnlyCommittedTerminalExecutionFact,
+            OnlyCommittedOrderAcceptedFact
+            | OnlyCommittedExecutionFact
+            | OnlyCommittedOrderIntentFact
+            | OnlyCommittedTerminalExecutionFact,
         ):
             return self._result(OnlyProjectionApplyStatus.STATE_CONFLICT, context, current)
-        external_ids = frozenset({str(context.fact.broker_update_id)})
+        external_ids = (
+            frozenset()
+            if isinstance(context.fact, OnlyCommittedOrderIntentFact)
+            else frozenset({str(context.fact.broker_update_id)})
+        )
         trade_ids = (
             frozenset({str(context.fact.trade_id)})
             if isinstance(context.fact, OnlyCommittedExecutionFact)

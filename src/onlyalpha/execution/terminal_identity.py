@@ -13,6 +13,8 @@ from onlyalpha.broker.updates import (
 )
 from onlyalpha.domain.enums import OnlyOrderStatus
 
+ONLY_EXECUTION_TERMINAL_IDENTITY_SCHEMA_VERSION = 2
+
 type OnlyBrokerOrderTerminalUpdate = (
     OnlyBrokerOrderCancelledUpdate | OnlyBrokerOrderRejectedUpdate | OnlyBrokerOrderExpiredUpdate
 )
@@ -43,16 +45,36 @@ def only_capture_execution_terminal_authority(
     status = only_execution_terminal_status(update)
     identity_payload = "\x1f".join(
         (
+            str(ONLY_EXECUTION_TERMINAL_IDENTITY_SCHEMA_VERSION),
             str(update.runtime_id),
             str(update.gateway_id),
             str(update.account_id),
             str(update.order_id),
-            str(update.update_id),
+            "" if update.venue_order_id is None else str(update.venue_order_id),
             status.value,
         )
     )
     identity = f"ETERM-{hashlib.sha256(identity_payload.encode('utf-8')).hexdigest()}"
-    payload = json.dumps(update.to_dict(), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    reason = (
+        f"{update.rejection.code}:{update.rejection.message}"
+        if isinstance(update, OnlyBrokerOrderRejectedUpdate)
+        else ""
+    )
+    payload = json.dumps(
+        {
+            "schema_version": ONLY_EXECUTION_TERMINAL_IDENTITY_SCHEMA_VERSION,
+            "runtime_id": str(update.runtime_id),
+            "gateway_id": str(update.gateway_id),
+            "account_id": str(update.account_id),
+            "order_id": str(update.order_id),
+            "venue_order_id": None if update.venue_order_id is None else str(update.venue_order_id),
+            "terminal_status": status.value,
+            "terminal_reason": reason,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
     fingerprint = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return OnlyExecutionTerminalAuthority(identity, fingerprint, status)
 
@@ -68,6 +90,7 @@ def only_execution_terminal_status(update: OnlyBrokerOrderTerminalUpdate) -> Onl
 
 
 __all__ = [
+    "ONLY_EXECUTION_TERMINAL_IDENTITY_SCHEMA_VERSION",
     "OnlyBrokerOrderTerminalUpdate",
     "OnlyExecutionTerminalAuthority",
     "only_capture_execution_terminal_authority",

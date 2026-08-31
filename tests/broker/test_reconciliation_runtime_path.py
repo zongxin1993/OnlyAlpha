@@ -4,12 +4,15 @@ from decimal import Decimal
 from pathlib import Path
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
+from onlyalpha.broker.models import OnlyBrokerOrderSnapshot
 from onlyalpha.broker.reconciliation import (
     OnlyBrokerCommandEvidenceKind,
     OnlyBrokerCommandOperation,
     OnlyBrokerFactApplicationStatus,
     OnlyBrokerReadinessAuthority,
     OnlyBrokerReconciliationCoordinator,
+    OnlyBrokerVenueDiscoveryResult,
+    OnlyBrokerVenuePresence,
     OnlyDurableBrokerCommandEvidenceStore,
 )
 from onlyalpha.broker.updates import OnlyBrokerOrderCancelledUpdate, OnlyBrokerTradeUpdate
@@ -30,8 +33,38 @@ class _Discovery:
         self.update = update
         self.verified = verified
 
-    def discover_order(self, _order):
-        return (self.update,)
+    def discover_order(self, order, *, operation=OnlyBrokerCommandOperation.SUBMIT):
+        venue_order_id = getattr(self.update, "venue_order_id", None) or getattr(
+            getattr(self.update, "fill", None), "venue_order_id", None
+        )
+        snapshot = OnlyBrokerOrderSnapshot(
+            OnlyBrokerGatewayId("placeholder"),
+            order.account_id,
+            order.order_id,
+            order.client_order_id,
+            venue_order_id,
+            order.instrument_id,
+            order.side,
+            order.offset,
+            order.order_type,
+            order.quantity,
+            order.filled_quantity,
+            order.price,
+            order.status,
+            order.submitted_at or order.created_at,
+            order.updated_at,
+            1,
+        )
+        return OnlyBrokerVenueDiscoveryResult(
+            OnlyBrokerVenuePresence.PRESENT,
+            order.order_id,
+            operation,
+            (self.update,),
+            "proof",
+            "0" * 64,
+            order.updated_at,
+            snapshot,
+        )
 
     def verify_order(self, order):
         return self.verified(order)

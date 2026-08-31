@@ -41,7 +41,11 @@ def test_engine_a_b_c_restart_uses_committed_post_recovery_checkpoint_once(tmp_p
     assert recovered.runtime_results[0].trades == expected.runtime_results[0].trades
     assert recovered.runtime_results[0].facts.signals == expected.runtime_results[0].facts.signals
     recovered_manifests = tuple(
-        path for path in tmp_path.rglob("artifact_manifest.json") if not path.is_relative_to(tmp_path / "baseline")
+        path
+        for path in tmp_path.rglob("artifact_manifest.json")
+        if not path.is_relative_to(tmp_path / "baseline")
+        and json.loads(path.read_text(encoding="utf-8")).get("result_fingerprint")
+        == recovered.runtime_results[0].result_fingerprint
     )
     baseline_manifests = tuple((tmp_path / "baseline").rglob("artifact_manifest.json"))
     assert len(recovered_manifests) == len(baseline_manifests) == 1

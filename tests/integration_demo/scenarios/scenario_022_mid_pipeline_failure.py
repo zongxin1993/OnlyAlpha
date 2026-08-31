@@ -35,12 +35,13 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert "STRATEGY_TRADE_APPLIED" not in event_types
     committed = failed.runtime.execution_transaction_query.records(failed.runtime.config.runtime_id)
     assert tuple(item.operation_kind for item in committed) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
     )
-    assert committed[0].projection_ready
-    assert not committed[1].projection_ready
-    assert failed.runtime.ready_execution_query.ready_records(failed.runtime.config.runtime_id) == (committed[0],)
+    assert committed[0].projection_ready and committed[1].projection_ready
+    assert not committed[2].projection_ready
+    assert failed.runtime.ready_execution_query.ready_records(failed.runtime.config.runtime_id) == committed[:2]
     assert failed.runtime.execution_reconciliation_queue.requests() == (result.reconciliation_request,)
     return env.report_builder.scenario(
         "022",

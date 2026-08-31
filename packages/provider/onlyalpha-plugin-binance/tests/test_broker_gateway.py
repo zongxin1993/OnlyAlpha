@@ -55,6 +55,8 @@ def _order(symbol: str) -> OnlyBrokerOrderRequest:
         OnlyQuantity(Decimal("0.01000000"), 8),
         OnlyPrice(Decimal("25000.10"), 2),
         OnlyTimestamp.from_unix_nanos(1_000_000_000),
+        f"OINT-{symbol}",
+        "a" * 64,
     )
 
 
@@ -175,7 +177,11 @@ def test_gateway_unknown_is_durable_and_same_semantic_submit_never_dispatches_tw
         currencies={"USDT": OnlyCurrency("USDT", 8, OnlyCurrencyType.CRYPTO)},
         now=lambda: OnlyTimestamp.from_unix_nanos(10),
     )
-    request = _order("BTCUSDT")
+    request = replace(
+        _order("BTCUSDT"),
+        runtime_intent_transaction_id="OINT-runtime-order",
+        runtime_intent_authority_hash="a" * 64,
+    )
     first = gateway.submit_order(request)
     second = gateway.submit_order(request)
     assert first.status is second.status is OnlyBrokerOperationStatus.UNKNOWN
@@ -188,9 +194,34 @@ def test_gateway_unknown_is_durable_and_same_semantic_submit_never_dispatches_tw
     ]
     intent = store.load()[0]
     assert intent.operation is OnlyBrokerCommandOperation.SUBMIT
+    assert intent.runtime_intent_transaction_id == request.runtime_intent_transaction_id
+    assert intent.runtime_intent_authority_hash == request.runtime_intent_authority_hash
     assert OnlyBrokerOrderRequest.from_json(intent.request_payload) == request
     assert readiness.snapshot.unresolved_unknown_count == 1
     assert gateway.connection_snapshot().state is OnlyBrokerConnectionState.CONNECTED
+
+
+def test_gateway_rejects_submit_without_runtime_intent_reference_before_transport(tmp_path: Path) -> None:
+    rest = _LostRest()
+    readiness = OnlyBrokerReadinessAuthority()
+    _ready(readiness)
+    gateway = OnlyBinanceSpotBrokerGateway(
+        gateway_id=OnlyBrokerGatewayId("binance-testnet"),
+        account_id=OnlyAccountId("spot-testnet"),
+        rest=rest,  # type: ignore[arg-type]
+        readiness=readiness,
+        evidence=OnlyDurableBrokerCommandEvidenceStore((tmp_path / "commands.jsonl").resolve()),
+        currencies={},
+        now=lambda: OnlyTimestamp.from_unix_nanos(10),
+    )
+
+    result = gateway.submit_order(
+        replace(_order("BTCUSDT"), runtime_intent_transaction_id="", runtime_intent_authority_hash="")
+    )
+
+    assert result.status is OnlyBrokerOperationStatus.NOT_READY
+    assert result.immediate_error == "RUNTIME_ORDER_INTENT_REFERENCE_MISSING"
+    assert rest.submit_count == 0
 
 
 def test_gateway_restart_restores_correlation_without_resubmit(tmp_path: Path) -> None:

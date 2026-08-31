@@ -89,7 +89,12 @@ from onlyalpha.event.subscription_view import OnlyEventBusSubscriptionView
 from onlyalpha.execution.accepted_identity import only_capture_execution_order_accepted_authority
 from onlyalpha.execution.accepted_planner import OnlyOrderAcceptedExecutionTransactionPlanner
 from onlyalpha.execution.capability import OnlyExecutionSupportDecision
-from onlyalpha.execution.causal_recovery import OnlyExecutionRecoverySession
+from onlyalpha.execution.causal_recovery import (
+    OnlyExecutionRecoveryEntry,
+    OnlyExecutionRecoveryEntryState,
+    OnlyExecutionRecoveryResolution,
+    OnlyExecutionRecoverySession,
+)
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
 from onlyalpha.execution.enums import OnlyExecutionProcessingStatus
 from onlyalpha.execution.event_buffer import OnlyExecutionEventBuffer
@@ -110,6 +115,7 @@ from onlyalpha.execution.execution_state import (
 from onlyalpha.execution.fill_identity import only_capture_execution_fill_authority
 from onlyalpha.execution.invariants import OnlyExecutionInvariantChecker
 from onlyalpha.execution.models import OnlyExecutionProcessingResult, OnlyExecutionProcessorConfig
+from onlyalpha.execution.order_intent_durability import OnlyRuntimeOrderIntentDurabilityService
 from onlyalpha.execution.planning_context import (
     OnlyAllocationCreationAuthority,
     OnlyOrderAcceptedExecutionPlanningContext,
@@ -275,6 +281,7 @@ from onlyalpha.strategy_ledger.views import OnlyStrategyLedgerContextView, OnlyS
 from onlyalpha.transaction.applied_projection import OnlyInMemoryAppliedRuntimeProjectionLedger
 from onlyalpha.transaction.coordinator import (
     OnlyRuntimeTransactionCoordinationResult,
+    OnlyRuntimeTransactionCoordinationStatus,
     OnlyRuntimeTransactionCoordinator,
 )
 from onlyalpha.transaction.delivery import (
@@ -284,11 +291,13 @@ from onlyalpha.transaction.delivery import (
     OnlyExecutionOutboxPublisher,
     OnlyRoutedDirectExecutionPublisher,
 )
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.projection import (
     OnlyValuationExecutionState,
 )
 from onlyalpha.transaction.projection_applier import OnlyRuntimeProjectionApplier
 from onlyalpha.transaction.recovery import OnlyExecutionRecoveryService
+from onlyalpha.transaction.transaction import OnlyCommittedRuntimeTransaction
 
 
 class OnlyBacktestRunPlanPort(Protocol):
@@ -535,6 +544,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             OnlySequenceOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
             OnlySequenceClientOrderIdGenerator(runtime_config.runtime_id),  # type: ignore[arg-type]
         )
+        self._order_manager = order_manager
         order_publisher = OnlyRuntimeOrderEventPublisherAdapter(event_router)
         order_query = OnlyOrderQueryService(order_manager)
         position_manager = self._position_manager
@@ -656,19 +666,6 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             estimate = fee_resolver.estimate_order(order, binding, price, timestamp)
             return binding, estimate, fee_resolver.funding_plan(order, binding, estimate, price)
 
-        order_service = OnlyOrderService(
-            order_manager,
-            selected_execution_service,
-            order_publisher,
-            lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
-            risk_service,
-            risk_service.make_evaluation_context,
-            order_position_reservations,
-            order_cash_reservations,
-            order_margin_reservations,
-            fee_contract,
-            self._fee_reconciliation_risk_gate,
-        )
         order_update_processor = OnlyOrderUpdateProcessor(
             runtime_config.runtime_id,  # type: ignore[arg-type]
             order_manager,
@@ -716,6 +713,40 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
         )
         self._runtime_transaction_coordinator = execution_commit_coordinator
+        order_intent_durability = (
+            OnlyRuntimeOrderIntentDurabilityService(
+                accounts=self._account_manager,
+                ledgers=self._strategy_ledger_manager,
+                ledger_locator=self._strategy_ledger_locator,
+                strategy_currency=runtime_config.strategy_base_currency,
+                positions=position_manager,
+                allocations=allocation_manager,
+                position_reservations=position_reservations,
+                margins=self._margin_manager,
+                risk=risk_service,
+                coordinator=execution_commit_coordinator,
+                now=lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+                on_ready=self._record_order_intent_recovery_continuation,
+                recovery_session=self._active_execution_recovery_session,
+            )
+            if isinstance(selected_execution_service, OnlyBrokerExecutionService)
+            else None
+        )
+        order_service = OnlyOrderService(
+            order_manager,
+            selected_execution_service,
+            order_publisher,
+            lambda: OnlyTimestamp.from_unix_nanos(clock.timestamp_ns()),
+            risk_service,
+            risk_service.make_evaluation_context,
+            order_position_reservations,
+            order_cash_reservations,
+            order_margin_reservations,
+            fee_contract,
+            self._fee_reconciliation_risk_gate,
+            order_intent_durability,
+            selected_execution_service if isinstance(selected_execution_service, OnlyBrokerExecutionService) else None,
+        )
         self._trading_day_boundary_coordinator = OnlyRuntimeTradingDayBoundaryCoordinator(
             settlement_authority=self._settlement_authority,
             position_manager=position_manager,
@@ -1286,6 +1317,7 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
             checkpoint_query=runtime_persistence_store,
             transaction_query=runtime_persistence_store,
             causal_replay=recovery_replay.run,
+            resolve_autonomous_entry=self._resolve_autonomous_execution_entry,
         )
         self._runtime_recovery_diagnostics: list[OnlyRuntimeRecoveryDiagnostic] = []
         self._post_recovery_validation_reports: list[OnlyPostRecoveryValidationReport] = []
@@ -1324,6 +1356,46 @@ class OnlyTradingRuntimeFacade(OnlyRuntime):
     @property
     def post_recovery_validation_reports(self) -> tuple[OnlyPostRecoveryValidationReport, ...]:
         return tuple(self._post_recovery_validation_reports)
+
+    def _resolve_autonomous_execution_entry(
+        self, entry: OnlyExecutionRecoveryEntry
+    ) -> OnlyExecutionRecoveryResolution | None:
+        committed = entry.stored.committed
+        if committed.operation_kind is not OnlyRuntimeOperationKind.ORDER_INTENT:
+            raise ValueError("RECOVERY_TRANSACTION_IS_NOT_AUTONOMOUS")
+        order_id = getattr(committed.fact, "order_id", None)
+        if order_id is None or self._order_manager.get_snapshot(order_id) is None:
+            return None
+        timestamp = committed.projected_at or committed.committed_at
+        result = (
+            self._runtime_transaction_coordinator.rehydrate_existing(committed, projected_at=timestamp)
+            if entry.state is OnlyExecutionRecoveryEntryState.READY
+            else self._runtime_transaction_coordinator.recover_existing(committed, projected_at=timestamp)
+        )
+        if result.status not in {
+            OnlyRuntimeTransactionCoordinationStatus.COMMITTED_AND_PROJECTED,
+            OnlyRuntimeTransactionCoordinationStatus.ALREADY_READY,
+        }:
+            raise RuntimeError(result.error or "ORDER_INTENT_RECOVERY_FAILED")
+        return (
+            OnlyExecutionRecoveryResolution.READY_REHYDRATED
+            if entry.state is OnlyExecutionRecoveryEntryState.READY
+            else OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
+        )
+
+    def _record_order_intent_recovery_continuation(self, transaction: object) -> None:
+        session = self._backtest_recovery_session
+        if session is None:
+            return
+        if not isinstance(transaction, OnlyCommittedRuntimeTransaction):
+            raise TypeError("ORDER_INTENT_RECOVERY_CONTINUATION_INVALID")
+        session.execution_session.record_autonomous_continuation(transaction)
+
+    def _active_execution_recovery_session(self) -> OnlyExecutionRecoverySession | None:
+        backtest = self._backtest_recovery_session
+        if backtest is not None:
+            return backtest.execution_session
+        return self._execution_recovery_session
 
     def _recover_runtime(self) -> None:
         if not self._persistence_config.checkpoint.enabled:

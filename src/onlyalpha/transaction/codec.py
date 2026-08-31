@@ -16,6 +16,7 @@ from onlyalpha.execution.accepted_fact import (
     OnlyCommittedOrderAcceptedFactDraft,
 )
 from onlyalpha.execution.committed import OnlyCommittedExecutionFact
+from onlyalpha.execution.order_intent_fact import OnlyCommittedOrderIntentFact, OnlyOrderIntentFactDraft
 from onlyalpha.execution.terminal_fact import (
     OnlyCommittedTerminalExecutionFact,
     OnlyCommittedTerminalExecutionFactDraft,
@@ -37,6 +38,7 @@ from onlyalpha.transaction.projection import (
     OnlyOrderAcceptedExecutionProjection,
     OnlyOrderExecutionProjection,
     OnlyOrderFeeAccrualProjection,
+    OnlyOrderIntentExecutionProjection,
     OnlyOrderTerminalExecutionProjection,
     OnlyPositionExecutionProjection,
     OnlyPositionReservationExecutionProjection,
@@ -61,6 +63,7 @@ _PROJECTION_TYPES = {
     projection_type.__name__: projection_type
     for projection_type in (
         OnlyOrderAcceptedExecutionProjection,
+        OnlyOrderIntentExecutionProjection,
         OnlyOrderExecutionProjection,
         OnlyOrderTerminalExecutionProjection,
         OnlyPositionExecutionProjection,
@@ -234,7 +237,9 @@ def only_decode_prepared_execution_transaction(payload: str) -> OnlyPreparedRunt
         effective_time=OnlyTimestamp.from_unix_nanos(int(str(value["effective_time_ns"]))),
         prepared_at=OnlyTimestamp.from_unix_nanos(int(str(value["prepared_at_ns"]))),
         fact_draft=(
-            OnlyCommittedOrderAcceptedFactDraft.from_dict(fact_payload)
+            OnlyOrderIntentFactDraft.from_dict(fact_payload)
+            if operation_kind is OnlyRuntimeOperationKind.ORDER_INTENT
+            else OnlyCommittedOrderAcceptedFactDraft.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
             else OnlyCommittedExecutionFactDraft.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
@@ -306,7 +311,9 @@ def only_decode_committed_execution_transaction(payload: str) -> OnlyCommittedRu
         account_id=None if value.get("account_id") is None else OnlyAccountId(str(value["account_id"])),
         effective_time=OnlyTimestamp.from_unix_nanos(int(str(value["effective_time_ns"]))),
         fact=(
-            OnlyCommittedOrderAcceptedFact.from_dict(fact_payload)
+            OnlyCommittedOrderIntentFact.from_dict(fact_payload)
+            if operation_kind is OnlyRuntimeOperationKind.ORDER_INTENT
+            else OnlyCommittedOrderAcceptedFact.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
             else OnlyCommittedExecutionFact.from_dict(fact_payload)
             if operation_kind is OnlyRuntimeOperationKind.TRADE_FILL

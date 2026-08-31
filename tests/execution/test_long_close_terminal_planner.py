@@ -84,7 +84,7 @@ def test_partial_long_close_terminal_is_one_durable_transaction(
         update.runtime_id,
         update.order_id,
     )
-    assert len(transactions) == 3
+    assert len(transactions) == 4
     committed = transactions[-1]
     assert committed.operation_kind is OnlyRuntimeOperationKind.ORDER_TERMINAL
     assert not hasattr(committed.fact, "trade_id")
@@ -124,20 +124,18 @@ def test_partial_long_close_terminal_is_one_durable_transaction(
     assert risk_reservation.state is OnlyRiskReservationState.RELEASED
 
 
-def test_terminal_identity_duplicate_and_payload_conflict_are_fail_closed() -> None:
+def test_terminal_identity_ignores_observation_metadata_across_channels() -> None:
     environment, _, update = _terminal_update("CANCELLED")
     authority = only_capture_execution_terminal_authority(update)
 
     first = environment.runtime.execution_processor.process(update)
     duplicate = environment.runtime.execution_processor.process(update)
-    conflict_update = replace(update, metadata={"reason": "different-payload"})
-    conflict_authority = only_capture_execution_terminal_authority(conflict_update)
-    conflict = environment.runtime.execution_processor.process(conflict_update)
+    rest_observation = replace(update, metadata={"observation": "rest"})
+    rest_authority = only_capture_execution_terminal_authority(rest_observation)
+    rest_result = environment.runtime.execution_processor.process(rest_observation)
 
     assert first.status is OnlyExecutionProcessingStatus.APPLIED
     assert duplicate.status is OnlyExecutionProcessingStatus.DUPLICATE
-    assert conflict_authority.terminal_identity == authority.terminal_identity
-    assert conflict_authority.payload_fingerprint != authority.payload_fingerprint
-    assert conflict.status is OnlyExecutionProcessingStatus.REJECTED
-    assert conflict.failure is not None
-    assert "TERMINAL_IDENTITY_CONFLICT" in conflict.failure.message
+    assert rest_authority == authority
+    assert rest_result.status is OnlyExecutionProcessingStatus.DUPLICATE
+    assert rest_result.failure is None

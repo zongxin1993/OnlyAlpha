@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.execution.causal_recovery import (
+    OnlyExecutionRecoveryEntry,
     OnlyExecutionRecoveryPlanBuilder,
+    OnlyExecutionRecoveryResolution,
     OnlyExecutionRecoverySession,
 )
 from onlyalpha.runtime.checkpoint.codec import only_validate_runtime_checkpoint
@@ -71,6 +73,8 @@ class OnlyRuntimeRecoveryOrchestrator:
             [OnlyRuntimeCheckpoint, OnlyExecutionRecoverySession],
             OnlyRuntimeRecoveryDriverResult,
         ],
+        resolve_autonomous_entry: Callable[[OnlyExecutionRecoveryEntry], OnlyExecutionRecoveryResolution | None]
+        | None = None,
     ) -> None:
         self._runtime_id = runtime_id
         self._config_fingerprint = config_fingerprint
@@ -79,11 +83,13 @@ class OnlyRuntimeRecoveryOrchestrator:
         self._checkpoint_query = checkpoint_query
         self._plan_builder = OnlyExecutionRecoveryPlanBuilder(transaction_query)
         self._causal_replay = causal_replay
+        self._resolve_autonomous_entry = resolve_autonomous_entry
 
     def recover(self) -> OnlyRuntimeRecoveryOutcome | None:
         bootstrap = self.bootstrap()
         if bootstrap is None:
             return None
+        bootstrap.execution_session.resolve_autonomous()
         replay_result = (
             self._causal_replay(bootstrap.checkpoint, bootstrap.execution_session)
             if bootstrap.execution_session.next_entry is not None
@@ -113,7 +119,7 @@ class OnlyRuntimeRecoveryOrchestrator:
             checkpoint_sequence=checkpoint.header.checkpoint_sequence,
             covered_execution_sequence=checkpoint.header.covered_execution_sequence,
         )
-        session = OnlyExecutionRecoverySession(plan)
+        session = OnlyExecutionRecoverySession(plan, self._resolve_autonomous_entry)
         ready_count = sum(item.state.value == "READY" for item in plan.entries)
         return OnlyRuntimeRecoveryBootstrap(
             checkpoint,

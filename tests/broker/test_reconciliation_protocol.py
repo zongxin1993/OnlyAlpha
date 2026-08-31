@@ -9,13 +9,17 @@ import pytest
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerUpdateId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
+from onlyalpha.broker.models import OnlyBrokerOrderSnapshot
 from onlyalpha.broker.reconciliation import (
     OnlyBrokerCommandEvidence,
     OnlyBrokerCommandEvidenceKind,
+    OnlyBrokerCommandOperation,
     OnlyBrokerFactApplicationReceipt,
     OnlyBrokerFactApplicationStatus,
     OnlyBrokerReadinessAuthority,
     OnlyBrokerReconciliationCoordinator,
+    OnlyBrokerVenueDiscoveryResult,
+    OnlyBrokerVenuePresence,
     OnlyDurableBrokerCommandEvidenceStore,
 )
 from onlyalpha.broker.updates import OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
@@ -167,18 +171,130 @@ def test_readiness_requires_every_barrier_and_revokes_on_stream_loss() -> None:
 
 
 class _Discovery:
-    def __init__(self, updates, *, verified: bool = True) -> None:
+    def __init__(
+        self,
+        updates,
+        *,
+        verified: bool = True,
+        presence: OnlyBrokerVenuePresence = OnlyBrokerVenuePresence.PRESENT,
+    ) -> None:
         self.updates = updates
         self.client_ids = []
         self.verified = verified
+        self.presence = presence
 
-    def discover_order(self, order):
+    def discover_order(self, order, *, operation=OnlyBrokerCommandOperation.SUBMIT):
         self.client_ids.append(order.client_order_id)
-        return self.updates
+        venue_order_id = next(
+            (
+                value
+                for update in self.updates
+                for value in (
+                    getattr(update, "venue_order_id", None),
+                    getattr(getattr(update, "fill", None), "venue_order_id", None),
+                )
+                if value is not None
+            ),
+            OnlyVenueOrderId("venue-proof"),
+        )
+        snapshot = OnlyBrokerOrderSnapshot(
+            OnlyBrokerGatewayId("fake-venue"),
+            order.account_id,
+            order.order_id,
+            order.client_order_id,
+            venue_order_id,
+            order.instrument_id,
+            order.side,
+            order.offset,
+            order.order_type,
+            order.quantity,
+            order.filled_quantity,
+            order.price,
+            order.status,
+            order.submitted_at or order.created_at,
+            order.updated_at,
+            1,
+        )
+        return OnlyBrokerVenueDiscoveryResult(
+            self.presence,
+            order.order_id,
+            operation,
+            self.updates if self.presence is OnlyBrokerVenuePresence.PRESENT else (),
+            "proof",
+            "0" * 64,
+            order.updated_at,
+            snapshot if self.presence is OnlyBrokerVenuePresence.PRESENT else None,
+        )
 
     def verify_order(self, order):
         del order
         return self.verified
+
+
+@pytest.mark.parametrize("verified, expected_unknown", ((True, 0), (False, 1)))
+def test_zero_delta_reconciliation_only_resolves_after_authoritative_verification(
+    tmp_path: Path, verified: bool, expected_unknown: int
+) -> None:
+    manager, created = _created()
+    order = manager.require_snapshot(created.order_id)
+    readiness = OnlyBrokerReadinessAuthority()
+    readiness.mark_unknown(order.order_id)
+    store = OnlyDurableBrokerCommandEvidenceStore((tmp_path / f"zero-{verified}.jsonl").resolve())
+    coordinator = OnlyBrokerReconciliationCoordinator(
+        _Discovery((), verified=verified),
+        OnlyBoundedBrokerInboundQueue(4),
+        readiness,
+        store,
+        lambda: OnlyTimestamp.from_unix_nanos(5),
+    )
+
+    assert coordinator.reconcile_unknown(order) == ()
+    assert readiness.snapshot.unresolved_unknown_count == expected_unknown
+    assert [item.kind for item in store.load()] == (
+        [OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED, OnlyBrokerCommandEvidenceKind.RESOLVED]
+        if verified
+        else [OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED]
+    )
+
+
+@pytest.mark.parametrize(
+    "presence, expected_unknown, expected_kinds",
+    (
+        (
+            OnlyBrokerVenuePresence.ABSENT_PROVEN,
+            0,
+            (
+                OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED,
+                OnlyBrokerCommandEvidenceKind.NO_EXTERNAL_ORDER_PROVEN,
+                OnlyBrokerCommandEvidenceKind.RESOLVED,
+            ),
+        ),
+        (
+            OnlyBrokerVenuePresence.INCONCLUSIVE,
+            1,
+            (OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED,),
+        ),
+    ),
+)
+def test_submit_negative_proof_resolves_but_inconclusive_evidence_does_not(
+    tmp_path: Path, presence, expected_unknown: int, expected_kinds
+) -> None:
+    manager, created = _created()
+    order = manager.require_snapshot(created.order_id)
+    readiness = OnlyBrokerReadinessAuthority()
+    readiness.mark_unknown(order.order_id)
+    store = OnlyDurableBrokerCommandEvidenceStore((tmp_path / f"negative-{presence.value}.jsonl").resolve())
+    coordinator = OnlyBrokerReconciliationCoordinator(
+        _Discovery((), presence=presence),
+        OnlyBoundedBrokerInboundQueue(4),
+        readiness,
+        store,
+        lambda: OnlyTimestamp.from_unix_nanos(5),
+    )
+
+    assert coordinator.reconcile_unknown(order) == ()
+    assert readiness.snapshot.unresolved_unknown_count == expected_unknown
+    assert tuple(item.kind for item in store.load()) == expected_kinds
 
 
 def test_unknown_reconciliation_reuses_client_identity_and_appends_missing_facts(

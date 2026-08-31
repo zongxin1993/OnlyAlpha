@@ -60,6 +60,14 @@ class OnlyBrokerOrderRequest(OnlyDomainModel):
     quantity: OnlyQuantity
     price: OnlyPrice | None
     submitted_at: OnlyTimestamp
+    runtime_intent_transaction_id: str = ""
+    runtime_intent_authority_hash: str = ""
+
+    def __post_init__(self) -> None:
+        if bool(self.runtime_intent_transaction_id) != bool(self.runtime_intent_authority_hash):
+            raise ValueError("BROKER_ORDER_INTENT_REFERENCE_INCOMPLETE")
+        if self.runtime_intent_authority_hash and len(self.runtime_intent_authority_hash) != 64:
+            raise ValueError("BROKER_ORDER_INTENT_AUTHORITY_HASH_INVALID")
 
 
 @dataclass(frozen=True, slots=True)

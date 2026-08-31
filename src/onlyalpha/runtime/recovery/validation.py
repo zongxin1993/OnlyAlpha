@@ -24,6 +24,7 @@ from onlyalpha.risk.reservations import OnlyRiskReservation
 from onlyalpha.settlement.models import OnlySettlementInstructionSnapshot
 from onlyalpha.strategy_ledger.models import OnlyStrategyCashReservation, OnlyStrategyLedgerSnapshot
 from onlyalpha.transaction.applied_projection import OnlyAppliedRuntimeProjectionLedger
+from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.persistence_ports import (
     OnlyProjectionReadyRuntimeQueryPort,
     OnlyRuntimeTransactionOutboxPort,
@@ -238,6 +239,12 @@ class OnlyOutboxAuthorityCheck:
             )
         continuation_rows = tuple(item for item in outbox if item.key.execution_sequence in continuation)
         present = {item.key.execution_sequence for item in continuation_rows}
+        outbox_required_continuation = {
+            sequence
+            for sequence in continuation
+            if sequence in by_sequence
+            and by_sequence[sequence].operation_kind is not OnlyRuntimeOperationKind.ORDER_INTENT
+        }
         return (
             _check(
                 "POST_RECOVERY_OUTBOX_ORPHAN",
@@ -282,8 +289,8 @@ class OnlyOutboxAuthorityCheck:
             _check(
                 "POST_RECOVERY_CONTINUATION_OUTBOX_MISSING",
                 "continuation",
-                present == continuation,
-                tuple(sorted(continuation)),
+                present == outbox_required_continuation,
+                tuple(sorted(outbox_required_continuation)),
                 tuple(sorted(present)),
                 "every continuation transaction needs durable outbox",
             ),

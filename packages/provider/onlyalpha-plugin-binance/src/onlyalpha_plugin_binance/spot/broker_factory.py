@@ -324,6 +324,7 @@ class OnlyBinanceSpotBrokerFactory:
             rest=rest,
             gateway=gateway,
             now=now,
+            stable_venue_history=config.environment is OnlyBinanceEnvironment.LIVE,
         )
         reconciliation = OnlyBrokerReconciliationCoordinator(
             discovery,

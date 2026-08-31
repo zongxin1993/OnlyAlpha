@@ -67,7 +67,7 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     assert engine_a.run().status == "FAILED"
     failed_runtime = engine_a.runtime_sessions[0].runtime
     assert failed_runtime.historical_replay_service.events
-    assert failed_runtime.historical_replay_service.events[-1].result.status.value == "APPLIED"
+    assert failed_runtime.historical_replay_service.events[-1].result.status.value == "FAILED"
     assert failed_runtime.result_progress.snapshot().processed_bar_count > 0
     assert config.end_time is not None
     assert failed_runtime.historical_replay_service.events[-1].update.ts_event.to_datetime() < config.end_time
@@ -75,14 +75,16 @@ def test_engine_recovers_ready_prefix_and_unprojected_suffix_then_continues(tmp_
     path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(path)
     tail = reader.records(runtime_id)
-    assert tuple(item.execution_sequence for item in tail) == (1, 2, 3, 4)
+    assert tuple(item.execution_sequence for item in tail) == (1, 2, 3, 4, 5, 6)
     assert tuple(item.operation_kind for item in tail) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
     )
-    assert tuple(item.projection_ready for item in tail) == (True, True, True, False)
+    assert tuple(item.projection_ready for item in tail) == (True, True, True, True, True, False)
     reader.close()
 
     engine_b = OnlyEngine(OnlyEngineConfig(engine_id, tmp_path))

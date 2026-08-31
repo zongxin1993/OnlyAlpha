@@ -5,6 +5,7 @@ from onlyalpha.broker.models import OnlyBrokerCancelRequest, OnlyBrokerOrderRequ
 from onlyalpha.broker.ports import OnlyBrokerTradingPort
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.domain.execution import OnlyOrderSnapshot
+from onlyalpha.domain.identifiers import OnlyOrderId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.order.execution.models import (
     OnlyExecutionCancelRequest,
@@ -12,15 +13,31 @@ from onlyalpha.order.execution.models import (
     OnlyExecutionSubmissionOutcome,
     OnlyExecutionSubmitResult,
 )
+from onlyalpha.order.intent import OnlyRuntimeIntentReference
 
 
 class OnlyBrokerExecutionService:
+    requires_durable_intent = True
+
     def __init__(self, gateway: OnlyBrokerTradingPort, clock: OnlyClock) -> None:
         self._gateway = gateway
         self._clock = clock
         self._sequence = 0
+        self._intent_references: dict[OnlyOrderId, OnlyRuntimeIntentReference] = {}
+
+    def record_runtime_intent(self, order_id: OnlyOrderId, reference: OnlyRuntimeIntentReference) -> None:
+        previous = self._intent_references.setdefault(order_id, reference)
+        if previous != reference:
+            raise ValueError("BROKER_RUNTIME_INTENT_REFERENCE_CONFLICT")
 
     def submit_order(self, order: OnlyOrderSnapshot) -> OnlyExecutionSubmitResult:
+        reference = self._intent_references.get(order.order_id)
+        if reference is None:
+            return OnlyExecutionSubmitResult(
+                False,
+                "RUNTIME_ORDER_INTENT_REFERENCE_MISSING",
+                OnlyExecutionSubmissionOutcome.NOT_DISPATCHED,
+            )
         self._sequence += 1
         result = self._gateway.submit_order(
             OnlyBrokerOrderRequest(
@@ -36,6 +53,8 @@ class OnlyBrokerExecutionService:
                 order.quantity,
                 order.price,
                 OnlyTimestamp.from_unix_nanos(self._clock.timestamp_ns()),
+                reference.transaction_id,
+                reference.authority_hash,
             )
         )
         if result.status.value == "UNKNOWN":

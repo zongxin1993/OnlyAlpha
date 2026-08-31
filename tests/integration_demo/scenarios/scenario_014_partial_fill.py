@@ -30,11 +30,12 @@ def run(env: OnlyIntegrationEnvironment) -> OnlyScenarioReport:
     assert risk_reservation.remaining_notional.amount == Decimal("600.00")
     committed = partial.runtime.ready_execution_query.ready_records(partial.runtime.config.runtime_id)
     assert tuple(item.operation_kind for item in committed) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
     )
     assert all(item.projection_ready for item in committed)
-    assert committed[1].fact.fill_index == 1
+    assert committed[2].fact.fill_index == 1
     assert partial.runtime.broker_gateway is not None
     assert partial.runtime.broker_gateway.query_account(snapshot.account_id).order_reserved_cash.amount == Decimal(
         "600.00"

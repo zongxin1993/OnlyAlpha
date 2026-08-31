@@ -15,12 +15,16 @@ def test_fill_fingerprint_is_canonical_and_payload_sensitive() -> None:
     assert only_execution_fill_payload_fingerprint(reordered) == only_execution_fill_payload_fingerprint(
         reordered_again
     )
-    changes = (
+    semantic_changes = (
         replace(update, fill=replace(update.fill, quantity=OnlyQuantity(Decimal("1"), 0))),
         replace(update, fill=replace(update.fill, price=OnlyPrice(Decimal("10.01"), 2))),
-        replace(update, source_sequence=update.source_sequence + 1),
         replace(update, fill=replace(update.fill, liquidity_side=OnlyLiquiditySide.MAKER)),
-        replace(update, ts_init=type(update.ts_init)(update.ts_init.unix_nanos + 1)),
     )
-    assert all(only_execution_fill_payload_fingerprint(item) != baseline for item in changes)
+    provenance_changes = (
+        replace(update, source_sequence=update.source_sequence + 1),
+        replace(update, ts_init=type(update.ts_init)(update.ts_init.unix_nanos + 1)),
+        replace(update, fill=replace(update.fill, metadata={"observation": "rest"})),
+    )
+    assert all(only_execution_fill_payload_fingerprint(item) != baseline for item in semantic_changes)
+    assert all(only_execution_fill_payload_fingerprint(item) == baseline for item in provenance_changes)
     assert len(baseline) == 64

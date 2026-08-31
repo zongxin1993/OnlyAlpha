@@ -12420,7 +12420,7 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "runtime_mode": "BACKTEST",
         "schema_version": "1",
-        "sequence": 88,
+        "sequence": 92,
         "trading_day": "2026-01-05",
         "venue_id": "XSHG"
       }
@@ -13768,7 +13768,7 @@
         "order_id": "backtest-f3b1d90d227ce392-ORDER-000001",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 79,
+        "sequence": 83,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000001"
       },
@@ -13786,7 +13786,7 @@
         "order_id": "backtest-f3b1d90d227ce392-ORDER-000002",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 80,
+        "sequence": 84,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000002"
       },
@@ -13804,7 +13804,7 @@
         "order_id": "backtest-f3b1d90d227ce392-ORDER-000003",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 81,
+        "sequence": 85,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000003"
       },
@@ -13822,7 +13822,7 @@
         "order_id": "backtest-f3b1d90d227ce392-ORDER-000004",
         "schedule_id": "GENERIC_T0_CASH_FEES",
         "schedule_version": "1",
-        "sequence": 82,
+        "sequence": 86,
         "status": "MODEL_CONFIRMED",
         "trade_id": "virtual-trade-00000004"
       }
@@ -13845,7 +13845,7 @@
         "resolved_rules_fingerprint": "51b31da29870467fb1fb2db77f53f14941552279d3ae21f106f195c73f678078",
         "runtime_id": "backtest-f3b1d90d227ce392",
         "runtime_mode": "BACKTEST",
-        "sequence": 87,
+        "sequence": 91,
         "trading_day": "2026-01-05"
       }
     ],
@@ -13867,7 +13867,7 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 83,
+        "sequence": 87,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -13892,7 +13892,7 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 84,
+        "sequence": 88,
         "side": "BUY",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -13917,7 +13917,7 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 85,
+        "sequence": 89,
         "side": "SELL",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -13942,7 +13942,7 @@
         "reference_fingerprint": "5b02182d929a3392443c8778b3c3218f78ccb5aee5fb6f567df236e9924dfc93",
         "rule_set_id": "7ebfc25f8f2d2d0de03c4093e689e402a4c2709ad624800c886f35c43067be1f",
         "rule_type": "OnlyMarketOrderDecision",
-        "sequence": 86,
+        "sequence": 90,
         "side": "SELL",
         "tick_size": "0.01",
         "trading_day": "2026-01-05",
@@ -14120,89 +14120,133 @@
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:31:00Z",
-        "operation_identity": "EACK-16eeca3b265265d5186679658c0d7c402c8f9b9aab8329e212310c15b1c465c4",
-        "operation_kind": "ORDER_ACCEPTED",
+        "operation_identity": "OINT-89f8f3e653111f5d2961a5c078f28ea2bf04d3f15b7d3a04d9b3fd6a129e4297",
+        "operation_kind": "ORDER_INTENT",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
         "runtime_sequence": 1,
         "sequence": 71,
-        "transaction_id": "EACK-16eeca3b265265d5186679658c0d7c402c8f9b9aab8329e212310c15b1c465c4"
+        "transaction_id": "OINT-89f8f3e653111f5d2961a5c078f28ea2bf04d3f15b7d3a04d9b3fd6a129e4297"
       },
       {
         "account_id": "backtest-account",
-        "effective_time": "2026-01-05T01:32:00Z",
-        "operation_identity": "EFILL-319234cb2cbdfb43080aaa2925f85aa809607b1178553e80e72b4317633ba671",
-        "operation_kind": "TRADE_FILL",
+        "effective_time": "2026-01-05T01:31:00Z",
+        "operation_identity": "EACK-acf36cbcc6d6680649c285a0d10cb31f75d2e6203b3e305a86c1c1eb93721a57",
+        "operation_kind": "ORDER_ACCEPTED",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
         "runtime_sequence": 2,
         "sequence": 72,
+        "transaction_id": "EACK-acf36cbcc6d6680649c285a0d10cb31f75d2e6203b3e305a86c1c1eb93721a57"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:32:00Z",
+        "operation_identity": "EFILL-97f8d047544b39142257ae8d617be657075d8ba5ac473a974a1d93c3141be742",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-f3b1d90d227ce392",
+        "runtime_sequence": 3,
+        "sequence": 73,
         "transaction_id": "ETX-35cf1df4f9448b64e76be18d179d8c78b1a0ba544f3b187de4c995dd786f49ac"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:45:00Z",
-        "operation_identity": "EACK-f3b53d7b405a4732f7ac2cf46db26f5c5b4c4594c1c77d18cd69384f16b424fa",
-        "operation_kind": "ORDER_ACCEPTED",
-        "projection_ready": true,
-        "runtime_id": "backtest-f3b1d90d227ce392",
-        "runtime_sequence": 3,
-        "sequence": 73,
-        "transaction_id": "EACK-f3b53d7b405a4732f7ac2cf46db26f5c5b4c4594c1c77d18cd69384f16b424fa"
-      },
-      {
-        "account_id": "backtest-account",
-        "effective_time": "2026-01-05T01:46:00Z",
-        "operation_identity": "EFILL-22ed97234a7e334440fe25e93e07bdc17c22234546e71d1f4bef6fe5e7f23692",
-        "operation_kind": "TRADE_FILL",
+        "operation_identity": "OINT-204e7585cb610ad7ddc09f0e2a43ddb7365ba0c37620b4431d35c8d6117f60f4",
+        "operation_kind": "ORDER_INTENT",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
         "runtime_sequence": 4,
         "sequence": 74,
-        "transaction_id": "ETX-e067b7ab8db0361c530b61469a43f5728f05c90a2e0e4eb9c1d38f92f6eb6174"
+        "transaction_id": "OINT-204e7585cb610ad7ddc09f0e2a43ddb7365ba0c37620b4431d35c8d6117f60f4"
       },
       {
         "account_id": "backtest-account",
-        "effective_time": "2026-01-05T01:48:00Z",
-        "operation_identity": "EACK-d7a97a33703a244aa201cc3cb0802a5b6425ee81e1c5b6b861d5bcb07f70b978",
+        "effective_time": "2026-01-05T01:45:00Z",
+        "operation_identity": "EACK-ec54d991e37545063e96af85a0f46bb5a06bfa3e70600a63fb565abc2d5cc45a",
         "operation_kind": "ORDER_ACCEPTED",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
         "runtime_sequence": 5,
         "sequence": 75,
-        "transaction_id": "EACK-d7a97a33703a244aa201cc3cb0802a5b6425ee81e1c5b6b861d5bcb07f70b978"
+        "transaction_id": "EACK-ec54d991e37545063e96af85a0f46bb5a06bfa3e70600a63fb565abc2d5cc45a"
       },
       {
         "account_id": "backtest-account",
-        "effective_time": "2026-01-05T01:49:00Z",
-        "operation_identity": "EFILL-e5be373dacfdf5947d24ffcfbae4f838f12d709171c9e77ab25ead23bbf52683",
+        "effective_time": "2026-01-05T01:46:00Z",
+        "operation_identity": "EFILL-c6ef86267e40f56e2ef166aab25eae9f9ed583366822870f0def0aaff3d1744c",
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
         "runtime_sequence": 6,
         "sequence": 76,
+        "transaction_id": "ETX-e067b7ab8db0361c530b61469a43f5728f05c90a2e0e4eb9c1d38f92f6eb6174"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:48:00Z",
+        "operation_identity": "OINT-96ea4d1598eeb35079c48946c2e20d3cfd6376da101f0524e395cba89df0298d",
+        "operation_kind": "ORDER_INTENT",
+        "projection_ready": true,
+        "runtime_id": "backtest-f3b1d90d227ce392",
+        "runtime_sequence": 7,
+        "sequence": 77,
+        "transaction_id": "OINT-96ea4d1598eeb35079c48946c2e20d3cfd6376da101f0524e395cba89df0298d"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:48:00Z",
+        "operation_identity": "EACK-4c4efb06a946116713744989068244e70d6151e0ada1f0627bc65643b93049a1",
+        "operation_kind": "ORDER_ACCEPTED",
+        "projection_ready": true,
+        "runtime_id": "backtest-f3b1d90d227ce392",
+        "runtime_sequence": 8,
+        "sequence": 78,
+        "transaction_id": "EACK-4c4efb06a946116713744989068244e70d6151e0ada1f0627bc65643b93049a1"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:49:00Z",
+        "operation_identity": "EFILL-cfaebc318246a607bfa29b048bfc25b6f43244d65ccb75916828b475b0452d89",
+        "operation_kind": "TRADE_FILL",
+        "projection_ready": true,
+        "runtime_id": "backtest-f3b1d90d227ce392",
+        "runtime_sequence": 9,
+        "sequence": 79,
         "transaction_id": "ETX-96d461391b6eb8fb96f5288750be1c5af234b329b8084e73aa7ef442975674f6"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:50:00Z",
-        "operation_identity": "EACK-f84c9a26caf917cd8d47eba04f9396f4b6dba695fd59f74d2bca85691ff7284c",
+        "operation_identity": "OINT-b6ca5b86a7e96d68ced8e03d677bde966325940fe5ed4679cc4eb1e0653ee75a",
+        "operation_kind": "ORDER_INTENT",
+        "projection_ready": true,
+        "runtime_id": "backtest-f3b1d90d227ce392",
+        "runtime_sequence": 10,
+        "sequence": 80,
+        "transaction_id": "OINT-b6ca5b86a7e96d68ced8e03d677bde966325940fe5ed4679cc4eb1e0653ee75a"
+      },
+      {
+        "account_id": "backtest-account",
+        "effective_time": "2026-01-05T01:50:00Z",
+        "operation_identity": "EACK-3bbbe4020c84559971a9066150a91bccd2871e4b99dd4934350a4a568cb3bc4c",
         "operation_kind": "ORDER_ACCEPTED",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
-        "runtime_sequence": 7,
-        "sequence": 77,
-        "transaction_id": "EACK-f84c9a26caf917cd8d47eba04f9396f4b6dba695fd59f74d2bca85691ff7284c"
+        "runtime_sequence": 11,
+        "sequence": 81,
+        "transaction_id": "EACK-3bbbe4020c84559971a9066150a91bccd2871e4b99dd4934350a4a568cb3bc4c"
       },
       {
         "account_id": "backtest-account",
         "effective_time": "2026-01-05T01:51:00Z",
-        "operation_identity": "EFILL-d76db8e9e7920096146bd89caade81495e69c08fc970a6dc3426bbd711b2f35b",
+        "operation_identity": "EFILL-39ac34aabf88222c557eb2953130c87a06b18f77f9ecbfe8cf8e2a627a4f4e11",
         "operation_kind": "TRADE_FILL",
         "projection_ready": true,
         "runtime_id": "backtest-f3b1d90d227ce392",
-        "runtime_sequence": 8,
-        "sequence": 78,
+        "runtime_sequence": 12,
+        "sequence": 82,
         "transaction_id": "ETX-dd83eb025acca2d48ff7c0b27b8431cf3de587fbb472f2496ab0d028240117d3"
       }
     ],
@@ -18765,7 +18809,7 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-382df2256aafd37d9046bf98e5244d7c620cbf4855049fbb2e40052298999b0b",
-      "execution_sequence": 2,
+      "execution_sequence": 3,
       "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
       "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000001",
@@ -18910,9 +18954,9 @@
         }
       },
       "fill_count_after": 1,
-      "fill_identity": "EFILL-319234cb2cbdfb43080aaa2925f85aa809607b1178553e80e72b4317633ba671",
+      "fill_identity": "EFILL-97f8d047544b39142257ae8d617be657075d8ba5ac473a974a1d93c3141be742",
       "fill_index": 1,
-      "fill_payload_fingerprint": "45033302a6e69aac848049e901d62370da9a4be85984dc5313530f7e3ab24bba",
+      "fill_payload_fingerprint": "541eb56391d206c563df167d44e218818d72518c123d2e7ab497b19ececdc05c",
       "fill_price": {
         "precision": 2,
         "value": "10.00"
@@ -19305,7 +19349,7 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-aef70dc6c28d8854b72f63288a84ba746bad265815969e8693c0f4b2e886a977",
-      "execution_sequence": 4,
+      "execution_sequence": 6,
       "execution_support_fingerprint": "cc13cf1470bdcd97472af5d6af1b708d8b173a32e5fdd589983373880c05584d",
       "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000002",
@@ -19450,9 +19494,9 @@
         }
       },
       "fill_count_after": 1,
-      "fill_identity": "EFILL-22ed97234a7e334440fe25e93e07bdc17c22234546e71d1f4bef6fe5e7f23692",
+      "fill_identity": "EFILL-c6ef86267e40f56e2ef166aab25eae9f9ed583366822870f0def0aaff3d1744c",
       "fill_index": 1,
-      "fill_payload_fingerprint": "6ae409323f0846e90b25b9217ae1f3937ffdd9c4d2a26176be81d962255e3731",
+      "fill_payload_fingerprint": "fc2b3e238316c15c3bd71afd1f284f1165cba5afedb2fce33ef017f8c18811d9",
       "fill_price": {
         "precision": 2,
         "value": "10.00"
@@ -19845,7 +19889,7 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-25c84b09a18065f9c3b76e86a7a55967fb30282951ea1133ed21aeb5825a3bca",
-      "execution_sequence": 6,
+      "execution_sequence": 9,
       "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
       "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000003",
@@ -19990,9 +20034,9 @@
         }
       },
       "fill_count_after": 1,
-      "fill_identity": "EFILL-e5be373dacfdf5947d24ffcfbae4f838f12d709171c9e77ab25ead23bbf52683",
+      "fill_identity": "EFILL-cfaebc318246a607bfa29b048bfc25b6f43244d65ccb75916828b475b0452d89",
       "fill_index": 1,
-      "fill_payload_fingerprint": "531af854f563fb7c8c8aa653145ca4db46f58d828f25805865b94cb7f45687ef",
+      "fill_payload_fingerprint": "1778c7ec813d3a72995d56504beed6975cc63bc54c7fe127c1300d00c543eaee",
       "fill_price": {
         "precision": 2,
         "value": "0.01"
@@ -20385,7 +20429,7 @@
       },
       "execution_capability": "DURABLE_TRADE",
       "execution_id": "EXEC-a99cb8f0b6b32dbf88454bb81dbc109bb1b9c96a569362cc51ec35c18a677b21",
-      "execution_sequence": 8,
+      "execution_sequence": 12,
       "execution_support_fingerprint": "d6b163987ec1881038b0a87c49e180cb9e3c369eeaa5e18629708f03da104537",
       "execution_support_policy_version": "2",
       "external_event_id": "virtual-fill-00000004",
@@ -20530,9 +20574,9 @@
         }
       },
       "fill_count_after": 1,
-      "fill_identity": "EFILL-d76db8e9e7920096146bd89caade81495e69c08fc970a6dc3426bbd711b2f35b",
+      "fill_identity": "EFILL-39ac34aabf88222c557eb2953130c87a06b18f77f9ecbfe8cf8e2a627a4f4e11",
       "fill_index": 1,
-      "fill_payload_fingerprint": "e6ff59a9dcef10e73f9120a2e02e86eff86a11f2cd84c0509d605fc85d4141c7",
+      "fill_payload_fingerprint": "0c4ab4ff560f8ba67a4e3bd849ed7639dddb585181ea829a44edcea40ed46ad1",
       "fill_price": {
         "precision": 2,
         "value": "0.01"

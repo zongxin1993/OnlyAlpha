@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from .committed import OnlyCommittedExecutionFact
 
-ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION = 1
+ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION = 2
 
 
 class OnlyExecutionFillIdentityKind(StrEnum):
@@ -53,16 +53,12 @@ class OnlyExecutionFillIdentity:
     def canonical_kind(self) -> OnlyExecutionFillIdentityKind:
         if self.venue_trade_id is not None:
             return OnlyExecutionFillIdentityKind.VENUE_TRADE_ID
-        if self.external_event_id:
-            return OnlyExecutionFillIdentityKind.EXTERNAL_EVENT_ID
         return OnlyExecutionFillIdentityKind.TRADE_ID
 
     @property
     def canonical_value(self) -> str:
         if self.venue_trade_id is not None:
             return str(self.venue_trade_id)
-        if self.external_event_id:
-            return self.external_event_id
         return str(self.trade_id)
 
     @classmethod
@@ -117,12 +113,10 @@ def only_execution_fill_identity_from_update(update: OnlyBrokerTradeUpdate) -> s
 def only_execution_fill_payload_fingerprint(update: OnlyBrokerTradeUpdate) -> str:
     fill = update.fill
     payload: dict[str, object] = {
+        "schema_version": ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION,
         "account_id": str(update.account_id),
-        "external_event_id": fill.external_event_id,
-        "external_sequence": fill.external_sequence,
         "gateway_id": str(update.gateway_id),
         "liquidity_side": fill.liquidity_side.value,
-        "metadata": dict(fill.metadata),
         "order_id": str(update.order_id),
         "price": _decimal(fill.price.value, fill.price.precision),
         "price_precision": fill.price.precision,
@@ -135,10 +129,8 @@ def only_execution_fill_payload_fingerprint(update: OnlyBrokerTradeUpdate) -> st
         ),
         "reference_price_precision": None if fill.reference_price is None else fill.reference_price.precision,
         "runtime_id": str(update.runtime_id),
-        "source_sequence": update.source_sequence,
         "trade_id": str(fill.trade_id),
-        "ts_event": update.ts_event.unix_nanos,
-        "ts_init": update.ts_init.unix_nanos,
+        "trade_event_time": fill.ts_event.unix_nanos,
         "venue_order_id": None if fill.venue_order_id is None else str(fill.venue_order_id),
         "venue_trade_id": None if fill.venue_trade_id is None else str(fill.venue_trade_id),
     }

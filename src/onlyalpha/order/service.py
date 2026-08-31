@@ -19,6 +19,7 @@ from onlyalpha.order.execution.models import (
     OnlyExecutionSubmitResult,
 )
 from onlyalpha.order.execution.service import OnlyExecutionService
+from onlyalpha.order.intent import OnlyOrderIntentDurabilityPort, OnlyRuntimeIntentReferenceSink
 from onlyalpha.order.manager import OnlyOrderFeeContractFactory, OnlyOrderManager
 from onlyalpha.order.margin_port import OnlyOrderMarginReservationPort
 from onlyalpha.order.position_port import OnlyOrderPositionReservationPort
@@ -45,6 +46,8 @@ class OnlyOrderService:
         margin_reservations: OnlyOrderMarginReservationPort | None = None,
         fee_contract_factory: OnlyOrderFeeContractFactory | None = None,
         fee_reconciliation_risk_gate: OnlyFeeReconciliationRiskGate | None = None,
+        intent_durability: OnlyOrderIntentDurabilityPort | None = None,
+        intent_reference_sink: OnlyRuntimeIntentReferenceSink | None = None,
     ) -> None:
         self._manager = manager
         self._execution = execution
@@ -57,6 +60,10 @@ class OnlyOrderService:
         self._margin_reservations = margin_reservations
         self._fee_contract_factory = fee_contract_factory
         self._fee_reconciliation_risk_gate = fee_reconciliation_risk_gate
+        self._intent_durability = intent_durability
+        self._intent_reference_sink = intent_reference_sink
+        if bool(getattr(execution, "requires_durable_intent", False)) and intent_durability is None:
+            raise ValueError("REAL_EXECUTION_REQUIRES_DURABLE_ORDER_INTENT")
 
     def submit(
         self,
@@ -97,6 +104,11 @@ class OnlyOrderService:
                 message,
                 risk_decision,
             )
+        intent_token = (
+            None
+            if self._intent_durability is None
+            else self._intent_durability.begin(request, cluster_id, account_id, timestamp)
+        )
         created = self._manager.create_order(
             request,
             cluster_id,
@@ -226,6 +238,23 @@ class OnlyOrderService:
                     str(exc),
                     risk_decision,
                 )
+        if self._intent_durability is not None:
+            durability = self._intent_durability.commit(intent_token, created.snapshot)
+            if not durability.ready or durability.reference is None:
+                return OnlyOrderSubmitResult(
+                    True,
+                    False,
+                    None,
+                    created.order_id,
+                    created.snapshot.client_order_id,
+                    created.snapshot,
+                    (),
+                    durability.error or "ORDER_INTENT_NOT_PROJECTION_READY",
+                    risk_decision,
+                    OnlyExecutionSubmissionOutcome.NOT_DISPATCHED,
+                )
+            if self._intent_reference_sink is not None:
+                self._intent_reference_sink.record_runtime_intent(created.order_id, durability.reference)
         self._publisher.publish_many(created.events)
         try:
             execution_result = self._execution.submit_order(created.snapshot)

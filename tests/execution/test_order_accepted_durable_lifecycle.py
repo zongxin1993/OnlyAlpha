@@ -57,7 +57,7 @@ def _accepted_update(fact: OnlyCommittedOrderAcceptedFact) -> OnlyBrokerOrderAcc
     )
 
 
-def test_accepted_identity_is_stable_and_same_identity_changed_payload_conflicts() -> None:
+def test_accepted_identity_is_stable_across_observation_metadata() -> None:
     timestamp = OnlyTimestamp.from_unix_nanos(1_000_000_000)
     update = OnlyBrokerOrderAcceptedUpdate(
         runtime_id=OnlyRuntimeId("runtime"),
@@ -80,7 +80,7 @@ def test_accepted_identity_is_stable_and_same_identity_changed_payload_conflicts
     assert first == repeated
     assert first.accepted_identity.startswith("EACK-")
     assert changed.accepted_identity == first.accepted_identity
-    assert changed.payload_fingerprint != first.payload_fingerprint
+    assert changed.payload_fingerprint == first.payload_fingerprint
 
 
 def test_buy_open_accepted_has_exact_projection_set_and_is_idempotent() -> None:
@@ -90,8 +90,8 @@ def test_buy_open_accepted_has_exact_projection_set_and_is_idempotent() -> None:
         order_id,
     )
 
-    assert len(records) == 1
-    committed = records[0]
+    assert len(records) == 2
+    committed = next(item for item in records if item.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED)
     assert committed.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
     assert isinstance(committed.fact, OnlyCommittedOrderAcceptedFact)
     assert tuple(item.identity.component for item in committed.projections) == (
@@ -133,8 +133,8 @@ def test_sell_close_accepted_releases_only_account_position_hold() -> None:
         context.update.order_id,
     )
 
-    assert len(records) == 1
-    accepted = records[0]
+    assert len(records) == 2
+    accepted = next(item for item in records if item.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED)
     assert tuple(item.identity.component for item in accepted.projections) == (
         OnlyRuntimeProjectionComponent.ORDER,
         OnlyRuntimeProjectionComponent.POSITION,
@@ -155,10 +155,14 @@ def test_accepted_prepared_and_committed_round_trip_in_memory_and_sqlite(
     sqlite: bool,
 ) -> None:
     environment, order_id = _buy_submitted()
-    source = environment.runtime.execution_transaction_query.transactions_for_order(
-        environment.runtime.config.runtime_id,
-        order_id,
-    )[0]
+    source = next(
+        item
+        for item in environment.runtime.execution_transaction_query.transactions_for_order(
+            environment.runtime.config.runtime_id,
+            order_id,
+        )
+        if item.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
+    )
     stored = environment.runtime.execution_transaction_query.get_recovery_record_by_update(
         source.runtime_id,
         source.fact.gateway_id,
@@ -196,9 +200,12 @@ def test_accepted_store_failure_leaves_submitted_authorities_unacknowledged(
     for minute in range(3):
         environment.process_bar(DAY_ONE, minute, "10.00")
 
+    original_commit = environment.runtime.execution_transaction_query.commit
+
     def fail_commit(prepared: object, *, committed_at: OnlyTimestamp) -> object:
-        del prepared, committed_at
-        raise RuntimeError("injected Accepted store failure")
+        if getattr(prepared, "operation_kind", None) is OnlyRuntimeOperationKind.ORDER_ACCEPTED:
+            raise RuntimeError("injected Accepted store failure")
+        return original_commit(prepared, committed_at=committed_at)
 
     monkeypatch.setattr(environment.runtime.execution_transaction_query, "commit", fail_commit)
     submitted = environment.submit_buy(quantity="1000")
@@ -210,7 +217,9 @@ def test_accepted_store_failure_leaves_submitted_authorities_unacknowledged(
     )
 
     assert accepted_result.status is OnlyExecutionProcessingStatus.FAILED
-    assert environment.runtime.execution_transaction_query.records() == ()
+    assert tuple(item.operation_kind for item in environment.runtime.execution_transaction_query.records()) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
+    )
     assert environment.runtime.order_manager.require_snapshot(submitted.order_id).status is OnlyOrderStatus.SUBMITTED
     ledger = environment.runtime.strategy_ledger_locator.require_snapshot(
         runtime_id=environment.runtime.config.runtime_id,
@@ -230,10 +239,14 @@ def test_trade_planner_keeps_supporting_submitted_without_explicit_accepted() ->
     assert environment.buy_order is not None and environment.buy_order.order_id is not None
     update = _trade_update(environment, scenario)
     current = only_test_real_trade_planning_context(environment, update)
-    accepted = environment.runtime.execution_transaction_query.transactions_for_order(
-        environment.runtime.config.runtime_id,
-        environment.buy_order.order_id,
-    )[0]
+    accepted = next(
+        item
+        for item in environment.runtime.execution_transaction_query.transactions_for_order(
+            environment.runtime.config.runtime_id,
+            environment.buy_order.order_id,
+        )
+        if item.operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
+    )
     stored = environment.runtime.execution_transaction_query.get_recovery_record_by_update(
         accepted.runtime_id,
         accepted.fact.gateway_id,

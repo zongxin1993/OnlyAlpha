@@ -87,6 +87,7 @@ def test_buy_open_terminal_releases_exact_remaining_cash_once(
         order_id,
     )
     assert tuple(item.operation_kind for item in transactions) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.ORDER_TERMINAL,
     )

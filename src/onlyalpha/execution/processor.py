@@ -74,7 +74,7 @@ from onlyalpha.transaction.delivery import (
 )
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
 from onlyalpha.transaction.persistence_ports import OnlyRuntimeTransactionQueryPort
-from onlyalpha.transaction.projection import OnlyRuntimeProjectionComponent
+from onlyalpha.transaction.projection import OnlyOrderTerminalExecutionProjection, OnlyRuntimeProjectionComponent
 from onlyalpha.transaction.transaction import OnlyPreparedRuntimeTransaction
 
 from .accepted_fact import OnlyCommittedOrderAcceptedFact
@@ -322,6 +322,45 @@ class OnlyExecutionProcessor:
             return self._terminal(update, context, OnlyExecutionProcessingStatus.REJECTED, failure=validation)
         position_scope = self._resolve_position_scope(update)
         if isinstance(update, OnlyBrokerTradeUpdate) and mode is OnlyExecutionProcessingMode.NORMAL:
+            if update.fill.venue_trade_id is not None:
+                for transaction in self._execution_transaction_query.transactions_for_order(
+                    update.runtime_id, update.order_id
+                ):
+                    fact = transaction.fact
+                    if not isinstance(fact, OnlyCommittedExecutionFact):
+                        continue
+                    if fact.venue_trade_id != str(update.fill.venue_trade_id):
+                        continue
+                    same_semantics = (
+                        fact.gateway_id == update.gateway_id
+                        and fact.account_id == update.account_id
+                        and fact.order_id == update.order_id
+                        and fact.trade_id == update.fill.trade_id
+                        and fact.fill_price == update.fill.price
+                        and fact.fill_quantity == update.fill.quantity
+                        and fact.ts_event == update.fill.ts_event
+                        and fact.liquidity_side == update.fill.liquidity_side
+                        and fact.reference_price == update.fill.reference_price
+                    )
+                    if same_semantics and transaction.projection_ready:
+                        return self._terminal(
+                            update,
+                            context,
+                            OnlyExecutionProcessingStatus.DUPLICATE,
+                            position_scope=position_scope,
+                        )
+                    failure = OnlyExecutionFailure(
+                        OnlyExecutionFailureCode.INVALID_UPDATE,
+                        "FILL_IDENTITY_CONFLICT: Venue Trade identity has different semantic payload",
+                        OnlyExecutionMutationStep.VALIDATION,
+                    )
+                    return self._terminal(
+                        update,
+                        context,
+                        OnlyExecutionProcessingStatus.REJECTED,
+                        failure=failure,
+                        position_scope=position_scope,
+                    )
             fill_identity = only_execution_fill_identity_from_update(update)
             fill_fingerprint = only_execution_fill_payload_fingerprint(update)
             existing_fill = self._execution_transaction_query.get_by_fill_identity(update.runtime_id, fill_identity)
@@ -361,6 +400,31 @@ class OnlyExecutionProcessor:
                         position_scope=position_scope,
                     )
         if isinstance(update, OnlyBrokerOrderAcceptedUpdate) and mode is OnlyExecutionProcessingMode.NORMAL:
+            for transaction in self._execution_transaction_query.transactions_for_order(
+                update.runtime_id, update.order_id
+            ):
+                fact = transaction.fact
+                if not isinstance(fact, OnlyCommittedOrderAcceptedFact):
+                    continue
+                if fact.venue_order_id == update.venue_order_id and transaction.projection_ready:
+                    return self._terminal(
+                        update,
+                        context,
+                        OnlyExecutionProcessingStatus.DUPLICATE,
+                        position_scope=position_scope,
+                    )
+                failure = OnlyExecutionFailure(
+                    OnlyExecutionFailureCode.INVALID_UPDATE,
+                    "ACCEPTED_IDENTITY_CONFLICT: OnlyAlpha Order is bound to another Venue Order",
+                    OnlyExecutionMutationStep.VALIDATION,
+                )
+                return self._terminal(
+                    update,
+                    context,
+                    OnlyExecutionProcessingStatus.REJECTED,
+                    failure=failure,
+                    position_scope=position_scope,
+                )
             accepted_authority = only_capture_execution_order_accepted_authority(update)
             existing_accepted = self._execution_transaction_query.get_by_transaction_id(
                 accepted_authority.accepted_identity
@@ -398,6 +462,47 @@ class OnlyExecutionProcessor:
             and mode is OnlyExecutionProcessingMode.NORMAL
         ):
             terminal_authority = only_capture_execution_terminal_authority(update)
+            terminal_status = terminal_authority.terminal_status
+            for transaction in self._execution_transaction_query.transactions_for_order(
+                update.runtime_id, update.order_id
+            ):
+                fact = transaction.fact
+                if not isinstance(fact, OnlyCommittedTerminalExecutionFact):
+                    continue
+                if transaction.transaction_id == terminal_authority.terminal_identity:
+                    continue
+                projection = next(
+                    (
+                        item
+                        for item in transaction.projections
+                        if isinstance(item, OnlyOrderTerminalExecutionProjection)
+                    ),
+                    None,
+                )
+                venue_order_id = None if projection is None else projection.after.venue_order_id
+                if (
+                    fact.terminal_status is terminal_status
+                    and venue_order_id == update.venue_order_id
+                    and transaction.projection_ready
+                ):
+                    return self._terminal(
+                        update,
+                        context,
+                        OnlyExecutionProcessingStatus.DUPLICATE,
+                        position_scope=position_scope,
+                    )
+                failure = OnlyExecutionFailure(
+                    OnlyExecutionFailureCode.INVALID_UPDATE,
+                    "TERMINAL_IDENTITY_CONFLICT: durable terminal state cannot be safely reinterpreted",
+                    OnlyExecutionMutationStep.VALIDATION,
+                )
+                return self._terminal(
+                    update,
+                    context,
+                    OnlyExecutionProcessingStatus.REJECTED,
+                    failure=failure,
+                    position_scope=position_scope,
+                )
             existing_terminal = self._execution_transaction_query.get_by_transaction_id(
                 terminal_authority.terminal_identity
             )

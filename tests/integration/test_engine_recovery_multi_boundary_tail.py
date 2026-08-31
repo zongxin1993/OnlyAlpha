@@ -80,15 +80,17 @@ def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> N
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     transactions = reader.records(runtime_id)
-    assert tuple(item.execution_sequence for item in transactions) == (1, 2, 3, 4)
+    assert tuple(item.execution_sequence for item in transactions) == (1, 2, 3, 4, 5, 6)
     assert tuple(item.operation_kind for item in transactions) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
     )
-    assert tuple(item.projection_ready for item in transactions) == (True, True, True, False)
-    assert transactions[1].fact.ts_event < transactions[3].fact.ts_event
+    assert tuple(item.projection_ready for item in transactions) == (True, True, True, True, True, False)
+    assert transactions[2].fact.ts_event < transactions[5].fact.ts_event
     checkpoint_before_tail = reader.latest_checkpoint(runtime_id)
     assert checkpoint_before_tail is not None
     reader.close()
@@ -99,7 +101,7 @@ def test_engine_tail_spans_two_exact_market_data_boundaries(tmp_path: Path) -> N
     assert recovered.status == "COMPLETED", recovered.failures
     diagnostic = engine_b.runtime_sessions[0].runtime.runtime_recovery_diagnostics[-1]
     assert diagnostic.catch_up_bar_count >= 2
-    assert diagnostic.rehydrated_transaction_count == 3
+    assert diagnostic.rehydrated_transaction_count == 5
     assert diagnostic.recovered_transaction_count == 1
     assert diagnostic.final_boundary_update_id is not None
 

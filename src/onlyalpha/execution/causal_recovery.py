@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import NoReturn
@@ -90,7 +91,7 @@ class OnlyExecutionRecoveryDecision:
 class OnlyExecutionRecoveryContinuation:
     execution_sequence: int
     transaction_id: str
-    broker_update_id: OnlyBrokerUpdateId
+    broker_update_id: OnlyBrokerUpdateId | None
     trade_id: OnlyTradeId | None
 
 
@@ -144,7 +145,12 @@ class OnlyExecutionRecoveryPlanBuilder:
 class OnlyExecutionRecoverySession:
     """Owns ordered update-time resolution for one restored transaction tail."""
 
-    def __init__(self, plan: OnlyExecutionRecoveryPlan) -> None:
+    def __init__(
+        self,
+        plan: OnlyExecutionRecoveryPlan,
+        autonomous_resolver: Callable[[OnlyExecutionRecoveryEntry], OnlyExecutionRecoveryResolution | None]
+        | None = None,
+    ) -> None:
         self._plan = plan
         self._index = 0
         self._resolutions: list[tuple[int, OnlyExecutionRecoveryResolution]] = []
@@ -154,6 +160,41 @@ class OnlyExecutionRecoverySession:
             else OnlyExecutionRecoveryPhase.MATCHING_PERSISTED_TAIL
         )
         self._continuations: list[OnlyExecutionRecoveryContinuation] = []
+        self._autonomous_resolver = autonomous_resolver
+
+    def resolve_autonomous(self) -> None:
+        while self._phase is OnlyExecutionRecoveryPhase.MATCHING_PERSISTED_TAIL:
+            entry = self.next_entry
+            if entry is None or entry.stored.committed.operation_kind.value != "ORDER_INTENT":
+                return
+            if self._autonomous_resolver is None:
+                self._fail("RECOVERY_AUTONOMOUS_TRANSACTION_RESOLVER_MISSING")
+            resolution = self._autonomous_resolver(entry)
+            if resolution is None:
+                return
+            self.resolve_persisted(entry.execution_sequence, resolution)
+
+    def decide_autonomous(
+        self,
+        prepared: OnlyPreparedRuntimeTransaction,
+    ) -> OnlyExecutionRecoveryDecision:
+        """Match an autonomous transaction at the causal command that reproduces it."""
+
+        self._require_usable()
+        if prepared.operation_kind.value != "ORDER_INTENT":
+            self._fail("RECOVERY_AUTONOMOUS_TRANSACTION_KIND_INVALID")
+        if self._phase is OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
+            return OnlyExecutionRecoveryDecision(OnlyExecutionRecoveryDecisionKind.COMMIT_CONTINUATION, None)
+        entry = self.next_entry
+        if entry is None or entry.stored.committed.operation_kind.value != "ORDER_INTENT":
+            self._fail("RECOVERY_AUTONOMOUS_TRANSACTION_MISSING")
+        self._require_prepared_match(entry, prepared)
+        kind = (
+            OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY
+            if entry.state is OnlyExecutionRecoveryEntryState.READY
+            else OnlyExecutionRecoveryDecisionKind.RECOVER_UNPROJECTED
+        )
+        return OnlyExecutionRecoveryDecision(kind, entry)
 
     @property
     def phase(self) -> OnlyExecutionRecoveryPhase:
@@ -204,6 +245,41 @@ class OnlyExecutionRecoverySession:
             )
             code = "RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH" if later else "RECOVERY_TRANSACTION_MISSING"
             self._fail(code)
+        self._require_prepared_match(entry, prepared)
+        kind = (
+            OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY
+            if entry.state is OnlyExecutionRecoveryEntryState.READY
+            else OnlyExecutionRecoveryDecisionKind.RECOVER_UNPROJECTED
+        )
+        return OnlyExecutionRecoveryDecision(kind, entry)
+
+    def resolve_persisted(self, execution_sequence: int, resolution: OnlyExecutionRecoveryResolution) -> None:
+        self._require_usable()
+        if self._phase is not OnlyExecutionRecoveryPhase.MATCHING_PERSISTED_TAIL:
+            self._fail("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
+        entry = self.next_entry
+        if entry is None or entry.execution_sequence != execution_sequence:
+            self._fail("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
+        expected_resolution = (
+            OnlyExecutionRecoveryResolution.READY_REHYDRATED
+            if entry.state is OnlyExecutionRecoveryEntryState.READY
+            else OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
+        )
+        if resolution is not expected_resolution:
+            self._fail("RECOVERY_TRANSACTION_STATE_MISMATCH")
+        self._resolutions.append((execution_sequence, resolution))
+        self._index += 1
+        if self._index == len(self._plan.entries):
+            self._phase = OnlyExecutionRecoveryPhase.TAIL_RESOLVED
+        elif self._autonomous_resolver is not None:
+            self.resolve_autonomous()
+
+    def _require_prepared_match(
+        self,
+        entry: OnlyExecutionRecoveryEntry,
+        prepared: OnlyPreparedRuntimeTransaction,
+    ) -> None:
+        expected = entry.stored.prepared
         if prepared != expected:
             mismatches = tuple(
                 name for name in prepared.__dataclass_fields__ if getattr(prepared, name) != getattr(expected, name)
@@ -231,31 +307,6 @@ class OnlyExecutionRecoverySession:
             raise OnlyExecutionRecoveryError("RECOVERY_TRANSACTION_CODEC_OR_HASH_MISMATCH") from exc
         if authority_hash != expected.authority_hash or payload_hash != expected.payload_hash:
             self._fail("RECOVERY_TRANSACTION_CODEC_OR_HASH_MISMATCH")
-        kind = (
-            OnlyExecutionRecoveryDecisionKind.REHYDRATE_READY
-            if entry.state is OnlyExecutionRecoveryEntryState.READY
-            else OnlyExecutionRecoveryDecisionKind.RECOVER_UNPROJECTED
-        )
-        return OnlyExecutionRecoveryDecision(kind, entry)
-
-    def resolve_persisted(self, execution_sequence: int, resolution: OnlyExecutionRecoveryResolution) -> None:
-        self._require_usable()
-        if self._phase is not OnlyExecutionRecoveryPhase.MATCHING_PERSISTED_TAIL:
-            self._fail("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
-        entry = self.next_entry
-        if entry is None or entry.execution_sequence != execution_sequence:
-            self._fail("RECOVERY_TRANSACTION_CAUSAL_ORDER_MISMATCH")
-        expected_resolution = (
-            OnlyExecutionRecoveryResolution.READY_REHYDRATED
-            if entry.state is OnlyExecutionRecoveryEntryState.READY
-            else OnlyExecutionRecoveryResolution.UNPROJECTED_RECOVERED
-        )
-        if resolution is not expected_resolution:
-            self._fail("RECOVERY_TRANSACTION_STATE_MISMATCH")
-        self._resolutions.append((execution_sequence, resolution))
-        self._index += 1
-        if self._index == len(self._plan.entries):
-            self._phase = OnlyExecutionRecoveryPhase.TAIL_RESOLVED
 
     def record_continuation(self, transaction: OnlyCommittedRuntimeTransaction) -> None:
         self._require_usable()
@@ -294,6 +345,28 @@ class OnlyExecutionRecoverySession:
         ):
             self._fail("RECOVERY_CONTINUATION_SCOPE_MISMATCH")
         self._continuations.append(continuation)
+
+    def record_autonomous_continuation(self, transaction: OnlyCommittedRuntimeTransaction) -> None:
+        self._require_usable()
+        if self._phase is not OnlyExecutionRecoveryPhase.TAIL_RESOLVED:
+            self._fail("RECOVERY_CONTINUATION_BEFORE_TAIL_RESOLVED")
+        expected_sequence = (
+            self._plan.covered_execution_sequence + len(self._plan.entries) + 1
+            if not self._continuations
+            else self._continuations[-1].execution_sequence + 1
+        )
+        if transaction.execution_sequence != expected_sequence:
+            self._fail("RECOVERY_CONTINUATION_SEQUENCE_MISMATCH")
+        if transaction.operation_kind.value != "ORDER_INTENT" or not transaction.projection_ready:
+            self._fail("RECOVERY_AUTONOMOUS_CONTINUATION_INVALID")
+        self._continuations.append(
+            OnlyExecutionRecoveryContinuation(
+                transaction.execution_sequence,
+                transaction.transaction_id,
+                None,
+                None,
+            )
+        )
 
     def require_tail_resolved(self) -> None:
         self._require_usable()

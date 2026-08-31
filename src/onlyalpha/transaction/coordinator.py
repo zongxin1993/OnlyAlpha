@@ -89,6 +89,10 @@ class OnlyRuntimeTransactionCoordinator:
             projected_at=projected_at,
         )
 
+    def tail_is_projection_ready(self, runtime_id: OnlyRuntimeId) -> bool:
+        records = self._query_port.records(runtime_id)
+        return not records or records[-1].projection_ready
+
     def recover_unprojected(
         self,
         runtime_id: OnlyRuntimeId,

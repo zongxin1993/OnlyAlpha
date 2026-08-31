@@ -155,6 +155,21 @@ class OnlyOrderExecutionProjection(OnlyDomainModel):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyOrderIntentExecutionProjection(OnlyDomainModel):
+    identity: OnlyRuntimeProjectionIdentity
+    before: None
+    after: OnlyOrderExecutionState
+
+    def __post_init__(self) -> None:
+        _require_component(self.identity, OnlyRuntimeProjectionComponent.ORDER)
+        _require_state_contract(self.identity, self.before, self.after)
+        if self.identity.entity_key != str(self.after.order_id):
+            raise ValueError("Order Intent projection entity mismatch")
+        if self.after.status is not OnlyOrderStatus.CREATED or self.after.version < 1:
+            raise ValueError("Order Intent projection requires a newly created Order")
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyOrderAcceptedExecutionProjection(OnlyDomainModel):
     identity: OnlyRuntimeProjectionIdentity
     before: OnlyOrderExecutionState
@@ -675,7 +690,8 @@ class OnlyFeeReconciliationRiskGateProjection(OnlyDomainModel):
 
 
 type OnlyRuntimeProjection = (
-    OnlyOrderExecutionProjection
+    OnlyOrderIntentExecutionProjection
+    | OnlyOrderExecutionProjection
     | OnlyOrderAcceptedExecutionProjection
     | OnlyOrderTerminalExecutionProjection
     | OnlyPositionExecutionProjection

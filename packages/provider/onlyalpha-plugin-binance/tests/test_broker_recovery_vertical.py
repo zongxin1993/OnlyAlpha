@@ -10,7 +10,10 @@ from onlyalpha_plugin_binance.common.private_http import (
     OnlyBinancePrivateRequestError,
 )
 from onlyalpha_plugin_binance.spot.broker.codec import only_binance_client_order_id
-from onlyalpha_plugin_binance.spot.broker.discovery import OnlyBinanceSpotVenueDiscovery
+from onlyalpha_plugin_binance.spot.broker.discovery import (
+    OnlyBinanceOrderPresenceClassifier,
+    OnlyBinanceSpotVenueDiscovery,
+)
 from onlyalpha_plugin_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
 
 from onlyalpha.broker.enums import OnlyBrokerConnectionState, OnlyBrokerOperationStatus
@@ -18,10 +21,12 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerRequestI
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.models import OnlyBrokerOrderRequest
 from onlyalpha.broker.reconciliation import (
+    OnlyBrokerCommandOperation,
     OnlyBrokerFactApplicationReceipt,
     OnlyBrokerFactApplicationStatus,
     OnlyBrokerReadinessAuthority,
     OnlyBrokerReconciliationCoordinator,
+    OnlyBrokerVenuePresence,
     OnlyDurableBrokerCommandEvidenceStore,
 )
 from onlyalpha.broker.updates import OnlyBrokerOrderAcceptedUpdate, OnlyBrokerTradeUpdate
@@ -183,6 +188,82 @@ def _zero_fee_contract(order, timestamp):
     return binding, estimate, funding
 
 
+def test_binance_presence_classifier_only_proves_recent_exact_submit_absence() -> None:
+    manager = _manager()
+    created = manager.create_order(
+        OnlyOrderRequest(
+            OnlyOrderRequestId("presence-proof"),
+            OnlyInstrumentId.parse("BTCUSDT.BINANCE"),
+            OnlyOrderSide.BUY,
+            OnlyOrderType.LIMIT,
+            OnlyQuantity(Decimal("0.01000000"), 8),
+            price=OnlyPrice(Decimal("25000.10"), 2),
+        ),
+        OnlyClusterId("cluster"),
+        OnlyAccountId("spot-testnet"),
+        OnlyTimestamp.from_unix_nanos(1),
+        _zero_fee_contract,
+    )
+    order = created.snapshot
+    missing = OnlyBinancePrivateRequestError(
+        "BINANCE_PRIVATE_KNOWN_ERROR: -2013", OnlyBinanceDispatchKnowledge.KNOWN_RESULT
+    )
+    timeout = OnlyBinancePrivateRequestError(
+        "BINANCE_PRIVATE_EXECUTION_UNKNOWN: -1007", OnlyBinanceDispatchKnowledge.UNKNOWN
+    )
+
+    assert (
+        OnlyBinanceOrderPresenceClassifier.classify(
+            missing,
+            operation=OnlyBrokerCommandOperation.SUBMIT,
+            order=order,
+            observed_at=OnlyTimestamp.from_unix_nanos(2),
+            stable_venue_history=True,
+        )
+        is OnlyBrokerVenuePresence.ABSENT_PROVEN
+    )
+    assert (
+        OnlyBinanceOrderPresenceClassifier.classify(
+            timeout,
+            operation=OnlyBrokerCommandOperation.SUBMIT,
+            order=order,
+            observed_at=OnlyTimestamp.from_unix_nanos(2),
+            stable_venue_history=True,
+        )
+        is OnlyBrokerVenuePresence.INCONCLUSIVE
+    )
+    assert (
+        OnlyBinanceOrderPresenceClassifier.classify(
+            missing,
+            operation=OnlyBrokerCommandOperation.CANCEL,
+            order=order,
+            observed_at=OnlyTimestamp.from_unix_nanos(2),
+            stable_venue_history=True,
+        )
+        is OnlyBrokerVenuePresence.INCONCLUSIVE
+    )
+    assert (
+        OnlyBinanceOrderPresenceClassifier.classify(
+            missing,
+            operation=OnlyBrokerCommandOperation.SUBMIT,
+            order=order,
+            observed_at=OnlyTimestamp.from_unix_nanos(4 * 24 * 60 * 60 * 1_000_000_000),
+            stable_venue_history=True,
+        )
+        is OnlyBrokerVenuePresence.INCONCLUSIVE
+    )
+    assert (
+        OnlyBinanceOrderPresenceClassifier.classify(
+            missing,
+            operation=OnlyBrokerCommandOperation.SUBMIT,
+            order=order,
+            observed_at=OnlyTimestamp.from_unix_nanos(2),
+            stable_venue_history=False,
+        )
+        is OnlyBrokerVenuePresence.INCONCLUSIVE
+    )
+
+
 @pytest.mark.parametrize("symbol", ("BTCUSDT", "ETHUSDT"))
 def test_unknown_dispatch_crash_recovers_same_external_order_and_identity(
     tmp_path: Path,
@@ -218,6 +299,8 @@ def test_unknown_dispatch_crash_recovers_same_external_order_and_identity(
         order.quantity,
         order.price,
         order.submitted_at or order.created_at,
+        f"OINT-{order.order_id}",
+        "a" * 64,
     )
     rest = _AcceptedThenLostRest(filled=symbol == "BTCUSDT")
     evidence_path = (tmp_path / symbol / "commands.jsonl").resolve()

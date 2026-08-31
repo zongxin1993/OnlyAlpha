@@ -57,7 +57,7 @@ def test_long_close_pending_outbox_recovers_without_double_projection(tmp_path) 
     only_assert_multi_fill_recovery_equivalence(
         tmp_path,
         OnlyEngineId("long-close-outbox"),
-        factory=OnlyOutboxCheckpointFailureStoreFactory(minimum_execution_sequence=6),
+        factory=OnlyOutboxCheckpointFailureStoreFactory(minimum_execution_sequence=8),
         config=only_virtual_multi_fill_config(tmp_path, long_close=True),
         baseline_id="long_close_multi_fill_baseline",
     )

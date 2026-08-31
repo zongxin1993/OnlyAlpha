@@ -47,7 +47,8 @@ def test_projection_ready_terminal_fact_does_not_enter_trade_result() -> None:
     collected = collector.seal(environment.runtime, environment.runtime.clusters)
 
     ready = environment.runtime.ready_execution_query.ready_records(update.runtime_id)
-    assert len(ready) == 5
+    assert len(ready) == 7
+    assert tuple(item.operation_kind for item in ready).count(OnlyRuntimeOperationKind.ORDER_INTENT) == 2
     assert tuple(item.operation_kind for item in ready).count(OnlyRuntimeOperationKind.ORDER_ACCEPTED) == 2
     assert tuple(item.operation_kind for item in ready).count(OnlyRuntimeOperationKind.ORDER_TERMINAL) == 1
     assert len(collected.facts.executions) == 2

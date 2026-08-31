@@ -37,6 +37,7 @@ def test_engine_virtual_broker_runs_complete_long_close_multi_fill(tmp_path, sam
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     records = reader.transactions_for_order(runtime.config.runtime_id, sell.order_id)
     assert tuple(item.operation_kind for item in records) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
         OnlyRuntimeOperationKind.TRADE_FILL,

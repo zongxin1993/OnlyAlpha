@@ -13,8 +13,10 @@ def test_engine_runtime_long_close_commits_broker_lifecycle_durably_and_projects
     assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX
     records = environment.runtime.execution_transaction_query.records(environment.runtime.config.runtime_id)
     assert tuple(item.operation_kind for item in records) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
     )

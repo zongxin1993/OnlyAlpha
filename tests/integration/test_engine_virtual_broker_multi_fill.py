@@ -24,6 +24,7 @@ def test_engine_runs_300_400_300_as_three_formal_transactions(tmp_path) -> None:
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     records = reader.ready_records(runtime_id)
     assert tuple(item.operation_kind for item in records) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
         OnlyRuntimeOperationKind.TRADE_FILL,
@@ -31,7 +32,7 @@ def test_engine_runs_300_400_300_as_three_formal_transactions(tmp_path) -> None:
     )
     trades = tuple(item for item in records if item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL)
     assert tuple(item.fact.fill_index for item in trades) == (1, 2, 3)
-    assert tuple(item.execution_sequence for item in records) == (1, 2, 3, 4)
+    assert tuple(item.execution_sequence for item in records) == (1, 2, 3, 4, 5)
     assert all(item.projection_ready for item in records)
     order = result.runtime_results[0].orders[0]
     assert order.status is OnlyOrderStatus.FILLED

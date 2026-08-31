@@ -279,6 +279,14 @@ class OnlyBinanceSpotBrokerGateway:
         return OnlyBinanceResolvedOrderIdentity(request.order_id, request.client_order_id)
 
     def submit_order(self, request: OnlyBrokerOrderRequest) -> OnlyBrokerOrderSubmitResult:
+        if not request.runtime_intent_transaction_id or not request.runtime_intent_authority_hash:
+            return OnlyBrokerOrderSubmitResult(
+                False,
+                OnlyBrokerOperationStatus.NOT_READY,
+                request.gateway_request_id,
+                request.client_order_id,
+                "RUNTIME_ORDER_INTENT_REFERENCE_MISSING",
+            )
         key = only_binance_client_order_id(request.client_order_id)
         prior = self._requests.get(key)
         if prior is not None and not _same_semantic_order(prior, request):
@@ -664,6 +672,8 @@ class OnlyBinanceSpotBrokerGateway:
                 self._command_id(operation, request),
                 payload,
                 fingerprint,
+                request.runtime_intent_transaction_id if isinstance(request, OnlyBrokerOrderRequest) else "",
+                request.runtime_intent_authority_hash if isinstance(request, OnlyBrokerOrderRequest) else "",
             )
         )
 

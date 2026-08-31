@@ -17,9 +17,10 @@ def test_fill_identity_priority_scope_and_stability() -> None:
     assert venue.canonical_kind is OnlyExecutionFillIdentityKind.VENUE_TRADE_ID
     assert only_execution_fill_identity(venue) == only_execution_fill_identity(venue)
     external = replace(venue, venue_trade_id=None)
-    assert external.canonical_kind is OnlyExecutionFillIdentityKind.EXTERNAL_EVENT_ID
+    assert external.canonical_kind is OnlyExecutionFillIdentityKind.TRADE_ID
     trade = replace(external, external_event_id=None)
     assert trade.canonical_kind is OnlyExecutionFillIdentityKind.TRADE_ID
+    assert only_execution_fill_identity(external) == only_execution_fill_identity(trade)
     baseline = only_execution_fill_identity(venue)
     assert (
         len(
@@ -33,4 +34,4 @@ def test_fill_identity_priority_scope_and_stability() -> None:
         )
         == 5
     )
-    assert ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION == 1
+    assert ONLY_EXECUTION_FILL_IDENTITY_SCHEMA_VERSION == 2

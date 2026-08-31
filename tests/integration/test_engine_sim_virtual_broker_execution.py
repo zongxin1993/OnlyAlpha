@@ -374,7 +374,7 @@ def test_engine_sim_filled_trading_world_is_identical_after_new_instance_restart
     assert len(runtime.order_snapshots) == 1
     assert runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED
     assert accepted_barrier.result is not None
-    assert accepted_barrier.result.header.covered_execution_sequence == 1
+    assert accepted_barrier.result.header.covered_execution_sequence == 2
     _publish_and_wait_received(runtime, feed, clock, 39)
     filled_barrier = runtime._semantic_lane.execute(  # type: ignore[attr-defined]
         lambda: runtime._checkpoint_query.latest_checkpoint(OnlyRuntimeId(runtime.runtime_id))  # type: ignore[attr-defined]
@@ -382,7 +382,7 @@ def test_engine_sim_filled_trading_world_is_identical_after_new_instance_restart
     assert filled_barrier.started
     assert runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED
     assert filled_barrier.result is not None
-    assert filled_barrier.result.header.covered_execution_sequence == 2
+    assert filled_barrier.result.header.covered_execution_sequence == 3
     expected = (
         runtime.order_snapshots,
         runtime.position_manager.snapshot_all(),
@@ -652,7 +652,7 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
             lambda: (
                 len(runtime.order_snapshots) == 1
                 and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED
-                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 1
+                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
             ),
             "Bar N order did not reach Broker Accepted Projection Ready",
         )
@@ -672,28 +672,31 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
         assert after_bar_n.fill_count == 0
         assert after_bar_n.position_count == 0
         assert after_bar_n.open_reservation_count == 1
-        assert len(accepted_records) == 1
-        assert accepted_records[0].operation_kind is OnlyRuntimeOperationKind.ORDER_ACCEPTED
-        assert accepted_records[0].projection_ready
-        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 1
+        assert tuple(item.operation_kind for item in accepted_records) == (
+            OnlyRuntimeOperationKind.ORDER_INTENT,
+            OnlyRuntimeOperationKind.ORDER_ACCEPTED,
+        )
+        assert all(item.projection_ready for item in accepted_records)
+        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
 
         _publish_and_wait_received(runtime, xtdata, clock, 39)
         _wait_until(
             lambda: (
                 runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED
-                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
+                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 3
             ),
             "Bar N+1 did not finish the projected Virtual Broker Trade",
         )
 
         records = runtime.execution_transaction_query.records(OnlyRuntimeId(runtime.runtime_id))
         assert tuple(item.operation_kind for item in records) == (
+            OnlyRuntimeOperationKind.ORDER_INTENT,
             OnlyRuntimeOperationKind.ORDER_ACCEPTED,
             OnlyRuntimeOperationKind.TRADE_FILL,
         )
-        assert records[0].execution_sequence < records[1].execution_sequence
+        assert records[0].execution_sequence < records[1].execution_sequence < records[2].execution_sequence
         assert all(item.projection_ready for item in records)
-        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
+        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 3
 
         order = runtime.order_snapshots[0]
         positions = runtime.position_manager.snapshot_all()
@@ -725,9 +728,9 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
         assert after_trade.fee_count > 0
         assert after_trade.settlement_count > 0
         assert _sqlite_transaction_state(database) == (
-            2,
-            2,
-            ("ORDER_ACCEPTED", "TRADE_FILL"),
+            3,
+            3,
+            ("ORDER_INTENT", "ORDER_ACCEPTED", "TRADE_FILL"),
         )
     finally:
         engine.stop()
@@ -736,7 +739,7 @@ def test_engine_sim_virtual_broker_executes_accepted_then_next_bar_trade(
     assert not xtdata.subscriptions
     assert runtime.order_snapshots[0].status is OnlyOrderStatus.FILLED
     assert runtime.position_manager.snapshot_all()[0].total_quantity.value == Decimal("1000")
-    assert _sqlite_transaction_state(database) == (2, 2, ("ORDER_ACCEPTED", "TRADE_FILL"))
+    assert _sqlite_transaction_state(database) == (3, 3, ("ORDER_INTENT", "ORDER_ACCEPTED", "TRADE_FILL"))
     assert tuple(item.state for item in runtime.plugin_resource_snapshots) == (
         OnlyPluginLifecycleState.STOPPED,
         OnlyPluginLifecycleState.STOPPED,
@@ -764,12 +767,12 @@ def test_engine_sim_stop_is_not_a_broker_trading_command(
     _wait_until(
         lambda: (
             len(runtime.broker_results) == bootstrap_broker_results + 1
-            and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 1
+            and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
         ),
         "SIM stop fixture did not finish Accepted processing",
     )
     before_results = len(runtime.broker_results)
-    assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
+    assert _sqlite_transaction_state(database) == (2, 2, ("ORDER_INTENT", "ORDER_ACCEPTED"))
 
     engine.stop()
 
@@ -778,7 +781,7 @@ def test_engine_sim_stop_is_not_a_broker_trading_command(
     assert runtime.order_snapshots[0].fill_count == 0
     assert runtime.position_manager.snapshot_all() == ()
     assert len(runtime.broker_results) == before_results
-    assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
+    assert _sqlite_transaction_state(database) == (2, 2, ("ORDER_INTENT", "ORDER_ACCEPTED"))
     assert not xtdata.subscriptions
 
 
@@ -802,7 +805,7 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
             lambda: (
                 len(runtime.order_snapshots) == 1
                 and runtime.order_snapshots[0].status is OnlyOrderStatus.ACCEPTED
-                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 1
+                and runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
             ),
             "pre-gap Order did not reach Accepted Projection Ready",
         )
@@ -821,7 +824,7 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
             ),
             "pre-gap Worker callback did not complete",
         )
-        assert _sqlite_transaction_state(database) == (1, 1, ("ORDER_ACCEPTED",))
+        assert _sqlite_transaction_state(database) == (2, 2, ("ORDER_INTENT", "ORDER_ACCEPTED"))
         before = runtime.streaming_phase_snapshot
         _publish_closed_gap_trigger(runtime, clock, 42)
         completed = _wait_for_recovery_cycle(runtime, before, expected_generation=1)
@@ -843,7 +846,7 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         assert runtime.recovery_plan is None
         assert runtime.streaming_recovery_diagnostics.recovery_stage is OnlyStreamingRecoveryStage.CONTINUITY_VERIFIED
         _wait_until(
-            lambda: runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2,
+            lambda: runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 3,
             "recovered Bar Trade did not reach Projection Ready",
         )
         assert len(runtime.order_snapshots) == 1
@@ -851,8 +854,8 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
         assert runtime.order_snapshots[0].fill_count == 1
         assert len(runtime.position_manager.snapshot_all()) == 1
         assert len(runtime.allocation_manager.snapshot_all()) == 1
-        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 2
-        assert _sqlite_transaction_state(database) == (2, 2, ("ORDER_ACCEPTED", "TRADE_FILL"))
+        assert runtime.ready_execution_query.ready_count(OnlyRuntimeId(runtime.runtime_id)) == 3
+        assert _sqlite_transaction_state(database) == (3, 3, ("ORDER_INTENT", "ORDER_ACCEPTED", "TRADE_FILL"))
     finally:
         engine.stop()
 

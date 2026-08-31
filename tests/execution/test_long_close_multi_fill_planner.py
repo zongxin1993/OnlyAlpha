@@ -48,7 +48,7 @@ def test_long_close_300_400_300_is_three_sequential_durable_transactions() -> No
         first_context.update.runtime_id,
         first_context.update.order_id,
     )
-    assert len(transactions) == 4
+    assert len(transactions) == 5
     trade_transactions = tuple(
         item for item in transactions if item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL
     )
@@ -129,5 +129,5 @@ def test_long_close_fill_remains_durable_while_order_is_pending_cancel() -> None
         first_context.update.runtime_id,
         first_context.update.order_id,
     )
-    assert len(records) == 3
+    assert len(records) == 4
     assert sum(item.operation_kind is OnlyRuntimeOperationKind.TRADE_FILL for item in records) == 2

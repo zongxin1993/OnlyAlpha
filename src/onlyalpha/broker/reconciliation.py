@@ -14,6 +14,7 @@ from typing import Protocol
 from onlyalpha.broker.enums import OnlyBrokerConnectionState
 from onlyalpha.broker.identifiers import OnlyBrokerUpdateId
 from onlyalpha.broker.inbound import OnlyBrokerInboundQueue
+from onlyalpha.broker.models import OnlyBrokerOrderSnapshot
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.execution import OnlyOrderSnapshot
@@ -27,6 +28,7 @@ class OnlyBrokerCommandEvidenceKind(StrEnum):
     KNOWN_RESULT = "KNOWN_RESULT"
     UNKNOWN = "UNKNOWN"
     RECONCILIATION_STARTED = "RECONCILIATION_STARTED"
+    NO_EXTERNAL_ORDER_PROVEN = "NO_EXTERNAL_ORDER_PROVEN"
     RESOLVED = "RESOLVED"
 
 
@@ -35,9 +37,39 @@ class OnlyBrokerCommandOperation(StrEnum):
     CANCEL = "CANCEL"
 
 
+class OnlyBrokerVenuePresence(StrEnum):
+    PRESENT = "PRESENT"
+    ABSENT_PROVEN = "ABSENT_PROVEN"
+    INCONCLUSIVE = "INCONCLUSIVE"
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBrokerVenueDiscoveryResult(OnlyDomainModel):
+    presence: OnlyBrokerVenuePresence
+    order_id: OnlyOrderId
+    operation: OnlyBrokerCommandOperation
+    discovered_facts: tuple[OnlyBrokerInboundUpdate, ...]
+    proof_id: str
+    proof_fingerprint: str
+    observed_at: OnlyTimestamp
+    authoritative_snapshot: OnlyBrokerOrderSnapshot | None = None
+
+    def __post_init__(self) -> None:
+        if not self.proof_id.strip() or len(self.proof_fingerprint) != 64:
+            raise ValueError("BROKER_RECONCILIATION_PROOF_INVALID")
+        if self.presence is OnlyBrokerVenuePresence.ABSENT_PROVEN and (
+            self.authoritative_snapshot is not None or self.discovered_facts
+        ):
+            raise ValueError("BROKER_ABSENCE_PROOF_CANNOT_CONTAIN_VENUE_FACTS")
+        if self.presence is OnlyBrokerVenuePresence.PRESENT and self.authoritative_snapshot is None:
+            raise ValueError("BROKER_PRESENT_DISCOVERY_REQUIRES_AUTHORITATIVE_SNAPSHOT")
+        if self.presence is OnlyBrokerVenuePresence.INCONCLUSIVE and self.discovered_facts:
+            raise ValueError("BROKER_INCONCLUSIVE_DISCOVERY_CANNOT_ASSERT_FACTS")
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyBrokerCommandEvidence(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     evidence_id: str
     kind: OnlyBrokerCommandEvidenceKind
@@ -50,6 +82,8 @@ class OnlyBrokerCommandEvidence(OnlyDomainModel):
     command_id: str = ""
     request_payload: str = ""
     request_fingerprint: str = ""
+    runtime_intent_transaction_id: str = ""
+    runtime_intent_authority_hash: str = ""
 
     def __post_init__(self) -> None:
         if not self.evidence_id or any(character.isspace() for character in self.evidence_id):
@@ -62,6 +96,10 @@ class OnlyBrokerCommandEvidence(OnlyDomainModel):
                 raise ValueError("BROKER_COMMAND_REQUEST_FINGERPRINT_INVALID")
         elif self.request_fingerprint:
             raise ValueError("BROKER_COMMAND_REQUEST_PAYLOAD_MISSING")
+        if bool(self.runtime_intent_transaction_id) != bool(self.runtime_intent_authority_hash):
+            raise ValueError("BROKER_COMMAND_INTENT_REFERENCE_INCOMPLETE")
+        if self.runtime_intent_authority_hash and len(self.runtime_intent_authority_hash) != 64:
+            raise ValueError("BROKER_COMMAND_INTENT_AUTHORITY_HASH_INVALID")
 
 
 class OnlyBrokerCommandEvidenceStore(Protocol):
@@ -114,6 +152,8 @@ class OnlyDurableBrokerCommandEvidenceStore:
                     "command_id": evidence.command_id,
                     "request_payload": evidence.request_payload,
                     "request_fingerprint": evidence.request_fingerprint,
+                    "runtime_intent_transaction_id": evidence.runtime_intent_transaction_id,
+                    "runtime_intent_authority_hash": evidence.runtime_intent_authority_hash,
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -147,7 +187,7 @@ class OnlyDurableBrokerCommandEvidenceStore:
             try:
                 raw = json.loads(line)
                 schema_version = int(raw.get("schema_version", 1))
-                if schema_version not in {1, 2}:
+                if schema_version not in {1, 2, 3}:
                     raise ValueError("BROKER_COMMAND_EVIDENCE_SCHEMA_UNSUPPORTED")
                 records.append(
                     OnlyBrokerCommandEvidence(
@@ -162,6 +202,8 @@ class OnlyDurableBrokerCommandEvidenceStore:
                         str(raw.get("command_id", "")),
                         str(raw.get("request_payload", "")),
                         str(raw.get("request_fingerprint", "")),
+                        str(raw.get("runtime_intent_transaction_id", "")),
+                        str(raw.get("runtime_intent_authority_hash", "")),
                     )
                 )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -178,6 +220,7 @@ class OnlyDurableBrokerCommandEvidenceStore:
         order_by_client: dict[OnlyClientOrderId, OnlyOrderId] = {}
         order_by_venue: dict[OnlyVenueOrderId, OnlyOrderId] = {}
         payload_by_command: dict[tuple[OnlyBrokerCommandOperation, str], tuple[str, str]] = {}
+        intent_by_order: dict[OnlyOrderId, tuple[str, str]] = {}
         for item in records:
             if client_by_order.setdefault(item.order_id, item.client_order_id) != item.client_order_id:
                 raise ValueError("BROKER_COMMAND_EVIDENCE_ORDER_CLIENT_CONFLICT")
@@ -196,6 +239,12 @@ class OnlyDurableBrokerCommandEvidenceStore:
                 payload_by_command[command_key] = payload
             elif item.request_payload and prior_payload != payload:
                 raise ValueError("BROKER_COMMAND_EVIDENCE_REQUEST_CONFLICT")
+            intent = item.runtime_intent_transaction_id, item.runtime_intent_authority_hash
+            prior_intent = intent_by_order.get(item.order_id)
+            if item.runtime_intent_transaction_id and prior_intent is None:
+                intent_by_order[item.order_id] = intent
+            elif item.runtime_intent_transaction_id and prior_intent != intent:
+                raise ValueError("BROKER_COMMAND_INTENT_REFERENCE_CONFLICT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +365,12 @@ class OnlyBrokerReadinessAuthority:
 
 
 class OnlyBrokerVenueDiscoveryPort(Protocol):
-    def discover_order(self, order: OnlyOrderSnapshot) -> tuple[OnlyBrokerInboundUpdate, ...]: ...
+    def discover_order(
+        self,
+        order: OnlyOrderSnapshot,
+        *,
+        operation: OnlyBrokerCommandOperation,
+    ) -> OnlyBrokerVenueDiscoveryResult: ...
 
     def verify_order(self, order: OnlyOrderSnapshot) -> bool: ...
 
@@ -338,7 +392,7 @@ class OnlyBrokerReconciliationCoordinator:
         self._evidence = evidence
         self._now = now
         self._sequence = len(evidence.load())
-        self._pending: dict[tuple[OnlyOrderId, OnlyBrokerCommandOperation], tuple[OnlyBrokerInboundUpdate, ...]] = {}
+        self._pending: dict[tuple[OnlyOrderId, OnlyBrokerCommandOperation], OnlyBrokerVenueDiscoveryResult] = {}
 
     def reconcile_unknown(
         self,
@@ -350,8 +404,27 @@ class OnlyBrokerReconciliationCoordinator:
         if key in self._pending:
             raise RuntimeError("BROKER_RECONCILIATION_FACTS_AWAITING_ACK")
         self._append(OnlyBrokerCommandEvidenceKind.RECONCILIATION_STARTED, order, operation=operation)
-        updates = self._discovery.discover_order(order)
+        result = self._discovery.discover_order(order, operation=operation)
+        if result.order_id != order.order_id or result.operation is not operation:
+            self._readiness.identity_conflict()
+            raise ValueError("BROKER_RECONCILIATION_PROOF_SCOPE_CONFLICT")
+        if result.presence is OnlyBrokerVenuePresence.INCONCLUSIVE:
+            return ()
+        if result.presence is OnlyBrokerVenuePresence.ABSENT_PROVEN:
+            if operation is not OnlyBrokerCommandOperation.SUBMIT:
+                return ()
+            self._append(
+                OnlyBrokerCommandEvidenceKind.NO_EXTERNAL_ORDER_PROVEN,
+                order,
+                operation=operation,
+                detail_code=f"{result.proof_id}:{result.proof_fingerprint}",
+            )
+            self._resolve(order, operation=operation)
+            return ()
+        updates = result.discovered_facts
         if not updates:
+            if self._discovery.verify_order(order):
+                self._resolve(order, operation=operation)
             return ()
         for update in updates:
             update_order_id = getattr(update, "order_id", None)
@@ -370,7 +443,7 @@ class OnlyBrokerReconciliationCoordinator:
                 self._readiness.identity_conflict()
                 raise ValueError("BROKER_RECONCILIATION_VENUE_IDENTITY_CONFLICT")
             self._inbound.put(update)
-        self._pending[key] = updates
+        self._pending[key] = result
         return updates
 
     def acknowledge_unknown(
@@ -381,9 +454,10 @@ class OnlyBrokerReconciliationCoordinator:
         operation: OnlyBrokerCommandOperation = OnlyBrokerCommandOperation.SUBMIT,
     ) -> None:
         key = order.order_id, operation
-        pending = self._pending.get(key)
-        if pending is None:
-            raise RuntimeError("BROKER_RECONCILIATION_ACK_WITHOUT_PENDING_FACTS")
+        pending_result = self._pending.get(key)
+        if pending_result is None:
+            raise RuntimeError("BROKER_RECONCILIATION_ACK_WITHOUT_PENDING_PROOF")
+        pending = pending_result.discovered_facts
         expected = tuple(update.update_id for update in pending)
         received = tuple(receipt.update_id for receipt in receipts)
         if len(set(received)) != len(received) or set(received) != set(expected):
@@ -416,6 +490,15 @@ class OnlyBrokerReconciliationCoordinator:
         )
         del self._pending[key]
 
+    def _resolve(
+        self,
+        order: OnlyOrderSnapshot,
+        *,
+        operation: OnlyBrokerCommandOperation,
+    ) -> None:
+        self._readiness.resolve_unknown(f"{operation.value}:{order.order_id}")
+        self._append(OnlyBrokerCommandEvidenceKind.RESOLVED, order, operation=operation)
+
     def _append(
         self,
         kind: OnlyBrokerCommandEvidenceKind,
@@ -423,6 +506,7 @@ class OnlyBrokerReconciliationCoordinator:
         venue_order_id: OnlyVenueOrderId | None = None,
         *,
         operation: OnlyBrokerCommandOperation = OnlyBrokerCommandOperation.SUBMIT,
+        detail_code: str = "",
     ) -> None:
         self._sequence += 1
         self._evidence.append(
@@ -433,6 +517,7 @@ class OnlyBrokerReconciliationCoordinator:
                 order.client_order_id,
                 venue_order_id,
                 self._now(),
+                detail_code,
                 operation=operation,
                 command_id=f"{operation.value}:{order.order_id}",
             )

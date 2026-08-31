@@ -22,6 +22,7 @@ def test_engine_commits_two_same_bar_fills_in_deterministic_order(tmp_path) -> N
     reader = OnlySqliteRuntimePersistenceStore(state_path)
     records = reader.ready_records(runtime_id)
     assert tuple(item.operation_kind for item in records) == (
+        OnlyRuntimeOperationKind.ORDER_INTENT,
         OnlyRuntimeOperationKind.ORDER_ACCEPTED,
         OnlyRuntimeOperationKind.TRADE_FILL,
         OnlyRuntimeOperationKind.TRADE_FILL,

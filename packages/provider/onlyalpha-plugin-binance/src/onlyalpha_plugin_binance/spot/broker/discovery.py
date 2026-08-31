@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerRequestId, OnlyBrokerUpdateId
 from onlyalpha.broker.models import OnlyBrokerOrderRequest, OnlyBrokerOrderSnapshot
+from onlyalpha.broker.reconciliation import (
+    OnlyBrokerCommandOperation,
+    OnlyBrokerVenueDiscoveryResult,
+    OnlyBrokerVenuePresence,
+)
 from onlyalpha.broker.updates import (
     OnlyBrokerInboundUpdate,
     OnlyBrokerOrderAcceptedUpdate,
@@ -18,10 +25,38 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderRejection, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha_plugin_binance.common.private_http import OnlyBinancePrivateRequestError
 from onlyalpha_plugin_binance.spot.broker.codec import only_binance_client_order_id
 from onlyalpha_plugin_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
 from onlyalpha_plugin_binance.spot.broker.normalize import only_normalize_binance_spot_order
 from onlyalpha_plugin_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
+
+# Binance may omit zero-execution CANCELED/EXPIRED orders after three days.
+# A negative lookup beyond that boundary cannot prove that submit never existed.
+_BINANCE_STRONG_NEGATIVE_PROOF_WINDOW_NS = 3 * 24 * 60 * 60 * 1_000_000_000
+
+
+class OnlyBinanceOrderPresenceClassifier:
+    """Maps mutable Binance query semantics to the provider-neutral proof contract."""
+
+    @staticmethod
+    def classify(
+        error: OnlyBinancePrivateRequestError,
+        *,
+        operation: OnlyBrokerCommandOperation,
+        order: OnlyOrderSnapshot,
+        observed_at: OnlyTimestamp,
+        stable_venue_history: bool,
+    ) -> OnlyBrokerVenuePresence:
+        recent_exact_submit_query = (
+            operation is OnlyBrokerCommandOperation.SUBMIT
+            and stable_venue_history
+            and observed_at.unix_nanos >= order.created_at.unix_nanos
+            and observed_at.unix_nanos - order.created_at.unix_nanos <= _BINANCE_STRONG_NEGATIVE_PROOF_WINDOW_NS
+        )
+        if error.code == "BINANCE_PRIVATE_KNOWN_ERROR: -2013" and recent_exact_submit_query:
+            return OnlyBrokerVenuePresence.ABSENT_PROVEN
+        return OnlyBrokerVenuePresence.INCONCLUSIVE
 
 
 class OnlyBinanceSpotVenueDiscovery:
@@ -34,6 +69,7 @@ class OnlyBinanceSpotVenueDiscovery:
         rest: OnlyBinanceSpotPrivateRestClient,
         gateway: OnlyBinanceSpotBrokerGateway,
         now: Callable[[], OnlyTimestamp],
+        stable_venue_history: bool = False,
     ) -> None:
         self._runtime_id = runtime_id
         self._gateway_id = gateway_id
@@ -42,13 +78,36 @@ class OnlyBinanceSpotVenueDiscovery:
         self._gateway = gateway
         self._now = now
         self._sequence = 0
+        self._stable_venue_history = stable_venue_history
 
-    def discover_order(self, order: OnlyOrderSnapshot) -> tuple[OnlyBrokerInboundUpdate, ...]:
+    def discover_order(
+        self,
+        order: OnlyOrderSnapshot,
+        *,
+        operation: OnlyBrokerCommandOperation,
+    ) -> OnlyBrokerVenueDiscoveryResult:
         if order.runtime_id != self._runtime_id or order.account_id != self._account_id:
             raise ValueError("BINANCE_DISCOVERY_SCOPE_CONFLICT")
         request = self._request(order)
         self._gateway.restore_order_request(request)
-        venue = self._query_order(request)
+        observed_at = self._now()
+        try:
+            venue = self._query_order(request)
+        except OnlyBinancePrivateRequestError as exc:
+            presence = OnlyBinanceOrderPresenceClassifier.classify(
+                exc,
+                operation=operation,
+                order=order,
+                observed_at=observed_at,
+                stable_venue_history=self._stable_venue_history,
+            )
+            return self._result(
+                order,
+                operation,
+                presence,
+                observed_at,
+                proof_detail=exc.code,
+            )
         self._gateway.resolve_order_identity(
             only_binance_client_order_id(order.client_order_id),
             str(venue.venue_order_id),
@@ -121,7 +180,14 @@ class OnlyBinanceSpotVenueDiscovery:
                     venue_order_id=venue.venue_order_id,
                 )
             )
-        return tuple(updates)
+        return self._result(
+            order,
+            operation,
+            OnlyBrokerVenuePresence.PRESENT,
+            observed_at,
+            venue=venue,
+            updates=tuple(updates),
+        )
 
     def verify_order(self, order: OnlyOrderSnapshot) -> bool:
         if order.runtime_id != self._runtime_id or order.account_id != self._account_id:
@@ -169,5 +235,43 @@ class OnlyBinanceSpotVenueDiscovery:
         self._sequence += 1
         return self._sequence
 
+    @staticmethod
+    def _result(
+        order: OnlyOrderSnapshot,
+        operation: OnlyBrokerCommandOperation,
+        presence: OnlyBrokerVenuePresence,
+        observed_at: OnlyTimestamp,
+        *,
+        venue: OnlyBrokerOrderSnapshot | None = None,
+        updates: tuple[OnlyBrokerInboundUpdate, ...] = (),
+        proof_detail: str = "",
+    ) -> OnlyBrokerVenueDiscoveryResult:
+        proof_payload = json.dumps(
+            {
+                "provider": "BINANCE_SPOT",
+                "query": "GET /api/v3/order by origClientOrderId",
+                "operation": operation.value,
+                "order_id": str(order.order_id),
+                "client_order_id": str(order.client_order_id),
+                "presence": presence.value,
+                "venue_order_id": None if venue is None else str(venue.venue_order_id),
+                "venue_status": None if venue is None else venue.status.value,
+                "detail": proof_detail,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        fingerprint = hashlib.sha256(proof_payload.encode("utf-8")).hexdigest()
+        return OnlyBrokerVenueDiscoveryResult(
+            presence,
+            order.order_id,
+            operation,
+            updates,
+            f"BINANCE-SPOT-ORDER-PROOF-{fingerprint}",
+            fingerprint,
+            observed_at,
+            venue,
+        )
 
-__all__ = ["OnlyBinanceSpotVenueDiscovery"]
+
+__all__ = ["OnlyBinanceOrderPresenceClassifier", "OnlyBinanceSpotVenueDiscovery"]

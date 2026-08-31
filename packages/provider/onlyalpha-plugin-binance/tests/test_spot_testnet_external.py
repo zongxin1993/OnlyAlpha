@@ -149,6 +149,8 @@ def _request(
         OnlyQuantity(quantity, quantity_precision),
         None if price is None else OnlyPrice(price, price_precision),
         now,
+        f"OINT-{identity}",
+        "a" * 64,
     )
 
 

@@ -20,7 +20,7 @@ def test_continuation_outbox_delivers_only_after_runtime_open(tmp_path: Path) ->
     runtime = engine.runtime_sessions[0].runtime
     state_path = OnlyUserDataLayout(tmp_path).runtime_persistence_path(engine_id, runtime_id)
     reader = OnlySqliteRuntimePersistenceStore(state_path)
-    continuation = tuple(item for item in reader.outbox_records(runtime_id) if item.key.execution_sequence == 2)
+    continuation = tuple(item for item in reader.outbox_records(runtime_id) if item.key.execution_sequence == 5)
     assert continuation and all(not item.published for item in continuation)
     event_ids = {item.event.event_id for item in continuation}
     reader.close()

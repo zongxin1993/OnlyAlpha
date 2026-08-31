@@ -95,7 +95,7 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
 
     assert result.status is OnlyExecutionProcessingStatus.APPLIED
     assert result.delivery_intent.mode is OnlyExecutionEventDeliveryMode.DURABLE_OUTBOX
-    assert result.delivery_intent.committed_execution_sequence == 2
+    assert result.delivery_intent.committed_execution_sequence == 3
     assert tuple(item.step for item in result.mutation_bundle.steps) == (
         OnlyExecutionMutationStep.VALIDATION,
         OnlyExecutionMutationStep.ORDER,
@@ -121,9 +121,9 @@ def test_trade_uses_fixed_order_and_builds_consistent_audit_snapshot() -> None:
     assert result.audit_record.invariant_result.passed
     assert result.audit_record.to_json() == OnlyExecutionAuditRecord.from_json(result.audit_record.to_json()).to_json()
     transactions = env.runtime.execution_transaction_query.records()
-    assert len(transactions) == 2
+    assert len(transactions) == 3
     assert all(item.projection_ready for item in transactions)
-    fact = transactions[1].fact
+    fact = transactions[2].fact
     assert fact.processing_sequence == result.sequence
     assert fact.position_side.value == "LONG"
     assert fact.position_effect.value == "OPEN"
@@ -197,7 +197,11 @@ def test_duplicate_update_and_conflicting_fill_identity_change_no_versions() -> 
         if record.update_type == "OnlyBrokerOrderAcceptedUpdate"
     )
     broker_order = env.runtime.broker_gateway.query_orders(OnlyAccountId(ACCOUNT_ID))[0]  # type: ignore[union-attr]
-    accepted_transaction = env.runtime.execution_transaction_query.records()[0]
+    accepted_transaction = next(
+        item
+        for item in env.runtime.execution_transaction_query.records()
+        if item.operation_kind.value == "ORDER_ACCEPTED"
+    )
     accepted_fact = accepted_transaction.fact
     timestamp = OnlyTimestamp.from_unix_nanos(env.runtime.clock.timestamp_ns())
     duplicate = OnlyBrokerOrderAcceptedUpdate(
@@ -239,12 +243,11 @@ def test_duplicate_update_and_conflicting_fill_identity_change_no_versions() -> 
     env.runtime.receive_broker_update(repeated_trade)
     trade_result = env.runtime.drain_broker_inbound()[0]
     assert isinstance(trade_result, OnlyExecutionProcessingResult)
-    assert trade_result.status is OnlyExecutionProcessingStatus.REJECTED
-    assert trade_result.failure is not None
-    assert "FILL_IDENTITY_CONFLICT" in trade_result.failure.message
+    assert trade_result.status is OnlyExecutionProcessingStatus.DUPLICATE
+    assert trade_result.failure is None
     assert env.runtime.order_manager.require_snapshot(order_before.order_id).version == order_before.version
     assert env.runtime.account_manager.list_accounts()[0].version == account_before.version
-    assert len(env.runtime.execution_transaction_query.records()) == 2
+    assert len(env.runtime.execution_transaction_query.records()) == 3
 
 
 def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -267,8 +270,8 @@ def test_transaction_store_commit_failure_is_not_reported_as_applied(monkeypatch
     )
     assert result.status is OnlyExecutionProcessingStatus.FAILED
     records = env.runtime.execution_transaction_query.records()
-    assert len(records) == 1
-    assert records[0].operation_kind.value == "ORDER_ACCEPTED"
+    assert len(records) == 2
+    assert records[1].operation_kind.value == "ORDER_ACCEPTED"
 
 
 def test_late_accepted_does_not_regress_filled_order() -> None:
@@ -294,7 +297,7 @@ def test_late_accepted_does_not_regress_filled_order() -> None:
     result = env.runtime.drain_broker_inbound()[0]
 
     assert isinstance(result, OnlyExecutionProcessingResult)
-    assert result.status in {OnlyExecutionProcessingStatus.STALE, OnlyExecutionProcessingStatus.IGNORED}
+    assert result.status is OnlyExecutionProcessingStatus.DUPLICATE
     assert env.runtime.order_manager.require_snapshot(filled.order_snapshot.order_id).status.value == "FILLED"
 
 
@@ -373,7 +376,7 @@ def test_supported_trade_does_not_call_old_manager_mutation_api(
     assert "ORDER_FILLED" in emitted
     assert "POSITION_OPENED" in emitted
     assert "STRATEGY_TRADE_APPLIED" in emitted
-    assert len(env.runtime.execution_transaction_query.records()) == 2
+    assert len(env.runtime.execution_transaction_query.records()) == 3
 
 
 def test_scope_mismatch_is_rejected_without_state_change() -> None:

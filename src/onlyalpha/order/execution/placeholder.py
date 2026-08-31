@@ -19,6 +19,8 @@ from onlyalpha.order.execution.models import (
 class OnlyPlaceholderExecutionService:
     """Records transport requests without fabricating venue acceptance or fills."""
 
+    requires_durable_intent = False
+
     def __init__(self) -> None:
         self._submissions: list[OnlyOrderSnapshot] = []
         self._cancellations: list[OnlyExecutionCancelRequest] = []
